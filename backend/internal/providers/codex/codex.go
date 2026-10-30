@@ -395,7 +395,7 @@ func (c *Client) headers(req *http.Request, creds Credentials) {
 }
 
 // Models lists what the subscription offers.
-func (c *Client) Models(ctx context.Context) ([]string, error) {
+func (c *Client) Models(ctx context.Context) ([]model.ModelSpec, error) {
 	for attempt := 0; attempt < 2; attempt++ {
 		creds, err := c.session(ctx, attempt > 0)
 		if err != nil {
@@ -425,6 +425,9 @@ func (c *Client) Models(ctx context.Context) ([]string, error) {
 			Models *[]struct {
 				ID         string `json:"slug"`
 				Visibility string `json:"visibility"`
+				Levels     []struct {
+					Effort string `json:"effort"`
+				} `json:"supported_reasoning_levels"`
 			} `json:"models"`
 		}
 		err = json.NewDecoder(io.LimitReader(res.Body, 4<<20)).Decode(&body)
@@ -432,10 +435,14 @@ func (c *Client) Models(ctx context.Context) ([]string, error) {
 		if err != nil || body.Models == nil {
 			return nil, unavailable("ChatGPT 回了無法讀取的模型清單")
 		}
-		out := []string{}
+		out := []model.ModelSpec{}
 		for _, m := range *body.Models {
 			if m.ID != "" && m.Visibility == "list" {
-				out = append(out, m.ID)
+				spec := model.ModelSpec{ID: m.ID}
+				for _, level := range m.Levels {
+					spec.Thinking = append(spec.Thinking, level.Effort)
+				}
+				out = append(out, spec)
 			}
 		}
 		return out, nil
@@ -498,11 +505,7 @@ func buildRequest(req model.ModelRequest) map[string]any {
 		body["prompt_cache_key"] = req.Session
 	}
 	if req.Effort != "" {
-		effort := req.Effort
-		if effort == "max" {
-			effort = "high"
-		}
-		body["reasoning"] = map[string]string{"effort": effort, "summary": "auto"}
+		body["reasoning"] = map[string]string{"effort": req.Effort, "summary": "auto"}
 	}
 	if len(req.Tools) > 0 {
 		tools := make([]map[string]any, len(req.Tools))

@@ -34,7 +34,21 @@ func composePrompt(t *model.Task, team *model.Team, node *model.WorkflowNode, bp
 		b.WriteString(handoffRule)
 	}
 	fmt.Fprintf(&b, "\n\n# 這一步：%s\n%s\n", node.Name, node.Prompt)
+	if ins := inEdges(wf, node.ID); len(ins) > 0 {
+		b.WriteString("\n# 上一步\n輪到你之前，這些步驟要做的事如下；它們實際的成果在任務訊息的上游交接裡。\n")
+		for _, edge := range ins {
+			prev := nodeOf(wf, edge.From)
+			fmt.Fprintf(&b, "- %s：%s\n", prev.Name, prev.Prompt)
+		}
+	}
 	outs := outEdges(wf, node.ID)
+	if node.Kind == enum.NodeTalk && len(outs) > 0 {
+		b.WriteString("\n# 下一步\n討論的結果會交給：\n")
+		for _, edge := range outs {
+			next := nodeOf(wf, edge.To)
+			fmt.Fprintf(&b, "- %s：%s\n", next.Name, next.Prompt)
+		}
+	}
 	if node.Kind != enum.NodeTalk {
 		b.WriteString("\n# 交接\n")
 		pick := node.Handoff == enum.HandoffPickOne && len(outs) > 1

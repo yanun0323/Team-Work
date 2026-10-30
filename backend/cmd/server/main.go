@@ -61,5 +61,5 @@ func run() error {
 		return err
 	}
 	log.Info().Str("addr", l.Addr().String()).Str("data", cfg.DataDir).Msg("listening")
-	return delivery.NewServer(engine, factory.ClaudeCode(), cfg.AllowedOrigins, log.Logger).Serve(ctx, l)
+	return delivery.NewServer(engine, factory.ClaudeCode(), repository.FolderPicker{}, cfg.AllowedOrigins, log.Logger).Serve(ctx, l)
 }

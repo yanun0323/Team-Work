@@ -182,11 +182,17 @@ func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Rep
 	if bp.Source.Kind == "git" && bp.Prompt == "" {
 		own = ptr(bp.Source)
 	}
-	spec := agentSpec{own: own, provider: provider, model: r.Model, effort: r.Effort, name: r.Name, allowed: slices.Clone(bp.Tools), subscription: p.Auth.Kind != "apiKey"}
+	// the default sends no level, and neither does one the model turned out not to take
+	effort := ""
+	if r.Effort != model.ThinkingDefault && slices.Contains(p.Thinking[r.Model], r.Effort) {
+		effort = r.Effort
+	}
+	spec := agentSpec{own: own, provider: provider, model: r.Model, effort: effort, name: r.Name, allowed: slices.Clone(bp.Tools), subscription: p.Auth.Kind != "apiKey"}
 	if price, ok := p.Prices[r.Model]; ok {
 		spec.price = &price
 	}
 	if node != nil {
+		e.readPrompt(team)
 		spec.system = composePrompt(t, team, node, bp, r)
 	}
 	for _, pack := range bp.Skills {
@@ -540,7 +546,7 @@ func cost(u model.ModelUsage, p model.ModelPrice) float64 {
 // agentTools are what every working employee has, beyond what the blueprint allows.
 func (e *Engine) agentTools(in subRun) []adapter.Tool {
 	handoffSchema := `{"type":"object","properties":{` +
-		`"goal":{"type":"string"},"done":{"type":"array","items":{"type":"string"}},"outputs":{"type":"array","items":{"type":"string"},"description":"Files changed and what they are"},` +
+		`"goal":{"type":"string"},"done":{"type":"array","items":{"type":"string"}},"outputs":{"type":"array","items":{"type":"string"},"description":"Files changed. Each item is the file's path from the repo root, then ' — ' and what it is, for example: docs/spec.md — the spec"},` +
 		`"decisions":{"type":"array","items":{"type":"string"}},"open":{"type":"array","items":{"type":"string"}},` +
 		`"next_node":{"type":"string","description":"When picking one next step: its id. Empty leaves the choice to the user."},"next_reason":{"type":"string"},` +
 		`"headline":{"type":"string","description":"One sentence for the user: the conclusion"},"did":{"type":"array","items":{"type":"string"},"description":"For the user: what was done"},"ask":{"type":"string","description":"For the user: anything they need to decide"}` +

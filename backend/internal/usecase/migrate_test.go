@@ -65,3 +65,93 @@ func TestFlowsSavedPerCompanyBecomeShared(t *testing.T) {
 	newEngine(t, r)
 	check()
 }
+
+func TestSavedPresetPromptsAreRefreshed(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	const old = "找出根本原因，讓失敗的測試通過，不改無關的程式。"
+	var flow *model.Workflow
+	for _, wf := range r.world().Workflows {
+		if wf.Name == "修 Bug" {
+			flow = wf
+		}
+	}
+	current := map[string]string{}
+	for i := range flow.Nodes {
+		n := &flow.Nodes[i]
+		current[n.Name] = n.Prompt
+		switch n.Name {
+		case "修正":
+			n.Prompt = old
+		case "回歸測試":
+			n.Prompt = "我自己改的"
+		}
+	}
+	if err := r.e.SaveWorkflow(flow.ID, *flow); err != nil {
+		t.Fatal(err)
+	}
+	newEngine(t, r)
+	got := map[string]string{}
+	for _, n := range r.world().Workflows[flow.ID].Nodes {
+		got[n.Name] = n.Prompt
+	}
+	if got["修正"] != current["修正"] || got["修正"] == old {
+		t.Fatalf("old prompt stayed: %q", got["修正"])
+	}
+	if got["回歸測試"] != "我自己改的" {
+		t.Fatalf("edit lost: %q", got["回歸測試"])
+	}
+}
+
+func TestOldDefaultFlowGetsAWorkStepOnce(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	var flow *model.Workflow
+	for _, wf := range r.world().Workflows {
+		if wf.Name == "預設任務流程" {
+			flow = wf
+		}
+	}
+	if len(flow.Nodes) != 3 {
+		t.Fatalf("a new default flow has %d steps", len(flow.Nodes))
+	}
+	// the user takes the step out again: it must not come back
+	plain := *r.flow
+	plain.ID, plain.Name = flow.ID, flow.Name
+	if err := r.e.SaveWorkflow(flow.ID, plain); err != nil {
+		t.Fatal(err)
+	}
+	newEngine(t, r)
+	if n := len(r.world().Workflows[flow.ID].Nodes); n != 2 {
+		t.Fatalf("the removed step came back: %d", n)
+	}
+}
+
+func TestOldDefaultFlowGetsAWorkStep(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	var flow *model.Workflow
+	for _, wf := range r.world().Workflows {
+		if wf.Name == "預設任務流程" {
+			flow = wf
+		}
+	}
+	plain := *r.flow
+	plain.ID, plain.Name = flow.ID, flow.Name
+	if err := r.e.SaveWorkflow(flow.ID, plain); err != nil {
+		t.Fatal(err)
+	}
+	r.e.Close()
+	raw, err := jsonx.Marshal(map[string]any{"seq": 100000, "presets": true, "promptFiles": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.store.Apply(context.Background(), []model.Doc{{Kind: "meta", ID: "world", Data: raw}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	newEngine(t, r)
+	got := r.world().Workflows[flow.ID]
+	if len(got.Nodes) != 3 || got.Nodes[2].Name != "實作" || len(got.Edges) != 2 {
+		t.Fatalf("%+v %+v", got.Nodes, got.Edges)
+	}
+	if err := r.e.SaveWorkflow(got.ID, *got); err != nil {
+		t.Fatalf("the new step does not fit the flow: %v", err)
+	}
+}

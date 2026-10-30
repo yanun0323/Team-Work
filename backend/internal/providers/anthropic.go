@@ -20,7 +20,7 @@ func (a anthropic) auth(req *http.Request) {
 	req.Header.Set("anthropic-version", "2023-06-01")
 }
 
-func (a anthropic) Models(ctx context.Context) ([]string, error) {
+func (a anthropic) Models(ctx context.Context) ([]model.ModelSpec, error) {
 	return a.listModels(ctx, "/v1/models?limit=1000", a.auth)
 }
 
@@ -58,6 +58,9 @@ func (a anthropic) Complete(ctx context.Context, req model.ModelRequest, onText 
 			tools[i] = map[string]any{"name": t.Name, "description": t.Description, "input_schema": t.Parameters}
 		}
 		body["tools"] = tools
+	}
+	if req.Effort != "" {
+		body["output_config"] = map[string]string{"effort": req.Effort}
 	}
 	res, err := a.do(ctx, http.MethodPost, "/v1/messages", body, a.auth)
 	if err != nil {

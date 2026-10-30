@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/yanun0323/mho-company/internal/model"
@@ -111,5 +112,52 @@ func TestFlowsAreShared(t *testing.T) {
 	}
 	if got := r.world().Teams[r.team.ID].DefaultWorkflowID; got == wf.ID || r.world().Workflows[got] == nil {
 		t.Fatalf("default is %s", got)
+	}
+}
+
+func TestThinkingLevelsComeFromTheProvider(t *testing.T) {
+	var mu sync.Mutex
+	var sent []string
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		sent = append(sent, req.Effort)
+		return call("submit_handoff", handoff), nil
+	})
+	if got := r.owner.Effort; got != model.ThinkingDefault {
+		t.Fatalf("a new employee starts on %q", got)
+	}
+	bad, good := "max", "high"
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Effort: &bad}); err == nil {
+		t.Fatal("took a level the model does not report")
+	}
+	// the default sends no level
+	r.task(r.flow.ID)
+	r.wait("the employee to start", func(*model.World) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(sent) > 0
+	})
+	mu.Lock()
+	if sent[0] != "" {
+		t.Fatalf("%q", sent[0])
+	}
+	mu.Unlock()
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Effort: &good}); err != nil {
+		t.Fatal(err)
+	}
+	// a level that goes away falls back on the default
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "fake", Thinking: []string{"low"}}}
+	r.fake.mu.Unlock()
+	var provider string
+	for id := range r.world().Providers {
+		provider = id
+	}
+	if err := r.e.RefreshModels(context.Background(), provider); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.world().Replicas[r.owner.ID].Effort; got != model.ThinkingDefault {
+		t.Fatalf("%q", got)
 	}
 }

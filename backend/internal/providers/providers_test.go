@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -69,16 +70,18 @@ func TestChatCompletionsStream(t *testing.T) {
 		t.Fatalf("%v %v", req.Header, req.URL)
 	}
 	sent := string(*body)
-	for _, want := range []string{`"role":"tool"`, `"tool_call_id":"c0"`, `"reasoning_effort":"high"`, `"role":"system"`} {
+	for _, want := range []string{`"role":"tool"`, `"tool_call_id":"c0"`, `"reasoning_effort":"max"`, `"role":"system"`} {
 		if !strings.Contains(sent, want) {
 			t.Errorf("request has no %s: %s", want, sent)
 		}
 	}
 }
 
-func TestCompatibleServersGetNoReasoningField(t *testing.T) {
+func TestNoLevelSendsNoReasoningField(t *testing.T) {
 	p, _, body := serve(t, enum.ProviderCompatible, 200, "data: [DONE]\n")
-	if _, err := p.Complete(context.Background(), request, func(string) {}); err != nil {
+	plain := request
+	plain.Effort = ""
+	if _, err := p.Complete(context.Background(), plain, func(string) {}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(*body), "reasoning_effort") {
@@ -164,8 +167,33 @@ func TestStreamEndingEarlyCanBeRetried(t *testing.T) {
 func TestModels(t *testing.T) {
 	p, _, _ := serve(t, enum.ProviderOpenAI, 200, `{"data":[{"id":"a"},{"id":"models/b"}]}`)
 	got, err := p.Models(context.Background())
-	if err != nil || len(got) != 2 || got[1] != "b" {
+	if err != nil || len(got) != 2 || got[1].ID != "b" || got[0].Thinking != nil {
 		t.Fatalf("%v %v", got, err)
+	}
+}
+
+func TestProvidersReportLevels(t *testing.T) {
+	p, _, _ := serve(t, enum.ProviderAnthropic, 200, `{"data":[
+		{"id":"a","capabilities":{"effort":{"supported":true,"max":{"supported":true},"xhigh":null,"high":{"supported":false},"low":{"supported":true}}}},
+		{"id":"b","capabilities":null}]}`)
+	got, err := p.Models(context.Background())
+	if err != nil || !slices.Equal(got[0].Thinking, []string{"low", "max"}) || got[1].Thinking != nil {
+		t.Fatalf("%+v %v", got, err)
+	}
+	p, _, _ = serve(t, enum.ProviderCompatible, 200, `{"data":[{"id":"d","effort":{"supported_levels":["low","high","max"]}}]}`)
+	got, err = p.Models(context.Background())
+	if err != nil || !slices.Equal(got[0].Thinking, []string{"low", "high", "max"}) {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+func TestAnthropicGetsTheLevel(t *testing.T) {
+	p, _, body := serve(t, enum.ProviderAnthropic, 200, messagesStream)
+	if _, err := p.Complete(context.Background(), request, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(*body), `"output_config":{"effort":"max"}`) {
+		t.Fatal(string(*body))
 	}
 }
 
@@ -193,16 +221,18 @@ func (s *stub) Complete(_ context.Context, req model.ModelRequest, _ func(string
 	s.got = req.Model
 	return model.ModelReply{}, nil
 }
-func (s *stub) Models(context.Context) ([]string, error) { return []string{"a"}, nil }
+func (s *stub) Models(context.Context) ([]model.ModelSpec, error) {
+	return []model.ModelSpec{{ID: "a", Thinking: []string{"low"}}}, nil
+}
 
 func TestSubscriptionModelsCarryAPrefixOnlyHere(t *testing.T) {
 	s := &stub{}
 	p := subscription{prefix: prefixCodex, client: s}
-	ids, err := p.Models(context.Background())
-	if err != nil || ids[0] != "openai-codex/a" {
-		t.Fatalf("%v %v", ids, err)
+	specs, err := p.Models(context.Background())
+	if err != nil || specs[0].ID != "openai-codex/a" || specs[0].Thinking[0] != "low" {
+		t.Fatalf("%v %v", specs, err)
 	}
-	if _, err := p.Complete(context.Background(), model.ModelRequest{Model: ids[0]}, nil); err != nil || s.got != "a" {
+	if _, err := p.Complete(context.Background(), model.ModelRequest{Model: specs[0].ID}, nil); err != nil || s.got != "a" {
 		t.Fatalf("%q %v", s.got, err)
 	}
 }

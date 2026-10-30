@@ -31,7 +31,7 @@ type Provider interface {
 	// A failure worth retrying is a *model.Error with code unavailable.
 	Complete(ctx context.Context, req model.ModelRequest, onText func(string)) (model.ModelReply, error)
 	// Models lists what the account offers.
-	Models(ctx context.Context) ([]string, error)
+	Models(ctx context.Context) ([]model.ModelSpec, error)
 }
 
 // Providers makes a Provider from an account and its key, and signs in to subscriptions.
@@ -93,8 +93,15 @@ type Git interface {
 	Land(ctx context.Context, folder, branch, target string) error
 	// Remove deletes the work tree and its branch.
 	Remove(ctx context.Context, folder, dir, branch string) error
+	// ReadFile returns a text file's content as it was at commit.
+	ReadFile(ctx context.Context, folder, commit, path string) (string, error)
 	// Fetch makes a local copy of repo at commit (or at its default branch) and returns where it is.
 	Fetch(ctx context.Context, repo, commit string) (string, error)
 	// Latest reports the commit ref points at upstream.
 	Latest(ctx context.Context, repo, ref string) (string, error)
+}
+
+// FolderPicker asks the user for a folder on this computer. The path is empty when they cancelled.
+type FolderPicker interface {
+	PickFolder(ctx context.Context) (string, error)
 }

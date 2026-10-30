@@ -59,6 +59,7 @@ func (e *Engine) CreateTeam(ctx context.Context, in NewTeam) (*model.Team, error
 		wf := e.firstFlow()
 		t := &model.Team{ID: id, Name: in.Name, Folder: in.Folder, TargetBranch: in.TargetBranch, Branches: branches, InitializedGit: initialized,
 			DefaultWorkflowID: wf.ID, CreatedAt: e.w.Now, Settings: model.TeamSettings{TimeoutMin: 30, CostLimitUSD: 3, Retries: 1}}
+		e.readPrompt(t)
 		e.w.Teams[id] = t
 		out = clone(t)
 		return nil
@@ -77,6 +78,29 @@ func (e *Engine) Branches(ctx context.Context, folder string) (branches []string
 		return []string{}, false, nil
 	}
 	return e.git.Branches(ctx, folder)
+}
+
+// HandedFile reads a file a sub-task handed on, as it was at that sub-task's commit.
+func (e *Engine) HandedFile(ctx context.Context, subID, path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if clean := filepath.ToSlash(filepath.Clean(path)); path == "" || filepath.IsAbs(path) || strings.HasPrefix(path, "-") || clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", model.Errorf(model.CodeInvalid, "檔案路徑不正確：%s", path)
+	}
+	e.mu.Lock()
+	var folder, commit string
+	if s := e.w.SubTasks[subID]; s != nil && s.Handoff != nil {
+		if t := e.w.Tasks[s.TaskID]; t != nil && e.w.Teams[t.TeamID] != nil {
+			folder, commit = e.w.Teams[t.TeamID].Folder, s.Handoff.Commit
+		}
+	}
+	e.mu.Unlock()
+	if commit == "" {
+		return "", model.Errorf(model.CodeInvalid, "這個子任務沒有交接的檔案")
+	}
+	if info, err := os.Stat(folder); err != nil || !info.IsDir() {
+		return "", model.Errorf(model.CodeInvalid, "找不到專案資料夾 %s", folder)
+	}
+	return e.git.ReadFile(ctx, folder, commit, path)
 }
 
 // TeamPatch changes a company; a nil field stays as it is.
@@ -108,11 +132,14 @@ func (e *Engine) UpdateTeam(id string, p TeamPatch) error {
 		if s := p.Settings; s != nil && (s.TimeoutMin < 0 || s.CostLimitUSD < 0 || s.Retries < 0) {
 			return model.Errorf(model.CodeInvalid, "設定不能是負數")
 		}
+		if p.Prompt != nil {
+			if err := e.writePrompt(t, *p.Prompt); err != nil {
+				return err
+			}
+			t.Prompt = *p.Prompt
+		}
 		if p.Name != nil {
 			t.Name = strings.TrimSpace(*p.Name)
-		}
-		if p.Prompt != nil {
-			t.Prompt = *p.Prompt
 		}
 		if p.TargetBranch != nil {
 			t.TargetBranch = *p.TargetBranch
@@ -299,19 +326,71 @@ func authOf(l ProviderLogin) model.ProviderAuth {
 	return model.ProviderAuth{Kind: "apiKey", KeyHint: key[max(len(key)-4, 0):]}
 }
 
-func (e *Engine) discover(ctx context.Context, p model.ModelProvider, key string) ([]string, error) {
+func (e *Engine) discover(ctx context.Context, p model.ModelProvider, key string) ([]model.ModelSpec, error) {
 	provider, err := e.providers.For(p, key)
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, discoveryTimeout)
 	defer cancel()
-	models, err := provider.Models(ctx)
-	if err != nil {
-		return nil, err
+	return provider.Models(ctx)
+}
+
+// setModels records what a provider reported, and puts employees on a level their model no longer takes back on
+// the default. Call it on a provider in the world, holding the lock.
+func (e *Engine) setModels(p *model.ModelProvider, specs []model.ModelSpec) {
+	p.Models, p.Thinking = modelsOf(specs)
+	e.resetEfforts()
+}
+
+func modelsOf(specs []model.ModelSpec) ([]string, map[string][]string) {
+	models := make([]string, 0, len(specs))
+	thinking := make(map[string][]string, len(specs))
+	for _, m := range specs {
+		models = append(models, m.ID)
+		if len(m.Thinking) > 0 {
+			thinking[m.ID] = m.Thinking
+		}
 	}
 	slices.Sort(models)
-	return slices.Compact(models), nil
+	return slices.Compact(models), thinking
+}
+
+// resetEfforts skips a provider not asked yet: its employees keep their level until it has answered.
+func (e *Engine) resetEfforts() {
+	for _, r := range e.w.Replicas {
+		if p := e.providerFor(r.Model); p != nil && p.Thinking != nil && !e.takesEffort(r.Model, r.Effort) {
+			r.Effort = model.ThinkingDefault
+		}
+	}
+}
+
+// takesEffort is whether a model takes a level: the default, or one its provider reported.
+func (e *Engine) takesEffort(modelID, effort string) bool {
+	if effort == model.ThinkingDefault {
+		return true
+	}
+	p := e.providerFor(modelID)
+	return p != nil && slices.Contains(p.Thinking[modelID], effort)
+}
+
+// askForLevels fills in the levels of providers saved before they reported any. It runs in the background at start,
+// as asking can take a while; one that can't answer now stays as it is until the next start.
+func (e *Engine) askForLevels() {
+	defer e.wg.Done()
+	e.mu.Lock()
+	var ids []string
+	for id, p := range e.w.Providers {
+		if p.Thinking == nil && (p.Auth.Kind == "apiKey" || p.Auth.SignedIn) {
+			ids = append(ids, id)
+		}
+	}
+	e.mu.Unlock()
+	for _, id := range ids {
+		if err := e.RefreshModels(e.ctx, id); err != nil && e.ctx.Err() == nil {
+			e.log.Warn().Err(err).Str("provider", id).Msg("ask for thinking levels")
+		}
+	}
 }
 
 func (e *Engine) AddProvider(ctx context.Context, in NewProvider) (*model.ModelProvider, error) {
@@ -328,11 +407,11 @@ func (e *Engine) AddProvider(ctx context.Context, in NewProvider) (*model.ModelP
 	}
 	p := model.ModelProvider{Name: in.Name, Kind: in.Kind, Auth: authOf(in.Login), BaseURL: strings.TrimSpace(in.BaseURL), Models: []string{}, Prices: in.Prices}
 	if p.Auth.Kind == "apiKey" {
-		models, err := e.discover(ctx, p, key)
+		specs, err := e.discover(ctx, p, key)
 		if err != nil {
 			return nil, err
 		}
-		p.Models = models
+		p.Models, p.Thinking = modelsOf(specs)
 	} else {
 		p.BaseURL = ""
 	}
@@ -392,16 +471,16 @@ func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch
 		}
 		if l.Kind == "apiKey" || wasKey { // already on a subscription: stay signed in
 			next.Auth = authOf(*l)
-			next.Models = []string{}
+			next.Models, next.Thinking = []string{}, nil
 		}
 		key = strings.TrimSpace(l.APIKey)
 	}
 	if next.Auth.Kind == "apiKey" {
-		models, err := e.discover(ctx, next, key)
+		specs, err := e.discover(ctx, next, key)
 		if err != nil {
 			return err
 		}
-		next.Models = models
+		next.Models, next.Thinking = modelsOf(specs)
 	} else {
 		next.BaseURL, key = "", ""
 	}
@@ -417,7 +496,7 @@ func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch
 				}
 				delete(e.secrets, id)
 			} else {
-				next.Auth, next.Models = now.Auth, now.Models // a sign-in may have ended meanwhile
+				next.Auth, next.Models, next.Thinking = now.Auth, now.Models, now.Thinking // a sign-in may have ended meanwhile
 			}
 		} else {
 			if err := e.store.SetSecret(ctx, id, key); err != nil {
@@ -517,7 +596,7 @@ func (e *Engine) waitLogin(ctx context.Context, id string, p model.ModelProvider
 	defer e.wg.Done()
 	defer l.cancel()
 	err := l.flow.Wait(ctx)
-	var models []string
+	var models []model.ModelSpec
 	if err == nil {
 		p.Auth.SignedIn = true
 		var provider adapter.Provider
@@ -546,8 +625,8 @@ func (e *Engine) waitLogin(ctx context.Context, id string, p model.ModelProvider
 			now.Auth.Login = &prompt
 			return nil
 		}
-		slices.Sort(models)
-		now.Auth.SignedIn, now.Auth.Login, now.Models = true, nil, slices.Compact(models)
+		now.Auth.SignedIn, now.Auth.Login = true, nil
+		e.setModels(now, models)
 		return nil
 	})
 }
@@ -611,7 +690,7 @@ func (e *Engine) RefreshModels(ctx context.Context, id string) error {
 	}
 	return e.do(func() error {
 		if now := e.w.Providers[id]; now != nil {
-			now.Models = models
+			e.setModels(now, models)
 		}
 		return nil
 	})
@@ -731,13 +810,6 @@ type NewReplica struct {
 	Effort      string      `json:"effort"`
 }
 
-func checkEffort(effort string) error {
-	if !slices.Contains([]string{"", "low", "medium", "high", "max"}, effort) {
-		return model.Errorf(model.CodeInvalid, "不認識的思考強度 %s", effort)
-	}
-	return nil
-}
-
 func (e *Engine) Hire(in NewReplica) (*model.Replica, error) {
 	var out *model.Replica
 	err := e.do(func() error {
@@ -748,19 +820,19 @@ func (e *Engine) Hire(in NewReplica) (*model.Replica, error) {
 		if strings.TrimSpace(in.Name) == "" {
 			return model.Errorf(model.CodeInvalid, "員工要有名字")
 		}
-		if err := checkEffort(in.Effort); err != nil {
-			return err
-		}
 		if e.providerFor(in.Model) == nil {
 			return model.Errorf(model.CodeInvalid, "沒有模型供應商提供 %s", in.Model)
+		}
+		effort := in.Effort
+		if effort == "" {
+			effort = model.ThinkingDefault
+		}
+		if !e.takesEffort(in.Model, effort) {
+			return model.Errorf(model.CodeInvalid, "%s 沒有思考等級 %s", in.Model, effort)
 		}
 		look := bp.Look
 		if in.Look != nil {
 			look = *in.Look
-		}
-		effort := in.Effort
-		if effort == "" {
-			effort = "medium"
 		}
 		r := &model.Replica{ID: e.uid("rep"), TeamID: in.TeamID, BlueprintID: in.BlueprintID, Name: strings.TrimSpace(in.Name), Look: look,
 			Model: in.Model, Effort: effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now}
@@ -796,12 +868,20 @@ func (e *Engine) UpdateReplica(id string, p ReplicaPatch) error {
 		if p.BlueprintID != nil && e.w.Blueprints[*p.BlueprintID] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到藍圖")
 		}
-		if p.Effort != nil {
-			if err := checkEffort(*p.Effort); err != nil {
-				return err
-			}
-			r.Effort = *p.Effort
+		// a level goes with its model: without a new one, a new model may have to fall back on the default
+		modelID, effort := r.Model, r.Effort
+		if p.Model != nil {
+			modelID = *p.Model
 		}
+		if p.Effort != nil {
+			effort = *p.Effort
+		} else if !e.takesEffort(modelID, effort) {
+			effort = model.ThinkingDefault
+		}
+		if !e.takesEffort(modelID, effort) {
+			return model.Errorf(model.CodeInvalid, "%s 沒有思考等級 %s", modelID, effort)
+		}
+		r.Effort = effort
 		if p.BlueprintID != nil {
 			r.BlueprintID = *p.BlueprintID
 		}

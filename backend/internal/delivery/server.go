@@ -52,13 +52,14 @@ func (serializer) Deserialize(c echo.Context, v any) error {
 type Server struct {
 	engine  *usecase.Engine
 	claude  adapter.ClaudeCode
+	folders adapter.FolderPicker
 	origins []string
 	log     zerolog.Logger
 	echo    *echo.Echo
 }
 
-func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, origins []string, log zerolog.Logger) *Server {
-	s := &Server{engine: engine, claude: claude, origins: origins, log: log, echo: echo.New()}
+func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapter.FolderPicker, origins []string, log zerolog.Logger) *Server {
+	s := &Server{engine: engine, claude: claude, folders: folders, origins: origins, log: log, echo: echo.New()}
 	e := s.echo
 	e.HideBanner, e.HidePort = true, true
 	e.JSONSerializer = serializer{}
@@ -71,10 +72,12 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, origins []stri
 
 	api.POST("/teams", s.createTeam)
 	api.PATCH("/teams/:id", s.updateTeam)
+	api.POST("/teams/:id/prompt/refresh", s.refreshPrompt)
 	api.DELETE("/teams/:id", s.deleteTeam)
 	api.POST("/workflows", s.createWorkflow)
 
 	api.GET("/branches", s.branches)
+	api.POST("/folder-picker", s.pickFolder)
 	api.PUT("/workflows/:id", s.saveWorkflow)
 	api.POST("/workflows/:id/duplicate", s.duplicateWorkflow)
 	api.DELETE("/workflows/:id", s.deleteWorkflow)
@@ -111,6 +114,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, origins []stri
 	api.POST("/tasks/:id/return", s.returnTask)
 	api.POST("/tasks/:id/workflow", s.changeWorkflow)
 
+	api.GET("/subtasks/:id/file", s.handedFile)
 	api.POST("/subtasks/:id/review", s.resolveReview)
 	api.POST("/subtasks/:id/talk", s.sayInTalk)
 	api.POST("/subtasks/:id/talk/end", s.endTalk)
@@ -261,6 +265,10 @@ func (s *Server) updateTeam(c echo.Context) error {
 	return done(c, s.engine.UpdateTeam(c.Param("id"), in))
 }
 
+func (s *Server) refreshPrompt(c echo.Context) error {
+	return done(c, s.engine.RefreshPrompt(c.Param("id")))
+}
+
 func (s *Server) deleteTeam(c echo.Context) error {
 	return done(c, s.engine.DeleteTeam(c.Param("id")))
 }
@@ -282,6 +290,18 @@ func (s *Server) branches(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, map[string]any{"branches": branches, "repo": repo})
+}
+
+func (s *Server) pickFolder(c echo.Context) error {
+	// net/http only notices a client leaving once the body has been read, and the dialog should close with it
+	if _, err := io.Copy(io.Discard, c.Request().Body); err != nil {
+		return model.Errorf(model.CodeInvalid, "請求內容無法讀取")
+	}
+	path, err := s.folders.PickFolder(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]any{"path": path})
 }
 
 func (s *Server) duplicateWorkflow(c echo.Context) error {
@@ -486,6 +506,14 @@ func (s *Server) resolveReview(c echo.Context) error {
 		return err
 	}
 	return done(c, s.engine.ResolveReview(c.Param("id"), in.OptionID, in.Note))
+}
+
+func (s *Server) handedFile(c echo.Context) error {
+	text, err := s.engine.HandedFile(c.Request().Context(), c.Param("id"), c.QueryParam("path"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]any{"text": text})
 }
 
 func (s *Server) sayInTalk(c echo.Context) error {

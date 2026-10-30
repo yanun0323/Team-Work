@@ -12,15 +12,11 @@ import (
 )
 
 // openAI speaks Chat Completions: OpenAI's, Google's compatible endpoint and anything compatible.
-type openAI struct {
-	client
-	// reasoning is whether reasoning_effort may be sent; other servers can refuse the field.
-	reasoning bool
-}
+type openAI struct{ client }
 
 func (o openAI) auth(req *http.Request) { req.Header.Set("Authorization", "Bearer "+o.key) }
 
-func (o openAI) Models(ctx context.Context) ([]string, error) {
+func (o openAI) Models(ctx context.Context) ([]model.ModelSpec, error) {
 	return o.listModels(ctx, "/models", o.auth)
 }
 
@@ -86,12 +82,9 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 		}
 		body["tools"] = tools
 	}
-	if o.reasoning && req.Effort != "" {
-		effort := req.Effort
-		if effort == "max" {
-			effort = "high"
-		}
-		body["reasoning_effort"] = effort
+	// only ever a level the model reported, so a server that reports none never gets the field
+	if req.Effort != "" {
+		body["reasoning_effort"] = req.Effort
 	}
 	res, err := o.do(ctx, http.MethodPost, "/chat/completions", body, o.auth)
 	if err != nil {

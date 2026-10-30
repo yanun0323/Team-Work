@@ -82,7 +82,7 @@ func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprint(w, `{"authorization_code":"devcode","code_verifier":"devver"}`)
 	case "/codex/models":
-		fmt.Fprint(w, `{"models":[{"slug":"gpt-a","visibility":"list"},{"slug":"hidden","visibility":"hide"}]}`)
+		fmt.Fprint(w, `{"models":[{"slug":"gpt-a","visibility":"list","supported_reasoning_levels":[{"effort":"low"},{"effort":"xhigh"}]},{"slug":"hidden","visibility":"hide"}]}`)
 	case "/codex/responses":
 		f.bodies = append(f.bodies, string(raw))
 		f.headers = append(f.headers, r.Header.Clone())
@@ -293,7 +293,7 @@ func TestCompleteAndTheRequestItSends(t *testing.T) {
 		t.Fatalf("%v", h)
 	}
 	sent := f.bodies[0]
-	for _, want := range []string{`"instructions":"sys"`, `"type":"input_image"`, `"type":"output_text"`, `"type":"function_call","arguments":"{}"`, `"type":"function_call_output"`, `"call_id":"c0"`, `"effort":"high"`, `"prompt_cache_key":"s1"`, `"store":false`} {
+	for _, want := range []string{`"instructions":"sys"`, `"type":"input_image"`, `"type":"output_text"`, `"type":"function_call","arguments":"{}"`, `"type":"function_call_output"`, `"call_id":"c0"`, `"effort":"max"`, `"prompt_cache_key":"s1"`, `"store":false`} {
 		if !strings.Contains(sent, want) && !containsCall(sent, want) {
 			t.Errorf("request has no %s: %s", want, sent)
 		}
@@ -367,7 +367,7 @@ func TestModelsAndLogout(t *testing.T) {
 	}
 	signIn(t, c, secrets, time.Now().Add(time.Hour).UnixMilli())
 	got, err := c.Models(context.Background())
-	if err != nil || len(got) != 1 || got[0] != "gpt-a" {
+	if err != nil || len(got) != 1 || got[0].ID != "gpt-a" || len(got[0].Thinking) != 2 || got[0].Thinking[1] != "xhigh" {
 		t.Fatalf("%v %v", got, err)
 	}
 	if err := c.Logout(context.Background()); err != nil {

@@ -2,10 +2,10 @@
 
 單人在本機使用的 Go 伺服器：管理公司、員工、任務流程與任務，並讓員工真的呼叫模型、改檔案、跑指令。任務流程規則與前端模擬器（`frontend/src/core/domain/sim.ts`）相同，名詞以 `CONTEXT.md` 為準。Agent 迴圈、工具、模型串流與訂閱登入參考 `mho` 的實作。
 
-`make dev` 的前端直接接這個 API；`make dev-mock` 的前端用模擬器，不需要後端。
+`make dev` 會同時啟動後端和前端，前端直接接這個 API；`make dev-mock` 的前端用模擬器，不需要後端。
 
 ```bash
-make server        # 啟動，聽 127.0.0.1:8787
+make server        # 只啟動後端，聽 127.0.0.1:8787
 make test-backend  # 測試
 ```
 
@@ -37,6 +37,8 @@ make test-backend  # 測試
 | `GET /events` | WebSocket：先送 `snapshot`，之後送 `patch`（實體異動）、`delta`（員工正在寫的文字）、`notice`（`review`、`awaitMerge`）。斷線重連會拿到新的 snapshot |
 | `POST /teams`、`PATCH`/`DELETE /teams/:id` | 公司；資料夾沒有 git 時會初始化並建立 `master`。關閉公司不會刪資料夾，但會刪它的任務分支與 work tree |
 | `GET /branches?folder=` | 查資料夾的分支（只讀），`repo` 是它是不是 git repo |
+| `POST /teams/:id/prompt/refresh` | 重新讀專案的 `AGENTS.md`。公司的 `prompt` 就是這個檔案：`PATCH` 會寫回檔案（不會 commit），建立公司、啟動和員工開工時都會重新讀 |
+| `POST /folder-picker` | 開系統的選擇資料夾視窗（目前只有 macOS），回傳完整路徑 `path`，取消時是空字串 |
 | `POST /workflows`、`PUT`/`DELETE /workflows/:id`、`POST /workflows/:id/duplicate` | 任務流程，所有公司共用；不允許迴圈，至少留一條 |
 | `POST /providers`、`PATCH`/`DELETE /providers/:id` | 模型供應商；模型清單由供應商提供，`prices` 是每百萬 token 的美元價格 |
 | `POST /blueprints`、`PUT`/`DELETE /blueprints/:id`、`POST /blueprints/:id/update` | 藍圖；`update` 把 Git 來源移到最新版 |
@@ -44,6 +46,7 @@ make test-backend  # 測試
 | `POST /tasks`、`PATCH`/`DELETE /tasks/:id` | 任務；`PATCH` 改標題、說明、人員、負責人 |
 | `POST /tasks/:id/{pause,resume,cancel,merge}` | 暫停、恢復、取消（要先暫停）、合併 |
 | `POST /tasks/:id/return`、`POST /tasks/:id/workflow` | 退回（`feedback`）、更換任務流程（`workflowId`，要先暫停） |
+| `GET /subtasks/:id/file?path=` | 讀子任務交接的檔案（該次 commit 的內容，上限 1 MB，只限文字檔） |
 | `POST /subtasks/:id/review` | 回覆審核（`optionId`、`note`） |
 | `POST /subtasks/:id/talk`、`POST /subtasks/:id/talk/end` | 討論發言（`text`）、結束（`kind`: `continue`/`back`/`stop`，`to`、`reason`） |
 
@@ -76,7 +79,7 @@ Claude Code 的設定：
 
 ## 預設內容
 
-第一次啟動時會建立五個員工藍圖：PM、Product、Backend Engineer、Frontend Engineer、QA，只建一次，刪掉不會再出現。任務流程也一樣：「預設任務流程」「功能開發」「修 Bug」「產品規劃」，內容在 `internal/usecase/presets.go`。
+第一次啟動時會建立五個員工藍圖：PM、Product、Backend Engineer、Frontend Engineer、QA，只建一次，刪掉不會再出現。任務流程也一樣：「預設任務流程」（整理需求、實作、驗收）「功能開發」「修 Bug」「產品規劃」，內容在 `internal/usecase/presets.go`。
 
 任務流程由所有公司共用，公司只記自己的預設任務流程，任務開始時留一份，之後改任務流程不影響它。任務流程不指定員工，由每個任務決定。舊資料裡各公司自己的任務流程，啟動時會自動合併：內容相同的變成一條，同名但內容不同的在名稱後面加上公司名。
 
@@ -92,9 +95,15 @@ Claude Code 的設定：
 - **費用**：依供應商的 `prices` 計算。**沒設定價格的模型費用算 0，費用上限對它無效**，子任務 log 會提醒一次。
 - **重新啟動**：進行中的工作回到佇列，從保存的對話接著做。
 
+## 思考等級
+
+每個模型能選的等級由供應商回報，不是寫死的清單：Claude 訂閱的 `supportedEffortLevels`、ChatGPT 訂閱的 `supported_reasoning_levels`、Anthropic API 的 `capabilities.effort`、相容 API 的 `effort.supported_levels`。回報的內容存在供應商的 `thinking`（模型 → 等級）。
+
+員工預設是 `default`，也就是不送等級，交給供應商決定。模型不支援的等級會被拒絕；換模型或供應商不再回報時，員工會回到 `default`。舊資料的供應商會在啟動時補問一次。
+
 ## 尚未支援
 
-- 思考強度不會送給 Anthropic API Key、Google 與相容 API，它們都用預設值。
+- OpenAI、Google API Key 的模型清單沒有回報思考等級，所以只有 `default`；相容 API 也要回報 `effort.supported_levels` 才有其他等級。
 - 訂閱額度（5 小時、每週）不會顯示；用完時子任務會失敗並說明。
 - 藍圖的自動更新（`autoUpdate`）：目前只能手動 `POST /blueprints/:id/update`。
 - 長對話的壓縮：超過模型上限時子任務會失敗並等使用者處理。

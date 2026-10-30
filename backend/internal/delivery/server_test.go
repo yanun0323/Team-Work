@@ -25,7 +25,9 @@ type noModels struct{}
 func (noModels) Complete(context.Context, model.ModelRequest, func(string)) (model.ModelReply, error) {
 	return model.ModelReply{}, model.Errorf(model.CodeInvalid, "no")
 }
-func (noModels) Models(context.Context) ([]string, error)                    { return []string{"m"}, nil }
+func (noModels) Models(context.Context) ([]model.ModelSpec, error) {
+	return []model.ModelSpec{{ID: "m"}}, nil
+}
 func (n noModels) For(model.ModelProvider, string) (adapter.Provider, error) { return n, nil }
 func (noModels) Login(context.Context, model.ModelProvider, string) (*adapter.LoginFlow, error) {
 	return &adapter.LoginFlow{Prompt: model.LoginPrompt{Method: "browser", URL: "https://login"},
@@ -51,6 +53,18 @@ func (f *fakeClaude) Login(context.Context) error   { f.logins++; return f.login
 
 var claude = &fakeClaude{}
 
+type pickedFolder struct{}
+
+func (pickedFolder) PickFolder(context.Context) (string, error) { return "/Users/me/shop", nil }
+
+func TestPickFolderGivesTheFullPath(t *testing.T) {
+	srv := setup(t)
+	code, body := send(t, "POST", srv.URL+"/api/v1/folder-picker", "")
+	if code != http.StatusOK || body["path"] != "/Users/me/shop" {
+		t.Fatalf("%d %s", code, body)
+	}
+}
+
 func setup(t *testing.T) *httptest.Server {
 	t.Helper()
 	data := t.TempDir()
@@ -62,7 +76,7 @@ func setup(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(NewServer(e, claude, []string{origin}, zerolog.Nop()).Handler())
+	srv := httptest.NewServer(NewServer(e, claude, pickedFolder{}, []string{origin}, zerolog.Nop()).Handler())
 	t.Cleanup(func() { srv.Close(); e.Close(); store.Close() })
 	return srv
 }
@@ -274,7 +288,7 @@ func TestClientLeavingStopsInstallAndLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := &waitingClaude{started: make(chan string, 1), stopped: make(chan string, 1)}
-	srv := httptest.NewServer(NewServer(e, w, []string{origin}, zerolog.Nop()).Handler())
+	srv := httptest.NewServer(NewServer(e, w, pickedFolder{}, []string{origin}, zerolog.Nop()).Handler())
 	defer func() { srv.Close(); e.Close(); store.Close() }()
 
 	for _, tc := range []struct{ path, body, name string }{{"/install", `{"consent":true}`, "install"}, {"/login", `{}`, "login"}} {

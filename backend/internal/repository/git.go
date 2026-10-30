@@ -10,14 +10,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/yanun0323/mho-company/internal/model"
 )
 
-const remoteTimeout = 2 * time.Minute
+const (
+	remoteTimeout = 2 * time.Minute
+	maxReadFile   = 1 << 20
+)
 
 var conflictMarks = regexp.MustCompile(`(?m)^(<<<<<<<|>>>>>>>) `)
 
@@ -107,6 +112,26 @@ func (g *Git) Worktree(ctx context.Context, folder, dir, branch, target string) 
 	}
 	_, err := git(ctx, folder, "worktree", "add", "-b", branch, dir, target)
 	return err
+}
+
+// ReadFile takes the file from git's history, not the work tree, so it still reads after a merge removed the tree.
+func (g *Git) ReadFile(ctx context.Context, folder, commit, path string) (string, error) {
+	object := commit + ":" + path
+	size, err := git(ctx, folder, "cat-file", "-s", object)
+	if err != nil {
+		return "", model.Errorf(model.CodeInvalid, "這次交接的版本裡沒有 %s", path)
+	}
+	if n, err := strconv.Atoi(size); err != nil || n > maxReadFile {
+		return "", model.Errorf(model.CodeInvalid, "%s 太大，請到專案資料夾打開", path)
+	}
+	text, err := git(ctx, folder, "cat-file", "blob", object)
+	if err != nil {
+		return "", model.Errorf(model.CodeInvalid, "這次交接的版本裡沒有 %s", path)
+	}
+	if strings.IndexByte(text, 0) >= 0 || !utf8.ValidString(text) {
+		return "", model.Errorf(model.CodeInvalid, "%s 不是文字檔，請到專案資料夾打開", path)
+	}
+	return text, nil
 }
 
 func (g *Git) Commit(ctx context.Context, dir, author, message string) (string, error) {

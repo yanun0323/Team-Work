@@ -110,8 +110,18 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.w.Now = e.clock()
+	e.refreshPresetPrompts()
 	if !e.w.Presets {
 		e.addPresets()
+	}
+	if !e.w.PromptFiles {
+		e.movePromptsToFiles()
+	}
+	if !e.w.WorkStep {
+		e.addWorkStep()
+	}
+	for _, t := range e.w.Teams {
+		e.readPrompt(t)
 	}
 	for _, s := range e.w.SubTasks {
 		// nobody works across a restart: back in the queue, keeping the conversation so far
@@ -137,6 +147,8 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 		}
 	}
 	e.settle()
+	e.wg.Add(1)
+	go e.askForLevels()
 	return e, nil
 }
 
@@ -188,11 +200,13 @@ func (e *Engine) load(ctx context.Context) error {
 		switch d.Kind {
 		case kindMeta:
 			var meta struct {
-				Seq     int  `json:"seq"`
-				Presets bool `json:"presets"`
+				Seq         int  `json:"seq"`
+				Presets     bool `json:"presets"`
+				PromptFiles bool `json:"promptFiles"`
+				WorkStep    bool `json:"workStep"`
 			}
 			err = jsonx.Unmarshal(d.Data, &meta)
-			e.w.Seq, e.w.Presets = meta.Seq, meta.Presets
+			e.w.Seq, e.w.Presets, e.w.PromptFiles, e.w.WorkStep = meta.Seq, meta.Presets, meta.PromptFiles, meta.WorkStep
 		case kindConv:
 			var conv []model.Message
 			err = jsonx.Unmarshal(d.Data, &conv)
@@ -253,7 +267,7 @@ func encodeAll[T any](docs map[string][]byte, kind string, all map[string]*T) {
 // tried again with the next change, as the difference is still there.
 func (e *Engine) sync() {
 	now := map[string][]byte{}
-	meta, _ := jsonx.Marshal(map[string]any{"seq": e.w.Seq, "presets": e.w.Presets})
+	meta, _ := jsonx.Marshal(map[string]any{"seq": e.w.Seq, "presets": e.w.Presets, "promptFiles": e.w.PromptFiles, "workStep": e.w.WorkStep})
 	now[docKey(kindMeta, "world")] = meta
 	encodeAll(now, "team", e.w.Teams)
 	encodeAll(now, "provider", e.w.Providers)

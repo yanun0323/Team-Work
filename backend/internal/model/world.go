@@ -303,13 +303,25 @@ type LoginPrompt struct {
 
 // ModelProvider never holds the API key itself; that is a secret kept apart, by provider id.
 type ModelProvider struct {
-	ID      string                `json:"id"`
-	Name    string                `json:"name"`
-	Kind    enum.ProviderKind     `json:"kind"`
-	Auth    ProviderAuth          `json:"auth"`
-	BaseURL string                `json:"baseUrl"`
-	Models  []string              `json:"models"`
-	Prices  map[string]ModelPrice `json:"prices,omitempty"`
+	ID      string            `json:"id"`
+	Name    string            `json:"name"`
+	Kind    enum.ProviderKind `json:"kind"`
+	Auth    ProviderAuth      `json:"auth"`
+	BaseURL string            `json:"baseUrl"`
+	Models  []string          `json:"models"`
+	// Thinking lists the levels each model reports it accepts, weakest first. Nil until the provider was asked.
+	Thinking map[string][]string   `json:"thinking"`
+	Prices   map[string]ModelPrice `json:"prices,omitempty"`
+}
+
+// ThinkingDefault leaves how hard a model thinks to its provider. Every model takes it.
+const ThinkingDefault = "default"
+
+// ModelSpec is a model as its provider describes it.
+type ModelSpec struct {
+	ID string
+	// Thinking lists the levels the model accepts, weakest first; empty when the provider doesn't say.
+	Thinking []string
 }
 
 // World is everything the backend knows. Conversations stay inside the backend, so clients never get them.
@@ -317,6 +329,8 @@ type World struct {
 	Now           float64                   `json:"now"`
 	Seq           int                       `json:"seq"`
 	Presets       bool                      `json:"-"` // the preset blueprints and flows were added
+	PromptFiles   bool                      `json:"-"` // company prompts live in each project's AGENTS.md
+	WorkStep      bool                      `json:"-"` // the default flow got its work step
 	Teams         map[string]*Team          `json:"teams"`
 	Providers     map[string]*ModelProvider `json:"providers"`
 	Blueprints    map[string]*Blueprint     `json:"blueprints"`

@@ -116,7 +116,7 @@ func (c *Client) Close() { c.bridge.close() }
 
 // Models asks Claude Code what this login offers. A login that is missing, or is not a first-party
 // subscription, comes back as an error saying what to do.
-func (c *Client) Models(ctx context.Context) ([]string, error) {
+func (c *Client) Models(ctx context.Context) ([]model.ModelSpec, error) {
 	ids, efforts, err := discover(ctx)
 	if err != nil {
 		return nil, err
@@ -124,7 +124,11 @@ func (c *Client) Models(ctx context.Context) ([]string, error) {
 	c.mu.Lock()
 	c.efforts = efforts
 	c.mu.Unlock()
-	return ids, nil
+	out := make([]model.ModelSpec, len(ids))
+	for i, id := range ids {
+		out[i] = model.ModelSpec{ID: id, Thinking: efforts[id]}
+	}
+	return out, nil
 }
 
 var errLoggedOut = &Error{Code: CodeInvalidRequest, Message: "Claude Code 還沒登入訂閱：請在終端機執行 claude auth login"}

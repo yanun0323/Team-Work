@@ -98,7 +98,7 @@ type subscription struct {
 	prefix string
 	client interface {
 		Complete(context.Context, model.ModelRequest, func(string)) (model.ModelReply, error)
-		Models(context.Context) ([]string, error)
+		Models(context.Context) ([]model.ModelSpec, error)
 	}
 }
 
@@ -107,14 +107,14 @@ func (s subscription) Complete(ctx context.Context, req model.ModelRequest, onTe
 	return s.client.Complete(ctx, req, onText)
 }
 
-func (s subscription) Models(ctx context.Context) ([]string, error) {
-	ids, err := s.client.Models(ctx)
+func (s subscription) Models(ctx context.Context) ([]model.ModelSpec, error) {
+	specs, err := s.client.Models(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]string, len(ids))
-	for i, id := range ids {
-		out[i] = s.prefix + id
+	out := make([]model.ModelSpec, len(specs))
+	for i, m := range specs {
+		out[i] = model.ModelSpec{ID: s.prefix + m.ID, Thinking: m.Thinking}
 	}
 	return out, nil
 }
@@ -184,17 +184,17 @@ func (f *Factory) For(p model.ModelProvider, key string) (adapter.Provider, erro
 		if c.base == "" {
 			c.base = "https://api.openai.com/v1"
 		}
-		return openAI{client: c, reasoning: true}, nil
+		return openAI{c}, nil
 	case enum.ProviderGoogle:
 		if c.base == "" {
 			c.base = "https://generativelanguage.googleapis.com/v1beta/openai"
 		}
-		return openAI{client: c}, nil
+		return openAI{c}, nil
 	case enum.ProviderCompatible:
 		if c.base == "" {
 			return nil, model.Errorf(model.CodeInvalid, "「%s」沒有填 API 位址", p.Name)
 		}
-		return openAI{client: c}, nil
+		return openAI{c}, nil
 	}
 	return nil, model.Errorf(model.CodeInvalid, "不認識的供應商種類 %s", p.Kind)
 }
@@ -250,8 +250,12 @@ func (c client) do(ctx context.Context, method, path string, body any, auth func
 	return res, nil
 }
 
-// listModels reads `{"data":[{"id":...}]}`, which both API families answer.
-func (c client) listModels(ctx context.Context, path string, auth func(*http.Request)) ([]string, error) {
+// thinkingOrder is the levels weakest first, as a provider that answers with a set leaves the order open.
+var thinkingOrder = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+// listModels reads `{"data":[{"id":...}]}`, which both API families answer. The levels come from where a provider
+// reports them: Anthropic's capabilities.effort, or the effort.supported_levels of some OpenAI-style servers.
+func (c client) listModels(ctx context.Context, path string, auth func(*http.Request)) ([]model.ModelSpec, error) {
 	res, err := c.do(ctx, http.MethodGet, path, nil, auth)
 	if err != nil {
 		return nil, err
@@ -259,19 +263,43 @@ func (c client) listModels(ctx context.Context, path string, auth func(*http.Req
 	defer res.Body.Close()
 	var body struct {
 		Data []struct {
-			ID string `json:"id"`
+			ID           string `json:"id"`
+			Capabilities struct {
+				Effort map[string]json.RawMessage `json:"effort"`
+			} `json:"capabilities"`
+			Effort struct {
+				Levels []string `json:"supported_levels"`
+			} `json:"effort"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(res.Body, 4<<20)).Decode(&body); err != nil {
 		return nil, model.Errorf(model.CodeUnavailable, "模型清單格式不正確")
 	}
-	out := make([]string, 0, len(body.Data))
+	out := make([]model.ModelSpec, 0, len(body.Data))
 	for _, m := range body.Data {
 		if m.ID != "" {
-			out = append(out, strings.TrimPrefix(m.ID, "models/"))
+			levels := m.Effort.Levels
+			if len(levels) == 0 {
+				levels = supportedLevels(m.Capabilities.Effort)
+			}
+			out = append(out, model.ModelSpec{ID: strings.TrimPrefix(m.ID, "models/"), Thinking: levels})
 		}
 	}
 	return out, nil
+}
+
+// supportedLevels reads `{"supported":true,"low":{"supported":true},...}`; a level that isn't there is not offered.
+func supportedLevels(effort map[string]json.RawMessage) []string {
+	var levels []string
+	for _, level := range thinkingOrder {
+		var support struct {
+			Supported bool `json:"supported"`
+		}
+		if raw, ok := effort[level]; ok && json.Unmarshal(raw, &support) == nil && support.Supported {
+			levels = append(levels, level)
+		}
+	}
+	return levels
 }
 
 // readSSE calls event with each event's data, until it returns true or the stream ends.

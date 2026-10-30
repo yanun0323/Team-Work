@@ -27,7 +27,7 @@ type script struct {
 	seen      []model.ModelRequest
 	login     *adapter.LoginFlow
 	loggedOut bool
-	models    []string
+	models    []model.ModelSpec
 }
 
 func (s *script) Complete(_ context.Context, req model.ModelRequest, onText func(string)) (model.ModelReply, error) {
@@ -43,13 +43,13 @@ func (s *script) Complete(_ context.Context, req model.ModelRequest, onText func
 	return r, err
 }
 
-func (s *script) Models(context.Context) ([]string, error) {
+func (s *script) Models(context.Context) ([]model.ModelSpec, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.models != nil {
 		return s.models, nil
 	}
-	return []string{"fake"}, nil
+	return []model.ModelSpec{{ID: "fake", Thinking: []string{"low", "high"}}}, nil
 }
 func (s *script) For(model.ModelProvider, string) (adapter.Provider, error) {
 	return s, nil
@@ -151,7 +151,12 @@ func newRig(t *testing.T, reply func(model.ModelRequest) (model.ModelReply, erro
 		t.Fatal(err)
 	}
 	r.owner = owner
-	r.flow = r.world().Workflows[team.DefaultWorkflowID]
+	// a flow of just its two ends, so a test's task needs no staff
+	plain, err := r.e.CreateWorkflow("只有頭尾")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.flow = r.world().Workflows[plain.ID]
 	return r
 }
 
@@ -341,6 +346,75 @@ func TestPickOneAskingAndFailureReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+}
+
+func TestHandedFileReadsTheCommit(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if lastIsResult(req) {
+			return call("submit_handoff", handoff), nil
+		}
+		if stepOf(req) == "整理需求" {
+			return call("write_file", map[string]string{"path": "docs/spec.md", "content": "# 真的內容\n"}), nil
+		}
+		return call("submit_handoff", handoff), nil
+	})
+	task := r.task(r.flow.ID)
+	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	sub := subAt(w, task.ID, "整理需求")
+	ctx := context.Background()
+	text, err := r.e.HandedFile(ctx, sub.ID, "docs/spec.md")
+	if err != nil || text != "# 真的內容" {
+		t.Fatalf("text %q err %v", text, err)
+	}
+	for _, path := range []string{"missing.md", "docs", "../secret", "/etc/hosts", "--help", ""} {
+		if _, err := r.e.HandedFile(ctx, sub.ID, path); err == nil {
+			t.Errorf("%q read", path)
+		}
+	}
+}
+
+func TestEveryStepSeesItsNeighbours(t *testing.T) {
+	var mu sync.Mutex
+	systems := map[string]string{}
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		mu.Lock()
+		systems[stepOf(req)] = req.System
+		mu.Unlock()
+		if stepOf(req) == "討論" {
+			return say("想問你一件事"), nil
+		}
+		return call("submit_handoff", handoff), nil
+	})
+	wf := *r.flow
+	start, end := wf.Nodes[0].ID, wf.Nodes[1].ID
+	node := func(id, kind, name, prompt string) model.WorkflowNode {
+		return model.WorkflowNode{ID: id, Kind: enum.NodeKind(kind), Name: name, Prompt: prompt, ReplicaIDs: []string{r.owner.ID}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll}
+	}
+	wf.Nodes = append(wf.Nodes, node("work", string(enum.NodeWork), "寫碼", "寫碼的指示"), node("talk", string(enum.NodeTalk), "討論", usecase.TalkPrompt))
+	wf.Edges = []model.WorkflowEdge{{ID: "1", From: start, To: "work"}, {ID: "2", From: "work", To: "talk"}, {ID: "3", From: "talk", To: end}}
+	if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
+		t.Fatal(err)
+	}
+	task := r.task(wf.ID)
+	r.wait("discussion", func(w *model.World) bool {
+		s := subAt(w, task.ID, "討論")
+		return s != nil && s.Review != nil
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	for step, wants := range map[string][]string{
+		"寫碼": {"- 整理需求：" + usecase.StartPrompt, "- 討論（id: talk）：" + usecase.TalkPrompt},
+		"討論": {"- 寫碼：寫碼的指示", "- 驗收：" + usecase.EndPrompt},
+	} {
+		for _, want := range wants {
+			if !strings.Contains(systems[step], want) {
+				t.Errorf("%s does not see %q", step, want)
+			}
+		}
+	}
+	if strings.Contains(systems["整理需求"], "# 上一步") {
+		t.Error("the first step has nothing before it")
+	}
 }
 
 func TestBudgetStopsTheRun(t *testing.T) {
@@ -691,7 +765,7 @@ func TestSubscriptionRunsSayNothingAboutPrices(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	ctx := context.Background()
 	r.fake.mu.Lock()
-	r.fake.models = []string{"plan-model"}
+	r.fake.models = []model.ModelSpec{{ID: "plan-model"}}
 	r.fake.login = &adapter.LoginFlow{Wait: func(context.Context) error { return nil }, Paste: func(string) error { return nil }}
 	r.fake.mu.Unlock()
 	p, err := r.e.AddProvider(ctx, usecase.NewProvider{Name: "訂閱", Kind: enum.ProviderOpenAI, Login: usecase.ProviderLogin{Kind: "subscription"}})
