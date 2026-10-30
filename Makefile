@@ -10,15 +10,15 @@ help:
 	@sed -n 's/^## //p' Makefile | column -t -s ':' | sed -e 's/^/\t/'
 	@echo ""
 
-## dev: start the frontend on the real backend (run make server too; localhost port 5173)
+## dev: start the backend and the frontend together, Ctrl+C stops both (localhost port 5173)
 dev: frontend/node_modules
-	npm --prefix frontend run dev
+	@./scripts/dev.sh
 
 ## dev-mock: start the frontend on mock data, with no backend (localhost port 5173)
 dev-mock: frontend/node_modules
 	npm --prefix frontend run dev:mock
 
-## server: start the backend (localhost port 8787)
+## server: start only the backend (localhost port 8787)
 server:
 	cd backend && go run ./cmd/server
 
