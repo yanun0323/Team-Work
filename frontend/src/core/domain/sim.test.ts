@@ -118,7 +118,6 @@ describe('workflow run', () => {
     const two = duplicateWorkflow(w, wf.id)!
     expect([one.name, two.name]).toEqual(['修 Bug-1', '修 Bug-2'])
     expect(one.id).not.toBe(wf.id)
-    expect(one.teamId).toBe(team.id)
     expect(one.nodes).toEqual(wf.nodes)
     one.nodes[1].name = 'changed'
     expect(wf.nodes[1].name).toBe('a')
@@ -134,7 +133,7 @@ describe('workflow run', () => {
     const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: first, overrides: { '*': calm } })
     deleteWorkflow(w, first)
     expect(w.workflows[first]).toBeDefined()
-    const second = newWorkflow(w, team.id, 'b')
+    const second = newWorkflow(w, 'b')
     deleteWorkflow(w, first)
     expect(w.workflows[first]).toBeUndefined()
     expect(w.teams[team.id].defaultWorkflowId).toBe(second.id)
@@ -564,7 +563,7 @@ describe('workflow editing', () => {
 })
 
 describe('closing a company', () => {
-  it('takes its people, flows, tasks and sub-tasks, and leaves the rest running', () => {
+  it('takes its people, tasks and sub-tasks, and leaves the rest, flows too, running', () => {
     const { w, team } = setup([['start', 'a']])
     const other = createTeam(w, { name: 'o', folder: '/tmp/o', targetBranch: 'main', branches: ['main'], initializedGit: false })
     const keep = hire(w, other.id, 'bp', 'Keep')
@@ -574,7 +573,7 @@ describe('closing a company', () => {
     deleteTeam(w, team.id, { removeFiles: false })
     expect(w.teams[team.id]).toBeUndefined()
     expect(Object.values(w.replicas)).toEqual([keep])
-    expect(Object.values(w.workflows).every((x) => x.teamId === other.id)).toBe(true)
+    expect(w.workflows[other.defaultWorkflowId]).toBeDefined()
     expect(w.tasks).toEqual({})
     expect(w.subTasks).toEqual({})
     expect(w.blueprints.bp).toBeDefined()

@@ -1,9 +1,12 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
+import { applyPatches, connect, emptyWorld, type ServerEvent } from './backend'
 import { seedWorld } from './data/seed'
 import { tick } from './domain/sim'
 import type { Locale, World, WorldEvent } from './domain/types'
+import { MOCK } from './mode'
+import { editing, setFailureHandler } from './ops'
 
 /** Screens every design has. Each design lays them out its own way. */
 export type View = 'teams' | 'home' | 'board' | 'workflow' | 'roster' | 'blueprints' | 'settings'
@@ -33,16 +36,26 @@ interface State {
   panel: Panel
   speed: number
   toasts: Toast[]
+  /** The world has arrived; before that, an empty one says nothing about what exists. */
+  loaded: boolean
+  /** The backend can't be reached right now. */
+  offline: boolean
+  /** The last request the backend turned down, for the user to read. */
+  failure: string
   /** Change the world. Domain functions from sim.ts mutate in place and run inside this. */
   act: (fn: (w: World) => void) => void
   step: (dt: number) => void
   set: (patch: Partial<Pick<State, 'locale' | 'view' | 'teamId' | 'workflowId' | 'nodeId' | 'panel' | 'speed'>>) => void
   dismiss: (id: number) => void
+  /** Take in what the backend sends. */
+  receive: (ev: ServerEvent) => void
+  setOffline: () => void
+  setFailure: (failure: string) => void
 }
 
 let toastSeq = 0
 
-const world = seedWorld()
+const world = MOCK ? seedWorld() : emptyWorld()
 const firstTeam = Object.values(world.teams).sort((a, b) => a.createdAt - b.createdAt)[0]
 
 export const useStore = create<State>()(
@@ -57,6 +70,41 @@ export const useStore = create<State>()(
     panel: null,
     speed: 1,
     toasts: [],
+    loaded: MOCK,
+    offline: false,
+    failure: '',
+    receive: (ev) =>
+      set((s) => {
+        switch (ev.type) {
+          case 'snapshot': {
+            s.world = { ...emptyWorld(), ...ev.world }
+            s.loaded = true
+            s.offline = false
+            if (!s.teamId || !s.world.teams[s.teamId]) {
+              const first = Object.values(s.world.teams).sort((a, b) => a.createdAt - b.createdAt)[0]
+              s.teamId = first?.id ?? null
+              s.view = first ? 'home' : 'teams'
+            }
+            break
+          }
+          case 'patch':
+            applyPatches(s.world, ev, (kind, id) => kind === 'team' && editing(id))
+            if (!s.teamId) {
+              const first = Object.values(s.world.teams).sort((a, b) => a.createdAt - b.createdAt)[0]
+              if (first) {
+                s.teamId = first.id
+                s.view = 'home'
+              }
+            }
+            break
+          case 'notice':
+            s.toasts.push({ id: ++toastSeq, event: ev.kind === 'review' ? { kind: 'review', taskId: ev.taskId, subId: ev.subId ?? '' } : { kind: 'awaitMerge', taskId: ev.taskId } })
+            s.toasts = s.toasts.slice(-4)
+            break
+        }
+      }),
+    setOffline: () => set((s) => void (s.offline = true)),
+    setFailure: (failure) => set((s) => void (s.failure = failure)),
     act: (fn) =>
       set((s) => {
         fn(s.world)
@@ -64,6 +112,8 @@ export const useStore = create<State>()(
       }),
     step: (dt) =>
       set((s) => {
+        // the backend runs the world; here its clock only keeps going between changes
+        if (!MOCK) return void (s.world.now = Date.now() / 1000)
         if (s.speed === 0) return
         tick(s.world, dt * s.speed)
         drain(s)
@@ -96,6 +146,16 @@ export function useSimLoop() {
     }, 100)
     return () => window.clearInterval(id)
   }, [step])
+}
+
+/** Keep the world in step with the backend, unless this page runs on the simulator. */
+export function useBackend() {
+  useEffect(() => {
+    if (MOCK) return
+    const { receive, setOffline, setFailure } = useStore.getState()
+    setFailureHandler(setFailure)
+    return connect(receive, setOffline)
+  }, [])
 }
 
 /** Keep <html lang> in sync with the chosen language. */

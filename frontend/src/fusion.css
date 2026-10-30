@@ -796,6 +796,13 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-browse:hover { color: var(--ink); }
 
 /* a subscription's sign-in, in the provider form */
+.fx-trouble { position: fixed; z-index: 50; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; max-width: min(90vw, 560px); padding: 8px 14px; background: #fff; box-shadow: var(--lift); color: var(--accent); font-size: 13px; }
+.fx-field:has(.fx-claude) { align-items: start; }
+.fx-field:has(.fx-claude) > span { padding-top: 2px; }
+.fx-claude .fx-login { width: auto; }
+.fx-claude { display: grid; gap: 8px; justify-items: start; font-size: 13px; color: var(--ink-2); }
+.fx-claude p { margin: 0; }
+.fx-claude code { font-size: 12px; overflow-wrap: anywhere; color: var(--ink); }
 .fx-login { justify-self: start; padding-inline: 14px; cursor: pointer; font-weight: 600; color: var(--ink); }
 .fx-login:hover { background: color-mix(in srgb, var(--ink) 10%, transparent); }
 .fx-signed { margin: 0; padding-block: 7px; color: var(--ink); font-weight: 600; }
@@ -875,3 +882,4 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 :is(.fx-chat-say, .fx-chat-end) :is(.fx-d-merge-acts, .fx-d-merge-back) { padding-inline-start: 0; }
 .fx-chat-end .fx-d-merge-acts { flex-wrap: wrap; }
 .fx-chat-end .fx-add { margin: 0; border: 0; cursor: pointer; }
+.fx-claude-paste { display: grid; gap: 4px; width: 100%; }

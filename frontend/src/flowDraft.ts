@@ -12,7 +12,6 @@ export interface FlowDraft {
   flow: Workflow
   /** The step the flow ends with. */
   end: string
-  isDefault: boolean
 }
 
 export const useFlowDraft = create<{ draft: FlowDraft | null }>(() => ({ draft: null }))
@@ -24,7 +23,7 @@ export const editFlowDraft = (f: (d: FlowDraft) => Partial<FlowDraft>) =>
 let seq = 0
 const tmp = (prefix: string) => `${prefix}-${Date.now().toString(36)}${++seq}`
 
-export const blankFlow = (teamId: string): Workflow => ({ id: '', teamId, name: '', ...flowEnds(tmp) })
+export const blankFlow = (): Workflow => ({ id: '', name: '', ...flowEnds(tmp) })
 
 /** The end of a flow as saved: the last step after which nothing follows. Only for making a draft. */
 export const endOf = endNodeOf

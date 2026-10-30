@@ -6,18 +6,17 @@ import type { Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
 import { useT } from './core/i18n'
 import { byBlueprint, mindOf } from './crew'
-import { activity, teamReplicas, teamTasks, teamWorkflows } from './core/model'
+import { activity, flowList, teamReplicas, teamTasks } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { Select, Stepper, WaitBadge } from './Controls'
+import { editTeam } from './core/ops'
 import { itemKey, type Item } from './DrawerDetail'
-import { FlowNotes, openCard } from './FlowNotes'
 
-export type Tab = 'tasks' | 'flow' | 'crew' | 'settings'
+export type Tab = 'tasks' | 'crew' | 'settings'
 
 export const TABS: { id: Tab; label: string }[] = [
   { id: 'tasks', label: '任務' },
-  { id: 'flow', label: '流程設計' },
   { id: 'crew', label: '員工' },
   { id: 'settings', label: '設定' },
 ]
@@ -34,7 +33,6 @@ interface Opens { teamId: string; open: string | null; onOpen: (x: Item) => void
 
 export function TabBody({ tab, ...p }: Opens & { tab: Tab }) {
   if (tab === 'tasks') return <Tasks {...p} />
-  if (tab === 'flow') return <Flows {...p} />
   if (tab === 'crew') return <Crew {...p} />
   return <Settings {...p} />
 }
@@ -91,28 +89,6 @@ export function Tasks(p: Opens) {
   )
 }
 
-function Flows(p: Opens) {
-  const { teamId } = p
-  const w = useStore((s) => s.world)
-  const team = w.teams[teamId]
-  const flows = teamWorkflows(w, teamId)
-  return (
-    <div className="fx-flows">
-      <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newFlow' }, p)}>＋ 新增流程</button>
-      {/* each flow opens as a whole; its title is the button, stretched over the flow */}
-      {flows.map((wf) => (
-        <section key={wf.id} className="fx-flow fx-flow-card" onClick={openCard}>
-          <h3>
-            <button className="fx-flow-open" {...opener({ kind: 'flow', id: wf.id }, p)}>{wf.name}</button>
-            {wf.id === team.defaultWorkflowId && <span className="fx-pill">預設</span>}
-          </h3>
-          <FlowNotes wf={wf} />
-        </section>
-      ))}
-    </div>
-  )
-}
-
 function Crew(p: Opens) {
   const { teamId } = p
   const t = useT()
@@ -152,29 +128,35 @@ function Crew(p: Opens) {
 
 function Settings({ teamId, ...p }: Opens) {
   const team = useStore((s) => s.world.teams[teamId])
+  const world = useStore((s) => s.world)
+  const flows = world.workflows
   const act = useStore((s) => s.act)
   // gone, while the file turns away
   if (!team) return null
   const num = (key: keyof TeamSettings, label: string, unit: string, min: number, step: number) => (
     <Stepper
       label={label} unit={unit} min={min} step={step} value={team.settings[key]}
-      onChange={(v) => act((x) => void (x.teams[teamId].settings[key] = v))}
+      onChange={(v) => act((x) => editTeam(x, teamId, { settings: { ...x.teams[teamId].settings, [key]: v } }))}
     />
   )
   return (
     <div className="fx-fields">
       <label className="fx-field">
         <span>名稱</span>
-        <input className="fx-control" value={team.name} onChange={(e) => act((x) => void (x.teams[teamId].name = e.target.value))} />
+        <input className="fx-control" value={team.name} onChange={(e) => act((x) => editTeam(x, teamId, { name: e.target.value }))} />
       </label>
       <Select
         label="目標分支" value={team.targetBranch} options={team.branches}
-        onChange={(v) => act((x) => void (x.teams[teamId].targetBranch = v))}
+        onChange={(v) => act((x) => editTeam(x, teamId, { targetBranch: v }))}
+      />
+      <Select
+        label="預設任務流程" value={team.defaultWorkflowId} options={flowList(world).map((x) => x.id)} labelOf={(id) => flows[id]?.name ?? id}
+        onChange={(v) => act((x) => editTeam(x, teamId, { defaultWorkflowId: v }))}
       />
       <label className="fx-field fx-field-top">
         <span>Prompt</span>
         <textarea className="fx-control" rows={6} value={team.prompt}
-          onChange={(e) => act((x) => void (x.teams[teamId].prompt = e.target.value))} />
+          onChange={(e) => act((x) => editTeam(x, teamId, { prompt: e.target.value }))} />
       </label>
       <hr />
       {num('timeoutMin', '子任務逾時', '分鐘', 1, 1)}

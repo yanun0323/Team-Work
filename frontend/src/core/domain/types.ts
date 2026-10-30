@@ -132,9 +132,9 @@ export interface WorkflowEdge {
   condition: string
 }
 
+/** A way of working, shared by every company; staff comes from each task. */
 export interface Workflow {
   id: string
-  teamId: string
   name: string
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
@@ -358,7 +358,16 @@ export type ProviderKind = 'anthropic' | 'openai' | 'google' | 'compatible'
  * How a provider is signed in to: an API key, of which only the last four characters are kept here (to
  * tell keys apart), or the sign-in of a Claude or ChatGPT subscription (Anthropic and OpenAI only).
  */
-export type ProviderAuth = { kind: 'apiKey'; keyHint: string } | { kind: 'subscription' }
+export type ProviderAuth = { kind: 'apiKey'; keyHint: string } | { kind: 'subscription'; signedIn?: boolean; login?: LoginPrompt }
+
+/** What the user has to do to sign in to a subscription, as the backend reports it. */
+export interface LoginPrompt {
+  method: 'browser' | 'device' | 'terminal'
+  url?: string
+  userCode?: string
+  command?: string
+  error?: string
+}
 
 /** Where models come from: an account with a provider, and the models it offers. */
 export interface ModelProvider {

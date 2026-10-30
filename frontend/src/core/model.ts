@@ -15,6 +15,8 @@ export const fmtCost = (usd: number) => `$${usd.toFixed(2)}`
 
 /** Simulated seconds as m:ss. */
 export const fmtClock = (sec: number) => {
+  // the backend's clock is real time; the simulator's counts up from zero
+  if (sec >= 1e9) return new Date(sec * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false })
   const s = Math.max(0, Math.floor(sec))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
@@ -37,7 +39,6 @@ export const teamTasks = (w: World, teamId: string) =>
 export const teamReplicas = (w: World, teamId: string) =>
   Object.values(w.replicas).filter((r) => r.teamId === teamId).sort((a, b) => a.hiredAt - b.hiredAt || a.name.localeCompare(b.name))
 
-export const teamWorkflows = (w: World, teamId: string) => Object.values(w.workflows).filter((x) => x.teamId === teamId)
 
 /** What a Replica is doing right now. */
 export function activity(w: World, r: Replica): { sub?: SubTask; task?: Task; merging?: Task } {
@@ -59,9 +60,10 @@ export function lastSub(w: World, r: Replica): SubTask | undefined {
       .sort((x, y) => (y.startedAt ?? 0) - (x.startedAt ?? 0))[0]
 }
 
-export function assignedNodes(w: World, r: Replica) {
-  return teamWorkflows(w, r.teamId).flatMap((wf) => wf.nodes.filter((n) => n.replicaIds.includes(r.id)).map((n) => ({ wf, n })))
-}
+const flowNumber = (id: string) => Number(id.match(/\d+$/)?.[0] ?? 0)
+
+/** Flows in the order they were made. Ids end in a running number; as text, wf-12 would come before wf-9. */
+export const flowList = (w: World) => Object.values(w.workflows).sort((a, b) => flowNumber(a.id) - flowNumber(b.id))
 
 export type InboxItem = { task: Task; sub?: SubTask; kind: string; name: string }
 

@@ -70,6 +70,12 @@ export interface NewTask {
   images?: Attachment[]
 }
 
+/** A flow is shared, so a task's copy of it keeps only people from the task's own company. */
+function ownStaff(w: World, teamId: string, wf: Workflow): Workflow {
+  for (const n of wf.nodes) n.replicaIds = n.replicaIds.filter((r) => w.replicas[r]?.teamId === teamId)
+  return wf
+}
+
 export function createTask(w: World, input: NewTask): Task {
   const number = Object.values(w.tasks).filter((t) => t.teamId === input.teamId).length + 1
   const task: Task = {
@@ -80,7 +86,7 @@ export function createTask(w: World, input: NewTask): Task {
     description: input.description,
     images: input.images ?? [],
     workflowId: input.workflowId,
-    workflow: clone(w.workflows[input.workflowId]),
+    workflow: ownStaff(w, input.teamId, clone(w.workflows[input.workflowId])),
     createdAt: w.now,
     stage: 'running',
     paused: false,
@@ -653,7 +659,7 @@ export function changeWorkflow(w: World, taskId: string, workflowId: string) {
   task.costCarry = taskCost(w, task)
   for (const s of subsOf(w, taskId)) delete w.subTasks[s.id]
   task.workflowId = workflowId
-  task.workflow = clone(w.workflows[workflowId])
+  task.workflow = ownStaff(w, task.teamId, clone(w.workflows[workflowId]))
   setOwner(task, task.ownerId)
   task.paused = false
   task.pausedAt = undefined
@@ -890,17 +896,17 @@ export function flowEnds(id: (prefix: string) => string): Pick<Workflow, 'nodes'
   }
 }
 
-export function newWorkflow(w: World, teamId: string, name: string): Workflow {
-  const wf: Workflow = { id: uid(w, 'wf'), teamId, name, ...flowEnds((p) => uid(w, p)) }
+export function newWorkflow(w: World, name: string): Workflow {
+  const wf: Workflow = { id: uid(w, 'wf'), name, ...flowEnds((p) => uid(w, p)) }
   w.workflows[wf.id] = wf
   return wf
 }
 
-/** A copy of a flow, named after it with the first free `-1`, `-2`…; it is not the default. */
+/** A copy of a flow, named after it with the first free `-1`, `-2`…; no company defaults to it. */
 export function duplicateWorkflow(w: World, wfId: string): Workflow | undefined {
   const from = w.workflows[wfId]
   if (!from) return
-  const taken = new Set(Object.values(w.workflows).filter((x) => x.teamId === from.teamId).map((x) => x.name))
+  const taken = new Set(Object.values(w.workflows).map((x) => x.name))
   let n = 1
   while (taken.has(`${from.name}-${n}`)) n++
   const wf: Workflow = { ...clone(from), id: uid(w, 'wf'), name: `${from.name}-${n}` }
@@ -909,24 +915,26 @@ export function duplicateWorkflow(w: World, wfId: string): Workflow | undefined 
 }
 
 /**
- * Remove a flow. Tasks keep the copy they were started with, so they run on; a company's last flow stays,
- * and if the default goes, the company's first other flow becomes the default.
+ * Remove a flow. Tasks keep the copy they were started with, so they run on; the last flow stays, and companies
+ * defaulting to the one that goes move to the first other.
  */
 export function deleteWorkflow(w: World, wfId: string) {
-  const wf = w.workflows[wfId]
-  if (!wf) return
-  const others = Object.values(w.workflows).filter((x) => x.teamId === wf.teamId && x.id !== wfId)
+  if (!w.workflows[wfId]) return
+  const others = Object.values(w.workflows).filter((x) => x.id !== wfId)
   if (!others.length) return
   delete w.workflows[wfId]
-  const team = w.teams[wf.teamId]
-  if (team?.defaultWorkflowId === wfId) team.defaultWorkflowId = others[0].id
+  for (const team of Object.values(w.teams)) if (team.defaultWorkflowId === wfId) team.defaultWorkflowId = others[0].id
 }
 
+export const DEFAULT_FLOW = '預設任務流程'
+
+/** A new company starts on the plain default flow, or the first flow there is; with none yet, the plain one is made. */
 export function createTeam(
   w: World, input: { name: string; folder: string; targetBranch: string; branches: string[]; initializedGit: boolean },
 ): Team {
   const id = uid(w, 'team')
-  const wf = newWorkflow(w, id, '預設流程')
+  const flows = Object.values(w.workflows)
+  const wf = flows.find((x) => x.name === DEFAULT_FLOW) ?? flows[0] ?? newWorkflow(w, DEFAULT_FLOW)
   const team: Team = {
     id, ...input, defaultWorkflowId: wf.id, prompt: '', createdAt: w.now,
     settings: { timeoutMin: 30, costLimitUsd: 3, retries: 1 },
@@ -936,8 +944,8 @@ export function createTeam(
 }
 
 /**
- * Close a company: it goes with everyone who works there, its flows, and all its tasks and their sub-tasks.
- * Blueprints are shared and stay. The prototype has no real folders, so `removeFiles` deletes nothing here.
+ * Close a company: it goes with everyone who works there, and all its tasks and their sub-tasks.
+ * Blueprints and flows are shared and stay. The prototype has no real folders, so `removeFiles` deletes nothing here.
  */
 export function deleteTeam(w: World, teamId: string, _opts: { removeFiles: boolean } = { removeFiles: false }) {
   if (!w.teams[teamId]) return
@@ -945,7 +953,6 @@ export function deleteTeam(w: World, teamId: string, _opts: { removeFiles: boole
   for (const s of Object.values(w.subTasks)) if (tasks.has(s.taskId)) delete w.subTasks[s.id]
   for (const id of tasks) delete w.tasks[id]
   for (const r of Object.values(w.replicas)) if (r.teamId === teamId) delete w.replicas[r.id]
-  for (const wf of Object.values(w.workflows)) if (wf.teamId === teamId) delete w.workflows[wf.id]
   w.events = w.events.filter((e) => !('taskId' in e) || !tasks.has(e.taskId))
   delete w.teams[teamId]
 }

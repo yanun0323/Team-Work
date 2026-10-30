@@ -3,7 +3,7 @@ import { outEdges, taskNodeOf } from './core/domain/graph'
 import { addStep, blankFlow, branchStep, canLink, insertStep, endOf, isMiddle, link, loose, nextChoices, putStep, removeStep, unlink } from './flowDraft'
 
 const fresh = () => {
-  const wf = blankFlow('t')
+  const wf = blankFlow()
   return { wf, end: endOf(wf)!.id, start: taskNodeOf(wf).id }
 }
 

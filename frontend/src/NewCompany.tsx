@@ -11,6 +11,9 @@ import { createTeam } from './core/domain/sim'
 import { Select } from './Controls'
 import { BuildingIcon } from './Drawer'
 import { Reroll } from './DrawerDetail'
+import { persist } from 'zustand/middleware'
+import { MOCK } from './core/mode'
+import { branchesOf } from './core/ops'
 import { canPlace, CELL, PLOT_CELLS, spotCenter, spotUnder, type BuildingLook, type BuildingStyle, type Spot, type Town } from './layout'
 import { NO_OUTLINE_LAYER } from './PixelPass'
 import { pickedPath, pickFolderName } from './pickFolder'
@@ -23,7 +26,9 @@ const KNOWN_REPOS: Record<string, string[]> = {
 }
 
 /** Company id → its spot in town cells and its building's look, for companies whose place is settled. */
-export const usePlots = create<Record<string, { at: Spot; style: BuildingStyle; seed: number }>>(() => ({}))
+type Plots = Record<string, { at: Spot; style: BuildingStyle; seed: number }>
+// the map is this browser's, not the backend's, so with real companies it is kept here
+export const usePlots = MOCK ? create<Plots>(() => ({})) : create<Plots>()(persist(() => ({}), { name: 'mho-plots' }))
 
 /** A press that moved further than this, in pixels, was a pan, not a click. */
 const CLICK_SLOP = 5
@@ -175,7 +180,17 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
     const picked = await pickFolderName()
     if (picked) takeFolder(pickedPath(folder, picked))
   }
-  const known = KNOWN_REPOS[folder.trim()]
+  // the real repo's branches, or the prototype's made-up ones; a folder without a repo starts on master
+  const [found, setFound] = useState<string[] | null>(null)
+  useEffect(() => {
+    if (MOCK) return
+    const ctl = new AbortController()
+    const wait = window.setTimeout(() => {
+      branchesOf(folder.trim(), ctl.signal).then((r) => setFound(r.repo && r.branches.length ? r.branches : null)).catch(() => setFound(null))
+    }, 300)
+    return () => { window.clearTimeout(wait); ctl.abort() }
+  }, [folder])
+  const known = MOCK ? KNOWN_REPOS[folder.trim()] : found ?? undefined
   const target = known ? (known.includes(branch) ? branch : known[0]) : branch.trim()
   const save = (e: FormEvent) => {
     e.preventDefault()

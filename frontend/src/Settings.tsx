@@ -9,7 +9,9 @@ import { version } from '../package.json'
 import { BlueprintIcon } from './BlueprintIcon'
 import { SheetStack, useSheets } from './Drawer'
 import { gitSources } from './core/domain/sim'
-import { itemKey, type Item } from './DrawerDetail'
+import { flowList } from './core/model'
+import { defaultsOf, itemKey, type Item } from './DrawerDetail'
+import { FlowNotes, openCard } from './FlowNotes'
 import { sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, PROVIDER_KINDS } from './providers'
@@ -29,6 +31,7 @@ const THANKS = [{ name: 'yanun0323', href: 'https://github.com/yanun0323' }]
 const TABS = [
   { id: 'providers', label: '模型供應商' },
   { id: 'blueprints', label: '員工藍圖' },
+  { id: 'flows', label: '任務流程' },
   { id: 'prefs', label: '設定' },
   { id: 'about', label: '關於' },
 ] as const
@@ -93,6 +96,7 @@ export function Settings({ leaving, onGone }: {
         <section key={tab} id="fx-settings-panel" className="fx-page" role="tabpanel" aria-labelledby={`fx-settings-tab-${tab}`}>
           {tab === 'providers' && <Providers open={open} onOpen={sheets.open} />}
           {tab === 'blueprints' && <Blueprints open={open} onOpen={sheets.open} />}
+          {tab === 'flows' && <Flows open={open} onOpen={sheets.open} />}
           {tab === 'prefs' && <PrefsPage />}
           {tab === 'about' && <About />}
         </section>
@@ -145,6 +149,29 @@ function Blueprints({ open, onOpen }: { open: string | null; onOpen: (x: Item) =
           )
         })}
       </ul>
+    </div>
+  )
+}
+
+function Flows({ open, onOpen }: { open: string | null; onOpen: (x: Item) => void }) {
+  const w = useStore((s) => s.world)
+  const opener = (x: Item) => ({ type: 'button' as const, 'aria-expanded': open === itemKey(x), 'aria-controls': 'fx-detail', onClick: () => onOpen(x) })
+  return (
+    <div className="fx-flows">
+      <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newFlow' })}>＋ 新增任務流程</button>
+      {/* each flow opens as a whole; its title is the button, stretched over the flow */}
+      {flowList(w).map((wf) => {
+        const defaults = defaultsOf(w, wf.id)
+        return (
+          <section key={wf.id} className="fx-flow fx-flow-card" onClick={openCard}>
+            <h3>
+              <button className="fx-flow-open" {...opener({ kind: 'flow', id: wf.id })}>{wf.name}</button>
+              {defaults > 0 && <span className="fx-pill">{defaults} 間公司預設</span>}
+            </h3>
+            <FlowNotes wf={wf} />
+          </section>
+        )
+      })}
     </div>
   )
 }

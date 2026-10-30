@@ -1,8 +1,9 @@
 // Fake starting world. Tasks are pre-run so the board opens with something in every column.
 
 import { autoLayout } from '../domain/graph'
+import { addPresetFlows, PRESET_BLUEPRINTS } from './presets'
 import {
-  createTask, createTeam, END_PROMPT, TALK_PROMPT, hire, mergeTask, pauseTask, remember, REPLY_TIME, sayInTalk, START_PROMPT, tick,
+  createTask, createTeam, END_PROMPT, TALK_PROMPT, hire, mergeTask, newWorkflow, pauseTask, remember, REPLY_TIME, sayInTalk, START_PROMPT, tick,
 } from '../domain/sim'
 import type { Blueprint, GitSource, Look, ModelProvider, Workflow, WorkflowNode, World } from '../domain/types'
 
@@ -110,7 +111,7 @@ export function seedWorld(): World {
     nextDriftAt: 75, rng: 20261028, events: [],
   }
   for (const p of PROVIDERS) w.providers[p.id] = structuredClone(p)
-  for (const bp of BLUEPRINTS) w.blueprints[bp.id] = structuredClone(bp)
+  for (const bp of [...BLUEPRINTS, ...PRESET_BLUEPRINTS]) w.blueprints[bp.id] = structuredClone(bp)
 
   // ---------- team 1: web shop ----------
   const shop = createTeam(w, {
@@ -150,7 +151,7 @@ export function seedWorld(): World {
   autoLayout(main)
 
   const bugfix: Workflow = {
-    id: 'wf-bugfix', teamId: shop.id, name: '修 Bug',
+    id: 'wf-bugfix', name: '修 Bug',
     nodes: [
       node('b-start', 'task', '整理需求', START_PROMPT, []),
       node('b-repro', 'work', '重現', '寫一個會失敗的測試重現 bug。', [juno.id]),
@@ -175,8 +176,8 @@ export function seedWorld(): World {
   })
   const ada = hire(w, docs.id, 'bp-writer', 'Ada', { ...BLUEPRINTS[2].look, hair: '#d9d4c7' }, { model: 'claude-sonnet-5' })
   const leo = hire(w, docs.id, 'bp-reviewer', 'Leo', { ...BLUEPRINTS[3].look, skin: '#e0ac7e' }, { model: 'gpt-5.5' })
-  const dwf = w.workflows[docs.defaultWorkflowId]
-  dwf.name = '寫文件'
+  const dwf = newWorkflow(w, '寫文件')
+  docs.defaultWorkflowId = dwf.id
   const [dstart, dreview] = dwf.nodes
   dwf.nodes.push(
     node('d-talk', 'talk', '討論大綱', TALK_PROMPT, [ada.id]),
@@ -255,6 +256,10 @@ export function seedWorld(): World {
   if (talkSub) sayInTalk(w, talkSub.id, '主要讀者是第一次用的開發者，只要涵蓋安裝和第一個範例。')
   run(REPLY_TIME + 1)
   void report
+
+  addPresetFlows(w)
+  // the tasks above took their staff from the flows; shared flows name nobody
+  for (const wf of Object.values(w.workflows)) for (const n of wf.nodes) n.replicaIds = []
 
   w.events = []
   return w

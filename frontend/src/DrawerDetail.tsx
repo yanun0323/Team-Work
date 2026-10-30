@@ -9,13 +9,14 @@ import { blueprintUsers, gitSources, statusOf, subsOf } from './core/domain/sim'
 import { TOOLS, type Effort, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type ProviderKind, type Replica, type Status, type SubTask, type Workflow, type World } from './core/domain/types'
 import { sourceState, sourceText, TOOL_NAMES } from './source'
 import { useT } from './core/i18n'
-import { activity, fmtClock, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas } from './core/model'
+import { flowList, activity, fmtClock, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { BlueprintIcon, pinLook } from './BlueprintIcon'
 import { seedOf } from './People'
 import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
+import { ClaudeAccount } from './ClaudeAccount'
 import { Select, WaitBadge } from './Controls'
 import { FlowNotes, openCard } from './FlowNotes'
 import { addImages, draftFlow, draftStaff, editDraft, lastStaff, unstaffed, useDraft, type TaskDraft } from './draft'
@@ -24,9 +25,13 @@ import { docOf } from './doc'
 import { parseGithub } from './github'
 import { parseBlueprintYaml, YAML_TEMPLATE } from './blueprintYaml'
 import { authLabel, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
-import { endTalk, sayInTalk, talking, TALK_PROMPT } from './core/domain/sim'
+import { talking, TALK_PROMPT } from './core/domain/sim'
 import type { TalkEnd } from './core/domain/types'
-import { addProvider, deleteProvider, providerUsers, updateProvider, type ProviderLogin, createTask, DEFAULT_MODEL, deleteBlueprint, deleteTask, deleteTeam, fire, hire, deleteWorkflow, duplicateWorkflow, newWorkflow, pauseTask, resumeTask, setOwner, mergeTask, returnTask, RESOLVE_TIME, resolveReview, costLimit } from './core/domain/sim'
+import { addProvider, providerUsers, updateProvider, type ProviderLogin, DEFAULT_MODEL, RESOLVE_TIME, costLimit } from './core/domain/sim'
+import { request } from './core/backend'
+import { MOCK } from './core/mode'
+import { attempt, createTask, deleteBlueprint, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, endTalk, fire, hire, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
+import { SubscriptionLogin } from './SubscriptionLogin'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, endOf, isMiddle, link, loose, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
 
 export type Item =
@@ -122,11 +127,11 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               onOpen={(node) => onPush({ kind: 'staff', node })} onDone={onDone} />
           )}
           {item.kind === 'flow' && (
-            <FlowDetail id={item.id} teamId={teamId} title={title} tid={id} editing={above?.kind === 'flowEdit'}
+            <FlowDetail id={item.id} title={title} tid={id} editing={above?.kind === 'flowEdit'}
               onEdit={() => onPush({ kind: 'flowEdit', id: item.id })} onGoneFlow={onDone} />
           )}
           {(item.kind === 'flowEdit' || item.kind === 'newFlow') && (
-            <FlowEdit id={item.kind === 'flowEdit' ? item.id : null} teamId={teamId} title={title} tid={id} onDone={onDone} />
+            <FlowEdit id={item.kind === 'flowEdit' ? item.id : null} title={title} tid={id} onDone={onDone} />
           )}
           {item.kind === 'crew' && (
             <CrewDetail id={item.id} title={title} tid={id} editing={above?.kind === 'crewEdit'} firing={above?.kind === 'fire'}
@@ -800,9 +805,11 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
   )
 }
 
-function FlowDetail({ id, teamId, editing, onEdit, onGoneFlow, ...h }: Head & {
+/** How many companies start their tasks on this flow. */
+export const defaultsOf = (w: World, id: string) => Object.values(w.teams).filter((t) => t.defaultWorkflowId === id).length
+
+function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
   id: string
-  teamId: string
   editing: boolean
   onEdit: () => void
   /** Called once the flow is deleted, to put its sheet away. */
@@ -812,12 +819,13 @@ function FlowDetail({ id, teamId, editing, onEdit, onGoneFlow, ...h }: Head & {
   const act = useStore((s) => s.act)
   const wf = w.workflows[id]
   if (!wf) return <Gone {...h} />
-  const last = Object.values(w.workflows).filter((x) => x.teamId === teamId).length < 2
+  const last = Object.keys(w.workflows).length < 2
   const remove = () => {
     onGoneFlow()
     act((x) => deleteWorkflow(x, id))
   }
-  const tasks = Object.values(w.tasks).filter((t) => t.teamId === teamId && t.workflowId === wf.id && statusOf(w, t) !== 'complete')
+  const tasks = Object.values(w.tasks).filter((t) => t.workflowId === wf.id && statusOf(w, t) !== 'complete')
+  const defaults = defaultsOf(w, id)
   return (
     <>
       <div className="fx-tools">
@@ -828,12 +836,12 @@ function FlowDetail({ id, teamId, editing, onEdit, onGoneFlow, ...h }: Head & {
             <path d="M10.5 3.2V2.5h-8v8h.7" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
           </svg>
         </button>
-        <DeleteTool what="流程" onConfirm={remove} disabled={last} why="公司至少要有一條流程" />
+        <DeleteTool what="任務流程" onConfirm={remove} disabled={last} why="至少要有一條任務流程" />
       </div>
       <header className="fx-d-head">
         <Heading {...h}>{wf.name}</Heading>
         <p className="fx-d-meta">
-          {w.teams[teamId]?.defaultWorkflowId === wf.id && <span className="fx-pill">預設</span>}
+          {defaults > 0 && <span className="fx-pill">{defaults} 間公司預設</span>}
           <span>{workSteps(wf).length} 個步驟</span>
           <span>{tasks.length ? `${tasks.length} 個任務未完成` : '沒有未完成的任務'}</span>
         </p>
@@ -979,6 +987,22 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
   const [key, setKey] = useState('')
   const [signedIn, setSignedIn] = useState(old?.auth.kind === 'subscription')
   const [loginError, setLoginError] = useState(false)
+  // what a signed-in Claude account offers; only a new provider asks, as editing one keeps its sign-in
+  const [claudeModels, setClaudeModels] = useState<string[]>([])
+  // ChatGPT: the backend signs in a provider it has, so one is made when the user starts, and thrown away if
+  // they leave before saving
+  const [made, setMade] = useState<string | null>(null)
+  const madeProvider = useStore((s) => (made ? s.world.providers[made] : undefined))
+  const keepMade = useRef(false)
+  const madeNow = useRef<string | null>(null)
+  madeNow.current = made
+  useEffect(() => () => {
+    if (madeNow.current && !keepMade.current) void request('DELETE', `/providers/${madeNow.current}`).catch(() => {})
+  }, [])
+  const startChatGPT = async () => {
+    const p = await attempt(() => request<{ id: string }>('POST', '/providers', { name, kind, login: { kind: 'subscription' } }))
+    if (p) setMade(p.id)
+  }
   if (id && !old) return <Gone {...h} />
   const sub = SUBSCRIPTIONS[kind]
   const nameFor = (k: ProviderKind, a: typeof auth) => (a === 'subscription' ? `${SUBSCRIPTIONS[k]} 訂閱` : PROVIDER_KINDS[k].label)
@@ -987,25 +1011,45 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
     setKind(k)
     setAuth(a)
     setSignedIn(false)
+    setClaudeModels([])
     if (!named) setName(nameFor(k, a))
   }
   const pickAuth = (a: typeof auth) => {
     setAuth(a)
     setLoginError(false)
+    setClaudeModels([])
     if (!named) setName(nameFor(kind, a))
   }
   const custom = kind === 'compatible'
+  const claude = !old && kind === 'anthropic' && auth === 'subscription'
   // a key is asked for unless one is kept already, or the provider needs none
   const needKey = !custom && !(old?.auth.kind === 'apiKey')
   const save = (e: React.FormEvent) => {
     e.preventDefault()
-    if (auth === 'subscription' && !signedIn) return setLoginError(true)
+    const account = (old ?? madeProvider)?.auth
+    const done = claude ? claudeModels.length > 0 : MOCK ? signedIn : account?.kind === 'subscription' && !!account.signedIn
+    if (auth === 'subscription' && !done) return setLoginError(true)
     const login: ProviderLogin | null = auth === 'subscription'
       ? (old?.auth.kind === 'subscription' ? null : { kind: 'subscription' })
       : { kind: 'apiKey', apiKey: key }
+    if (!MOCK) {
+      // the form stays open if the backend turns it down, for a key that does not work, say
+      void attempt(async () => {
+        if (made) await request('PATCH', `/providers/${made}`, { name })
+        else if (old) await request('PATCH', `/providers/${old.id}`, { name, baseUrl: url, login })
+        else {
+          const p = await request<{ id: string }>('POST', '/providers', { name, kind, baseUrl: url, login: login ?? { kind: 'subscription' } })
+          // Claude Code is signed in already by now; the backend only has to see it
+          if (claude) await request('POST', `/providers/${p.id}/login`, {})
+        }
+        keepMade.current = true
+        onDone()
+      })
+      return
+    }
     act((x) => {
       if (old) updateProvider(x, old.id, { name, baseUrl: url, login })
-      else addProvider(x, { name, kind, baseUrl: url, login: login ?? { kind: 'subscription' }, models: PROVIDER_KINDS[kind].models })
+      else addProvider(x, { name, kind, baseUrl: url, login: login ?? { kind: 'subscription' }, models: claude ? claudeModels : PROVIDER_KINDS[kind].models })
     })
     onDone()
   }
@@ -1039,6 +1083,24 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
                 placeholder={old?.auth.kind === 'apiKey' && old.auth.keyHint ? `••••${old.auth.keyHint}` : undefined}
                 onChange={(e) => setKey(e.target.value)} />
             </label>
+          </>
+        ) : claude ? (
+          <>
+            <ClaudeAccount describedBy={loginError ? 'fx-login-error' : undefined}
+              onModels={(m) => { setClaudeModels(m); if (m.length) setLoginError(false) }} />
+            {loginError && <p id="fx-login-error" className="fx-field-error">請先登入 {sub}</p>}
+          </>
+        ) : !MOCK ? (
+          <>
+            {old || made
+              ? <SubscriptionLogin id={old?.id ?? (made as string)} />
+              : (
+                <div className="fx-field">
+                  <span>帳號</span>
+                  <button type="button" className="fx-control fx-login fx-hit" onClick={() => void startChatGPT()}>登入 {sub}</button>
+                </div>
+              )}
+            {loginError && <p id="fx-login-error" className="fx-field-error">請先登入 {sub}</p>}
           </>
         ) : (
           <>
@@ -1197,11 +1259,7 @@ function BlueprintEdit({ id, onDone, ...h }: Head & { id: string | null; onDone:
   }
   const hash = () => Math.random().toString(16).slice(2, 9)
   const keep = (bp: Omit<Blueprint, 'id' | 'look' | 'autoUpdate'>) => {
-    act((x) => {
-      if (id && !x.blueprints[id]) return
-      const key = id ?? `bp${++x.seq}`
-      x.blueprints[key] = blueprintOf(key, x.blueprints[key], look, bp)
-    })
+    act((x) => saveBlueprint(x, id, (key, prev) => blueprintOf(key, prev, look, bp)))
     onDone()
   }
   const save = (e: React.FormEvent) => {
@@ -1224,18 +1282,19 @@ function BlueprintEdit({ id, onDone, ...h }: Head & { id: string | null; onDone:
       return
     }
     const version = (g.ref || ref).trim()
-    const commit = hash()
+    // the simulator makes up a version; the backend finds the real one once the blueprint is saved
+    const commit = MOCK ? hash() : ''
     const source = keepSource(old, {
       kind: 'git', repo: `git@github.com:${g.repo}`, ref: version, commit, latestRef: version, latest: commit, private: false,
       upstream: true, update: { at: now, ok: true },
     })
     // the same repo and version: what it was read as stands
     if (old && was === source) return keep({ ...old, name: name.trim() })
-    // the prompt, skills and tools are the repo's own; the prototype has no files to read them from.
-    // The tools start read and write only.
+    // the prompt and skills are the repo's own; the prototype has no files to read them from, and with the
+    // backend an empty prompt means its AGENTS.md. The tools start read and write only.
     keep({
-      name: name.trim(), source, prompt: '（從 AGENTS.md 讀取）', comment: '',
-      skills: [{ source: null, include: ['code-review', 'tdd', 'summarize'], exclude: [] }], tools: ['readFile', 'writeFile'],
+      name: name.trim(), source, prompt: MOCK ? '（從 AGENTS.md 讀取）' : '', comment: '',
+      skills: [{ source: null, include: MOCK ? ['code-review', 'tdd', 'summarize'] : null, exclude: [] }], tools: ['readFile', 'writeFile'],
     })
   }
   return (
@@ -1329,7 +1388,7 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
   const first = Object.values(w.blueprints)[0]
   const [name, setName] = useState(() => r?.name ?? NAMES.find((n) => !Object.values(w.replicas).some((x) => x.name === n)) ?? 'Nova')
   const [bp, setBp] = useState(r?.blueprintId ?? first?.id ?? '')
-  const [model, setModel] = useState(r?.model ?? DEFAULT_MODEL)
+  const [model, setModel] = useState(r?.model ?? (MOCK ? DEFAULT_MODEL : modelsOf(w)[0] ?? ''))
   const [effort, setEffort] = useState<Effort>(r?.effort ?? 'medium')
   const [look, setLook] = useState<Look>(() => r?.look ?? randomLook())
   if (id && !r) return <Gone {...h} />
@@ -1337,9 +1396,7 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
     e.preventDefault()
     act((x) => {
       if (!id) return void hire(x, teamId, bp, name.trim(), look, { model, effort })
-      const y = x.replicas[id]
-      if (!y) return
-      Object.assign(y, { name: name.trim(), blueprintId: bp, model, effort, look })
+      updateReplica(x, id, { name: name.trim(), blueprintId: bp, model, effort, look })
     })
     onDone()
   }
@@ -1454,11 +1511,13 @@ function Disband({ teamId, onDone, ...h }: Head & { teamId: string; onDone: () =
         <Heading {...h}>解散 {team.name}</Heading>
         <p className="fx-d-meta"><span>{people} 位員工</span><span>{open} 個未完成的任務</span></p>
       </header>
-      <button type="button" role="checkbox" aria-checked={removeFiles} className="fx-row fx-row-plain fx-hit fx-d-toggle"
-        onClick={() => setRemoveFiles(!removeFiles)}>
-        <span className="fx-row-main"><b>同時刪除本地檔案</b><span><code>{team.folder}</code></span></span>
-        <span className="fx-box" aria-hidden="true">{removeFiles ? '✓' : ''}</span>
-      </button>
+      {MOCK && (
+        <button type="button" role="checkbox" aria-checked={removeFiles} className="fx-row fx-row-plain fx-hit fx-d-toggle"
+          onClick={() => setRemoveFiles(!removeFiles)}>
+          <span className="fx-row-main"><b>同時刪除本地檔案</b><span><code>{team.folder}</code></span></span>
+          <span className="fx-box" aria-hidden="true">{removeFiles ? '✓' : ''}</span>
+        </button>
+      )}
       <button type="submit" className="fx-save fx-danger">解散公司</button>
     </form>
   )
@@ -1478,7 +1537,7 @@ function NewTask({ teamId, open, onOpen, onDone, ...h }: Head & {
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const draft = useDraft((s) => s.draft)
-  const flows = Object.values(w.workflows).filter((x) => x.teamId === teamId)
+  const flows = flowList(w)
   // a fresh draft on the company's default flow, dropped when the sheet goes
   useEffect(() => {
     const s = useStore.getState().world
@@ -1535,7 +1594,7 @@ function NewTask({ teamId, open, onOpen, onDone, ...h }: Head & {
             </label>
           </div>
         </div>
-        <Select label="流程" value={draft.workflowId} options={flows.map((x) => x.id)} labelOf={(x) => w.workflows[x]?.name ?? x}
+        <Select label="任務流程" value={draft.workflowId} options={flows.map((x) => x.id)} labelOf={(x) => w.workflows[x]?.name ?? x}
           onChange={(id) => editDraft((d) => {
             const last = lastStaff(useStore.getState().world, teamId, id)
             return { workflowId: id, ...last, ownerId: d.ownerId ?? last.ownerId }
@@ -1643,14 +1702,7 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
   const save = (e: React.FormEvent) => {
     e.preventDefault()
     if (!ready) return
-    act((x) => {
-      const t = x.tasks[id]
-      if (!t) return
-      t.title = draft.title.trim()
-      t.description = draft.description.trim()
-      for (const n of t.workflow.nodes) if (draft.staff[n.id]) n.replicaIds = [...draft.staff[n.id]]
-      setOwner(t, draft.ownerId)
-    })
+    act((x) => updateTask(x, id, { title: draft.title.trim(), description: draft.description.trim(), staff: draft.staff, ownerId: draft.ownerId }))
     onDone()
   }
   return (
@@ -1817,9 +1869,8 @@ function DeleteTool({ what, onConfirm, disabled, why }: { what: string; onConfir
  * Write a flow: a new one (`id` null) or one the company has. Every step is written right here, in a list
  * under the drawing; clicking a note goes to its place in the list. Nothing is kept until it is saved.
  */
-function FlowEdit({ id, teamId, onDone, ...h }: Head & {
+function FlowEdit({ id, onDone, ...h }: Head & {
   id: string | null
-  teamId: string
   onDone: () => void
 }) {
   const w = useStore((s) => s.world)
@@ -1829,10 +1880,10 @@ function FlowEdit({ id, teamId, onDone, ...h }: Head & {
     const s = useStore.getState().world
     const wf = id ? s.workflows[id] : undefined
     if (id && !wf) return
-    const flow = wf ? structuredClone(wf) : blankFlow(teamId)
-    useFlowDraft.setState({ draft: { flow, end: endOf(flow)?.id ?? '', isDefault: !!id && s.teams[teamId]?.defaultWorkflowId === id } })
+    const flow = wf ? structuredClone(wf) : blankFlow()
+    useFlowDraft.setState({ draft: { flow, end: endOf(flow)?.id ?? '' } })
     return () => useFlowDraft.setState({ draft: null })
-  }, [id, teamId])
+  }, [id])
   // the list keeps the order it opened with, so a step does not jump away while its arrows change;
   // new steps go just before the end, as they do in the drawing
   const order = useRef<string[]>([])
@@ -1849,7 +1900,7 @@ function FlowEdit({ id, teamId, onDone, ...h }: Head & {
   if (id && !w.workflows[id]) return <Gone {...h} />
   if (!draft) return null
   const { flow, end } = draft
-  const wasDefault = !!id && w.teams[teamId]?.defaultWorkflowId === id
+  const defaults = id ? defaultsOf(w, id) : 0
   const cut = loose(flow, end)
   const unnamed = flow.nodes.some((n) => !n.name.trim())
   if (!order.current.length) order.current = inOrder(flow).map((n) => n.id)
@@ -1872,19 +1923,16 @@ function FlowEdit({ id, teamId, onDone, ...h }: Head & {
   const save = (e: React.FormEvent) => {
     e.preventDefault()
     if (!ready) return
-    act((x) => {
-      const wf = id ? x.workflows[id] : newWorkflow(x, teamId, '')
-      if (!wf) return
-      wf.name = flow.name.trim()
-      wf.nodes = flow.nodes.map((n) => ({ ...structuredClone(n), name: n.name.trim(), prompt: n.prompt.trim() }))
-      wf.edges = structuredClone(flow.edges)
-      if (draft.isDefault && x.teams[teamId]) x.teams[teamId].defaultWorkflowId = wf.id
-    })
+    act((x) => saveWorkflow(x, id, {
+      name: flow.name.trim(),
+      nodes: flow.nodes.map((n) => ({ ...structuredClone(n), name: n.name.trim(), prompt: n.prompt.trim() })),
+      edges: structuredClone(flow.edges),
+    }))
     onDone()
   }
   return (
     <form className="fx-d-form" onSubmit={save}>
-      <header className="fx-d-head"><Heading {...h}>{id ? `編輯 ${w.workflows[id].name}` : '新增流程'}</Heading></header>
+      <header className="fx-d-head"><Heading {...h}>{id ? `編輯 ${w.workflows[id].name}` : '新增任務流程'}</Heading></header>
       <div className="fx-fields">
         <label className="fx-field">
           <span>名稱</span>
@@ -1892,11 +1940,7 @@ function FlowEdit({ id, teamId, onDone, ...h }: Head & {
             onChange={(e) => editFlowDraft((d) => ({ flow: { ...d.flow, name: e.target.value } }))} />
         </label>
       </div>
-      <button type="button" className="fx-row fx-row-plain fx-hit fx-d-toggle" aria-pressed={draft.isDefault} disabled={wasDefault}
-        onClick={() => editFlowDraft((d) => ({ isDefault: !d.isDefault }))}>
-        <span className="fx-row-main"><b>預設流程</b></span>
-        <span className="fx-check" aria-hidden="true">{draft.isDefault ? '✓' : ''}</span>
-      </button>
+      {defaults > 0 && <p className="fx-d-muted">有 {defaults} 間公司把它當預設任務流程</p>}
       <div className="fx-d-flowedit">
         <div className="fx-flow">
           <FlowNotes wf={flow} onOpen={setAim} edit={{
