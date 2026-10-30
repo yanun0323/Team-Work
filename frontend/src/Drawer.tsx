@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useStore } from './core/store'
 import { paletteOf } from './Building'
-import { Detail, itemKey, type Item } from './DrawerDetail'
+import { BranchIcon, Detail, itemKey, type Item } from './DrawerDetail'
 import { TabBody, TABS, type Tab } from './DrawerTabs'
 import type { BuildingLook } from './layout'
 import type { Team } from './core/domain/types'
@@ -62,10 +62,7 @@ export function CompanyTitle({ team, look, children }: { team: Team; look: Build
         <p className="fx-where">
           <code title="專案位置">{team.folder}</code>
           <span className="fx-branch" title="目標分支">
-            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-              <path d="M5 3v10M5 9c0-3 6-1 6-5" stroke="currentColor" strokeWidth="1.6" fill="none" />
-              <circle cx="5" cy="3" r="1.6" fill="currentColor" /><circle cx="5" cy="13" r="1.6" fill="currentColor" /><circle cx="11" cy="4" r="1.6" fill="currentColor" />
-            </svg>
+            <BranchIcon />
             <span className="fx-sr">目標分支 </span>
             <code>{team.targetBranch}</code>
           </span>

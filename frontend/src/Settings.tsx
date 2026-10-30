@@ -1,5 +1,5 @@
 // The settings: a drawer over the right half of the map, like a company file, but for the whole app.
-// Its head names the app and its version; the tabs below hold the model providers, the employee blueprints
+// Its head names it the airport, the island's management centre; the tabs below hold the model providers, the employee blueprints
 // the app-wide preferences and the about page. Providers and blueprints, and adding one, open on the same stack of detail sheets over the upper left. There is no
 // close button: a click on the map puts everything away.
 
@@ -16,7 +16,7 @@ import { authLabel, PROVIDER_KINDS } from './providers'
 import { Select, Toggle } from './Controls'
 import { usePrefs, type LogOrder, type Prefs } from './prefs'
 
-// TODO: the real addresses and names; these are placeholders until they are given
+// TODO: the real addresses; these are placeholders until they are given
 const LINKS = [
   { label: 'GitHub', href: 'https://github.com/' },
   { label: 'Discord', href: 'https://discord.com/' },
@@ -24,7 +24,7 @@ const LINKS = [
   { label: 'Threads', href: 'https://www.threads.net/' },
   { label: 'Buy Me a Coffee', href: 'https://www.buymeacoffee.com/' },
 ]
-const THANKS: string[] = []
+const THANKS = [{ name: 'yanun0323', href: 'https://github.com/yanun0323' }]
 
 const TABS = [
   { id: 'providers', label: '模型供應商' },
@@ -75,8 +75,8 @@ export function Settings({ leaving, onGone }: {
         <header className="fx-head">
           <div className="fx-title fx-title-plain">
             <div className="fx-title-text">
-              <h1 id="fx-settings-title" ref={title} tabIndex={-1}>Mho Company</h1>
-              <p className="fx-where"><span className="fx-sr">版本 </span><code>v{version}</code></p>
+              <h1 id="fx-settings-title" ref={title} tabIndex={-1}>機場</h1>
+              <p className="fx-where">小島管理中心</p>
             </div>
           </div>
           <div className="fx-tabs" role="tablist" aria-label="設定" onKeyDown={onTabKey}>
@@ -194,7 +194,13 @@ function About() {
       </ul>
       <section className="fx-d-group" aria-labelledby="fx-thanks">
         <h4 id="fx-thanks">感謝名單</h4>
-        <ul className="fx-thanks">{THANKS.map((x) => <li key={x}>{x}</li>)}</ul>
+        <ul className="fx-thanks">
+          {THANKS.map((x) => <li key={x.name}><a href={x.href} target="_blank" rel="noreferrer">{x.name}<span className="fx-sr">（另開分頁）</span></a></li>)}
+        </ul>
+      </section>
+      <section className="fx-d-group" aria-labelledby="fx-version">
+        <h4 id="fx-version">版本</h4>
+        <p><code>v{version}</code></p>
       </section>
     </div>
   )

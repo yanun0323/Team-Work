@@ -5,11 +5,12 @@ import { useStore } from './core/store'
 import { DEFAULT_PREFS, ordered } from './prefs'
 import { Settings } from './Settings'
 
-it('is a drawer headed with the app and its version, its model providers listed under the first tab', () => {
+it('is a drawer headed as the airport, its model providers listed under the first tab', () => {
   const html = renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)
   expect(html).toContain('<aside id="fx-settings" class="fx-drawer"')
-  expect(html).toContain('>Mho Company</h1>')
-  expect(html).toContain(`<code>v${version}</code>`)
+  expect(html).toContain('>機場</h1>')
+  expect(html).toContain('>小島管理中心</p>')
+  expect(html).not.toContain(`v${version}`)
   expect(html).toContain('role="tablist"')
   expect(html).toContain('id="fx-settings-tab-providers" aria-controls="fx-settings-panel" aria-selected="true"')
   expect(html).toContain('id="fx-settings-tab-blueprints" aria-controls="fx-settings-panel" aria-selected="false"')

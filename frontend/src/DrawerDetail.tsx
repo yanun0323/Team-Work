@@ -16,7 +16,7 @@ import { BlueprintIcon, pinLook } from './BlueprintIcon'
 import { seedOf } from './People'
 import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
-import { Select } from './Controls'
+import { Select, WaitBadge } from './Controls'
 import { FlowNotes, openCard } from './FlowNotes'
 import { addImages, draftFlow, draftStaff, editDraft, lastStaff, unstaffed, useDraft, type TaskDraft } from './draft'
 import { byBlueprint, EFFORTS, effortName, mindOf, modelsOf, randomLook } from './crew'
@@ -270,6 +270,9 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, onGon
       </div>
       <header className="fx-d-head">
         <Heading {...h}><span className="fx-task-no">#{task.number}</span>{task.title}</Heading>
+        <p className="fx-d-sub">
+          <span className="fx-branch" title="任務分支"><BranchIcon /><span className="fx-sr">任務分支 </span><code>{task.branch}</code></span>
+        </p>
         <p className="fx-d-meta">
           {/* one state: paused or merging says more than the column it sits in */}
           <span className="fx-pill">{task.stage === 'cancelled' ? '已停止' : task.paused ? '已暫停' : task.stage === 'merging' ? '合併中' : STATUS[status]}</span>
@@ -312,8 +315,14 @@ const stepName = (wf: Workflow, nodeId: string) => nodeOf(wf, nodeId)?.name ?? n
 const noteCls = (wf: Workflow, nodeId: string) =>
   isFixed(wf, nodeId) ? ' fx-node-fixed' : nodeOf(wf, nodeId)?.kind === 'talk' ? ' fx-node-talk' : ''
 
-/** The red round badge of something waiting on the user. */
-const Badge = ({ inline }: { inline?: boolean }) => <span className={inline ? 'fx-badge fx-badge-inline' : 'fx-badge'} aria-hidden="true">!</span>
+/** A git branch, drawn small before its name. */
+export const BranchIcon = () => (
+  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+    <path d="M5 3v10M5 9c0-3 6-1 6-5" stroke="currentColor" strokeWidth="1.6" fill="none" />
+    <circle cx="5" cy="3" r="1.6" fill="currentColor" /><circle cx="5" cy="13" r="1.6" fill="currentColor" /><circle cx="11" cy="4" r="1.6" fill="currentColor" />
+  </svg>
+)
+
 
 
 /**
@@ -344,7 +353,7 @@ function Progress({ wf, subs, open, onOpen }: { wf: Workflow; subs: SubTask[]; o
                   : <SubState sub={s} />}
               </span>
               {out && s.endedAt !== undefined && <time>{fmtClock(s.endedAt)}</time>}
-              {s.review && <Badge inline />}
+              {s.review && <WaitBadge inline />}
             </button>
           </li>
         )
@@ -547,10 +556,14 @@ function MergeRow({ taskId }: { taskId: string }) {
       <div className="fx-row fx-d-hand">
         {face}{main}
         {done && task.doneAt !== undefined && <time>{fmtClock(task.doneAt)}</time>}
-        {waiting && !returning && (
+        {/* one child: the row's grid has a single column left for its end */}
+        {waiting && (
           <div className="fx-d-merge-acts">
-            <button type="button" className="fx-save fx-danger" onClick={() => act((x) => mergeTask(x, taskId))}>合併</button>
-            <button type="button" className="fx-save fx-plain" onClick={() => setReturning(true)}>退回</button>
+            <WaitBadge merge inline />
+            {!returning && <>
+              <button type="button" className="fx-save fx-danger" onClick={() => act((x) => mergeTask(x, taskId))}>合併</button>
+              <button type="button" className="fx-save fx-plain" onClick={() => setReturning(true)}>退回</button>
+            </>}
           </div>
         )}
       </div>
@@ -762,7 +775,6 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
           {sub.sentBack
             ? <><dt>退回給</dt><dd>{sub.sentBack.to.map(name).join('、')}</dd></>
             : sub.routedTo.length > 0 && <><dt>交給</dt><dd>{sub.routedTo.map(name).join('、')}</dd></>}
-          <dt>分支</dt><dd><code>{task.branch}</code></dd>
         </dl>
       </Section>
       {out && (
@@ -1080,7 +1092,7 @@ function BlueprintDetail({ id, teamId, editing, onEdit, onGoneBlueprint, ...h }:
         <Heading {...h}>{bp.name}</Heading>
       </header>
       <Section name="來源"><ul className="fx-src-list"><SourceRow source={bp.source} now={w.now} /></ul></Section>
-      {bp.prompt && <Section name="提示詞"><p className="fx-d-text fx-d-quote">{bp.prompt}</p></Section>}
+      {bp.prompt && <Section name="Prompt"><p className="fx-d-text fx-d-quote">{bp.prompt}</p></Section>}
       {bp.comment && <Section name="備註"><p className="fx-d-text">{bp.comment}</p></Section>}
       <Section name="技能">
         {bp.skills.length === 0 ? <p className="fx-d-muted">沒有</p> : (

@@ -173,3 +173,16 @@ export function Stepper({ label, unit, value, min, step, onChange }: {
     </div>
   )
 }
+
+/** The round badge of something waiting on the user: red ! when they must answer, green merge mark when work only needs their nod. */
+export function WaitBadge({ merge, inline }: { merge?: boolean; inline?: boolean }) {
+  const label = merge ? '可以合併' : '需要回覆'
+  return (
+    <span className={`fx-badge${merge ? ' fx-badge-merge' : ''}${inline ? ' fx-badge-inline' : ''}`} title={label}>
+      {merge
+        ? <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M3 1.5V3.5C3 5.8 6 6 6 8.2V10.5M9 1.5V3.5C9 5.8 6 6 6 8.2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+        : <span aria-hidden="true">!</span>}
+      <span className="fx-sr">{label}</span>
+    </span>
+  )
+}

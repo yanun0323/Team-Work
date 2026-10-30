@@ -9,7 +9,7 @@ import { byBlueprint, mindOf } from './crew'
 import { activity, teamReplicas, teamTasks, teamWorkflows } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
-import { Select, Stepper } from './Controls'
+import { Select, Stepper, WaitBadge } from './Controls'
 import { itemKey, type Item } from './DrawerDetail'
 import { FlowNotes, openCard } from './FlowNotes'
 
@@ -69,8 +69,8 @@ export function Tasks(p: Opens) {
                 .filter((r, i, all) => r && all.indexOf(r) === i)
               return (
                 <button key={task.id} className="fx-task fx-hit" {...opener({ kind: 'task', id: task.id }, p)}>
-                  {/* waiting on the user: the same red badge as the board button, the column already says why */}
-                  {c.status === 'review' && <span className="fx-badge" aria-hidden="true">!</span>}
+                  {/* waiting on the user: red to answer, green to merge */}
+                  {c.status === 'review' && <WaitBadge merge={task.stage === 'awaitMerge'} />}
                   <span className="fx-task-title"><span className="fx-task-no">#{task.number}</span>{task.title}</span>
                   {faces.length > 0 && (
                     <span className="fx-faces">
@@ -172,7 +172,7 @@ function Settings({ teamId, ...p }: Opens) {
         onChange={(v) => act((x) => void (x.teams[teamId].targetBranch = v))}
       />
       <label className="fx-field fx-field-top">
-        <span>公司規章</span>
+        <span>Prompt</span>
         <textarea className="fx-control" rows={6} value={team.prompt}
           onChange={(e) => act((x) => void (x.teams[teamId].prompt = e.target.value))} />
       </label>
