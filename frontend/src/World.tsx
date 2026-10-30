@@ -68,7 +68,7 @@ export function World() {
     const members = (id: string) => Object.values(w.replicas).filter((r) => r.teamId === id).length
     const lots = list.map((t) => ({ id: t.id, name: t.name, members: members(t.id), done: doneOf(w, t.id), at: plots[t.id]?.at, style: plots[t.id]?.style, seed: plots[t.id]?.seed }))
     // closed companies leave their land behind
-    return layoutTown(lots, Object.entries(plots).filter(([id]) => !w.teams[id]).map(([, p]) => p.at))
+    return layoutTown(lots)
   }, [key, plots])
   const land = useLand(town)
 
@@ -167,18 +167,22 @@ export function World() {
   useEffect(() => {
     if (selected && !useStore.getState().world.teams[selected]) setSelected(null)
   }, [selected, key])
-  // every company keeps its spot, so closing or founding one moves no other building
+  // every company keeps its spot, so closing or founding one moves no other building; a closed company's
+  // spot is forgotten, its land gone with it
   useEffect(() => {
     const plots = usePlots.getState()
-    if (town.lots.some((l) => !plots[l.id])) usePlots.setState(Object.fromEntries(town.lots.map((l) => [l.id, { at: l.at, style: l.style, seed: l.seed }])))
+    const live = town.lots.map((l) => l.id)
+    if (live.some((id) => !plots[id]) || Object.keys(plots).some((id) => !live.includes(id))) {
+      usePlots.setState(Object.fromEntries(town.lots.map((l) => [l.id, { at: l.at, style: l.style, seed: l.seed }])), true)
+    }
   }, [town])
-  // the company moves with its look; the land it leaves stays, as a closed company's does. Put back where it
-  // was, nothing changes
+  // the company moves with its look; the land it leaves goes back to the sea. Put back where it was,
+  // nothing changes
   const moveTo = (at: Spot) => {
     const lot = town.lots.find((l) => l.id === moving)
     setMoving(null)
     if (!lot || sameSpot(lot.at, at)) return
-    usePlots.setState({ [lot.id]: { at, style: lot.style, seed: lot.seed }, [`left:${lot.id}:${lot.at}`]: { at: lot.at, style: lot.style, seed: lot.seed } })
+    usePlots.setState({ [lot.id]: { at, style: lot.style, seed: lot.seed } })
   }
   const pickMoving = (id: string) => setMoving((cur) => (cur === id ? null : id))
   const found = (input: Parameters<typeof createTeam>[1]) => {

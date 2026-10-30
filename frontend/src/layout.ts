@@ -261,12 +261,13 @@ const overlapsOrNear = (a: Rect, b: Rect) =>
 const SIDES: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]]
 
 /**
- * `vacant` are spots of companies that were closed: their land stays, as lawn, and a new plot may go there.
+ * The island is only what the companies standing now (and the airport) need: land a company left, by
+ * moving or closing, goes back to the sea.
  */
-export function layoutTown(teams: TeamInput[], vacant: Spot[] = []): Town {
+export function layoutTown(teams: TeamInput[]): Town {
   // teams without a spot get one on a square grid of plots, filled from the middle outward so the town
   // grows evenly and stays centred on the origin; places taken by spots the player picked are skipped
-  const pinned = [...[...teams.filter((t) => t.at).map((t) => t.at!), ...vacant].map(([x, z]) => ({ x, z, w: PLOT_CELLS, d: PLOT_CELLS })), AIRPORT]
+  const pinned = [...teams.filter((t) => t.at).map((t) => t.at!).map(([x, z]) => ({ x, z, w: PLOT_CELLS, d: PLOT_CELLS })), AIRPORT]
   const loose = teams.filter((t) => !t.at).length
   let handed: Spot[] = []
   for (let n = Math.max(1, Math.ceil(Math.sqrt(loose))); handed.length < loose; n++) {
@@ -290,7 +291,7 @@ export function layoutTown(teams: TeamInput[], vacant: Spot[] = []): Town {
   const air: [number, number, number, number] = [AIRPORT.x, AIRPORT.z, AIRPORT.x + AIRPORT.w, AIRPORT.z + AIRPORT.d]
   const reach = (k: 0 | 1) => Math.max(
     PLOT_CELLS / 2 + PAD_CELLS,
-    ...[...spots, ...vacant].flatMap((s) => [-(s[k] - PAD_CELLS), s[k] + PLOT_CELLS + PAD_CELLS]),
+    ...spots.flatMap((s) => [-(s[k] - PAD_CELLS), s[k] + PLOT_CELLS + PAD_CELLS]),
     -(air[k] - PAD_CELLS), air[k + 2] + PAD_CELLS,
   ) + 1
   const cols = reach(0) * 2
@@ -322,8 +323,7 @@ export function layoutTown(teams: TeamInput[], vacant: Spot[] = []): Town {
   // land round every plot and the airport; with no company yet, an island the size of one besides it
   paint(grow(airport, PAD_CELLS))
   for (const l of lots) paint(grow(l.plot, PAD_CELLS))
-  for (const v of vacant) paint(grow(plotAt({ cols, rows }, v), PAD_CELLS))
-  if (!lots.length && !vacant.length) paint(grow(plotAt({ cols, rows }, [-PLOT_CELLS / 2, -PLOT_CELLS / 2]), PAD_CELLS))
+  if (!lots.length) paint(grow(plotAt({ cols, rows }, [-PLOT_CELLS / 2, -PLOT_CELLS / 2]), PAD_CELLS))
   joinLand(ground, cols, rows)
   // edge rings by distance to the sea, before any cut
   const ring = seaDistance(ground, cols, rows)

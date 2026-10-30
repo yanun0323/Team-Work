@@ -131,8 +131,8 @@ const FLIGHT: Key[] = [
   { t: 67, p: [44, 6, R], h: PI * 2, pitch: 0.24 },
   { t: 74, p: [130, 40, R], h: PI * 2, pitch: 0.2 },
 ]
-/** Seconds until the next one comes in, after the last one has gone. */
-const CYCLE = 84
+/** Seconds from one arrival to the next: the flight takes 74, then the sky stays empty a while. */
+const CYCLE = 240
 /** A moment while it stands at its stand. */
 const STAND_AT = 30
 /** Shown from the first key until it is well away over the sea. */

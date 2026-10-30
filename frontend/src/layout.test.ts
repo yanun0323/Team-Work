@@ -172,15 +172,17 @@ describe('fusion town grid', () => {
     expect(canMove(one, c.id, [c.at[0] + 200, c.at[1]])).toBe(false)
   })
 
-  it('keeps the land of a closed company, as lawn a new plot may use', () => {
-    const town = layoutTown(teams(2))
-    const [a, b] = town.lots
-    const after = layoutTown([{ id: b.id, name: b.name, members: 3, at: b.at }], [a.at])
-    // the same cells, now lawn or trees rather than pavement, and still one island
-    const plot = { x: a.at[0] + after.cols / 2, z: a.at[1] + after.rows / 2, w: PLOT_CELLS, d: PLOT_CELLS }
-    for (const k of cells(plot)) expect(['grass', 'shore']).toContain(groundAt(after, k))
-    expect(rectCenter(after, after.lots[0].building)).toEqual(rectCenter(town, b.building))
-    expect(canPlace(after, a.at)).toBe(true)
+  it('gives the land a company left back to the sea', () => {
+    // a company far out on its own, joined to the island by a strip of land
+    const far: [number, number] = [120, 0]
+    const town = layoutTown([...teams(2).map((t) => ({ ...t, at: undefined })), { id: 'far', name: 'Far', members: 1, at: far }])
+    const plotOf = (t: typeof town) => ({ x: far[0] + t.cols / 2, z: far[1] + t.rows / 2, w: PLOT_CELLS, d: PLOT_CELLS })
+    expect(cells(plotOf(town)).every((k) => groundAt(town, k) !== null)).toBe(true)
+    // it closes (or moves away): where it stood is sea again, the others stand where they were
+    const after = layoutTown(town.lots.slice(0, 2).map((l) => ({ id: l.id, name: l.name, members: 1, at: l.at })))
+    // sea, on the grid or off it
+    expect(cells(plotOf(after)).every((k) => groundAt(after, k) === null)).toBe(true)
+    expect(after.lots.map((l) => rectCenter(after, l.building))).toEqual(town.lots.slice(0, 2).map((l) => rectCenter(town, l.building)))
     expectOneIsland(after)
   })
 
