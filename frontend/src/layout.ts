@@ -122,7 +122,7 @@ export const RING_CELLS = 3
 export const PLOT_CELLS = BUILDING_CELLS + RING_CELLS * 2
 /** Tree footprint edge, in cells. */
 export const TREE_CELLS = 2
-/** Grass cells between neighbouring plots. */
+/** Grass cells kept round the airport, and between plots handed out on the grid; plots placed by hand may touch. */
 const GAP_CELLS = 2
 /** Land cells between the outermost plots and the sea. */
 const SHORE_CELLS = 4
@@ -237,13 +237,14 @@ const apart = (a: Rect, b: Rect) =>
 const grow = (r: Rect, n: number): Rect => ({ x: r.x - n, z: r.z - n, w: r.w + n * 2, d: r.d + n * 2 })
 
 /**
- * Whether a new plot may go on a spot: clear of the other plots and the airport by the usual lawn, and no
+ * Whether a new plot may go on a spot: not on another plot (touching is fine), clear of the airport by its lawn, and no
  * further out to sea than `REACH_CELLS` from them. Anything else is fine, sea included: the land grows to it.
  */
 export function canPlace(town: Pick<Town, 'lots'>, at: Spot): boolean {
   const plot = { x: at[0], z: at[1], w: PLOT_CELLS, d: PLOT_CELLS }
-  const others = [...town.lots.map((l) => ({ x: l.at[0], z: l.at[1], w: PLOT_CELLS, d: PLOT_CELLS })), AIRPORT]
-  if (others.some((o) => overlapsOrNear(plot, o))) return false
+  const plots = town.lots.map((l) => ({ x: l.at[0], z: l.at[1], w: PLOT_CELLS, d: PLOT_CELLS }))
+  const others = [...plots, AIRPORT]
+  if (plots.some((o) => overlaps(plot, o)) || overlaps(plot, AIRPORT, GAP_CELLS)) return false
   return Math.min(...others.map((o) => apart(grow(plot, PAD_CELLS), grow(o, PAD_CELLS)))) <= REACH_CELLS
 }
 
@@ -254,9 +255,9 @@ export function canMove(town: Pick<Town, 'lots'>, id: string, at: Spot): boolean
 
 export const sameSpot = (a: Spot, b: Spot) => a[0] === b[0] && a[1] === b[1]
 
-/** Closer than `GAP_CELLS` on both axes, so the lawn between them would be too narrow. */
-const overlapsOrNear = (a: Rect, b: Rect) =>
-  a.x < b.x + b.w + GAP_CELLS && b.x < a.x + a.w + GAP_CELLS && a.z < b.z + b.d + GAP_CELLS && b.z < a.z + a.d + GAP_CELLS
+/** Closer than `gap` cells on both axes; with no gap, sharing a cell. */
+const overlaps = (a: Rect, b: Rect, gap = 0) =>
+  a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.z < b.z + b.d + gap && b.z < a.z + a.d + gap
 
 const SIDES: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]]
 
@@ -281,7 +282,7 @@ export function layoutTown(teams: TeamInput[]): Town {
     const rm = (Math.min(...picked.map((b) => b[1])) + Math.max(...picked.map((b) => b[1]))) / 2
     handed = grid
       .map(([c, r]): Spot => [Math.round((c - cm) * PITCH_CELLS - PLOT_CELLS / 2), Math.round((r - rm) * PITCH_CELLS - PLOT_CELLS / 2)])
-      .filter(([x, z]) => !pinned.some((o) => overlapsOrNear({ x, z, w: PLOT_CELLS, d: PLOT_CELLS }, o)))
+      .filter(([x, z]) => !pinned.some((o) => overlaps({ x, z, w: PLOT_CELLS, d: PLOT_CELLS }, o, GAP_CELLS)))
       .slice(0, loose)
   }
   let next = 0

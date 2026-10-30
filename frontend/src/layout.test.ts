@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { officeCapacity } from './office'
 import { AIRPORT, RUNWAY_CELLS, RUNWAY_LINE, BUILDING_CELLS, BUILDING_SIZES, CELL, canMove, canPlace, growth, MAX_FLOORS, RING_CELLS, layoutTown, PLOT_CELLS, REACH_CELLS, rectCenter, seedOfId, spotCenter, TREE_CELLS, type Rect, type Town } from './layout'
+import { findPath, nearestFree, townGrid } from './walk'
 
 const teams = (n: number, members = 3) => Array.from({ length: n }, (_, i) => ({ id: `t${i}`, name: `T${i}`, members }))
 const cells = (r: Rect) => {
@@ -137,9 +138,28 @@ describe('fusion town grid', () => {
     const [a] = town.lots
     expect(canPlace(town, a.at)).toBe(false)
     expect(canPlace(town, [a.at[0] + 4, a.at[1] + 4])).toBe(false)
-    expect(canPlace(town, [a.at[0], a.at[1] + PLOT_CELLS + 2])).toBe(true)
-    expect(canPlace(town, [a.at[0], a.at[1] + PLOT_CELLS + 1])).toBe(false)
+    // one cell over the plot, then touching it
+    expect(canPlace(town, [a.at[0], a.at[1] + PLOT_CELLS - 1])).toBe(false)
+    expect(canPlace(town, [a.at[0], a.at[1] + PLOT_CELLS])).toBe(true)
     expect(canPlace(town, [a.at[0], a.at[1] + PLOT_CELLS + 12 + REACH_CELLS + 1])).toBe(false)
+  })
+
+  it('lays out plots that touch, on one island, with a way round them on foot', () => {
+    const [ax, az] = [40, 60]
+    const town = layoutTown([
+      { id: 'a', name: 'a', members: 1, at: [ax, az] },
+      { id: 'b', name: 'b', members: 1, at: [ax + PLOT_CELLS, az] },
+    ])
+    const [a, b] = town.lots
+    expect(b.plot.x).toBe(a.plot.x + PLOT_CELLS)
+    for (const l of town.lots) for (const c of [[l.plot.x, l.plot.z], [l.plot.x + PLOT_CELLS - 1, l.plot.z + PLOT_CELLS - 1]]) {
+      expect(town.ground[c[1] * town.cols + c[0]]).toBe('pave')
+    }
+    expectOneIsland(town)
+    const g = townGrid(town)
+    const from = nearestFree(g, a.plot.x, a.plot.z)!
+    const to = nearestFree(g, b.plot.x + PLOT_CELLS - 1, b.plot.z + PLOT_CELLS - 1)!
+    expect(findPath(g, from, to)?.length).toBeGreaterThan(1)
   })
 
   it('keeps plots off the airport and the lawn round it', () => {
