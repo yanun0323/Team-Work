@@ -3,11 +3,13 @@ package usecase_test
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/yanun0323/mho-company/internal/model"
 	"github.com/yanun0323/mho-company/internal/usecase"
+	"github.com/yanun0323/mho-company/pkg/jsonx"
 )
 
 func TestPresets(t *testing.T) {
@@ -159,5 +161,69 @@ func TestThinkingLevelsComeFromTheProvider(t *testing.T) {
 	}
 	if got := r.world().Replicas[r.owner.ID].Effort; got != model.ThinkingDefault {
 		t.Fatalf("%q", got)
+	}
+}
+
+func TestPresetsUseTheAgentFolders(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	found := 0
+	for _, b := range r.world().Blueprints {
+		if !slices.Contains([]string{"PM", "Product", "Backend Engineer", "Frontend Engineer", "QA"}, b.Name) {
+			continue
+		}
+		found++
+		var paths []string
+		for _, p := range b.Skills {
+			paths = append(paths, p.Source.Path)
+			if p.Source.Kind != "local" || p.Include != nil {
+				t.Fatalf("%s: %+v", b.Name, p)
+			}
+			if !strings.Contains(b.Source.Text, "- path: "+p.Source.Path+"\n") {
+				t.Fatalf("%s's YAML leaves out %s:\n%s", b.Name, p.Source.Path, b.Source.Text)
+			}
+		}
+		if !slices.Equal(paths, []string{"~/.agents/", "~/.codex/", "~/.claude/"}) {
+			t.Fatalf("%s: %v", b.Name, paths)
+		}
+	}
+	if found != 5 {
+		t.Fatalf("%d presets", found)
+	}
+}
+
+func TestSavedPresetsAreBroughtUpToDate(t *testing.T) {
+	const oldPM = "你是專案經理。把目標拆成可以各自完成的工作，排好先後順序，標出風險與相依。\n不確定的地方提出來，不要自己假設。交接時寫清楚誰該做什麼、做到什麼程度算完成。"
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	var untouched, edited *model.Blueprint
+	for _, b := range r.world().Blueprints {
+		switch b.Name {
+		case "PM":
+			untouched = b
+		case "QA":
+			edited = b
+		}
+	}
+	save := func(b model.Blueprint) model.Doc {
+		raw, err := jsonx.Marshal(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return model.Doc{Kind: "blueprint", ID: b.ID, Data: raw}
+	}
+	old := *untouched
+	old.Prompt, old.Skills = oldPM, []model.SkillPack{}
+	mine := *edited
+	mine.Prompt, mine.Skills = "我自己寫的", []model.SkillPack{}
+	r.e.Close()
+	if err := r.store.Apply(context.Background(), []model.Doc{save(old), save(mine)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	newEngine(t, r)
+	w := r.world()
+	if got := w.Blueprints[old.ID]; got.Prompt == oldPM || len(got.Skills) != 3 || !strings.Contains(got.Source.Text, "~/.claude/") {
+		t.Fatalf("%+v", got)
+	}
+	if got := w.Blueprints[mine.ID]; got.Prompt != "我自己寫的" || len(got.Skills) != 0 {
+		t.Fatalf("%+v", got)
 	}
 }

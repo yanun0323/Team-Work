@@ -111,6 +111,7 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	defer e.mu.Unlock()
 	e.w.Now = e.clock()
 	e.refreshPresetPrompts()
+	e.refreshPresetBlueprints()
 	if !e.w.Presets {
 		e.addPresets()
 	}

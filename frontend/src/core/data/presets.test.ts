@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { taskNodeOf } from '../domain/graph'
 import { effortsOf } from '../../crew'
 import { flowList } from '../model'
-import type { World } from '../domain/types'
+import { parseBlueprintYaml } from '../../blueprintYaml'
+import type { LocalSkills, World } from '../domain/types'
 import { seedWorld } from './seed'
 import { addPresetFlows, PRESET_BLUEPRINTS } from './presets'
 
@@ -11,6 +12,13 @@ describe('presets', () => {
     const w = seedWorld()
     for (const b of PRESET_BLUEPRINTS) expect(w.blueprints[b.id].name).toBe(b.name)
     expect(PRESET_BLUEPRINTS.map((b) => b.name)).toEqual(['PM', 'Product', 'Backend Engineer', 'Frontend Engineer', 'QA'])
+  })
+
+  it('find skills in the agent folders, in YAML that reads back the same', () => {
+    for (const b of PRESET_BLUEPRINTS) {
+      expect(b.skills.map((p) => (p.source as LocalSkills).path)).toEqual(['~/.agents/', '~/.codex/', '~/.claude/'])
+      expect(b.source.kind === 'yaml' && parseBlueprintYaml(b.source.text)).toMatchObject({ ok: true, value: { name: b.name, prompt: b.prompt, skills: b.skills, tools: b.tools } })
+    }
   })
 
   it('join every step up, and run side by side where drawn', () => {

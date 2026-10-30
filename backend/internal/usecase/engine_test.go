@@ -877,3 +877,64 @@ func TestKeysStayOutOfTheDocuments(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillsFromSeveralFolders(t *testing.T) {
+	// one folder links its skill to somewhere else, and both folders have it
+	writeSkill := func(dir, description string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: shared\ndescription: "+description+"\n---\n做法\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, second, elsewhere := t.TempDir(), t.TempDir(), t.TempDir()
+	writeSkill(filepath.Join(elsewhere, "shared"), "第一份")
+	if err := os.MkdirAll(filepath.Join(first, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(first, "skills", "shared")
+	if err := os.Symlink(filepath.Join(elsewhere, "shared"), link); err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(filepath.Join(second, "skills", "shared"), "第二份")
+
+	path := filepath.Join(link, "SKILL.md")
+	read := false
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		if !read {
+			read = true
+			return call("read_file", map[string]any{"path": path}), nil
+		}
+		return call("submit_handoff", handoff), nil
+	})
+	bp := *r.world().Blueprints[r.owner.BlueprintID]
+	bp.Skills = []model.SkillPack{
+		{Source: &model.BlueprintSource{Kind: "local", Path: first}, Exclude: []string{}},
+		{Source: &model.BlueprintSource{Kind: "local", Path: second}, Exclude: []string{}},
+	}
+	if err := r.e.SaveBlueprint(bp.ID, bp); err != nil {
+		t.Fatal(err)
+	}
+	task := r.task(r.flow.ID)
+	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+
+	system := r.fake.seen[0].System
+	if !strings.Contains(system, "第一份") || strings.Contains(system, "第二份") {
+		t.Fatalf("the skill should be listed once, from the first folder:\n%s", system)
+	}
+	for _, req := range r.fake.seen {
+		for _, m := range req.Messages {
+			for _, b := range m.Content {
+				if b.Type == enum.BlockToolResult && b.Name == "read_file" {
+					if !strings.Contains(b.Text, "做法") {
+						t.Fatalf("the linked skill could not be read: %s", b.Text)
+					}
+					return
+				}
+			}
+		}
+	}
+	t.Fatal("the model was never given the file")
+}

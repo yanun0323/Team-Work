@@ -205,8 +205,11 @@ func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Rep
 	return spec, nil
 }
 
-// loadSkills finds the skills of a blueprint's packs; one that cannot be read is reported and left out.
+// loadSkills finds the skills of a blueprint's packs; one that cannot be read is reported and left out. The same
+// skill in several packs, as agent folders often share them, counts once: the first pack's. A skill's own folder is
+// a root too, because it may be a link to somewhere outside its pack.
 func (e *Engine) loadSkills(ctx context.Context, packs []packRoot) (found []skill, roots []string, problems []string) {
+	seen := map[string]bool{}
 	for _, p := range packs {
 		root := ""
 		switch p.source.Kind {
@@ -222,8 +225,14 @@ func (e *Engine) loadSkills(ctx context.Context, packs []packRoot) (found []skil
 		default:
 			continue
 		}
-		found = append(found, skillsIn(root, p.include, p.exclude)...)
 		roots = append(roots, root)
+		for _, s := range skillsIn(root, p.include, p.exclude) {
+			if !seen[s.name] {
+				seen[s.name] = true
+				found = append(found, s)
+				roots = append(roots, filepath.Dir(s.path))
+			}
+		}
 	}
 	return found, roots, problems
 }

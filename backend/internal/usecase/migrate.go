@@ -125,6 +125,30 @@ func (e *Engine) refreshPresetPrompts() {
 	}
 }
 
+// oldPresetBlueprintPrompts holds the prompts preset blueprints were saved with before they were written out in full.
+var oldPresetBlueprintPrompts = map[string]string{
+	"PM":                "你是專案經理。把目標拆成可以各自完成的工作，排好先後順序，標出風險與相依。\n不確定的地方提出來，不要自己假設。交接時寫清楚誰該做什麼、做到什麼程度算完成。",
+	"Product":           "你是產品負責人。先弄清楚使用者是誰、要解決什麼問題，再寫規格。\n規格要有範圍、不做的事和可以驗證的驗收條件，不談實作細節。",
+	"Backend Engineer":  "你是後端工程師。先讀懂現有架構再動手，沿用專案的慣例。\n改動要附測試，處理錯誤與邊界情況，提交前跑過測試。介面有變動時寫進交接。",
+	"Frontend Engineer": "你是前端工程師。先看現有元件和樣式，能重用就不新寫。\n顧到鍵盤操作、對比和各種畫面寬度，也要處理載入中、空資料和錯誤狀態。提交前跑過測試和建置。",
+	"QA":                "你是測試工程師。照驗收條件逐項驗證，再試邊界與錯誤情況，實際執行而不是只讀程式。\n每個問題都寫下重現步驟、預期與實際結果。不修產品程式，只補測試。",
+}
+
+// refreshPresetBlueprints brings saved preset blueprints up to date. One the user changed in any way stays as it is,
+// and employees keep their blueprint, as it is the same one.
+func (e *Engine) refreshPresetBlueprints() {
+	for _, b := range e.w.Blueprints {
+		if b.Prompt != oldPresetBlueprintPrompts[b.Name] || b.Prompt == "" || len(b.Skills) > 0 || b.Source.Kind != "yaml" {
+			continue
+		}
+		for _, p := range presetBlueprints {
+			if p.name == b.Name {
+				b.Prompt, b.Skills, b.Source.Text = p.prompt, presetSkills(), p.yaml()
+			}
+		}
+	}
+}
+
 // addWorkStep runs once per data folder, for a default flow saved when it had only its two ends. Afterwards a user
 // who removes the step keeps it removed. Tasks keep the copy they started with.
 func (e *Engine) addWorkStep() {
