@@ -1,0 +1,7 @@
+/* The typefaces. Styles refer to these, never to font names. */
+:root {
+  --font-sans: "Helvetica Neue", Helvetica, Arial, "PingFang TC", "Noto Sans TC", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+body { font-family: var(--font-sans); }

@@ -1,0 +1,827 @@
+body { margin: 0; overflow: hidden; }
+/* the map fills the window */
+.fusion {
+  position: relative; height: 100dvh; overflow: hidden;
+  --paper: #f4f2ec;
+  --paper-2: #eae6db;
+  --ink: #121212;
+  --muted: #747168;
+  --line-soft: #d2cec3;
+  --red: #d22b1f;
+  background: #3b86c6;
+}
+.fusion-stage, .fusion-canvas { position: absolute; inset: 0; }
+/* the whole scene appears from nothing on load */
+.fusion-stage { animation: fx-fade-in 600ms ease-out backwards; }
+@keyframes fx-fade-in { from { opacity: 0; } }
+@keyframes fx-fade-out { to { opacity: 0; } }
+
+/* ---------- labels over the 3D view ---------- */
+.labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.label {
+  position: absolute; left: 0; top: 0; will-change: transform; white-space: nowrap; user-select: none;
+  /* fades in when it mounts; `backwards` only, so the leaving fade below can take over */
+  animation: fx-fade-in 350ms ease-out backwards;
+  transition: opacity 350ms ease-in;
+}
+.label.leaving { opacity: 0; pointer-events: none; }
+.label-fusion {
+  /* a bare button placed by the label layer; the paper slip inside is what shows and tilts */
+  padding: 0;
+  border: 0;
+  background: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.fx-tag {
+  /* a slip of newsprint taped up over the roof, like the company file */
+  position: relative;
+  display: block;
+  padding: 5px 12px 4px;
+  border-radius: 1px;
+  background: #f4efe2 radial-gradient(rgb(60 40 20 / 0.06) 0.6px, transparent 0.8px) 0 0 / 3px 3px;
+  color: #1f1d2b;
+  font: 700 13px/1.3 var(--font-sans);
+  letter-spacing: 0.01em;
+  box-shadow: 0 1px 1px rgb(40 30 10 / 0.12), 0 6px 12px -4px rgb(20 20 40 / 0.45);
+  rotate: -1.5deg;
+  transition: box-shadow 200ms ease-out, rotate 200ms ease-out, translate 200ms ease-out;
+}
+.label-fusion:nth-child(even) .fx-tag { rotate: 1.2deg; }
+/* a strip of tape holding it up */
+.fx-tag::before {
+  content: ""; position: absolute; left: 50%; top: -5px; width: 26px; height: 9px;
+  translate: -50% 0; rotate: 3deg;
+  background: rgb(246 232 170 / 0.75);
+  box-shadow: 0 0 0 0.5px rgb(120 100 40 / 0.12);
+}
+/* lifted straight up off the roof while its building is under the pointer */
+.label-fusion.lifted .fx-tag {
+  translate: 0 -8px; rotate: 0deg;
+  box-shadow: 0 1px 1px rgb(40 30 10 / 0.12), 0 9px 16px -5px rgb(20 20 40 / 0.5);
+}
+.label-fusion:focus-visible { outline: 2px solid rgb(31 29 43 / 0.4); outline-offset: 3px; }
+.label-fusion-crew {
+  padding: 1px 6px;
+  background: rgb(18 18 18 / 0.78);
+  color: #fff;
+  font: 600 11px/1.4 var(--font-sans);
+  pointer-events: none;
+}
+
+/* ---------- the company file: a newspaper page taped over the map ----------
+   Paper, not panels: no outlines and no hard shadows. The sheet is newsprint lifted off the map by a soft
+   shadow and held by tape; tasks and flow steps are clippings pasted onto it; labels are rubber stamps and
+   highlighter strokes. Pasted on when it opens; the same motion played backwards when it closes. */
+.fx-drawer, .fx-detail {
+  --paper: #f4efe2;
+  --paper-2: #ebe4d2;
+  --clip: #fdfbf5;
+  --note: #fbeeb8;
+  /* the two steps every flow has, 整理需求 and 審查, which cannot be renamed or removed */
+  --note-fixed: #f6c6bb;
+  --ink: #1f1d2b;
+  --ink-2: #4a4656;
+  --muted: #847d8c;
+  --rule: #cfc5b0;
+  /* how far a block's content sits in from its title */
+  --indent: 14px;
+  --accent: #d6402b;
+  --lift: 0 1px 1px rgb(60 40 10 / 0.12), 0 3px 8px -2px rgb(60 40 10 / 0.22);
+  /* the hover shade of the buildings on the map, laid over paper */
+  --shade: rgb(28 31 46 / 0.16);
+  --unshade: rgb(28 31 46 / 0);
+  /* a sheet under another: darker than paper, lighter than a hover */
+  --dim: rgb(28 31 46 / 0.07);
+  color: var(--ink); font: 14px/1.5 var(--font-sans); -webkit-font-smoothing: antialiased;
+}
+.fx-drawer {
+  position: absolute; inset-block: 18px; inset-inline-end: 18px; z-index: 5;
+  /* the same share of the stage as before (camera.ts drawerWidth), less the margins */
+  width: calc(max(50%, min(100%, 380px)) - 36px);
+  transform-origin: 50% 0;
+  animation: fx-paste 560ms cubic-bezier(0.25, 1.4, 0.4, 1) backwards;
+}
+/* fx-paste backwards, minus the settle: it lifts and fades from the first frame, while the camera pulls out */
+.fx-drawer.leaving { animation: fx-unpaste 380ms cubic-bezier(0.2, 0.6, 0.4, 1) forwards; pointer-events: none; }
+@keyframes fx-paste {
+  0% { opacity: 0; transform: translateY(-26px) rotate(-2.4deg) scale(1.05); }
+  55% { opacity: 1; transform: translateY(3px) rotate(0.5deg) scale(0.995); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes fx-unpaste {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-26px) rotate(-2.4deg) scale(1.05); }
+}
+
+.fx-sheet {
+  box-sizing: border-box; height: 100%;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  /* newsprint: warm paper, a faint grain, a little darker towards the edges */
+  background:
+    radial-gradient(circle at 20% 30%, rgb(0 0 0 / 0.03) 0 1px, transparent 1.5px) 0 0 / 7px 7px,
+    radial-gradient(circle at 70% 60%, rgb(0 0 0 / 0.025) 0 1px, transparent 1.5px) 0 0 / 11px 11px,
+    radial-gradient(ellipse at 50% 40%, transparent 55%, rgb(120 90 40 / 0.08)),
+    linear-gradient(172deg, var(--paper), var(--paper-2));
+  border-radius: 2px;
+  /* lying on the map: tight contact shadow plus a soft one where the paper lifts */
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2), 0 14px 30px -8px rgb(0 0 0 / 0.38), 0 30px 50px -30px rgb(0 0 0 / 0.3);
+}
+/* two strips of tape hold the sheet up */
+.fx-tape {
+  position: absolute; top: -11px; z-index: 2; width: 84px; height: 24px;
+  background: linear-gradient(rgb(255 255 255 / 0.25), transparent), rgb(240 226 178 / 0.78);
+  clip-path: polygon(2% 8%, 0 92%, 6% 100%, 96% 96%, 100% 6%, 93% 0);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+}
+.fx-tape-l { left: 30px; transform: rotate(-6deg); }
+.fx-tape-r { right: 30px; transform: rotate(4deg); }
+
+/* keyboard focus: a faint ink ring, the paper's grey rather than the accent; never on what the page itself
+   focuses (a title, when a sheet opens) */
+:is(.fx-drawer, .fx-detail) :focus-visible { outline: 2px solid rgb(31 29 43 / 0.3); outline-offset: 2px; }
+:is(.fx-drawer, .fx-detail) [tabindex="-1"]:focus { outline: none; }
+:is(.fx-drawer, .fx-detail) code { font-family: var(--font-mono); font-size: 0.88em; }
+:is(.fx-drawer, .fx-detail) :is(h1, h2, h3, h4, p) { margin: 0; }
+.fx-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---- head: title block, then section tabs; space alone keeps them apart */
+.fx-head { flex: none; padding: 24px clamp(18px, 3vw, 30px) 0; }
+.fx-title {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px;
+  padding-bottom: 22px;
+}
+/* the building, as a postage stamp */
+.fx-icon {
+  width: 54px; height: 54px; padding: 7px; box-sizing: border-box;
+  background: var(--clip);
+  -webkit-mask: radial-gradient(circle 2.6px, transparent 98%, #000) -4px -4px / 8px 8px round, linear-gradient(#000, #000) 4px 4px / calc(100% - 8px) calc(100% - 8px) no-repeat;
+  mask: radial-gradient(circle 2.6px, transparent 98%, #000) -4px -4px / 8px 8px round, linear-gradient(#000, #000) 4px 4px / calc(100% - 8px) calc(100% - 8px) no-repeat;
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.2));
+  transform: rotate(-3deg);
+  image-rendering: pixelated;
+}
+.fx-title-text { min-width: 0; }
+.fx-drawer h1 {
+  font-size: clamp(24px, 2.6vw, 32px); line-height: 1.1; font-weight: 700; letter-spacing: -0.025em;
+  overflow-wrap: anywhere; text-wrap: balance;
+}
+.fx-drawer h1:focus { outline: none; }
+.fx-where {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 5px !important;
+  font-size: 13px; color: var(--muted);
+}
+.fx-where > code { overflow-wrap: anywhere; }
+.fx-branch { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); }
+
+.fx-tabs {
+  display: flex; gap: clamp(16px, 2.4vw, 26px); overflow-x: auto; scrollbar-width: none;
+  border-bottom: 1px solid var(--ink);
+}
+.fx-tabs button {
+  position: relative; flex: none; padding: 12px 0 9px;
+  border: 0; background: none; color: var(--muted); font: 500 14px/1.2 var(--font-sans); cursor: pointer;
+}
+.fx-tabs button:hover { color: var(--ink); }
+.fx-tabs button[aria-selected="true"] { color: var(--ink); font-weight: 700; }
+.fx-tabs button[aria-selected="true"]::after {
+  content: ""; position: absolute; inset-inline: 0; bottom: -1px; height: 3px; background: var(--ink);
+}
+
+/* ---- body: each tab turns in like a fresh page */
+.fx-page {
+  flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain;
+  padding: 28px clamp(18px, 3vw, 30px) 28px;
+  transform-origin: 100% 0;
+  animation: fx-page-in 320ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+@keyframes fx-page-in { from { opacity: 0; transform: perspective(1400px) rotateY(10deg) translateX(10px); } }
+
+.fx-empty { color: var(--muted); padding-block: 24px; text-align: center; font-style: italic; }
+:is(.fx-drawer, .fx-detail) h3 { display: flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 700; color: var(--ink); letter-spacing: 0.04em; }
+/* a rubber stamp */
+.fx-pill {
+  display: inline-block; padding: 0 5px; border: 1.5px solid currentColor; border-radius: 3px;
+  color: var(--accent); font-size: 11px; font-weight: 700; line-height: 1.5; letter-spacing: 0.06em; white-space: nowrap;
+  transform: rotate(-3deg); opacity: 0.85;
+}
+/* a highlighter stroke */
+.fx-pill-on {
+  border: 0; padding: 0 3px; border-radius: 0; transform: none; opacity: 1; letter-spacing: 0;
+  color: var(--ink); font-weight: 500;
+  background: linear-gradient(100deg, transparent 2%, rgb(158 232 140 / 0.7) 4%, rgb(158 232 140 / 0.55) 96%, transparent 98%) 0 60% / 100% 62% no-repeat;
+}
+.fx-faces { display: flex; gap: 3px; flex-wrap: wrap; }
+.fx-faces svg { display: block; border-radius: 2px; }
+
+/* tasks: newspaper columns, each task a clipping pasted in */
+.fx-board { display: grid; grid-template-columns: repeat(4, minmax(112px, 1fr)); min-width: 480px; }
+.fx-lane { display: flex; flex-direction: column; gap: 14px; min-height: 200px; padding: 0 10px 10px; }
+.fx-lane + .fx-lane { border-inline-start: 1px solid var(--rule); }
+.fx-lane:first-child { padding-inline-start: 0; }
+.fx-lane:last-child { padding-inline-end: 0; }
+.fx-lane h3 { justify-content: space-between; padding: 2px 0 4px; }
+.fx-count { font: 500 11px/1 var(--font-mono); color: var(--muted); }
+.fx-task {
+  position: relative; display: grid; gap: 8px; padding: 10px 10px 11px;
+  background: var(--clip); box-shadow: var(--lift), inset 0 0 0 100vmax var(--unshade);
+  transform: rotate(var(--tilt, 0deg));
+}
+.fx-task:nth-child(3n + 2) { --tilt: -0.8deg; }
+.fx-task:nth-child(3n + 3) { --tilt: 0.6deg; }
+.fx-task:nth-child(3n + 4) { --tilt: -0.3deg; }
+.fx-task-title { font-size: 13.5px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
+.fx-task-no { margin-inline-end: 5px; font: 500 11px/1 var(--font-mono); color: var(--muted); }
+.fx-task .fx-pill { justify-self: start; }
+
+/* flows: left to right, each step a sticky note; space, not rules, between flows */
+.fx-flows { display: grid; gap: 30px; }
+.fx-flow { display: grid; gap: 12px; }
+.fx-flow h3 { font-size: 17px; letter-spacing: 0.01em; align-items: center; }
+/* in the company file a flow opens as a whole: its title is a button stretched over the flow, and the whole
+   flow shades on hover like anything else that opens */
+.fx-flow-card {
+  position: relative; margin: -8px; padding: 8px 8px 0;
+  box-shadow: inset 0 0 0 100vmax var(--unshade); transition: box-shadow 140ms ease;
+}
+.fx-flow-card:has(.fx-flow-open:hover), .fx-flow-card:has(.fx-flow-scroll:hover),
+.fx-flow-card:has(.fx-flow-open[aria-expanded="true"]) {
+  box-shadow: inset 0 0 0 100vmax var(--shade);
+}
+.fx-flow-open { border: 0; padding: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; cursor: pointer; }
+.fx-flow-open::after { content: ''; position: absolute; inset: 0; z-index: 1; }
+.fx-flow-open:focus-visible { outline: none; }
+/* the drawing lies above the click layer, so a flow wider than the card scrolls sideways; a click on it still
+   opens the flow (openCard) */
+.fx-flow-card .fx-flow-scroll { position: relative; z-index: 2; cursor: pointer; }
+.fx-flow-card:has(.fx-flow-open:focus-visible) { outline: 2px solid rgb(31 29 43 / 0.3); outline-offset: 2px; }
+/* room under the last row for the faces that hang below the notes */
+.fx-flow-scroll { overflow-x: auto; padding: 4px 0 26px; }
+.fx-flow .flow { position: relative; }
+.fx-flow .flow-edges { position: absolute; inset: 0; }
+.fx-flow .flow-edge { fill: none; stroke: var(--ink-2); stroke-width: 1.2; }
+/* work may not go this way (one of several next steps, or any one of several before): dashed */
+.fx-flow .flow-edge.fx-edge-maybe { stroke-dasharray: 3 3; }
+.fx-flow .flow-arrow { fill: var(--ink-2); }
+.fx-flow .flow-node { position: absolute; }
+.fx-node {
+  position: relative; box-sizing: border-box; width: 100%; height: 100%; display: grid; place-items: center; padding: 3px 5px;
+  background: var(--note); box-shadow: var(--lift), inset 0 0 0 100vmax var(--unshade); rotate: -1.2deg;
+}
+.fx-flow .flow-node:nth-child(even) .fx-node { rotate: 1deg; }
+/* the two fixed steps (the task itself and the review at the end), a red pad of notes */
+.fx-node-fixed { background: var(--note-fixed); }
+.fx-node b {
+  font-size: 13px; font-weight: 600; line-height: 1.3; text-align: center; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+/* who works this step: a row of faces under the note, from its left edge */
+.fx-node-crew {
+  position: absolute; top: calc(100% + 5px); left: 0; display: flex; gap: 3px;
+  /* level, undoing the note's tilt */
+  rotate: 1.2deg;
+}
+.fx-flow .flow-node:nth-child(even) .fx-node-crew { rotate: -1deg; }
+.fx-node-crew svg { display: block; border-radius: 2px; }
+/* a step nobody works yet: the note says so in the accent, under it */
+/* a step nobody works yet: a round ! on the note's top right corner */
+.fx-node-warn {
+  position: absolute; top: -8px; right: -8px; display: grid; place-items: center; width: 18px; height: 18px;
+  border-radius: 50%; background: var(--accent); color: #fff; font: 700 12px/1 var(--font-ui, inherit);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2); rotate: 0deg;
+}
+.fx-node-done { background: #e6e3dc; }
+.fx-node-done b { color: var(--muted); }
+.fx-node-done .fx-node-crew { opacity: 0.55; }
+/* writing a flow: notes are pressed and dragged to draw arrows; a dot mid-arrow opens into ＋ and × */
+.fx-flow .flow-label { position: absolute; z-index: 1; translate: -50% -50%; }
+.fx-d-flowedit { display: grid; gap: 14px; }
+.fx-d-flowedit .fx-d-steps { margin-top: 14px; }
+/* while written the drawing gets more room around it: empty space to let an arrow go on */
+.fx-flow-scroll.fx-flow-edit { position: relative; display: grid; align-content: center; min-height: 280px; }
+/* the arrow being drawn and the would-be note, over the whole block */
+.fx-drag-layer { position: absolute; left: 0; top: 0; z-index: 2; overflow: visible; pointer-events: none; }
+/* a bin at a note's top right corner, shown under the pointer or focus */
+.fx-node-del {
+  position: absolute; top: -11px; right: -11px; z-index: 2; display: grid; place-items: center; width: 24px; height: 24px;
+  padding: 0; border: 0; border-radius: 50%; background: var(--paper); color: var(--ink-2); cursor: pointer;
+  box-shadow: var(--lift); opacity: 0; scale: 0.8; transition: opacity 120ms ease, scale 120ms ease, color 120ms ease;
+}
+.flow-node:hover .fx-node-del, .fx-node-del:focus-visible { opacity: 1; scale: 1; }
+.fx-node-del:hover, .fx-node-del:focus-visible { color: var(--accent); outline: none; }
+/* pressed once: it widens leftwards into 確定刪除 in the accent, and stays shown until a second press or looking away */
+.fx-node-del.fx-node-del-ask {
+  width: auto; padding: 0 10px; border-radius: 12px; opacity: 1; scale: 1;
+  color: var(--accent); font-size: 12px; font-weight: 600; line-height: 1; white-space: nowrap;
+}
+.fx-drawing .fx-node-del { visibility: hidden; }
+.fx-flow-edit .fx-node { user-select: none; -webkit-user-select: none; touch-action: none; }
+/* at rest a small ring; under the pointer or focus it widens into a pill holding both buttons */
+.fx-mid {
+  position: relative; display: flex; align-items: center; gap: 2px; height: 26px; padding: 0 0;
+  max-width: 12px; max-height: 12px; overflow: hidden; border-radius: 13px;
+  background: var(--paper); box-shadow: inset 0 0 0 1.2px var(--muted);
+  transition: max-width 160ms ease, max-height 160ms ease, padding 160ms ease;
+}
+/* a bigger target than the dot it shows, so it is easy to land on */
+.fx-mid::before { content: ''; position: absolute; inset: -8px; }
+.fx-mid:is(:hover, :focus-within) { max-width: 60px; max-height: 26px; padding: 0 2px; overflow: visible; }
+.fx-mid-btn {
+  position: relative; display: grid; place-items: center; flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%;
+  background: none; color: var(--ink-2); cursor: pointer; opacity: 0; transition: opacity 120ms ease, color 120ms ease;
+}
+.fx-mid:is(:hover, :focus-within) .fx-mid-btn { opacity: 1; }
+.fx-mid-btn:hover, .fx-mid-btn:focus-visible { color: var(--ink); background: rgb(31 29 43 / 0.08); outline: none; }
+.fx-mid-cut:hover, .fx-mid-cut:focus-visible { color: var(--accent); }
+.fx-drag-edge { fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 3 3; pointer-events: none; }
+.fx-drag-ghost { fill: rgb(255 244 184 / 0.5); stroke: var(--ink-2); stroke-width: 1.2; stroke-dasharray: 3 3; pointer-events: none; }
+.fx-drawing { user-select: none; cursor: crosshair; }
+.fx-drawing .fx-mid { visibility: hidden; }
+.fx-node { transition: opacity 140ms ease, box-shadow 140ms ease; }
+.fx-node-cant { opacity: 0.35; }
+.fx-node-over { box-shadow: var(--lift), inset 0 0 0 100vmax var(--shade); }
+
+/* employees and blueprints: a column of small portraits */
+.fx-list { margin: 0; padding: 0; list-style: none; }
+.fx-list li { border-bottom: 1px dotted var(--rule); }
+/* the whole row opens; its shade reaches a little past the text */
+.fx-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px;
+  width: calc(100% + 16px); margin-inline: -8px; padding: 10px 8px;
+  box-shadow: inset 0 0 0 100vmax var(--unshade);
+}
+.fx-list li:first-child .fx-row { padding-top: 6px; }
+/* each face is a little photo with a white border, pasted slightly askew */
+.fx-row > svg { padding: 3px; background: var(--clip); box-shadow: var(--lift); transform: rotate(-2deg); }
+.fx-list li:nth-child(even) .fx-row > svg { transform: rotate(1.5deg); }
+/* a blueprint is its own white sheet: no photo border round it */
+.fx-row > .fx-bp-icon { padding: 0; background: #fff; }
+.fx-row-main { display: grid; min-width: 0; }
+/* a row with nothing in front of its name */
+.fx-row-plain { grid-template-columns: minmax(0, 1fr) auto; }
+.fx-row-main b { font-size: 14.5px; font-weight: 600; }
+.fx-row-main span { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+
+/* anything that opens a detail sheet: a plain button, shaded on hover like a building on the map, and
+   kept shaded while its sheet is open */
+.fx-hit {
+  border: 0; border-radius: 0; color: inherit; font: inherit; text-align: start; cursor: pointer;
+  transition: box-shadow 140ms ease;
+}
+.fx-row.fx-hit { background: none; }
+.fx-hit:hover, .fx-hit[aria-expanded="true"] { box-shadow: inset 0 0 0 100vmax var(--shade); }
+:is(.fx-task, .fx-node).fx-hit:hover, :is(.fx-task, .fx-node).fx-hit[aria-expanded="true"] {
+  box-shadow: var(--lift), inset 0 0 0 100vmax var(--shade);
+}
+
+/* the detail sheets: taped over the upper left of the map, three quarters of the stage tall. Each sheet
+   stacked on top sits a step lower and a step to the right, so the top and left edges of the one below
+   still show. All are the same width, and the steps share out the room left beside them (--room): four
+   sheets (Drawer.tsx MAX_SHEETS) take three steps, so the fourth still ends 18px clear of the company file
+   (left edge at 50% + 18px) */
+.fx-detail {
+  --room: 64px;
+  --step: calc(var(--room) / 3);
+  position: absolute; z-index: 6;
+  top: calc(18px + var(--depth, 0) * var(--step)); left: calc(18px + var(--depth, 0) * var(--step));
+  width: calc(50% - 18px - var(--room)); height: calc(75% - 18px);
+  transform-origin: 50% 0;
+  transition: translate 320ms cubic-bezier(0.3, 0.7, 0.4, 1);
+  animation: fx-paste 560ms cubic-bezier(0.25, 1.4, 0.4, 1) backwards;
+}
+/* looking at a covered sheet: it slides a little up and left, as if being pulled out of the stack. Only
+   the sheets above cover the part under the pointer, and they stay put, so it never slips away from it. Kept
+   to a fifth of a step, so the strip it leaves behind stays well inside the step */
+.fx-detail:has(> .fx-detail-cover:is(:hover, :focus-visible)) { translate: -4px -4px; }
+.fx-detail.leaving { animation: fx-unpaste 380ms cubic-bezier(0.2, 0.6, 0.4, 1) forwards; pointer-events: none; }
+/* too narrow for half: the whole width, above the company file */
+@media (max-width: 760px) { .fx-detail { width: calc(100% - 36px - var(--room)); } }
+.fx-detail .fx-tape-l { left: 40px; }
+/* a covered sheet is one big button: the strip that shows shades on hover, like anything else that opens */
+.fx-detail-cover {
+  position: absolute; inset: 0; z-index: 2; border: 0; padding: 0; background: var(--dim); cursor: pointer;
+  transition: background-color 140ms ease; animation: fx-dim 240ms ease;
+}
+@keyframes fx-dim { from { background: var(--unshade); } }
+.fx-detail-cover:hover { background: var(--shade); }
+.fx-detail-cover:focus-visible { outline-offset: -4px; }
+/* a sheet's own actions, round and plain, in its upper right */
+.fx-tools { position: absolute; top: 16px; right: 16px; z-index: 1; display: flex; gap: 2px; }
+.fx-tool {
+  display: grid; place-items: center; min-width: 34px; height: 34px; padding: 0; border: 0; border-radius: 17px;
+  background: none; color: var(--ink-2); font: 600 12.5px/1 var(--font-sans); cursor: pointer;
+}
+.fx-tool:hover { color: var(--ink); }
+.fx-tool:disabled { opacity: 0.35; cursor: default; box-shadow: none; }
+/* asking before a delete: the button says so, in the accent */
+.fx-tool-ask { padding: 0 12px; color: var(--accent); }
+.fx-tool-ask:hover { color: var(--accent); }
+/* files handed on, each opening to read */
+.fx-d-files .fx-file { color: var(--ink-2); }
+.fx-d-files .fx-row-main > span { font-family: var(--font-mono); font-size: 11.5px; }
+/* a handed-on file: a note set like the drawer's text, or code on a lighter slip */
+.fx-doc { display: grid; gap: 16px; font-size: 14px; line-height: 1.7; color: var(--ink); }
+.fx-doc .fx-doc-h1 { font-size: 17px; letter-spacing: 0; }
+.fx-doc h4 { margin: 0 0 4px; font-size: 13px; font-weight: 700; }
+.fx-doc ul { margin: 0; padding-inline-start: 1.2em; }
+.fx-doc-code {
+  margin: 0; overflow-x: auto;
+  font: 12.5px/1.6 var(--font-mono); color: var(--ink); white-space: pre; tab-size: 2;
+}
+/* the file itself: a white sticky note stuck on the sheet, a touch askew, its glue strip along the top */
+.fx-doc-note {
+  position: relative; padding: 26px 20px 20px;
+  background: linear-gradient(to bottom, transparent 90%, rgb(0 0 0 / 0.035)), #fff;
+  box-shadow: 0 1px 1px rgb(31 29 43 / 0.12), 3px 8px 12px -6px rgb(31 29 43 / 0.3);
+  transform: rotate(-0.4deg);
+}
+.fx-doc-note::before { content: ""; position: absolute; inset: 0 0 auto; height: 14px; background: rgb(0 0 0 / 0.035); }
+/* a task's pictures: small prints in a row; a new task's end in a dashed slot to add more */
+.fx-thumbs { display: flex; flex-wrap: wrap; gap: 10px; }
+.fx-thumb {
+  position: relative; display: grid; place-items: center; width: 72px; height: 54px; margin: 0; padding: 3px;
+  box-sizing: border-box; border: 0; background: #fff; box-shadow: 0 1px 2px rgb(31 29 43 / 0.25); cursor: pointer;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+}
+.fx-thumb img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: cover; }
+.fx-thumb-add { background: none; box-shadow: none; outline: 1.5px dashed var(--rule); outline-offset: -1px; color: var(--muted); font-size: 18px; }
+.fx-thumb-add:hover { color: var(--ink); }
+.fx-thumb-add:focus-within { outline: 2px solid rgb(31 29 43 / 0.3); }
+.fx-thumb-x {
+  position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 20px; height: 20px; padding: 0;
+  border: 0; border-radius: 50%; background: var(--ink); color: #fff; font: 700 13px/1 var(--font-sans); cursor: pointer;
+}
+.fx-d-image { display: block; max-width: 100%; height: auto; margin-inline: auto; background: #fff; padding: 6px; box-shadow: 0 1px 2px rgb(31 29 43 / 0.25); }
+.fx-d-form { display: grid; align-content: start; gap: 22px; }
+.fx-field.fx-field-top { align-items: start; }
+.fx-field-top > span { padding-top: 7px; }
+textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
+.fx-d-actions { display: flex; align-items: center; gap: 14px; }
+/* a picked employee stays shaded, with a tick */
+.fx-hit[aria-pressed="true"] { box-shadow: inset 0 0 0 100vmax var(--shade); }
+.fx-check { width: 1em; font-weight: 700; color: var(--ink); text-align: center; }
+/* the slot for a new task: a blank slip, dashed where the next card goes */
+.fx-task-new { color: var(--muted); font-size: 13.5px; text-align: center; background: none; box-shadow: none; outline: 1.5px dashed var(--rule); outline-offset: -1px; --tilt: 0deg; }
+.fx-task-new:hover, .fx-task-new[aria-expanded="true"] { color: var(--ink); }
+.fx-flow-new { padding: 12px; }
+/* a quiet text button under a block, to add to it */
+.fx-add { justify-self: start; margin-top: 8px; padding: 6px 10px; border-radius: 3px; background: none; color: var(--muted); font-size: 13.5px; }
+.fx-add:hover { color: var(--ink); }
+.fx-d-toggle:disabled { cursor: default; box-shadow: none; }
+.fx-save {
+  justify-self: start; padding: 7px 18px; border: 0; border-radius: 3px; background: var(--ink); color: var(--paper);
+  font: 600 13.5px/1.2 var(--font-sans); cursor: pointer;
+}
+.fx-save:hover { background: var(--ink-2); }
+.fx-save:disabled { opacity: 0.4; cursor: default; }
+.fx-detail-body { flex: 1; overflow-y: auto; padding: 24px 28px 28px; display: grid; align-content: start; gap: 22px; }
+.fx-detail h2 { padding-inline-end: 36px; font-size: 22px; line-height: 1.3; font-weight: 700; overflow-wrap: anywhere; }
+.fx-detail h2:focus { outline: none; }
+.fx-d-head { display: grid; gap: 8px; }
+.fx-d-who { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 16px; }
+.fx-d-who > svg { padding: 3px; background: var(--clip); box-shadow: var(--lift); transform: rotate(-2deg); }
+.fx-d-who > .fx-bp-icon { padding: 0; background: #fff; }
+.fx-d-who > div { display: grid; gap: 6px; }
+.fx-d-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 13px; color: var(--ink-2); }
+.fx-d-sec { display: grid; gap: 10px; }
+.fx-d-muted { color: var(--muted); font-size: 13px; }
+.fx-d-text { font-size: 14px; color: var(--ink-2); white-space: pre-wrap; }
+/* quoted instructions: a typed slip pasted in */
+.fx-d-quote { padding: 10px 12px; background: var(--clip); box-shadow: var(--lift); rotate: -0.4deg; }
+.fx-d-people, .fx-d-memory, .fx-d-log { margin: 0; padding: 0; list-style: none; }
+.fx-d-run { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.fx-d-hand > .fx-d-noface { width: 32px; height: 32px; }
+/* sub-tasks under their step: space between steps, the step's name above its rows */
+.fx-d-groups { display: grid; gap: 18px; }
+.fx-d-group { display: grid; gap: 4px; }
+.fx-d-group h4 { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: 14px; font-weight: 700; color: var(--ink); }
+/* a group under its blueprint: the title, icon first, opens the blueprint; its shade reaches a little past it */
+/* the employees tab: no rules between people, more room between blueprints */
+.fx-crew-groups { gap: 36px; }
+.fx-crew-groups .fx-list li { border-bottom: 0; }
+.fx-bp-head {
+  display: flex; align-items: center; gap: 8px; margin: -4px -8px; padding: 4px 8px; border: 0; background: none;
+  font: inherit; color: inherit; letter-spacing: inherit; cursor: pointer;
+}
+.fx-bp-head > span[aria-hidden] { display: block; line-height: 0; }
+.fx-bp-head svg { display: block; background: #fff; box-shadow: var(--lift); }
+/* the steps under a flow drawing, in the order it runs: space between steps, a finished one greyed */
+.fx-d-steps { display: grid; gap: 34px; margin: 0; padding: 0; list-style: none; }
+.fx-d-steps li { display: grid; gap: 8px; scroll-margin-top: 16px; }
+.fx-d-steps h4 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 14px; font-weight: 700; color: var(--ink); }
+/* each step's name on a sticky note, as in the drawing above */
+.fx-d-stepname {
+  padding: 7px 12px; font-size: 13px; font-weight: 600; line-height: 1.3;
+  background: var(--note); box-shadow: var(--lift); rotate: -1deg;
+}
+.fx-d-steps li:nth-child(even) .fx-d-stepname { rotate: 0.8deg; }
+.fx-d-stepname.fx-node-fixed { background: var(--note-fixed); }
+/* a finished step: greyed like its note on the drawing, which says it is done */
+.fx-d-stepname.fx-node-done { background: #e6e3dc; color: var(--muted); }
+.fx-d-stepname-sm { padding: 3px 8px; font-size: 12px; }
+/* handoffs, oldest first: the face and the step's note lead each row, what was handed on under them */
+.fx-d-hand-head { display: flex; align-items: center; gap: 8px; }
+.fx-row-main .fx-d-hand-text { font-size: 13.5px; color: var(--ink-2); margin-top: 6px; }
+.fx-row-main .fx-d-hand-back { color: var(--accent); }
+.fx-d-hand time { align-self: start; font: 500 11px/1.6 var(--font-mono); color: var(--muted); }
+/* the step a note was clicked for, shaded a moment */
+.fx-d-flash { animation: fx-d-flash 1200ms ease-out; }
+@keyframes fx-d-flash { from { box-shadow: 0 0 0 10px var(--shade), inset 0 0 0 100vmax var(--shade); } to { box-shadow: 0 0 0 10px transparent, inset 0 0 0 100vmax transparent; } }
+/* a step written in place: its name (a field, unless it is the start or the end) with delete beside it */
+.fx-step-head { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.fx-step-head .fx-step-name { flex: 1; max-width: 240px; font-weight: 700; font-size: 14px; }
+.fx-d-picks { display: flex; flex-wrap: wrap; gap: 6px; }
+.fx-d-picks button { padding: 4px 10px; border: 0; font: inherit; font-size: 13px; color: var(--ink-2); background: rgb(31 29 43 / 0.05); cursor: pointer; }
+.fx-d-picks button[aria-pressed="true"] { color: var(--ink); background: var(--clip); box-shadow: var(--lift); }
+.fx-d-crew { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.fx-d-crew li { display: flex; align-items: center; gap: 6px; }
+.fx-d-crew svg { display: block; flex: none; border-radius: 2px; }
+.fx-d-crew button { display: flex; align-items: center; gap: 6px; margin: -3px -6px; padding: 3px 6px; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+/* a flow names nobody for its two ends: the task's owner works them, whoever that is */
+.fx-d-crew-owner { color: var(--muted); }
+/* the task's owner, after its status: a face that opens the employee */
+.fx-d-owner { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.fx-d-owner button { display: flex; align-items: center; gap: 6px; margin: -3px -2px; padding: 3px 6px; border: 0; background: none; font: inherit; color: var(--ink-2); cursor: pointer; }
+.fx-d-owner svg, .fx-owner-pick svg { display: block; flex: none; border-radius: 2px; }
+.fx-owner-pick { display: flex; align-items: center; gap: 8px; text-align: start; cursor: pointer; }
+.fx-d-run svg, .fx-d-people svg { display: block; flex: none; border-radius: 2px; }
+.fx-d-noface { width: 18px; height: 18px; border-radius: 2px; background: var(--wash, rgb(0 0 0 / 0.06)); }
+.fx-d-bar { flex: 0 1 80px; height: 5px; background: rgb(31 29 43 / 0.1); }
+.fx-d-bar i { display: block; height: 100%; background: var(--ink-2); }
+.fx-d-people { display: grid; gap: 8px; }
+.fx-d-people li { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.fx-d-people b { font-weight: 600; }
+.fx-d-people span { color: var(--muted); }
+.fx-d-facts { display: grid; grid-template-columns: 5em minmax(0, 1fr); gap: 6px 12px; margin: 0; font-size: 13.5px; }
+.fx-d-facts dt { color: var(--muted); }
+.fx-d-facts dd { margin: 0; }
+.fx-d-chips { display: flex; flex-wrap: wrap; gap: 6px 8px; }
+.fx-d-chips span { padding: 1px 8px; background: var(--clip); box-shadow: var(--lift); font-size: 12.5px; }
+.fx-d-mono span { font-family: var(--font-mono); font-size: 12px; }
+/* every skill a source has; and the ones it leaves out, struck through */
+.fx-d-chips .fx-chip-all { background: none; box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink-2); }
+.fx-d-chips .fx-chip-out { background: none; box-shadow: inset 0 0 0 1px var(--rule); color: var(--muted); text-decoration: line-through; }
+.fx-d-memory { display: grid; gap: 8px; font-size: 13.5px; }
+.fx-d-memory li { padding-inline-start: 12px; border-inline-start: 2px solid var(--rule); }
+.fx-d-log { display: grid; gap: 4px; font-size: 13px; }
+.fx-d-log li { display: flex; gap: 8px; align-items: baseline; }
+.fx-d-log time { flex: none; font: 500 11px/1 var(--font-mono); color: var(--muted); }
+.fx-d-log b { flex: none; font-weight: 600; color: var(--ink-2); }
+.fx-d-log-think span { color: var(--muted); font-style: italic; }
+.fx-d-log-user { flex: none; font-weight: 700; color: #2a7330; }
+.fx-d-log-tool span { font-family: var(--font-mono); font-size: 12px; }
+
+/* settings: a printed form, filled in on the line */
+.fx-fields { display: grid; gap: 6px; max-width: 520px; }
+.fx-fields hr { width: 100%; margin: 10px 0 4px; border: 0; border-top: 1px solid var(--rule); }
+.fx-field { display: grid; grid-template-columns: 8.5em minmax(0, 1fr); align-items: center; gap: 12px; font-size: 13px; color: var(--ink-2); }
+.fx-unit { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+
+/* anything you can fill in or pick sits on a faint grey wash: no rule, no outline, darker while in use */
+.fx-control, .fx-stepper {
+  --wash: rgb(31 29 43 / 0.06);
+  box-sizing: border-box; min-width: 0; height: 34px;
+  border: 0; border-radius: 3px; background: var(--wash); color: var(--ink);
+  font: 15px/1.4 var(--font-sans);
+}
+.fx-control { width: 100%; padding: 0 10px; }
+.fx-control:hover, .fx-stepper:hover { --wash: rgb(31 29 43 / 0.09); }
+:is(.fx-drawer, .fx-detail) :is(.fx-control, .fx-stepper input):focus-visible { outline: none; }
+.fx-control:focus, .fx-control[aria-expanded="true"], .fx-stepper:focus-within { --wash: rgb(31 29 43 / 0.13); }
+
+/* pick-list: the value on the wash, a chevron that flips while open, the options on a slip of paper */
+.fx-select { position: relative; }
+.fx-select > .fx-control { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: start; cursor: pointer; }
+.fx-select-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-chevron { flex: none; color: var(--ink-2); transition: transform 160ms ease; }
+[aria-expanded="true"] > .fx-chevron { transform: rotate(180deg); }
+.fx-slip {
+  position: absolute; z-index: 3; inset-inline: 0; top: calc(100% + 6px);
+  max-height: 220px; overflow: auto; margin: 0; padding: 5px; list-style: none;
+  background: var(--clip); border-radius: 2px;
+  box-shadow: 0 1px 2px rgb(60 40 10 / 0.16), 0 10px 22px -6px rgb(60 40 10 / 0.32);
+  transform: rotate(-0.4deg); transform-origin: 50% 0;
+  animation: fx-slip 180ms cubic-bezier(0.2, 0.9, 0.3, 1.2) backwards;
+}
+@keyframes fx-slip { from { opacity: 0; transform: translateY(-6px) rotate(-1.4deg); } }
+.fx-slip li {
+  display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 2px;
+  font-size: 14.5px; cursor: pointer;
+}
+.fx-slip li.active { background: rgb(31 29 43 / 0.07); }
+.fx-slip li[aria-selected="true"] { font-weight: 600; }
+.fx-slip-check { display: inline-grid; place-items: center; width: 14px; flex: none; color: var(--accent); }
+
+/* stepper: − value + on one wash, the tabs pressed in when clicked */
+.fx-stepper { display: inline-flex; align-items: stretch; flex: none; width: 128px; padding: 3px; }
+.fx-stepper input {
+  flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: inherit;
+  font: inherit; text-align: center; font-variant-numeric: tabular-nums;
+  appearance: textfield; -moz-appearance: textfield;
+}
+.fx-stepper input::-webkit-inner-spin-button, .fx-stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.fx-stepper button {
+  display: grid; place-items: center; width: 28px; flex: none; padding: 0;
+  border: 0; border-radius: 2px; background: var(--clip); color: var(--ink-2); cursor: pointer;
+  box-shadow: 0 1px 1px rgb(60 40 10 / 0.18);
+}
+.fx-stepper button:hover { color: var(--ink); }
+.fx-stepper button:active { transform: translateY(1px); box-shadow: none; }
+.fx-stepper button:disabled { color: var(--rule); box-shadow: none; background: transparent; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fusion-stage, .label, .fx-tag { animation: none; transition: none; }
+  .fx-drawer, .fx-detail, .fx-page, .fx-slip { animation: none; }
+  .fx-hit, .fx-detail-cover, .fx-flow-card, .fx-node, .fx-mid, .fx-mid-btn, .fx-node-del, .fx-detail { transition: none; }
+  .fx-detail-cover { animation: none; }
+  .fx-chevron { transition: none; }
+  .fx-drawer.leaving, .fx-detail.leaving { animation: none; opacity: 0; }
+}
+
+/* the employee in 3D on the hire and edit sheets */
+.fx-standee { height: 112px; margin: -6px 0 -4px; }
+.fx-look { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.fx-reroll { display: grid; place-items: center; width: 48px; height: 48px; padding: 0; cursor: pointer; }
+/* a new company's building: its stamp, its kind, and the die */
+.fx-look-building { grid-template-columns: auto minmax(0, 1fr) auto; }
+.fx-standee canvas { image-rendering: pixelated; }
+
+/* the buttons over the map's top right corner: a new company, and the gear that opens the settings drawer */
+.fx-corner {
+  position: absolute; top: 22px; inset-inline-end: 22px; z-index: 4;
+  display: flex; align-items: center; gap: 14px;
+}
+:is(.fx-settings-trigger, .fx-corner-text) {
+  height: 44px; border: 1px solid transparent; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.fx-settings-trigger { display: grid; place-items: center; width: 44px; padding: 0; }
+.fx-corner-text { padding: 0 16px; font-size: 14px; white-space: nowrap; }
+/* tasks waiting on the user: their count in a red dot on the button's top right corner, a pill when it runs long */
+.fx-badge {
+  position: absolute; top: -7px; inset-inline-end: -7px;
+  display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px;
+  background: #d33a2c; color: #fff; font: 800 11px/1 var(--font-sans); font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px #f4efe2, 0 2px 4px rgb(20 20 40 / 0.3);
+  rotate: 1.5deg;
+}
+:is(.fx-settings-trigger, .fx-corner-text):focus-visible { outline: 2px solid #1f1d2b; outline-offset: 4px; }
+@media (hover: hover) { :is(.fx-settings-trigger, .fx-corner-text):hover { filter: brightness(0.94); } }
+@media (prefers-reduced-motion: no-preference) {
+  :is(.fx-settings-trigger, .fx-corner-text) { transition: scale 150ms ease-out; }
+  :is(.fx-settings-trigger, .fx-corner-text):active:not(:disabled) { scale: 0.96; }
+}
+/* the board of all tasks: one block per company, its file's head over its task columns */
+.fx-board-all { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 44px; }
+.fx-board-all:focus { outline: none; }
+.fx-board-co .fx-title { margin-bottom: 22px; }
+.fx-board-co h2 { font-size: clamp(20px, 2vw, 24px); line-height: 1.15; font-weight: 700; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+/* only the task columns scroll sideways; the company's head stays put */
+.fx-board-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+/* a drawer head with no tabs under it still ends in a rule */
+.fx-head-rule { border-bottom: 1px solid var(--ink); }
+/* a drawer head with no stamp in front of the title */
+.fx-title-plain { grid-template-columns: minmax(0, 1fr); }
+.fx-row > span > .fx-bp-icon { display: block; }
+/* a field's error, under its control */
+.fx-field-error { margin: 0 0 4px calc(8.5em + 12px) !important; font-size: 12.5px; color: var(--accent); }
+.fx-control[aria-invalid="true"] { box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+/* closing a company: the one red button */
+.fx-danger { background: var(--accent); }
+.fx-danger:hover { background: #b8321f; }
+/* the quiet choice beside a red one: white paper with an ink edge */
+.fx-plain { background: var(--clip); color: var(--ink); box-shadow: inset 0 0 0 1px var(--rule); }
+.fx-plain:hover { background: #fff; box-shadow: inset 0 0 0 1px var(--muted); }
+/* a task's merge, under its steps: the owner's row, then what the user can do */
+.fx-d-merge { display: grid; gap: 10px; }
+.fx-d-merge-acts { display: flex; align-items: center; gap: 8px; padding-inline-start: 46px; }
+.fx-d-merge-back { display: grid; gap: 8px; padding-inline-start: 46px; }
+.fx-d-merge-back .fx-d-merge-acts { padding-inline-start: 0; }
+.fx-d-merge-back .fx-add { margin: 0; border: 0; cursor: pointer; }
+/* answering an employee who waits on the user: under their row, lined up with its text */
+.fx-row-main .fx-d-ask { color: var(--ink); white-space: pre-wrap; }
+.fx-d-reply { display: grid; gap: 8px; margin: 2px 0 12px; padding-inline-start: 46px; }
+.fx-d-reply .fx-d-merge-acts { padding-inline-start: 0; }
+.fx-d-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.fx-d-choices:empty { display: none; }
+.fx-choice {
+  padding: 5px 11px; border: 0; border-radius: 3px; background: var(--clip); box-shadow: inset 0 0 0 1px var(--rule);
+  color: var(--ink); font: 500 13px/1.3 var(--font-sans); cursor: pointer;
+}
+.fx-choice:hover { box-shadow: inset 0 0 0 1px var(--muted); }
+.fx-choice[aria-pressed="true"] { background: var(--ink); color: var(--paper); box-shadow: none; }
+/* a tick box in a field, in the ink of the page */
+.fx-tick { justify-self: start; width: 16px; height: 16px; margin: 0; accent-color: var(--ink); cursor: pointer; }
+/* a tick box at the end of a row */
+.fx-box {
+  display: inline-grid; place-items: center; width: 16px; height: 16px; box-sizing: border-box;
+  border: 1.5px solid var(--ink); border-radius: 2px; font-size: 12px; font-weight: 700; line-height: 1; color: var(--ink);
+}
+/* the about page: links out, then the thanks */
+/* social links: paper sticky notes, each a little askew and of its own colour, that lift when pointed at */
+.fx-links { display: flex; flex-wrap: wrap; gap: 18px 16px; margin: 0; padding: 6px 2px 4px; list-style: none; }
+.fx-link {
+  --note: #fff1a8;
+  position: relative; display: grid; justify-items: center; align-content: center; gap: 8px;
+  width: 104px; height: 96px; padding: 10px 8px 8px; box-sizing: border-box;
+  /* a little fold of shade at the bottom, where the paper curls off the page */
+  background: linear-gradient(to bottom, transparent 82%, rgb(0 0 0 / 0.05)), var(--note);
+  box-shadow: 0 1px 1px rgb(31 29 43 / 0.12), 3px 6px 8px -4px rgb(31 29 43 / 0.3);
+  color: var(--ink); font-size: 12.5px; font-weight: 600; line-height: 1.25; text-align: center; text-decoration: none;
+  transform: rotate(var(--tilt, -1.5deg));
+  transition: transform 160ms ease-out, box-shadow 160ms ease-out;
+}
+/* the glue strip along the top */
+.fx-link::before {
+  content: ""; position: absolute; inset: 0 0 auto; height: 14px; background: rgb(0 0 0 / 0.035);
+}
+.fx-links li:nth-child(5n + 2) .fx-link { --note: #ffd3dc; --tilt: 1.2deg; }
+.fx-links li:nth-child(5n + 3) .fx-link { --note: #cfe8ff; --tilt: -0.6deg; }
+.fx-links li:nth-child(5n + 4) .fx-link { --note: #d4f2c4; --tilt: 1.8deg; }
+.fx-links li:nth-child(5n + 5) .fx-link { --note: #ffdcb4; --tilt: -2deg; }
+.fx-link:hover, .fx-link:focus-visible {
+  transform: rotate(0deg) translateY(-3px);
+  box-shadow: 0 1px 1px rgb(31 29 43 / 0.12), 4px 12px 14px -6px rgb(31 29 43 / 0.35);
+}
+.fx-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.fx-link svg { display: block; }
+@media (prefers-reduced-motion: reduce) { .fx-link { transition: none; } }
+.fx-thanks { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; font-size: 14px; color: var(--ink-2); }
+
+/* where a blueprint and its skills come from: one entry per repo or folder, its state after the name */
+.fx-src-list { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.fx-src { display: grid; gap: 6px; }
+.fx-src-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 13px; color: var(--ink-2); }
+.fx-src-head code { overflow-wrap: anywhere; color: var(--ink); }
+.fx-src-state { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.fx-src-ok { color: #2f7d4a; }
+.fx-src-behind { color: #a76400; }
+.fx-src-bad { color: var(--accent); }
+.fx-src-local { color: var(--muted); font-weight: 500; }
+.fx-src-note { font-size: 12.5px; color: var(--muted); }
+.fx-src-note-bad { font-size: 12.5px; color: var(--accent); }
+
+/* a titled block: the title runs the full width, everything under it sits a step in. A first column does the
+   indenting, so rows keep their own margins (the ones their hover shade reaches out with). */
+.fx-d-sec, .fx-d-group, .fx-d-steps li, .fx-src, .fx-flow { grid-template-columns: var(--indent) minmax(0, 1fr); column-gap: 0; }
+.fx-d-sec > *, .fx-d-group > *, .fx-d-steps li > *, .fx-src > *, .fx-flow > * { grid-column: 2; }
+.fx-d-sec > h3, .fx-d-group > h4, .fx-d-steps li > h4, .fx-d-steps li > .fx-step-head,
+.fx-src > .fx-src-head, .fx-src > .fx-src-note, .fx-src > .fx-src-note-bad, .fx-flow > h3 { grid-column: 1 / -1; }
+.fx-yaml { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; tab-size: 2; white-space: pre; overflow-x: auto; }
+/* a folder field: typed, or picked with the button at its end */
+.fx-path { display: flex; gap: 6px; min-width: 0; }
+.fx-path > input { flex: 1; min-width: 0; }
+.fx-browse { display: grid; place-items: center; flex: none; width: 36px; padding: 0; cursor: pointer; color: var(--ink-2); }
+.fx-browse:hover { color: var(--ink); }
+
+/* a subscription's sign-in, in the provider form */
+.fx-login { justify-self: start; padding-inline: 14px; cursor: pointer; font-weight: 600; color: var(--ink); }
+.fx-login:hover { background: color-mix(in srgb, var(--ink) 10%, transparent); }
+.fx-signed { margin: 0; padding-block: 7px; color: var(--ink); font-weight: 600; }
+
+/* the help: a drawer over the middle of the map, with the map showing round it to click away on; topics
+   down the left and the one picked on the right */
+.fx-help {
+  inset-block: max(18px, calc((100% - 680px) / 2)); inset-inline: max(18px, calc((100% - 980px) / 2));
+  width: auto; z-index: 6;
+}
+.fx-help-head { padding-bottom: 16px; }
+.fx-help h1 { font-size: clamp(20px, 2.2vw, 26px); }
+.fx-help-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(130px, 180px) minmax(0, 1fr); }
+.fx-help-nav {
+  display: flex; flex-direction: column; gap: 2px; overflow: auto;
+  padding: 16px 12px 16px clamp(18px, 3vw, 30px); border-inline-end: 1px solid var(--rule);
+}
+.fx-help-nav button {
+  position: relative; padding: 8px 12px; border: 0; border-radius: 2px; background: none; text-align: start;
+  color: var(--ink-2); font: 500 14px/1.3 var(--font-sans); cursor: pointer;
+}
+.fx-help-nav button:hover { background: var(--shade); color: var(--ink); }
+.fx-help-nav button[aria-selected="true"] { color: var(--ink); font-weight: 700; }
+.fx-help-nav button[aria-selected="true"]::before {
+  content: ""; position: absolute; inset-block: 8px; inset-inline-start: 0; width: 3px; background: var(--ink);
+}
+.fx-help-page { padding: 22px clamp(20px, 3.4vw, 40px) 26px; }
+.fx-help-page > * { max-width: 64ch; }
+.fx-help-page h2 { margin: 0 0 14px; font-size: 19px; line-height: 1.2; font-weight: 700; letter-spacing: -0.01em; }
+.fx-help-page > .fx-help-shot {
+  display: block; box-sizing: border-box; width: 100%; max-width: 64ch; height: auto; max-height: 300px; margin: 0 0 18px;
+  object-fit: cover; object-position: top;
+  padding: 5px; background: var(--clip); box-shadow: var(--lift); rotate: -0.6deg;
+}
+.fx-help-page p, .fx-help-page ol, .fx-help-page dl { margin: 0 0 12px; font-size: 13.5px; line-height: 1.7; color: var(--ink-2); text-wrap: pretty; }
+.fx-help-page ol { padding-inline-start: 1.4em; }
+.fx-help-page li + li { margin-top: 6px; }
+.fx-help-page dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; }
+.fx-help-page dt { font-weight: 700; color: var(--ink); }
+.fx-help-page dd { margin: 0; }
+@media (max-width: 640px) {
+  .fx-help-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .fx-help-nav { flex-direction: row; overflow-x: auto; padding-block: 10px; border-inline-end: 0; border-bottom: 1px solid var(--rule); }
+  .fx-help-nav button { flex: none; }
+  .fx-help-nav button[aria-selected="true"]::before { inset-block: auto 0; inset-inline: 12px; width: auto; height: 3px; }
+  .fx-help-page dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .fx-help-page dd { margin-bottom: 8px; }
+}

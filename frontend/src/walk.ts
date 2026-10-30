@@ -1,0 +1,249 @@
+// Where people can walk, and how they get there: grids of free cells, shortest paths, and moving along
+// them. Pure data, no three.js. Used inside an opened office (office units) and on the island (world units).
+
+import { CELL, cellCenter, hash, TREE_CELLS, type Town } from './layout'
+import type { Area, OfficePlan } from './office'
+
+export type P = [number, number]
+
+export interface Grid {
+  cols: number
+  rows: number
+  /** 1 where someone can stand. Index with `z * cols + x`. */
+  free: Uint8Array
+  /** Position of cell (0, 0)'s centre, and the distance between cell centres. */
+  x0: number
+  z0: number
+  step: number
+}
+
+export const isFree = (g: Grid, x: number, z: number) => x >= 0 && z >= 0 && x < g.cols && z < g.rows && g.free[z * g.cols + x] === 1
+export const cellPos = (g: Grid, x: number, z: number): P => [g.x0 + x * g.step, g.z0 + z * g.step]
+const cellOf = (g: Grid, px: number, pz: number): P => [Math.round((px - g.x0) / g.step), Math.round((pz - g.z0) / g.step)]
+
+/** Every free cell, as [x, z]. */
+export function freeCells(g: Grid): P[] {
+  const out: P[] = []
+  for (let z = 0; z < g.rows; z++) for (let x = 0; x < g.cols; x++) if (g.free[z * g.cols + x]) out.push([x, z])
+  return out
+}
+
+/** The free cell whose centre is nearest a point. */
+export function nearestFree(g: Grid, px: number, pz: number): P | null {
+  let best: P | null = null
+  let bestD = Infinity
+  for (const [x, z] of freeCells(g)) {
+    const [cx, cz] = cellPos(g, x, z)
+    const d = (cx - px) ** 2 + (cz - pz) ** 2
+    if (d < bestD) [best, bestD] = [[x, z], d]
+  }
+  return best
+}
+
+const DIRS: Array<[number, number, number]> = [
+  [1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
+  [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2],
+]
+
+/**
+ * Shortest path between two free cells, as cell centres from start to goal. Moves eight ways but never
+ * cuts the corner of a blocked cell. `null` when the goal can't be reached.
+ */
+export function findPath(g: Grid, from: P, to: P): P[] | null {
+  if (!isFree(g, ...from) || !isFree(g, ...to)) return null
+  const n = g.cols * g.rows
+  const cost = new Float64Array(n).fill(Infinity)
+  const prev = new Int32Array(n).fill(-1)
+  const start = from[1] * g.cols + from[0]
+  const goal = to[1] * g.cols + to[0]
+  cost[start] = 0
+  // a binary heap of [cost, index]
+  const heap: Array<[number, number]> = [[0, start]]
+  const push = (e: [number, number]) => {
+    heap.push(e)
+    for (let i = heap.length - 1; i > 0;) {
+      const p = (i - 1) >> 1
+      if (heap[p][0] <= heap[i][0]) break
+      ;[heap[p], heap[i]] = [heap[i], heap[p]]
+      i = p
+    }
+  }
+  const pop = () => {
+    const top = heap[0]
+    const last = heap.pop() as [number, number]
+    if (heap.length) {
+      heap[0] = last
+      for (let i = 0; ;) {
+        const l = i * 2 + 1
+        const r = l + 1
+        let m = i
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r
+        if (m === i) break
+        ;[heap[m], heap[i]] = [heap[i], heap[m]]
+        i = m
+      }
+    }
+    return top
+  }
+  while (heap.length) {
+    const [c, i] = pop()
+    if (i === goal) break
+    if (c > cost[i]) continue
+    const x = i % g.cols
+    const z = (i - x) / g.cols
+    for (const [dx, dz, step] of DIRS) {
+      const nx = x + dx
+      const nz = z + dz
+      if (!isFree(g, nx, nz)) continue
+      if (dx && dz && (!isFree(g, x + dx, z) || !isFree(g, x, z + dz))) continue
+      const j = nz * g.cols + nx
+      if (c + step < cost[j]) {
+        cost[j] = c + step
+        prev[j] = i
+        push([c + step, j])
+      }
+    }
+  }
+  if (goal !== start && prev[goal] < 0) return null
+  const cells: number[] = []
+  for (let i = goal; i >= 0; i = i === start ? -1 : prev[i]) cells.push(i)
+  return cells.reverse().map((i) => cellPos(g, i % g.cols, Math.floor(i / g.cols)))
+}
+
+/** True when a straight walk between two points only crosses free cells. */
+function clear(g: Grid, a: P, b: P) {
+  const steps = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (g.step * 0.25))
+  for (let k = 0; k <= steps; k++) {
+    const t = steps ? k / steps : 0
+    const px = a[0] + (b[0] - a[0]) * t
+    const pz = a[1] + (b[1] - a[1]) * t
+    // the cells a little either side too, so people keep clear of corners
+    for (const [ox, oz] of [[0, 0], [0.3, 0.3], [-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3]]) {
+      if (!isFree(g, ...cellOf(g, px + ox * g.step, pz + oz * g.step))) return false
+    }
+  }
+  return true
+}
+
+/** Drops the corners a straight line can cut, so people walk in long lines instead of cell by cell. */
+export function smooth(g: Grid, path: P[]): P[] {
+  if (path.length <= 2) return path
+  const out: P[] = [path[0]]
+  let i = 0
+  while (i < path.length - 1) {
+    let j = path.length - 1
+    while (j > i + 1 && !clear(g, path[i], path[j])) j--
+    out.push(path[j])
+    i = j
+  }
+  return out
+}
+
+/** A person moving through a list of points. */
+export interface Walker {
+  x: number
+  z: number
+  /** Points still to reach, in order. */
+  route: P[]
+  /** Direction faced, as a rotation about the vertical axis; 0 looks towards -z. */
+  heading: number
+}
+
+/** The rotation that faces a direction on the ground; 0 looks towards -z. */
+export const headingOf = (dx: number, dz: number) => Math.atan2(-dx, -dz)
+
+/** Moves a walker `dist` along its route. Returns how far it actually went (less once it arrives). */
+export function advance(w: Walker, dist: number): number {
+  let left = dist
+  while (left > 0 && w.route.length) {
+    const [tx, tz] = w.route[0]
+    const dx = tx - w.x
+    const dz = tz - w.z
+    const d = Math.hypot(dx, dz)
+    if (d > 1e-6) w.heading = headingOf(dx, dz)
+    if (d <= left) {
+      w.x = tx
+      w.z = tz
+      left -= d
+      w.route.shift()
+    } else {
+      w.x += (dx / d) * left
+      w.z += (dz / d) * left
+      left = 0
+    }
+  }
+  return dist - left
+}
+
+// ---------------------------------------------------------------- the two grids
+
+/** Office walking cells, in office units: about a third of a person's stride. */
+const OFFICE_STEP = 0.5
+/** Room kept between a walker's centre and furniture or walls, in office units. */
+const OFFICE_CLEAR = 0.25
+
+/** Free floor in an office: everything but furniture, plants and the strip along the walls. */
+export function officeGrid(plan: OfficePlan): Grid {
+  const n = Math.floor((plan.half * 2 - OFFICE_CLEAR * 2) / OFFICE_STEP) + 1
+  const x0 = (-(n - 1) * OFFICE_STEP) / 2
+  const blocks: Area[] = [
+    ...plan.stations, plan.nook, ...[plan.reception, plan.meeting, plan.lounge, plan.shelf].filter((a) => !!a),
+    ...plan.plants.map(([x, z]) => ({ x, z, w: 0.5, d: 0.5 })),
+    ...(plan.cooler ? [{ x: plan.cooler[0], z: plan.cooler[1], w: 0.4, d: 0.4 }] : []),
+  ]
+  const free = new Uint8Array(n * n)
+  for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
+    const px = x0 + x * OFFICE_STEP
+    const pz = x0 + z * OFFICE_STEP
+    const hit = blocks.some((b) => Math.abs(px - b.x) < b.w / 2 + OFFICE_CLEAR && Math.abs(pz - b.z) < b.d / 2 + OFFICE_CLEAR)
+    free[z * n + x] = hit ? 0 : 1
+  }
+  return { cols: n, rows: n, free, x0, z0: x0, step: OFFICE_STEP }
+}
+
+/** Free land on the island, in world units: grass and paving, clear of buildings, trees, street furniture and the shore. */
+export function townGrid(town: Town): Grid {
+  const free = new Uint8Array(town.cols * town.rows)
+  for (let i = 0; i < free.length; i++) free[i] = town.ground[i] === 'grass' || town.ground[i] === 'pave' ? 1 : 0
+  const block = (x: number, z: number, w: number, d: number) => {
+    for (let k = z; k < z + d; k++) for (let j = x; j < x + w; j++) free[k * town.cols + j] = 0
+  }
+  for (const l of town.lots) {
+    block(l.building.x, l.building.z, l.building.w, l.building.d)
+    for (const p of l.props) block(p.x, p.z, p.w, p.d)
+  }
+  for (const t of town.trees) block(t.x, t.z, TREE_CELLS, TREE_CELLS)
+  const [x0, z0] = cellCenter(town, 0, 0)
+  return { cols: town.cols, rows: town.rows, free, x0, z0, step: CELL }
+}
+
+/** How many people are out on the island: two to five per building. */
+export function crowdSize(town: Town) {
+  return town.lots.reduce((sum, l, i) => sum + 2 + Math.floor(hash(l.plot.x, l.plot.z, i, 11) * 4), 0)
+}
+
+/** A seat on a bench: where to sit, the free cell in front to get there from, and the way to face. */
+export interface BenchSeat {
+  at: P
+  front: P
+  heading: number
+}
+
+/** Two seats on each bench, one per cell, each reached from the free cell it faces. */
+export function benchSeats(town: Town, g: Grid): BenchSeat[] {
+  const out: BenchSeat[] = []
+  for (const l of town.lots) for (const p of l.props) {
+    if (p.kind !== 'bench' || !p.face) continue
+    const [fx, fz] = p.face
+    for (let k = 0; k < Math.max(p.w, p.d); k++) {
+      const cx = p.x + (p.w > 1 ? k : 0)
+      const cz = p.z + (p.d > 1 ? k : 0)
+      if (!isFree(g, cx + fx, cz + fz)) continue
+      const [x, z] = cellCenter(town, cx, cz)
+      // a little back from the middle of the seat, against the backrest
+      out.push({ at: [x - fx * 0.1, z - fz * 0.1], front: cellCenter(town, cx + fx, cz + fz), heading: headingOf(fx, fz) })
+    }
+  }
+  return out
+}

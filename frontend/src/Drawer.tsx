@@ -1,0 +1,222 @@
+// The company file: a newspaper sheet taped over the right half of the map. It is pasted on when a company
+// opens and turned away like a page when it closes. The head names the company, its folder and target
+// branch; the tabs below hold its tasks, flows, employees (grouped under their blueprints) and settings. Anything in them that
+// opens shows its detail on a sheet over the upper left of the map (DrawerDetail). There is no close
+// button: a click on the map puts everything away.
+
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useStore } from './core/store'
+import { paletteOf } from './Building'
+import { Detail, itemKey, type Item } from './DrawerDetail'
+import { TabBody, TABS, type Tab } from './DrawerTabs'
+import type { BuildingLook } from './layout'
+import type { Team } from './core/domain/types'
+
+type Rect = [number, number, number, number, string]
+
+/** The top of a building's stamp: its roof, as on the map, in a few pixels. */
+function crownOf(style: BuildingLook['style'], p: ReturnType<typeof paletteOf>): Rect[] {
+  const pyramid = (c: string): Rect[] => [[6, 0, 4, 1, c], [4, 1, 8, 1, c], [2, 2, 12, 1, c], [0, 3, 16, 1, c]]
+  switch (style) {
+    case 'tower': return [[12, 0, 1, 1, '#ff5a4a']]
+    case 'brick': return [[3, 0, 3, 1, '#9a6a44']]
+    case 'studio': return [[2, 0, 5, 1, '#62b955'], [9, 0, 4, 1, '#33507a']]
+    case 'loft': return [[2, 0, 2, 1, p.wall], [6, 0, 2, 1, p.wall], [10, 0, 2, 1, p.wall]]
+    case 'timber': return [...pyramid(p.roof), [10, 0, 2, 2, p.trim]]
+    case 'classic': return [[6, 0, 4, 1, p.roof], [5, 1, 6, 1, p.roof]]
+    case 'tech': return [[3, 0, 1, 1, p.sign]]
+    case 'pagoda': return [[7, 0, 2, 1, p.sign], [4, 1, 8, 1, p.roof], [0, 2, 16, 1, p.roof]]
+    case 'deco': return [[7, 0, 2, 1, p.sign], [5, 1, 6, 1, p.wall], [5, 2, 6, 1, p.sign]]
+    case 'eco': return [[1, 0, 3, 1, '#4fa848'], [6, 0, 2, 1, '#62b955'], [11, 0, 3, 1, '#4fa848']]
+    case 'villa': return pyramid(p.roof)
+  }
+}
+
+/** The company's building, front on, in its own colours, under its style's roof. */
+export function BuildingIcon({ look }: { look: BuildingLook }) {
+  const p = paletteOf(look)
+  const windows = []
+  for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) {
+    windows.push(<rect key={`${x}${y}`} x={3 + x * 3.5} y={4 + y * 3} width={2} height={2} fill={(x + y * 2) % 5 === 1 ? '#ffe08a' : p.glass} />)
+  }
+  return (
+    <svg className="fx-icon" viewBox="0 0 16 16" aria-hidden="true" shapeRendering="crispEdges">
+      <rect x={1} y={2} width={14} height={13} fill={p.wall} />
+      <rect x={1} y={1} width={14} height={2} fill={p.trim} />
+      <rect x={1} y={13} width={14} height={2} fill={p.trim} />
+      {windows}
+      <rect x={6.5} y={12} width={3} height={3} fill="#2c3f52" />
+      <rect x={5.5} y={11} width={5} height={1} fill={p.awning} />
+      {crownOf(look.style, p).map(([x, y, w, h, c], i) => <rect key={`c${i}`} x={x} y={y} width={w} height={h} fill={c} />)}
+    </svg>
+  )
+}
+
+/** A company's stamp, name, folder and target branch: the head of its file, and of its block on the board. */
+export function CompanyTitle({ team, look, children }: { team: Team; look: BuildingLook; children: ReactNode }) {
+  return (
+    <div className="fx-title">
+      <BuildingIcon look={look} />
+      <div className="fx-title-text">
+        {children}
+        <p className="fx-where">
+          <code title="專案位置">{team.folder}</code>
+          <span className="fx-branch" title="目標分支">
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path d="M5 3v10M5 9c0-3 6-1 6-5" stroke="currentColor" strokeWidth="1.6" fill="none" />
+              <circle cx="5" cy="3" r="1.6" fill="currentColor" /><circle cx="5" cy="13" r="1.6" fill="currentColor" /><circle cx="11" cy="4" r="1.6" fill="currentColor" />
+            </svg>
+            <span className="fx-sr">目標分支 </span>
+            <code>{team.targetBranch}</code>
+          </span>
+        </p>
+      </div>
+    </div>
+  )
+}
+
+export function Drawer({ teamId, look, leaving, onGone }: {
+  teamId: string
+  look: BuildingLook
+  leaving: boolean
+  /** Called when the page has turned away. */
+  onGone: () => void
+}) {
+  // a company that was just closed stays on the page while it turns away
+  const live = useStore((s) => s.world.teams[teamId])
+  const last = useRef(live)
+  if (live) last.current = live
+  const team = live ?? (last.current?.id === teamId ? last.current : undefined)
+  const [tab, setTab] = useState<Tab>('tasks')
+  const title = useRef<HTMLHeadingElement>(null)
+  const tabs = useRef<Array<HTMLButtonElement | null>>([])
+  const sheets = useSheets()
+  const { back } = sheets
+  // a new company: move focus to its name, and put away the last company's sheet
+  useEffect(() => {
+    title.current?.focus({ preventScroll: true })
+    back(-1, false)
+  }, [teamId, back])
+  if (!team) return null
+  const base = sheets.layers[0]
+
+  // arrow keys move between tabs, as in any tab list
+  const onTabKey = (e: KeyboardEvent) => {
+    const i = TABS.findIndex((x) => x.id === tab)
+    const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: TABS.length - 1 }[e.key]
+    if (next === undefined) return
+    e.preventDefault()
+    const j = (next + TABS.length) % TABS.length
+    pick(TABS[j].id)
+    tabs.current[j]?.focus()
+  }
+  // the sheet belongs to the tab it was opened from
+  const pick = (next: Tab) => {
+    if (next !== tab) back(-1, false)
+    setTab(next)
+  }
+
+  return (
+    <>
+    {/* while turning away it is already closed: hidden from assistive tech and from the pointer */}
+    <aside className={leaving ? 'fx-drawer leaving' : 'fx-drawer'} aria-labelledby="fx-drawer-title"
+      aria-hidden={leaving || undefined} inert={leaving || undefined}
+      onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
+      <span className="fx-tape fx-tape-l" aria-hidden="true" />
+      <span className="fx-tape fx-tape-r" aria-hidden="true" />
+      <div className="fx-sheet">
+        <header className="fx-head">
+          <CompanyTitle team={team} look={look}>
+            <h1 id="fx-drawer-title" ref={title} tabIndex={-1}>{team.name}</h1>
+          </CompanyTitle>
+          <div className="fx-tabs" role="tablist" aria-label="公司檔案" onKeyDown={onTabKey}>
+            {TABS.map((x, i) => (
+              <button key={x.id} ref={(el) => void (tabs.current[i] = el)} type="button" role="tab"
+                id={`fx-tab-${x.id}`} aria-controls="fx-panel" aria-selected={tab === x.id} tabIndex={tab === x.id ? 0 : -1}
+                onClick={() => pick(x.id)}>
+                {x.label}
+              </button>
+            ))}
+          </div>
+        </header>
+        {/* keyed, so each tab turns in like a fresh page */}
+        <section key={tab} id="fx-panel" className="fx-page" role="tabpanel" aria-labelledby={`fx-tab-${tab}`}>
+          <TabBody tab={tab} teamId={teamId} open={base && !base.leaving ? itemKey(base.item) : null} onOpen={sheets.open} />
+        </section>
+      </div>
+    </aside>
+    <SheetStack sheets={sheets} teamId={teamId} leaving={leaving} />
+    </>
+  )
+}
+
+const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** A sheet in the stack, and what had focus when it was taped on (focus goes back there when it goes). */
+type Layer = { item: Item; leaving: boolean; from: HTMLElement | null }
+
+/**
+ * The stack of detail sheets. Opening from the company file starts a fresh stack, and opening its bottom
+ * item again puts the stack away; `push` tapes a sheet on top, or swaps the top one once there are
+ * `MAX_SHEETS` (the layout leaves room for no more); `back(d)` puts away every sheet above depth
+ * d (-1: all of them). A sheet put away stays for its fade-out (`leaving`) until `gone`; with reduced
+ * motion there is none, so it goes at once.
+ */
+const MAX_SHEETS = 4
+
+export type Sheets = ReturnType<typeof useSheets>
+
+export function useSheets() {
+  const [layers, setLayers] = useState<Layer[]>([])
+  // focus to restore once the sheet under it is no longer covered (inert) and can take it
+  const refocus = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    refocus.current?.focus({ preventScroll: true })
+    refocus.current = null
+  }, [layers])
+  const drop = (ls: Layer[], from: number) => (calm ? ls.slice(0, from) : ls.map((l, i) => (i >= from ? { ...l, leaving: true } : l)))
+  const open = useCallback((x: Item) => {
+    const from = document.activeElement as HTMLElement | null
+    setLayers((ls) => (ls[0] && !ls[0].leaving && itemKey(ls[0].item) === itemKey(x) ? drop(ls, 0) : [{ item: x, leaving: false, from }]))
+  }, [])
+  const push = useCallback((x: Item) => {
+    const from = document.activeElement as HTMLElement | null
+    setLayers((ls) => {
+      const live = ls.filter((l) => !l.leaving)
+      if (live.length < MAX_SHEETS) return [...live, { item: x, leaving: false, from }]
+      return [...live.slice(0, MAX_SHEETS - 1), { item: x, leaving: false, from: live[MAX_SHEETS - 1].from }]
+    })
+  }, [])
+  const back = useCallback((depth: number, restore = true) => {
+    setLayers((ls) => {
+      if (restore) refocus.current = ls[depth + 1]?.from ?? null
+      return drop(ls, depth + 1)
+    })
+  }, [])
+  const gone = useCallback((depth: number) => setLayers((ls) => (ls[depth]?.leaving ? ls.slice(0, depth) : ls)), [])
+  // for the keyboard, Esc puts away the top sheet, then the drawer; this runs before the map's own Esc handler
+  const top = layers.filter((l) => !l.leaving).length - 1
+  useEffect(() => {
+    if (top < 0) return
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      // an open drop-down list takes Esc for itself
+      if ((e.target as HTMLElement | null)?.closest?.('[aria-expanded="true"][aria-haspopup="listbox"]')) return
+      e.stopPropagation()
+      back(top - 1)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [top, back])
+  return { layers, top, open, push, back, gone }
+}
+
+/** The detail sheets opened from a drawer, over the upper left of the map. */
+export function SheetStack({ sheets, teamId, leaving }: { sheets: Sheets; teamId: string; leaving: boolean }) {
+  const { layers, top, back } = sheets
+  return layers.map((l, i) => (
+    <Detail key={`${i}:${itemKey(l.item)}`} item={l.item} teamId={teamId} depth={i}
+      covered={i < top} above={i < top ? layers[i + 1]?.item : undefined} leaving={leaving || l.leaving}
+      onGone={() => sheets.gone(i)} onBack={() => back(i)} onDone={() => back(i - 1)} onClear={() => back(i - 2)} onPush={sheets.push} />
+  ))
+}
