@@ -12,7 +12,7 @@ import { useT } from './core/i18n'
 import { activity, fmtClock, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
-import { BlueprintIcon } from './BlueprintIcon'
+import { BlueprintIcon, pinLook } from './BlueprintIcon'
 import { seedOf } from './People'
 import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
@@ -24,6 +24,8 @@ import { docOf } from './doc'
 import { parseGithub } from './github'
 import { parseBlueprintYaml, YAML_TEMPLATE } from './blueprintYaml'
 import { authLabel, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
+import { endTalk, sayInTalk, talking, TALK_PROMPT } from './core/domain/sim'
+import type { TalkEnd } from './core/domain/types'
 import { addProvider, deleteProvider, providerUsers, updateProvider, type ProviderLogin, createTask, DEFAULT_MODEL, deleteBlueprint, deleteTask, deleteTeam, fire, hire, deleteWorkflow, duplicateWorkflow, newWorkflow, pauseTask, resumeTask, setOwner, mergeTask, returnTask, RESOLVE_TIME, resolveReview, costLimit } from './core/domain/sim'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, endOf, isMiddle, link, loose, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
 
@@ -55,9 +57,11 @@ export const itemKey = (x: Item) =>
   x.kind === 'newTask' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newBlueprint' || x.kind === 'newProvider' || x.kind === 'disband' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'image' ? `image:${x.task}:${x.index}` : `${x.kind}::${x.id}`
 
 const STATUS: Record<Status, string> = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' }
-const ASSIGN = { roundRobin: '輪流分派', firstAvailable: '誰有空誰做', everyone: '每個人都做' } as const
-const HANDOFF = { pickOne: '選一個下一步', all: '交給所有下一步' } as const
+const ASSIGN = { firstAvailable: '誰有空誰做', everyone: '每個人都做' } as const
+const HANDOFF = { pickOne: '交給其中一個下一步', all: '交給所有下一步' } as const
 const JOIN = { any: '任一個前一步完成就開始', all: '所有前一步都完成才開始' } as const
+/** What a step in the middle of a flow can be. */
+const KINDS = { work: '交給員工執行工作', talk: '和員工討論' } as const
 /** The last lines of a log worth showing on a sheet this size. */
 const LOG_LINES = 40
 
@@ -208,9 +212,9 @@ function Bar({ value }: { value: number }) {
   return <span className="fx-d-bar" role="img" aria-label={`${Math.round(value * 100)}%`}><i style={{ width: `${value * 100}%` }} /></span>
 }
 
-/** The work steps in the order the flow runs them. */
+/** The steps after 整理需求: work and discussions. */
 function workSteps(wf: Workflow) {
-  return wf.nodes.filter((n) => n.kind === 'work')
+  return wf.nodes.filter((n) => n.kind !== 'task')
 }
 
 /** A task someone asked for. The sub-tasks the employees made for it are listed here and open on their own sheet. */
@@ -268,7 +272,7 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, onGon
         <Heading {...h}><span className="fx-task-no">#{task.number}</span>{task.title}</Heading>
         <p className="fx-d-meta">
           {/* one state: paused or merging says more than the column it sits in */}
-          <span className="fx-pill">{task.paused ? '已暫停' : task.stage === 'merging' ? '合併中' : STATUS[status]}</span>
+          <span className="fx-pill">{task.stage === 'cancelled' ? '已停止' : task.paused ? '已暫停' : task.stage === 'merging' ? '合併中' : STATUS[status]}</span>
           {owner && (
             <span className="fx-d-owner">負責人
               <button type="button" className="fx-hit" aria-expanded={crew === owner.id} onClick={() => onCrew(owner.id)}>
@@ -295,7 +299,7 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, onGon
       </section>
       <Section name="進度">
         <Progress wf={task.workflow} subs={subs} open={open} onOpen={onOpen} />
-        <MergeRow taskId={task.id} crew={crew} onCrew={onCrew} />
+        <MergeRow taskId={task.id} />
       </Section>
       <Section name="紀錄"><Log lines={lines} /></Section>
     </>
@@ -304,10 +308,18 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, onGon
 
 const stepName = (wf: Workflow, nodeId: string) => nodeOf(wf, nodeId)?.name ?? nodeId
 
+/** A step's note colour, as on the flow drawing: the two fixed ends pink, a discussion green, the rest yellow. */
+const noteCls = (wf: Workflow, nodeId: string) =>
+  isFixed(wf, nodeId) ? ' fx-node-fixed' : nodeOf(wf, nodeId)?.kind === 'talk' ? ' fx-node-talk' : ''
+
+/** The red round badge of something waiting on the user. */
+const Badge = ({ inline }: { inline?: boolean }) => <span className={inline ? 'fx-badge fx-badge-inline' : 'fx-badge'} aria-hidden="true">!</span>
+
 
 /**
  * Every sub-task of a task, in the order they started: who has it at which step, then what they handed on
- * (or sent back) once it is done, or how far along it is until then.
+ * (or sent back) once it is done, or how far along it is until then. One waiting on the user carries a red
+ * badge; the user answers on its own sheet.
  */
 function Progress({ wf, subs, open, onOpen }: { wf: Workflow; subs: SubTask[]; open: string | null; onOpen: (subId: string) => void }) {
   const w = useStore((s) => s.world)
@@ -324,18 +336,16 @@ function Progress({ wf, subs, open, onOpen }: { wf: Workflow; subs: SubTask[]; o
               {r ? <PixelFace look={r.look} name={r.name} size={26} /> : <span className="fx-d-noface" />}
               <span className="fx-row-main">
                 <span className="fx-d-hand-head">
-                  <span className={`fx-d-stepname fx-d-stepname-sm${isFixed(wf, s.nodeId) ? ' fx-node-fixed' : ''}`}>{stepName(wf, s.nodeId)}</span>
+                  <span className={`fx-d-stepname fx-d-stepname-sm${noteCls(wf, s.nodeId)}`}>{stepName(wf, s.nodeId)}</span>
                   {s.rework && <span className="fx-d-muted">重做</span>}
                 </span>
                 {out
                   ? <span className={s.sentBack ? 'fx-d-hand-text fx-d-hand-back' : 'fx-d-hand-text'}>{out}</span>
-                  : s.review ? <span className="fx-d-hand-text fx-d-ask">{askText(w, s)}</span>
                   : <SubState sub={s} />}
               </span>
               {out && s.endedAt !== undefined && <time>{fmtClock(s.endedAt)}</time>}
-              {s.review && <time>{fmtClock(s.review.at)}</time>}
+              {s.review && <Badge inline />}
             </button>
-            {s.review && <Reply key={s.review.at} sub={s} />}
           </li>
         )
       })}
@@ -357,8 +367,8 @@ function askText(w: World, sub: SubTask): string {
 }
 
 /**
- * The user's answer to an employee waiting on them, under that step's row: its choices, a box to write in
- * and 確認. A question can be answered in words alone; anything else needs one of its choices.
+ * The user's answer to an employee waiting on them, on the step's sheet under what they ask: its choices, a
+ * box to write in and 確認. A question can be answered in words alone; anything else needs one of its choices.
  */
 function Reply({ sub }: { sub: SubTask }) {
   const t = useT()
@@ -390,11 +400,117 @@ function Reply({ sub }: { sub: SubTask }) {
 }
 
 /**
- * The last row of a task's progress once every step is done: the owner merging the task's work tree into
- * the target branch. While it waits for the user it carries 合併, and 退回, which asks what to change and
- * sends the work back to the steps before 驗收.
+ * A 使用者討論 step's conversation: the employee's messages on the left under their face, the user's on the
+ * right, and while it is open a box to write in (Enter sends, Shift+Enter starts a new line) and 結束討論.
+ * Ending asks how to go on: 繼續 (to which next step, when the step picks one of several), 退回 with a
+ * reason, or 停止任務, which asks once more.
  */
-function MergeRow({ taskId, crew, onCrew }: { taskId: string; crew: string | null; onCrew: (id: string) => void }) {
+function Chat({ sub }: { sub: SubTask }) {
+  const w = useStore((s) => s.world)
+  const act = useStore((s) => s.act)
+  const [text, setText] = useState('')
+  const [ending, setEnding] = useState<null | 'pick' | 'back' | 'stop'>(null)
+  const [reason, setReason] = useState('')
+  const list = useRef<HTMLOListElement>(null)
+  const talk = sub.talk!
+  const task = w.tasks[sub.taskId]
+  const wf = task.workflow
+  const r = sub.replicaId ? w.replicas[sub.replicaId] : undefined
+  const open = talking(sub) && task.stage === 'running'
+  const writing = talk.replyAt !== undefined
+  // the newest message in view, inside the chat's own scroll
+  const count = talk.messages.length + (writing ? 1 : 0)
+  useEffect(() => {
+    const el = list.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [count])
+  const node = nodeOf(wf, sub.nodeId)
+  const outs = outEdges(wf, sub.nodeId)
+  // the step picks one of several next steps: going on names which
+  const routes = node?.handoff === 'pickOne' && outs.length > 1 ? outs.map((e) => e.to) : null
+  const send = () => {
+    if (!text.trim() || writing) return
+    act((x) => sayInTalk(x, sub.id, text))
+    setText('')
+  }
+  const end = (e: TalkEnd) => {
+    act((x) => endTalk(x, sub.id, e))
+    setEnding(null)
+  }
+  const face = r ? <PixelFace look={r.look} name={r.name} size={22} /> : <span className="fx-d-noface" />
+  const ENDED = { continue: '討論結束，繼續下一步', back: '討論結束，退回重做', stop: '討論結束，任務已停止' } as const
+  return (
+    <div className="fx-chat">
+      <ol ref={list} className="fx-chat-log" aria-live="polite" aria-label={`和 ${r?.name ?? '員工'} 的討論`}>
+        {talk.messages.map((m, i) => (
+          <li key={i} className={`fx-chat-msg fx-chat-${m.from}`}>
+            {m.from === 'agent' && face}
+            <p><span className="fx-sr">{m.from === 'agent' ? r?.name ?? '員工' : '你'}：</span>{m.text}</p>
+            <time>{fmtClock(m.at)}</time>
+          </li>
+        ))}
+        {writing && (
+          <li className="fx-chat-msg fx-chat-agent fx-chat-writing">
+            {face}<p><span className="fx-sr">{r?.name ?? '員工'} 正在回覆</span><span aria-hidden="true">···</span></p>
+          </li>
+        )}
+      </ol>
+      {talk.ended && <p className="fx-d-muted">{ENDED[talk.ended]}</p>}
+      {open && !ending && (
+        <form className="fx-chat-say" onSubmit={(e) => { e.preventDefault(); send() }}>
+          <textarea className="fx-control" rows={2} value={text} aria-label="訊息" placeholder={writing ? `${r?.name ?? '員工'} 正在回覆…` : '輸入訊息'}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter sends; not while a Chinese word is still being picked in the input method
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                send()
+              }
+            }} />
+          <div className="fx-d-merge-acts">
+            <button type="submit" className="fx-save" disabled={!text.trim() || writing}>送出</button>
+            <button type="button" className="fx-save fx-plain" onClick={() => setEnding('pick')}>結束討論</button>
+          </div>
+        </form>
+      )}
+      {open && ending && (
+        <div className="fx-chat-end" role="group" aria-label="結束討論"
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setEnding(null) } }}>
+          {ending === 'back' ? (
+            <form className="fx-d-merge-back" onSubmit={(e) => { e.preventDefault(); if (reason.trim()) end({ kind: 'back', reason }) }}>
+              <textarea className="fx-control" rows={2} autoFocus value={reason} aria-label="退回原因" placeholder="要改什麼"
+                onChange={(e) => setReason(e.target.value)} />
+              <div className="fx-d-merge-acts">
+                <button type="submit" className="fx-save fx-plain" disabled={!reason.trim()}>退回</button>
+                <button type="button" className="fx-add" onClick={() => setEnding('pick')}>返回</button>
+              </div>
+            </form>
+          ) : (
+            <div className="fx-d-merge-acts">
+              {routes
+                ? routes.map((to) => (
+                    <button key={to} type="button" className="fx-save" onClick={() => end({ kind: 'continue', to })}>繼續：{stepName(wf, to)}</button>
+                  ))
+                : <button type="button" className="fx-save" autoFocus onClick={() => end({ kind: 'continue' })}>繼續</button>}
+              {sub.upstreamIds.length > 0 && <button type="button" className="fx-save fx-plain" onClick={() => setEnding('back')}>退回</button>}
+              {ending === 'stop'
+                ? <button type="button" className="fx-save fx-danger" autoFocus onClick={() => end({ kind: 'stop' })} onBlur={() => setEnding('pick')}>確定停止任務</button>
+                : <button type="button" className="fx-save fx-plain" onClick={() => setEnding('stop')}>停止任務</button>}
+              <button type="button" className="fx-add" onClick={() => setEnding(null)}>取消</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The last row of a task's progress once every step is done: the owner merging the task's work tree into
+ * the target branch. It opens nothing. While it waits for the user it carries 合併 and 退回 at its end; 退回
+ * asks under the row what to change, and sends the work back to the steps before 驗收.
+ */
+function MergeRow({ taskId }: { taskId: string }) {
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const [returning, setReturning] = useState(false)
@@ -428,17 +544,16 @@ function MergeRow({ taskId, crew, onCrew }: { taskId: string; crew: string | nul
   )
   return (
     <div className="fx-d-merge">
-      {r
-        ? <button type="button" className="fx-row fx-d-hand fx-hit" aria-expanded={crew === r.id} onClick={() => onCrew(r.id)}>
-            {face}{main}{done && task.doneAt !== undefined && <time>{fmtClock(task.doneAt)}</time>}
-          </button>
-        : <div className="fx-row fx-d-hand">{face}{main}</div>}
-      {waiting && !returning && (
-        <div className="fx-d-merge-acts">
-          <button type="button" className="fx-save fx-danger" onClick={() => act((x) => mergeTask(x, taskId))}>合併</button>
-          <button type="button" className="fx-save fx-plain" onClick={() => setReturning(true)}>退回</button>
-        </div>
-      )}
+      <div className="fx-row fx-d-hand">
+        {face}{main}
+        {done && task.doneAt !== undefined && <time>{fmtClock(task.doneAt)}</time>}
+        {waiting && !returning && (
+          <div className="fx-d-merge-acts">
+            <button type="button" className="fx-save fx-danger" onClick={() => act((x) => mergeTask(x, taskId))}>合併</button>
+            <button type="button" className="fx-save fx-plain" onClick={() => setReturning(true)}>退回</button>
+          </div>
+        )}
+      </div>
       {waiting && returning && (
         <form className="fx-d-merge-back" onSubmit={(e) => { e.preventDefault(); sendBack() }}
           onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setReturning(false) } }}>
@@ -465,7 +580,7 @@ function SubState({ sub }: { sub: SubTask }) {
   }
   const word = sub.skipped ? '略過'
     : sub.status === 'complete' ? '完成'
-    : sub.review ? '等你回覆'
+    : sub.review ? (sub.review.kind === 'talk' ? '討論中，等你回覆' : '等你回覆')
     : sub.waiting ? '等其他前一步完成'
     : sub.replicaId ? '準備開始' : '等人接手'
   return <span className="fx-d-hand-text fx-d-muted">{word}</span>
@@ -501,7 +616,7 @@ function FlowSteps(p: Parameters<typeof StepList>[0]) {
   )
 }
 
-/** Under a flow drawing: each step spelled out, its name on a note like the drawing's. */
+/** Under a flow drawing: each step spelled out on a whole note, coloured like its note in the drawing. */
 function StepList({ wf, staff, done, crew, onCrew, listRef }: {
   listRef?: React.Ref<HTMLOListElement>
   wf: Workflow
@@ -516,10 +631,8 @@ function StepList({ wf, staff, done, crew, onCrew, listRef }: {
       {inOrder(wf).map((n) => {
         const finished = done?.(n.id)
         return (
-          <li key={n.id} data-step-item={n.id} className={finished ? 'done' : undefined}>
-            <h4>
-              <span className={`fx-d-stepname${isFixed(wf, n.id) ? ' fx-node-fixed' : ''}${finished ? ' fx-node-done' : ''}`}>{n.name}</span>
-            </h4>
+          <li key={n.id} data-step-item={n.id} className={`fx-step-note${noteCls(wf, n.id)}${finished ? ' fx-node-done' : ''}`}>
+            <h4>{n.name}</h4>
             {staff ? <Crew ids={staff(n.id)} open={crew} onOpen={onCrew} /> : isFixed(wf, n.id) && <Owner />}
             {n.prompt && !isFixed(wf, n.id) && <p className="fx-d-text">{n.prompt}</p>}
             <StepFacts wf={wf} id={n.id} />
@@ -538,9 +651,10 @@ function StepFacts({ wf, id }: { wf: Workflow; id: string }) {
   const before = inEdges(wf, id).length
   return (
     <dl className="fx-d-facts">
-      {!isFixed(wf, id) && <><dt>多人時</dt><dd>{ASSIGN[n.assignment]}</dd></>}
-      {before > 1 && <><dt>開始</dt><dd>{JOIN[n.join]}</dd></>}
-      {next.length > 1 && <><dt>完成後</dt><dd>{HANDOFF[n.handoff]}</dd></>}
+      {n.kind === 'talk' && <><dt>種類</dt><dd>{KINDS.talk}</dd></>}
+      {!isFixed(wf, id) && <><dt>任務分派</dt><dd>{ASSIGN[n.assignment]}</dd></>}
+      {before > 1 && <><dt>開始條件</dt><dd>{JOIN[n.join]}</dd></>}
+      {next.length > 1 && <><dt>交接</dt><dd>{HANDOFF[n.handoff]}</dd></>}
       <dt>下一步</dt><dd>{next.length ? next.join('、') : '結束'}</dd>
     </dl>
   )
@@ -614,12 +728,19 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
       <header className="fx-d-head">
         <Heading {...h}>{name(sub.nodeId)}</Heading>
         <p className="fx-d-meta">
-          <span className="fx-pill">{sub.skipped ? '略過' : STATUS[sub.status]}</span>
+          <span className="fx-pill">{task.stage === 'cancelled' ? '已停止' : sub.skipped ? '略過' : STATUS[sub.status]}</span>
           <span><span className="fx-task-no">#{task.number}</span>{task.title}</span>
         </p>
       </header>
       {sub.status === 'progressing' && <p className="fx-d-run"><Bar value={sub.progress} /><span className="fx-d-muted">{Math.round(sub.progress * 100)}%</span></p>}
-      {sub.review?.prompt && <Section name="等你回覆"><p className="fx-d-text fx-d-quote">{sub.review.prompt}</p></Section>}
+      {/* the user answers here: a discussion in its chat, anything else under what the employee asks */}
+      {sub.talk && <Section name="討論"><Chat key={sub.id} sub={sub} /></Section>}
+      {sub.review && sub.review.kind !== 'talk' && (
+        <Section name="等你回覆">
+          <p className="fx-d-text fx-d-quote">{askText(w, sub)}</p>
+          <Reply key={sub.review.at} sub={sub} />
+        </Section>
+      )}
       <Section name="負責員工">
         {r ? (
           <ul className="fx-list">
@@ -1017,6 +1138,15 @@ const keepSource = (old: Blueprint | undefined, next: GitSource) =>
   (old ? gitSources(old) : []).find((s) => s.repo === next.repo && s.ref === next.ref) ?? next
 
 /**
+ * A blueprint as saved: what was read or kept, with the look picked on the form, which wins over the one it
+ * had, and whether it updates itself, as it was.
+ */
+export function blueprintOf(id: string, prev: Blueprint | undefined, look: Look, bp: Omit<Blueprint, 'id' | 'look' | 'autoUpdate'>): Blueprint {
+  const { look: _was, ...rest } = bp as Partial<Blueprint>
+  return { ...(rest as typeof bp), id, look, autoUpdate: prev?.autoUpdate ?? false }
+}
+
+/**
  * Add a blueprint (`id` null) or change one, from a GitHub repo or written out here as YAML. The repo is
  * typed as `owner/repo` or pasted as any GitHub address: a version in it (branch, tag or commit) moves to
  * the version field. With no version the default branch is used. The name follows the repo until it is
@@ -1033,7 +1163,8 @@ function BlueprintEdit({ id, onDone, ...h }: Head & { id: string | null; onDone:
   const [text, setText] = useState(was?.kind === 'yaml' ? was.text : YAML_TEMPLATE)
   const [name, setName] = useState(old?.name ?? '')
   const [named, setNamed] = useState(!!old)
-  const [look, setLook] = useState<Look>(() => old?.look ?? randomLook())
+  // the face it is drawn with now, fixed, so the form shows the same one whatever name it goes by
+  const [look, setLook] = useState<Look>(() => (old ? pinLook(old.look, old.name) : randomLook()))
   const [repoError, setRepoError] = useState(false)
   const [yamlError, setYamlError] = useState('')
   const repoField = useRef<HTMLInputElement>(null)
@@ -1057,7 +1188,7 @@ function BlueprintEdit({ id, onDone, ...h }: Head & { id: string | null; onDone:
     act((x) => {
       if (id && !x.blueprints[id]) return
       const key = id ?? `bp${++x.seq}`
-      x.blueprints[key] = { id: key, autoUpdate: x.blueprints[key]?.autoUpdate ?? false, look, ...bp }
+      x.blueprints[key] = blueprintOf(key, x.blueprints[key], look, bp)
     })
     onDone()
   }
@@ -1442,7 +1573,7 @@ function StaffPick({ node, teamId, onDone, ...h }: Head & { node: string; teamId
         <Heading {...h}>{owner ? '任務負責人' : stepName(wf, node)}</Heading>
         <p className="fx-d-meta">
           {owner ? <span>{ends}</span> : <span>{wf.name}</span>}
-          {!owner && picked.length > 1 && <span>多人時{ASSIGN[n.assignment]}</span>}
+          {!owner && picked.length > 1 && <span>任務分派：{ASSIGN[n.assignment]}</span>}
         </p>
       </header>
       {n.prompt && !owner && <p className="fx-d-text fx-d-quote">{n.prompt}</p>}
@@ -1799,31 +1930,39 @@ function StepForm({ flow, end, id }: { flow: Workflow; end: string; id: string }
     return cur ? { flow: putStep(d.flow, cur, now.includes(to) ? now.filter((x) => x !== to) : [...now, to]) } : {}
   })
   return (
-    <li id={`fx-step-${id}`} className="fx-step-form">
+    <li id={`fx-step-${id}`} className={`fx-step-form fx-step-note${noteCls(flow, id)}`}>
       <div className="fx-step-head">
         {middle
           ? <input className="fx-control fx-step-name" aria-label="步驟名稱" placeholder="步驟名稱" value={n.name} onChange={(e) => put({ name: e.target.value })} />
-          : <h4><span className="fx-d-stepname fx-node-fixed">{n.name}</span></h4>}
+          : <h4>{n.name}</h4>}
         {middle && <DeleteTool what="步驟" onConfirm={() => editFlowDraft((d) => ({ flow: removeStep(d.flow, id) }))} />}
       </div>
       {!middle && <Owner />}
       <div className="fx-fields">
         {middle && (
           <>
-            <label className="fx-field fx-field-top">
-              <span>指示</span>
-              <textarea className="fx-control" rows={2} value={n.prompt} onChange={(e) => put({ prompt: e.target.value })} />
-            </label>
-            <Select label="多人時" value={n.assignment} options={Object.keys(ASSIGN)} labelOf={(x) => ASSIGN[x as keyof typeof ASSIGN]}
-              onChange={(x) => put({ assignment: x as typeof n.assignment })} />
+            {/* a discussion has its own fixed instructions, and is held by one employee, so everyone working
+                it is not offered; back to work, it starts with no instructions */}
+            <Select label="種類" value={n.kind} options={Object.keys(KINDS)} labelOf={(x) => KINDS[x as keyof typeof KINDS]}
+              onChange={(x) => put(x === 'talk'
+                ? { kind: 'talk', prompt: TALK_PROMPT, ...(n.assignment === 'everyone' ? { assignment: 'firstAvailable' as const } : {}) }
+                : { kind: 'work', prompt: '' })} />
+            {n.kind !== 'talk' && (
+              <label className="fx-field fx-field-top">
+                <span>Prompt</span>
+                <textarea className="fx-control" rows={2} value={n.prompt} onChange={(e) => put({ prompt: e.target.value })} />
+              </label>
+            )}
+            <Select label="任務分派" value={n.assignment} options={Object.keys(ASSIGN).filter((x) => n.kind !== 'talk' || x !== 'everyone')}
+              labelOf={(x) => ASSIGN[x as keyof typeof ASSIGN]} onChange={(x) => put({ assignment: x as typeof n.assignment })} />
           </>
         )}
         {before > 1 && (
-          <Select label="開始" value={n.join} options={Object.keys(JOIN)} labelOf={(x) => JOIN[x as keyof typeof JOIN]}
+          <Select label="開始條件" value={n.join} options={Object.keys(JOIN)} labelOf={(x) => JOIN[x as keyof typeof JOIN]}
             onChange={(x) => put({ join: x as typeof n.join })} />
         )}
         {next.length > 1 && (
-          <Select label="完成後" value={n.handoff} options={Object.keys(HANDOFF)} labelOf={(x) => HANDOFF[x as keyof typeof HANDOFF]}
+          <Select label="交接" value={n.handoff} options={Object.keys(HANDOFF)} labelOf={(x) => HANDOFF[x as keyof typeof HANDOFF]}
             onChange={(x) => put({ handoff: x as typeof n.handoff })} />
         )}
         {!isEnd && (

@@ -3,6 +3,7 @@ import { combine } from './rollup'
 import {
   cancelTask, fire, changeWorkflow, createTask, createTeam, DEFAULT_MODEL, deleteBlueprint, deleteTask, deleteTeam, gitSources, updateBlueprint, updateSource, deleteWorkflow, duplicateWorkflow, newWorkflow, hire, pauseTask, mergeTask, returnTask,
   MERGE_TIME, RESOLVE_TIME, resolveReview, resumeTask, setOwner, statusOf, subsOf, tick, END_PROMPT, START_PROMPT,
+  endTalk, REPLY_TIME, sayInTalk,
 } from './sim'
 import { composePrompt, validate, wouldCreateCycle } from './graph'
 import type { GitSource, Script, World, Workflow, WorkflowNode } from './types'
@@ -653,5 +654,101 @@ describe('deleting a blueprint', () => {
     const team = createTeam(w, { name: 'A', folder: '/tmp/a', targetBranch: 'main', branches: ['main'], initializedGit: false })
     expect(hire(w, team.id, 'bp', 'Ann').model).toBe(DEFAULT_MODEL)
     expect(hire(w, team.id, 'bp', 'Bo', undefined, { model: 'gpt-5.5' }).model).toBe('gpt-5.5')
+  })
+})
+
+describe('使用者討論', () => {
+  /** start → plan → talk → build, the talk step held by its own employee. */
+  function talkFlow(extra: Partial<WorkflowNode> = {}, more: [string, string][] = []) {
+    const t = setup([['start', 'plan'], ['plan', 'talk'], ['talk', 'build'], ...more], { talk: { kind: 'talk', ...extra } })
+    const task = createTask(t.w, { teamId: t.team.id, title: 'x', description: '', workflowId: t.wf.id, overrides: { '*': calm } })
+    const at = (node: string) => subsOf(t.w, task.id).filter((s) => s.nodeId === node && !s.cancelled)
+    return { ...t, task, at }
+  }
+  /** Run until the discussion is open, and return it. */
+  const opened = (t: ReturnType<typeof talkFlow>) => {
+    run(t.w, 40)
+    const [sub] = t.at('talk')
+    expect(sub.review?.kind).toBe('talk')
+    return sub
+  }
+
+  it('opens once the employee is ready and waits on the user', () => {
+    const t = talkFlow()
+    const sub = opened(t)
+    expect(sub.talk?.messages.map((m) => m.from)).toEqual(['agent'])
+    expect(statusOf(t.w, t.task)).toBe('review')
+    // nothing moves on until the user ends it
+    run(t.w, 60)
+    expect(t.at('build')).toEqual([])
+    expect(t.w.subTasks[sub.id].review?.kind).toBe('talk')
+  })
+
+  it('has the employee answer each message, one at a time', () => {
+    const t = talkFlow()
+    const sub = opened(t)
+    sayInTalk(t.w, sub.id, '先做基本版')
+    // still writing back: the user waits for the answer
+    sayInTalk(t.w, sub.id, '再補一句')
+    expect(sub.talk?.messages.map((m) => m.from)).toEqual(['agent', 'user'])
+    run(t.w, REPLY_TIME)
+    expect(sub.talk?.messages.map((m) => m.from)).toEqual(['agent', 'user', 'agent'])
+    expect(sub.log.some((l) => l.kind === 'human' && l.text === '先做基本版')).toBe(true)
+  })
+
+  it('hands on what was settled when the user goes on', () => {
+    const t = talkFlow()
+    const sub = opened(t)
+    sayInTalk(t.w, sub.id, '先做基本版')
+    run(t.w, REPLY_TIME)
+    endTalk(t.w, sub.id, { kind: 'continue' })
+    expect(sub.status).toBe('complete')
+    expect(sub.handoff?.agent.decisions).toEqual(['使用者：先做基本版'])
+    expect(t.w.replicas[sub.replicaId!].memory[0].text).toContain('先做基本版')
+    run(t.w, 10)
+    expect(t.at('build')).toHaveLength(1)
+  })
+
+  it('asks which next step to go on to when the step picks one of several', () => {
+    const t = talkFlow({ handoff: 'pickOne' }, [['talk', 'docs']])
+    const sub = opened(t)
+    endTalk(t.w, sub.id, { kind: 'continue' })
+    expect(sub.review?.kind).toBe('talk')
+    endTalk(t.w, sub.id, { kind: 'continue', to: 'docs' })
+    run(t.w, 10)
+    expect(t.at('docs')).toHaveLength(1)
+    expect(t.at('build')).toEqual([])
+  })
+
+  it('sends the work back to the steps before it, with a reason', () => {
+    const t = talkFlow()
+    const sub = opened(t)
+    endTalk(t.w, sub.id, { kind: 'back', reason: '  ' })
+    expect(sub.review?.kind).toBe('talk')
+    endTalk(t.w, sub.id, { kind: 'back', reason: '規劃少了行動版' })
+    expect(sub.sentBack).toEqual({ to: ['plan'], reason: '規劃少了行動版' })
+    expect(t.at('plan').filter((s) => s.rework)).toHaveLength(1)
+    // the redone plan comes back to a new discussion
+    run(t.w, 40)
+    expect(t.at('talk').filter((s) => s.review?.kind === 'talk')).toHaveLength(1)
+  })
+
+  it('stops the task', () => {
+    const t = talkFlow()
+    const sub = opened(t)
+    endTalk(t.w, sub.id, { kind: 'stop' })
+    expect(t.task.stage).toBe('cancelled')
+    expect(sub.talk?.ended).toBe('stop')
+    sayInTalk(t.w, sub.id, '還在嗎')
+    expect(sub.talk?.messages.filter((m) => m.from === 'user')).toEqual([])
+  })
+
+  it('is held by one employee even when everyone on the step would work it', () => {
+    const t = setup([['start', 'talk'], ['talk', 'build']], { talk: { kind: 'talk', assignment: 'everyone' } })
+    const two = [hire(t.w, t.team.id, 'bp', 'a').id, hire(t.w, t.team.id, 'bp', 'b').id]
+    t.wf.nodes.find((n) => n.id === 'talk')!.replicaIds = two
+    const task = createTask(t.w, { teamId: t.team.id, title: 'x', description: '', workflowId: t.wf.id, overrides: { '*': calm } })
+    run(t.w, 40)
+    expect(subsOf(t.w, task.id).filter((s) => s.nodeId === 'talk')).toHaveLength(1)
   })
 })

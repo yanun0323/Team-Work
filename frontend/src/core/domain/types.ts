@@ -3,7 +3,7 @@
 export type Locale = 'zh' | 'en'
 
 export type Status = 'todo' | 'progressing' | 'review' | 'complete'
-export type AssignmentMode = 'roundRobin' | 'firstAvailable' | 'everyone'
+export type AssignmentMode = 'firstAvailable' | 'everyone'
 export type HandoffMode = 'pickOne' | 'all'
 export type JoinMode = 'any' | 'all'
 
@@ -107,9 +107,15 @@ export interface Replica {
   hiredAt: number
 }
 
+/**
+ * `task` is the step every flow starts with (整理需求); `work` is a step an employee works on their own;
+ * `talk` (使用者討論) is one the employee and the user talk through together until the user ends it.
+ */
+export type NodeKind = 'task' | 'work' | 'talk'
+
 export interface WorkflowNode {
   id: string
-  kind: 'task' | 'work'
+  kind: NodeKind
   name: string
   prompt: string
   replicaIds: string[]
@@ -152,7 +158,6 @@ export interface Team {
   prompt: string
   settings: TeamSettings
   createdAt: number
-  cursors: Record<string, number>
 }
 
 export interface AgentHandoff {
@@ -177,7 +182,7 @@ export interface Handoff {
   commit: string
 }
 
-export type ReviewKind = 'question' | 'pickRoute' | 'failed' | 'budget'
+export type ReviewKind = 'question' | 'pickRoute' | 'failed' | 'budget' | 'talk'
 export type FailReason = 'timeout' | 'error'
 
 export interface ReviewOption {
@@ -208,6 +213,24 @@ export interface LogLine {
   args?: Record<string, string | number>
 }
 
+/** One message in a 使用者討論 step, from the user or from the employee working it. */
+export interface ChatMessage {
+  at: number
+  from: 'user' | 'agent'
+  text: string
+}
+
+/** How the user ended a discussion: hand on (to `to`, when the step picks one of several), send back, or stop the task. */
+export type TalkEnd = { kind: 'continue'; to?: string } | { kind: 'back'; reason: string } | { kind: 'stop' }
+
+/** A 使用者討論 step's conversation. */
+export interface Talk {
+  messages: ChatMessage[]
+  /** The employee is writing a reply, which comes in at this time. */
+  replyAt?: number
+  ended?: TalkEnd['kind']
+}
+
 /** Fake events decided when a sub-task is created, keyed by progress (0..1). */
 export interface Script {
   lines: { p: number; kind: LogKind; text: string }[]
@@ -224,6 +247,8 @@ export interface Script {
    * before it: it does when `roll` is under that step's odds (see sim.ts `sendsBack`), giving `reason`.
    */
   sendBack?: { roll: number; reason: string }
+  /** A 使用者討論 step: what the employee opens with once ready, and what they say back, in turn. */
+  talk?: { opening: string; replies: string[] }
 }
 
 export interface SubTask {
@@ -260,6 +285,8 @@ export interface SubTask {
   /** This run redoes a step another one sent back (`from`, a sub-task id). */
   rework?: { from: string; reason: string }
   review?: Review
+  /** A 使用者討論 step's conversation, once the employee has opened it. */
+  talk?: Talk
   handoff?: Handoff
   log: LogLine[]
   script: Script

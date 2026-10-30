@@ -6,7 +6,7 @@ import { canReach, isFixed, feedsOnly, inEdges, nodeOf, outEdges, taskNodeOf } f
 import { between, chance, hex, pick, uid } from './rng'
 import { taskStatus } from './rollup'
 import type {
-  Attachment, Blueprint, GitSource, LogKind, MemorySource, ModelProvider, ProviderAuth, Replica, Review, Script, SubTask, Task, Team, Workflow, World,
+  Attachment, Blueprint, GitSource, LogKind, MemorySource, ModelProvider, ProviderAuth, Replica, Review, Script, SubTask, TalkEnd, Task, Team, Workflow, World,
 } from './types'
 
 /** Seconds a box spends on the belt between two nodes. */
@@ -101,6 +101,8 @@ export function createTask(w: World, input: NewTask): Task {
 /** What 整理需求 and 驗收 are told to do; no flow can change it. */
 export const START_PROMPT = '讀懂任務，整理目標、範圍與驗收條件，交給下一個節點。'
 export const END_PROMPT = '對照驗收條件檢查成果；符合就交給使用者，不符合就退回前一步重做。'
+/** What every 和員工討論 step is told to do; no flow writes its own. */
+export const TALK_PROMPT = '根據上游節點的執行成果、以及下游節點的需求內容來進行討論'
 
 /**
  * Make `ownerId` the task's owner: they work its two fixed steps, 整理需求 and 驗收, which also get their
@@ -143,13 +145,8 @@ function release(w: World, task: Task, sub: SubTask) {
   sub.waiting = false
   const node = nodeOf(task.workflow, sub.nodeId)!
   const ids = node.replicaIds.filter((r) => w.replicas[r])
-  if (node.assignment === 'roundRobin' && ids.length) {
-    const team = w.teams[task.teamId]
-    const key = `${task.workflowId}:${node.id}`
-    const i = team.cursors[key] ?? 0
-    sub.replicaId = ids[i % ids.length]
-    team.cursors[key] = i + 1
-  } else if (node.assignment === 'everyone' && ids.length) {
+  if (node.assignment === 'everyone' && node.kind !== 'talk' && ids.length) {
+    // a discussion is held once, with one employee; everyone else on a talk step only stands by
     sub.replicaId = ids[0]
     if (ids.length > 1) {
       sub.group = sub.id
@@ -175,6 +172,7 @@ export function tick(w: World, dt: number) {
   const subs = Object.values(w.subTasks).filter((s) => !s.cancelled && running(w.tasks[s.taskId]))
 
   for (const s of subs) if (s.status === 'progressing') advance(w, w.tasks[s.taskId], s, dt)
+  for (const s of subs) if (s.talk?.replyAt !== undefined && w.now >= s.talk.replyAt) answer(w, s)
   for (const s of subs) if (!s.cancelled && s.status === 'complete' && !s.routed) route(w, w.tasks[s.taskId], s)
   for (const s of Object.values(w.subTasks)) if (s.waiting && !s.cancelled && running(w.tasks[s.taskId])) checkJoin(w, s)
   // a merge waits for its owner; it goes before new work so the owner is not handed the next step first
@@ -252,7 +250,96 @@ function advance(w: World, task: Task, sub: SubTask, dt: number) {
     openReview(w, task, sub, { kind: 'budget', options: [{ id: 'addBudget' }, { id: 'pauseTask' }] })
     return
   }
-  if (sub.progress >= 1) complete(w, task, sub)
+  if (sub.progress >= 1) {
+    if (nodeOf(task.workflow, sub.nodeId)?.kind === 'talk') openTalk(w, task, sub)
+    else complete(w, task, sub)
+  }
+}
+
+// ---------- 使用者討論 ----------
+
+/** Seconds the employee takes to write back in a discussion. */
+export const REPLY_TIME = 4
+
+/** A discussion step is ready: the employee opens it with their questions, and it waits on the user. */
+function openTalk(w: World, task: Task, sub: SubTask) {
+  sub.progress = 1
+  sub.talk = { messages: [] }
+  say(w, sub, sub.script.talk?.opening ?? `關於「${task.title}」，有幾件事想和你討論。`)
+  openReview(w, task, sub, { kind: 'talk', options: [] })
+}
+
+function say(w: World, sub: SubTask, text: string) {
+  sub.talk!.messages.push({ at: w.now, from: 'agent', text })
+  log(sub, w.now, 'say', text)
+}
+
+/** The employee's reply to the user's last message, in turn from the script, and then plain acknowledgements. */
+function answer(w: World, sub: SubTask) {
+  const talk = sub.talk!
+  talk.replyAt = undefined
+  const n = talk.messages.filter((m) => m.from === 'agent').length - 1
+  const replies = sub.script.talk?.replies ?? []
+  say(w, sub, replies[n] ?? '好的，記下來了。')
+}
+
+/** Whether a discussion is open: the user may write in it, and end it. */
+export const talking = (s: SubTask) => s.review?.kind === 'talk' && !s.talk?.ended
+
+/** The user writes in an open discussion; the employee answers a few seconds later. Nothing while they still write. */
+export function sayInTalk(w: World, subId: string, text: string) {
+  const sub = w.subTasks[subId]
+  text = text.trim()
+  if (!sub || !talking(sub) || !text || sub.talk!.replyAt !== undefined) return
+  sub.talk!.messages.push({ at: w.now, from: 'user', text })
+  sub.talk!.replyAt = w.now + REPLY_TIME
+  log(sub, w.now, 'human', text)
+}
+
+/**
+ * The user ends a discussion: `continue` hands on what was settled (to `to` when the step picks one of
+ * several next steps), `back` sends the work back to the steps before it with `reason`, and `stop` cancels
+ * the task. The employee keeps what the user said.
+ */
+export function endTalk(w: World, subId: string, end: TalkEnd) {
+  const sub = w.subTasks[subId]
+  if (!sub || !talking(sub)) return
+  const task = w.tasks[sub.taskId]
+  const wf = task.workflow
+  const node = nodeOf(wf, sub.nodeId)!
+  const said = sub.talk!.messages.filter((m) => m.from === 'user').map((m) => m.text)
+  if (end.kind === 'continue' && node.handoff === 'pickOne' && outEdges(wf, node.id).length > 1 && !outEdges(wf, node.id).some((e) => e.to === end.to)) return
+  if (end.kind === 'back' && (!end.reason.trim() || !sub.upstreamIds.length)) return
+  sub.talk!.ended = end.kind
+  sub.talk!.replyAt = undefined
+  sub.review = undefined
+  if (said.length) remember(w, sub.replicaId, `和使用者討論「${task.title}」的${node.name}：${said.join('；')}`, 'review', task.id)
+
+  if (end.kind === 'stop') {
+    log(sub, w.now, 'human', '結束討論：停止任務')
+    sub.status = 'complete'
+    sub.endedAt = w.now
+    stopTask(w, task.id)
+    return
+  }
+  sub.status = 'complete'
+  sub.endedAt = w.now
+  sub.handoff = makeHandoff(w, roleOf(node), task, node)
+  sub.handoff.agent.decisions = said.map((x) => `使用者：${x}`)
+  sub.handoff.human.did = said.length ? said.map((x) => `使用者：${x}`) : ['使用者沒有補充，照原計畫進行']
+  if (end.kind === 'back') {
+    const reason = end.reason.trim()
+    log(sub, w.now, 'human', `結束討論：退回（${reason}）`)
+    sendBack(w, task, sub, [sub], reason)
+    return
+  }
+  const to = end.to ? nodeOf(wf, end.to)?.name : undefined
+  log(sub, w.now, 'human', to ? `結束討論：繼續，交給 ${to}` : '結束討論：繼續')
+  if (end.to) {
+    sub.routedTo = [end.to]
+    sub.handoff.agent.next = { nodeId: end.to, reason: '使用者在討論後指定' }
+  }
+  log(sub, w.now, 'system', `完成，commit ${sub.handoff.commit}`, 'done', { commit: sub.handoff.commit })
 }
 
 function complete(w: World, task: Task, sub: SubTask) {
@@ -317,7 +404,7 @@ function route(w: World, task: Task, sub: SubTask) {
 function sendsBack(w: World, task: Task, sub: SubTask) {
   const wf = task.workflow
   const node = nodeOf(wf, sub.nodeId)
-  if (!node || node.kind === 'task' || sub.sentBack || sub.skipped || !sub.upstreamIds.length) return false
+  if (!node || node.kind === 'task' || node.kind === 'talk' || sub.sentBack || sub.skipped || !sub.upstreamIds.length) return false
   const last = outEdges(wf, node.id).length === 0
   if (!last && !sub.rework) return false
   const rounds = subsOf(w, task.id).filter((s) => s.sentBack && (!s.group || s.group === s.id)).length
@@ -468,7 +555,7 @@ function openReview(w: World, task: Task, sub: SubTask, r: Omit<Review, 'from' |
 export function resolveReview(w: World, subId: string, optionId: string, note = '') {
   const sub = w.subTasks[subId]
   const r = sub?.review
-  if (!r) return
+  if (!r || r.kind === 'talk') return
   note = note.trim()
   const option = r.options.find((o) => o.id === optionId)
   if (!option && !(r.kind === 'question' && !optionId && note)) return
@@ -541,8 +628,13 @@ export function resumeTask(w: World, taskId: string) {
 }
 
 export function cancelTask(w: World, taskId: string) {
+  if (!w.tasks[taskId]?.paused) return
+  stopTask(w, taskId)
+}
+
+/** Cancel a task outright, whether it is paused or not. */
+function stopTask(w: World, taskId: string) {
   const task = w.tasks[taskId]
-  if (!task.paused) return
   task.stage = 'cancelled'
   task.doneAt = w.now
   for (const s of subsOf(w, taskId)) {
@@ -836,7 +928,7 @@ export function createTeam(
   const id = uid(w, 'team')
   const wf = newWorkflow(w, id, '預設流程')
   const team: Team = {
-    id, ...input, defaultWorkflowId: wf.id, prompt: '', createdAt: w.now, cursors: {},
+    id, ...input, defaultWorkflowId: wf.id, prompt: '', createdAt: w.now,
     settings: { timeoutMin: 30, costLimitUsd: 3, retries: 1 },
   }
   w.teams[id] = team

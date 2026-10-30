@@ -3,7 +3,7 @@
 import { between, chance, hex, pick, rand, sample } from './rng'
 import type { Handoff, LogKind, Script, Task, World, WorkflowNode } from './types'
 
-export type Role = 'intake' | 'research' | 'report' | 'dev' | 'review' | 'docs' | 'test' | 'generic'
+export type Role = 'intake' | 'research' | 'report' | 'dev' | 'review' | 'docs' | 'test' | 'talk' | 'generic'
 
 const KEYWORDS: [Role, RegExp][] = [
   ['research', /研究|調查|紀錄|research|investigat|log/i],
@@ -16,6 +16,7 @@ const KEYWORDS: [Role, RegExp][] = [
 
 export function roleOf(node: WorkflowNode): Role {
   if (node.kind === 'task') return 'intake'
+  if (node.kind === 'talk') return 'talk'
   return KEYWORDS.find(([, re]) => re.test(node.name))?.[0] ?? 'generic'
 }
 
@@ -78,6 +79,11 @@ const LINES: Record<Role, Line[]> = {
     ['tool', 'npm test'],
     ['say', '新增 6 個測試，全部通過。'],
   ],
+  talk: [
+    ['think', '先讀前面的交接，找出需要使用者決定的地方。'],
+    ['tool', 'read_file .team/handoff.md'],
+    ['say', '把要決定的事整理成幾個問題。'],
+  ],
   generic: [
     ['think', '先理解交接內容。'],
     ['tool', 'read_file .team/handoff.md'],
@@ -107,6 +113,7 @@ const MEMORY: Record<Role, string[]> = {
   review: ['公司規定 PR 不能有 console.log。', '錯誤訊息要同時有中文與英文。'],
   docs: ['API 文件的範例統一用 curl。'],
   test: ['結帳流程的測試要 mock 金流 SDK。'],
+  talk: ['使用者喜歡一次只回答一個問題。'],
   generic: ['交接內容放在 .team/ 資料夾。'],
 }
 
@@ -118,6 +125,7 @@ const OUTPUTS: Record<Role, string[]> = {
   review: ['.team/review.md'],
   docs: ['docs/api.md'],
   test: ['tests/checkout.test.ts'],
+  talk: ['.team/discussion.md'],
   generic: ['.team/output.md'],
 }
 
@@ -129,8 +137,22 @@ const HEADLINE: Record<Role, string[]> = {
   review: ['驗收通過，留了兩個不影響上線的建議。', '有一處必須修改，已直接修正並重新跑過測試。'],
   docs: ['文件已更新，補上新參數的說明。'],
   test: ['補上 6 個測試，覆蓋率從 71% 提升到 83%。'],
+  talk: ['討論完成，結論已寫進交接。'],
   generic: ['這個步驟完成了。'],
 }
+
+// a discussion: the employee's opening, then what they say back to each message from the user, in turn
+const OPENINGS = [
+  '「{t}」前面的步驟做完了，有幾件事想先和你確認：\n1. 這次的範圍要包含行動版嗎？\n2. 要先上一個基本版，還是一次做完整？',
+  '我讀完前面的交接了。開始之前想問你：「{t}」最在意的是速度、品質，還是要和現有的做法一致？',
+  '關於「{t}」，我整理出兩個方向：A 改既有的頁面，B 另外做一個新的。你比較傾向哪一個？',
+]
+const REPLIES = [
+  '了解，我會照這個方向。還有一點：要不要先給少數使用者試用？',
+  '好，我記下來了。這樣做大概要多一天，可以嗎？',
+  '收到，我把這些寫進討論紀錄。還有想調整的嗎？沒有的話可以結束討論。',
+  '明白。那其他的部分我先照原本的計畫進行。',
+]
 
 // why a review does not pass, and why a step sent back sends it further back
 const SEND_BACK: Partial<Record<Role, string[]>> = {
@@ -142,6 +164,18 @@ const fill = (s: string, task: Task) =>
   s.replaceAll('{t}', task.title).replaceAll('{slug}', `task-${task.number}`)
 
 export function makeScript(w: World, role: Role, task: Task, override?: Partial<Script>): Script {
+  // a discussion only gets ready and opens; the user decides the rest, so nothing goes wrong on its own
+  if (role === 'talk') {
+    const raw = LINES.talk
+    return {
+      lines: raw.map(([kind, text], i) => ({ p: (i + 0.5) / raw.length, kind, text: fill(text, task) })),
+      duration: between(w, 6, 10),
+      costRate: between(w, 0.012, 0.03),
+      route: 0,
+      talk: { opening: fill(pick(w, OPENINGS), task), replies: sample(w, REPLIES, REPLIES.length) },
+      ...override,
+    }
+  }
   const raw = LINES[role]
   const lines = raw.map(([kind, text], i) => ({
     p: Math.min(0.95, (i + 0.5) / raw.length + between(w, -0.03, 0.03)),

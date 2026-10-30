@@ -36,6 +36,14 @@ function hashName(name: string) {
   return h >>> 0
 }
 
+/**
+ * The look with its face fixed: one without a `style` (drawn from the name) gets the name's seed as its
+ * `style`, so it draws the same face whatever it is later called or shown under.
+ */
+export function pinLook(look: Look, name: string): Look {
+  return look.style === undefined ? { ...look, style: hashName(name) } : look
+}
+
 export function featuresOf(look: Look, name: string): Features {
   // each feature reads its own digits of the seed, so they vary apart from one another
   let s = (look.style ?? hashName(name)) >>> 0

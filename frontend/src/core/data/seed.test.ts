@@ -16,6 +16,12 @@ describe('seed world', () => {
     for (const wf of Object.values(w.workflows)) expect(validate(wf)).toEqual([])
   })
 
+  it('opens with a discussion under way: the employee answered the user once', () => {
+    const w = seedWorld()
+    const talk = Object.values(w.subTasks).find((s) => s.review?.kind === 'talk')
+    expect(talk?.talk?.messages.map((m) => m.from)).toEqual(['agent', 'user', 'agent'])
+  })
+
   it('keeps running for ten simulated minutes without throwing', () => {
     const w = seedWorld()
     for (let i = 0; i < 1200; i++) tick(w, 0.5)

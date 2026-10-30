@@ -2,7 +2,7 @@
 
 import { autoLayout } from '../domain/graph'
 import {
-  createTask, createTeam, END_PROMPT, hire, mergeTask, pauseTask, remember, START_PROMPT, tick,
+  createTask, createTeam, END_PROMPT, TALK_PROMPT, hire, mergeTask, pauseTask, remember, REPLY_TIME, sayInTalk, START_PROMPT, tick,
 } from '../domain/sim'
 import type { Blueprint, GitSource, Look, ModelProvider, Workflow, WorkflowNode, World } from '../domain/types'
 
@@ -136,7 +136,7 @@ export function seedWorld(): World {
   const [start, review] = main.nodes
   review.join = 'any'
   main.nodes.push(
-    node('n-research', 'work', '研究', '調查現有程式與做法，比較方案並給出建議。', [mira.id, theo.id], { handoff: 'pickOne', assignment: 'roundRobin' }),
+    node('n-research', 'work', '研究', '調查現有程式與做法，比較方案並給出建議。', [mira.id, theo.id], { handoff: 'pickOne' }),
     node('n-report', 'work', '報告', '把研究結果寫成給人看的報告，放在 docs/reports/。', [ivy.id]),
     node('n-dev', 'work', '開發', '依研究結論實作，附測試，小步提交。', [kai.id, juno.id], { assignment: 'firstAvailable' }),
   )
@@ -178,9 +178,13 @@ export function seedWorld(): World {
   const dwf = w.workflows[docs.defaultWorkflowId]
   dwf.name = '寫文件'
   const [dstart, dreview] = dwf.nodes
-  dwf.nodes.push(node('d-write', 'work', '撰寫文件', '依需求撰寫或更新文件頁面。', [ada.id]))
+  dwf.nodes.push(
+    node('d-talk', 'talk', '討論大綱', TALK_PROMPT, [ada.id]),
+    node('d-write', 'work', '撰寫文件', '依需求撰寫或更新文件頁面。', [ada.id]),
+  )
   dwf.edges = [
-    { id: 'de1', from: dstart.id, to: 'd-write', condition: '' },
+    { id: 'de1', from: dstart.id, to: 'd-talk', condition: '' },
+    { id: 'de3', from: 'd-talk', to: 'd-write', condition: '' },
     { id: 'de2', from: 'd-write', to: dreview.id, condition: '' },
   ]
   autoLayout(dwf)
@@ -227,6 +231,11 @@ export function seedWorld(): World {
     },
     mergeConflict: true,
   })
+  const quickstart = createTask(w, {
+    teamId: docs.id, title: '新增快速開始頁', description: '五分鐘內跑起第一個範例。',
+    workflowId: dwf.id, ownerId: leo.id,
+    overrides: { '*': { ...calm, duration: 30 }, [dstart.id]: { ...calm, duration: 8 }, 'd-talk': { duration: 6 } },
+  })
   const paused = createTask(w, {
     teamId: shop.id, title: '整理 API 錯誤訊息', description: '所有錯誤訊息統一格式，並補上英文。',
     workflowId: main.id, ownerId: ivy.id, overrides: { '*': { ...calm, route: 1 } },
@@ -235,16 +244,16 @@ export function seedWorld(): World {
   pauseTask(w, paused.id)
   // the question about a deadline stays open: it waits on the user's reply
   run(6)
+  const talkSub = Object.values(w.subTasks).find((s) => s.taskId === quickstart.id && s.review?.kind === 'talk')
 
   createTask(w, {
     teamId: shop.id, title: '搜尋支援注音輸入', description: '輸入注音時不要觸發搜尋，等選字完成。',
     workflowId: main.id, ownerId: juno.id, overrides: { '*': { ...calm, route: 1 } },
   })
-  createTask(w, {
-    teamId: docs.id, title: '新增快速開始頁', description: '五分鐘內跑起第一個範例。',
-    workflowId: dwf.id, ownerId: leo.id, overrides: { '*': { ...calm, duration: 30 } },
-  })
+  // the outline is talked over with the user: Ada opens it, the user has answered once, and she has replied
   run(4)
+  if (talkSub) sayInTalk(w, talkSub.id, '主要讀者是第一次用的開發者，只要涵蓋安裝和第一個範例。')
+  run(REPLY_TIME + 1)
   void report
 
   w.events = []
