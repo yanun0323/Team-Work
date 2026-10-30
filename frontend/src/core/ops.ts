@@ -83,6 +83,11 @@ const edits = new Map<string, { timer: number; patch: TeamEdit }>()
 export const editing = (id: string) => edits.has(id)
 
 /** Change a company. The screen follows at once; the backend gets it when the typing pauses. */
+/** Reread the company's AGENTS.md, which can change outside the app. Quiet: nobody asked, and the next run reads it anyway. */
+export function refreshPrompt(id: string) {
+  if (!MOCK) void request('POST', `/teams/${id}/prompt/refresh`).catch(() => {})
+}
+
 export function editTeam(w: World, id: string, patch: TeamEdit) {
   const team = w.teams[id]
   if (!team) return

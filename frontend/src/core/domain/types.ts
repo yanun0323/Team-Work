@@ -18,7 +18,8 @@ export interface Look {
 }
 
 /** How hard an employee thinks before answering. */
-export type Effort = 'low' | 'medium' | 'high' | 'max'
+/** A thinking level, as its provider names it, or `default` to leave it to the provider. */
+export type Effort = string
 
 /** A Git repo something is read from, pinned to a commit, and what is known about its upstream. */
 export interface GitSource {
@@ -379,6 +380,8 @@ export interface ModelProvider {
   baseUrl: string
   /** What the provider offers, as it lists them; not typed in. */
   models: string[]
+  /** The thinking levels each model reports, weakest first; a model not in it reports none. */
+  thinking?: Record<string, string[]>
 }
 
 export interface World {

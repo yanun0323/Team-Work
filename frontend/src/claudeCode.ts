@@ -10,7 +10,7 @@ export interface ClaudeStatus {
 
 export const INSTALL_COMMAND = 'curl -fsSL https://claude.ai/install.sh | bash'
 
-const UNREACHABLE = '連不上後端，請先執行 make server'
+const UNREACHABLE = '連不上後端，請先執行 make dev'
 
 async function call(path: string, init?: RequestInit): Promise<Response> {
   let res: Response

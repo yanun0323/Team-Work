@@ -16,7 +16,8 @@ import { MOCK } from './core/mode'
 import { branchesOf } from './core/ops'
 import { canPlace, CELL, PLOT_CELLS, spotCenter, spotUnder, type BuildingLook, type BuildingStyle, type Spot, type Town } from './layout'
 import { NO_OUTLINE_LAYER } from './PixelPass'
-import { pickedPath, pickFolderName } from './pickFolder'
+import { pickFolder } from './pickFolder'
+import { useStore } from './core/store'
 
 /** Fake file system: these folders already have a git repo, with these branches. */
 const KNOWN_REPOS: Record<string, string[]> = {
@@ -176,9 +177,17 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
     setFolder(path)
     if (!named) setName(basename(path))
   }
+  const [browsing, setBrowsing] = useState(false)
   const browse = async () => {
-    const picked = await pickFolderName()
-    if (picked) takeFolder(pickedPath(folder, picked))
+    setBrowsing(true)
+    try {
+      const picked = await pickFolder(folder)
+      if (picked) takeFolder(picked)
+    } catch (e) {
+      useStore.getState().setFailure((e as Error).message)
+    } finally {
+      setBrowsing(false)
+    }
   }
   // the real repo's branches, or the prototype's made-up ones; a folder without a repo starts on master
   const [found, setFound] = useState<string[] | null>(null)
@@ -227,7 +236,7 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
                 <input className="fx-control" value={folder} required pattern=".*\S.*" title="專案位置不可為空"
                   placeholder="~/code/my-app" spellCheck={false} autoComplete="off"
                   onChange={(e) => takeFolder(e.target.value)} />
-                <button type="button" className="fx-control fx-browse fx-hit" onClick={browse} aria-label="選擇資料夾" title="選擇資料夾">
+                <button type="button" className="fx-control fx-browse fx-hit" onClick={browse} disabled={browsing} aria-label="選擇資料夾" title="選擇資料夾">
                   <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true">
                     <path d="M1.75 4.25v8.5h12.5v-7h-6.5l-1.5-1.5z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                   </svg>

@@ -1,9 +1,15 @@
-// What a file an employee handed on says. The prototype has no real files, so each is written from what
-// the sub-task knows: the task, the step, the handoff. The same sub-task always reads the same.
+// What an employee handed on. `outputFile` reads which file a handoff line names. `docOf` is for the simulator
+// only: it has no real files, so each is written from what the sub-task knows, and always reads the same.
 
 import type { SubTask, Task } from './core/domain/types'
 
 export type Doc = { lang: 'md' | 'code'; text: string }
+
+/** The file a handoff line names, as in "docs/spec.md — the spec". Null when the line is not about one file. */
+export function outputFile(line: string): string | null {
+  const head = line.split(/\s[—–-]\s|[：（]|:\s|\s\(/)[0].trim().replace(/^`|`$/g, '')
+  return /^[^\s、，,]+$/.test(head) && /[./]/.test(head) ? head : null
+}
 
 export function docOf(task: Task, step: string, sub: SubTask, path: string): Doc {
   const h = sub.handoff

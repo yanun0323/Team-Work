@@ -1,5 +1,6 @@
 // What each tab of the company file shows. All of it reads the live world, so it moves with the simulation.
 
+import { useEffect } from 'react'
 import { nodeOf } from './core/domain/graph'
 import { statusOf, subsOf } from './core/domain/sim'
 import type { Status, TeamSettings } from './core/domain/types'
@@ -10,7 +11,7 @@ import { activity, flowList, teamReplicas, teamTasks } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { Select, Stepper, WaitBadge } from './Controls'
-import { editTeam } from './core/ops'
+import { editTeam, refreshPrompt } from './core/ops'
 import { itemKey, type Item } from './DrawerDetail'
 
 export type Tab = 'tasks' | 'crew' | 'settings'
@@ -131,6 +132,13 @@ function Settings({ teamId, ...p }: Opens) {
   const world = useStore((s) => s.world)
   const flows = world.workflows
   const act = useStore((s) => s.act)
+  // the prompt is the project's AGENTS.md: coming back to the app may mean it was just edited elsewhere
+  useEffect(() => {
+    const refresh = () => refreshPrompt(teamId)
+    refresh()
+    window.addEventListener('focus', refresh)
+    return () => window.removeEventListener('focus', refresh)
+  }, [teamId])
   // gone, while the file turns away
   if (!team) return null
   const num = (key: keyof TeamSettings, label: string, unit: string, min: number, step: number) => (
@@ -154,7 +162,7 @@ function Settings({ teamId, ...p }: Opens) {
         onChange={(v) => act((x) => editTeam(x, teamId, { defaultWorkflowId: v }))}
       />
       <label className="fx-field fx-field-top">
-        <span>Prompt</span>
+        <span>AGENTS.md</span>
         <textarea className="fx-control" rows={6} value={team.prompt}
           onChange={(e) => act((x) => editTeam(x, teamId, { prompt: e.target.value }))} />
       </label>

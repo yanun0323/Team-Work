@@ -1,14 +1,24 @@
 // Ask the system's file browser for a folder.
 //
-// A web page is never told where a picked folder is, only its name, so the prototype puts the name under
-// the folder already typed (or under ~/code/). The desktop app reads the full path instead.
+// A web page is never told where a picked folder is, only its name. So the backend, on the same computer, opens
+// the dialog and gives the full path. Mock mode has no backend and makes up a place for the name instead.
+
+import { request } from './core/backend'
+import { MOCK } from './core/mode'
 
 interface DirectoryPicker {
   showDirectoryPicker?: (options?: { id?: string; mode?: 'read' | 'readwrite' }) => Promise<{ name: string }>
 }
 
+/** The path of the folder picked, or null when the dialog was closed without one. Throws what went wrong. */
+export async function pickFolder(typed: string): Promise<string | null> {
+  if (!MOCK) return (await request<{ path: string }>('POST', '/folder-picker')).path || null
+  const name = await pickFolderName()
+  return name && pickedPath(typed, name)
+}
+
 /** The name of the folder picked, or null when the browser was closed without one. */
-export async function pickFolderName(): Promise<string | null> {
+async function pickFolderName(): Promise<string | null> {
   const picker = (window as Window & DirectoryPicker).showDirectoryPicker
   if (picker) {
     try {
@@ -24,8 +34,15 @@ export async function pickFolderName(): Promise<string | null> {
     const input = document.createElement('input')
     input.type = 'file'
     input.webkitdirectory = true
-    input.addEventListener('change', () => resolve(input.files?.[0]?.webkitRelativePath.split('/')[0] || null), { once: true })
-    input.addEventListener('cancel', () => resolve(null), { once: true })
+    input.hidden = true
+    // in the page, as a field that isn't can be dropped before it reports the choice
+    document.body.append(input)
+    const finish = (name: string | null) => {
+      input.remove()
+      resolve(name)
+    }
+    input.addEventListener('change', () => finish(input.files?.[0]?.webkitRelativePath.split('/')[0] || null), { once: true })
+    input.addEventListener('cancel', () => finish(null), { once: true })
     input.click()
   })
 }

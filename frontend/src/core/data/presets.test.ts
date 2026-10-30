@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { taskNodeOf } from '../domain/graph'
+import { effortsOf } from '../../crew'
 import { flowList } from '../model'
 import type { World } from '../domain/types'
 import { seedWorld } from './seed'
@@ -39,5 +40,13 @@ describe('flowList', () => {
     const wf = (id: string) => ({ id, name: id, nodes: [], edges: [] })
     const w = { workflows: { 'wf-12': wf('wf-12'), 'wf-9': wf('wf-9') } } as unknown as World
     expect(flowList(w).map((x) => x.id)).toEqual(['wf-9', 'wf-12'])
+  })
+})
+
+describe('thinking levels', () => {
+  it('are what the provider reports for the model, after default', () => {
+    const w = seedWorld()
+    expect(effortsOf(w, 'gemini-3-pro')).toEqual(['default', 'low', 'high'])
+    expect(effortsOf(w, 'not-offered')).toEqual(['default'])
   })
 })

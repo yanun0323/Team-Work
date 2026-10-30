@@ -1,7 +1,7 @@
 // Employees are always shown under their blueprint, blueprints in the order the company knows them.
 
 import { HAIRS, SKINS } from './core/domain/sim'
-import type { Blueprint, Effort, Look, Replica, World } from './core/domain/types'
+import type { Blueprint, Look, Replica, World } from './core/domain/types'
 
 export function byBlueprint(w: World, crew: Replica[]): { bp: Blueprint; list: Replica[] }[] {
   return Object.values(w.blueprints)
@@ -18,12 +18,14 @@ export function modelsOf(w: World): string[] {
   return [...new Set([...offered, ...Object.values(w.replicas).map((r) => r.model)])]
 }
 
-export const EFFORTS: { id: Effort; label: string }[] = [
-  { id: 'low', label: '低' },
-  { id: 'medium', label: '中' },
-  { id: 'high', label: '高' },
-  { id: 'max', label: '最高' },
-]
+/** Leaves the level to the provider; every model takes it. */
+export const DEFAULT_EFFORT = 'default'
+
+/** The levels to pick from for a model, as its provider names them. */
+export function effortsOf(w: World, model: string): string[] {
+  const p = Object.values(w.providers).find((x) => x.models.includes(model))
+  return [DEFAULT_EFFORT, ...(p?.thinking?.[model] ?? [])]
+}
 
 const SHIRTS = [
   '#3f7fbf', '#d9644a', '#4f9a6a', '#8a5bb8', '#e0b13a', '#2f3b52', '#c94f7c', '#5fa8a0', '#eae4d6',
@@ -41,7 +43,5 @@ export function randomLook(rand: () => number = Math.random): Look {
   }
 }
 
-export const effortName = (e: Effort) => EFFORTS.find((x) => x.id === e)?.label ?? e
-
 /** What an employee runs on, as one line: model, then how hard they think. */
-export const mindOf = (r: Replica) => `${r.model} · 思考${effortName(r.effort)}`
+export const mindOf = (r: Replica) => `${r.model} · ${r.effort}`

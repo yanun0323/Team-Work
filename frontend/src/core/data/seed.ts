@@ -1,6 +1,7 @@
 // Fake starting world. Tasks are pre-run so the board opens with something in every column.
 
 import { autoLayout } from '../domain/graph'
+import { mockThinking } from '../../providers'
 import { addPresetFlows, PRESET_BLUEPRINTS } from './presets'
 import {
   createTask, createTeam, END_PROMPT, TALK_PROMPT, hire, mergeTask, newWorkflow, pauseTask, remember, REPLY_TIME, sayInTalk, START_PROMPT, tick,
@@ -17,12 +18,12 @@ const git = (repo: string, ref: string, commit: string, extra: Partial<GitSource
   upstream: true, ...extra,
 })
 
-const PROVIDERS: ModelProvider[] = [
+const PROVIDERS: ModelProvider[] = ([
   { id: 'mp-anthropic', name: 'Claude 訂閱', kind: 'anthropic', auth: { kind: 'subscription' }, baseUrl: '', models: ['claude-opus-5-5', 'claude-sonnet-5', 'claude-haiku-5'] },
   { id: 'mp-openai', name: 'OpenAI', kind: 'openai', baseUrl: '', auth: { kind: 'apiKey', keyHint: 'x9Lm' }, models: ['gpt-5.5', 'gpt-5.5-codex'] },
   { id: 'mp-google', name: 'Google', kind: 'google', baseUrl: '', auth: { kind: 'apiKey', keyHint: 'c3Vd' }, models: ['gemini-3-pro'] },
   { id: 'mp-deepseek', name: 'DeepSeek', kind: 'compatible', baseUrl: 'https://api.deepseek.com/v1', auth: { kind: 'apiKey', keyHint: '0f4e' }, models: ['deepseek-v4'] },
-]
+] as ModelProvider[]).map((p) => ({ ...p, thinking: mockThinking(p.kind, p.models) }))
 
 const BLUEPRINTS: Blueprint[] = [
   {

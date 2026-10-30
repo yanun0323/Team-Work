@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { isFixed, nodeOf, taskNodeOf } from './core/domain/graph'
 import { blueprintUsers, gitSources, statusOf, subsOf } from './core/domain/sim'
-import { TOOLS, type Effort, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type ProviderKind, type Replica, type Status, type SubTask, type Workflow, type World } from './core/domain/types'
+import { TOOLS, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type ProviderKind, type Replica, type Status, type SubTask, type Workflow, type World } from './core/domain/types'
 import { sourceState, sourceText, TOOL_NAMES } from './source'
 import { useT } from './core/i18n'
 import { flowList, activity, fmtClock, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas } from './core/model'
@@ -20,16 +20,16 @@ import { ClaudeAccount } from './ClaudeAccount'
 import { Select, WaitBadge } from './Controls'
 import { FlowNotes, openCard } from './FlowNotes'
 import { addImages, draftFlow, draftStaff, editDraft, lastStaff, unstaffed, useDraft, type TaskDraft } from './draft'
-import { byBlueprint, EFFORTS, effortName, mindOf, modelsOf, randomLook } from './crew'
-import { docOf } from './doc'
+import { byBlueprint, DEFAULT_EFFORT, effortsOf, mindOf, modelsOf, randomLook } from './crew'
+import { docOf, outputFile, type Doc } from './doc'
+import { MOCK } from './core/mode'
 import { parseGithub } from './github'
 import { parseBlueprintYaml, YAML_TEMPLATE } from './blueprintYaml'
-import { authLabel, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
+import { authLabel, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
 import { talking, TALK_PROMPT } from './core/domain/sim'
 import type { TalkEnd } from './core/domain/types'
 import { addProvider, providerUsers, updateProvider, type ProviderLogin, DEFAULT_MODEL, RESOLVE_TIME, costLimit } from './core/domain/sim'
-import { request } from './core/backend'
-import { MOCK } from './core/mode'
+import { readHandedFile, request } from './core/backend'
 import { attempt, createTask, deleteBlueprint, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, endTalk, fire, hire, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, endOf, isMiddle, link, loose, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
@@ -215,11 +215,6 @@ export function LogList({ lines, order }: { lines: LogLine[]; order: LogOrder })
 
 function Bar({ value }: { value: number }) {
   return <span className="fx-d-bar" role="img" aria-label={`${Math.round(value * 100)}%`}><i style={{ width: `${value * 100}%` }} /></span>
-}
-
-/** The steps after 整理需求: work and discussions. */
-function workSteps(wf: Workflow) {
-  return wf.nodes.filter((n) => n.kind !== 'task')
 }
 
 /** A task someone asked for. The sub-tasks the employees made for it are listed here and open on their own sheet. */
@@ -788,14 +783,18 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
           {out.did.length > 0 && <ul className="fx-d-memory">{out.did.map((x, i) => <li key={i}>{x}</li>)}</ul>}
           {out.outputs.length > 0 && (
             <ul className="fx-list fx-d-files" aria-label="交出的檔案">
-              {out.outputs.map((x) => (
-                <li key={x}>
-                  <button type="button" className="fx-row fx-hit" aria-expanded={open === x} onClick={() => onOpen(x)}>
-                    <FileIcon />
-                    <span className="fx-row-main"><b>{x.split('/').pop()}</b><span>{x}</span></span>
-                  </button>
-                </li>
-              ))}
+              {out.outputs.map((x) => {
+                const file = outputFile(x)
+                if (!file) return <li key={x} className="fx-d-text">{x}</li>
+                return (
+                  <li key={x}>
+                    <button type="button" className="fx-row fx-hit" aria-expanded={open === file} onClick={() => onOpen(file)}>
+                      <FileIcon />
+                      <span className="fx-row-main"><b>{file.split('/').pop()}</b><span>{x}</span></span>
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </Section>
@@ -842,7 +841,7 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
         <Heading {...h}>{wf.name}</Heading>
         <p className="fx-d-meta">
           {defaults > 0 && <span className="fx-pill">{defaults} 間公司預設</span>}
-          <span>{workSteps(wf).length} 個步驟</span>
+          <span>{wf.nodes.length} 個步驟</span>
           <span>{tasks.length ? `${tasks.length} 個任務未完成` : '沒有未完成的任務'}</span>
         </p>
       </header>
@@ -1047,9 +1046,10 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
       })
       return
     }
+    const models = claude ? claudeModels : PROVIDER_KINDS[kind].models
     act((x) => {
       if (old) updateProvider(x, old.id, { name, baseUrl: url, login })
-      else addProvider(x, { name, kind, baseUrl: url, login: login ?? { kind: 'subscription' }, models: claude ? claudeModels : PROVIDER_KINDS[kind].models })
+      else addProvider(x, { name, kind, baseUrl: url, login: login ?? { kind: 'subscription' }, models, thinking: mockThinking(kind, models) })
     })
     onDone()
   }
@@ -1389,14 +1389,17 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
   const [name, setName] = useState(() => r?.name ?? NAMES.find((n) => !Object.values(w.replicas).some((x) => x.name === n)) ?? 'Nova')
   const [bp, setBp] = useState(r?.blueprintId ?? first?.id ?? '')
   const [model, setModel] = useState(r?.model ?? (MOCK ? DEFAULT_MODEL : modelsOf(w)[0] ?? ''))
-  const [effort, setEffort] = useState<Effort>(r?.effort ?? 'medium')
+  const [effort, setEffort] = useState(r?.effort ?? DEFAULT_EFFORT)
+  // what the model takes decides; another model that doesn't take this level starts on the default
+  const levels = effortsOf(w, model)
+  const level = levels.includes(effort) ? effort : DEFAULT_EFFORT
   const [look, setLook] = useState<Look>(() => r?.look ?? randomLook())
   if (id && !r) return <Gone {...h} />
   const save = (e: React.FormEvent) => {
     e.preventDefault()
     act((x) => {
-      if (!id) return void hire(x, teamId, bp, name.trim(), look, { model, effort })
-      updateReplica(x, id, { name: name.trim(), blueprintId: bp, model, effort, look })
+      if (!id) return void hire(x, teamId, bp, name.trim(), look, { model, effort: level })
+      updateReplica(x, id, { name: name.trim(), blueprintId: bp, model, effort: level, look })
     })
     onDone()
   }
@@ -1420,8 +1423,7 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
         </label>
         <Select label="藍圖" value={bp} options={Object.keys(w.blueprints)} labelOf={(x) => w.blueprints[x]?.name ?? x} onChange={setBp} />
         <Select label="模型" value={model} options={modelsOf(w)} onChange={setModel} />
-        <Select label="思考等級" value={effort} options={EFFORTS.map((x) => x.id)} labelOf={(x) => effortName(x as Effort)}
-          onChange={(x) => setEffort(x as Effort)} />
+        <Select label="思考等級" value={level} options={levels} onChange={setEffort} />
       </div>
       <button type="submit" className="fx-save" disabled={!name.trim() || !bp}>{r ? '儲存' : '新增'}</button>
     </form>
@@ -1775,7 +1777,6 @@ function DocDetail({ sub: subId, path, ...h }: Head & { sub: string; path: strin
   if (!sub || !task) return <Gone {...h} />
   const step = stepName(task.workflow, sub.nodeId)
   const r = sub.replicaId ? w.replicas[sub.replicaId] : undefined
-  const doc = docOf(task, step, sub, path)
   return (
     <>
       <header className="fx-d-head">
@@ -1788,10 +1789,31 @@ function DocDetail({ sub: subId, path, ...h }: Head & { sub: string; path: strin
       </header>
       {/* the file itself, on a white sticky note */}
       <div className="fx-doc-note">
-        {doc.lang === 'code' ? <pre className="fx-doc-code"><code>{doc.text}</code></pre> : <Markdown text={doc.text} />}
+        {MOCK ? <MockDoc doc={docOf(task, step, sub, path)} /> : <RealDoc sub={subId} path={path} />}
       </div>
     </>
   )
+}
+
+function MockDoc({ doc }: { doc: Doc }) {
+  return doc.lang === 'code' ? <pre className="fx-doc-code"><code>{doc.text}</code></pre> : <Markdown text={doc.text} />
+}
+
+/** The file as committed, character for character: wrapped, so long lines stay on the note. */
+function RealDoc({ sub, path }: { sub: string; path: string }) {
+  const [state, setState] = useState<{ text?: string; error?: string }>({})
+  useEffect(() => {
+    const stop = new AbortController()
+    setState({})
+    readHandedFile(sub, path, stop.signal).then(
+      (text) => setState({ text }),
+      (e: Error) => { if (e.name !== 'AbortError') setState({ error: e.message }) },
+    )
+    return () => stop.abort()
+  }, [sub, path])
+  if (state.error) return <p className="fx-d-text" role="alert">{state.error}</p>
+  if (state.text === undefined) return <p className="fx-d-text">讀取中…</p>
+  return <pre className="fx-doc-code fx-doc-raw"><code>{state.text}</code></pre>
 }
 
 /** A picture added to a task, at full width. */

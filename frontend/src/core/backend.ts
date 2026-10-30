@@ -3,7 +3,7 @@
 
 import type { World } from './domain/types'
 
-export const UNREACHABLE = '連不上後端，請先執行 make server'
+export const UNREACHABLE = '連不上後端，請先執行 make dev'
 
 /** One changed entity. No data means it is gone. */
 export interface Patch {
@@ -33,6 +33,10 @@ export function applyPatches(w: World, ev: { upserts?: Patch[]; deletes?: Patch[
     if (book) delete book[p.id]
   }
 }
+
+/** A file a sub-task handed on, as it was at that sub-task's commit. */
+export const readHandedFile = (subId: string, path: string, signal: AbortSignal) =>
+  request<{ text: string }>('GET', `/subtasks/${subId}/file?path=${encodeURIComponent(path)}`, undefined, signal).then((r) => r.text)
 
 /** A world with nothing in it, until the backend's snapshot arrives. */
 export const emptyWorld = (): World => ({

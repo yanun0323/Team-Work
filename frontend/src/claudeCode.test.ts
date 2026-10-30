@@ -32,9 +32,9 @@ describe('claude code setup', () => {
 
   it('says to start the backend when it is not there', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
-    await expect(claudeStatus(signal)).rejects.toThrow('make server')
+    await expect(claudeStatus(signal)).rejects.toThrow('make dev')
     vi.stubGlobal('fetch', answer(500)) // the dev proxy, with nothing behind it
-    await expect(claudeStatus(signal)).rejects.toThrow('make server')
+    await expect(claudeStatus(signal)).rejects.toThrow('make dev')
   })
 
   it('lets a cancel through as a cancel', async () => {

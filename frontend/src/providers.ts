@@ -10,6 +10,17 @@ export const PROVIDER_KINDS: Record<ProviderKind, { label: string; url: string; 
   compatible: { label: 'OpenAI 相容', url: '', models: [] },
 }
 
+/** Made-up levels for the mock providers, which a real provider reports itself. */
+const MOCK_LEVELS: Record<ProviderKind, string[]> = {
+  anthropic: ['low', 'medium', 'high', 'xhigh', 'max'],
+  openai: ['low', 'medium', 'high', 'xhigh'],
+  google: ['low', 'high'],
+  compatible: ['low', 'high', 'max'],
+}
+
+export const mockThinking = (kind: ProviderKind, models: string[]) =>
+  Object.fromEntries(models.map((m) => [m, MOCK_LEVELS[kind]]))
+
 /** The address a provider is reached at: its own, or the kind's usual one. */
 export const providerUrl = (p: Pick<ModelProvider, 'kind' | 'baseUrl'>) => p.baseUrl || PROVIDER_KINDS[p.kind].url
 

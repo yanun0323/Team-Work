@@ -432,6 +432,7 @@ body { margin: 0; overflow: hidden; }
   margin: 0; overflow-x: auto;
   font: 12.5px/1.6 var(--font-mono); color: var(--ink); white-space: pre; tab-size: 2;
 }
+.fx-doc-raw { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* the file itself: a white sticky note stuck on the sheet, a touch askew, its glue strip along the top */
 .fx-doc-note {
   position: relative; padding: 26px 20px 20px;
