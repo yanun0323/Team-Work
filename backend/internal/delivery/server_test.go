@@ -1,0 +1,375 @@
+package delivery
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/rs/zerolog"
+
+	"github.com/yanun0323/mho-company/internal/adapter"
+	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/mho-company/internal/repository"
+	"github.com/yanun0323/mho-company/internal/usecase"
+)
+
+type noModels struct{}
+
+func (noModels) Complete(context.Context, model.ModelRequest, func(string)) (model.ModelReply, error) {
+	return model.ModelReply{}, model.Errorf(model.CodeInvalid, "no")
+}
+func (noModels) Models(context.Context) ([]string, error)                    { return []string{"m"}, nil }
+func (n noModels) For(model.ModelProvider, string) (adapter.Provider, error) { return n, nil }
+func (noModels) Login(context.Context, model.ModelProvider, string) (*adapter.LoginFlow, error) {
+	return &adapter.LoginFlow{Prompt: model.LoginPrompt{Method: "browser", URL: "https://login"},
+		Wait:  func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() },
+		Paste: func(string) error { return nil }}, nil
+}
+func (noModels) Logout(context.Context, model.ModelProvider) error { return nil }
+
+const origin = "http://localhost:5173"
+
+// fakeClaude records what was asked of it; nothing is ever installed.
+type fakeClaude struct {
+	installs, logins int
+	installed        bool
+	loginErr         error
+}
+
+func (f *fakeClaude) Status(context.Context) (adapter.ClaudeStatus, error) {
+	return adapter.ClaudeStatus{Installed: f.installed, SignedIn: f.logins > 0, Models: []string{}}, nil
+}
+func (f *fakeClaude) Install(context.Context) error { f.installs++; f.installed = true; return nil }
+func (f *fakeClaude) Login(context.Context) error   { f.logins++; return f.loginErr }
+
+var claude = &fakeClaude{}
+
+func setup(t *testing.T) *httptest.Server {
+	t.Helper()
+	data := t.TempDir()
+	store, err := repository.NewStore(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: repository.NewGit(data), Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(NewServer(e, claude, []string{origin}, zerolog.Nop()).Handler())
+	t.Cleanup(func() { srv.Close(); e.Close(); store.Close() })
+	return srv
+}
+
+func send(t *testing.T, method, url, body string, headers ...string) (int, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(method, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i+1 < len(headers); i += 2 {
+		req.Header.Set(headers[i], headers[i+1])
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(res.Body).Decode(&out)
+	return res.StatusCode, out
+}
+
+func TestCreateTeam(t *testing.T) {
+	srv := setup(t)
+	api := srv.URL + "/api/v1"
+	folder, _ := json.Marshal(t.TempDir())
+
+	code, team := send(t, "POST", api+"/teams", `{"name":"公司","folder":`+string(folder)+`}`)
+	if code != http.StatusCreated || team["targetBranch"] != "master" || team["initializedGit"] != true {
+		t.Fatalf("%d %v", code, team)
+	}
+	code, body := send(t, "POST", api+"/teams", `{"name":"","folder":"/x"}`)
+	if code != http.StatusBadRequest || body["error"].(map[string]any)["code"] != model.CodeInvalid {
+		t.Fatalf("%d %v", code, body)
+	}
+	if code, _ := send(t, "POST", api+"/teams", `{bad`); code != http.StatusBadRequest {
+		t.Fatalf("broken JSON: %d", code)
+	}
+	if code, _ := send(t, "DELETE", api+"/teams/nope", ""); code != http.StatusNotFound {
+		t.Fatalf("missing team: %d", code)
+	}
+}
+
+func TestBranches(t *testing.T) {
+	srv := setup(t)
+	api := srv.URL + "/api/v1"
+	folder := t.TempDir()
+	_, got := send(t, "GET", api+"/branches?folder="+url.QueryEscape(folder), "")
+	if got["repo"] != false {
+		t.Fatalf("%v", got)
+	}
+	if entries, _ := os.ReadDir(folder); len(entries) != 0 {
+		t.Fatal("looking changed the folder")
+	}
+	raw, _ := json.Marshal(folder)
+	if code, _ := send(t, "POST", api+"/teams", `{"name":"c","folder":`+string(raw)+`}`); code != http.StatusCreated {
+		t.Fatal(code)
+	}
+	_, got = send(t, "GET", api+"/branches?folder="+url.QueryEscape(folder), "")
+	if got["repo"] != true || got["branches"].([]any)[0] != "master" {
+		t.Fatalf("%v", got)
+	}
+	if _, got = send(t, "GET", api+"/branches?folder=relative/path", ""); got["repo"] != false {
+		t.Fatalf("%v", got)
+	}
+}
+
+func TestDuplicateAndEditing(t *testing.T) {
+	srv := setup(t)
+	api := srv.URL + "/api/v1"
+	raw, _ := json.Marshal(t.TempDir())
+	_, team := send(t, "POST", api+"/teams", `{"name":"c","folder":`+string(raw)+`}`)
+	wf := team["defaultWorkflowId"].(string)
+	code, copied := send(t, "POST", api+"/workflows/"+wf+"/duplicate", "")
+	if code != http.StatusCreated || copied["name"] != "預設任務流程-1" {
+		t.Fatalf("%d %v", code, copied)
+	}
+	_, copied = send(t, "POST", api+"/workflows/"+wf+"/duplicate", "")
+	if copied["name"] != "預設任務流程-2" {
+		t.Fatalf("%v", copied)
+	}
+	if code, _ := send(t, "POST", api+"/workflows/nope/duplicate", ""); code != http.StatusNotFound {
+		t.Fatal(code)
+	}
+	if code, _ := send(t, "PATCH", api+"/tasks/nope", `{"title":"x"}`); code != http.StatusNotFound {
+		t.Fatal(code)
+	}
+}
+
+func TestProviderKeyIsOnlyHinted(t *testing.T) {
+	srv := setup(t)
+	api := srv.URL + "/api/v1"
+	code, p := send(t, "POST", api+"/providers", `{"name":"p","kind":"compatible","baseUrl":"http://x","login":{"kind":"apiKey","apiKey":"sk-abcd1234"}}`)
+	if code != http.StatusCreated {
+		t.Fatalf("%d %v", code, p)
+	}
+	if p["auth"].(map[string]any)["keyHint"] != "1234" {
+		t.Fatalf("%v", p)
+	}
+	_, world := send(t, "GET", api+"/world", "")
+	raw, _ := json.Marshal(world)
+	if strings.Contains(string(raw), "sk-abcd") {
+		t.Fatal("key sent to a client")
+	}
+	if code, _ := send(t, "POST", api+"/providers", `{"name":"p","kind":"compatible","login":{"kind":"apiKey","apiKey":" "}}`); code != http.StatusBadRequest {
+		t.Fatalf("empty key: %d", code)
+	}
+}
+
+func TestSubscriptionLoginEndpoints(t *testing.T) {
+	srv := setup(t)
+	api := srv.URL + "/api/v1"
+	code, p := send(t, "POST", api+"/providers", `{"name":"訂閱","kind":"openai","login":{"kind":"subscription"}}`)
+	if code != http.StatusCreated {
+		t.Fatalf("%d %v", code, p)
+	}
+	id := p["id"].(string)
+	code, prompt := send(t, "POST", api+"/providers/"+id+"/login", `{"method":"browser"}`)
+	if code != http.StatusCreated || prompt["url"] != "https://login" {
+		t.Fatalf("%d %v", code, prompt)
+	}
+	if code, _ := send(t, "POST", api+"/providers/"+id+"/login", `{"method":"carrier-pigeon"}`); code != http.StatusBadRequest {
+		t.Fatalf("bad method: %d", code)
+	}
+	if code, _ := send(t, "POST", api+"/providers/"+id+"/login/paste", `{"value":"x"}`); code != http.StatusNoContent {
+		t.Fatalf("paste: %d", code)
+	}
+	if code, _ := send(t, "DELETE", api+"/providers/"+id+"/login", ""); code != http.StatusNoContent {
+		t.Fatalf("cancel: %d", code)
+	}
+	if code, _ := send(t, "POST", api+"/providers/"+id+"/login/paste", `{"value":"x"}`); code != http.StatusConflict {
+		t.Fatalf("paste with no login: %d", code)
+	}
+	if code, _ := send(t, "POST", api+"/providers/"+id+"/logout", ""); code != http.StatusNoContent {
+		t.Fatalf("logout: %d", code)
+	}
+	if code, _ := send(t, "POST", api+"/providers/nope/login", `{}`); code != http.StatusNotFound {
+		t.Fatalf("missing: %d", code)
+	}
+	code, q := send(t, "POST", api+"/providers", `{"name":"k","kind":"compatible","baseUrl":"http://x","login":{"kind":"apiKey","apiKey":"k"}}`)
+	if code != http.StatusCreated {
+		t.Fatal(code)
+	}
+	if code, _ := send(t, "POST", api+"/providers/"+q["id"].(string)+"/login", `{}`); code != http.StatusConflict {
+		t.Fatalf("a key provider: %d", code)
+	}
+	if code, _ := send(t, "POST", api+"/providers/"+q["id"].(string)+"/models", ""); code != http.StatusNoContent {
+		t.Fatalf("refresh: %d", code)
+	}
+}
+
+func TestClaudeCodeEndpoints(t *testing.T) {
+	*claude = fakeClaude{}
+	srv := setup(t)
+	api := srv.URL + "/api/v1/claude-code"
+	code, status := send(t, "GET", api, "")
+	if code != http.StatusOK || status["installed"] != false {
+		t.Fatalf("%d %v", code, status)
+	}
+	// installing needs the user's word
+	for _, body := range []string{``, `{}`, `{"consent":false}`, `{"consent":"yes"}`} {
+		if code, _ := send(t, "POST", api+"/install", body); code != http.StatusBadRequest {
+			t.Fatalf("%q: %d", body, code)
+		}
+	}
+	if claude.installs != 0 {
+		t.Fatal("installed without consent")
+	}
+	// nor can another website ask, even with it
+	if code, _ := send(t, "POST", api+"/install", `{"consent":true}`, "Origin", "https://evil.example"); code != http.StatusForbidden || claude.installs != 0 {
+		t.Fatalf("foreign site: %d", code)
+	}
+	if code, _ := send(t, "POST", api+"/install", `{"consent":true}`, "Origin", origin); code != http.StatusNoContent || claude.installs != 1 {
+		t.Fatalf("%d", code)
+	}
+	if code, _ := send(t, "POST", api+"/login", ""); code != http.StatusNoContent || claude.logins != 1 {
+		t.Fatalf("%d", code)
+	}
+	claude.loginErr = model.Errorf(model.CodeInvalid, "登入沒有完成")
+	if code, body := send(t, "POST", api+"/login", ""); code != http.StatusBadRequest || body["error"].(map[string]any)["message"] != "登入沒有完成" {
+		t.Fatalf("%d %v", code, body)
+	}
+}
+
+// waitingClaude blocks until its request ends, the way a long install or sign-in does.
+type waitingClaude struct {
+	fakeClaude
+	started, stopped chan string
+}
+
+func (w *waitingClaude) wait(ctx context.Context, name string) error {
+	w.started <- name
+	<-ctx.Done()
+	w.stopped <- name
+	return ctx.Err()
+}
+func (w *waitingClaude) Install(ctx context.Context) error { return w.wait(ctx, "install") }
+func (w *waitingClaude) Login(ctx context.Context) error   { return w.wait(ctx, "login") }
+
+func TestClientLeavingStopsInstallAndLogin(t *testing.T) {
+	data := t.TempDir()
+	store, err := repository.NewStore(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: repository.NewGit(data), Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := &waitingClaude{started: make(chan string, 1), stopped: make(chan string, 1)}
+	srv := httptest.NewServer(NewServer(e, w, []string{origin}, zerolog.Nop()).Handler())
+	defer func() { srv.Close(); e.Close(); store.Close() }()
+
+	for _, tc := range []struct{ path, body, name string }{{"/install", `{"consent":true}`, "install"}, {"/login", `{}`, "login"}} {
+		ctx, cancel := context.WithCancel(context.Background())
+		req, _ := http.NewRequestWithContext(ctx, "POST", srv.URL+"/api/v1/claude-code"+tc.path, strings.NewReader(tc.body))
+		gone := make(chan struct{})
+		go func() {
+			if res, err := http.DefaultClient.Do(req); err == nil {
+				res.Body.Close()
+			}
+			close(gone)
+		}()
+		if got := <-w.started; got != tc.name {
+			t.Fatal(got)
+		}
+		cancel()
+		<-gone
+		select {
+		case <-w.stopped:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("%s kept running after the client left", tc.name)
+		}
+	}
+}
+
+func TestConflictingActionsAreRefused(t *testing.T) {
+	srv := setup(t)
+	if code, _ := send(t, "POST", srv.URL+"/api/v1/tasks/nope/merge", ""); code != http.StatusNotFound {
+		t.Fatalf("%d", code)
+	}
+	if code, _ := send(t, "POST", srv.URL+"/api/v1/subtasks/nope/talk", `{"text":"x"}`); code != http.StatusNotFound {
+		t.Fatalf("%d", code)
+	}
+}
+
+func TestOtherWebsitesAreKeptOut(t *testing.T) {
+	srv := setup(t)
+	world := srv.URL + "/api/v1/world"
+	if code, _ := send(t, "GET", world, "", "Origin", "https://evil.example"); code != http.StatusForbidden {
+		t.Fatalf("foreign origin: %d", code)
+	}
+	if code, _ := send(t, "GET", world, "", "Origin", origin); code != http.StatusOK {
+		t.Fatalf("own origin: %d", code)
+	}
+	if code, _ := send(t, "OPTIONS", world, "", "Origin", origin); code != http.StatusNoContent {
+		t.Fatalf("preflight: %d", code)
+	}
+	// DNS rebinding: a foreign name resolving to this computer
+	req, _ := http.NewRequest("GET", world, nil)
+	req.Host = "evil.example:8787"
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("foreign host: %d", res.StatusCode)
+	}
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/v1/events"
+	if _, res, err := websocket.DefaultDialer.Dial(url, http.Header{"Origin": {"https://evil.example"}}); err == nil || res.StatusCode != http.StatusForbidden {
+		t.Fatalf("foreign websocket: %v %v", err, res)
+	}
+}
+
+func TestEventsSendSnapshotThenChanges(t *testing.T) {
+	srv := setup(t)
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/v1/events"
+	conn, _, err := websocket.DefaultDialer.Dial(url, http.Header{"Origin": {origin}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var first struct {
+		Type  string `json:"type"`
+		World struct {
+			Teams map[string]any `json:"teams"`
+		} `json:"world"`
+	}
+	if err := conn.ReadJSON(&first); err != nil || first.Type != "snapshot" || first.World.Teams == nil {
+		t.Fatalf("%v %+v", err, first)
+	}
+	folder, _ := json.Marshal(t.TempDir())
+	if code, _ := send(t, "POST", srv.URL+"/api/v1/teams", `{"name":"公司","folder":`+string(folder)+`}`); code != http.StatusCreated {
+		t.Fatal(code)
+	}
+	var ev usecase.Event
+	if err := conn.ReadJSON(&ev); err != nil || ev.Type != "patch" {
+		t.Fatalf("%v %+v", err, ev)
+	}
+	kinds := map[string]bool{}
+	for _, u := range ev.Upserts {
+		kinds[u.Kind] = true
+	}
+	if !kinds["team"] {
+		t.Fatalf("%v", kinds)
+	}
+}

@@ -1,0 +1,883 @@
+package usecase
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/yanun0323/mho-company/internal/adapter"
+	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/mho-company/internal/model/enum"
+)
+
+const discoveryTimeout = 30 * time.Second
+
+// ---------- companies ----------
+
+// NewTeam is what a company is made from.
+type NewTeam struct {
+	Name         string `json:"name"`
+	Folder       string `json:"folder"`
+	TargetBranch string `json:"targetBranch"`
+}
+
+func (e *Engine) CreateTeam(ctx context.Context, in NewTeam) (*model.Team, error) {
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" {
+		return nil, model.Errorf(model.CodeInvalid, "公司要有名稱")
+	}
+	in.Folder = expandHome(strings.TrimSpace(in.Folder))
+	if !filepath.IsAbs(in.Folder) {
+		return nil, model.Errorf(model.CodeInvalid, "資料夾要是絕對路徑")
+	}
+	if info, err := os.Stat(in.Folder); err != nil || !info.IsDir() {
+		return nil, model.Errorf(model.CodeInvalid, "找不到資料夾")
+	}
+	branches, initialized, err := e.git.Prepare(ctx, in.Folder)
+	if err != nil {
+		e.log.Error().Err(err).Str("folder", in.Folder).Msg("prepare repo")
+		return nil, model.Errorf(model.CodeInvalid, "無法使用這個資料夾的 git repo")
+	}
+	if initialized || in.TargetBranch == "" {
+		if initialized {
+			in.TargetBranch = "master"
+		} else if len(branches) > 0 {
+			in.TargetBranch = branches[0]
+		}
+	}
+	if !slices.Contains(branches, in.TargetBranch) {
+		return nil, model.Errorf(model.CodeInvalid, "目標分支 %s 不存在", in.TargetBranch)
+	}
+	var out *model.Team
+	err = e.do(func() error {
+		id := e.uid("team")
+		wf := e.firstFlow()
+		t := &model.Team{ID: id, Name: in.Name, Folder: in.Folder, TargetBranch: in.TargetBranch, Branches: branches, InitializedGit: initialized,
+			DefaultWorkflowID: wf.ID, CreatedAt: e.w.Now, Settings: model.TeamSettings{TimeoutMin: 30, CostLimitUSD: 3, Retries: 1}}
+		e.w.Teams[id] = t
+		out = clone(t)
+		return nil
+	})
+	return out, err
+}
+
+// Branches lists the branches of the repo at folder, without changing anything. A folder that is no repo
+// yet has none, and repo is false.
+func (e *Engine) Branches(ctx context.Context, folder string) (branches []string, repo bool, err error) {
+	folder = expandHome(strings.TrimSpace(folder))
+	if !filepath.IsAbs(folder) {
+		return []string{}, false, nil
+	}
+	if info, statErr := os.Stat(folder); statErr != nil || !info.IsDir() {
+		return []string{}, false, nil
+	}
+	return e.git.Branches(ctx, folder)
+}
+
+// TeamPatch changes a company; a nil field stays as it is.
+type TeamPatch struct {
+	Name              *string             `json:"name"`
+	Prompt            *string             `json:"prompt"`
+	TargetBranch      *string             `json:"targetBranch"`
+	DefaultWorkflowID *string             `json:"defaultWorkflowId"`
+	Settings          *model.TeamSettings `json:"settings"`
+}
+
+func (e *Engine) UpdateTeam(id string, p TeamPatch) error {
+	return e.do(func() error {
+		t := e.w.Teams[id]
+		if t == nil {
+			return model.Errorf(model.CodeNotFound, "找不到公司")
+		}
+		if p.Name != nil && strings.TrimSpace(*p.Name) == "" {
+			return model.Errorf(model.CodeInvalid, "公司要有名稱")
+		}
+		if p.TargetBranch != nil && !slices.Contains(t.Branches, *p.TargetBranch) {
+			return model.Errorf(model.CodeInvalid, "目標分支不存在")
+		}
+		if p.DefaultWorkflowID != nil {
+			if e.w.Workflows[*p.DefaultWorkflowID] == nil {
+				return model.Errorf(model.CodeNotFound, "找不到任務流程")
+			}
+		}
+		if s := p.Settings; s != nil && (s.TimeoutMin < 0 || s.CostLimitUSD < 0 || s.Retries < 0) {
+			return model.Errorf(model.CodeInvalid, "設定不能是負數")
+		}
+		if p.Name != nil {
+			t.Name = strings.TrimSpace(*p.Name)
+		}
+		if p.Prompt != nil {
+			t.Prompt = *p.Prompt
+		}
+		if p.TargetBranch != nil {
+			t.TargetBranch = *p.TargetBranch
+		}
+		if p.DefaultWorkflowID != nil {
+			t.DefaultWorkflowID = *p.DefaultWorkflowID
+		}
+		if p.Settings != nil {
+			t.Settings = *p.Settings
+		}
+		return nil
+	})
+}
+
+// DeleteTeam closes a company: its people, flows and tasks go, as do the tasks' work trees and branches.
+// The folder itself stays.
+func (e *Engine) DeleteTeam(id string) error {
+	return e.do(func() error {
+		if e.w.Teams[id] == nil {
+			return model.Errorf(model.CodeNotFound, "找不到公司")
+		}
+		for _, t := range e.w.Tasks {
+			if t.TeamID == id {
+				e.stopRun("merge:" + t.ID)
+				e.dropSubs(t)
+				e.removeTree(t)
+				delete(e.w.Tasks, t.ID)
+			}
+		}
+		for rid, r := range e.w.Replicas {
+			if r.TeamID == id {
+				delete(e.w.Replicas, rid)
+			}
+		}
+		delete(e.w.Teams, id)
+		return nil
+	})
+}
+
+// ---------- flows ----------
+
+// firstFlow is what a new company starts on: the plain default flow, or else the oldest flow there is.
+func (e *Engine) firstFlow() *model.Workflow {
+	var first *model.Workflow
+	// data from before the rename still calls it 預設流程
+	plain := func(wf *model.Workflow) bool { return wf.Name == defaultFlowName || wf.Name == "預設流程" }
+	better := func(a, b *model.Workflow) bool {
+		if plain(a) != plain(b) {
+			return plain(a)
+		}
+		return a.ID < b.ID
+	}
+	for _, wf := range e.w.Workflows {
+		if first == nil || better(wf, first) {
+			first = wf
+		}
+	}
+	return first
+}
+
+func (e *Engine) newWorkflow(name string) *model.Workflow {
+	start, end := e.uid("n"), e.uid("n")
+	wf := &model.Workflow{ID: e.uid("wf"), Name: name,
+		Nodes: []model.WorkflowNode{
+			{ID: start, Kind: enum.NodeTask, Name: "整理需求", Prompt: StartPrompt, ReplicaIDs: []string{}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll},
+			{ID: end, Kind: enum.NodeWork, Name: "驗收", Prompt: EndPrompt, ReplicaIDs: []string{}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll, Pos: model.Point{Y: 200}},
+		},
+		Edges: []model.WorkflowEdge{{ID: e.uid("e"), From: start, To: end}},
+	}
+	e.w.Workflows[wf.ID] = wf
+	return wf
+}
+
+func (e *Engine) CreateWorkflow(name string) (*model.Workflow, error) {
+	var out *model.Workflow
+	err := e.do(func() error {
+		if strings.TrimSpace(name) == "" {
+			return model.Errorf(model.CodeInvalid, "任務流程要有名稱")
+		}
+		out = clone(e.newWorkflow(strings.TrimSpace(name)))
+		return nil
+	})
+	return out, err
+}
+
+// SaveWorkflow replaces a flow. Running tasks keep the copy they started with.
+func (e *Engine) SaveWorkflow(id string, wf model.Workflow) error {
+	return e.do(func() error {
+		old := e.w.Workflows[id]
+		if old == nil {
+			return model.Errorf(model.CodeNotFound, "找不到任務流程")
+		}
+		wf.ID = id
+		if strings.TrimSpace(wf.Name) == "" {
+			return model.Errorf(model.CodeInvalid, "任務流程要有名稱")
+		}
+		if err := checkWorkflow(&wf); err != nil {
+			return err
+		}
+		for _, n := range wf.Nodes {
+			for _, r := range n.ReplicaIDs {
+				if e.w.Replicas[r] == nil {
+					return model.Errorf(model.CodeInvalid, "節點「%s」指派了不存在的員工", n.Name)
+				}
+			}
+		}
+		e.w.Workflows[id] = &wf
+		return nil
+	})
+}
+
+// DuplicateWorkflow copies a flow, named after it with the first free -1, -2…; it is not the default.
+func (e *Engine) DuplicateWorkflow(id string) (*model.Workflow, error) {
+	var out *model.Workflow
+	err := e.do(func() error {
+		from := e.w.Workflows[id]
+		if from == nil {
+			return model.Errorf(model.CodeNotFound, "找不到任務流程")
+		}
+		taken := map[string]bool{}
+		for _, wf := range e.w.Workflows {
+			taken[wf.Name] = true
+		}
+		n := 1
+		for taken[fmt.Sprintf("%s-%d", from.Name, n)] {
+			n++
+		}
+		wf := clone(from)
+		wf.ID, wf.Name = e.uid("wf"), fmt.Sprintf("%s-%d", from.Name, n)
+		e.w.Workflows[wf.ID] = wf
+		out = clone(wf)
+		return nil
+	})
+	return out, err
+}
+
+// DeleteWorkflow removes a flow; the last one stays, and companies defaulting to it move to another.
+func (e *Engine) DeleteWorkflow(id string) error {
+	return e.do(func() error {
+		if e.w.Workflows[id] == nil {
+			return model.Errorf(model.CodeNotFound, "找不到任務流程")
+		}
+		other := ""
+		for oid := range e.w.Workflows {
+			if oid != id && (other == "" || oid < other) {
+				other = oid
+			}
+		}
+		if other == "" {
+			return model.Errorf(model.CodeConflict, "至少要留一條任務流程")
+		}
+		delete(e.w.Workflows, id)
+		for _, t := range e.w.Teams {
+			if t.DefaultWorkflowID == id {
+				t.DefaultWorkflowID = other
+			}
+		}
+		return nil
+	})
+}
+
+// ---------- model providers ----------
+
+// ProviderLogin is how a provider is signed in to. The key is kept apart and only its last 4 characters are shown.
+type ProviderLogin struct {
+	Kind   string `json:"kind"`
+	APIKey string `json:"apiKey"`
+}
+
+// NewProvider is what a provider is made from; its models come from asking it.
+type NewProvider struct {
+	Name    string                      `json:"name"`
+	Kind    enum.ProviderKind           `json:"kind"`
+	BaseURL string                      `json:"baseUrl"`
+	Login   ProviderLogin               `json:"login"`
+	Prices  map[string]model.ModelPrice `json:"prices"`
+}
+
+func authOf(l ProviderLogin) model.ProviderAuth {
+	if l.Kind != "apiKey" {
+		return model.ProviderAuth{Kind: "subscription"}
+	}
+	key := strings.TrimSpace(l.APIKey)
+	return model.ProviderAuth{Kind: "apiKey", KeyHint: key[max(len(key)-4, 0):]}
+}
+
+func (e *Engine) discover(ctx context.Context, p model.ModelProvider, key string) ([]string, error) {
+	provider, err := e.providers.For(p, key)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+	defer cancel()
+	models, err := provider.Models(ctx)
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(models)
+	return slices.Compact(models), nil
+}
+
+func (e *Engine) AddProvider(ctx context.Context, in NewProvider) (*model.ModelProvider, error) {
+	in.Name = strings.TrimSpace(in.Name)
+	key := strings.TrimSpace(in.Login.APIKey)
+	if in.Name == "" {
+		return nil, model.Errorf(model.CodeInvalid, "供應商要有名稱")
+	}
+	if in.Login.Kind == "apiKey" && key == "" {
+		return nil, model.Errorf(model.CodeInvalid, "要填 API Key")
+	}
+	if in.Login.Kind != "apiKey" && in.Kind != enum.ProviderAnthropic && in.Kind != enum.ProviderOpenAI {
+		return nil, model.Errorf(model.CodeInvalid, "只有 Anthropic 和 OpenAI 可以用訂閱登入")
+	}
+	p := model.ModelProvider{Name: in.Name, Kind: in.Kind, Auth: authOf(in.Login), BaseURL: strings.TrimSpace(in.BaseURL), Models: []string{}, Prices: in.Prices}
+	if p.Auth.Kind == "apiKey" {
+		models, err := e.discover(ctx, p, key)
+		if err != nil {
+			return nil, err
+		}
+		p.Models = models
+	} else {
+		p.BaseURL = ""
+	}
+	var out *model.ModelProvider
+	err := e.do(func() error {
+		p.ID = e.uid("mp")
+		if p.Auth.Kind == "apiKey" {
+			if err := e.store.SetSecret(ctx, p.ID, key); err != nil {
+				return err
+			}
+			e.secrets[p.ID] = key
+		}
+		e.w.Providers[p.ID] = &p
+		out = clone(&p)
+		return nil
+	})
+	return out, err
+}
+
+// ProviderPatch changes a provider; a nil login, or an empty key on a provider with a key, keeps the login.
+type ProviderPatch struct {
+	Name    *string                     `json:"name"`
+	BaseURL *string                     `json:"baseUrl"`
+	Login   *ProviderLogin              `json:"login"`
+	Prices  map[string]model.ModelPrice `json:"prices"`
+}
+
+func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch) error {
+	e.mu.Lock()
+	old := e.w.Providers[id]
+	if old == nil {
+		e.mu.Unlock()
+		return model.Errorf(model.CodeNotFound, "找不到供應商")
+	}
+	next := *clone(old)
+	key := e.secrets[id]
+	wasKey := old.Auth.Kind == "apiKey"
+	e.mu.Unlock()
+	if in.Name != nil {
+		next.Name = strings.TrimSpace(*in.Name)
+		if next.Name == "" {
+			return model.Errorf(model.CodeInvalid, "供應商要有名稱")
+		}
+	}
+	if in.BaseURL != nil {
+		next.BaseURL = strings.TrimSpace(*in.BaseURL)
+	}
+	if in.Prices != nil {
+		next.Prices = in.Prices
+	}
+	if l := in.Login; l != nil && !(l.Kind == "apiKey" && strings.TrimSpace(l.APIKey) == "" && next.Auth.Kind == "apiKey") {
+		if l.Kind == "apiKey" && strings.TrimSpace(l.APIKey) == "" {
+			return model.Errorf(model.CodeInvalid, "要填 API Key")
+		}
+		if l.Kind != "apiKey" && next.Auth.Kind != "subscription" && next.Kind != enum.ProviderAnthropic && next.Kind != enum.ProviderOpenAI {
+			return model.Errorf(model.CodeInvalid, "只有 Anthropic 和 OpenAI 可以用訂閱登入")
+		}
+		if l.Kind == "apiKey" || wasKey { // already on a subscription: stay signed in
+			next.Auth = authOf(*l)
+			next.Models = []string{}
+		}
+		key = strings.TrimSpace(l.APIKey)
+	}
+	if next.Auth.Kind == "apiKey" {
+		models, err := e.discover(ctx, next, key)
+		if err != nil {
+			return err
+		}
+		next.Models = models
+	} else {
+		next.BaseURL, key = "", ""
+	}
+	return e.do(func() error {
+		now := e.w.Providers[id]
+		if now == nil {
+			return model.Errorf(model.CodeNotFound, "找不到供應商")
+		}
+		if next.Auth.Kind == "subscription" {
+			if wasKey { // the tokens of a subscription are not this function's to touch
+				if err := e.store.DeleteSecret(ctx, id); err != nil {
+					return err
+				}
+				delete(e.secrets, id)
+			} else {
+				next.Auth, next.Models = now.Auth, now.Models // a sign-in may have ended meanwhile
+			}
+		} else {
+			if err := e.store.SetSecret(ctx, id, key); err != nil {
+				return err
+			}
+			e.secrets[id] = key
+		}
+		e.w.Providers[id] = &next
+		return nil
+	})
+}
+
+// DeleteProvider removes a provider nobody runs on, and its key.
+func (e *Engine) DeleteProvider(ctx context.Context, id string) error {
+	return e.do(func() error {
+		p := e.w.Providers[id]
+		if p == nil {
+			return model.Errorf(model.CodeNotFound, "找不到供應商")
+		}
+		for _, r := range e.w.Replicas {
+			if slices.Contains(p.Models, r.Model) {
+				return model.Errorf(model.CodeConflict, "還有員工在用「%s」的模型", p.Name)
+			}
+		}
+		e.stopLogin(id)
+		if err := e.store.DeleteSecret(ctx, id); err != nil {
+			return err
+		}
+		delete(e.secrets, id)
+		delete(e.w.Providers, id)
+		return nil
+	})
+}
+
+// ---------- signing in to a subscription ----------
+
+// loginRun is a sign-in under way. Its goroutine is owned by the engine and ends with its context.
+type loginRun struct {
+	flow   *adapter.LoginFlow
+	cancel context.CancelFunc
+}
+
+func (e *Engine) stopLogin(id string) {
+	if l := e.logins[id]; l != nil {
+		delete(e.logins, id)
+		l.cancel()
+	}
+}
+
+// StartLogin signs a subscription in; it replaces one already under way. What the user has to do comes
+// back here and in the provider's auth.login, which also reports how it ends.
+func (e *Engine) StartLogin(ctx context.Context, id, method string) (model.LoginPrompt, error) {
+	if method != "" && method != "browser" && method != "device" {
+		return model.LoginPrompt{}, model.Errorf(model.CodeInvalid, "不認識的登入方式 %s", method)
+	}
+	e.mu.Lock()
+	p := e.w.Providers[id]
+	if p == nil {
+		e.mu.Unlock()
+		return model.LoginPrompt{}, model.Errorf(model.CodeNotFound, "找不到供應商")
+	}
+	if p.Auth.Kind != "subscription" {
+		e.mu.Unlock()
+		return model.LoginPrompt{}, model.Errorf(model.CodeConflict, "這個供應商用 API Key，不用登入")
+	}
+	e.stopLogin(id) // frees the callback port before the next one asks for it
+	copied := *clone(p)
+	e.mu.Unlock()
+
+	flow, err := e.providers.Login(ctx, copied, method)
+	if err != nil {
+		return model.LoginPrompt{}, err
+	}
+	loginCtx, cancel := context.WithCancel(e.ctx)
+	l := &loginRun{flow: flow, cancel: cancel}
+	err = e.do(func() error {
+		p := e.w.Providers[id]
+		if p == nil {
+			return model.Errorf(model.CodeNotFound, "找不到供應商")
+		}
+		e.stopLogin(id)
+		e.logins[id] = l
+		prompt := flow.Prompt
+		p.Auth.Login = &prompt
+		e.wg.Add(1)
+		go e.waitLogin(loginCtx, id, copied, l)
+		return nil
+	})
+	if err != nil {
+		cancel()
+		return model.LoginPrompt{}, err
+	}
+	return flow.Prompt, nil
+}
+
+func (e *Engine) waitLogin(ctx context.Context, id string, p model.ModelProvider, l *loginRun) {
+	defer e.wg.Done()
+	defer l.cancel()
+	err := l.flow.Wait(ctx)
+	var models []string
+	if err == nil {
+		p.Auth.SignedIn = true
+		var provider adapter.Provider
+		if provider, err = e.providers.For(p, ""); err == nil {
+			discoverCtx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+			models, err = provider.Models(discoverCtx)
+			cancel()
+		}
+	}
+	if ctx.Err() != nil {
+		return // cancelled, replaced, or the server is closing
+	}
+	var known *model.Error
+	if err != nil && !errors.As(err, &known) {
+		e.log.Error().Err(err).Str("provider", id).Msg("sign in")
+	}
+	_ = e.do(func() error {
+		now := e.w.Providers[id]
+		if e.logins[id] != l || now == nil {
+			return nil
+		}
+		delete(e.logins, id)
+		if err != nil {
+			prompt := l.flow.Prompt
+			prompt.Error = safeText(err)
+			now.Auth.Login = &prompt
+			return nil
+		}
+		slices.Sort(models)
+		now.Auth.SignedIn, now.Auth.Login, now.Models = true, nil, slices.Compact(models)
+		return nil
+	})
+}
+
+// PasteLogin hands over what the browser ended on, when it could not come back by itself.
+func (e *Engine) PasteLogin(id, value string) error {
+	e.mu.Lock()
+	l := e.logins[id]
+	e.mu.Unlock()
+	if l == nil {
+		return model.Errorf(model.CodeConflict, "沒有進行中的登入")
+	}
+	return l.flow.Paste(value)
+}
+
+// CancelLogin gives up a sign-in; nothing is saved.
+func (e *Engine) CancelLogin(id string) error {
+	return e.do(func() error {
+		p := e.w.Providers[id]
+		if p == nil {
+			return model.Errorf(model.CodeNotFound, "找不到供應商")
+		}
+		e.stopLogin(id)
+		p.Auth.Login = nil
+		return nil
+	})
+}
+
+// Logout signs a subscription out. Employees on its models fail with a message until it is signed in again.
+func (e *Engine) Logout(ctx context.Context, id string) error {
+	return e.do(func() error {
+		p := e.w.Providers[id]
+		if p == nil {
+			return model.Errorf(model.CodeNotFound, "找不到供應商")
+		}
+		if p.Auth.Kind != "subscription" {
+			return model.Errorf(model.CodeConflict, "這個供應商用 API Key，不用登出")
+		}
+		e.stopLogin(id)
+		if err := e.providers.Logout(ctx, *p); err != nil {
+			return err
+		}
+		p.Auth.SignedIn, p.Auth.Login = false, nil
+		return nil
+	})
+}
+
+// RefreshModels asks a provider again what it offers. A failure keeps the list it has.
+func (e *Engine) RefreshModels(ctx context.Context, id string) error {
+	e.mu.Lock()
+	p := e.w.Providers[id]
+	if p == nil {
+		e.mu.Unlock()
+		return model.Errorf(model.CodeNotFound, "找不到供應商")
+	}
+	copied, key := *clone(p), e.secrets[id]
+	e.mu.Unlock()
+	models, err := e.discover(ctx, copied, key)
+	if err != nil {
+		return err
+	}
+	return e.do(func() error {
+		if now := e.w.Providers[id]; now != nil {
+			now.Models = models
+		}
+		return nil
+	})
+}
+
+// ---------- blueprints ----------
+
+func checkBlueprint(b *model.Blueprint) error {
+	b.Name = strings.TrimSpace(b.Name)
+	if b.Name == "" {
+		return model.Errorf(model.CodeInvalid, "藍圖要有名稱")
+	}
+	for _, t := range b.Tools {
+		if !slices.Contains([]enum.Tool{enum.ToolReadFile, enum.ToolWriteFile, enum.ToolWebSearch, enum.ToolRunCommand}, t) {
+			return model.Errorf(model.CodeInvalid, "不認識的工具 %s", t)
+		}
+	}
+	if b.Skills == nil {
+		b.Skills = []model.SkillPack{}
+	}
+	if b.Tools == nil {
+		b.Tools = []enum.Tool{}
+	}
+	return nil
+}
+
+func (e *Engine) CreateBlueprint(b model.Blueprint) (*model.Blueprint, error) {
+	var out *model.Blueprint
+	err := e.do(func() error {
+		if err := checkBlueprint(&b); err != nil {
+			return err
+		}
+		b.ID = e.uid("bp")
+		e.w.Blueprints[b.ID] = &b
+		out = clone(&b)
+		return nil
+	})
+	return out, err
+}
+
+func (e *Engine) SaveBlueprint(id string, b model.Blueprint) error {
+	return e.do(func() error {
+		if e.w.Blueprints[id] == nil {
+			return model.Errorf(model.CodeNotFound, "找不到藍圖")
+		}
+		if err := checkBlueprint(&b); err != nil {
+			return err
+		}
+		b.ID = id
+		e.w.Blueprints[id] = &b
+		return nil
+	})
+}
+
+func (e *Engine) DeleteBlueprint(id string) error {
+	return e.do(func() error {
+		if e.w.Blueprints[id] == nil {
+			return model.Errorf(model.CodeNotFound, "找不到藍圖")
+		}
+		for _, r := range e.w.Replicas {
+			if r.BlueprintID == id {
+				return model.Errorf(model.CodeConflict, "還有員工是用這個藍圖建立的")
+			}
+		}
+		delete(e.w.Blueprints, id)
+		return nil
+	})
+}
+
+// UpdateBlueprint moves every Git source of a blueprint to its newest version. A source that cannot be
+// reached keeps the version in use; each attempt is recorded on the source.
+func (e *Engine) UpdateBlueprint(ctx context.Context, id string) error {
+	e.mu.Lock()
+	b := e.w.Blueprints[id]
+	if b == nil {
+		e.mu.Unlock()
+		return model.Errorf(model.CodeNotFound, "找不到藍圖")
+	}
+	next := *clone(b)
+	e.mu.Unlock()
+	check := func(s *model.BlueprintSource) {
+		if s == nil || s.Kind != "git" {
+			return
+		}
+		latest, err := e.git.Latest(ctx, s.Repo, s.Ref)
+		s.Upstream = err == nil
+		s.Update = &model.SourceUpdate{At: e.clock(), OK: err == nil}
+		if err != nil {
+			e.log.Warn().Err(err).Str("repo", s.Repo).Msg("check source")
+			s.Update.Error = "找不到上游，或沒有讀取權限"
+			return
+		}
+		s.Latest, s.Commit = latest, latest
+	}
+	check(&next.Source)
+	for i := range next.Skills {
+		check(next.Skills[i].Source)
+	}
+	return e.do(func() error {
+		if e.w.Blueprints[id] == nil {
+			return model.Errorf(model.CodeNotFound, "找不到藍圖")
+		}
+		e.w.Blueprints[id] = &next
+		return nil
+	})
+}
+
+// ---------- employees ----------
+
+// NewReplica is who a company hires.
+type NewReplica struct {
+	TeamID      string      `json:"teamId"`
+	BlueprintID string      `json:"blueprintId"`
+	Name        string      `json:"name"`
+	Look        *model.Look `json:"look"`
+	Model       string      `json:"model"`
+	Effort      string      `json:"effort"`
+}
+
+func checkEffort(effort string) error {
+	if !slices.Contains([]string{"", "low", "medium", "high", "max"}, effort) {
+		return model.Errorf(model.CodeInvalid, "不認識的思考強度 %s", effort)
+	}
+	return nil
+}
+
+func (e *Engine) Hire(in NewReplica) (*model.Replica, error) {
+	var out *model.Replica
+	err := e.do(func() error {
+		bp := e.w.Blueprints[in.BlueprintID]
+		if e.w.Teams[in.TeamID] == nil || bp == nil {
+			return model.Errorf(model.CodeNotFound, "找不到公司或藍圖")
+		}
+		if strings.TrimSpace(in.Name) == "" {
+			return model.Errorf(model.CodeInvalid, "員工要有名字")
+		}
+		if err := checkEffort(in.Effort); err != nil {
+			return err
+		}
+		if e.providerFor(in.Model) == nil {
+			return model.Errorf(model.CodeInvalid, "沒有模型供應商提供 %s", in.Model)
+		}
+		look := bp.Look
+		if in.Look != nil {
+			look = *in.Look
+		}
+		effort := in.Effort
+		if effort == "" {
+			effort = "medium"
+		}
+		r := &model.Replica{ID: e.uid("rep"), TeamID: in.TeamID, BlueprintID: in.BlueprintID, Name: strings.TrimSpace(in.Name), Look: look,
+			Model: in.Model, Effort: effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now}
+		e.w.Replicas[r.ID] = r
+		out = clone(r)
+		return nil
+	})
+	return out, err
+}
+
+// ReplicaPatch changes an employee; a nil field stays. Memory replaces all of it, for the user's own edits.
+type ReplicaPatch struct {
+	Name        *string              `json:"name"`
+	BlueprintID *string              `json:"blueprintId"`
+	Model       *string              `json:"model"`
+	Effort      *string              `json:"effort"`
+	Look        *model.Look          `json:"look"`
+	Memory      *[]model.MemoryEntry `json:"memory"`
+}
+
+func (e *Engine) UpdateReplica(id string, p ReplicaPatch) error {
+	return e.do(func() error {
+		r := e.w.Replicas[id]
+		if r == nil {
+			return model.Errorf(model.CodeNotFound, "找不到員工")
+		}
+		if p.Name != nil && strings.TrimSpace(*p.Name) == "" {
+			return model.Errorf(model.CodeInvalid, "員工要有名字")
+		}
+		if p.Model != nil && e.providerFor(*p.Model) == nil {
+			return model.Errorf(model.CodeInvalid, "沒有模型供應商提供 %s", *p.Model)
+		}
+		if p.BlueprintID != nil && e.w.Blueprints[*p.BlueprintID] == nil {
+			return model.Errorf(model.CodeNotFound, "找不到藍圖")
+		}
+		if p.Effort != nil {
+			if err := checkEffort(*p.Effort); err != nil {
+				return err
+			}
+			r.Effort = *p.Effort
+		}
+		if p.BlueprintID != nil {
+			r.BlueprintID = *p.BlueprintID
+		}
+		if p.Name != nil {
+			r.Name = strings.TrimSpace(*p.Name)
+		}
+		if p.Model != nil {
+			r.Model = *p.Model
+		}
+		if p.Look != nil {
+			r.Look = *p.Look
+		}
+		if p.Memory != nil {
+			r.Memory = *p.Memory
+		}
+		return nil
+	})
+}
+
+// Fire lets an employee go, handing everything still theirs to the heir; a job under way starts again with them.
+func (e *Engine) Fire(id, heirID string) error {
+	return e.do(func() error {
+		r, heir := e.w.Replicas[id], e.w.Replicas[heirID]
+		if r == nil || heir == nil {
+			return model.Errorf(model.CodeNotFound, "找不到員工")
+		}
+		if id == heirID || heir.TeamID != r.TeamID {
+			return model.Errorf(model.CodeInvalid, "要交接給同公司的另一位員工")
+		}
+		swap := func(ids []string) []string {
+			out := make([]string, 0, len(ids))
+			for _, x := range ids {
+				if x == id {
+					x = heirID
+				}
+				if !slices.Contains(out, x) {
+					out = append(out, x)
+				}
+			}
+			return out
+		}
+		for _, wf := range e.w.Workflows {
+			for i := range wf.Nodes {
+				wf.Nodes[i].ReplicaIDs = swap(wf.Nodes[i].ReplicaIDs)
+			}
+		}
+		for _, t := range e.w.Tasks {
+			if t.Stage == enum.StageDone || t.Stage == enum.StageCancelled {
+				continue
+			}
+			for i := range t.Workflow.Nodes {
+				t.Workflow.Nodes[i].ReplicaIDs = swap(t.Workflow.Nodes[i].ReplicaIDs)
+			}
+			if t.OwnerID != nil && *t.OwnerID == id {
+				t.OwnerID = ptr(heirID)
+			}
+			if m := t.Merge; m != nil && m.ReplicaID != nil && *m.ReplicaID == id {
+				m.ReplicaID = ptr(heirID)
+				if m.StartedAt != nil && t.Stage == enum.StageMerging {
+					e.stopRun("merge:" + t.ID)
+					m.StartedAt = nil
+				}
+			}
+		}
+		for _, s := range e.w.SubTasks {
+			if s.ReplicaID == nil || *s.ReplicaID != id || s.Cancelled || s.Status == enum.StatusComplete {
+				continue
+			}
+			e.stopRun(s.ID)
+			s.ReplicaID = ptr(heirID)
+			if s.Status == enum.StatusProgressing {
+				s.Status = enum.StatusTodo
+			}
+			e.logLine(s, enum.LogSystem, r.Name+" 離職，交給 "+heir.Name, "handover", map[string]any{"from": r.Name, "to": heir.Name})
+		}
+		delete(e.w.Replicas, id)
+		return nil
+	})
+}

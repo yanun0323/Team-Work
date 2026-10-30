@@ -1,0 +1,244 @@
+package repository
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/yanun0323/mho-company/internal/model"
+)
+
+const remoteTimeout = 2 * time.Minute
+
+var conflictMarks = regexp.MustCompile(`(?m)^(<<<<<<<|>>>>>>>) `)
+
+// Git runs the git command. Commands on one repo run one at a time, as git locks its own index and refs.
+type Git struct {
+	cacheDir string
+	mu       sync.Mutex
+	locks    map[string]*sync.Mutex
+}
+
+func NewGit(dataDir string) *Git {
+	return &Git{cacheDir: filepath.Join(dataDir, "sources"), locks: map[string]*sync.Mutex{}}
+}
+
+func (g *Git) lock(key string) func() {
+	g.mu.Lock()
+	l := g.locks[key]
+	if l == nil {
+		l = &sync.Mutex{}
+		g.locks[key] = l
+	}
+	g.mu.Unlock()
+	l.Lock()
+	return l.Unlock
+}
+
+func git(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	// never stop to ask for a password, and only over transports that cannot run commands
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ALLOW_PROTOCOL=https:ssh:file")
+	var out, errOut bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errOut
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(errOut.String()))
+	}
+	return strings.TrimSpace(out.String()), nil
+}
+
+func identity(author string) []string {
+	return []string{"-c", "user.name=" + author, "-c", "user.email=replica@mho-company.local"}
+}
+
+func (g *Git) Prepare(ctx context.Context, folder string) ([]string, bool, error) {
+	defer g.lock(folder)()
+	initialized := false
+	if _, err := git(ctx, folder, "rev-parse", "--git-dir"); err != nil {
+		if _, err := git(ctx, folder, "init", "--initial-branch=master"); err != nil {
+			return nil, false, err
+		}
+		args := append(identity("Mho Company"), "commit", "--allow-empty", "-m", "chore: start repository")
+		if _, err := git(ctx, folder, args...); err != nil {
+			return nil, false, err
+		}
+		initialized = true
+	}
+	branches, err := listBranches(ctx, folder)
+	return branches, initialized, err
+}
+
+func listBranches(ctx context.Context, folder string) ([]string, error) {
+	out, err := git(ctx, folder, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return []string{}, nil
+	}
+	return strings.Split(out, "\n"), nil
+}
+
+func (g *Git) Branches(ctx context.Context, folder string) ([]string, bool, error) {
+	if _, err := git(ctx, folder, "rev-parse", "--git-dir"); err != nil {
+		return []string{}, false, nil
+	}
+	branches, err := listBranches(ctx, folder)
+	return branches, err == nil, err
+}
+
+func (g *Git) Worktree(ctx context.Context, folder, dir, branch, target string) error {
+	defer g.lock(folder)()
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		return err
+	}
+	_, err := git(ctx, folder, "worktree", "add", "-b", branch, dir, target)
+	return err
+}
+
+func (g *Git) Commit(ctx context.Context, dir, author, message string) (string, error) {
+	defer g.lock(dir)()
+	if _, err := git(ctx, dir, "add", "-A"); err != nil {
+		return "", err
+	}
+	if _, err := git(ctx, dir, "diff", "--cached", "--quiet"); err != nil {
+		args := append(identity(author), "commit", "-m", message)
+		if _, err := git(ctx, dir, args...); err != nil {
+			return "", err
+		}
+	}
+	return git(ctx, dir, "rev-parse", "--short", "HEAD")
+}
+
+func (g *Git) MergeTarget(ctx context.Context, dir, target string) (bool, error) {
+	defer g.lock(dir)()
+	if _, err := git(ctx, dir, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
+		return true, nil // an earlier try left it open
+	}
+	args := append(identity("Mho Company"), "merge", "--no-edit", target)
+	if _, err := git(ctx, dir, args...); err == nil {
+		return false, nil
+	} else if unmerged, _ := git(ctx, dir, "diff", "--name-only", "--diff-filter=U"); unmerged == "" {
+		return false, err
+	}
+	return true, nil
+}
+
+func (g *Git) FinishMerge(ctx context.Context, dir, author string) error {
+	defer g.lock(dir)()
+	// git cannot tell: a file stays "unmerged" until added, and adding it marks it resolved whatever is in it
+	if _, err := git(ctx, dir, "add", "-A"); err != nil {
+		return err
+	}
+	changed, err := git(ctx, dir, "diff", "--cached", "--name-only", "--diff-filter=d")
+	if err != nil {
+		return err
+	}
+	for _, name := range strings.Split(changed, "\n") {
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		if name != "" && err == nil && conflictMarks.Match(raw) {
+			return model.Errorf(model.CodeConflict, "還有檔案沒解完衝突：%s", name)
+		}
+	}
+	if _, err := git(ctx, dir, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err != nil {
+		return nil // whoever resolved it committed it too
+	}
+	args := append(identity(author), "commit", "--no-edit")
+	_, err = git(ctx, dir, args...)
+	return err
+}
+
+func (g *Git) Land(ctx context.Context, folder, branch, target string) error {
+	defer g.lock(folder)()
+	current, err := git(ctx, folder, "branch", "--show-current")
+	if err != nil {
+		return err
+	}
+	if current == target {
+		_, err = git(ctx, folder, "merge", "--ff-only", branch)
+		return err
+	}
+	_, err = git(ctx, folder, "fetch", ".", branch+":"+target)
+	return err
+}
+
+func (g *Git) Remove(ctx context.Context, folder, dir, branch string) error {
+	defer g.lock(folder)()
+	if _, err := os.Stat(dir); err == nil {
+		if _, err := git(ctx, folder, "worktree", "remove", "--force", dir); err != nil {
+			return err
+		}
+	}
+	if _, err := git(ctx, folder, "rev-parse", "-q", "--verify", "refs/heads/"+branch); err != nil {
+		return nil
+	}
+	_, err := git(ctx, folder, "branch", "-D", branch)
+	return err
+}
+
+func checkRepo(repo string) error {
+	if repo == "" || strings.HasPrefix(repo, "-") {
+		return model.Errorf(model.CodeInvalid, "Git 位址不正確")
+	}
+	return nil
+}
+
+func (g *Git) Fetch(ctx context.Context, repo, commit string) (string, error) {
+	if err := checkRepo(repo); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, remoteTimeout)
+	defer cancel()
+	sum := sha256.Sum256([]byte(repo))
+	dir := filepath.Join(g.cacheDir, hex.EncodeToString(sum[:8]))
+	defer g.lock(dir)()
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		if err := os.MkdirAll(g.cacheDir, 0o700); err != nil {
+			return "", err
+		}
+		if _, err := git(ctx, g.cacheDir, "clone", "--", repo, dir); err != nil {
+			return "", err
+		}
+	} else if _, err := git(ctx, dir, "fetch", "--tags", "origin"); err != nil {
+		return "", err
+	}
+	if commit == "" {
+		commit = "origin/HEAD"
+	}
+	if _, err := git(ctx, dir, "checkout", "--detach", commit, "--"); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+func (g *Git) Latest(ctx context.Context, repo, ref string) (string, error) {
+	if err := checkRepo(repo); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, remoteTimeout)
+	defer cancel()
+	if ref == "" {
+		ref = "HEAD"
+	}
+	out, err := git(ctx, "", "ls-remote", "--", repo, ref)
+	if err != nil {
+		return "", err
+	}
+	if out == "" {
+		return "", model.Errorf(model.CodeNotFound, "找不到版本 %s", ref)
+	}
+	return strings.Fields(out)[0], nil
+}
