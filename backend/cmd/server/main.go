@@ -1,9 +1,11 @@
-// Command server is the Mho Company backend.
+// Command server is the Team Work backend.
 package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -28,6 +30,9 @@ func main() {
 }
 
 func run() error {
+	desktop := flag.Bool("desktop", false, "run as a child of the macOS app; stop when stdin closes")
+	webDir := flag.String("web-dir", "", "serve the built frontend from this directory")
+	flag.Parse()
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -39,6 +44,13 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if *desktop {
+		// The app owns this pipe. EOF also stops us if the app crashes or is killed.
+		go func() {
+			_, _ = io.Copy(io.Discard, os.Stdin)
+			stop()
+		}()
+	}
 
 	store, err := repository.NewStore(cfg.DataDir)
 	if err != nil {
@@ -60,6 +72,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	defer l.Close()
+	server := delivery.NewServer(engine, factory.ClaudeCode(), repository.FolderPicker{}, cfg.AllowedOrigins, log.Logger)
+	if *webDir != "" {
+		if _, err := os.Stat(*webDir + "/index.html"); err != nil {
+			return fmt.Errorf("frontend: %w", err)
+		}
+		server.Frontend(os.DirFS(*webDir))
+	}
 	log.Info().Str("addr", l.Addr().String()).Str("data", cfg.DataDir).Msg("listening")
-	return delivery.NewServer(engine, factory.ClaudeCode(), repository.FolderPicker{}, cfg.AllowedOrigins, log.Logger).Serve(ctx, l)
+	if *desktop {
+		fmt.Fprintln(os.Stdout, "READY")
+	}
+	return server.Serve(ctx, l)
 }

@@ -1,4 +1,4 @@
-# Mho Company 後端
+# Team Work 後端
 
 單人在本機使用的 Go 伺服器：管理公司、員工、任務流程與任務，並讓員工真的呼叫模型、改檔案、跑指令。任務流程規則與前端模擬器（`frontend/src/core/domain/sim.ts`）相同，名詞以 `CONTEXT.md` 為準。Agent 迴圈、工具、模型串流與訂閱登入參考 `mho` 的實作。
 

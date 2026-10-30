@@ -73,7 +73,7 @@ func (g *Git) Prepare(ctx context.Context, folder string) ([]string, bool, error
 		if _, err := git(ctx, folder, "init", "--initial-branch=master"); err != nil {
 			return nil, false, err
 		}
-		args := append(identity("Mho Company"), "commit", "--allow-empty", "-m", "chore: start repository")
+		args := append(identity("Team Work"), "commit", "--allow-empty", "-m", "chore: start repository")
 		if _, err := git(ctx, folder, args...); err != nil {
 			return nil, false, err
 		}
@@ -153,7 +153,7 @@ func (g *Git) MergeTarget(ctx context.Context, dir, target string) (bool, error)
 	if _, err := git(ctx, dir, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
 		return true, nil // an earlier try left it open
 	}
-	args := append(identity("Mho Company"), "merge", "--no-edit", target)
+	args := append(identity("Team Work"), "merge", "--no-edit", target)
 	if _, err := git(ctx, dir, args...); err == nil {
 		return false, nil
 	} else if unmerged, _ := git(ctx, dir, "diff", "--name-only", "--diff-filter=U"); unmerged == "" {

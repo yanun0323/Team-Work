@@ -22,6 +22,18 @@ dev-mock: frontend/node_modules
 server:
 	cd backend && go run ./cmd/server
 
+## build: build the universal macOS app in dist (unsigned)
+build:
+	@./scripts/macos.sh build
+
+## sign: sign the macOS app with Developer ID
+sign:
+	@./scripts/macos.sh sign
+
+## notarize: upload the signed app to Apple, staple its ticket and package the ZIP
+notarize:
+	@./scripts/macos.sh notarize
+
 ## test-backend: run the backend tests
 test-backend:
 	cd backend && go test -race ./...

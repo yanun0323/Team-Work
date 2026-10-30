@@ -31,6 +31,7 @@ import { NO_OUTLINE_LAYER, PixelPass } from './PixelPass'
 import { toonInstanced } from './toon'
 import { usePrefs } from './prefs'
 import { propBoxes, type Box } from './streetProps'
+import { Brand } from './Brand'
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -338,6 +339,7 @@ export function World() {
       <PixelPass pixel={2} />
     </Canvas>
     <LabelLayer labels={shownLabels} />
+    {!drawer.value && !settings.value && !sheet.value && !help.value && <Brand />}
     {!drawer.value && !settings.value && !sheet.value && !help.value && (
       <div className="fx-corner">
       {!placing && !editing && <button ref={boardButton} type="button" className="fx-settings-trigger fx-tag" aria-label={waiting ? `告示牌，${waiting} 個待回覆的任務` : '告示牌'}

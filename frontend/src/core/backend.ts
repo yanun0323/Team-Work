@@ -3,7 +3,9 @@
 
 import type { World } from './domain/types'
 
-export const UNREACHABLE = '連不上後端，請先執行 make dev'
+export const UNREACHABLE = import.meta.env.MODE === 'desktop'
+  ? '連不上後端，請關閉並重新開啟 Team Work'
+  : '連不上後端，請先執行 make dev'
 
 /** One changed entity. No data means it is gone. */
 export interface Patch {
