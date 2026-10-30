@@ -3,7 +3,7 @@
 
 import { create } from 'zustand'
 import { isFixed } from './core/domain/graph'
-import type { Attachment, World } from './core/domain/types'
+import type { Attachment, Task, World } from './core/domain/types'
 import { teamReplicas, teamTasks } from './core/model'
 
 export interface TaskDraft {
@@ -58,6 +58,25 @@ export function lastStaff(w: World, teamId: string, workflowId: string): Pick<Ta
   }
   const ownerId = last?.ownerId && here.has(last.ownerId) ? last.ownerId : null
   return { staff, from: last?.number ?? null, ownerId }
+}
+
+/**
+ * A new task filled in from an existing one, to run the same work again. Its staff comes along where the steps are
+ * still in the flow, without anyone who has left. If the flow is gone, it starts on the company's default.
+ */
+export function copyDraft(w: World, teamId: string, t: Task): TaskDraft {
+  const here = new Set(teamReplicas(w, teamId).map((r) => r.id))
+  const content = { title: t.title, description: t.description, images: [...t.images], ownerId: t.ownerId && here.has(t.ownerId) ? t.ownerId : null }
+  if (!w.workflows[t.workflowId]) {
+    const workflowId = w.teams[teamId]?.defaultWorkflowId ?? ''
+    return { ...lastStaff(w, teamId, workflowId), ...content, workflowId }
+  }
+  const staff: Record<string, string[]> = {}
+  for (const n of w.workflows[t.workflowId].nodes) {
+    const was = t.workflow.nodes.find((x) => x.id === n.id)?.replicaIds ?? n.replicaIds
+    staff[n.id] = was.filter((r) => here.has(r))
+  }
+  return { ...content, workflowId: t.workflowId, staff, from: t.number }
 }
 
 /** The flow the draft is staffing. */

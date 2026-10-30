@@ -19,7 +19,7 @@ import { ordered, usePrefs, type LogOrder } from './prefs'
 import { ClaudeAccount } from './ClaudeAccount'
 import { Select, WaitBadge } from './Controls'
 import { FlowNotes, openCard } from './FlowNotes'
-import { addImages, draftFlow, draftStaff, editDraft, lastStaff, unstaffed, useDraft, type TaskDraft } from './draft'
+import { addImages, copyDraft, draftFlow, draftStaff, editDraft, lastStaff, unstaffed, useDraft, type TaskDraft } from './draft'
 import { byBlueprint, DEFAULT_EFFORT, effortsOf, mindOf, modelsOf, randomLook } from './crew'
 import { docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
@@ -44,7 +44,8 @@ export type Item =
   | { kind: 'crewEdit'; id: string }
   | { kind: 'newCrew' }
   | { kind: 'fire'; id: string }
-  | { kind: 'newTask' }
+  /** With copyOf, the sheet starts filled in from that task. */
+  | { kind: 'newTask'; copyOf?: string }
   | { kind: 'staff'; node: string }
   | { kind: 'taskEdit'; id: string }
   | { kind: 'doc'; sub: string; path: string }
@@ -59,7 +60,7 @@ export type Item =
   | { kind: 'disband' }
 
 export const itemKey = (x: Item) =>
-  x.kind === 'newTask' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newBlueprint' || x.kind === 'newProvider' || x.kind === 'disband' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'image' ? `image:${x.task}:${x.index}` : `${x.kind}::${x.id}`
+  x.kind === 'newTask' ? `newTask:${x.copyOf ?? ''}` : x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newBlueprint' || x.kind === 'newProvider' || x.kind === 'disband' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'image' ? `image:${x.task}:${x.index}` : `${x.kind}::${x.id}`
 
 const STATUS: Record<Status, string> = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' }
 const ASSIGN = { firstAvailable: '誰有空誰做', everyone: '每個人都做' } as const
@@ -108,6 +109,7 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               onOpen={(x) => onPush({ kind: 'sub', id: x })} editing={above?.kind === 'taskEdit'}
               flowOpen={above?.kind === 'taskFlow'} onFlow={() => onPush({ kind: 'taskFlow', id: item.id })}
               onEdit={() => onPush({ kind: 'taskEdit', id: item.id })} onGoneTask={onDone}
+              copying={above?.kind === 'newTask'} onCopy={() => onPush({ kind: 'newTask', copyOf: item.id })}
               crew={above?.kind === 'crew' ? above.id : null} onCrew={(x) => onPush({ kind: 'crew', id: x })}
               image={above?.kind === 'image' ? above.index : null} onImage={(x) => onPush({ kind: 'image', task: item.id, index: x })} />
           )}
@@ -156,7 +158,7 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           )}
           {item.kind === 'fire' && <Fire id={item.id} title={title} tid={id} onDone={onClear} />}
           {item.kind === 'newTask' && (
-            <NewTask teamId={teamId} title={title} tid={id} open={above?.kind === 'staff' ? above.node : null}
+            <NewTask teamId={teamId} copyOf={item.copyOf} title={title} tid={id} open={above?.kind === 'staff' ? above.node : null}
               onOpen={(node) => onPush({ kind: 'staff', node })} onDone={onDone} />
           )}
           {item.kind === 'disband' && <Disband teamId={teamId} title={title} tid={id} onDone={onDone} />}
@@ -218,7 +220,7 @@ function Bar({ value }: { value: number }) {
 }
 
 /** A task someone asked for. The sub-tasks the employees made for it are listed here and open on their own sheet. */
-function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, onGoneTask, crew, onCrew, image, onImage, ...h }: Head & {
+function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copying, onCopy, onGoneTask, crew, onCrew, image, onImage, ...h }: Head & {
   id: string
   /** The picture open on the sheet above, by index, and how to open one. */
   image: number | null
@@ -233,6 +235,9 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, onGon
   onFlow: () => void
   editing: boolean
   onEdit: () => void
+  /** Whether a new task copied from this one is the sheet above, and how to open one. */
+  copying: boolean
+  onCopy: () => void
   /** Called once the task is deleted, to put its sheet away. */
   onGoneTask: () => void
 }) {
@@ -259,6 +264,9 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, onGon
     <>
       <div className="fx-tools">
         <EditTool onClick={onEdit} open={editing} />
+        <button type="button" className="fx-tool fx-hit" onClick={onCopy} aria-expanded={copying} aria-label="複製" title="複製">
+          <CopyIcon />
+        </button>
         <button type="button" className="fx-tool fx-hit" disabled={!canPause} aria-pressed={task.paused}
           onClick={() => act((x) => (task.paused ? resumeTask(x, id) : pauseTask(x, id)))}
           aria-label={task.paused ? '繼續' : '暫停'} title={task.paused ? '繼續' : '暫停'}>
@@ -830,10 +838,7 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
       <div className="fx-tools">
         <EditTool onClick={onEdit} open={editing} />
         <button type="button" className="fx-tool fx-hit" onClick={() => act((x) => void duplicateWorkflow(x, id))} aria-label="複製" title="複製">
-          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-            <rect x="5.5" y="5.5" width="8" height="8" rx="1" fill="none" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M10.5 3.2V2.5h-8v8h.7" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-          </svg>
+          <CopyIcon />
         </button>
         <DeleteTool what="任務流程" onConfirm={remove} disabled={last} why="至少要有一條任務流程" />
       </div>
@@ -1530,8 +1535,10 @@ function Disband({ teamId, onDone, ...h }: Head & { teamId: string; onDone: () =
  * last task's on that flow; a step's note opens a sheet to change it. It can start once every step has
  * someone.
  */
-function NewTask({ teamId, open, onOpen, onDone, ...h }: Head & {
+function NewTask({ teamId, copyOf, open, onOpen, onDone, ...h }: Head & {
   teamId: string
+  /** The task to start from, if it is a copy. */
+  copyOf?: string
   open: string | null
   onOpen: (nodeId: string) => void
   onDone: () => void
@@ -1540,13 +1547,14 @@ function NewTask({ teamId, open, onOpen, onDone, ...h }: Head & {
   const act = useStore((s) => s.act)
   const draft = useDraft((s) => s.draft)
   const flows = flowList(w)
-  // a fresh draft on the company's default flow, dropped when the sheet goes
+  // a fresh draft on the company's default flow, or a copy of a task; dropped when the sheet goes
   useEffect(() => {
     const s = useStore.getState().world
     const workflowId = s.teams[teamId]?.defaultWorkflowId ?? ''
-    useDraft.setState({ draft: { title: '', description: '', workflowId, ...lastStaff(s, teamId, workflowId) } })
+    const source = copyOf ? s.tasks[copyOf] : undefined
+    useDraft.setState({ draft: source ? copyDraft(s, teamId, source) : { title: '', description: '', workflowId, ...lastStaff(s, teamId, workflowId) } })
     return () => useDraft.setState({ draft: null })
-  }, [teamId])
+  }, [teamId, copyOf])
   if (!draft) return null
   const wf = w.workflows[draft.workflowId]
   const missing = unstaffed(w, draft)
@@ -1862,6 +1870,15 @@ function EditTool({ onClick, open }: { onClick: () => void; open?: boolean }) {
         <path d="M9 4.6l2.4 2.4" stroke="currentColor" strokeWidth="1.5" />
       </svg>
     </button>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+      <rect x="5.5" y="5.5" width="8" height="8" rx="1" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M10.5 3.2V2.5h-8v8h.7" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
   )
 }
 
