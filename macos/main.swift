@@ -1,7 +1,7 @@
 import AppKit
 import WebKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     private var window: NSWindow!
     private var webView: WKWebView!
     private var backend: Process?
@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
         let configuration = WKWebViewConfiguration()
         if smoke { configuration.websiteDataStore = .nonPersistent() }
+        configuration.userContentController.add(self, name: "quit")
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -58,7 +59,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             }
             data = URL(fileURLWithPath: path, isDirectory: true)
         } else {
-            data = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Team Work", isDirectory: true)
+            if let path = ProcessInfo.processInfo.environment["TEAM_WORK_HOME"], path.hasPrefix("/") {
+                data = URL(fileURLWithPath: path, isDirectory: true)
+            } else {
+                data = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".team-work", isDirectory: true)
+            }
         }
         try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let logURL = data.appendingPathComponent("backend.log")
@@ -75,11 +80,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         // Finder does not load shell profiles. Include common Git and Claude CLI locations.
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         env["PATH"] = "\(home)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:" + (env["PATH"] ?? "")
-        env["MHO_COMPANY_HOST"] = "127.0.0.1"
-        env["MHO_COMPANY_PORT"] = "18787"
-        env["MHO_COMPANY_DATA_DIR"] = data.path
-        env["MHO_COMPANY_ALLOWED_ORIGINS"] = origin.absoluteString
-        env["MHO_COMPANY_DEBUG"] = "false"
+        env["TEAM_WORK_HOST"] = "127.0.0.1"
+        env["TEAM_WORK_PORT"] = "18787"
+        env["TEAM_WORK_HOME"] = data.path
+        env["TEAM_WORK_ALLOWED_ORIGINS"] = origin.absoluteString
+        env["TEAM_WORK_DEBUG"] = "false"
         process.environment = env
         process.standardInput = input
         process.standardOutput = output
@@ -122,6 +127,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             alert.informativeText = message
             alert.runModal()
         }
+        NSApp.terminate(nil)
+    }
+
+    // The airport's power button. Navigation stays on our own origin, so only our page can send this.
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         NSApp.terminate(nil)
     }
 
