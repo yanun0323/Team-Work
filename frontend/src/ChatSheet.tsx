@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { CrewSelect } from './Pickers'
-import { chatMindOf, mindOf } from './crew'
+import { chatMindOf, lastChatReplica, mindOf } from './crew'
 import { Gone, Heading, DeleteTool, type Head } from './DrawerDetail'
 import { fmtClock, teamReplicas, useStickToBottom } from './core/model'
 import type { Attachment, Chat } from './core/domain/types'
@@ -45,7 +45,7 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
   // the answer to starting it can arrive ahead of the change to the world
   const chat = id ? w.chats[id] ?? started ?? undefined : undefined
   const crew = teamReplicas(w, teamId)
-  const [replicaId, setReplicaId] = useState(crew[0]?.id ?? '')
+  const [replicaId, setReplicaId] = useState(() => lastChatReplica(w, teamId) ?? crew[0]?.id ?? '')
   // what a new chat needs may go while this is open; one under way says so when it fails
   const needs = usePrereqs(teamId, 'chats').filter((x) => !chat && x.blocks)
   const replica = w.replicas[chat?.replicaId ?? replicaId]

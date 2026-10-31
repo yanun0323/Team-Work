@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { seedWorld } from './core/data/seed'
 import type { Chat, World } from './core/domain/types'
-import { chatMindOf } from './crew'
+import { chatMindOf, lastChatReplica } from './crew'
 
 function chatOn(effort: string): { w: World; chat: Chat } {
   const w = seedWorld()
@@ -34,5 +34,23 @@ describe('what a chat runs on', () => {
     const { w, chat } = chatOn('high')
     delete w.replicas[chat.replicaId]
     expect(chatMindOf(w, chat)).toBe('m')
+  })
+})
+
+describe('lastChatReplica', () => {
+  const chat = (id: string, teamId: string, replicaId: string, createdAt: number) => ({ id, teamId, replicaId, createdAt })
+  const world = (chats: ReturnType<typeof chat>[], replicas = ['a', 'b']) => ({
+    chats: Object.fromEntries(chats.map((c) => [c.id, c])),
+    replicas: Object.fromEntries(replicas.map((id) => [id, { id }])),
+  }) as unknown as World
+
+  it('is who the latest chat of this company was with', () => {
+    const w = world([chat('1', 't', 'a', 2), chat('2', 't', 'b', 1), chat('3', 'other', 'b', 9)])
+    expect(lastChatReplica(w, 't')).toBe('a')
+  })
+
+  it('is nobody in a company without chats, or when they have left', () => {
+    expect(lastChatReplica(world([]), 't')).toBeUndefined()
+    expect(lastChatReplica(world([chat('1', 't', 'gone', 1)]), 't')).toBeUndefined()
   })
 })

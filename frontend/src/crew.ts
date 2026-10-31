@@ -59,3 +59,10 @@ export function chatMindOf(w: World, c: Chat) {
   const effort = r.model === c.model && effortsOf(w, c.model).includes(r.effort) ? r.effort : DEFAULT_EFFORT
   return `${c.model} · ${effort}`
 }
+
+/** Who the company's latest chat was started with, if they are still there. */
+export function lastChatReplica(w: World, teamId: string): string | undefined {
+  const chats = Object.values(w.chats).filter((c) => c.teamId === teamId)
+  const last = chats.reduce<Chat | undefined>((a, c) => (!a || c.createdAt >= a.createdAt ? c : a), undefined)
+  return last && w.replicas[last.replicaId] ? last.replicaId : undefined
+}
