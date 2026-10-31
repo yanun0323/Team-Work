@@ -329,7 +329,7 @@ export function World() {
         hover={hovered === AIRPORT_ID && !selected && !settingsOpen && !placing && !editing && !helpOpen} />
       {placing && <Placer town={town} picked={spot} onPick={pickSpot} />}
       {spot && <BuildingPreview look={look} at={spot} />}
-      {moving && <Placer key={moving} town={town} picked={null} onPick={moveTo} can={(s) => canMove(town, moving, s)} />}
+      {moving && <Placer key={moving} town={town} picked={null} onPick={moveTo} moved={moving} can={(s) => canMove(town, moving, s)} />}
       <Ambient town={town} calm={calm} clouds={clouds} planes={planes} />
       <MapControls makeDefault enableRotate={false} enableDamping dampingFactor={0.12} screenSpacePanning={false}
         minZoom={MIN_ZOOM} maxZoom={MAX_ZOOM} zoomSpeed={ZOOM_SPEED} />
@@ -342,6 +342,11 @@ export function World() {
     {!drawer.value && !settings.value && !sheet.value && !help.value && <Brand />}
     {!drawer.value && !settings.value && !sheet.value && !help.value && (
       <div className="fx-corner">
+      {(placing || editing) && (
+        <p className="fx-corner-note fx-tag" role="status">
+          {placing ? '挑選建立公司的地點' : moving ? '選取公司新地點' : '選取想要移動的公司'}
+        </p>
+      )}
       {!placing && !editing && <button ref={boardButton} type="button" className="fx-settings-trigger fx-tag" aria-label={waiting ? `告示牌，${waiting} 個待回覆的任務` : '告示牌'}
         onClick={() => setPanel('board')}>
         {waiting > 0 && <span className="fx-badge" aria-hidden="true">{waiting > 99 ? '99+' : waiting}</span>}

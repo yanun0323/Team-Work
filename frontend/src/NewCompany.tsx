@@ -14,7 +14,7 @@ import { Reroll } from './DrawerDetail'
 import { persist } from 'zustand/middleware'
 import { MOCK } from './core/mode'
 import { branchesOf } from './core/ops'
-import { canPlace, CELL, PLOT_CELLS, spotCenter, spotUnder, type BuildingLook, type BuildingStyle, type Spot, type Town } from './layout'
+import { canPlace, CELL, landGained, PLOT_CELLS, spotCenter, spotUnder, type BuildingLook, type BuildingStyle, type Spot, type Town } from './layout'
 import { NO_OUTLINE_LAYER } from './PixelPass'
 import { pickFolder } from './pickFolder'
 import { useStore } from './core/store'
@@ -39,10 +39,12 @@ const GROUND = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
  * A plot outline that follows the pointer over the map, snapped to the cells; a click puts it there. Where it
  * can't go (too close to another plot, or too far out at sea) it turns red. Once `picked`, it stays there.
  */
-export function Placer({ town, picked, onPick, can = (s) => canPlace(town, s) }: {
+export function Placer({ town, picked, onPick, moved, can = (s) => canPlace(town, s) }: {
   town: Town
   picked: Spot | null
   onPick: (s: Spot) => void
+  /** The company being moved, whose old land won't count. */
+  moved?: string
   /** Whether a plot may go there; a new company's rules unless given (moving one has its own). */
   can?: (s: Spot) => boolean
 }) {
@@ -106,7 +108,43 @@ export function Placer({ town, picked, onPick, can = (s) => canPlace(town, s) }:
   })
   if (!shown) return null
   const [x, z] = spotCenter(shown)
-  return <PlotOutline x={x} z={z} size={PLOT_CELLS * CELL} on={!!picked} bad={!ok} />
+  return (
+    <>
+      {ok && <LandPreview town={town} at={shown} moved={moved} />}
+      <PlotOutline x={x} z={z} size={PLOT_CELLS * CELL} on={!!picked} bad={!ok} />
+    </>
+  )
+}
+
+/** The land a plot here would add out at sea, as a see-through sheet at ground level. */
+function LandPreview({ town, at, moved }: { town: Town; at: Spot; moved?: string }) {
+  const fill = useRef<THREE.MeshBasicMaterial>(null)
+  const [ax, az] = at
+  const geometry = useMemo(() => {
+    const cells = landGained(town, [ax, az], moved)
+    if (!cells.length) return null
+    const position = new Float32Array(cells.length * 12)
+    const index = new Uint32Array(cells.length * 6)
+    cells.forEach(([x, z], i) => {
+      const [x0, x1, z0, z1] = [x * CELL, (x + 1) * CELL, z * CELL, (z + 1) * CELL]
+      position.set([x0, 0, z0, x0, 0, z1, x1, 0, z1, x1, 0, z0], i * 12)
+      index.set([0, 1, 2, 0, 2, 3].map((v) => v + i * 4), i * 6)
+    })
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(position, 3))
+    g.setIndex(new THREE.BufferAttribute(index, 1))
+    return g
+  }, [town, ax, az, moved])
+  useEffect(() => () => geometry?.dispose(), [geometry])
+  useFrame(({ clock }) => {
+    if (fill.current) fill.current.opacity = 0.55 + Math.sin(clock.elapsedTime * 3) * 0.08
+  })
+  if (!geometry) return null
+  return (
+    <mesh geometry={geometry} position-y={0.1} layers={NO_OUTLINE_LAYER} renderOrder={1} raycast={() => null}>
+      <meshBasicMaterial ref={fill} color="#8fd16f" transparent opacity={0.55} depthWrite={false} />
+    </mesh>
+  )
 }
 
 const PAPER = '#f4efe2'

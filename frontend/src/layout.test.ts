@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { officeCapacity } from './office'
-import { AIRPORT, RUNWAY_CELLS, RUNWAY_LINE, BUILDING_CELLS, BUILDING_SIZES, CELL, canMove, canPlace, growth, MAX_FLOORS, RING_CELLS, layoutTown, PLOT_CELLS, REACH_CELLS, rectCenter, seedOfId, spotCenter, TREE_CELLS, type Rect, type Town } from './layout'
+import { AIRPORT, RUNWAY_CELLS, RUNWAY_LINE, BUILDING_CELLS, BUILDING_SIZES, CELL, canMove, canPlace, growth, landGained, MAX_FLOORS, RING_CELLS, layoutTown, PLOT_CELLS, REACH_CELLS, rectCenter, seedOfId, type Spot, spotCenter, TREE_CELLS, type Rect, type Town } from './layout'
 import { findPath, nearestFree, townGrid } from './walk'
 
 const teams = (n: number, members = 3) => Array.from({ length: n }, (_, i) => ({ id: `t${i}`, name: `T${i}`, members }))
@@ -175,6 +175,8 @@ describe('fusion town grid', () => {
     expect(none.lots).toEqual([])
     expect(canPlace(none, [AIRPORT.x, AIRPORT.z + AIRPORT.d + 2])).toBe(true)
     expectOneIsland(none)
+    // and no land is laid for it before it comes
+    expect(none.ground[(none.rows / 2 + PLOT_CELLS / 2) * none.cols + none.cols / 2]).toBeNull()
   })
 
   it('moves a company anywhere clear of the others, its own place included', () => {
@@ -238,3 +240,29 @@ function expectOneIsland(t: Town) {
   expect(reached.size).toBe(land.length)
   for (const l of t.lots) for (const k of cells(l.plot)) expect(groundAt(t, k)).toBe('pave')
 }
+
+describe('the land a plot would add', () => {
+  const inputs = [{ id: 'a', name: 'A', members: 3, at: [0, 0] as Spot }]
+  const town = layoutTown(inputs)
+
+  it('is nothing on the island, and what the new island really has at sea', () => {
+    expect(landGained(town, [0, 0], 'a')).toEqual([])
+    const at: Spot = [40, 0]
+    const gained = landGained(town, at)
+    expect(gained.length).toBeGreaterThan(0)
+    const next = layoutTown([...inputs, { id: 'b', name: 'B', members: 0, at }])
+    const land = (t: Town, [x, z]: Spot) => !!t.ground[(z + t.rows / 2) * t.cols + x + t.cols / 2]
+    for (const c of gained) expect(land(next, c)).toBe(true)
+    // it reaches the plot, and none of it was land already
+    expect(gained.some(([x, z]) => x === at[0] && z === at[1])).toBe(true)
+    const inside = ([x, z]: Spot) => Math.abs(x) < town.cols / 2 && Math.abs(z) < town.rows / 2
+    for (const c of gained.filter(inside)) expect(land(town, c)).toBe(false)
+  })
+
+  it('stays quick enough to follow the pointer on a large town', () => {
+    const big = layoutTown(Array.from({ length: 30 }, (_, i) => ({ id: `t${i}`, name: 'T', members: 3 })))
+    const start = performance.now()
+    landGained(big, [big.cols / 2 + 2, 0])
+    expect(performance.now() - start).toBeLessThan(100)
+  })
+})

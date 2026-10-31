@@ -321,10 +321,9 @@ export function layoutTown(teams: TeamInput[]): Town {
     for (let z = r.z; z < r.z + r.d; z++) for (let x = r.x; x < r.x + r.w; x++) if (inside(x, z)) ground[z * cols + x] = 'grass'
   }
   const airport: Rect = { ...AIRPORT, x: AIRPORT.x + cols / 2, z: AIRPORT.z + rows / 2 }
-  // land round every plot and the airport; with no company yet, an island the size of one besides it
+  // land round every plot and the airport
   paint(grow(airport, PAD_CELLS))
   for (const l of lots) paint(grow(l.plot, PAD_CELLS))
-  if (!lots.length) paint(grow(plotAt({ cols, rows }, [-PLOT_CELLS / 2, -PLOT_CELLS / 2]), PAD_CELLS))
   joinLand(ground, cols, rows)
   // edge rings by distance to the sea, before any cut
   const ring = seaDistance(ground, cols, rows)
@@ -382,6 +381,25 @@ export function layoutTown(teams: TeamInput[]): Town {
     cols, rows, ground, lots, airport, trees, middle: [((x0 + x1) / 2) * CELL, ((z0 + z1) / 2) * CELL],
     radius: (Math.max(cols, rows) / 2) * CELL, span: ((cols + rows) / 2) * CELL, top,
   }
+}
+
+/**
+ * The cells that would turn from sea to land with a plot on `at`, in town cells like a spot. `moved` is the
+ * company going there, if it already stands somewhere.
+ */
+export function landGained(town: Pick<Town, 'cols' | 'rows' | 'ground' | 'lots'>, at: Spot, moved?: string): Spot[] {
+  const stays = town.lots.filter((l) => l.id !== moved).map((l) => ({ id: l.id, name: l.name, members: 0, at: l.at }))
+  const next = layoutTown([...stays, { id: moved ?? '', name: '', members: 0, at }])
+  const isLand = (x: number, z: number) => {
+    const cx = x + town.cols / 2, cz = z + town.rows / 2
+    return cx >= 0 && cz >= 0 && cx < town.cols && cz < town.rows && !!town.ground[cz * town.cols + cx]
+  }
+  const out: Spot[] = []
+  for (let cz = 0; cz < next.rows; cz++) for (let cx = 0; cx < next.cols; cx++) {
+    const x = cx - next.cols / 2, z = cz - next.rows / 2
+    if (next.ground[cz * next.cols + cx] && !isLand(x, z)) out.push([x, z])
+  }
+  return out
 }
 
 /** Connected pieces of land (4-neighbours), as lists of cell indices, largest first. */

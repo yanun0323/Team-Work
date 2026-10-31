@@ -737,6 +737,7 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-brand p { margin: 0; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (max-width: 640px) { .fx-brand { top: 78px; } }
 .fx-settings-trigger { display: grid; place-items: center; width: 44px; padding: 0; }
+.fx-corner-note { margin: 0; padding: 12px 16px 11px; font-size: 14px; white-space: nowrap; pointer-events: none; }
 .fx-corner-text { padding: 0 16px; font-size: 14px; white-space: nowrap; }
 /* tasks waiting on the user: their count in a red dot on the button's top right corner, a pill when it runs long */
 .fx-badge {
