@@ -39,7 +39,7 @@ export interface GitSource {
   update?: { at: number; ok: boolean; error?: string }
 }
 
-/** A blueprint written out by hand as YAML, kept as typed; see `src/blueprintYaml.ts`. */
+/** A blueprint made here rather than read from a repo; `text` is its YAML, see `src/blueprintYaml.ts`. */
 export interface YamlSource {
   kind: 'yaml'
   text: string

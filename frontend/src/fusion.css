@@ -815,7 +815,13 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-d-sec > *, .fx-d-group > *, .fx-d-steps li > *, .fx-src > *, .fx-flow > * { grid-column: 2; }
 .fx-d-sec > h3, .fx-d-group > h4, .fx-d-steps li > h4, .fx-d-steps li > .fx-step-head,
 .fx-src > .fx-src-head, .fx-src > .fx-src-note, .fx-src > .fx-src-note-bad, .fx-flow > h3 { grid-column: 1 / -1; }
-.fx-yaml { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; tab-size: 2; white-space: pre; overflow-x: auto; }
+/* one place a blueprint's skills come from, on its own slip */
+.fx-skill-rows { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.fx-skill-row { position: relative; display: grid; gap: 8px; padding: 12px 40px 12px 12px; background: var(--clip); box-shadow: var(--lift); }
+.fx-skill-remove { position: absolute; top: 8px; inset-inline-end: 8px; }
+.fx-skill-add { margin-top: 12px; }
+.fx-tool-picks { display: grid; gap: 6px; }
+.fx-tool-picks label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); cursor: pointer; }
 /* a folder field: typed, or picked with the button at its end */
 .fx-path { display: flex; gap: 6px; min-width: 0; }
 .fx-path > input { flex: 1; min-width: 0; }

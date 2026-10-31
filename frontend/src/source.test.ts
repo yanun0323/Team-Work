@@ -11,7 +11,7 @@ describe('blueprint and skill sources', () => {
   it('names a repo with its version, or a folder', () => {
     expect(sourceText(git())).toBe('acme/skills @ v1.0.0')
     expect(sourceText(git({ ref: '' }))).toBe('acme/skills')
-    expect(sourceText({ kind: 'yaml', text: 'name: x' })).toBe('本地 YAML 配置')
+    expect(sourceText({ kind: 'yaml', text: 'name: x' })).toBe('本地')
   })
 
   it('says the most pressing thing first', () => {

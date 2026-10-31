@@ -160,7 +160,7 @@ export function saveBlueprint(w: World, id: string | null, make: (key: string, p
   const body = make(id ?? '', id ? w.blueprints[id] : undefined)
   void attempt(async () => {
     const saved = id ? (await request('PUT', `/blueprints/${id}`, body), id) : (await request<Blueprint>('POST', '/blueprints', body)).id
-    if (body.source.kind === 'git' && !body.source.commit) await request('POST', `/blueprints/${saved}/update`)
+    if (sim.gitSources(body).some((s) => !s.commit)) await request('POST', `/blueprints/${saved}/update`)
   })
 }
 

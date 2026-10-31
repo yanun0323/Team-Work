@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { isFixed, nodeOf, taskNodeOf } from './core/domain/graph'
 import { blueprintUsers, gitSources, statusOf, subsOf } from './core/domain/sim'
-import { TOOLS, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type ProviderKind, type Replica, type Status, type SubTask, type Workflow, type World } from './core/domain/types'
+import { TOOLS, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type ProviderKind, type Replica, type Status, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
 import { sourceState, sourceText, TOOL_NAMES } from './source'
 import { useT } from './core/i18n'
 import { flowList, activity, fmtClock, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas } from './core/model'
@@ -25,7 +25,8 @@ import { byBlueprint, DEFAULT_EFFORT, effortsOf, mindOf, modelsOf, randomLook } 
 import { docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
 import { parseGithub } from './github'
-import { parseBlueprintYaml, YAML_TEMPLATE } from './blueprintYaml'
+import { blueprintToYaml } from './blueprintYaml'
+import { newSkillRow, skillPacksOf, skillRowsOf, type SkillRow } from './blueprintForm'
 import { authLabel, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
 import { talking, TALK_PROMPT } from './core/domain/sim'
 import type { TalkEnd } from './core/domain/types'
@@ -1235,28 +1236,40 @@ export function blueprintOf(id: string, prev: Blueprint | undefined, look: Look,
 }
 
 /**
- * Add a blueprint (`id` null) or change one, from a GitHub repo or written out here as YAML. The repo is
+ * Add a blueprint (`id` null) or change one, from a GitHub repo or filled in here. The repo is
  * typed as `owner/repo` or pasted as any GitHub address: a version in it (branch, tag or commit) moves to
  * the version field. With no version the default branch is used. The name follows the repo until it is
- * typed; a YAML blueprint names itself. Either way its icon is rolled at random. Nothing changes until it
+ * typed. Either way its icon is rolled at random. Nothing changes until it
  * is saved.
  */
 function BlueprintEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: () => void }) {
   const act = useStore((s) => s.act)
   const old = useStore((s) => (id ? s.world.blueprints[id] : undefined))
   const was = old?.source
-  const [kind, setKind] = useState<'git' | 'yaml'>(was?.kind ?? 'git')
+  const [kind, setKind] = useState<'git' | 'local'>(old && was?.kind !== 'git' ? 'local' : 'git')
   const [repo, setRepo] = useState(was?.kind === 'git' ? was.repo.replace('git@github.com:', '') : '')
   const [ref, setRef] = useState(was?.kind === 'git' ? was.ref : '')
-  const [text, setText] = useState(was?.kind === 'yaml' ? was.text : YAML_TEMPLATE)
+  const [prompt, setPrompt] = useState(old?.prompt ?? '')
+  const [comment, setComment] = useState(old?.comment ?? '')
+  const [rows, setRows] = useState<SkillRow[]>(() => skillRowsOf(old?.skills ?? []))
+  const [tools, setTools] = useState<Tool[]>(old?.tools ?? ['readFile', 'writeFile'])
   const [name, setName] = useState(old?.name ?? '')
   const [named, setNamed] = useState(!!old)
   // the face it is drawn with now, fixed, so the form shows the same one whatever name it goes by
   const [look, setLook] = useState<Look>(() => (old ? pinLook(old.look, old.name) : randomLook()))
   const [repoError, setRepoError] = useState(false)
-  const [yamlError, setYamlError] = useState('')
+  // the key of the skill row whose repo is not one
+  const [badRow, setBadRow] = useState<number | null>(null)
+  // a row just added takes the keyboard
+  const [focusRow, setFocusRow] = useState<number | null>(null)
   const repoField = useRef<HTMLInputElement>(null)
-  const yamlField = useRef<HTMLTextAreaElement>(null)
+  const rowFields = useRef(new Map<number, HTMLInputElement>())
+  const addRow = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (focusRow === null) return
+    rowFields.current.get(focusRow)?.focus()
+    setFocusRow(null)
+  }, [focusRow])
   if (id && !old) return <Gone {...h} />
   const follow = (src: string) => {
     if (!named) setName((src.split(/[/\\:]/).filter(Boolean).pop() ?? '').replace(/\.git$/, ''))
@@ -1279,15 +1292,18 @@ function BlueprintEdit({ id, onDone, ...h }: Head & { id: string | null; onDone:
   const save = (e: React.FormEvent) => {
     e.preventDefault()
     const now = useStore.getState().world.now
-    if (kind === 'yaml') {
-      const parsed = parseBlueprintYaml(text, now, hash)
-      if (!parsed.ok) {
-        setYamlError(parsed.line ? `第 ${parsed.line} 行：${parsed.error}` : parsed.error)
-        yamlField.current?.focus()
+    if (kind === 'local') {
+      // the simulator makes up a version; the backend finds the real one once the blueprint is saved
+      const read = skillPacksOf(rows, now, () => (MOCK ? hash() : ''))
+      if (!read.ok) {
+        const row = rows[read.row]
+        setBadRow(row.key)
+        rowFields.current.get(row.key)?.focus()
         return
       }
-      const skills = parsed.value.skills.map((p) => (p.source?.kind === 'git' ? { ...p, source: keepSource(old, p.source) } : p))
-      return keep({ ...parsed.value, skills, source: { kind: 'yaml', text } })
+      const skills = read.skills.map((p) => (p.source?.kind === 'git' ? { ...p, source: keepSource(old, p.source) } : p))
+      const form = { name: name.trim(), prompt: prompt.trim(), comment: comment.trim(), skills, tools: TOOLS.filter((t) => tools.includes(t)) }
+      return keep({ ...form, source: { kind: 'yaml', text: blueprintToYaml(form) } })
     }
     const g = parseGithub(repo)
     if (!g) {
@@ -1314,7 +1330,7 @@ function BlueprintEdit({ id, onDone, ...h }: Head & { id: string | null; onDone:
   return (
     <form className="fx-d-form" onSubmit={save}>
       <header className="fx-d-head fx-d-who">
-        <BlueprintIcon look={look} name={(kind === 'git' ? name : '') || old?.name || '新藍圖'} size={52} />
+        <BlueprintIcon look={look} name={name || old?.name || '新藍圖'} size={52} />
         <Heading {...h}>{old ? `編輯 ${old.name}` : '新增員工藍圖'}</Heading>
       </header>
       <div className="fx-fields">
@@ -1325,8 +1341,14 @@ function BlueprintEdit({ id, onDone, ...h }: Head & { id: string | null; onDone:
             <Reroll onClick={() => setLook(randomLook())} label="隨機樣式" />
           </div>
         </div>
-        <Select label="來源" value={kind} options={['git', 'yaml']} labelOf={(x) => (x === 'git' ? 'GitHub' : 'YAML')}
-          onChange={(x) => setKind(x as 'git' | 'yaml')} />
+        <Select label="來源" value={kind} options={['git', 'local']} labelOf={(x) => (x === 'git' ? 'GitHub' : '本地')}
+          onChange={(x) => setKind(x as 'git' | 'local')} />
+        <label className="fx-field">
+          <span>名稱</span>
+          {/* not blank: spaces alone are no name */}
+          <input className="fx-control" value={name} required pattern=".*\S.*" title="名稱不可為空"
+            onChange={(e) => { setName(e.target.value); setNamed(true) }} />
+        </label>
         {kind === 'git' ? (
           <>
             <label className="fx-field">
@@ -1343,34 +1365,100 @@ function BlueprintEdit({ id, onDone, ...h }: Head & { id: string | null; onDone:
               <input className="fx-control" value={ref} onChange={(e) => setRef(e.target.value)} spellCheck={false} autoComplete="off"
                 placeholder="master / main" />
             </label>
-            <label className="fx-field">
-              <span>名稱</span>
-              {/* not blank: spaces alone are no name */}
-              <input className="fx-control" value={name} required pattern=".*\S.*" title="名稱不可為空"
-                onChange={(e) => { setName(e.target.value); setNamed(true) }} />
-            </label>
           </>
         ) : (
           <>
             <label className="fx-field fx-field-top">
-              <span>YAML</span>
-              <textarea ref={yamlField} className="fx-control fx-yaml" rows={18} value={text} required spellCheck={false}
-                autoComplete="off" autoCapitalize="off" aria-invalid={yamlError ? true : undefined}
-                aria-describedby={yamlError ? 'fx-yaml-error' : undefined}
-                onChange={(e) => { setText(e.target.value); setYamlError('') }}
-                // Tab indents, as in an editor; Esc still leaves
-                onKeyDown={(e) => {
-                  if (e.key !== 'Tab' || e.shiftKey) return
-                  e.preventDefault()
-                  const el = e.currentTarget
-                  el.setRangeText('  ', el.selectionStart, el.selectionEnd, 'end')
-                  setText(el.value)
-                }} />
+              <span>Prompt</span>
+              <textarea className="fx-control" rows={8} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
             </label>
-            {yamlError && <p id="fx-yaml-error" className="fx-field-error">{yamlError}</p>}
+            <label className="fx-field fx-field-top">
+              <span>備註</span>
+              <textarea className="fx-control" rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
+            </label>
           </>
         )}
       </div>
+      {kind === 'local' && (
+        <>
+          <Section name="技能">
+            {rows.length > 0 && (
+              <ul className="fx-skill-rows">
+                {rows.map((row, i) => {
+                  const change = (patch: Partial<SkillRow>) => setRows((rs) => rs.map((r) => (r.key === row.key ? { ...r, ...patch } : r)))
+                  const bad = badRow === row.key
+                  return (
+                    <li key={row.key} className="fx-skill-row">
+                      <Select label="位置" value={row.kind} options={['local', 'git']} labelOf={(x) => (x === 'local' ? '本機資料夾' : 'GitHub')}
+                        onChange={(x) => {
+                          if (x !== row.kind) change({ kind: x as SkillRow['kind'], where: '', ref: '' })
+                          setBadRow(null)
+                        }} />
+                      <label className="fx-field">
+                        <span>{row.kind === 'local' ? '資料夾' : 'Repo'}</span>
+                        <input ref={(el) => { if (el) rowFields.current.set(row.key, el); else rowFields.current.delete(row.key) }}
+                          className="fx-control" value={row.where} required pattern=".*\S.*" spellCheck={false} autoComplete="off"
+                          placeholder={row.kind === 'local' ? '~/.agents/' : 'owner/repo'} aria-invalid={bad || undefined}
+                          aria-describedby={bad ? `fx-skill-error-${row.key}` : undefined}
+                          onChange={(e) => { change({ where: e.target.value }); setBadRow(null) }}
+                          // an address becomes owner/repo, and the version in it goes to the version field
+                          onBlur={() => {
+                            const g = row.kind === 'git' ? parseGithub(row.where) : null
+                            if (g) change({ where: g.repo, ref: g.ref || row.ref })
+                          }} />
+                      </label>
+                      {bad && <p id={`fx-skill-error-${row.key}`} className="fx-field-error">請輸入 owner/repo 或 GitHub 網址</p>}
+                      {row.kind === 'git' && (
+                        <label className="fx-field">
+                          <span>版本</span>
+                          <input className="fx-control" value={row.ref} spellCheck={false} autoComplete="off" placeholder="master / main"
+                            onChange={(e) => change({ ref: e.target.value })} />
+                        </label>
+                      )}
+                      <label className="fx-field">
+                        <span>只載入</span>
+                        <input className="fx-control" value={row.include} spellCheck={false} autoComplete="off" placeholder="全部（以逗號分隔）"
+                          onChange={(e) => change({ include: e.target.value })} />
+                      </label>
+                      <label className="fx-field">
+                        <span>排除</span>
+                        <input className="fx-control" value={row.exclude} spellCheck={false} autoComplete="off" placeholder="無（以逗號分隔）"
+                          onChange={(e) => change({ exclude: e.target.value })} />
+                      </label>
+                      <button type="button" className="fx-tool fx-hit fx-skill-remove" aria-label={`刪除第 ${i + 1} 個技能來源`} title="刪除"
+                        onClick={() => {
+                          setRows((rs) => rs.filter((r) => r.key !== row.key))
+                          addRow.current?.focus()
+                        }}>
+                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                          <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            <button ref={addRow} type="button" className="fx-task fx-task-new fx-flow-new fx-hit fx-skill-add"
+              onClick={() => {
+                const row = newSkillRow()
+                setRows((rs) => [...rs, row])
+                setFocusRow(row.key)
+              }}>＋ 新增技能來源</button>
+          </Section>
+          <Section name="工具">
+            <div className="fx-tool-picks" role="group" aria-label="允許的工具">
+              {TOOLS.map((t) => (
+                <label key={t}>
+                  <input type="checkbox" className="fx-tick" checked={tools.includes(t)}
+                    onChange={(e) => setTools((ts) => (e.target.checked ? [...ts, t] : ts.filter((x) => x !== t)))} />
+                  {TOOL_NAMES[t]}
+                </label>
+              ))}
+            </div>
+          </Section>
+        </>
+      )}
       <button type="submit" className="fx-save">{old ? '儲存' : '新增'}</button>
     </form>
   )
