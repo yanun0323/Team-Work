@@ -45,7 +45,8 @@ type Event struct {
 	// patch
 	Upserts []Patch `json:"upserts,omitempty"`
 	Deletes []Patch `json:"deletes,omitempty"`
-	// delta: text an employee is writing now; it is not kept
+	// delta: text an employee is writing now in a chat or discussion, whose id SubID then is; it is not kept.
+	// deltaReset: start that text over.
 	SubID string `json:"subId,omitempty"`
 	Text  string `json:"text,omitempty"`
 	// notice: review or awaitMerge
@@ -60,6 +61,7 @@ type Engine struct {
 	w       *model.World
 	secrets map[string]string
 	runs    map[string]*run
+	live    map[string]string // what is being written now in chats and discussions, by their id
 	prev    map[string][]byte
 	dirty   map[string]bool // conversations changed since the last save
 	subs    map[chan Event]struct{}
@@ -97,7 +99,7 @@ const (
 // NewEngine loads the world and picks up what was under way when the server last stopped.
 func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	e := &Engine{
-		w: model.NewWorld(), runs: map[string]*run{}, prev: map[string][]byte{}, dirty: map[string]bool{},
+		w: model.NewWorld(), runs: map[string]*run{}, live: map[string]string{}, prev: map[string][]byte{}, dirty: map[string]bool{},
 		subs: map[chan Event]struct{}{}, logins: map[string]*loginRun{}, store: o.Store, git: o.Git, providers: o.Providers, dataDir: o.DataDir, log: o.Log,
 		clock: func() float64 { return float64(time.Now().UnixMilli()) / 1000 },
 	}
@@ -435,6 +437,9 @@ func (e *Engine) Subscribe() (snapshot []byte, events <-chan Event, cancel func(
 	}
 	ch := make(chan Event, subscriberBuffer)
 	e.subs[ch] = struct{}{}
+	for id, text := range e.live { // what is being written is in no snapshot
+		ch <- Event{Type: "delta", SubID: id, Text: text}
+	}
 	return snapshot, ch, func() {
 		e.mu.Lock()
 		defer e.mu.Unlock()

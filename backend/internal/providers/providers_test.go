@@ -248,3 +248,30 @@ func TestCompatibleExplicitNoneIsSent(t *testing.T) {
 		t.Fatal("none was treated as default")
 	}
 }
+
+func TestToolResultImagesReachTheModel(t *testing.T) {
+	msgs := []model.Message{{Role: enum.RoleUser, Content: []model.Block{
+		{Type: enum.BlockToolResult, ID: "a", Text: "Image a.png", MimeType: "image/png", Data: "QUJD"},
+		{Type: enum.BlockToolResult, ID: "b", Text: "plain"},
+	}}}
+
+	anthropic, _ := json.Marshal(anthropicMessages(msgs))
+	var sent []map[string]any
+	json.Unmarshal(anthropic, &sent)
+	results := sent[0]["content"].([]any)
+	if parts, ok := results[0].(map[string]any)["content"].([]any); !ok || len(parts) != 2 || parts[1].(map[string]any)["type"] != "image" {
+		t.Fatalf("anthropic: %s", anthropic)
+	}
+	if results[1].(map[string]any)["content"] != "plain" {
+		t.Fatalf("anthropic: %s", anthropic)
+	}
+
+	// every tool message must come straight after the call, so the image waits behind them
+	chat := chatMessages(model.ModelRequest{Messages: msgs})
+	if len(chat) != 3 || chat[0].Role != "tool" || chat[1].Role != "tool" || chat[2].Role != "user" {
+		t.Fatalf("openai: %+v", chat)
+	}
+	if body, _ := json.Marshal(chat[2].Content); !strings.Contains(string(body), "data:image/png;base64,QUJD") {
+		t.Fatalf("openai: %s", body)
+	}
+}

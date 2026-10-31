@@ -77,6 +77,33 @@ func (e *Engine) TeamFolder(id string) (string, error) {
 	return t.Folder, nil
 }
 
+// TeamHealth is what a company's folder is like now; it can change outside the app at any time.
+type TeamHealth struct {
+	Folder       bool `json:"folder"`
+	Repo         bool `json:"repo"`
+	TargetBranch bool `json:"targetBranch"`
+}
+
+// TeamHealth looks at a company's folder. A repo with no commits yet has no branches to have lost.
+func (e *Engine) TeamHealth(ctx context.Context, id string) (TeamHealth, error) {
+	e.mu.Lock()
+	t := e.w.Teams[id]
+	if t == nil {
+		e.mu.Unlock()
+		return TeamHealth{}, model.Errorf(model.CodeNotFound, "找不到公司")
+	}
+	folder, target := t.Folder, t.TargetBranch
+	e.mu.Unlock()
+	if info, err := os.Stat(folder); err != nil || !info.IsDir() {
+		return TeamHealth{}, nil
+	}
+	branches, repo, err := e.git.Branches(ctx, folder)
+	if err != nil {
+		return TeamHealth{}, err
+	}
+	return TeamHealth{Folder: true, Repo: repo, TargetBranch: repo && (len(branches) == 0 || slices.Contains(branches, target))}, nil
+}
+
 // Branches lists the branches of the repo at folder, without changing anything. A folder that is no repo
 // yet has none, and repo is false.
 func (e *Engine) Branches(ctx context.Context, folder string) (branches []string, repo bool, err error) {

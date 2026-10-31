@@ -56,6 +56,10 @@ func chatMessages(req model.ModelRequest) []chatMessage {
 				calls = append(calls, c)
 			case enum.BlockToolResult:
 				out = append(out, chatMessage{Role: "tool", ToolCallID: b.ID, Content: b.Text})
+				// a tool's message holds only text, so its image follows, once all the results are in
+				if b.Data != "" {
+					parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]string{"url": "data:" + b.MimeType + ";base64," + b.Data}})
+				}
 			}
 		}
 		if len(parts)+len(calls) == 0 {

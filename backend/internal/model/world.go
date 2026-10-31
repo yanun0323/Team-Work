@@ -179,6 +179,8 @@ type ChatMessage struct {
 	At   float64 `json:"at"`
 	From string  `json:"from"` // user, agent, or tool (in a chat: what the employee ran)
 	Text string  `json:"text"`
+	// Images are what the user attached, in a chat.
+	Images []Attachment `json:"images,omitempty"`
 }
 
 type Talk struct {
@@ -416,6 +418,9 @@ type ToolResult struct {
 	Text    string
 	IsError bool
 	Stop    bool
+	// MimeType and Data carry an image for the model to see, as base64, alongside Text.
+	MimeType string
+	Data     string
 }
 
 // Doc is one stored entity, as JSON.

@@ -62,7 +62,7 @@ debug: false
 
 - API 沒有登入。所以只聽本機，並檢查 `Host` 與 `Origin`，別的網站不能透過使用者的瀏覽器連進來。
 - API Key 和 ChatGPT Token 只存在 `company.db`（權限 `0600`）的 `secrets` 表，不會出現在任何回應或事件裡，API Key 對外只有最後 4 碼。
-- `read_file`、`write_file` 限制在任務的 work tree 內（技能資料夾可讀），符號連結也擋。
+- `read_file`、`write_file` 限制在任務的 work tree 內（技能資料夾可讀），符號連結也擋。`read_file` 也能讀 PNG、JPEG、GIF、WebP 圖片（最大 3.75MB），圖片會交給模型看。
 - `run_command` **沒有沙盒**：員工能做到伺服器使用者能做的任何事。只雇用你信任其指示的藍圖，也留意任務內容與網頁可能夾帶指示。
 
 ## API
@@ -73,7 +73,7 @@ debug: false
 |---|---|
 | `POST /settings/reload` | 驗證並重新載入實體設定檔（不含全域 config.yaml）；成功回 204，錯誤保留現有設定 |
 | `GET /world` | 整個世界，欄位與前端 `types.ts` 相同 |
-| `GET /events` | WebSocket：先送 `snapshot`，之後送 `patch`（實體異動）、`delta`（員工正在寫的文字）、`notice`（`review`、`awaitMerge`）。斷線重連會拿到新的 snapshot |
+| `GET /events` | WebSocket：先送 `snapshot`，之後送 `patch`（實體異動）、`delta`（對話或討論裡員工正在寫的文字，`subId` 是對話或子任務的 id）、`deltaReset`（重試時收回已寫的文字）、`notice`（`review`、`awaitMerge`）。斷線重連會拿到新的 snapshot，以及寫到一半的文字 |
 | `POST /teams`、`PATCH`/`DELETE /teams/:id` | 公司；資料夾沒有 git 時會初始化並建立 `master`。關閉公司不會刪資料夾，但會刪它的任務分支與 work tree |
 | `GET /branches?folder=` | 查資料夾的分支（只讀），`repo` 是它是不是 git repo |
 | `POST /teams/:id/prompt/refresh` | 重新讀專案的 `AGENTS.md`。公司的 `prompt` 就是這個檔案：`PATCH` 會寫回檔案（不會 commit），建立公司、啟動和員工開工時都會重新讀 |
@@ -90,9 +90,11 @@ debug: false
 | `POST /subtasks/:id/talk`、`POST /subtasks/:id/talk/end` | 討論發言（`text`）、結束（`kind`: `continue`/`back`/`stop`，`to`、`reason`） |
 | `GET /teams/:id/uncommitted` | 公司資料夾有沒有未提交的改動 |
 | `POST /teams/:id/open-folder` | 在 Finder 打開公司資料夾 |
+| `GET /teams/:id/health` | 公司資料夾現在的狀態：`folder` 存在、`repo` 是 git repo、`targetBranch` 目標分支還在 |
 | `GET /teams/:id/terminal?cols=&rows=` | WebSocket：在公司資料夾開一個載入 `~/.zshrc` 的 zsh。二進位訊息是輸入與畫面輸出，文字訊息 `{"cols","rows"}` 調整大小；斷線時結束 shell 和它的工作 |
-| `POST /chats` | 開始對話（`teamId`、`replicaId`、`text`），用員工當下的模型，員工開始回覆 |
-| `POST /chats/:id/say`、`POST /chats/:id/stop`、`DELETE /chats/:id` | 對話發言（`text`）、中斷回覆、刪除 |
+| `POST /chats` | 開始對話（`teamId`、`replicaId`、`text`、可選的 `images`），用員工當下的模型，員工開始回覆 |
+| `POST /chats/:id/say`、`POST /chats/:id/stop`、`DELETE /chats/:id` | 對話發言（`text`、`images`：data URL，最多 6 張，PNG、JPEG、GIF、WebP，單張最大 3.75MB）、中斷回覆、刪除 |
+| `POST /chats/:id/rewind` | 收回第 `index` 則使用者訊息和它之後的所有內容，並中斷回覆；資料夾裡的改動不會還原 |
 | `POST /chats/:id/task-draft` | 把對話整理成任務的 `title` 和 `description`，不會建立任務 |
 
 ## 訂閱登入

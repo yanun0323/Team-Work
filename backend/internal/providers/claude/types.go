@@ -257,7 +257,11 @@ func toMessages(msgs []model.Message) []ModelMessage {
 			case enum.BlockToolCall:
 				plain = append(plain, Block{Type: "tool_call", ID: b.ID, Name: b.Name, Args: b.Args})
 			case enum.BlockToolResult:
-				out = append(out, ModelMessage{Role: "tool", CallID: b.ID, IsError: b.IsError, Content: []Block{{Type: "text", Text: b.Text}}})
+				content := []Block{{Type: "text", Text: b.Text}}
+				if b.Data != "" {
+					content = append(content, Block{Type: "image", MimeType: b.MimeType, Data: b.Data})
+				}
+				out = append(out, ModelMessage{Role: "tool", CallID: b.ID, IsError: b.IsError, Content: content})
 			}
 		}
 		if len(plain) > 0 {

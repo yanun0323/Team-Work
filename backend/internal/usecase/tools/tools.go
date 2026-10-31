@@ -4,6 +4,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,7 +25,15 @@ import (
 const (
 	maxBytes  = 50 << 10
 	killGrace = 2 * time.Second
+	// Anthropic takes at most 5MB of base64 per image, the tightest limit among the providers.
+	maxImageBytes = 5 << 20 / 4 * 3
 )
+
+// images are the types every provider can look at.
+var images = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
+
+// CanLookAt says whether every provider can take an image of this type and size.
+func CanLookAt(mime string, size int) bool { return images[mime] && size <= maxImageBytes }
 
 // For returns the named tools. extraRead lists folders readable beyond the working directory (skills).
 func For(allowed []enum.Tool, extraRead []string) []adapter.Tool {
@@ -97,11 +106,11 @@ func within(cwd, path string, roots ...string) (string, error) {
 	return "", fmt.Errorf("%s is outside the working directory", path)
 }
 
-// Read returns text from a file in the working directory or a skill folder.
+// Read returns a text file or an image from the working directory or a skill folder.
 type Read struct{ Extra []string }
 
 func (Read) Spec() model.ToolSpec {
-	return model.ToolSpec{Name: "read_file", Description: "Read a text file. Returns at most 50KB; use offset (bytes) to continue.",
+	return model.ToolSpec{Name: "read_file", Description: "Read a text file or look at an image (PNG, JPEG, GIF, WebP). Text returns at most 50KB; use offset (bytes) to continue. An image comes whole, up to 3.75MB.",
 		Parameters: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Absolute, or relative to the working directory"},"offset":{"type":"integer"}},"required":["path"]}`)}
 }
 
@@ -125,6 +134,17 @@ func (t Read) Run(_ context.Context, cwd string, raw json.RawMessage) model.Tool
 	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
 		return fail("%s is not a regular file", args.Path)
 	}
+	head := make([]byte, 512) // as much as the type's detection looks at
+	n, err := io.ReadFull(f, head)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return fail("cannot read %s", args.Path)
+	}
+	if mime := http.DetectContentType(head[:n]); images[mime] {
+		return readImage(f, args.Path, mime)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return fail("cannot read %s", args.Path)
+	}
 	if args.Offset > 0 {
 		if _, err := f.Seek(args.Offset, io.SeekStart); err != nil {
 			return fail("cannot read %s at that offset", args.Path)
@@ -141,6 +161,20 @@ func (t Read) Run(_ context.Context, cwd string, raw json.RawMessage) model.Tool
 		return model.ToolResult{Text: fmt.Sprintf("%s\n[cut at 50KB; continue with offset %d]", data[:maxBytes], args.Offset+maxBytes)}
 	}
 	return model.ToolResult{Text: string(data)}
+}
+
+func readImage(f *os.File, path, mime string) model.ToolResult {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return fail("cannot read %s", path)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxImageBytes+1))
+	if err != nil {
+		return fail("cannot read %s", path)
+	}
+	if len(data) > maxImageBytes {
+		return fail("%s is too large to look at; images can be up to 3.75MB", path)
+	}
+	return model.ToolResult{Text: fmt.Sprintf("Image %s (%s, %d bytes)", path, mime, len(data)), MimeType: mime, Data: base64.StdEncoding.EncodeToString(data)}
 }
 
 // Write creates or replaces a file in the working directory.

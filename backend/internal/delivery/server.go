@@ -124,9 +124,11 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.GET("/teams/:id/uncommitted", s.uncommitted)
 	api.POST("/teams/:id/open-folder", s.openFolder)
 	api.GET("/teams/:id/terminal", s.terminal)
+	api.GET("/teams/:id/health", s.teamHealth)
 	api.POST("/chats", s.createChat)
 	api.POST("/chats/:id/say", s.sayInChat)
 	api.POST("/chats/:id/stop", s.stopChat)
+	api.POST("/chats/:id/rewind", s.rewindChat)
 	api.POST("/chats/:id/task-draft", s.chatTaskDraft)
 	api.DELETE("/chats/:id", s.deleteChat)
 	return s
@@ -557,6 +559,14 @@ func (s *Server) openFolder(c echo.Context) error {
 	return done(c, s.folders.OpenFolder(c.Request().Context(), folder))
 }
 
+func (s *Server) teamHealth(c echo.Context) error {
+	health, err := s.engine.TeamHealth(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, health)
+}
+
 func (s *Server) uncommitted(c echo.Context) error {
 	dirty, err := s.engine.Uncommitted(c.Request().Context(), c.Param("id"))
 	if err != nil {
@@ -576,12 +586,23 @@ func (s *Server) createChat(c echo.Context) error {
 
 func (s *Server) sayInChat(c echo.Context) error {
 	in, err := bind[struct {
-		Text string `json:"text"`
+		Text   string             `json:"text"`
+		Images []model.Attachment `json:"images"`
 	}](c)
 	if err != nil {
 		return err
 	}
-	return done(c, s.engine.SayInChat(c.Param("id"), in.Text))
+	return done(c, s.engine.SayInChat(c.Param("id"), in.Text, in.Images))
+}
+
+func (s *Server) rewindChat(c echo.Context) error {
+	in, err := bind[struct {
+		Index int `json:"index"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.RewindChat(c.Param("id"), in.Index))
 }
 
 func (s *Server) stopChat(c echo.Context) error {

@@ -35,7 +35,9 @@ type turn struct {
 	req      model.ModelRequest
 	tools    map[string]adapter.Tool
 	cwd      string
-	onText   func(string)
+	// onStart comes before each try at the model, so a retry's text does not pile up on the last try's.
+	onStart func()
+	onText  func(string)
 	// onReply records a reply and says whether to go on.
 	onReply func(model.ModelReply) bool
 	// onTool records that a tool is about to run, and onResults its results.
@@ -52,6 +54,7 @@ type turnResult struct {
 func (t *turn) complete(ctx context.Context) (model.ModelReply, error) {
 	delay := retryDelay
 	for attempt := 0; ; attempt++ {
+		t.onStart()
 		reply, err := t.provider.Complete(ctx, t.req, t.onText)
 		var failure *model.Error
 		if err == nil || ctx.Err() != nil || !errors.As(err, &failure) || failure.Code != model.CodeUnavailable || attempt == modelRetries {
@@ -102,7 +105,7 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 				stopped = true
 				continue
 			}
-			results = append(results, model.Block{Type: enum.BlockToolResult, ID: b.ID, Name: b.Name, Text: result.Text, IsError: result.IsError})
+			results = append(results, model.Block{Type: enum.BlockToolResult, ID: b.ID, Name: b.Name, Text: result.Text, IsError: result.IsError, MimeType: result.MimeType, Data: result.Data})
 		}
 		if stopped {
 			return turnResult{Stopped: true}, nil
@@ -334,6 +337,10 @@ func (e *Engine) stopRun(id string) {
 	if r := e.runs[id]; r != nil {
 		delete(e.runs, id)
 		r.cancel()
+		if _, ok := e.live[id]; ok {
+			delete(e.live, id)
+			e.publish(Event{Type: "deltaReset", SubID: id})
+		}
 	}
 }
 
@@ -381,6 +388,7 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 		defer e.mu.Unlock()
 		if e.runs[in.subID] == in.r {
 			delete(e.runs, in.subID)
+			delete(e.live, in.subID)
 			e.settle()
 		}
 	}()
@@ -457,6 +465,7 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 // talkSays is the employee's words in a discussion: the opening, which starts it, or a reply.
 func (e *Engine) talkSays(t *model.Task, s *model.SubTask, text string) {
 	if s.Talk == nil {
+		delete(e.live, s.ID)
 		s.Talk = &model.Talk{Messages: []model.ChatMessage{}}
 		s.Progress = 1
 		s.Talk.Messages = append(s.Talk.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: text})
@@ -464,6 +473,7 @@ func (e *Engine) talkSays(t *model.Task, s *model.SubTask, text string) {
 		e.openReview(t, s, model.Review{Kind: enum.ReviewTalk})
 		return
 	}
+	delete(e.live, s.ID)
 	s.Talk.ReplyAt = nil
 	s.Talk.Messages = append(s.Talk.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: text})
 	e.logLine(s, enum.LogSay, text, "", nil)
@@ -488,7 +498,16 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 		provider: in.spec.provider,
 		req:      model.ModelRequest{Cwd: in.dir, Session: in.subID, Model: in.spec.model, Effort: in.spec.effort, System: in.spec.system, Messages: in.conv, Tools: specs},
 		tools:    byName, cwd: in.dir,
-		onText: func(text string) { e.publishDelta(in.subID, text) },
+		onStart: func() {
+			if in.talk {
+				e.restartLive(in.subID, in.r)
+			}
+		},
+		onText: func(text string) {
+			if in.talk {
+				e.addLive(in.subID, in.r, text)
+			}
+		},
 		onTool: func(call model.Block) {
 			e.apply(in, func(_ *model.Task, s *model.SubTask) {
 				e.logLine(s, enum.LogTool, call.Name+" "+clip(string(call.Args), 200), "", nil)
@@ -503,10 +522,26 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 	}
 }
 
-func (e *Engine) publishDelta(subID, text string) {
+// restartLive empties what the employee of a chat or discussion is writing, for a new try at the model.
+func (e *Engine) restartLive(id string, r *run) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.publish(Event{Type: "delta", SubID: subID, Text: text})
+	if e.runs[id] != r {
+		return
+	}
+	delete(e.live, id)
+	e.publish(Event{Type: "deltaReset", SubID: id})
+}
+
+// addLive passes on what is being written. It is kept until it becomes a message, for whoever connects meanwhile.
+func (e *Engine) addLive(id string, r *run, text string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.runs[id] != r {
+		return
+	}
+	e.live[id] += text
+	e.publish(Event{Type: "delta", SubID: id, Text: text})
 }
 
 func clip(s string, n int) string {

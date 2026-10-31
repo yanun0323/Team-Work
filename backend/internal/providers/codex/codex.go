@@ -465,7 +465,7 @@ func buildRequest(req model.ModelRequest) map[string]any {
 	input := []any{}
 	for _, m := range req.Messages {
 		role := string(m.Role)
-		var parts []map[string]string
+		var parts, images []map[string]string
 		flush := func() {
 			if len(parts) > 0 {
 				input = append(input, map[string]any{"type": "message", "role": role, "content": parts})
@@ -492,8 +492,14 @@ func buildRequest(req model.ModelRequest) map[string]any {
 			case enum.BlockToolResult:
 				flush()
 				input = append(input, map[string]any{"type": "function_call_output", "call_id": b.ID, "output": b.Text})
+				// an output holds only text, so its image follows, once all the outputs are in
+				if b.Data != "" {
+					images = append(images, map[string]string{"type": "input_image", "image_url": "data:" + b.MimeType + ";base64," + b.Data, "detail": "auto"})
+				}
 			}
 		}
+		flush()
+		parts = images
 		flush()
 	}
 	body := map[string]any{

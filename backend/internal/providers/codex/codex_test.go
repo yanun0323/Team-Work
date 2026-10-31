@@ -377,3 +377,30 @@ func TestModelsAndLogout(t *testing.T) {
 		t.Fatal("worked after logging out")
 	}
 }
+
+func TestToolImagesFollowAllTheOutputs(t *testing.T) {
+	f := &fake{stream: stream}
+	c, secrets := setup(t, f)
+	signIn(t, c, secrets, time.Now().Add(time.Hour).UnixMilli())
+	_, err := c.Complete(context.Background(), model.ModelRequest{Model: "gpt-a", Session: "s", Messages: []model.Message{{Role: enum.RoleUser, Content: []model.Block{
+		{Type: enum.BlockToolResult, ID: "a", Text: "Image a.png", MimeType: "image/png", Data: "QUJD"},
+		{Type: enum.BlockToolResult, ID: "b", Text: "plain"},
+	}}}}, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent struct {
+		Input []struct {
+			Type string `json:"type"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal([]byte(f.bodies[0]), &sent); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent.Input) != 3 || sent.Input[0].Type != "function_call_output" || sent.Input[1].Type != "function_call_output" || sent.Input[2].Type != "message" {
+		t.Fatalf("%s", f.bodies[0])
+	}
+	if !strings.Contains(f.bodies[0], "data:image/png;base64,QUJD") {
+		t.Fatalf("%s", f.bodies[0])
+	}
+}

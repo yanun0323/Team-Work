@@ -2,13 +2,17 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/yanun0323/mho-company/internal/model"
 )
 
 func args(v any) json.RawMessage { raw, _ := json.Marshal(v); return raw }
@@ -63,5 +67,43 @@ func TestSearchReadsEitherAnswerFormat(t *testing.T) {
 		if r.IsError || r.Text != "found" {
 			t.Fatalf("%+v", r)
 		}
+	}
+}
+
+func TestReadLooksAtImages(t *testing.T) {
+	dir := t.TempDir()
+	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 16)...)
+	os.WriteFile(filepath.Join(dir, "a.png"), png, 0o644)
+	os.WriteFile(filepath.Join(dir, "named.txt"), png, 0o644)
+	os.WriteFile(filepath.Join(dir, "big.png"), append(png, make([]byte, maxImageBytes)...), 0o644)
+	os.WriteFile(filepath.Join(dir, "other.bin"), []byte{0, 1, 2}, 0o644)
+	os.WriteFile(filepath.Join(dir, "fake.png"), []byte("just text"), 0o644)
+	read := func(path string) model.ToolResult {
+		return (Read{}).Run(context.Background(), dir, args(map[string]string{"path": path}))
+	}
+
+	for _, path := range []string{"a.png", "named.txt"} { // what is inside decides, not the name
+		r := read(path)
+		if r.IsError || r.MimeType != "image/png" || r.Data != base64.StdEncoding.EncodeToString(png) || !strings.Contains(r.Text, path) {
+			t.Fatalf("%s: %+v", path, r)
+		}
+	}
+	if r := read("big.png"); !r.IsError || r.Data != "" {
+		t.Fatalf("too large: %+v", r)
+	}
+	if r := read("other.bin"); !r.IsError || r.Data != "" {
+		t.Fatalf("binary: %+v", r)
+	}
+	if r := read("fake.png"); r.IsError || r.Text != "just text" || r.Data != "" {
+		t.Fatalf("text named png: %+v", r)
+	}
+}
+
+func TestReadKeepsTheOffsetForText(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("0123456789"), 0o644)
+	r := (Read{}).Run(context.Background(), dir, args(map[string]any{"path": "a.txt", "offset": 7}))
+	if r.IsError || r.Text != "789" {
+		t.Fatalf("%+v", r)
 	}
 }

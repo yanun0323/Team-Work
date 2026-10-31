@@ -419,6 +419,7 @@ func TestChatEndpoints(t *testing.T) {
 		{"POST", "/chats", `{"teamId":"nope","replicaId":"nope","text":"hi"}`},
 		{"POST", "/chats/nope/say", `{"text":"hi"}`},
 		{"POST", "/chats/nope/stop", ""},
+		{"POST", "/chats/nope/rewind", `{"index":0}`},
 		{"POST", "/chats/nope/task-draft", ""},
 		{"DELETE", "/chats/nope", ""},
 	} {
@@ -487,4 +488,39 @@ func TestReloadSettingsEndpoint(t *testing.T) {
 	if world["workflows"].(map[string]any)[id].(map[string]any)["name"] != "JSON flow" {
 		t.Fatal("invalid reload changed world")
 	}
+}
+
+func TestTeamHealth(t *testing.T) {
+	srv := setup(t)
+	if code, _ := send(t, "GET", srv.URL+"/api/v1/teams/nobody/health", ""); code != http.StatusNotFound {
+		t.Fatalf("unknown company: %d", code)
+	}
+	folder := t.TempDir()
+	raw, _ := json.Marshal(folder)
+	code, team := send(t, "POST", srv.URL+"/api/v1/teams", `{"name":"公司","folder":`+string(raw)+`}`)
+	if code != http.StatusCreated {
+		t.Fatal(code, team)
+	}
+	url := srv.URL + "/api/v1/teams/" + team["id"].(string) + "/health"
+	expect := func(what string, want map[string]any) {
+		t.Helper()
+		code, got := send(t, "GET", url, "")
+		if code != http.StatusOK {
+			t.Fatalf("%s: %d", what, code)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Fatalf("%s: %v", what, got)
+			}
+		}
+	}
+	expect("a new company", map[string]any{"folder": true, "repo": true, "targetBranch": true})
+	if err := os.RemoveAll(filepath.Join(folder, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	expect("the repo removed", map[string]any{"folder": true, "repo": false, "targetBranch": false})
+	if err := os.RemoveAll(folder); err != nil {
+		t.Fatal(err)
+	}
+	expect("the folder removed", map[string]any{"folder": false, "repo": false, "targetBranch": false})
 }

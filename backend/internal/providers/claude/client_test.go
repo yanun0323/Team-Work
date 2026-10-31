@@ -49,3 +49,18 @@ func TestCompleteThroughTheChild(t *testing.T) {
 
 func (u ModelUsage) CacheReadKnown() bool  { return u.CacheReadReported }
 func (u ModelUsage) CacheWriteKnown() bool { return u.CacheWriteReported }
+
+func TestToolResultKeepsItsImage(t *testing.T) {
+	got := toMessages([]model.Message{{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "a", Text: "Image a.png", MimeType: "image/png", Data: "QUJD"}}}})
+	if len(got) != 1 || got[0].Role != "tool" || len(got[0].Content) != 2 || got[0].Content[1].Type != "image" || got[0].Content[1].Data != "QUJD" {
+		t.Fatalf("%+v", got)
+	}
+	history, err := messagesFor(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(history)
+	if !strings.Contains(string(raw), `"media_type":"image/png"`) {
+		t.Fatalf("%s", raw)
+	}
+}

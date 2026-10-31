@@ -28,6 +28,8 @@ type script struct {
 	login     *adapter.LoginFlow
 	loggedOut bool
 	models    []model.ModelSpec
+	// midway runs after a reply's text went out, before the reply is done.
+	midway func()
 }
 
 func (s *script) Complete(_ context.Context, req model.ModelRequest, onText func(string)) (model.ModelReply, error) {
@@ -39,6 +41,9 @@ func (s *script) Complete(_ context.Context, req model.ModelRequest, onText func
 		if b.Type == enum.BlockText {
 			onText(b.Text)
 		}
+	}
+	if s.midway != nil {
+		s.midway()
 	}
 	return r, err
 }

@@ -155,6 +155,7 @@ func (e *Engine) resolveConflict(ctx context.Context, in mergeRun) error {
 		byName[specs[i].Name] = tool
 	}
 	tr := &turn{
+		onStart:  func() {},
 		provider: in.spec.provider,
 		req: model.ModelRequest{Cwd: in.dir, Session: in.key, Model: in.spec.model, Effort: in.spec.effort, System: in.spec.system, Tools: specs,
 			Messages: []model.Message{userText(fmt.Sprintf("把 %s 合併進 %s 時有衝突，請解開。", in.target, in.branch))}},

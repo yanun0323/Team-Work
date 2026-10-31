@@ -24,6 +24,10 @@ func (a anthropic) Models(ctx context.Context) ([]model.ModelSpec, error) {
 	return a.listModels(ctx, "/v1/models?limit=1000", a.auth)
 }
 
+func anthropicImage(b model.Block) map[string]any {
+	return map[string]any{"type": "image", "source": map[string]string{"type": "base64", "media_type": b.MimeType, "data": b.Data}}
+}
+
 func anthropicMessages(msgs []model.Message) []map[string]any {
 	out := make([]map[string]any, 0, len(msgs))
 	for _, m := range msgs {
@@ -33,11 +37,15 @@ func anthropicMessages(msgs []model.Message) []map[string]any {
 			case enum.BlockText:
 				content = append(content, map[string]any{"type": "text", "text": b.Text})
 			case enum.BlockImage:
-				content = append(content, map[string]any{"type": "image", "source": map[string]string{"type": "base64", "media_type": b.MimeType, "data": b.Data}})
+				content = append(content, anthropicImage(b))
 			case enum.BlockToolCall:
 				content = append(content, map[string]any{"type": "tool_use", "id": b.ID, "name": b.Name, "input": b.Args})
 			case enum.BlockToolResult:
-				content = append(content, map[string]any{"type": "tool_result", "tool_use_id": b.ID, "content": b.Text, "is_error": b.IsError})
+				var result any = b.Text
+				if b.Data != "" {
+					result = []map[string]any{{"type": "text", "text": b.Text}, anthropicImage(b)}
+				}
+				content = append(content, map[string]any{"type": "tool_result", "tool_use_id": b.ID, "content": result, "is_error": b.IsError})
 			}
 		}
 		if len(content) > 0 {
