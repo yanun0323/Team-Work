@@ -4,6 +4,7 @@ package adapter
 import (
 	"context"
 	"encoding/json"
+	"io"
 
 	"github.com/yanun0323/mho-company/internal/model"
 )
@@ -104,6 +105,19 @@ type Git interface {
 	Fetch(ctx context.Context, repo, commit string) (string, error)
 	// Latest reports the commit ref points at upstream.
 	Latest(ctx context.Context, repo, ref string) (string, error)
+}
+
+// Terminals starts shells for the user to type in.
+type Terminals interface {
+	Start(dir string, cols, rows uint16) (Terminal, error)
+}
+
+// Terminal is a running shell: what is written goes to it as typed, what is read is its screen output.
+type Terminal interface {
+	io.ReadWriteCloser
+	Resize(cols, rows uint16) error
+	// Exited is closed when the shell has ended, even if a job it left behind still holds its output open.
+	Exited() <-chan struct{}
 }
 
 // FolderPicker asks the user for a folder on this computer. The path is empty when they cancelled.

@@ -5,7 +5,7 @@ import { MapControls } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { teamReplicas } from './core/model'
+import { inTerminal, teamReplicas } from './core/model'
 import { useStore } from './core/store'
 import { LabelLayer, LabelProjector, type LabelSpec } from './core/voxel/labels'
 import { Airport, AIRPORT_TOP, TERMINAL } from './Airport'
@@ -160,7 +160,7 @@ export function World() {
   }, [panel, spot, placing, editing, moving, helpOpen])
   useEffect(() => {
     if (!open && !settingsOpen && !placing && !editing && !helpOpen) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close(true)
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !inTerminal(e) && close(true)
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open, settingsOpen, placing, editing, helpOpen, close])

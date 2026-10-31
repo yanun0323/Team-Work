@@ -50,16 +50,17 @@ func (serializer) Deserialize(c echo.Context, v any) error {
 
 // Server maps requests onto the engine. It has no business logic of its own.
 type Server struct {
-	engine  *usecase.Engine
-	claude  adapter.ClaudeCode
-	folders adapter.FolderPicker
-	origins []string
-	log     zerolog.Logger
-	echo    *echo.Echo
+	engine    *usecase.Engine
+	claude    adapter.ClaudeCode
+	folders   adapter.FolderPicker
+	terminals adapter.Terminals
+	origins   []string
+	log       zerolog.Logger
+	echo      *echo.Echo
 }
 
-func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapter.FolderPicker, origins []string, log zerolog.Logger) *Server {
-	s := &Server{engine: engine, claude: claude, folders: folders, origins: origins, log: log, echo: echo.New()}
+func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapter.FolderPicker, terminals adapter.Terminals, origins []string, log zerolog.Logger) *Server {
+	s := &Server{engine: engine, claude: claude, folders: folders, terminals: terminals, origins: origins, log: log, echo: echo.New()}
 	e := s.echo
 	e.HideBanner, e.HidePort = true, true
 	e.JSONSerializer = serializer{}
@@ -122,6 +123,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 
 	api.GET("/teams/:id/uncommitted", s.uncommitted)
 	api.POST("/teams/:id/open-folder", s.openFolder)
+	api.GET("/teams/:id/terminal", s.terminal)
 	api.POST("/chats", s.createChat)
 	api.POST("/chats/:id/say", s.sayInChat)
 	api.POST("/chats/:id/stop", s.stopChat)

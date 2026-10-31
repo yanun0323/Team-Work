@@ -90,6 +90,7 @@ debug: false
 | `POST /subtasks/:id/talk`、`POST /subtasks/:id/talk/end` | 討論發言（`text`）、結束（`kind`: `continue`/`back`/`stop`，`to`、`reason`） |
 | `GET /teams/:id/uncommitted` | 公司資料夾有沒有未提交的改動 |
 | `POST /teams/:id/open-folder` | 在 Finder 打開公司資料夾 |
+| `GET /teams/:id/terminal?cols=&rows=` | WebSocket：在公司資料夾開一個載入 `~/.zshrc` 的 zsh。二進位訊息是輸入與畫面輸出，文字訊息 `{"cols","rows"}` 調整大小；斷線時結束 shell 和它的工作 |
 | `POST /chats` | 開始對話（`teamId`、`replicaId`、`text`），用員工當下的模型，員工開始回覆 |
 | `POST /chats/:id/say`、`POST /chats/:id/stop`、`DELETE /chats/:id` | 對話發言（`text`）、中斷回覆、刪除 |
 | `POST /chats/:id/task-draft` | 把對話整理成任務的 `title` 和 `description`，不會建立任務 |

@@ -83,7 +83,7 @@ func setup(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(NewServer(e, claude, pickedFolder{}, []string{origin}, zerolog.Nop()).Handler())
+	srv := httptest.NewServer(NewServer(e, claude, pickedFolder{}, repository.Terminals{}, []string{origin}, zerolog.Nop()).Handler())
 	t.Cleanup(func() { srv.Close(); e.Close(); store.Close() })
 	return srv
 }
@@ -299,7 +299,7 @@ func TestClientLeavingStopsInstallAndLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := &waitingClaude{started: make(chan string, 1), stopped: make(chan string, 1)}
-	srv := httptest.NewServer(NewServer(e, w, pickedFolder{}, []string{origin}, zerolog.Nop()).Handler())
+	srv := httptest.NewServer(NewServer(e, w, pickedFolder{}, repository.Terminals{}, []string{origin}, zerolog.Nop()).Handler())
 	defer func() { srv.Close(); e.Close(); store.Close() }()
 
 	for _, tc := range []struct{ path, body, name string }{{"/install", `{"consent":true}`, "install"}, {"/login", `{}`, "login"}} {
@@ -438,7 +438,7 @@ func TestReloadSettingsEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(NewServer(e, claude, pickedFolder{}, []string{origin}, zerolog.Nop()).Handler())
+	srv := httptest.NewServer(NewServer(e, claude, pickedFolder{}, repository.Terminals{}, []string{origin}, zerolog.Nop()).Handler())
 	defer func() { srv.Close(); e.Close(); store.Close() }()
 	snapshot, err := store.LoadSettings(context.Background())
 	if err != nil {

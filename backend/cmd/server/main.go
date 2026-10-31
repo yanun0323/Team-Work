@@ -73,7 +73,7 @@ func run() error {
 		return err
 	}
 	defer l.Close()
-	server := delivery.NewServer(engine, factory.ClaudeCode(), repository.FolderPicker{}, cfg.AllowedOrigins, log.Logger)
+	server := delivery.NewServer(engine, factory.ClaudeCode(), repository.FolderPicker{}, repository.Terminals{}, cfg.AllowedOrigins, log.Logger)
 	if *webDir != "" {
 		if _, err := os.Stat(*webDir + "/index.html"); err != nil {
 			return fmt.Errorf("frontend: %w", err)

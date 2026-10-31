@@ -78,6 +78,8 @@ body { margin: 0; overflow: hidden; }
   --paper-2: #ebe4d2;
   --clip: #fdfbf5;
   --note: #fbeeb8;
+  /* the same colour as the theme in Terminal.tsx */
+  --terminal-note: #18181b;
   /* the two steps every flow has, 整理需求 and 審查, which cannot be renamed or removed */
   --note-fixed: #f6c6bb;
   /* 使用者討論: a step the user talks through with an employee */
@@ -200,6 +202,21 @@ body { margin: 0; overflow: hidden; }
   transform-origin: 100% 0;
   animation: fx-page-in 320ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 }
+.fx-page[hidden] { display: none; }
+/* no turn-in: xterm measures its letters on screen, so they must not be under a transform */
+.fx-page-terminal { overflow: hidden; animation: none; }
+/* a black sticky note on the page; straight, unlike the other notes, for the same reason */
+.fx-terminal {
+  position: relative; box-sizing: border-box; display: flex; flex-direction: column; height: 100%;
+  background: var(--terminal-note); color: #e8e6df; border: 1px solid transparent; border-radius: 2px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 14px -4px rgb(60 40 10 / 0.4), 0 18px 26px -14px rgb(60 40 10 / 0.45);
+}
+.fx-terminal-screen { flex: 1; min-height: 0; margin: 14px 8px 14px 14px; }
+.fx-terminal-ended {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 14px; border-top: 1px solid rgb(255 255 255 / 0.16);
+}
+.fx-terminal-ended button { font: inherit; font-weight: 700; color: inherit; text-decoration: underline; background: none; border: 0; padding: 4px 6px; cursor: pointer; }
 @keyframes fx-page-in { from { opacity: 0; transform: perspective(1400px) rotateY(10deg) translateX(10px); } }
 
 .fx-empty { color: var(--muted); padding-block: 24px; text-align: center; font-style: italic; }

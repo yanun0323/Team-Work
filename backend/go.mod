@@ -4,13 +4,15 @@ go 1.27.3
 
 require (
 	github.com/bytedance/sonic v1.15.5
+	github.com/creack/pty v1.1.24
 	github.com/glebarez/sqlite v1.11.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/labstack/echo/v4 v4.16.3
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/viper v1.21.0
-	golang.org/x/text v0.42.0
 	go.yaml.in/yaml/v3 v3.0.4
+	golang.org/x/sys v0.48.0
+	golang.org/x/text v0.42.0
 	gorm.io/gorm v1.31.2
 )
 
@@ -43,7 +45,6 @@ require (
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	modernc.org/libc v1.22.5 // indirect
 	modernc.org/mathutil v1.5.0 // indirect

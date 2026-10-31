@@ -6,13 +6,16 @@
 
 import { openFolder } from './core/ops'
 import { MOCK } from './core/mode'
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { inTerminal } from './core/model'
 import { useStore } from './core/store'
 import { paletteOf } from './Building'
 import { BranchIcon, Detail, itemKey, type Item } from './DrawerDetail'
 import { TabBody, TABS, type Tab } from './DrawerTabs'
 import type { BuildingLook } from './layout'
 import type { Team } from './core/domain/types'
+
+const Terminal = lazy(() => import('./Terminal'))
 
 type Rect = [number, number, number, number, string]
 
@@ -96,6 +99,9 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   if (live) last.current = live
   const team = live ?? (last.current?.id === teamId ? last.current : undefined)
   const [tab, setTab] = useState<Tab>('tasks')
+  // the company whose terminal has been opened: its shell then runs until the file closes or changes company
+  const [terminalTeam, setTerminalTeam] = useState<string | null>(null)
+  const [terminalFocus, setTerminalFocus] = useState(0)
   const title = useRef<HTMLHeadingElement>(null)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const sheets = useSheets()
@@ -122,6 +128,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   // the sheet belongs to the tab it was opened from
   const pick = (next: Tab) => {
     if (next !== tab) back(-1, false)
+    if (next === 'terminal') setTerminalTeam(teamId)
     setTab(next)
   }
 
@@ -142,16 +149,30 @@ export function Drawer({ teamId, look, leaving, onGone }: {
             {TABS.map((x, i) => (
               <button key={x.id} ref={(el) => void (tabs.current[i] = el)} type="button" role="tab"
                 id={`fx-tab-${x.id}`} aria-controls="fx-panel" aria-selected={tab === x.id} tabIndex={tab === x.id ? 0 : -1}
-                onClick={() => pick(x.id)}>
+                onClick={() => {
+                  pick(x.id)
+                  if (x.id === 'terminal') setTerminalFocus((n) => n + 1)
+                }}>
                 {x.label}
               </button>
             ))}
           </div>
         </header>
         {/* keyed, so each tab turns in like a fresh page */}
-        <section key={tab} id="fx-panel" className="fx-page" role="tabpanel" aria-labelledby={`fx-tab-${tab}`}>
-          <TabBody tab={tab} teamId={teamId} open={base && !base.leaving ? itemKey(base.item) : null} onOpen={sheets.open} />
-        </section>
+        {tab !== 'terminal' && (
+          <section key={tab} id="fx-panel" className="fx-page" role="tabpanel" aria-labelledby={`fx-tab-${tab}`}>
+            <TabBody tab={tab} teamId={teamId} open={base && !base.leaving ? itemKey(base.item) : null} onOpen={sheets.open} />
+          </section>
+        )}
+        {terminalTeam === teamId && (
+          <section id={tab === 'terminal' ? 'fx-panel' : undefined} className="fx-page fx-page-terminal" role="tabpanel"
+            aria-labelledby="fx-tab-terminal" hidden={tab !== 'terminal'}>
+            <Suspense fallback={null}>
+              <Terminal key={teamId} teamId={teamId} focusRequest={terminalFocus}
+                onLeave={() => tabs.current[TABS.findIndex((x) => x.id === 'terminal')]?.focus()} />
+            </Suspense>
+          </section>
+        )}
       </div>
     </aside>
     <SheetStack sheets={sheets} teamId={teamId} leaving={leaving} />
@@ -208,7 +229,7 @@ export function useSheets() {
   useEffect(() => {
     if (top < 0) return
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key !== 'Escape') return
+      if (e.key !== 'Escape' || inTerminal(e)) return
       // an open drop-down list takes Esc for itself
       if ((e.target as HTMLElement | null)?.closest?.('[aria-expanded="true"][aria-haspopup="listbox"]')) return
       e.stopPropagation()

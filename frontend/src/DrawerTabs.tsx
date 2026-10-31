@@ -5,6 +5,7 @@ import { nodeOf } from './core/domain/graph'
 import { statusOf, subsOf } from './core/domain/sim'
 import type { Chat, Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
+import { MOCK } from './core/mode'
 import { useT } from './core/i18n'
 import { byBlueprint, mindOf } from './crew'
 import { activity, teamReplicas, teamTasks } from './core/model'
@@ -14,12 +15,14 @@ import { Select, Stepper, WaitBadge } from './Controls'
 import { editTeam, refreshPrompt } from './core/ops'
 import { itemKey, type Item } from './DrawerDetail'
 
-export type Tab = 'chats' | 'tasks' | 'crew' | 'settings'
+export type Tab = 'chats' | 'tasks' | 'crew' | 'terminal' | 'settings'
 
 export const TABS: { id: Tab; label: string }[] = [
   { id: 'chats', label: '對話' },
   { id: 'tasks', label: '任務' },
   { id: 'crew', label: '員工' },
+  // the simulator has no computer to run a shell on
+  ...(MOCK ? [] : [{ id: 'terminal' as const, label: '終端機' }]),
   { id: 'settings', label: '設定' },
 ]
 
@@ -33,7 +36,8 @@ const COLUMNS: { status: Status; label: string }[] = [
 /** Which item's detail sheet is open (by itemKey), and how to open one. */
 interface Opens { teamId: string; open: string | null; onOpen: (x: Item) => void }
 
-export function TabBody({ tab, ...p }: Opens & { tab: Tab }) {
+/** The terminal is not here: the company file keeps it apart, so it outlasts a change of tab. */
+export function TabBody({ tab, ...p }: Opens & { tab: Exclude<Tab, 'terminal'> }) {
   if (tab === 'chats') return <Chats {...p} />
   if (tab === 'tasks') return <Tasks {...p} />
   if (tab === 'crew') return <Crew {...p} />

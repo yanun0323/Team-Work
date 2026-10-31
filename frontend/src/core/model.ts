@@ -203,12 +203,15 @@ export function useStickToBottom<E extends HTMLElement>(dep: unknown) {
   return ref
 }
 
+/** Whether a key went to the terminal, where it belongs to the shell and not to the screen around it. */
+export const inTerminal = (e: KeyboardEvent) => !!(e.target as Element | null)?.closest?.('.fx-terminal')
+
 export function useEscape(fn: () => void) {
   const ref = useRef(fn)
   ref.current = fn
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') ref.current()
+      if (e.key === 'Escape' && !inTerminal(e)) ref.current()
     }
     window.addEventListener('keydown', on)
     return () => window.removeEventListener('keydown', on)
