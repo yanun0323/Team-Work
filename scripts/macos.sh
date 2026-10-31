@@ -16,6 +16,7 @@ build)
     bundle="$stage/Team Work.app"
     mkdir -p "$bundle/Contents/"{MacOS,Helpers,Resources/web}
     cp macos/Info.plist "$bundle/Contents/Info.plist"
+    iconutil -c icns macos/AppIcon.iconset -o "$bundle/Contents/Resources/AppIcon.icns"
     cp -R frontend/dist/. "$bundle/Contents/Resources/web/"
     for arch in arm64 x86_64; do
         goarch="$arch"
