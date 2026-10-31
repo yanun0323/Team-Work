@@ -236,3 +236,15 @@ func TestSubscriptionModelsCarryAPrefixOnlyHere(t *testing.T) {
 		t.Fatalf("%q %v", s.got, err)
 	}
 }
+
+func TestCompatibleExplicitNoneIsSent(t *testing.T) {
+	p, _, body := serve(t, enum.ProviderCompatible, 200, "data: [DONE]\n")
+	req := request
+	req.Effort = "none"
+	if _, err := p.Complete(context.Background(), req, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(*body), `"reasoning_effort":"none"`) {
+		t.Fatal("none was treated as default")
+	}
+}

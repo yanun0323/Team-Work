@@ -82,7 +82,7 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 		}
 		body["tools"] = tools
 	}
-	// only ever a level the model reported, so a server that reports none never gets the field
+	// The default omits the field; explicit levels (including compatible fallback) pass through.
 	if req.Effort != "" {
 		body["reasoning_effort"] = req.Effort
 	}

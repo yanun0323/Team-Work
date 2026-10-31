@@ -114,16 +114,15 @@ type TeamSettings struct {
 }
 
 type Team struct {
-	ID                string       `json:"id"`
-	Name              string       `json:"name"`
-	Folder            string       `json:"folder"`
-	TargetBranch      string       `json:"targetBranch"`
-	Branches          []string     `json:"branches"`
-	InitializedGit    bool         `json:"initializedGit"`
-	DefaultWorkflowID string       `json:"defaultWorkflowId"`
-	Prompt            string       `json:"prompt"`
-	Settings          TeamSettings `json:"settings"`
-	CreatedAt         float64      `json:"createdAt"`
+	ID             string       `json:"id"`
+	Name           string       `json:"name"`
+	Folder         string       `json:"folder"`
+	TargetBranch   string       `json:"targetBranch"`
+	Branches       []string     `json:"branches"`
+	InitializedGit bool         `json:"initializedGit"`
+	Prompt         string       `json:"prompt"`
+	Settings       TeamSettings `json:"settings"`
+	CreatedAt      float64      `json:"createdAt"`
 }
 
 type NextStep struct {
@@ -178,7 +177,7 @@ type LogLine struct {
 
 type ChatMessage struct {
 	At   float64 `json:"at"`
-	From string  `json:"from"` // user or agent
+	From string  `json:"from"` // user, agent, or tool (in a chat: what the employee ran)
 	Text string  `json:"text"`
 }
 
@@ -187,6 +186,21 @@ type Talk struct {
 	// ReplyAt is set while the employee writes a reply: when they started.
 	ReplyAt *float64 `json:"replyAt,omitempty"`
 	Ended   string   `json:"ended,omitempty"`
+}
+
+// Chat is the user talking with one employee outside any task. Its employee and model never change.
+// Name and Look keep who it was, for when the employee has left.
+type Chat struct {
+	ID        string        `json:"id"`
+	TeamID    string        `json:"teamId"`
+	ReplicaID string        `json:"replicaId"`
+	Name      string        `json:"name"`
+	Look      Look          `json:"look"`
+	Model     string        `json:"model"`
+	Messages  []ChatMessage `json:"messages"`
+	// ReplyAt is set while the employee writes a reply: when they started.
+	ReplyAt   *float64 `json:"replyAt,omitempty"`
+	CreatedAt float64  `json:"createdAt"`
 }
 
 // TalkEnd is how the user ended a discussion: continue (to To), back (with Reason), or stop.
@@ -329,8 +343,6 @@ type World struct {
 	Now           float64                   `json:"now"`
 	Seq           int                       `json:"seq"`
 	Presets       bool                      `json:"-"` // the preset blueprints and flows were added
-	PromptFiles   bool                      `json:"-"` // company prompts live in each project's AGENTS.md
-	WorkStep      bool                      `json:"-"` // the default flow got its work step
 	Teams         map[string]*Team          `json:"teams"`
 	Providers     map[string]*ModelProvider `json:"providers"`
 	Blueprints    map[string]*Blueprint     `json:"blueprints"`
@@ -338,6 +350,7 @@ type World struct {
 	Workflows     map[string]*Workflow      `json:"workflows"`
 	Tasks         map[string]*Task          `json:"tasks"`
 	SubTasks      map[string]*SubTask       `json:"subTasks"`
+	Chats         map[string]*Chat          `json:"chats"`
 	Conversations map[string][]Message      `json:"-"`
 }
 
@@ -345,7 +358,7 @@ func NewWorld() *World {
 	return &World{
 		Teams: map[string]*Team{}, Providers: map[string]*ModelProvider{}, Blueprints: map[string]*Blueprint{},
 		Replicas: map[string]*Replica{}, Workflows: map[string]*Workflow{}, Tasks: map[string]*Task{},
-		SubTasks: map[string]*SubTask{}, Conversations: map[string][]Message{},
+		SubTasks: map[string]*SubTask{}, Chats: map[string]*Chat{}, Conversations: map[string][]Message{},
 	}
 }
 

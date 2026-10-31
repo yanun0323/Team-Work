@@ -54,17 +54,27 @@ func (e *Engine) CreateTeam(ctx context.Context, in NewTeam) (*model.Team, error
 		return nil, model.Errorf(model.CodeInvalid, "目標分支 %s 不存在", in.TargetBranch)
 	}
 	var out *model.Team
-	err = e.do(func() error {
+	err = e.doSettings(func() error {
 		id := e.uid("team")
-		wf := e.firstFlow()
 		t := &model.Team{ID: id, Name: in.Name, Folder: in.Folder, TargetBranch: in.TargetBranch, Branches: branches, InitializedGit: initialized,
-			DefaultWorkflowID: wf.ID, CreatedAt: e.w.Now, Settings: model.TeamSettings{TimeoutMin: 30, CostLimitUSD: 3, Retries: 1}}
+			CreatedAt: e.w.Now, Settings: model.TeamSettings{TimeoutMin: 30, CostLimitUSD: 3, Retries: 1}}
 		e.readPrompt(t)
 		e.w.Teams[id] = t
 		out = clone(t)
 		return nil
 	})
 	return out, err
+}
+
+// TeamFolder is where a company's project lives.
+func (e *Engine) TeamFolder(id string) (string, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	t := e.w.Teams[id]
+	if t == nil {
+		return "", model.Errorf(model.CodeNotFound, "找不到公司")
+	}
+	return t.Folder, nil
 }
 
 // Branches lists the branches of the repo at folder, without changing anything. A folder that is no repo
@@ -105,15 +115,14 @@ func (e *Engine) HandedFile(ctx context.Context, subID, path string) (string, er
 
 // TeamPatch changes a company; a nil field stays as it is.
 type TeamPatch struct {
-	Name              *string             `json:"name"`
-	Prompt            *string             `json:"prompt"`
-	TargetBranch      *string             `json:"targetBranch"`
-	DefaultWorkflowID *string             `json:"defaultWorkflowId"`
-	Settings          *model.TeamSettings `json:"settings"`
+	Name         *string             `json:"name"`
+	Prompt       *string             `json:"prompt"`
+	TargetBranch *string             `json:"targetBranch"`
+	Settings     *model.TeamSettings `json:"settings"`
 }
 
 func (e *Engine) UpdateTeam(id string, p TeamPatch) error {
-	return e.do(func() error {
+	return e.doSettings(func() error {
 		t := e.w.Teams[id]
 		if t == nil {
 			return model.Errorf(model.CodeNotFound, "找不到公司")
@@ -123,11 +132,6 @@ func (e *Engine) UpdateTeam(id string, p TeamPatch) error {
 		}
 		if p.TargetBranch != nil && !slices.Contains(t.Branches, *p.TargetBranch) {
 			return model.Errorf(model.CodeInvalid, "目標分支不存在")
-		}
-		if p.DefaultWorkflowID != nil {
-			if e.w.Workflows[*p.DefaultWorkflowID] == nil {
-				return model.Errorf(model.CodeNotFound, "找不到任務流程")
-			}
 		}
 		if s := p.Settings; s != nil && (s.TimeoutMin < 0 || s.CostLimitUSD < 0 || s.Retries < 0) {
 			return model.Errorf(model.CodeInvalid, "設定不能是負數")
@@ -144,9 +148,6 @@ func (e *Engine) UpdateTeam(id string, p TeamPatch) error {
 		if p.TargetBranch != nil {
 			t.TargetBranch = *p.TargetBranch
 		}
-		if p.DefaultWorkflowID != nil {
-			t.DefaultWorkflowID = *p.DefaultWorkflowID
-		}
 		if p.Settings != nil {
 			t.Settings = *p.Settings
 		}
@@ -157,7 +158,7 @@ func (e *Engine) UpdateTeam(id string, p TeamPatch) error {
 // DeleteTeam closes a company: its people, flows and tasks go, as do the tasks' work trees and branches.
 // The folder itself stays.
 func (e *Engine) DeleteTeam(id string) error {
-	return e.do(func() error {
+	return e.doSettings(func() error {
 		if e.w.Teams[id] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到公司")
 		}
@@ -174,31 +175,17 @@ func (e *Engine) DeleteTeam(id string) error {
 				delete(e.w.Replicas, rid)
 			}
 		}
+		for _, c := range e.w.Chats {
+			if c.TeamID == id {
+				e.dropChat(c.ID)
+			}
+		}
 		delete(e.w.Teams, id)
 		return nil
 	})
 }
 
 // ---------- flows ----------
-
-// firstFlow is what a new company starts on: the plain default flow, or else the oldest flow there is.
-func (e *Engine) firstFlow() *model.Workflow {
-	var first *model.Workflow
-	// data from before the rename still calls it 預設流程
-	plain := func(wf *model.Workflow) bool { return wf.Name == defaultFlowName || wf.Name == "預設流程" }
-	better := func(a, b *model.Workflow) bool {
-		if plain(a) != plain(b) {
-			return plain(a)
-		}
-		return a.ID < b.ID
-	}
-	for _, wf := range e.w.Workflows {
-		if first == nil || better(wf, first) {
-			first = wf
-		}
-	}
-	return first
-}
 
 func (e *Engine) newWorkflow(name string) *model.Workflow {
 	start, end := e.uid("n"), e.uid("n")
@@ -215,7 +202,7 @@ func (e *Engine) newWorkflow(name string) *model.Workflow {
 
 func (e *Engine) CreateWorkflow(name string) (*model.Workflow, error) {
 	var out *model.Workflow
-	err := e.do(func() error {
+	err := e.doSettings(func() error {
 		if strings.TrimSpace(name) == "" {
 			return model.Errorf(model.CodeInvalid, "任務流程要有名稱")
 		}
@@ -227,7 +214,7 @@ func (e *Engine) CreateWorkflow(name string) (*model.Workflow, error) {
 
 // SaveWorkflow replaces a flow. Running tasks keep the copy they started with.
 func (e *Engine) SaveWorkflow(id string, wf model.Workflow) error {
-	return e.do(func() error {
+	return e.doSettings(func() error {
 		old := e.w.Workflows[id]
 		if old == nil {
 			return model.Errorf(model.CodeNotFound, "找不到任務流程")
@@ -254,7 +241,7 @@ func (e *Engine) SaveWorkflow(id string, wf model.Workflow) error {
 // DuplicateWorkflow copies a flow, named after it with the first free -1, -2…; it is not the default.
 func (e *Engine) DuplicateWorkflow(id string) (*model.Workflow, error) {
 	var out *model.Workflow
-	err := e.do(func() error {
+	err := e.doSettings(func() error {
 		from := e.w.Workflows[id]
 		if from == nil {
 			return model.Errorf(model.CodeNotFound, "找不到任務流程")
@@ -278,25 +265,14 @@ func (e *Engine) DuplicateWorkflow(id string) (*model.Workflow, error) {
 
 // DeleteWorkflow removes a flow; the last one stays, and companies defaulting to it move to another.
 func (e *Engine) DeleteWorkflow(id string) error {
-	return e.do(func() error {
+	return e.doSettings(func() error {
 		if e.w.Workflows[id] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到任務流程")
 		}
-		other := ""
-		for oid := range e.w.Workflows {
-			if oid != id && (other == "" || oid < other) {
-				other = oid
-			}
-		}
-		if other == "" {
+		if len(e.w.Workflows) == 1 {
 			return model.Errorf(model.CodeConflict, "至少要留一條任務流程")
 		}
 		delete(e.w.Workflows, id)
-		for _, t := range e.w.Teams {
-			if t.DefaultWorkflowID == id {
-				t.DefaultWorkflowID = other
-			}
-		}
 		return nil
 	})
 }
@@ -365,32 +341,20 @@ func (e *Engine) resetEfforts() {
 	}
 }
 
-// takesEffort is whether a model takes a level: the default, or one its provider reported.
+// takesEffort accepts reported levels, or the compatible API fallback when none were reported.
 func (e *Engine) takesEffort(modelID, effort string) bool {
 	if effort == model.ThinkingDefault {
 		return true
 	}
 	p := e.providerFor(modelID)
-	return p != nil && slices.Contains(p.Thinking[modelID], effort)
-}
-
-// askForLevels fills in the levels of providers saved before they reported any. It runs in the background at start,
-// as asking can take a while; one that can't answer now stays as it is until the next start.
-func (e *Engine) askForLevels() {
-	defer e.wg.Done()
-	e.mu.Lock()
-	var ids []string
-	for id, p := range e.w.Providers {
-		if p.Thinking == nil && (p.Auth.Kind == "apiKey" || p.Auth.SignedIn) {
-			ids = append(ids, id)
-		}
+	if p == nil {
+		return false
 	}
-	e.mu.Unlock()
-	for _, id := range ids {
-		if err := e.RefreshModels(e.ctx, id); err != nil && e.ctx.Err() == nil {
-			e.log.Warn().Err(err).Str("provider", id).Msg("ask for thinking levels")
-		}
+	levels := p.Thinking[modelID]
+	if len(levels) == 0 && p.Kind == enum.ProviderCompatible {
+		levels = []string{"none", "low", "medium", "high", "xhigh", "max"}
 	}
+	return slices.Contains(levels, effort)
 }
 
 func (e *Engine) AddProvider(ctx context.Context, in NewProvider) (*model.ModelProvider, error) {
@@ -416,7 +380,7 @@ func (e *Engine) AddProvider(ctx context.Context, in NewProvider) (*model.ModelP
 		p.BaseURL = ""
 	}
 	var out *model.ModelProvider
-	err := e.do(func() error {
+	err := e.doSettings(func() error {
 		p.ID = e.uid("mp")
 		if p.Auth.Kind == "apiKey" {
 			if err := e.store.SetSecret(ctx, p.ID, key); err != nil {
@@ -484,7 +448,7 @@ func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch
 	} else {
 		next.BaseURL, key = "", ""
 	}
-	return e.do(func() error {
+	return e.doSettings(func() error {
 		now := e.w.Providers[id]
 		if now == nil {
 			return model.Errorf(model.CodeNotFound, "找不到供應商")
@@ -511,7 +475,7 @@ func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch
 
 // DeleteProvider removes a provider nobody runs on, and its key.
 func (e *Engine) DeleteProvider(ctx context.Context, id string) error {
-	return e.do(func() error {
+	return e.doSettings(func() error {
 		p := e.w.Providers[id]
 		if p == nil {
 			return model.Errorf(model.CodeNotFound, "找不到供應商")
@@ -613,7 +577,7 @@ func (e *Engine) waitLogin(ctx context.Context, id string, p model.ModelProvider
 	if err != nil && !errors.As(err, &known) {
 		e.log.Error().Err(err).Str("provider", id).Msg("sign in")
 	}
-	_ = e.do(func() error {
+	saveErr := e.doSettings(func() error {
 		now := e.w.Providers[id]
 		if e.logins[id] != l || now == nil {
 			return nil
@@ -629,6 +593,20 @@ func (e *Engine) waitLogin(ctx context.Context, id string, p model.ModelProvider
 		e.setModels(now, models)
 		return nil
 	})
+	if saveErr != nil {
+		// Credentials may already be saved. Preserve the login outcome even when
+		// an external settings edit prevents updating the discovered models.
+		_ = e.do(func() error {
+			now := e.w.Providers[id]
+			if now == nil || e.logins[id] != l {
+				return nil
+			}
+			delete(e.logins, id)
+			now.Auth.SignedIn = err == nil
+			now.Auth.Login = &model.LoginPrompt{Error: safeText(saveErr)}
+			return nil
+		})
+	}
 }
 
 // PasteLogin hands over what the browser ended on, when it could not come back by itself.
@@ -688,7 +666,7 @@ func (e *Engine) RefreshModels(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return e.do(func() error {
+	return e.doSettings(func() error {
 		if now := e.w.Providers[id]; now != nil {
 			e.setModels(now, models)
 		}
@@ -719,7 +697,7 @@ func checkBlueprint(b *model.Blueprint) error {
 
 func (e *Engine) CreateBlueprint(b model.Blueprint) (*model.Blueprint, error) {
 	var out *model.Blueprint
-	err := e.do(func() error {
+	err := e.doSettings(func() error {
 		if err := checkBlueprint(&b); err != nil {
 			return err
 		}
@@ -732,7 +710,7 @@ func (e *Engine) CreateBlueprint(b model.Blueprint) (*model.Blueprint, error) {
 }
 
 func (e *Engine) SaveBlueprint(id string, b model.Blueprint) error {
-	return e.do(func() error {
+	return e.doSettings(func() error {
 		if e.w.Blueprints[id] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到藍圖")
 		}
@@ -746,7 +724,7 @@ func (e *Engine) SaveBlueprint(id string, b model.Blueprint) error {
 }
 
 func (e *Engine) DeleteBlueprint(id string) error {
-	return e.do(func() error {
+	return e.doSettings(func() error {
 		if e.w.Blueprints[id] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到藍圖")
 		}
@@ -789,7 +767,7 @@ func (e *Engine) UpdateBlueprint(ctx context.Context, id string) error {
 	for i := range next.Skills {
 		check(next.Skills[i].Source)
 	}
-	return e.do(func() error {
+	return e.doSettings(func() error {
 		if e.w.Blueprints[id] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到藍圖")
 		}
@@ -812,7 +790,7 @@ type NewReplica struct {
 
 func (e *Engine) Hire(in NewReplica) (*model.Replica, error) {
 	var out *model.Replica
-	err := e.do(func() error {
+	err := e.doSettings(func() error {
 		bp := e.w.Blueprints[in.BlueprintID]
 		if e.w.Teams[in.TeamID] == nil || bp == nil {
 			return model.Errorf(model.CodeNotFound, "找不到公司或藍圖")
@@ -854,7 +832,11 @@ type ReplicaPatch struct {
 }
 
 func (e *Engine) UpdateReplica(id string, p ReplicaPatch) error {
-	return e.do(func() error {
+	change := e.doSettings
+	if p.Name == nil && p.BlueprintID == nil && p.Model == nil && p.Effort == nil && p.Look == nil {
+		change = e.do
+	}
+	return change(func() error {
 		r := e.w.Replicas[id]
 		if r == nil {
 			return model.Errorf(model.CodeNotFound, "找不到員工")
@@ -903,7 +885,7 @@ func (e *Engine) UpdateReplica(id string, p ReplicaPatch) error {
 
 // Fire lets an employee go, handing everything still theirs to the heir; a job under way starts again with them.
 func (e *Engine) Fire(id, heirID string) error {
-	return e.do(func() error {
+	return e.doSettings(func() error {
 		r, heir := e.w.Replicas[id], e.w.Replicas[heirID]
 		if r == nil || heir == nil {
 			return model.Errorf(model.CodeNotFound, "找不到員工")
@@ -911,6 +893,7 @@ func (e *Engine) Fire(id, heirID string) error {
 		if id == heirID || heir.TeamID != r.TeamID {
 			return model.Errorf(model.CodeInvalid, "要交接給同公司的另一位員工")
 		}
+		e.endChatsOf(id)
 		swap := func(ids []string) []string {
 			out := make([]string, 0, len(ids))
 			for _, x := range ids {

@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/mho-company/internal/model/enum"
 	"github.com/yanun0323/mho-company/internal/usecase"
-	"github.com/yanun0323/mho-company/pkg/jsonx"
 )
 
 func TestPresets(t *testing.T) {
@@ -22,16 +22,16 @@ func TestPresets(t *testing.T) {
 			t.Fatalf("%s has no text", b.Name)
 		}
 	}
-	for _, want := range []string{"PM", "Product", "Backend Engineer", "Frontend Engineer", "QA"} {
+	for _, want := range []string{"專案經理", "產品負責人", "設計師", "後端工程師", "前端工程師", "測試工程師"} {
 		if names[want] == "" {
 			t.Fatalf("no blueprint %s: %v", want, names)
 		}
 	}
 
-	team, err := r.e.CreateTeam(context.Background(), usecase.NewTeam{Name: "new", Folder: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
+	if !slices.Contains(w.Blueprints[names["設計師"]].Tools, enum.ToolRunCommand) {
+		t.Fatal("the designer can't run commands")
 	}
+
 	flows := map[string]*model.Workflow{}
 	for _, wf := range r.world().Workflows {
 		if flows[wf.Name] != nil {
@@ -39,7 +39,7 @@ func TestPresets(t *testing.T) {
 		}
 		flows[wf.Name] = wf
 	}
-	for _, want := range []string{"預設任務流程", "功能開發", "修 Bug", "產品規劃"} {
+	for _, want := range []string{"功能開發", "修 Bug", "產品規劃"} {
 		wf := flows[want]
 		if wf == nil {
 			t.Fatalf("no flow %s", want)
@@ -52,15 +52,15 @@ func TestPresets(t *testing.T) {
 	if len(flows["功能開發"].Edges) != 7 {
 		t.Fatalf("%+v", flows["功能開發"].Edges)
 	}
-	if r.world().Teams[team.ID].DefaultWorkflowID != flows["預設任務流程"].ID {
-		t.Fatal("the default flow changed")
+	if flows["預設任務流程"] != nil {
+		t.Fatal("the plain default flow is back")
 	}
 }
 
 func TestDeletedPresetStaysDeleted(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	for id, b := range r.world().Blueprints {
-		if b.Name == "QA" {
+		if b.Name == "測試工程師" {
 			if err := r.e.DeleteBlueprint(id); err != nil {
 				t.Fatal(err)
 			}
@@ -69,8 +69,8 @@ func TestDeletedPresetStaysDeleted(t *testing.T) {
 	r.e.Close()
 	newEngine(t, r)
 	for _, b := range r.world().Blueprints {
-		if b.Name == "QA" {
-			t.Fatal("QA came back")
+		if b.Name == "測試工程師" {
+			t.Fatal("the preset came back")
 		}
 	}
 }
@@ -81,9 +81,6 @@ func TestFlowsAreShared(t *testing.T) {
 	other, err := r.e.CreateTeam(ctx, usecase.NewTeam{Name: "other", Folder: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if other.DefaultWorkflowID != r.team.DefaultWorkflowID {
-		t.Fatal("two companies should start on the same flow")
 	}
 	// someone from another company in a flow doesn't come along into this company's task
 	bo, err := r.e.Hire(usecase.NewReplica{TeamID: other.ID, BlueprintID: r.owner.BlueprintID, Name: "Bo", Model: "fake"})
@@ -112,8 +109,8 @@ func TestFlowsAreShared(t *testing.T) {
 	if err := r.e.DeleteWorkflow(wf.ID); err != nil {
 		t.Fatal(err)
 	}
-	if got := r.world().Teams[r.team.ID].DefaultWorkflowID; got == wf.ID || r.world().Workflows[got] == nil {
-		t.Fatalf("default is %s", got)
+	if r.world().Workflows[wf.ID] != nil {
+		t.Fatal("the flow stayed")
 	}
 }
 
@@ -168,7 +165,7 @@ func TestPresetsUseTheAgentFolders(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	found := 0
 	for _, b := range r.world().Blueprints {
-		if !slices.Contains([]string{"PM", "Product", "Backend Engineer", "Frontend Engineer", "QA"}, b.Name) {
+		if !slices.Contains([]string{"專案經理", "產品負責人", "設計師", "後端工程師", "前端工程師", "測試工程師"}, b.Name) {
 			continue
 		}
 		found++
@@ -186,44 +183,109 @@ func TestPresetsUseTheAgentFolders(t *testing.T) {
 			t.Fatalf("%s: %v", b.Name, paths)
 		}
 	}
-	if found != 5 {
+	if found != 6 {
 		t.Fatalf("%d presets", found)
 	}
 }
 
-func TestSavedPresetsAreBroughtUpToDate(t *testing.T) {
-	const oldPM = "你是專案經理。把目標拆成可以各自完成的工作，排好先後順序，標出風險與相依。\n不確定的地方提出來，不要自己假設。交接時寫清楚誰該做什麼、做到什麼程度算完成。"
-	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
-	var untouched, edited *model.Blueprint
+func TestRestartDoesNotRewritePresetEdits(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
+	var bp *model.Blueprint
 	for _, b := range r.world().Blueprints {
-		switch b.Name {
-		case "PM":
-			untouched = b
-		case "QA":
-			edited = b
+		if b.Name == "專案經理" {
+			bp = b
+			break
 		}
 	}
-	save := func(b model.Blueprint) model.Doc {
-		raw, err := jsonx.Marshal(b)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return model.Doc{Kind: "blueprint", ID: b.ID, Data: raw}
-	}
-	old := *untouched
-	old.Prompt, old.Skills = oldPM, []model.SkillPack{}
-	mine := *edited
-	mine.Prompt, mine.Skills = "我自己寫的", []model.SkillPack{}
-	r.e.Close()
-	if err := r.store.Apply(context.Background(), []model.Doc{save(old), save(mine)}, nil); err != nil {
+	bp.Name, bp.Prompt = "PM", "my instructions"
+	if err := r.e.SaveBlueprint(bp.ID, *bp); err != nil {
 		t.Fatal(err)
 	}
-	newEngine(t, r)
-	w := r.world()
-	if got := w.Blueprints[old.ID]; got.Prompt == oldPM || len(got.Skills) != 3 || !strings.Contains(got.Source.Text, "~/.claude/") {
-		t.Fatalf("%+v", got)
+	wf := r.world().Workflows[r.flow.ID]
+	wf.Nodes[0].Prompt = "讀懂任務，整理目標、範圍與驗收條件，交給下一個節點。"
+	if err := r.e.SaveWorkflow(wf.ID, *wf); err != nil {
+		t.Fatal(err)
 	}
-	if got := w.Blueprints[mine.ID]; got.Prompt != "我自己寫的" || len(got.Skills) != 0 {
-		t.Fatalf("%+v", got)
+	r.e.Close()
+	newEngine(t, r)
+	if got := r.world().Blueprints[bp.ID]; got.Name != "PM" || got.Prompt != "my instructions" {
+		t.Fatal("restart rewrote blueprint")
+	}
+	if r.world().Workflows[wf.ID].Nodes[0].Prompt != wf.Nodes[0].Prompt {
+		t.Fatal("restart rewrote node prompt")
+	}
+}
+
+func TestCompatibleFallbackLevelsValidateReloadAndRun(t *testing.T) {
+	var mu sync.Mutex
+	var sent []string
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		mu.Lock()
+		sent = append(sent, req.Effort)
+		mu.Unlock()
+		return call("submit_handoff", handoff), nil
+	})
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "fake"}}
+	r.fake.mu.Unlock()
+	var provider string
+	for id := range r.world().Providers {
+		provider = id
+	}
+	if err := r.e.RefreshModels(context.Background(), provider); err != nil {
+		t.Fatal(err)
+	}
+	for _, level := range []string{"none", "low", "medium", "high", "xhigh", "max", "default"} {
+		if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Effort: &level}); err != nil {
+			t.Fatalf("%s: %v", level, err)
+		}
+	}
+	bad := "imaginary"
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Effort: &bad}); err == nil {
+		t.Fatal("accepted unknown level")
+	}
+	for _, level := range []string{"none", "max", "default"} {
+		if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Effort: &level}); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.e.ReloadSettings(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		mu.Lock()
+		start := len(sent)
+		mu.Unlock()
+		task := r.task(r.flow.ID)
+		r.wait("handoffs", stage(task.ID, enum.StageAwaitMerge))
+		mu.Lock()
+		want := level
+		if level == "default" {
+			want = ""
+		}
+		if len(sent) <= start {
+			t.Error("no model request")
+		}
+		for _, got := range sent[start:] {
+			if got != want {
+				t.Errorf("%s sent %q", level, got)
+			}
+		}
+		mu.Unlock()
+	}
+	// Metadata overrides the fallback, and refresh resets a now unsupported selection.
+	max := "max"
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Effort: &max}); err != nil {
+		t.Fatal(err)
+	}
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "fake", Thinking: []string{"low"}}}
+	r.fake.mu.Unlock()
+	if err := r.e.RefreshModels(context.Background(), provider); err != nil {
+		t.Fatal(err)
+	}
+	if r.world().Replicas[r.owner.ID].Effort != "default" {
+		t.Fatal("unsupported level was retained")
+	}
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Effort: &max}); err == nil {
+		t.Fatal("fallback overrode reported levels")
 	}
 }

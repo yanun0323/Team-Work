@@ -102,6 +102,14 @@ func (g *Git) Branches(ctx context.Context, folder string) ([]string, bool, erro
 	return branches, err == nil, err
 }
 
+func (g *Git) Uncommitted(ctx context.Context, folder string) (bool, error) {
+	if _, err := git(ctx, folder, "rev-parse", "--git-dir"); err != nil {
+		return false, nil
+	}
+	out, err := git(ctx, folder, "status", "--porcelain")
+	return out != "", err
+}
+
 func (g *Git) Worktree(ctx context.Context, folder, dir, branch, target string) error {
 	defer g.lock(folder)()
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -72,10 +73,13 @@ type Engine struct {
 	log       zerolog.Logger
 	clock     func() float64
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
-	closed bool
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	closed          bool
+	settingsRaw     model.SettingsSnapshot
+	settingsEncoded []byte
+	saveFailed      bool
 }
 
 // run is an agent working. Its callbacks count only while it is still the one registered in Engine.runs,
@@ -99,10 +103,12 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	}
 	e.ctx, e.cancel = context.WithCancel(context.Background())
 	if err := e.load(ctx); err != nil {
+		e.cancel()
 		return nil, err
 	}
 	secrets, err := o.Store.LoadSecrets(ctx)
 	if err != nil {
+		e.cancel()
 		return nil, fmt.Errorf("load secrets: %w", err)
 	}
 	e.secrets = secrets
@@ -110,19 +116,15 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.w.Now = e.clock()
-	e.refreshPresetPrompts()
-	e.refreshPresetBlueprints()
 	if !e.w.Presets {
 		e.addPresets()
 	}
-	if !e.w.PromptFiles {
-		e.movePromptsToFiles()
-	}
-	if !e.w.WorkStep {
-		e.addWorkStep()
-	}
 	for _, t := range e.w.Teams {
 		e.readPrompt(t)
+	}
+	if err := e.prepareSettings(ctx); err != nil {
+		e.cancel()
+		return nil, err
 	}
 	for _, s := range e.w.SubTasks {
 		// nobody works across a restart: back in the queue, keeping the conversation so far
@@ -147,9 +149,8 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 			}
 		}
 	}
+	e.interruptChats()
 	e.settle()
-	e.wg.Add(1)
-	go e.askForLevels()
 	return e, nil
 }
 
@@ -169,12 +170,36 @@ func (e *Engine) Close() {
 }
 
 // do changes the world under the lock: when fn accepts, the flow moves on and the change is saved and sent.
-func (e *Engine) do(fn func() error) error {
+func (e *Engine) do(fn func() error) error { return e.change(false, fn) }
+
+func (e *Engine) doSettings(fn func() error) error { return e.change(true, fn) }
+
+func (e *Engine) change(config bool, fn func() error) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.closed {
+		return model.Errorf(model.CodeUnavailable, "伺服器已停止，請重新啟動")
+	}
+	var before *model.World
+	if config {
+		if err := e.store.CheckSettings(e.settingsRaw); err != nil {
+			return err
+		}
+		before = clone(e.w)
+		before.Conversations = e.w.Conversations
+		before.Presets = e.w.Presets
+	}
 	e.w.Now = e.clock()
 	if err := fn(); err != nil {
 		return err
+	}
+	if config {
+		if err := e.sync(); err != nil {
+			if !e.closed {
+				e.w = before
+			}
+			return err
+		}
 	}
 	e.settle()
 	return nil
@@ -185,29 +210,33 @@ func (e *Engine) settle() {
 	if !e.closed {
 		e.step()
 	}
-	e.sync()
+	if err := e.sync(); err != nil {
+		e.log.Error().Err(err).Msg("save world")
+	}
 }
 
 func docKey(kind, id string) string { return kind + "\x00" + id }
 
 func (e *Engine) load(ctx context.Context) error {
+	rawSettings, err := e.store.LoadSettings(ctx)
+	if err != nil {
+		return err
+	}
 	docs, err := e.store.LoadDocs(ctx)
 	if err != nil {
 		return fmt.Errorf("load world: %w", err)
 	}
-	owners := map[string]string{} // flows saved when each company had its own
 	for _, d := range docs {
 		var err error
 		switch d.Kind {
 		case kindMeta:
 			var meta struct {
-				Seq         int  `json:"seq"`
-				Presets     bool `json:"presets"`
-				PromptFiles bool `json:"promptFiles"`
-				WorkStep    bool `json:"workStep"`
+				Seq     int  `json:"seq"`
+				Presets bool `json:"presets"`
 			}
 			err = jsonx.Unmarshal(d.Data, &meta)
-			e.w.Seq, e.w.Presets, e.w.PromptFiles, e.w.WorkStep = meta.Seq, meta.Presets, meta.PromptFiles, meta.WorkStep
+			e.w.Seq, e.w.Presets = meta.Seq, meta.Presets
+
 		case kindConv:
 			var conv []model.Message
 			err = jsonx.Unmarshal(d.Data, &conv)
@@ -222,27 +251,28 @@ func (e *Engine) load(ctx context.Context) error {
 			err = loadInto(d, e.w.Replicas)
 		case "workflow":
 			err = loadInto(d, e.w.Workflows)
-			var old struct {
-				TeamID string `json:"teamId"`
-			}
-			if err == nil {
-				err = jsonx.Unmarshal(d.Data, &old)
-			}
-			if old.TeamID != "" {
-				owners[d.ID] = old.TeamID
-			}
 		case "task":
 			err = loadInto(d, e.w.Tasks)
 		case "subTask":
 			err = loadInto(d, e.w.SubTasks)
+		case "chat":
+			err = loadInto(d, e.w.Chats)
 		}
 		if err != nil {
 			return fmt.Errorf("read %s %s: %w", d.Kind, d.ID, err)
 		}
 		e.prev[docKey(d.Kind, d.ID)] = d.Data
 	}
-	if len(owners) > 0 {
-		e.shareFlows(owners)
+	if len(docs) > 0 && rawSettings.Data == nil {
+		return model.Errorf(model.CodeInvalid, "設定檔遺失；請還原設定檔，不能從執行資料重建設定")
+	}
+	if rawSettings.Data != nil {
+		settings, err := e.parseSettings(rawSettings.Data)
+		if err != nil {
+			return err
+		}
+		settings.Install(e.w)
+		e.settingsRaw, e.settingsEncoded = rawSettings, settingsBytes(e.w)
 	}
 	return nil
 }
@@ -264,11 +294,10 @@ func encodeAll[T any](docs map[string][]byte, kind string, all map[string]*T) {
 	}
 }
 
-// sync saves what changed since the last time and tells the subscribers. A failed save is logged and
-// tried again with the next change, as the difference is still there.
-func (e *Engine) sync() {
+// documents captures the public entities plus private runtime records for change detection.
+func (e *Engine) documents() map[string][]byte {
 	now := map[string][]byte{}
-	meta, _ := jsonx.Marshal(map[string]any{"seq": e.w.Seq, "presets": e.w.Presets, "promptFiles": e.w.PromptFiles, "workStep": e.w.WorkStep})
+	meta, _ := jsonx.Marshal(map[string]any{"seq": e.w.Seq, "presets": e.w.Presets})
 	now[docKey(kindMeta, "world")] = meta
 	encodeAll(now, "team", e.w.Teams)
 	encodeAll(now, "provider", e.w.Providers)
@@ -277,6 +306,7 @@ func (e *Engine) sync() {
 	encodeAll(now, "workflow", e.w.Workflows)
 	encodeAll(now, "task", e.w.Tasks)
 	encodeAll(now, "subTask", e.w.SubTasks)
+	encodeAll(now, "chat", e.w.Chats)
 	// conversations grow large, and only the ones marked have changed
 	for id := range e.w.Conversations {
 		key := docKey(kindConv, id)
@@ -287,6 +317,21 @@ func (e *Engine) sync() {
 		} else if old, ok := e.prev[key]; ok {
 			now[key] = old
 		}
+	}
+	return now
+}
+
+// sync persists runtime records and changed settings before publishing their public entities.
+func (e *Engine) sync() error {
+	if e.saveFailed {
+		return model.Errorf(model.CodeUnavailable, "設定儲存尚未完成，請重新啟動伺服器")
+	}
+	now := e.documents()
+	encoded := settingsBytes(e.w)
+	var changes []model.SettingsChange
+	var written model.SettingsSnapshot
+	if !bytes.Equal(encoded, e.settingsEncoded) {
+		changes = append(changes, model.SettingsChange{Before: e.settingsRaw, After: encoded, Written: &written})
 	}
 	var upserts, deletes []model.Doc
 	for key, raw := range now {
@@ -299,21 +344,37 @@ func (e *Engine) sync() {
 			deletes = append(deletes, docOf(key, nil))
 		}
 	}
-	if len(upserts)+len(deletes) == 0 {
+	if len(upserts)+len(deletes)+len(changes) == 0 {
 		e.flushPending()
-		return
+		return nil
 	}
-	if err := e.store.Apply(context.Background(), upserts, deletes); err != nil {
-		e.log.Error().Err(err).Msg("save world")
-	} else {
-		for _, d := range upserts {
-			e.prev[docKey(d.Kind, d.ID)] = d.Data
+	runtime := make([]model.Doc, 0, len(upserts))
+	for _, d := range upserts {
+		row, err := model.RuntimeDoc(d)
+		if err != nil {
+			return err
 		}
-		for _, d := range deletes {
-			delete(e.prev, docKey(d.Kind, d.ID))
-		}
-		e.dirty = map[string]bool{}
+		runtime = append(runtime, row)
 	}
+	if err := e.store.Apply(context.Background(), runtime, deletes, changes...); err != nil {
+		var pending *model.SettingsPending
+		if errors.As(err, &pending) {
+			e.closed, e.saveFailed = true, true
+			e.cancel()
+			return model.Errorf(model.CodeUnavailable, "%s", pending.Error())
+		}
+		return err
+	}
+	if len(changes) > 0 {
+		e.settingsRaw, e.settingsEncoded = written, encoded
+	}
+	for _, d := range upserts {
+		e.prev[docKey(d.Kind, d.ID)] = d.Data
+	}
+	for _, d := range deletes {
+		delete(e.prev, docKey(d.Kind, d.ID))
+	}
+	e.dirty = map[string]bool{}
 	ev := Event{Type: "patch"}
 	for _, d := range upserts {
 		if d.Kind != kindConv && d.Kind != kindMeta {
@@ -329,6 +390,7 @@ func (e *Engine) sync() {
 		e.publish(ev)
 	}
 	e.flushPending()
+	return nil
 }
 
 func docOf(key string, data []byte) model.Doc {
@@ -392,8 +454,13 @@ func (e *Engine) Snapshot() ([]byte, error) {
 }
 
 func (e *Engine) uid(prefix string) string {
-	e.w.Seq++
-	return fmt.Sprintf("%s-%d", prefix, e.w.Seq)
+	for {
+		e.w.Seq++
+		id := fmt.Sprintf("%s-%d", prefix, e.w.Seq)
+		if e.w.Blueprints[id] == nil && e.w.Workflows[id] == nil {
+			return id
+		}
+	}
 }
 
 func (e *Engine) worktreeOf(t *model.Task) string {

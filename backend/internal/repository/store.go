@@ -3,9 +3,11 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -31,7 +33,11 @@ type secretRow struct {
 func (secretRow) TableName() string { return "secrets" }
 
 // Store is SQLite through gorm. The file holds API keys, so only its owner may read it.
-type Store struct{ db *gorm.DB }
+type Store struct {
+	db      *gorm.DB
+	dataDir string
+	mu      sync.Mutex
+}
 
 func NewStore(dataDir string) (*Store, error) {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
@@ -51,10 +57,14 @@ func NewStore(dataDir string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-	if err := db.AutoMigrate(&docRow{}, &secretRow{}); err != nil {
-		return nil, fmt.Errorf("migrate database: %w", err)
+	for _, table := range []any{&docRow{}, &secretRow{}, &settingsJournal{}} {
+		if !db.Migrator().HasTable(table) {
+			if err := db.Migrator().CreateTable(table); err != nil {
+				return nil, fmt.Errorf("create database table: %w", err)
+			}
+		}
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, dataDir: dataDir}, nil
 }
 
 func (s *Store) Close() error {
@@ -77,11 +87,26 @@ func (s *Store) LoadDocs(ctx context.Context) ([]model.Doc, error) {
 	return out, nil
 }
 
-func (s *Store) Apply(ctx context.Context, upserts, deletes []model.Doc) error {
-	if len(upserts)+len(deletes) == 0 {
+func (s *Store) Apply(ctx context.Context, upserts, deletes []model.Doc, settings ...model.SettingsChange) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.recoverSettings(ctx); err != nil {
+		return err
+	}
+	if len(settings) > 1 {
+		return model.Errorf(model.CodeInvalid, "一次只能寫入一份設定")
+	}
+	if len(settings) > 0 {
+
+		if err := s.CheckSettings(settings[0].Before); err != nil {
+			return err
+		}
+	}
+	if len(upserts)+len(deletes)+len(settings) == 0 {
 		return nil
 	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var written model.SettingsSnapshot
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, d := range upserts {
 			row := docRow{Kind: d.Kind, ID: d.ID, Data: d.Data}
 			if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error; err != nil {
@@ -93,8 +118,33 @@ func (s *Store) Apply(ctx context.Context, upserts, deletes []model.Doc) error {
 				return err
 			}
 		}
+		if len(settings) > 0 {
+			change := settings[0]
+			journal, err := s.settingsWrite(change)
+			if err != nil {
+				return err
+			}
+			written.Data = change.After
+			if err := json.Unmarshal(journal.After, &written.Files); err != nil {
+				return err
+			}
+			if err := s.CheckSettings(change.Before); err != nil {
+				return err
+			}
+			return tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(journal).Error
+		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if err := s.recoverSettings(ctx); err != nil {
+		return &model.SettingsPending{Err: err}
+	}
+	if len(settings) > 0 && settings[0].Written != nil {
+		*settings[0].Written = written
+	}
+	return nil
 }
 
 func (s *Store) LoadSecrets(ctx context.Context) (map[string]string, error) {

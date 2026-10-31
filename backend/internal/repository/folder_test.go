@@ -3,6 +3,9 @@ package repository
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/yanun0323/mho-company/internal/model"
@@ -37,5 +40,20 @@ func TestPickFolderStopsWhenTheClientLeaves(t *testing.T) {
 	cancel()
 	if _, err := (FolderPicker{Command: []string{"sleep", "30"}}).PickFolder(ctx); err == nil {
 		t.Fatal("no error")
+	}
+}
+
+func TestOpenFolder(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "said")
+	p := FolderPicker{Opener: []string{"sh", "-c", `echo "$0" > ` + out}}
+	if err := p.OpenFolder(context.Background(), dir); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(out); strings.TrimSpace(string(got)) != dir {
+		t.Fatalf("%q", got)
+	}
+	if err := p.OpenFolder(context.Background(), filepath.Join(dir, "gone")); err == nil {
+		t.Fatal("a missing folder was opened")
 	}
 }

@@ -47,24 +47,6 @@ func (e *Engine) writePrompt(t *model.Team, prompt string) error {
 	return nil
 }
 
-// movePromptsToFiles runs once per data folder, for prompts saved before they lived in AGENTS.md. A project that has
-// no file gets the saved prompt; one that has a file keeps it, as it is what the project's other tools read.
-func (e *Engine) movePromptsToFiles() {
-	for _, t := range e.w.Teams {
-		_, err := os.Stat(filepath.Join(t.Folder, agentsFile))
-		if t.Prompt == "" || !errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if _, err := os.Stat(t.Folder); err != nil {
-			continue
-		}
-		if err := e.writePrompt(t, t.Prompt); err != nil {
-			e.log.Warn().Err(err).Str("team", t.ID).Msg("move prompt to AGENTS.md")
-		}
-	}
-	e.w.PromptFiles = true
-}
-
 // RefreshPrompt rereads a company's AGENTS.md, for when it may have changed outside the app.
 func (e *Engine) RefreshPrompt(id string) error {
 	return e.do(func() error {

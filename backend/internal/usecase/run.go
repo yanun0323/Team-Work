@@ -166,7 +166,7 @@ func (e *Engine) providerFor(modelID string) *model.ModelProvider {
 }
 
 func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Replica) (agentSpec, error) {
-	team, bp := e.w.Teams[t.TeamID], e.w.Blueprints[r.BlueprintID]
+	bp := e.w.Blueprints[r.BlueprintID]
 	if bp == nil {
 		return agentSpec{}, model.Errorf(model.CodeInvalid, "找不到 %s 的藍圖", r.Name)
 	}
@@ -184,7 +184,7 @@ func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Rep
 	}
 	// the default sends no level, and neither does one the model turned out not to take
 	effort := ""
-	if r.Effort != model.ThinkingDefault && slices.Contains(p.Thinking[r.Model], r.Effort) {
+	if r.Effort != model.ThinkingDefault && e.takesEffort(r.Model, r.Effort) {
 		effort = r.Effort
 	}
 	spec := agentSpec{own: own, provider: provider, model: r.Model, effort: effort, name: r.Name, allowed: slices.Clone(bp.Tools), subscription: p.Auth.Kind != "apiKey"}
@@ -192,6 +192,7 @@ func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Rep
 		spec.price = &price
 	}
 	if node != nil {
+		team := e.w.Teams[t.TeamID]
 		e.readPrompt(team)
 		spec.system = composePrompt(t, team, node, bp, r)
 	}
@@ -243,18 +244,26 @@ func (e *Engine) repoPrompt(ctx context.Context, in subRun) string {
 	if in.spec.own == nil {
 		return ""
 	}
-	dir, err := e.git.Fetch(ctx, in.spec.own.Repo, in.spec.own.Commit)
+	prompt, err := e.ownPrompt(ctx, in.spec.own)
 	if err != nil {
 		e.apply(in, func(_ *model.Task, s *model.SubTask) {
 			e.logLine(s, enum.LogSystem, "藍圖來源 "+in.spec.own.Repo+" 讀取失敗", "", nil)
 		})
-		return ""
+	}
+	return prompt
+}
+
+// ownPrompt reads the role a blueprint keeps in its repo. A repo without one has nothing to add.
+func (e *Engine) ownPrompt(ctx context.Context, own *model.BlueprintSource) (string, error) {
+	dir, err := e.git.Fetch(ctx, own.Repo, own.Commit)
+	if err != nil {
+		return "", err
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
 	if err != nil {
-		return ""
+		return "", nil
 	}
-	return "\n# 你的角色\n" + string(raw) + "\n"
+	return "\n# 你的角色\n" + string(raw) + "\n", nil
 }
 
 // startSub starts a run for a sub-task just dispatched. Call it holding the lock.

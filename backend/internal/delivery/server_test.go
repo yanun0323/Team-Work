@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -56,6 +57,12 @@ var claude = &fakeClaude{}
 type pickedFolder struct{}
 
 func (pickedFolder) PickFolder(context.Context) (string, error) { return "/Users/me/shop", nil }
+func (pickedFolder) OpenFolder(_ context.Context, path string) error {
+	opened = path
+	return nil
+}
+
+var opened string
 
 func TestPickFolderGivesTheFullPath(t *testing.T) {
 	srv := setup(t)
@@ -148,15 +155,19 @@ func TestBranches(t *testing.T) {
 func TestDuplicateAndEditing(t *testing.T) {
 	srv := setup(t)
 	api := srv.URL + "/api/v1"
-	raw, _ := json.Marshal(t.TempDir())
-	_, team := send(t, "POST", api+"/teams", `{"name":"c","folder":`+string(raw)+`}`)
-	wf := team["defaultWorkflowId"].(string)
+	_, world := send(t, "GET", api+"/world", "")
+	wf := ""
+	for id, f := range world["workflows"].(map[string]any) {
+		if f.(map[string]any)["name"] == "修 Bug" {
+			wf = id
+		}
+	}
 	code, copied := send(t, "POST", api+"/workflows/"+wf+"/duplicate", "")
-	if code != http.StatusCreated || copied["name"] != "預設任務流程-1" {
+	if code != http.StatusCreated || copied["name"] != "修 Bug-1" {
 		t.Fatalf("%d %v", code, copied)
 	}
 	_, copied = send(t, "POST", api+"/workflows/"+wf+"/duplicate", "")
-	if copied["name"] != "預設任務流程-2" {
+	if copied["name"] != "修 Bug-2" {
 		t.Fatalf("%v", copied)
 	}
 	if code, _ := send(t, "POST", api+"/workflows/nope/duplicate", ""); code != http.StatusNotFound {
@@ -385,5 +396,95 @@ func TestEventsSendSnapshotThenChanges(t *testing.T) {
 	}
 	if !kinds["team"] {
 		t.Fatalf("%v", kinds)
+	}
+}
+
+func TestOpenFolderShowsTheCompanysFolder(t *testing.T) {
+	api := setup(t).URL + "/api/v1"
+	dir := t.TempDir()
+	folder, _ := json.Marshal(dir)
+	_, team := send(t, "POST", api+"/teams", `{"name":"c","folder":`+string(folder)+`}`)
+	if code, body := send(t, "POST", api+"/teams/"+team["id"].(string)+"/open-folder", ""); code != http.StatusNoContent || opened != dir {
+		t.Fatalf("%d %v %q", code, body, opened)
+	}
+	if code, _ := send(t, "POST", api+"/teams/nope/open-folder", ""); code != http.StatusNotFound {
+		t.Fatal(code)
+	}
+}
+
+func TestChatEndpoints(t *testing.T) {
+	api := setup(t).URL + "/api/v1"
+	for _, tt := range []struct{ method, path, body string }{
+		{"GET", "/teams/nope/uncommitted", ""},
+		{"POST", "/chats", `{"teamId":"nope","replicaId":"nope","text":"hi"}`},
+		{"POST", "/chats/nope/say", `{"text":"hi"}`},
+		{"POST", "/chats/nope/stop", ""},
+		{"POST", "/chats/nope/task-draft", ""},
+		{"DELETE", "/chats/nope", ""},
+	} {
+		if code, body := send(t, tt.method, api+tt.path, tt.body); code != http.StatusNotFound {
+			t.Fatalf("%s %s: %d %v", tt.method, tt.path, code, body)
+		}
+	}
+}
+
+func TestReloadSettingsEndpoint(t *testing.T) {
+	data := t.TempDir()
+	store, err := repository.NewStore(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: repository.NewGit(data), Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(NewServer(e, claude, pickedFolder{}, []string{origin}, zerolog.Nop()).Handler())
+	defer func() { srv.Close(); e.Close(); store.Close() }()
+	snapshot, err := store.LoadSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings model.Settings
+	if err := json.Unmarshal(snapshot.Data, &settings); err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	for key, wf := range settings.Workflows {
+		id = key
+		wf.Name = "JSON flow"
+		break
+	}
+	path := filepath.Join(data, "workflows", id+".yaml")
+	// JSON is a valid YAML document too.
+	edited, _ := json.Marshal(settings.Workflows[id])
+	if err := os.WriteFile(path, edited, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	api := srv.URL + "/api/v1"
+	code, body := send(t, "POST", api+"/settings/reload", "")
+	if code != http.StatusNoContent {
+		t.Fatalf("%d %v", code, body)
+	}
+	_, world := send(t, "GET", api+"/world", "")
+	if world["workflows"].(map[string]any)[id].(map[string]any)["name"] != "JSON flow" {
+		t.Fatal("reload not visible")
+	}
+	if err := os.WriteFile(path, []byte(`{"version":1,"unknown":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, body = send(t, "POST", api+"/settings/reload", "")
+	if code != http.StatusBadRequest || !strings.Contains(body["error"].(map[string]any)["message"].(string), "unknown") {
+		t.Fatalf("%d %v", code, body)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	code, _ = send(t, "POST", api+"/settings/reload", "")
+	if code != http.StatusBadRequest {
+		t.Fatalf("missing settings: %d", code)
+	}
+	_, world = send(t, "GET", api+"/world", "")
+	if world["workflows"].(map[string]any)[id].(map[string]any)["name"] != "JSON flow" {
+		t.Fatal("invalid reload changed world")
 	}
 }

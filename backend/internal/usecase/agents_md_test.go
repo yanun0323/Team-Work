@@ -10,7 +10,6 @@ import (
 
 	"github.com/yanun0323/mho-company/internal/model"
 	"github.com/yanun0323/mho-company/internal/usecase"
-	"github.com/yanun0323/mho-company/pkg/jsonx"
 )
 
 func writeAgents(t *testing.T, folder, text string) {
@@ -114,34 +113,5 @@ func TestEmployeeGetsTheLatestAgentsFile(t *testing.T) {
 	defer mu.Unlock()
 	if !strings.Contains(system, "剛剛才改的規則") {
 		t.Fatal(system)
-	}
-}
-
-func TestSavedPromptsMoveToAgentsFiles(t *testing.T) {
-	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
-	r.e.Close()
-	has, none := t.TempDir(), t.TempDir()
-	writeAgents(t, has, "專案自己的")
-	doc := func(kind, id string, v map[string]any) model.Doc {
-		raw, err := jsonx.Marshal(v)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return model.Doc{Kind: kind, ID: id, Data: raw}
-	}
-	team := func(id, folder string) model.Doc {
-		return doc("team", id, map[string]any{"id": id, "name": id, "folder": folder, "prompt": "舊的", "branches": []string{}})
-	}
-	save := []model.Doc{team("old-has", has), team("old-none", none), doc("meta", "world", map[string]any{"seq": 1000, "presets": true})}
-	if err := r.store.Apply(context.Background(), save, nil); err != nil {
-		t.Fatal(err)
-	}
-	newEngine(t, r)
-	if raw, _ := os.ReadFile(filepath.Join(none, "AGENTS.md")); string(raw) != "舊的" {
-		t.Fatalf("%q", raw)
-	}
-	w := r.world()
-	if w.Teams["old-has"].Prompt != "專案自己的" || w.Teams["old-none"].Prompt != "舊的" {
-		t.Fatalf("%q %q", w.Teams["old-has"].Prompt, w.Teams["old-none"].Prompt)
 	}
 }

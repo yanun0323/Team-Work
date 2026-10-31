@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/yanun0323/mho-company/internal/model"
@@ -16,9 +18,29 @@ import (
 type FolderPicker struct {
 	// Command runs the dialog; empty means the one for this system.
 	Command []string
+	// Opener shows a folder, given as its last argument; empty means the one for this system.
+	Opener []string
 }
 
 var finderDialog = []string{"osascript", "-e", "activate", "-e", `POSIX path of (choose folder with prompt "選擇專案資料夾")`}
+
+// OpenFolder shows a folder in Finder.
+func (p FolderPicker) OpenFolder(ctx context.Context, path string) error {
+	if info, err := os.Stat(path); err != nil || !info.IsDir() {
+		return model.Errorf(model.CodeInvalid, "找不到資料夾 %s", path)
+	}
+	command := p.Opener
+	if len(command) == 0 {
+		if runtime.GOOS != "darwin" {
+			return model.Errorf(model.CodeInvalid, "這個系統還不能打開資料夾")
+		}
+		command = []string{"open"}
+	}
+	if err := exec.CommandContext(ctx, command[0], append(slices.Clone(command[1:]), path)...).Run(); err != nil {
+		return model.Errorf(model.CodeUnavailable, "打不開資料夾")
+	}
+	return nil
+}
 
 // PickFolder waits for the user and gives the folder's full path, or "" when they cancelled.
 func (p FolderPicker) PickFolder(ctx context.Context) (string, error) {

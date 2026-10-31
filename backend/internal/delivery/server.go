@@ -68,6 +68,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 
 	api := e.Group("/api/v1")
 	api.GET("/world", s.world)
+	api.POST("/settings/reload", s.reloadSettings)
 	api.GET("/events", s.events)
 
 	api.POST("/teams", s.createTeam)
@@ -118,6 +119,14 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/subtasks/:id/review", s.resolveReview)
 	api.POST("/subtasks/:id/talk", s.sayInTalk)
 	api.POST("/subtasks/:id/talk/end", s.endTalk)
+
+	api.GET("/teams/:id/uncommitted", s.uncommitted)
+	api.POST("/teams/:id/open-folder", s.openFolder)
+	api.POST("/chats", s.createChat)
+	api.POST("/chats/:id/say", s.sayInChat)
+	api.POST("/chats/:id/stop", s.stopChat)
+	api.POST("/chats/:id/task-draft", s.chatTaskDraft)
+	api.DELETE("/chats/:id", s.deleteChat)
 	return s
 }
 
@@ -238,6 +247,10 @@ func done(c echo.Context, err error) error {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+func (s *Server) reloadSettings(c echo.Context) error {
+	return done(c, s.engine.ReloadSettings(c.Request().Context()))
 }
 
 func (s *Server) world(c echo.Context) error {
@@ -532,6 +545,57 @@ func (s *Server) endTalk(c echo.Context) error {
 		return err
 	}
 	return done(c, s.engine.EndTalk(c.Param("id"), in))
+}
+
+func (s *Server) openFolder(c echo.Context) error {
+	folder, err := s.engine.TeamFolder(c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return done(c, s.folders.OpenFolder(c.Request().Context(), folder))
+}
+
+func (s *Server) uncommitted(c echo.Context) error {
+	dirty, err := s.engine.Uncommitted(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]bool{"uncommitted": dirty})
+}
+
+func (s *Server) createChat(c echo.Context) error {
+	in, err := bind[usecase.NewChat](c)
+	if err != nil {
+		return err
+	}
+	out, err := s.engine.CreateChat(in)
+	return created(c, out, err)
+}
+
+func (s *Server) sayInChat(c echo.Context) error {
+	in, err := bind[struct {
+		Text string `json:"text"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.SayInChat(c.Param("id"), in.Text))
+}
+
+func (s *Server) stopChat(c echo.Context) error {
+	return done(c, s.engine.StopChat(c.Param("id")))
+}
+
+func (s *Server) deleteChat(c echo.Context) error {
+	return done(c, s.engine.DeleteChat(c.Param("id")))
+}
+
+func (s *Server) chatTaskDraft(c echo.Context) error {
+	out, err := s.engine.ChatTaskDraft(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, out)
 }
 
 // events sends the world, then every change to it. The goroutines here end with the connection.

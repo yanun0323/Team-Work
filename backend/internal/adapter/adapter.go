@@ -11,8 +11,11 @@ import (
 // Store keeps entities as documents, and provider keys apart from them.
 type Store interface {
 	LoadDocs(ctx context.Context) ([]model.Doc, error)
-	// Apply writes and deletes documents in one transaction.
-	Apply(ctx context.Context, upserts, deletes []model.Doc) error
+	// Apply writes runtime documents transactionally. A settings change is journaled
+	// in the same transaction and recovered before the next load after interruption.
+	Apply(ctx context.Context, upserts, deletes []model.Doc, settings ...model.SettingsChange) error
+	LoadSettings(ctx context.Context) (model.SettingsSnapshot, error)
+	CheckSettings(expected model.SettingsSnapshot) error
 	LoadSecrets(ctx context.Context) (map[string]string, error)
 	Secrets
 }
@@ -81,6 +84,8 @@ type Git interface {
 	Prepare(ctx context.Context, folder string) (branches []string, initialized bool, err error)
 	// Branches lists a folder's branches without changing anything; repo is false when it is not a repo.
 	Branches(ctx context.Context, folder string) (branches []string, repo bool, err error)
+	// Uncommitted says whether a folder has changes not committed; a folder that is no repo has none.
+	Uncommitted(ctx context.Context, folder string) (bool, error)
 	// Worktree makes, or finds, the task's work tree at dir on a new branch off target.
 	Worktree(ctx context.Context, folder, dir, branch, target string) error
 	// Commit commits everything in the work tree and returns HEAD. Nothing to commit is no failure.
@@ -104,4 +109,6 @@ type Git interface {
 // FolderPicker asks the user for a folder on this computer. The path is empty when they cancelled.
 type FolderPicker interface {
 	PickFolder(ctx context.Context) (string, error)
+	// OpenFolder shows a folder in the system's file browser.
+	OpenFolder(ctx context.Context, path string) error
 }
