@@ -4,15 +4,17 @@
 // below that still shows puts the top one away unsaved. They read the live world.
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { isFixed, nodeOf, taskNodeOf } from './core/domain/graph'
+import { isFixed, nodeOf } from './core/domain/graph'
 import { blueprintUsers, gitSources, statusOf, subsOf } from './core/domain/sim'
 import { TOOLS, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type ProviderKind, type Replica, type Status, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
 import { sourceState, sourceText, TOOL_NAMES } from './source'
 import { useT } from './core/i18n'
-import { flowList, activity, fmtClock, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas } from './core/model'
+import { flowList, activity, fmtClock, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
+import { useLiveText } from './core/live'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { BlueprintIcon, pinLook } from './BlueprintIcon'
+import { BlueprintSelect, CrewSelect, ToolNotes } from './Pickers'
 import { seedOf } from './People'
 import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
@@ -26,6 +28,8 @@ import { docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
 import { parseGithub } from './github'
 import { blueprintToYaml } from './blueprintYaml'
+import { blocked } from './prereqs'
+import { Prereqs, usePrereqs } from './PrereqStamps'
 import { newSkillRow, skillPacksOf, skillRowsOf, type SkillRow } from './blueprintForm'
 import { authLabel, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
 import { talking, TALK_PROMPT } from './core/domain/sim'
@@ -441,19 +445,16 @@ function Chat({ sub }: { sub: SubTask }) {
   const [text, setText] = useState('')
   const [ending, setEnding] = useState<null | 'pick' | 'back' | 'stop'>(null)
   const [reason, setReason] = useState('')
-  const list = useRef<HTMLOListElement>(null)
-  const talk = sub.talk!
+  // the employee opens a discussion, so before their first words there is no talk yet
+  const talk = sub.talk ?? { messages: [], replyAt: sub.startedAt ?? 0 }
   const task = w.tasks[sub.taskId]
   const wf = task.workflow
   const r = sub.replicaId ? w.replicas[sub.replicaId] : undefined
   const open = talking(sub) && task.stage === 'running'
   const writing = talk.replyAt !== undefined
-  // the newest message in view, inside the chat's own scroll
-  const count = talk.messages.length + (writing ? 1 : 0)
-  useEffect(() => {
-    const el = list.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [count])
+  const live = useLiveText(sub.id)
+  // the newest words in view, inside the chat's own scroll, unless the user scrolled up to read
+  const list = useStickToBottom<HTMLOListElement>(`${talk.messages.length}:${writing}:${live.length}`)
   const node = nodeOf(wf, sub.nodeId)
   const outs = outEdges(wf, sub.nodeId)
   // the step picks one of several next steps: going on names which
@@ -483,7 +484,12 @@ function Chat({ sub }: { sub: SubTask }) {
         ))}
         {writing && (
           <li className="fx-chat-msg fx-chat-agent fx-chat-writing">
-            {face}<p><span className="fx-sr">{r?.name ?? '員工'} 正在回覆</span><span aria-hidden="true">···</span></p>
+            {face}
+            <span className="fx-sr">{r?.name ?? '員工'} 正在回覆</span>
+            {live
+              // read out when it is done, not piece by piece
+              ? <div className="fx-chat-bubble" aria-hidden="true"><Markdown text={live} /></div>
+              : <p><span aria-hidden="true">···</span></p>}
           </li>
         )}
       </ol>
@@ -770,7 +776,7 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
       </header>
       {sub.status === 'progressing' && <p className="fx-d-run"><Bar value={sub.progress} /><span className="fx-d-muted">{Math.round(sub.progress * 100)}%</span></p>}
       {/* the user answers here: a discussion in its chat, anything else under what the employee asks */}
-      {sub.talk && <Section name="討論"><Chat key={sub.id} sub={sub} /></Section>}
+      {(sub.talk || (nodeOf(wf, sub.nodeId)?.kind === 'talk' && sub.status === 'progressing')) && <Section name="討論"><Chat key={sub.id} sub={sub} /></Section>}
       {sub.review && sub.review.kind !== 'talk' && (
         <Section name="等你回覆">
           <div className="fx-d-text-md fx-d-quote"><Markdown text={askText(w, sub)} /></div>
@@ -1496,6 +1502,8 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
   const levels = effortsOf(w, model)
   const level = levels.includes(effort) ? effort : DEFAULT_EFFORT
   const [look, setLook] = useState<Look>(() => r?.look ?? randomLook())
+  // what a new hire needs may go while this is open; changing an employee needs nothing of it
+  const needs = usePrereqs(teamId, 'crew').filter((x) => !id && x.blocks)
   if (id && !r) return <Gone {...h} />
   const save = (e: React.FormEvent) => {
     e.preventDefault()
@@ -1523,11 +1531,12 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
           <span>名字</span>
           <input className="fx-control" value={name} onChange={(e) => setName(e.target.value)} required />
         </label>
-        <Select label="藍圖" value={bp} options={Object.keys(w.blueprints)} labelOf={(x) => w.blueprints[x]?.name ?? x} onChange={setBp} />
+        <BlueprintSelect label="藍圖" value={bp} onChange={setBp} />
         <Select label="模型" value={model} options={modelsOf(w)} onChange={setModel} />
         <Select label="思考等級" value={level} options={levels} onChange={setEffort} />
       </div>
-      <button type="submit" className="fx-save" disabled={!name.trim() || !bp}>{r ? '儲存' : '新增'}</button>
+      <Prereqs list={needs} />
+      <button type="submit" className="fx-save" disabled={!name.trim() || !bp || blocked(needs)}>{r ? '儲存' : '新增'}</button>
     </form>
   )
 }
@@ -1646,6 +1655,8 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
   const act = useStore((s) => s.act)
   const draft = useDraft((s) => s.draft)
   const flows = flowList(w)
+  // what a task needs may go while this is open
+  const needs = usePrereqs(teamId, 'tasks').filter((x) => x.blocks)
   // a fresh draft on the flow last chosen, or a copy of a task; dropped when the sheet goes
   useEffect(() => {
     const s = useStore.getState().world
@@ -1660,7 +1671,7 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
   if (!draft) return null
   const wf = w.workflows[draft.workflowId]
   const missing = unstaffed(w, draft)
-  const ready = draft.title.trim() && wf && missing.length === 0
+  const ready = draft.title.trim() && wf && missing.length === 0 && !blocked(needs)
   const start = (e: React.FormEvent) => {
     e.preventDefault()
     if (!ready || !draft.ownerId) return
@@ -1711,7 +1722,7 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
             const last = lastStaff(useStore.getState().world, teamId, id)
             return { workflowId: id, ...last, ownerId: d.ownerId ?? last.ownerId }
           })} />
-        {wf && <OwnerField wf={wf} draft={draft} open={open} onOpen={onOpen} />}
+        {wf && <OwnerField teamId={teamId} draft={draft} />}
       </div>
       {wf && (
         <Section name="人員">
@@ -1724,6 +1735,7 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
       )}
       <p className="fx-d-actions">
         <button type="submit" className="fx-save" disabled={!ready}>開始</button>
+        <Prereqs list={needs} />
         {wf && <Missing draft={draft} missing={missing.length} />}
       </p>
     </form>
@@ -1735,31 +1747,27 @@ function StaffPick({ node, teamId, onDone, ...h }: Head & { node: string; teamId
   const w = useStore((s) => s.world)
   const draft = useDraft((s) => s.draft)
   const wf = draft && draftFlow(w, draft)
-  // 整理需求 and 驗收 are the owner's: picking for either picks the one owner
-  const owner = !!wf && isFixed(wf, node)
   const [picked, setPicked] = useState<string[]>(() => (draft ? draftStaff(w, draft, node) : []))
   const n = wf && nodeOf(wf, node)
   if (!wf || !n) return <Gone {...h} />
   const crew = teamReplicas(w, teamId)
-  const toggle = (id: string) => setPicked((p) => (owner ? [id] : p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
+  const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
   const save = (e: React.FormEvent) => {
     e.preventDefault()
     // keep the team's order, so faces line up the same way everywhere
-    if (owner) editDraft(() => ({ ownerId: picked[0] ?? null }))
-    else editDraft((d) => ({ staff: { ...d.staff, [node]: crew.map((r) => r.id).filter((id) => picked.includes(id)) } }))
+    editDraft((d) => ({ staff: { ...d.staff, [node]: crew.map((r) => r.id).filter((id) => picked.includes(id)) } }))
     onDone()
   }
-  const ends = wf.nodes.filter((x) => isFixed(wf, x.id)).map((x) => x.name).join('・')
   return (
     <form className="fx-d-form" onSubmit={save}>
       <header className="fx-d-head">
-        <Heading {...h}>{owner ? '任務負責人' : stepName(wf, node)}</Heading>
+        <Heading {...h}>{stepName(wf, node)}</Heading>
         <p className="fx-d-meta">
-          {owner ? <span>{ends}</span> : <span>{wf.name}</span>}
-          {!owner && picked.length > 1 && <span>任務分派：{ASSIGN[n.assignment]}</span>}
+          <span>{wf.name}</span>
+          {picked.length > 1 && <span>任務分派：{ASSIGN[n.assignment]}</span>}
         </p>
       </header>
-      {n.prompt && !owner && <p className="fx-d-text fx-d-quote">{n.prompt}</p>}
+      {n.prompt && <p className="fx-d-text fx-d-quote">{n.prompt}</p>}
       <div className="fx-d-groups">
         {byBlueprint(w, crew).map(({ bp, list }) => (
           <section key={bp.id} className="fx-d-group" aria-label={bp.name}>
@@ -1773,6 +1781,7 @@ function StaffPick({ node, teamId, onDone, ...h }: Head & { node: string; teamId
                       <PixelFace look={r.look} name={r.name} size={26} />
                       <span className="fx-row-main"><b>{r.name}</b><span>{mindOf(r)}</span></span>
                       <span className="fx-check" aria-hidden="true">{on ? '✓' : ''}</span>
+                      <ToolNotes bp={bp} />
                     </button>
                   </li>
                 )
@@ -1829,7 +1838,7 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
           <span>說明</span>
           <textarea className="fx-control" rows={3} value={draft.description} onChange={(e) => editDraft(() => ({ description: e.target.value }))} />
         </label>
-        <OwnerField wf={task.workflow} draft={draft} open={open} onOpen={onOpen} />
+        <OwnerField teamId={task.teamId} draft={draft} />
       </div>
       <Section name="人員">
         <div className="fx-flow">
@@ -1849,19 +1858,9 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
  * The task's owner on a task being written: it opens the same sheet as the 整理需求 and 驗收 notes, which
  * the owner works.
  */
-function OwnerField({ wf, draft, open, onOpen }: { wf: Workflow; draft: TaskDraft; open: string | null; onOpen: (nodeId: string) => void }) {
-  const replicas = useStore((s) => s.world.replicas)
-  const start = taskNodeOf(wf)?.id
-  const r = draft.ownerId ? replicas[draft.ownerId] : undefined
-  if (!start) return null
-  return (
-    <div className="fx-field">
-      <span>任務負責人</span>
-      <button type="button" className="fx-control fx-owner-pick" aria-expanded={!!open && isFixed(wf, open)} onClick={() => onOpen(start)}>
-        {r ? <><PixelFace look={r.look} name={r.name} size={18} />{r.name}</> : <span className="fx-d-muted">選擇員工</span>}
-      </button>
-    </div>
-  )
+function OwnerField({ teamId, draft }: { teamId: string; draft: TaskDraft }) {
+  const crew = teamReplicas(useStore((s) => s.world), teamId)
+  return <CrewSelect label="任務負責人" value={draft.ownerId ?? ''} crew={crew} placeholder="選擇員工" onChange={(id) => editDraft(() => ({ ownerId: id }))} />
 }
 
 /** What still keeps a task from starting: its owner first, then the steps nobody works. */

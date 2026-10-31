@@ -304,27 +304,35 @@ export function sayInTalk(w: World, subId: string, text: string) {
   log(sub, w.now, 'human', text)
 }
 
-export interface NewChat { teamId: string; replicaId: string; text: string }
+export interface NewChat { teamId: string; replicaId: string; text: string; images?: Attachment[] }
 
 /** A chat exists from the user's first message on; the employee answers a few seconds later. */
 export function createChat(w: World, i: NewChat): Chat {
   const r = w.replicas[i.replicaId]
   const chat: Chat = { id: uid(w, 'chat'), teamId: i.teamId, replicaId: i.replicaId, name: r.name, look: r.look, model: r.model, messages: [], createdAt: w.now }
   w.chats[chat.id] = chat
-  sayInChat(w, chat.id, i.text)
+  sayInChat(w, chat.id, i.text, i.images)
   return chat
 }
 
-export function sayInChat(w: World, id: string, text: string) {
+export function sayInChat(w: World, id: string, text: string, images: Attachment[] = []) {
   const chat = w.chats[id]
   text = text.trim()
-  if (!chat || !text || chat.replyAt !== undefined || !w.replicas[chat.replicaId]) return
-  chat.messages.push({ at: w.now, from: 'user', text })
+  if (!chat || (!text && !images.length) || chat.replyAt !== undefined || !w.replicas[chat.replicaId]) return
+  chat.messages.push({ at: w.now, from: 'user', text, ...(images.length ? { images } : {}) })
   chat.replyAt = w.now + REPLY_TIME
 }
 
 export function stopChat(w: World, id: string) {
   if (w.chats[id]) delete w.chats[id].replyAt
+}
+
+/** Takes back one of the user's messages and all that came after it. */
+export function rewindChat(w: World, id: string, index: number) {
+  const chat = w.chats[id]
+  if (chat?.messages[index]?.from !== 'user') return
+  chat.messages.length = index
+  delete chat.replyAt
 }
 
 export function deleteChat(w: World, id: string) {

@@ -8,10 +8,12 @@ import { openFolder } from './core/ops'
 import { MOCK } from './core/mode'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { inTerminal } from './core/model'
+import { Prereqs, usePrereqs } from './PrereqStamps'
 import { useStore } from './core/store'
 import { paletteOf } from './Building'
 import { BranchIcon, Detail, itemKey, type Item } from './DrawerDetail'
-import { TabBody, TABS, type Tab } from './DrawerTabs'
+import { TabBody, TABS, tabOr, type Tab } from './DrawerTabs'
+import { usePrefs } from './prefs'
 import type { BuildingLook } from './layout'
 import type { Team } from './core/domain/types'
 
@@ -86,6 +88,10 @@ export function CompanyTitle({ team, look, canOpenFolder, children }: { team: Te
   )
 }
 
+function TerminalPrereqs({ teamId }: { teamId: string }) {
+  return <Prereqs list={usePrereqs(teamId, 'terminal')} />
+}
+
 export function Drawer({ teamId, look, leaving, onGone }: {
   teamId: string
   look: BuildingLook
@@ -98,9 +104,9 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   const last = useRef(live)
   if (live) last.current = live
   const team = live ?? (last.current?.id === teamId ? last.current : undefined)
-  const [tab, setTab] = useState<Tab>('tasks')
+  const [tab, setTab] = useState<Tab>(() => tabOr(usePrefs.getState().defaultTab))
   // the company whose terminal has been opened: its shell then runs until the file closes or changes company
-  const [terminalTeam, setTerminalTeam] = useState<string | null>(null)
+  const [terminalTeam, setTerminalTeam] = useState<string | null>(tab === 'terminal' ? teamId : null)
   const [terminalFocus, setTerminalFocus] = useState(0)
   const title = useRef<HTMLHeadingElement>(null)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
@@ -110,7 +116,9 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   useEffect(() => {
     title.current?.focus({ preventScroll: true })
     back(-1, false)
-    setTab('tasks')
+    const start = tabOr(usePrefs.getState().defaultTab)
+    setTab(start)
+    if (start === 'terminal') setTerminalTeam(teamId)
   }, [teamId, back])
   if (!team) return null
   const base = sheets.layers[0]
@@ -167,6 +175,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
         {terminalTeam === teamId && (
           <section id={tab === 'terminal' ? 'fx-panel' : undefined} className="fx-page fx-page-terminal" role="tabpanel"
             aria-labelledby="fx-tab-terminal" hidden={tab !== 'terminal'}>
+            <TerminalPrereqs teamId={teamId} />
             <Suspense fallback={null}>
               <Terminal key={teamId} teamId={teamId} focusRequest={terminalFocus}
                 onLeave={() => tabs.current[TABS.findIndex((x) => x.id === 'terminal')]?.focus()} />

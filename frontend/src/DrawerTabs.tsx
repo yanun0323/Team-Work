@@ -7,13 +7,15 @@ import type { Chat, Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
 import { MOCK } from './core/mode'
 import { useT } from './core/i18n'
-import { byBlueprint, mindOf } from './crew'
+import { byBlueprint, chatMindOf, mindOf } from './crew'
 import { activity, teamReplicas, teamTasks } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { Select, Stepper, WaitBadge } from './Controls'
 import { editTeam, refreshPrompt } from './core/ops'
 import { itemKey, type Item } from './DrawerDetail'
+import { blocked } from './prereqs'
+import { Prereqs, usePrereqs } from './PrereqStamps'
 
 export type Tab = 'chats' | 'tasks' | 'crew' | 'terminal' | 'settings'
 
@@ -25,6 +27,9 @@ export const TABS: { id: Tab; label: string }[] = [
   ...(MOCK ? [] : [{ id: 'terminal' as const, label: '終端機' }]),
   { id: 'settings', label: '設定' },
 ]
+
+/** The tab to open on: the wanted one, or 任務 where it does not exist, as with 終端機 in the simulator. */
+export const tabOr = (wanted: Tab): Tab => (TABS.some((x) => x.id === wanted) ? wanted : 'tasks')
 
 const COLUMNS: { status: Status; label: string }[] = [
   { status: 'todo', label: '待辦' },
@@ -58,9 +63,11 @@ function Chats(p: Opens) {
   const w = useStore((s) => s.world)
   const lastAt = (c: Chat) => c.messages[c.messages.length - 1]?.at ?? c.createdAt
   const chats = Object.values(w.chats).filter((c) => c.teamId === p.teamId).sort((a, b) => lastAt(b) - lastAt(a))
+  const needs = usePrereqs(p.teamId, 'chats')
   return (
     <div className="fx-d-groups fx-crew-groups">
-      <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newChat' }, p)}>＋ 新對話</button>
+      <Prereqs list={needs} />
+      <button className="fx-task fx-task-new fx-flow-new fx-hit" disabled={blocked(needs)} {...opener({ kind: 'newChat' }, p)}>＋ 新對話</button>
       {!chats.length && <Empty>還沒有對話</Empty>}
       {chats.length > 0 && (
         <ul className="fx-list">
@@ -71,8 +78,8 @@ function Chats(p: Opens) {
               <li key={c.id}><button className="fx-row fx-hit" {...opener({ kind: 'chat', id: c.id }, p)}>
                 <PixelFace look={r?.look ?? c.look} name={name} size={34} />
                 <span className="fx-row-main">
-                  <b>{name}<span className="fx-chat-model">{c.model}</span></b>
-                  <span className="fx-chat-first">{c.messages[0]?.text}</span>
+                  <b>{name}<span className="fx-chat-model">{chatMindOf(w, c)}</span></b>
+                  <span className="fx-chat-first">{c.messages[0]?.text || (c.messages[0]?.images?.length ? '圖片' : '')}</span>
                 </span>
               </button></li>
             )
@@ -87,7 +94,10 @@ export function Tasks(p: Opens) {
   const { teamId } = p
   const w = useStore((s) => s.world)
   const tasks = teamTasks(w, teamId).filter((x) => x.stage !== 'cancelled')
+  const needs = usePrereqs(teamId, 'tasks')
   return (
+    <>
+    <Prereqs list={needs} />
     <div className="fx-board">
       {COLUMNS.map((c) => {
         const list = tasks.filter((x) => statusOf(w, x) === c.status)
@@ -95,7 +105,7 @@ export function Tasks(p: Opens) {
           <section key={c.status} className={`fx-lane fx-lane-${c.status}`} aria-label={c.label}>
             <h3>{c.label}<span className="fx-count">{list.length}</span></h3>
             {c.status === 'todo' && (
-              <button className="fx-task fx-task-new fx-hit" {...opener({ kind: 'newTask' }, p)}>＋ 新增任務</button>
+              <button className="fx-task fx-task-new fx-hit" disabled={blocked(needs)} {...opener({ kind: 'newTask' }, p)}>＋ 新增任務</button>
             )}
             {list.map((task) => {
               const faces = subsOf(w, task.id)
@@ -123,6 +133,7 @@ export function Tasks(p: Opens) {
         )
       })}
     </div>
+    </>
   )
 }
 
@@ -131,9 +142,11 @@ function Crew(p: Opens) {
   const t = useT()
   const w = useStore((s) => s.world)
   const crew = teamReplicas(w, teamId)
+  const needs = usePrereqs(teamId, 'crew')
   return (
     <div className="fx-d-groups fx-crew-groups">
-      <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newCrew' }, p)}>＋ 新增員工</button>
+      <Prereqs list={needs} />
+      <button className="fx-task fx-task-new fx-flow-new fx-hit" disabled={blocked(needs)} {...opener({ kind: 'newCrew' }, p)}>＋ 新增員工</button>
       {!crew.length && <Empty>{t('roster.empty')}</Empty>}
       {byBlueprint(w, crew).map(({ bp, list }) => (
         <section key={bp.id} className="fx-d-group" aria-label={bp.name}>

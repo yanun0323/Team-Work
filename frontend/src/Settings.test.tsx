@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server'
+import { tabOr, type Tab } from './DrawerTabs'
 import { expect, it } from 'vitest'
 import { version } from '../package.json'
 import { useStore } from './core/store'
@@ -25,7 +26,7 @@ it('is a drawer headed as the airport, its model providers listed under the firs
 })
 
 it('starts with every preference on and the newest log line first', () => {
-  expect(DEFAULT_PREFS).toEqual({ logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true })
+  expect(DEFAULT_PREFS).toEqual({ logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, defaultTab: 'tasks' })
   expect(ordered([1, 2, 3], 'newestFirst')).toEqual([3, 2, 1])
   expect(ordered([1, 2, 3], 'newestLast')).toEqual([1, 2, 3])
 })
@@ -41,4 +42,9 @@ it('offers a keyboard-accessible reload action with persistent announcement regi
   expect(html).toContain('<button type="button" class="fx-save">重新載入設定</button>')
   expect(html).toContain('role="status"')
   expect(html).toContain('role="alert"')
+})
+
+it('opens a company on the chosen tab, or on 任務 where that tab does not exist', () => {
+  expect(tabOr('crew')).toBe('crew')
+  expect(tabOr('nope' as Tab)).toBe('tasks')
 })

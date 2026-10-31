@@ -219,6 +219,8 @@ export interface ChatMessage {
   /** `tool` is something the employee ran, in a chat. */
   from: 'user' | 'agent' | 'tool'
   text: string
+  /** What the user attached, in a chat. */
+  images?: Attachment[]
 }
 
 /** The user talking with one employee outside any task. Its employee and model never change. */

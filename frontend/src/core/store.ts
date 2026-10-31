@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { applyPatches, connect, emptyWorld, type ServerEvent } from './backend'
 import { seedWorld } from './data/seed'
+import { addLive, clearAllLive, clearLive } from './live'
 import { tick } from './domain/sim'
 import type { Locale, World, WorldEvent } from './domain/types'
 import { MOCK } from './mode'
@@ -77,6 +78,7 @@ export const useStore = create<State>()(
       set((s) => {
         switch (ev.type) {
           case 'snapshot': {
+            clearAllLive()
             s.world = { ...emptyWorld(), ...ev.world }
             s.loaded = true
             s.offline = false
@@ -87,8 +89,18 @@ export const useStore = create<State>()(
             }
             break
           }
-          case 'patch':
+          case 'delta':
+            addLive(ev.subId, ev.text)
+            break
+          case 'deltaReset':
+            clearLive(ev.subId)
+            break
+          case 'patch': {
+            // what was being written has become a message
+            const said = (id: string) => (s.world.chats[id]?.messages ?? s.world.subTasks[id]?.talk?.messages ?? []).length
+            const before = (ev.upserts ?? []).map((p) => [p.id, said(p.id)] as const)
             applyPatches(s.world, ev, (kind, id) => kind === 'team' && editing(id))
+            for (const [id, n] of before) if (said(id) > n) clearLive(id)
             if (!s.teamId) {
               const first = Object.values(s.world.teams).sort((a, b) => a.createdAt - b.createdAt)[0]
               if (first) {
@@ -97,6 +109,7 @@ export const useStore = create<State>()(
               }
             }
             break
+          }
           case 'notice':
             s.toasts.push({ id: ++toastSeq, event: ev.kind === 'review' ? { kind: 'review', taskId: ev.taskId, subId: ev.subId ?? '' } : { kind: 'awaitMerge', taskId: ev.taskId } })
             s.toasts = s.toasts.slice(-4)

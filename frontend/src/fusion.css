@@ -205,13 +205,15 @@ body { margin: 0; overflow: hidden; }
 .fx-page[hidden] { display: none; }
 /* no turn-in: xterm measures its letters on screen, so they must not be under a transform */
 .fx-page-terminal { overflow: hidden; animation: none; }
+.fx-page-terminal:not([hidden]) { display: flex; flex-direction: column; }
 /* a black sticky note on the page; straight, unlike the other notes, for the same reason */
 .fx-terminal {
-  position: relative; box-sizing: border-box; display: flex; flex-direction: column; height: 100%;
+  position: relative; box-sizing: border-box; display: flex; flex-direction: column; flex: 1; min-height: 0;
   background: var(--terminal-note); color: #e8e6df; border: 1px solid transparent; border-radius: 2px;
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 14px -4px rgb(60 40 10 / 0.4), 0 18px 26px -14px rgb(60 40 10 / 0.45);
 }
 .fx-terminal-screen { flex: 1; min-height: 0; margin: 14px 8px 14px 14px; }
+.fx-terminal-xterm { height: 100%; }
 .fx-terminal-ended {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 8px 14px; border-top: 1px solid rgb(255 255 255 / 0.16);
@@ -227,6 +229,12 @@ body { margin: 0; overflow: hidden; }
   color: var(--accent); font-size: 11px; font-weight: 700; line-height: 1.5; letter-spacing: 0.06em; white-space: nowrap;
   transform: rotate(-3deg); opacity: 0.85;
 }
+/* what a tab still needs: stamped at the top of the page */
+.fx-prereqs { display: grid; justify-items: start; gap: 8px; }
+.fx-prereqs:empty { display: none; }
+.fx-pill.fx-prereq { margin: 0; padding: 2px 8px; font-size: 13px; white-space: normal; overflow-wrap: anywhere; transform: rotate(-0.6deg); opacity: 1; letter-spacing: 0.02em; }
+.fx-page > .fx-prereqs:not(:empty) { margin-bottom: 18px; }
+.fx-task-new:disabled { opacity: 0.45; cursor: not-allowed; }
 /* a highlighter stroke */
 .fx-pill-on {
   border: 0; padding: 0 3px; border-radius: 0; transform: none; opacity: 1; letter-spacing: 0;
@@ -484,6 +492,16 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-d-actions { display: flex; align-items: center; gap: 14px; }
 /* a picked employee stays shaded, with a tick */
 .fx-hit[aria-pressed="true"] { box-shadow: inset 0 0 0 100vmax var(--shade); }
+/* who can do what, on an employee's row: the same width on every row, so the rows line up */
+.fx-row:has(> .fx-staff-tools) { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.fx-staff-tools { display: grid; grid-template-columns: repeat(2, 5em); gap: 4px; }
+.fx-staff-tools span { padding: 0 4px; background: var(--clip); box-shadow: var(--lift); color: var(--ink); font-size: 11px; line-height: 1.6; text-align: center; white-space: nowrap; }
+.fx-d-groups { container-type: inline-size; }
+/* a narrow sheet has no room beside the name: the tools go underneath */
+@container (max-width: 420px) {
+  .fx-staff-tools { grid-column: 2 / -1; justify-self: start; }
+  .fx-row:has(> .fx-staff-tools) { grid-template-columns: auto minmax(0, 1fr) auto; }
+}
 .fx-check { width: 1em; font-weight: 700; color: var(--ink); text-align: center; }
 /* the slot for a new task: a blank slip, dashed where the next card goes */
 .fx-task-new { color: var(--muted); font-size: 13.5px; text-align: center; background: none; box-shadow: none; outline: 1.5px dashed var(--rule); outline-offset: -1px; --tilt: 0deg; }
@@ -583,8 +601,7 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 /* the task's owner, after its status: a face that opens the employee */
 .fx-d-owner { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 .fx-d-owner button { display: flex; align-items: center; gap: 6px; margin: -3px -2px; padding: 3px 6px; border: 0; background: none; font: inherit; color: var(--ink-2); cursor: pointer; }
-.fx-d-owner svg, .fx-owner-pick svg { display: block; flex: none; border-radius: 2px; }
-.fx-owner-pick { display: flex; align-items: center; gap: 8px; text-align: start; cursor: pointer; }
+.fx-d-owner svg { display: block; flex: none; border-radius: 2px; }
 .fx-d-run svg, .fx-d-people svg { display: block; flex: none; border-radius: 2px; }
 .fx-d-noface { width: 18px; height: 18px; border-radius: 2px; background: var(--wash, rgb(0 0 0 / 0.06)); }
 .fx-d-bar { flex: 0 1 80px; height: 5px; background: rgb(31 29 43 / 0.1); }
@@ -652,6 +669,22 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 }
 .fx-slip li.active { background: rgb(31 29 43 / 0.07); }
 .fx-slip li[aria-selected="true"] { font-weight: 600; }
+.fx-slip-rows { box-sizing: border-box; max-height: min(340px, 50vh); container-type: inline-size; }
+.fx-slip-group { display: block; padding: 0; cursor: default; }
+.fx-slip-group > ul { margin: 0; padding: 0; list-style: none; }
+.fx-slip-group + .fx-slip-group { margin-top: 6px; }
+.fx-slip-head { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px 4px; font-size: 13px; font-weight: 600; }
+.fx-slip li.fx-slip-group { display: block; padding: 0; cursor: default; }
+.fx-slip li.fx-slip-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 10px; font-weight: 400; }
+.fx-slip-row[aria-selected="true"] { background: rgb(31 29 43 / 0.04); }
+.fx-pick-picture { display: flex; flex: none; }
+.fx-slip-row .fx-pick-picture svg { padding: 3px; background: var(--clip); box-shadow: var(--lift); transform: rotate(-2deg); }
+.fx-pick-value { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fx-pick-value svg { display: block; border-radius: 2px; }
+@container (max-width: 400px) {
+  .fx-slip li.fx-slip-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .fx-slip-row .fx-staff-tools { grid-column: 2 / -1; justify-self: start; }
+}
 .fx-slip-check { display: inline-grid; place-items: center; width: 14px; flex: none; color: var(--accent); }
 
 /* stepper: − value + on one wash, the tabs pressed in when clicked */
@@ -930,7 +963,19 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 .fx-room-log .fx-chat-user .fx-chat-bubble { rotate: 0.4deg; }
 .fx-room-tool { flex: none; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
 .fx-room-warn { flex: none; color: var(--accent); font-size: 13px; }
-.fx-room-say { flex: none; display: flex; align-items: flex-end; gap: 8px; }
+.fx-room-say { flex: none; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.fx-room-say-wide { flex: 0 0 100%; }
+.fx-room-attach { flex: none; display: grid; place-items: center; width: 32px; height: 40px; color: var(--muted); cursor: pointer; }
+.fx-room-attach:hover { color: var(--ink); }
+.fx-room-attach:focus-within { outline: 2px solid rgb(31 29 43 / 0.3); }
+.fx-chat-said { min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.fx-chat-images { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.fx-chat-images img { display: block; max-width: 240px; max-height: 180px; padding: 3px; background: #fff; box-shadow: 0 1px 2px rgb(31 29 43 / 0.25); }
+.fx-chat-foot { display: flex; align-items: center; gap: 4px; min-height: 20px; }
+.fx-chat-foot time { padding-bottom: 0; font: 500 10.5px/1 var(--font-mono); color: var(--muted); }
+.fx-chat-edit { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
+.fx-chat-edit:hover { color: var(--ink); }
+.fx-chat-edit:disabled { opacity: 0.35; cursor: default; }
 .fx-room-say textarea { flex: 1; min-width: 0; resize: none; }
 .fx-room-send { flex: none; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 3px; background: var(--ink); color: var(--clip); cursor: pointer; }
 .fx-room-send:disabled { opacity: 0.35; cursor: default; }

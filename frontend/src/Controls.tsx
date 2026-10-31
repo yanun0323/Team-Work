@@ -1,7 +1,7 @@
 // Form controls for the company file, drawn to match the newsprint: a pick-list that drops a paper slip,
 // and a number field with paper − / + tabs. Both keep the keyboard behaviour of the native controls.
 
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 const Chevron = () => (
   <svg className="fx-chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
@@ -19,13 +19,20 @@ const Check = () => (
  * A select-only combobox (WAI-ARIA pattern): a button showing the value, opening a listbox on a paper slip.
  * Arrows, Home/End and typing a letter move; Enter, Space or a click picks; Escape or Tab closes.
  */
-export function Select({ label, value, options, labelOf = (o) => o, onChange }: {
+export function Select({ label, value, options, labelOf = (o) => o, onChange, shownAs, rowOf, groups, groupOf }: {
   label: string
   value: string
   options: string[]
   /** What to show for an option, when the value itself is an id. */
   labelOf?: (o: string) => string
   onChange: (v: string) => void
+  /** The closed list's value, when it is more than the label. */
+  shownAs?: (o: string) => ReactNode
+  /** An option's whole row, when it is more than the label; it marks being picked itself. */
+  rowOf?: (o: string, picked: boolean) => ReactNode
+  /** Headings to list the options under; each group's options must follow each other in `options`. */
+  groups?: { label: string; count: number }[]
+  groupOf?: (o: string) => number
 }) {
   const id = useId()
   const [open, setOpen] = useState(false)
@@ -53,8 +60,29 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange }: 
   }, [open])
   // keep the active option in view when the list is longer than the slip
   useEffect(() => {
-    if (open) list.current?.children[active]?.scrollIntoView({ block: 'nearest' })
+    const slip = list.current
+    const row = slip?.querySelector<HTMLElement>('.active')
+    if (!open || !slip || !row) return
+    // only the slip moves; scrollIntoView would drag the panel behind it along too
+    // offsets, as the slip is still tilted while it drops in
+    const pad = 5
+    if (row.offsetTop - pad < slip.scrollTop) slip.scrollTop = row.offsetTop - pad
+    else if (row.offsetTop + row.offsetHeight + pad > slip.scrollTop + slip.clientHeight) {
+      slip.scrollTop = row.offsetTop + row.offsetHeight + pad - slip.clientHeight
+    }
   }, [open, active])
+  const hasRows = !!rowOf
+  // a tall slip stops short of the panel's edge, as long as that leaves it room to be used
+  useLayoutEffect(() => {
+    const slip = list.current
+    if (!open || !hasRows || !slip) return
+    let up = slip.parentElement
+    while (up && !/auto|scroll|hidden/.test(getComputedStyle(up).overflowY)) up = up.parentElement
+    if (!up) return
+    // the slip is still 6px high here, dropping in
+    const room = up.getBoundingClientRect().bottom - slip.getBoundingClientRect().top - 14
+    if (room >= 160) slip.style.maxHeight = `${Math.min(room, slip.offsetHeight)}px`
+  }, [open, hasRows])
 
   const onKey = (e: KeyboardEvent) => {
     const last = options.length - 1
@@ -90,6 +118,26 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange }: 
     e.preventDefault()
   }
 
+  const option = (o: string) => {
+    const i = options.indexOf(o)
+    return (
+      <li
+        key={o} id={`${id}-${i}`} role="option" aria-selected={o === value}
+        className={[i === active && 'active', rowOf && 'fx-slip-row'].filter(Boolean).join(' ') || undefined}
+        // keep focus on the button so the keyboard keeps working
+        onPointerDown={(e) => e.preventDefault()}
+        onPointerEnter={() => setActive(i)} onClick={() => pick(i)}
+      >
+        {rowOf ? rowOf(o, o === value) : (
+          <>
+            <span className="fx-slip-check">{o === value && <Check />}</span>
+            {labelOf(o)}
+          </>
+        )}
+      </li>
+    )
+  }
+
   return (
     <div className="fx-field">
       <span id={`${id}-label`}>{label}</span>
@@ -100,23 +148,19 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange }: 
           aria-activedescendant={open ? `${id}-${active}` : undefined}
           onClick={() => (open ? setOpen(false) : show())} onKeyDown={onKey}
         >
-          <span className="fx-select-value">{labelOf(value)}</span>
+          <span className="fx-select-value">{shownAs ? shownAs(value) : labelOf(value)}</span>
           <Chevron />
         </button>
         {open && (
-          <ul ref={list} id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} className="fx-slip">
-            {options.map((o, i) => (
-              <li
-                key={o} id={`${id}-${i}`} role="option" aria-selected={o === value}
-                className={i === active ? 'active' : undefined}
-                // keep focus on the button so the keyboard keeps working
-                onPointerDown={(e) => e.preventDefault()}
-                onPointerEnter={() => setActive(i)} onClick={() => pick(i)}
-              >
-                <span className="fx-slip-check">{o === value && <Check />}</span>
-                {labelOf(o)}
-              </li>
-            ))}
+          <ul ref={list} id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} className={`fx-slip${rowOf ? ' fx-slip-rows' : ''}`}>
+            {groups && groupOf
+              ? groups.map((g, at) => (
+                <li key={g.label} role="group" aria-label={g.label} className="fx-slip-group">
+                  <span className="fx-slip-head" aria-hidden="true">{g.label}<span className="fx-count">{g.count}</span></span>
+                  <ul role="presentation">{options.filter((o) => groupOf(o) === at).map(option)}</ul>
+                </li>
+              ))
+              : options.map(option)}
           </ul>
         )}
       </div>

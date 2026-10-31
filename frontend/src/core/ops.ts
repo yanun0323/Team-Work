@@ -4,7 +4,7 @@
 
 import { request } from './backend'
 import * as sim from './domain/sim'
-import type { Blueprint, Chat, Effort, Look, Replica, TalkEnd, Team, Workflow, World } from './domain/types'
+import type { Attachment, Blueprint, Chat, Effort, Look, Replica, TalkEnd, Team, Workflow, World } from './domain/types'
 import { MOCK } from './mode'
 
 /** Reports a request that failed; the store shows it. Set once at start. */
@@ -45,7 +45,8 @@ export const endTalk = pick('endTalk', (_w: World, id: string, end: TalkEnd) => 
 
 // ---------- chats ----------
 
-export const sayInChat = pick('sayInChat', (_w: World, id: string, text: string) => fire_('POST', `/chats/${id}/say`, { text }))
+export const sayInChat = pick('sayInChat', (_w: World, id: string, text: string, images: Attachment[] = []) => fire_('POST', `/chats/${id}/say`, { text, images }))
+export const rewindChat = pick('rewindChat', (_w: World, id: string, index: number) => fire_('POST', `/chats/${id}/rewind`, { index }))
 export const stopChat = pick('stopChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/stop`))
 export const deleteChat = pick('deleteChat', (_w: World, id: string) => fire_('DELETE', `/chats/${id}`))
 

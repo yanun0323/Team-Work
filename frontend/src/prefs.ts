@@ -2,6 +2,7 @@
 
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import type { Tab } from './DrawerTabs'
 
 export type LogOrder = 'newestFirst' | 'newestLast'
 
@@ -18,9 +19,13 @@ export interface Prefs {
   planes: boolean
   /** Low clouds and the shadows of the high ones. */
   clouds: boolean
+  /** A company's terminal runs on when the company closes, until the app does. */
+  keepTerminals: boolean
+  /** The tab a company's file opens on. */
+  defaultTab: Tab
 }
 
-export const DEFAULT_PREFS: Prefs = { logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true }
+export const DEFAULT_PREFS: Prefs = { logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, defaultTab: 'tasks' }
 
 export const usePrefs = create<Prefs & { set: (p: Partial<Prefs>) => void }>()(
   persist((set) => ({ ...DEFAULT_PREFS, set: (p) => set(p) }), {

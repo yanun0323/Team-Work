@@ -16,6 +16,7 @@ import { sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, PROVIDER_KINDS } from './providers'
 import { Select, Toggle } from './Controls'
+import { TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
 import { usePrefs, type LogOrder, type Prefs } from './prefs'
 import { request } from './core/backend'
 import { MOCK } from './core/mode'
@@ -234,7 +235,7 @@ export function ReloadSettings() {
 
 function PrefsPage() {
   const prefs = usePrefs()
-  const check = (key: Exclude<keyof Prefs, 'logOrder'>, label: string) => (
+  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab'>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
   return (
@@ -245,6 +246,9 @@ function PrefsPage() {
         <div className="fx-fields">
           <Select label="任務紀錄排序" value={prefs.logOrder} options={Object.keys(LOG_ORDERS)} labelOf={(o) => LOG_ORDERS[o as LogOrder]}
             onChange={(v) => prefs.set({ logOrder: v as LogOrder })} />
+          <Select label="預設頁籤" value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.map((x) => x.id)}
+            labelOf={(id) => COMPANY_TABS.find((x) => x.id === id)!.label} onChange={(v) => prefs.set({ defaultTab: v as CompanyTab })} />
+          {!MOCK && <Toggle label="保留終端機" checked={prefs.keepTerminals} onChange={(v) => prefs.set({ keepTerminals: v })} />}
         </div>
       </section>
       <section className="fx-d-group" aria-labelledby="fx-prefs-perf">

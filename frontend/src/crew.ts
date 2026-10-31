@@ -1,7 +1,7 @@
 // Employees are always shown under their blueprint, blueprints in the order the company knows them.
 
 import { HAIRS, SKINS } from './core/domain/sim'
-import type { Blueprint, Look, Replica, World } from './core/domain/types'
+import type { Blueprint, Chat, Look, Replica, World } from './core/domain/types'
 
 export function byBlueprint(w: World, crew: Replica[]): { bp: Blueprint; list: Replica[] }[] {
   return Object.values(w.blueprints)
@@ -47,3 +47,15 @@ export function randomLook(rand: () => number = Math.random): Look {
 
 /** What an employee runs on, as one line: model, then how hard they think. */
 export const mindOf = (r: Replica) => `${r.model} · ${r.effort}`
+
+/**
+ * What a chat runs on. A chat stays on the model it began with but keeps no level of its own: it thinks at its
+ * employee's level, or the default once they have moved to another model. Nothing is known of the level of an
+ * employee who has left, and their chat takes no more replies.
+ */
+export function chatMindOf(w: World, c: Chat) {
+  const r = w.replicas[c.replicaId]
+  if (!r) return c.model
+  const effort = r.model === c.model && effortsOf(w, c.model).includes(r.effort) ? r.effort : DEFAULT_EFFORT
+  return `${c.model} · ${effort}`
+}

@@ -18,6 +18,7 @@ export type ServerEvent =
   | { type: 'snapshot'; world: World }
   | { type: 'patch'; upserts?: Patch[]; deletes?: Patch[] }
   | { type: 'delta'; subId: string; text: string }
+  | { type: 'deltaReset'; subId: string }
   | { type: 'notice'; kind: 'review' | 'awaitMerge'; taskId: string; subId?: string }
 
 const BOOKS: Record<string, keyof World> = {
