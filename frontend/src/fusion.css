@@ -648,6 +648,24 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 :is(.fx-drawer, .fx-detail) :is(.fx-control, .fx-stepper input):focus-visible { outline: none; }
 .fx-control:focus, .fx-control[aria-expanded="true"], .fx-stepper:focus-within { --wash: rgb(31 29 43 / 0.13); }
 
+/* a few choices side by side: a slip of paper slides under the picked one */
+.fx-switcher {
+  position: relative; display: grid; grid-template-columns: repeat(var(--count), minmax(0, 1fr));
+  box-sizing: border-box; height: 34px; padding: 3px; border-radius: 3px; background: rgb(31 29 43 / 0.06);
+}
+.fx-switcher-thumb {
+  position: absolute; inset-block: 3px; inset-inline-start: calc(3px + (100% - 6px) * var(--at) / var(--count));
+  width: calc((100% - 6px) / var(--count)); border-radius: 2px; background: var(--clip); box-shadow: var(--lift);
+  transition: inset-inline-start 160ms ease;
+}
+.fx-switcher-option { position: relative; display: grid; place-items: center; min-width: 0; border-radius: 2px; color: var(--ink-2); font: 500 14px/1.2 var(--font-sans); cursor: pointer; }
+.fx-switcher-option > span { overflow: hidden; max-width: 100%; padding-inline: 8px; box-sizing: border-box; text-overflow: ellipsis; white-space: nowrap; }
+.fx-switcher-option input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.fx-switcher-option:hover { color: var(--ink); }
+.fx-switcher-option:has(input:checked) { color: var(--ink); font-weight: 700; }
+.fx-switcher-option:has(input:focus-visible) { outline: 2px solid rgb(31 29 43 / 0.3); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .fx-switcher-thumb { transition: none; } }
+
 /* pick-list: the value on the wash, a chevron that flips while open, the options on a slip of paper */
 .fx-select { position: relative; }
 .fx-select > .fx-control { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: start; cursor: pointer; }

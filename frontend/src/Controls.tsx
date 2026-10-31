@@ -1,7 +1,7 @@
 // Form controls for the company file, drawn to match the newsprint: a pick-list that drops a paper slip,
 // and a number field with paper − / + tabs. Both keep the keyboard behaviour of the native controls.
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 
 const Chevron = () => (
   <svg className="fx-chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
@@ -178,6 +178,32 @@ export function Toggle({ label, checked, onChange }: { label: string; checked: b
     <div className="fx-field">
       <label htmlFor={id}>{label}</label>
       <input id={id} type="checkbox" className="fx-tick" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    </div>
+  )
+}
+
+/** A field with a few short choices side by side, all in view. Native radios, so the arrow keys move between them. */
+export function Switcher<T extends string>({ label, value, options, labelOf, onChange }: {
+  label: string
+  value: T
+  options: readonly T[]
+  labelOf: (option: T) => string
+  onChange: (option: T) => void
+}) {
+  const id = useId()
+  return (
+    <div className="fx-field">
+      <span id={id}>{label}</span>
+      <div className="fx-switcher" role="radiogroup" aria-labelledby={id}
+        style={{ '--count': options.length, '--at': options.indexOf(value) } as CSSProperties}>
+        <span className="fx-switcher-thumb" aria-hidden="true" />
+        {options.map((o) => (
+          <label key={o} className="fx-switcher-option">
+            <input type="radio" name={id} checked={o === value} onChange={() => onChange(o)} />
+            <span>{labelOf(o)}</span>
+          </label>
+        ))}
+      </div>
     </div>
   )
 }

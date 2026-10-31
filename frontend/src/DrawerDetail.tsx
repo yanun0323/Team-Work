@@ -20,7 +20,7 @@ import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
 import { ClaudeAccount } from './ClaudeAccount'
 import { Markdown, MarkdownLine } from './Markdown'
-import { Select, WaitBadge } from './Controls'
+import { Select, Switcher, WaitBadge } from './Controls'
 import { FlowNotes, openCard } from './FlowNotes'
 import { addImages, copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, unstaffed, useDraft, type TaskDraft } from './draft'
 import { byBlueprint, DEFAULT_EFFORT, effortsOf, mindOf, modelsOf, randomLook } from './crew'
@@ -1083,8 +1083,8 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
             onChange={(k) => pickKind(k as ProviderKind)} />
         )}
         {sub && (
-          <Select label="連線方式" value={auth} options={['apiKey', 'subscription']}
-            labelOf={(a) => (a === 'apiKey' ? 'API Key' : `${sub} 訂閱`)} onChange={(a) => pickAuth(a as typeof auth)} />
+          <Switcher label="連線方式" value={auth} options={['apiKey', 'subscription'] as const}
+            labelOf={(a) => (a === 'apiKey' ? 'API Key' : `${sub} 訂閱`)} onChange={pickAuth} />
         )}
         <label className="fx-field">
           <span>名稱</span>
@@ -1242,17 +1242,17 @@ export function blueprintOf(id: string, prev: Blueprint | undefined, look: Look,
 }
 
 /**
- * Add a blueprint (`id` null) or change one, from a GitHub repo or filled in here. The repo is
- * typed as `owner/repo` or pasted as any GitHub address: a version in it (branch, tag or commit) moves to
- * the version field. With no version the default branch is used. The name follows the repo until it is
- * typed. Either way its icon is rolled at random. Nothing changes until it
- * is saved.
+ * Add a blueprint (`id` null) by filling it in, or change one. One from GitHub keeps its repo, typed as
+ * `owner/repo` or pasted as any GitHub address: a version in it (branch, tag or commit) moves to the version
+ * field. With no version the default branch is used. A new one's icon is rolled at random. Nothing changes
+ * until it is saved.
  */
 function BlueprintEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: () => void }) {
   const act = useStore((s) => s.act)
   const old = useStore((s) => (id ? s.world.blueprints[id] : undefined))
   const was = old?.source
-  const [kind, setKind] = useState<'git' | 'local'>(old && was?.kind !== 'git' ? 'local' : 'git')
+  // new ones are filled in here; one already from GitHub stays tied to its repo
+  const kind = was?.kind === 'git' ? 'git' : 'local'
   const [repo, setRepo] = useState(was?.kind === 'git' ? was.repo.replace('git@github.com:', '') : '')
   const [ref, setRef] = useState(was?.kind === 'git' ? was.ref : '')
   const [prompt, setPrompt] = useState(old?.prompt ?? '')
@@ -1347,8 +1347,6 @@ function BlueprintEdit({ id, onDone, ...h }: Head & { id: string | null; onDone:
             <Reroll onClick={() => setLook(randomLook())} label="隨機樣式" />
           </div>
         </div>
-        <Select label="來源" value={kind} options={['git', 'local']} labelOf={(x) => (x === 'git' ? 'GitHub' : '本地')}
-          onChange={(x) => setKind(x as 'git' | 'local')} />
         <label className="fx-field">
           <span>名稱</span>
           {/* not blank: spaces alone are no name */}
