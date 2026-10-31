@@ -13,7 +13,7 @@ const calm: Partial<Script> = { duration: 10, costRate: 0.001, route: 0, ask: un
 
 function world(): World {
   const w: World = {
-    now: 0, seq: 0, teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {},
+    now: 0, seq: 0, teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
     nextDriftAt: Infinity, rng: 42, events: [],
   }
   w.blueprints.bp = {
@@ -31,11 +31,13 @@ function node(id: string, extra: Partial<WorkflowNode> = {}): WorkflowNode {
   }
 }
 
-/** Build a team whose default workflow is given as `edges`, each node staffed by its own Replica. */
+const firstFlow = (w: World) => Object.keys(w.workflows)[0]
+
+/** Build a team whose workflow is given as `edges`, each node staffed by its own Replica. */
 function setup(edges: [string, string, string?][], nodes: Record<string, Partial<WorkflowNode>> = {}) {
   const w = world()
   const team = createTeam(w, { name: 't', folder: '/tmp/t', targetBranch: 'main', branches: ['main'], initializedGit: false })
-  const wf: Workflow = w.workflows[team.defaultWorkflowId]
+  const wf: Workflow = newWorkflow(w, 'f')
   // tests draw their own flow, so drop the review the new flow ends with
   const start = wf.nodes[0]
   wf.nodes = [start]
@@ -69,9 +71,9 @@ describe('createTask', () => {
   it('keeps the pictures added with it, and has none otherwise', () => {
     const { w, team } = setup([['start', 'research']])
     const im = { name: 'shot.png', url: 'data:image/png;base64,AA==' }
-    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId, images: [im] })
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), images: [im] })
     expect(t.images).toEqual([im])
-    const u = createTask(w, { teamId: team.id, title: 'y', description: '', workflowId: team.defaultWorkflowId })
+    const u = createTask(w, { teamId: team.id, title: 'y', description: '', workflowId: firstFlow(w) })
     expect(u.images).toEqual([])
   })
 })
@@ -88,7 +90,7 @@ describe('rollup', () => {
 describe('workflow run', () => {
   it('hands off to every downstream in All mode and then waits to be merged', () => {
     const { w, team } = setup([['start', 'research'], ['research', 'report'], ['research', 'dev']])
-    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId, overrides: { '*': calm } })
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
     run(w, 80)
     expect(nodesDone(w, t.id).sort()).toEqual(['dev', 'report', 'research', '整理需求'].sort())
     expect(t.stage).toBe('awaitMerge')
@@ -112,7 +114,7 @@ describe('workflow run', () => {
   })
 
   it('duplicates a flow under the first free name-N, sharing nothing with it', () => {
-    const { w, team, wf } = setup([['start', 'a']])
+    const { w, wf } = setup([['start', 'a']])
     wf.name = '修 Bug'
     const one = duplicateWorkflow(w, wf.id)!
     const two = duplicateWorkflow(w, wf.id)!
@@ -121,29 +123,28 @@ describe('workflow run', () => {
     expect(one.nodes).toEqual(wf.nodes)
     one.nodes[1].name = 'changed'
     expect(wf.nodes[1].name).toBe('a')
-    expect(w.teams[team.id].defaultWorkflowId).toBe(wf.id)
     // a gap left by a deleted copy is filled first
     deleteWorkflow(w, one.id)
     expect(duplicateWorkflow(w, wf.id)!.name).toBe('修 Bug-1')
   })
 
-  it('deletes a flow but never the last, moving the default on', () => {
+  it('deletes a flow but never the last, ', () => {
     const { w, team } = setup([['start', 'dev']])
-    const first = team.defaultWorkflowId
+    const first = firstFlow(w)
     const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: first, overrides: { '*': calm } })
     deleteWorkflow(w, first)
     expect(w.workflows[first]).toBeDefined()
     const second = newWorkflow(w, 'b')
     deleteWorkflow(w, first)
     expect(w.workflows[first]).toBeUndefined()
-    expect(w.teams[team.id].defaultWorkflowId).toBe(second.id)
+    expect(Object.keys(w.workflows)).toEqual([second.id])
     run(w, 40)
     expect(w.tasks[t.id].workflow.nodes.length).toBeGreaterThan(0)
   })
 
   it('deletes a task with its sub-tasks', () => {
     const { w, team } = setup([['start', 'dev']])
-    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId, overrides: { '*': calm } })
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
     run(w, 20)
     deleteTask(w, t.id)
     expect(w.tasks[t.id]).toBeUndefined()
@@ -156,7 +157,7 @@ describe('workflow run', () => {
       [['start', 'research'], ['research', 'report', 'only a report'], ['research', 'dev', 'needs code']],
       { research: { handoff: 'pickOne' } },
     )
-    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId, overrides: { '*': { ...calm, route: 1 } } })
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': { ...calm, route: 1 } } })
     run(w, 80)
     expect(nodesDone(w, t.id)).toContain('dev')
     expect(nodesDone(w, t.id)).not.toContain('report')
@@ -169,7 +170,7 @@ describe('workflow run', () => {
       { research: { handoff: 'pickOne' } },
     )
     const t = createTask(w, {
-      teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId,
+      teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w),
       overrides: { '*': calm, research: { ...calm, route: 'unsure' } },
     })
     run(w, 40)
@@ -189,7 +190,7 @@ describe('workflow run', () => {
       { merge: { join: 'all' } },
     )
     const t = createTask(w, {
-      teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId,
+      teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w),
       overrides: { '*': calm, b: { ...calm, duration: 40 } },
     })
     run(w, 30)
@@ -208,7 +209,7 @@ describe('workflow run', () => {
       { merge: { join: 'any' } },
     )
     const t = createTask(w, {
-      teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId,
+      teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w),
       overrides: { '*': calm, b: { ...calm, duration: 200 } },
     })
     run(w, 60)
@@ -222,7 +223,7 @@ describe('workflow run', () => {
     const { w, team, wf } = setup([['start', 'a'], ['start', 'b']])
     const shared = wf.nodes.find((n) => n.id === 'a')!.replicaIds[0]
     wf.nodes.find((n) => n.id === 'b')!.replicaIds = [shared]
-    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId, overrides: { '*': calm } })
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
     for (let i = 0; i < 160; i++) {
       tick(w, 0.5)
       const busy = subsOf(w, t.id).filter((s) => s.status === 'progressing' && s.replicaId === shared)
@@ -236,7 +237,7 @@ describe('workflow run', () => {
     const a = wf.nodes.find((n) => n.id === 'a')!
     a.assignment = 'everyone'
     a.replicaIds.push(hire(w, team.id, 'bp', 'a2').id)
-    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId, overrides: { '*': calm } })
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
     run(w, 80)
     expect(subsOf(w, t.id).filter((s) => s.nodeId === 'a')).toHaveLength(2)
     const b = subsOf(w, t.id).filter((s) => s.nodeId === 'b')
@@ -247,7 +248,7 @@ describe('workflow run', () => {
   it('takes a question answered in words alone, but not other waits', () => {
     const { w, team } = setup([['start', 'a']])
     const t = createTask(w, {
-      teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId,
+      teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w),
       overrides: { '*': calm, a: { ...calm, ask: { p: 0.5, prompt: 'Which one?', options: ['A', 'B'] } } },
     })
     run(w, 30)
@@ -267,7 +268,7 @@ describe('workflow run', () => {
     const { w, team } = setup([['start', 'a']])
     team.settings.retries = 1
     const t = createTask(w, {
-      teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId,
+      teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w),
       overrides: { '*': calm, a: { ...calm, fail: { p: 0.5, reason: 'error', times: 2 } } },
     })
     run(w, 60)
@@ -284,7 +285,7 @@ describe('workflow run', () => {
     const { w, team } = setup([['start', 'a']])
     team.settings.costLimitUsd = 0.05
     const t = createTask(w, {
-      teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId,
+      teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w),
       overrides: { '*': { ...calm, costRate: 0.01 } },
     })
     run(w, 30)
@@ -298,7 +299,7 @@ describe('workflow run', () => {
 
   it('pause keeps progress; cancel and workflow change need a pause first', () => {
     const { w, team } = setup([['start', 'a']])
-    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId, overrides: { '*': calm } })
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
     run(w, 6)
     cancelTask(w, t.id)
     expect(t.stage).toBe('running')
@@ -314,12 +315,12 @@ describe('workflow run', () => {
 
   it('changing the workflow discards progress and starts over', () => {
     const { w, team } = setup([['start', 'a']])
-    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId, overrides: { '*': calm } })
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
     run(w, 20)
     pauseTask(w, t.id)
     const before = subsOf(w, t.id).length
     expect(before).toBeGreaterThan(1)
-    changeWorkflow(w, t.id, team.defaultWorkflowId)
+    changeWorkflow(w, t.id, firstFlow(w))
     expect(subsOf(w, t.id)).toHaveLength(1)
     expect(t.costCarry).toBeGreaterThan(0)
     expect(t.paused).toBe(false)
@@ -330,7 +331,7 @@ describe('workflow run', () => {
 describe('work tree and merge', () => {
   it('the owner makes one work tree at 整理需求, and every step commits to it', () => {
     const { w, team } = setup([['start', 'a'], ['a', 'b']])
-    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId, overrides: { '*': calm } })
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
     run(w, 80)
     const subs = subsOf(w, t.id)
     const intake = subs.find((s) => s.nodeId === t.workflow.nodes[0].id)!
@@ -341,7 +342,7 @@ describe('work tree and merge', () => {
   it('a step whose work tree took another commit while it worked takes it in before committing', () => {
     const { w, team } = setup([['start', 'a'], ['start', 'b'], ['a', 'end'], ['b', 'end']])
     const t = createTask(w, {
-      teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId,
+      teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w),
       overrides: { '*': calm, a: { ...calm, duration: 6 }, b: { ...calm, duration: 12 } },
     })
     run(w, 80)
@@ -353,7 +354,7 @@ describe('work tree and merge', () => {
   it('waits for the user, then the owner merges it into the target branch', () => {
     const { w, team } = setup([['start', 'a']])
     const owner = hire(w, team.id, 'bp', 'Boss').id
-    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId, ownerId: owner, overrides: { '*': calm } })
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), ownerId: owner, overrides: { '*': calm } })
     run(w, 200)
     expect(t.stage).toBe('awaitMerge')
     mergeTask(w, t.id)
@@ -370,7 +371,7 @@ describe('work tree and merge', () => {
   it('a clash with the target branch: the owner resolves it first, which takes longer', () => {
     const { w, team } = setup([['start', 'a']])
     const t = createTask(w, {
-      teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId, overrides: { '*': calm }, mergeConflict: true,
+      teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm }, mergeConflict: true,
     })
     run(w, 60)
     mergeTask(w, t.id)
@@ -401,7 +402,7 @@ describe('work tree and merge', () => {
 
   it('sent back with feedback, the steps before 驗收 redo the work and it comes back to be merged', () => {
     const { w, team } = setup([['start', 'a'], ['a', 'end']])
-    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId, overrides: { '*': calm } })
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
     run(w, 80)
     returnTask(w, t.id, '  ')
     expect(t.stage).toBe('awaitMerge')
@@ -567,13 +568,13 @@ describe('closing a company', () => {
     const { w, team } = setup([['start', 'a']])
     const other = createTeam(w, { name: 'o', folder: '/tmp/o', targetBranch: 'main', branches: ['main'], initializedGit: false })
     const keep = hire(w, other.id, 'bp', 'Keep')
-    createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: team.defaultWorkflowId, overrides: { '*': calm } })
+    createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
     run(w, 3)
     expect(Object.keys(w.subTasks).length).toBeGreaterThan(0)
     deleteTeam(w, team.id, { removeFiles: false })
     expect(w.teams[team.id]).toBeUndefined()
     expect(Object.values(w.replicas)).toEqual([keep])
-    expect(w.workflows[other.defaultWorkflowId]).toBeDefined()
+    expect(Object.keys(w.workflows).length).toBeGreaterThan(0)
     expect(w.tasks).toEqual({})
     expect(w.subTasks).toEqual({})
     expect(w.blueprints.bp).toBeDefined()

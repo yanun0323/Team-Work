@@ -174,7 +174,9 @@ body { margin: 0; overflow: hidden; }
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 5px !important;
   font-size: 13px; color: var(--muted);
 }
-.fx-where > code { overflow-wrap: anywhere; }
+.fx-folder { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.fx-folder > code { overflow-wrap: anywhere; }
+.fx-folder-open { flex: none; min-width: 24px; height: 24px; }
 .fx-branch { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); }
 
 .fx-tabs {
@@ -378,17 +380,19 @@ body { margin: 0; overflow: hidden; }
   box-shadow: var(--lift), inset 0 0 0 100vmax var(--shade);
 }
 
-/* the detail sheets: taped over the upper left of the map, three quarters of the stage tall. Each sheet
-   stacked on top sits a step lower and a step to the right, so the top and left edges of the one below
-   still show. All are the same width, and the steps share out the room left beside them (--room): four
-   sheets (Drawer.tsx MAX_SHEETS) take three steps, so the fourth still ends 18px clear of the company file
-   (left edge at 50% + 18px) */
+/* the detail sheets: taped over the upper left of the map, three quarters of the stage tall. Each sheet stacked on
+   top sits a step lower. Across, the first is on the left and the second as far right as it goes beside the company
+   file; the third and fourth (Drawer.tsx MAX_SHEETS) split the distance between them (DrawerDetail.tsx SHEET_ACROSS).
+   All are the same width, so part of each sheet below still shows, and it clicks. */
 .fx-detail {
   --room: 64px;
-  --step: calc(var(--room) / 3);
+  --step: 34px;
+  --sheet: calc(50% - 18px - var(--room));
+  /* where the sheets on the right of the zigzag sit: 8px short of the company file's left edge, at 50% + 18px */
+  --right: calc(50% + 18px - 8px - var(--sheet));
   position: absolute; z-index: 6;
-  top: calc(18px + var(--depth, 0) * var(--step)); left: calc(18px + var(--depth, 0) * var(--step));
-  width: calc(50% - 18px - var(--room)); height: calc(75% - 18px);
+  top: calc(18px + var(--depth, 0) * var(--step)); left: calc(18px + (var(--right) - 18px) * var(--across, 0));
+  width: var(--sheet); height: min(calc(75% - 18px), calc(100% - 36px - var(--depth, 0) * var(--step)));
   transform-origin: 50% 0;
   transition: translate 320ms cubic-bezier(0.3, 0.7, 0.4, 1);
   animation: fx-paste 560ms cubic-bezier(0.25, 1.4, 0.4, 1) backwards;
@@ -399,7 +403,7 @@ body { margin: 0; overflow: hidden; }
 .fx-detail:has(> .fx-detail-cover:is(:hover, :focus-visible)) { translate: -4px -4px; }
 .fx-detail.leaving { animation: fx-unpaste 380ms cubic-bezier(0.2, 0.6, 0.4, 1) forwards; pointer-events: none; }
 /* too narrow for half: the whole width, above the company file */
-@media (max-width: 760px) { .fx-detail { width: calc(100% - 36px - var(--room)); } }
+@media (max-width: 760px) { .fx-detail { --sheet: calc(100% - 36px - var(--room)); --right: calc(100% - 18px - var(--sheet)); } }
 .fx-detail .fx-tape-l { left: 40px; }
 /* a covered sheet is one big button: the strip that shows shades on hover, like anything else that opens */
 .fx-detail-cover {
@@ -420,14 +424,13 @@ body { margin: 0; overflow: hidden; }
 /* asking before a delete: the button says so, in the accent */
 .fx-tool-ask { padding: 0 12px; color: var(--accent); }
 .fx-tool-ask:hover { color: var(--accent); }
+.fx-tool-text { padding: 0 12px; }
 /* files handed on, each opening to read */
 .fx-d-files .fx-file { color: var(--ink-2); }
 .fx-d-files .fx-row-main > span { font-family: var(--font-mono); font-size: 11.5px; }
 /* a handed-on file: a note set like the drawer's text, or code on a lighter slip */
-.fx-doc { display: grid; gap: 16px; font-size: 14px; line-height: 1.7; color: var(--ink); }
-.fx-doc .fx-doc-h1 { font-size: 17px; letter-spacing: 0; }
-.fx-doc h4 { margin: 0 0 4px; font-size: 13px; font-weight: 700; }
-.fx-doc ul { margin: 0; padding-inline-start: 1.2em; }
+.fx-doc-note .fx-md { font-size: 14px; color: var(--ink); }
+.fx-d-text-md { font-size: 14px; color: var(--ink-2); }
 .fx-doc-code {
   margin: 0; overflow-x: auto;
   font: 12.5px/1.6 var(--font-mono); color: var(--ink); white-space: pre; tab-size: 2;
@@ -583,12 +586,13 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-d-chips .fx-chip-all { background: none; box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink-2); }
 .fx-d-chips .fx-chip-out { background: none; box-shadow: inset 0 0 0 1px var(--rule); color: var(--muted); text-decoration: line-through; }
 .fx-d-memory { display: grid; gap: 8px; font-size: 13.5px; }
-.fx-d-memory li { padding-inline-start: 12px; border-inline-start: 2px solid var(--rule); }
+.fx-d-memory > li { padding-inline-start: 12px; border-inline-start: 2px solid var(--rule); }
 .fx-d-log { display: grid; gap: 4px; font-size: 13px; }
-.fx-d-log li { display: flex; gap: 8px; align-items: baseline; }
+.fx-d-log > li { display: flex; gap: 8px; align-items: baseline; }
 .fx-d-log time { flex: none; font: 500 11px/1 var(--font-mono); color: var(--muted); }
 .fx-d-log b { flex: none; font-weight: 600; color: var(--ink-2); }
-.fx-d-log-think span { color: var(--muted); font-style: italic; }
+.fx-d-log-text { flex: 1; min-width: 0; }
+.fx-d-log-think :is(span, .fx-d-log-text) { color: var(--muted); font-style: italic; }
 .fx-d-log-user { flex: none; font-weight: 700; color: #2a7330; }
 .fx-d-log-tool span { font-family: var(--font-mono); font-size: 12px; }
 
@@ -708,7 +712,7 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 /* a drawer head with no tabs under it still ends in a rule */
 .fx-head-rule { border-bottom: 1px solid var(--ink); }
 /* a drawer head with no stamp in front of the title */
-.fx-title-plain { grid-template-columns: minmax(0, 1fr); }
+.fx-title-plain { grid-template-columns: minmax(0, 1fr) auto; }
 .fx-row > span > .fx-bp-icon { display: block; }
 /* a field's error, under its control */
 .fx-field-error { margin: 0 0 4px calc(8.5em + 12px) !important; font-size: 12.5px; color: var(--accent); }
@@ -873,13 +877,14 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 }
 .fx-chat-msg { display: flex; align-items: flex-end; gap: 8px; }
 .fx-chat-msg > svg { flex: none; padding: 2px; background: var(--clip); box-shadow: var(--lift); }
-.fx-chat-msg p {
-  max-width: 78%; padding: 8px 11px; font-size: 13.5px; line-height: 1.55; color: var(--ink);
-  white-space: pre-wrap; overflow-wrap: anywhere; box-shadow: var(--lift);
+.fx-chat-bubble {
+  min-width: 0; max-width: 78%; padding: 8px 11px; font-size: 13.5px; line-height: 1.55; color: var(--ink);
+  overflow-wrap: anywhere; box-shadow: var(--lift);
 }
-.fx-chat-agent p { background: var(--clip); }
+p.fx-chat-bubble { white-space: pre-wrap; }
+.fx-chat-agent .fx-chat-bubble { background: var(--clip); }
 .fx-chat-user { flex-direction: row-reverse; }
-.fx-chat-user p { background: var(--note-talk); }
+.fx-chat-user .fx-chat-bubble { background: var(--note-talk); }
 .fx-chat-msg time { flex: none; padding-bottom: 2px; font: 500 10.5px/1 var(--font-mono); color: var(--muted); }
 /* the employee writing back: three dots that pulse */
 .fx-chat-writing p span[aria-hidden] { display: inline-block; letter-spacing: 2px; animation: fx-chat-dots 1.2s ease-in-out infinite; }
@@ -888,4 +893,52 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 :is(.fx-chat-say, .fx-chat-end) :is(.fx-d-merge-acts, .fx-d-merge-back) { padding-inline-start: 0; }
 .fx-chat-end .fx-d-merge-acts { flex-wrap: wrap; }
 .fx-chat-end .fx-add { margin: 0; border: 0; cursor: pointer; }
+/* a chat: who it is with, the notes between you, the message box; only the notes scroll */
+.fx-detail-body:has(> .fx-room) { display: flex; overflow: hidden; }
+.fx-room { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+.fx-room-head { flex: none; display: flex; align-items: center; gap: 12px; padding-inline-end: 130px; }
+.fx-room-model { font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+.fx-room-head > svg { flex: none; padding: 3px; background: var(--clip); box-shadow: var(--lift); transform: rotate(-2deg); }
+.fx-room-head h2 { padding: 0; font-size: 18px; }
+.fx-room-picks { flex: 1; min-width: 0; display: grid; gap: 8px; }
+.fx-room-log { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 6px 4px; list-style: none; overflow-y: auto; overscroll-behavior: contain; }
+.fx-room-log .fx-chat-msg { flex: none; }
+.fx-room-log .fx-chat-agent .fx-chat-bubble { background: var(--note); rotate: -0.4deg; }
+.fx-room-log .fx-chat-user .fx-chat-bubble { rotate: 0.4deg; }
+.fx-room-tool { flex: none; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.fx-room-warn { flex: none; color: var(--accent); font-size: 13px; }
+.fx-room-say { flex: none; display: flex; align-items: flex-end; gap: 8px; }
+.fx-room-say textarea { flex: 1; min-width: 0; resize: none; }
+.fx-room-send { flex: none; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 3px; background: var(--ink); color: var(--clip); cursor: pointer; }
+.fx-room-send:disabled { opacity: 0.35; cursor: default; }
+/* a chat on the list: the model after the name, the opening cut to one line */
+.fx-row-main b .fx-chat-model { margin-inline-start: 8px; font-size: 12px; font-weight: 500; }
+.fx-row-main .fx-chat-first { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .fx-claude-paste { display: grid; gap: 4px; width: 100%; }
+
+/* text written in Markdown: sized from where it sits, so it fits a chat bubble as well as a whole file */
+.fx-md { min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
+.fx-md > * + * { margin-top: 0.7em; }
+.fx-md :is(h1, h2, h3, h4, h5, h6) { margin-bottom: 0; padding: 0; font-weight: 700; line-height: 1.35; letter-spacing: 0; color: inherit; }
+.fx-md > :is(h1, h2, h3, h4, h5, h6):not(:first-child) { margin-top: 1.1em; }
+.fx-md h1 { font-size: 1.3em; }
+.fx-md h2 { font-size: 1.15em; }
+.fx-md :is(h3, h4, h5, h6) { font-size: 1em; }
+.fx-md p, .fx-md :is(ul, ol), .fx-md blockquote, .fx-md pre { margin-bottom: 0; }
+.fx-md :is(ul, ol) { padding-inline-start: 1.4em; }
+.fx-md ul { list-style: disc; }
+.fx-md ul ul { list-style: circle; }
+.fx-md ol { list-style: decimal; }
+.fx-md li + li, .fx-md li > :is(ul, ol) { margin-top: 0.2em; }
+.fx-md li > p { margin: 0; }
+.fx-md li:has(> input[type="checkbox"]) { list-style: none; margin-inline-start: -1.2em; }
+.fx-md input[type="checkbox"] { margin: 0 0.4em 0 0; vertical-align: -0.1em; }
+.fx-md blockquote { margin-inline: 0; padding-inline-start: 10px; border-inline-start: 2px solid var(--rule); color: var(--ink-2); }
+.fx-md :not(pre) > code { padding: 0.1em 0.3em; background: rgb(0 0 0 / 0.06); border-radius: 3px; font: 0.92em var(--font-mono); }
+.fx-md pre { padding: 8px 10px; background: rgb(0 0 0 / 0.05); border-radius: 3px; font: 12px/1.55 var(--font-mono); overflow-x: auto; overflow-wrap: normal; }
+.fx-md a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.fx-md hr { border: 0; border-top: 1px solid var(--rule); }
+.fx-md-table { overflow-x: auto; }
+.fx-md-table table { border-collapse: collapse; font-size: 0.95em; overflow-wrap: normal; }
+.fx-md-table :is(th, td) { padding: 4px 8px; border: 1px solid var(--rule); text-align: start; }
+.fx-md-table th { font-weight: 700; }

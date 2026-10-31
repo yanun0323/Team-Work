@@ -21,10 +21,12 @@ export function modelsOf(w: World): string[] {
 /** Leaves the level to the provider; every model takes it. */
 export const DEFAULT_EFFORT = 'default'
 
-/** The levels to pick from for a model, as its provider names them. */
+/** Reported levels take precedence; compatible APIs without metadata get a fallback. */
 export function effortsOf(w: World, model: string): string[] {
   const p = Object.values(w.providers).find((x) => x.models.includes(model))
-  return [DEFAULT_EFFORT, ...(p?.thinking?.[model] ?? [])]
+  const levels = p?.thinking?.[model] ?? []
+  return [DEFAULT_EFFORT, ...(levels.length || p?.kind !== 'compatible'
+    ? levels : ['none', 'low', 'medium', 'high', 'xhigh', 'max'])]
 }
 
 const SHIRTS = [

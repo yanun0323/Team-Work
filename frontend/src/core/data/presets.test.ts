@@ -11,7 +11,7 @@ describe('presets', () => {
   it('are in the mock world', () => {
     const w = seedWorld()
     for (const b of PRESET_BLUEPRINTS) expect(w.blueprints[b.id].name).toBe(b.name)
-    expect(PRESET_BLUEPRINTS.map((b) => b.name)).toEqual(['PM', 'Product', 'Backend Engineer', 'Frontend Engineer', 'QA'])
+    expect(PRESET_BLUEPRINTS.map((b) => b.name)).toEqual(['專案經理', '產品負責人', '設計師', '後端工程師', '前端工程師', '測試工程師'])
   })
 
   it('find skills in the agent folders, in YAML that reads back the same', () => {
@@ -57,4 +57,22 @@ describe('thinking levels', () => {
     expect(effortsOf(w, 'gemini-3-pro')).toEqual(['default', 'low', 'high'])
     expect(effortsOf(w, 'not-offered')).toEqual(['default'])
   })
+})
+
+
+it('offers fallback thinking levels only for compatible models without metadata', () => {
+  const w = seedWorld()
+  const p = Object.values(w.providers).find((p) => p.kind === 'compatible')!
+  const model = p.models[0]
+  for (const thinking of [undefined, {}, { [model]: [] }]) {
+    p.thinking = thinking
+    expect(effortsOf(w, model)).toEqual(['default', 'none', 'low', 'medium', 'high', 'xhigh', 'max'])
+  }
+  p.thinking = { [model]: ['low', 'high'] }
+  expect(effortsOf(w, model)).toEqual(['default', 'low', 'high'])
+  for (const kind of ['openai', 'anthropic', 'google'] as const) {
+    p.kind = kind
+    p.thinking = {}
+    expect(effortsOf(w, model)).toEqual(['default'])
+  }
 })

@@ -4,6 +4,8 @@
 // opens shows its detail on a sheet over the upper left of the map (DrawerDetail). There is no close
 // button: a click on the map puts everything away.
 
+import { openFolder } from './core/ops'
+import { MOCK } from './core/mode'
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useStore } from './core/store'
 import { paletteOf } from './Building'
@@ -53,14 +55,23 @@ export function BuildingIcon({ look }: { look: BuildingLook }) {
 }
 
 /** A company's stamp, name, folder and target branch: the head of its file, and of its block on the board. */
-export function CompanyTitle({ team, look, children }: { team: Team; look: BuildingLook; children: ReactNode }) {
+export function CompanyTitle({ team, look, canOpenFolder, children }: { team: Team; look: BuildingLook; canOpenFolder?: boolean; children: ReactNode }) {
   return (
     <div className="fx-title">
       <BuildingIcon look={look} />
       <div className="fx-title-text">
         {children}
         <p className="fx-where">
-          <code title="專案位置">{team.folder}</code>
+          <span className="fx-folder">
+            <code title="專案位置">{team.folder}</code>
+            {canOpenFolder && !MOCK && (
+              <button type="button" className="fx-tool fx-hit fx-folder-open" aria-label="在 Finder 打開" title="在 Finder 打開" onClick={() => openFolder(team.id)}>
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                  <path d="M1.75 12.5v-9h4.2l1.5 1.75h6.8v7.25z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
+          </span>
           <span className="fx-branch" title="目標分支">
             <BranchIcon />
             <span className="fx-sr">目標分支 </span>
@@ -93,6 +104,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   useEffect(() => {
     title.current?.focus({ preventScroll: true })
     back(-1, false)
+    setTab('tasks')
   }, [teamId, back])
   if (!team) return null
   const base = sheets.layers[0]
@@ -123,7 +135,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
       <div className="fx-sheet">
         <header className="fx-head">
-          <CompanyTitle team={team} look={look}>
+          <CompanyTitle team={team} look={look} canOpenFolder>
             <h1 id="fx-drawer-title" ref={title} tabIndex={-1}>{team.name}</h1>
           </CompanyTitle>
           <div className="fx-tabs" role="tablist" aria-label="公司檔案" onKeyDown={onTabKey}>
@@ -155,7 +167,7 @@ type Layer = { item: Item; leaving: boolean; from: HTMLElement | null }
 /**
  * The stack of detail sheets. Opening from the company file starts a fresh stack, and opening its bottom
  * item again puts the stack away; `push` tapes a sheet on top, or swaps the top one once there are
- * `MAX_SHEETS` (the layout leaves room for no more); `back(d)` puts away every sheet above depth
+ * `MAX_SHEETS`; `back(d)` puts away every sheet above depth
  * d (-1: all of them). A sheet put away stays for its fade-out (`leaving`) until `gone`; with reduced
  * motion there is none, so it goes at once.
  */

@@ -6,6 +6,7 @@ import { canReach, isFixed, feedsOnly, inEdges, nodeOf, outEdges, taskNodeOf } f
 import { between, chance, hex, pick, uid } from './rng'
 import { taskStatus } from './rollup'
 import type {
+  Chat,
   Attachment, Blueprint, GitSource, LogKind, MemorySource, ModelProvider, ProviderAuth, Replica, Review, Script, SubTask, TalkEnd, Task, Team, Workflow, World,
 } from './types'
 
@@ -184,6 +185,7 @@ export function tick(w: World, dt: number) {
   // a merge waits for its owner; it goes before new work so the owner is not handed the next step first
   for (const t of Object.values(w.tasks)) if (t.stage === 'merging') stepMerge(w, t)
   dispatch(w)
+  for (const c of Object.values(w.chats)) if (c.replyAt !== undefined && w.now >= c.replyAt) answerChat(w, c)
 
   for (const t of Object.values(w.tasks)) {
     if (running(t)) {
@@ -300,6 +302,44 @@ export function sayInTalk(w: World, subId: string, text: string) {
   sub.talk!.messages.push({ at: w.now, from: 'user', text })
   sub.talk!.replyAt = w.now + REPLY_TIME
   log(sub, w.now, 'human', text)
+}
+
+export interface NewChat { teamId: string; replicaId: string; text: string }
+
+/** A chat exists from the user's first message on; the employee answers a few seconds later. */
+export function createChat(w: World, i: NewChat): Chat {
+  const r = w.replicas[i.replicaId]
+  const chat: Chat = { id: uid(w, 'chat'), teamId: i.teamId, replicaId: i.replicaId, name: r.name, look: r.look, model: r.model, messages: [], createdAt: w.now }
+  w.chats[chat.id] = chat
+  sayInChat(w, chat.id, i.text)
+  return chat
+}
+
+export function sayInChat(w: World, id: string, text: string) {
+  const chat = w.chats[id]
+  text = text.trim()
+  if (!chat || !text || chat.replyAt !== undefined || !w.replicas[chat.replicaId]) return
+  chat.messages.push({ at: w.now, from: 'user', text })
+  chat.replyAt = w.now + REPLY_TIME
+}
+
+export function stopChat(w: World, id: string) {
+  if (w.chats[id]) delete w.chats[id].replyAt
+}
+
+export function deleteChat(w: World, id: string) {
+  delete w.chats[id]
+}
+
+function answerChat(w: World, chat: Chat) {
+  delete chat.replyAt
+  chat.messages.push({ at: w.now, from: 'agent', text: '收到。這是模擬的回覆，要實際對話請接上後端。' })
+}
+
+/** The user's words, as a task. The real one is written by the model. */
+export function chatTaskDraft(w: World, id: string) {
+  const said = (w.chats[id]?.messages ?? []).filter((m) => m.from === 'user').map((m) => m.text)
+  return { title: (said[0] ?? '').split('\n')[0].slice(0, 40), description: said.join('\n\n') }
 }
 
 /**
@@ -916,28 +956,21 @@ export function duplicateWorkflow(w: World, wfId: string): Workflow | undefined 
 }
 
 /**
- * Remove a flow. Tasks keep the copy they were started with, so they run on; the last flow stays, and companies
- * defaulting to the one that goes move to the first other.
+ * Remove a flow. Tasks keep the copy they were started with, so they run on; the last flow stays.
  */
 export function deleteWorkflow(w: World, wfId: string) {
   if (!w.workflows[wfId]) return
   const others = Object.values(w.workflows).filter((x) => x.id !== wfId)
   if (!others.length) return
   delete w.workflows[wfId]
-  for (const team of Object.values(w.teams)) if (team.defaultWorkflowId === wfId) team.defaultWorkflowId = others[0].id
 }
 
-export const DEFAULT_FLOW = '預設任務流程'
-
-/** A new company starts on the plain default flow, or the first flow there is; with none yet, the plain one is made. */
 export function createTeam(
   w: World, input: { name: string; folder: string; targetBranch: string; branches: string[]; initializedGit: boolean },
 ): Team {
   const id = uid(w, 'team')
-  const flows = Object.values(w.workflows)
-  const wf = flows.find((x) => x.name === DEFAULT_FLOW) ?? flows[0] ?? newWorkflow(w, DEFAULT_FLOW)
   const team: Team = {
-    id, ...input, defaultWorkflowId: wf.id, prompt: '', createdAt: w.now,
+    id, ...input, prompt: '', createdAt: w.now,
     settings: { timeoutMin: 30, costLimitUsd: 3, retries: 1 },
   }
   w.teams[id] = team
@@ -954,6 +987,7 @@ export function deleteTeam(w: World, teamId: string, _opts: { removeFiles: boole
   for (const s of Object.values(w.subTasks)) if (tasks.has(s.taskId)) delete w.subTasks[s.id]
   for (const id of tasks) delete w.tasks[id]
   for (const r of Object.values(w.replicas)) if (r.teamId === teamId) delete w.replicas[r.id]
+  for (const c of Object.values(w.chats)) if (c.teamId === teamId) delete w.chats[c.id]
   w.events = w.events.filter((e) => !('taskId' in e) || !tasks.has(e.taskId))
   delete w.teams[teamId]
 }

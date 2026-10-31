@@ -4,7 +4,7 @@
 import { create } from 'zustand'
 import { isFixed } from './core/domain/graph'
 import type { Attachment, Task, World } from './core/domain/types'
-import { teamReplicas, teamTasks } from './core/model'
+import { flowList, teamReplicas, teamTasks } from './core/model'
 
 export interface TaskDraft {
   title: string
@@ -42,6 +42,12 @@ export const addImages = async (files: Iterable<File>) => {
   if (more.length) editDraft((d) => ({ images: [...(d.images ?? []), ...more] }))
 }
 
+/** The flow a new task starts on: the one the company last chose, if it is still there, or else the first. */
+export function lastFlowId(w: World, teamId: string): string {
+  const chosen = teamTasks(w, teamId).find((t) => w.workflows[t.workflowId])?.workflowId
+  return chosen ?? flowList(w)[0]?.id ?? ''
+}
+
 /**
  * Who to start with for a flow: the staff of the company's last task on it, so a new task only changes who
  * is different this time. Employees who have left are dropped. With no earlier task, the flow's own list.
@@ -62,13 +68,13 @@ export function lastStaff(w: World, teamId: string, workflowId: string): Pick<Ta
 
 /**
  * A new task filled in from an existing one, to run the same work again. Its staff comes along where the steps are
- * still in the flow, without anyone who has left. If the flow is gone, it starts on the company's default.
+ * still in the flow, without anyone who has left. If the flow is gone, it starts on the company's last or first flow.
  */
 export function copyDraft(w: World, teamId: string, t: Task): TaskDraft {
   const here = new Set(teamReplicas(w, teamId).map((r) => r.id))
   const content = { title: t.title, description: t.description, images: [...t.images], ownerId: t.ownerId && here.has(t.ownerId) ? t.ownerId : null }
   if (!w.workflows[t.workflowId]) {
-    const workflowId = w.teams[teamId]?.defaultWorkflowId ?? ''
+    const workflowId = lastFlowId(w, teamId)
     return { ...lastStaff(w, teamId, workflowId), ...content, workflowId }
   }
   const staff: Record<string, string[]> = {}

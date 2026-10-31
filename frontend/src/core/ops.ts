@@ -4,7 +4,7 @@
 
 import { request } from './backend'
 import * as sim from './domain/sim'
-import type { Blueprint, Effort, Look, Replica, TalkEnd, Team, Workflow, World } from './domain/types'
+import type { Blueprint, Chat, Effort, Look, Replica, TalkEnd, Team, Workflow, World } from './domain/types'
 import { MOCK } from './mode'
 
 /** Reports a request that failed; the store shows it. Set once at start. */
@@ -43,6 +43,32 @@ export const resolveReview = pick('resolveReview', (_w: World, id: string, optio
 export const sayInTalk = pick('sayInTalk', (_w: World, id: string, text: string) => fire_('POST', `/subtasks/${id}/talk`, { text }))
 export const endTalk = pick('endTalk', (_w: World, id: string, end: TalkEnd) => fire_('POST', `/subtasks/${id}/talk/end`, end))
 
+// ---------- chats ----------
+
+export const sayInChat = pick('sayInChat', (_w: World, id: string, text: string) => fire_('POST', `/chats/${id}/say`, { text }))
+export const stopChat = pick('stopChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/stop`))
+export const deleteChat = pick('deleteChat', (_w: World, id: string) => fire_('DELETE', `/chats/${id}`))
+
+/** Starts a chat with its first message. Its sheet waits for this, to go on as that chat. */
+export function startChat(act: (fn: (w: World) => void) => void, input: sim.NewChat): Promise<Chat | undefined> {
+  if (MOCK) {
+    let made: Chat | undefined
+    act((w) => { made = JSON.parse(JSON.stringify(sim.createChat(w, input))) as Chat })
+    return Promise.resolve(made)
+  }
+  return attempt(() => request<Chat>('POST', '/chats', input))
+}
+
+/** A task written from a chat, for the new-task sheet. */
+export const chatTaskDraft = (w: World, id: string) => (MOCK
+  ? Promise.resolve(sim.chatTaskDraft(w, id))
+  : request<{ title: string; description: string }>('POST', `/chats/${id}/task-draft`))
+
+/** Whether a company's folder has changes not committed. */
+export const hasUncommitted = (teamId: string) => (MOCK
+  ? Promise.resolve(false)
+  : request<{ uncommitted: boolean }>('GET', `/teams/${teamId}/uncommitted`).then((r) => r.uncommitted))
+
 /** Change a task's title, description, staff and owner. */
 export function updateTask(w: World, id: string, p: { title: string; description: string; staff: Record<string, string[]>; ownerId: string | null }) {
   if (!MOCK) return fire_('PATCH', `/tasks/${id}`, p)
@@ -74,7 +100,7 @@ export function saveWorkflow(w: World, id: string | null, flow: Pick<Workflow, '
 
 // ---------- companies ----------
 
-type TeamEdit = Partial<Pick<Team, 'name' | 'prompt' | 'targetBranch' | 'settings' | 'defaultWorkflowId'>>
+type TeamEdit = Partial<Pick<Team, 'name' | 'prompt' | 'targetBranch' | 'settings'>>
 
 const SEND_AFTER = 400
 const edits = new Map<string, { timer: number; patch: TeamEdit }>()
@@ -102,6 +128,9 @@ export function editTeam(w: World, id: string, patch: TeamEdit) {
   }, SEND_AFTER)
   edits.set(id, { timer, patch: merged })
 }
+
+/** Shows a company's folder in Finder. */
+export const openFolder = (id: string) => fire_('POST', `/teams/${id}/open-folder`)
 
 export const deleteTeam = pick('deleteTeam', (_w: World, id: string) => fire_('DELETE', `/teams/${id}`))
 

@@ -10,13 +10,15 @@ import { BlueprintIcon } from './BlueprintIcon'
 import { SheetStack, useSheets } from './Drawer'
 import { gitSources } from './core/domain/sim'
 import { flowList } from './core/model'
-import { defaultsOf, itemKey, type Item } from './DrawerDetail'
+import { itemKey, type Item } from './DrawerDetail'
 import { FlowNotes, openCard } from './FlowNotes'
 import { sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, PROVIDER_KINDS } from './providers'
 import { Select, Toggle } from './Controls'
 import { usePrefs, type LogOrder, type Prefs } from './prefs'
+import { request } from './core/backend'
+import { MOCK } from './core/mode'
 
 // TODO: the real addresses; these are placeholders until they are given
 const LINKS = [
@@ -36,6 +38,29 @@ const TABS = [
   { id: 'about', label: '關於' },
 ] as const
 type Tab = (typeof TABS)[number]['id']
+
+/**
+ * Ends the app. With work under way it would stop that work, so it asks first, like deleting. The app listens for
+ * the message; a page in a browser has no such listener and never shows this.
+ */
+export function QuitTool() {
+  const busy = useStore((s) => Object.values(s.world.subTasks).some((x) => x.status === 'progressing' && !x.cancelled)
+    || Object.values(s.world.tasks).some((t) => t.stage === 'merging')
+    || Object.values(s.world.chats).some((c) => c.replyAt !== undefined))
+  const [asking, setAsking] = useState(false)
+  const quit = () => (window as unknown as { webkit: { messageHandlers: { quit: { postMessage: (x: null) => void } } } }).webkit.messageHandlers.quit.postMessage(null)
+  return (
+    <button type="button" className={asking ? 'fx-tool fx-tool-ask fx-hit' : 'fx-tool fx-hit'}
+      onClick={() => (busy && !asking ? setAsking(true) : quit())} onBlur={() => setAsking(false)}
+      aria-label={asking ? '還有工作在進行，確定退出' : '退出'} title={asking ? undefined : '退出'}>
+      {asking ? '工作會中斷，確定退出' : (
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+          <path d="M8 2v6M4.6 4.2a5 5 0 1 0 6.8 0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      )}
+    </button>
+  )
+}
 
 export function Settings({ leaving, onGone }: {
   leaving: boolean
@@ -81,6 +106,7 @@ export function Settings({ leaving, onGone }: {
               <h1 id="fx-settings-title" ref={title} tabIndex={-1}>機場</h1>
               <p className="fx-where">小島管理中心</p>
             </div>
+            {import.meta.env.MODE === 'desktop' && <QuitTool />}
           </div>
           <div className="fx-tabs" role="tablist" aria-label="設定" onKeyDown={onTabKey}>
             {TABS.map((x, i) => (
@@ -161,12 +187,10 @@ function Flows({ open, onOpen }: { open: string | null; onOpen: (x: Item) => voi
       <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newFlow' })}>＋ 新增任務流程</button>
       {/* each flow opens as a whole; its title is the button, stretched over the flow */}
       {flowList(w).map((wf) => {
-        const defaults = defaultsOf(w, wf.id)
         return (
           <section key={wf.id} className="fx-flow fx-flow-card" onClick={openCard}>
             <h3>
               <button className="fx-flow-open" {...opener({ kind: 'flow', id: wf.id })}>{wf.name}</button>
-              {defaults > 0 && <span className="fx-pill">{defaults} 間公司預設</span>}
             </h3>
             <FlowNotes wf={wf} />
           </section>
@@ -179,6 +203,35 @@ function Flows({ open, onOpen }: { open: string | null; onOpen: (x: Item) => voi
 const LOG_ORDERS: Record<LogOrder, string> = { newestFirst: '新的在最上面', newestLast: '新的在最下面' }
 
 /** App-wide preferences; each change takes effect at once and is kept in the browser. */
+export function ReloadSettings() {
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const reload = async () => {
+    setBusy(true)
+    setMessage('')
+    setError('')
+    try {
+      await request('POST', '/settings/reload')
+      setMessage('設定已重新載入')
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <section className="fx-d-group" aria-labelledby="fx-settings-files">
+      <h4 id="fx-settings-files">設定檔</h4>
+      <button type="button" className="fx-save" disabled={busy} onClick={() => void reload()}>
+        {busy ? '載入中…' : '重新載入設定'}
+      </button>
+      <p role="status">{message}</p>
+      <p role="alert">{error}</p>
+    </section>
+  )
+}
+
 function PrefsPage() {
   const prefs = usePrefs()
   const check = (key: Exclude<keyof Prefs, 'logOrder'>, label: string) => (
@@ -186,6 +239,7 @@ function PrefsPage() {
   )
   return (
     <div className="fx-d-groups">
+      {!MOCK && <ReloadSettings />}
       <section className="fx-d-group" aria-labelledby="fx-prefs-use">
         <h4 id="fx-prefs-use">功能</h4>
         <div className="fx-fields">

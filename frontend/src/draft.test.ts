@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { seedWorld } from './core/data/seed'
-import { teamReplicas } from './core/model'
-import { copyDraft, unstaffed } from './draft'
+import { createTask, createTeam } from './core/domain/sim'
+import { flowList, teamReplicas, teamTasks } from './core/model'
+import { copyDraft, lastFlowId, unstaffed } from './draft'
 
 const fixture = () => {
   const w = seedWorld()
@@ -29,14 +30,27 @@ describe('copyDraft', () => {
     expect(unstaffed(w, d).length).toBeGreaterThan(0)
   })
 
-  it('moves to the default flow when the task\'s flow is gone, keeping the content', () => {
+  it('moves to the last flow chosen when the task\'s flow is gone, keeping the content', () => {
     const { w, t } = fixture()
     const gone = t.workflowId
     delete w.workflows[gone]
-    w.teams[t.teamId].defaultWorkflowId = Object.keys(w.workflows)[0]
     const d = copyDraft(w, t.teamId, t)
-    expect(d.workflowId).toBe(w.teams[t.teamId].defaultWorkflowId)
+    expect(d.workflowId).toBe(lastFlowId(w, t.teamId))
+    expect(w.workflows[d.workflowId]).toBeDefined()
     expect(d.title).toBe(t.title)
     expect(d.ownerId).toBe(teamReplicas(w, t.teamId).some((r) => r.id === t.ownerId) ? t.ownerId : null)
+  })
+})
+
+describe('the flow a new task starts on', () => {
+  it('is the one the company last chose, or the first when there is none', () => {
+    const { w, t } = fixture()
+    const newest = teamTasks(w, t.teamId)[0]
+    expect(lastFlowId(w, t.teamId)).toBe(newest.workflowId)
+    const other = flowList(w).find((f) => f.id !== newest.workflowId)!
+    createTask(w, { teamId: t.teamId, title: 'x', description: '', workflowId: other.id })
+    expect(lastFlowId(w, t.teamId)).toBe(other.id)
+    const fresh = createTeam(w, { name: 'n', folder: '/n', targetBranch: 'main', branches: ['main'], initializedGit: false })
+    expect(lastFlowId(w, fresh.id)).toBe(flowList(w)[0].id)
   })
 })

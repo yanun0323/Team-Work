@@ -108,7 +108,7 @@ function node(
 
 export function seedWorld(): World {
   const w: World = {
-    now: 0, seq: 100, teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {},
+    now: 0, seq: 100, teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
     nextDriftAt: 75, rng: 20261028, events: [],
   }
   for (const p of PROVIDERS) w.providers[p.id] = structuredClone(p)
@@ -133,8 +133,7 @@ export function seedWorld(): World {
   remember(w, rex.id, '公司規定 PR 不能有 console.log。', 'user')
 
   // The workflow from the hand-drawn sketch: task → research → report / dev, plus a review join.
-  const main = w.workflows[shop.defaultWorkflowId]
-  main.name = '研究後開發'
+  const main = newWorkflow(w, '研究後開發')
   const [start, review] = main.nodes
   review.join = 'any'
   main.nodes.push(
@@ -178,7 +177,6 @@ export function seedWorld(): World {
   const ada = hire(w, docs.id, 'bp-writer', 'Ada', { ...BLUEPRINTS[2].look, hair: '#d9d4c7' }, { model: 'claude-sonnet-5' })
   const leo = hire(w, docs.id, 'bp-reviewer', 'Leo', { ...BLUEPRINTS[3].look, skin: '#e0ac7e' }, { model: 'gpt-5.5' })
   const dwf = newWorkflow(w, '寫文件')
-  docs.defaultWorkflowId = dwf.id
   const [dstart, dreview] = dwf.nodes
   dwf.nodes.push(
     node('d-talk', 'talk', '討論大綱', TALK_PROMPT, [ada.id]),

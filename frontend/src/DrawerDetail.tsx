@@ -17,9 +17,10 @@ import { seedOf } from './People'
 import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
 import { ClaudeAccount } from './ClaudeAccount'
+import { Markdown, MarkdownLine } from './Markdown'
 import { Select, WaitBadge } from './Controls'
 import { FlowNotes, openCard } from './FlowNotes'
-import { addImages, copyDraft, draftFlow, draftStaff, editDraft, lastStaff, unstaffed, useDraft, type TaskDraft } from './draft'
+import { addImages, copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, unstaffed, useDraft, type TaskDraft } from './draft'
 import { byBlueprint, DEFAULT_EFFORT, effortsOf, mindOf, modelsOf, randomLook } from './crew'
 import { docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
@@ -32,6 +33,7 @@ import { addProvider, providerUsers, updateProvider, type ProviderLogin, DEFAULT
 import { readHandedFile, request } from './core/backend'
 import { attempt, createTask, deleteBlueprint, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, endTalk, fire, hire, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
+import { ChatSheet, type ChatTaskSeed } from './ChatSheet'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, endOf, isMiddle, link, loose, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
 
 export type Item =
@@ -45,7 +47,9 @@ export type Item =
   | { kind: 'newCrew' }
   | { kind: 'fire'; id: string }
   /** With copyOf, the sheet starts filled in from that task. */
-  | { kind: 'newTask'; copyOf?: string }
+  | { kind: 'newTask'; copyOf?: string; seed?: ChatTaskSeed }
+  | { kind: 'chat'; id: string }
+  | { kind: 'newChat' }
   | { kind: 'staff'; node: string }
   | { kind: 'taskEdit'; id: string }
   | { kind: 'doc'; sub: string; path: string }
@@ -60,7 +64,7 @@ export type Item =
   | { kind: 'disband' }
 
 export const itemKey = (x: Item) =>
-  x.kind === 'newTask' ? `newTask:${x.copyOf ?? ''}` : x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newBlueprint' || x.kind === 'newProvider' || x.kind === 'disband' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'image' ? `image:${x.task}:${x.index}` : `${x.kind}::${x.id}`
+  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newBlueprint' || x.kind === 'newProvider' || x.kind === 'disband' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'image' ? `image:${x.task}:${x.index}` : `${x.kind}::${x.id}`
 
 const STATUS: Record<Status, string> = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' }
 const ASSIGN = { firstAvailable: '誰有空誰做', everyone: '每個人都做' } as const
@@ -70,6 +74,9 @@ const JOIN = { any: '任一個前一步完成就開始', all: '所有前一步�
 const KINDS = { work: '交給員工執行工作', talk: '和員工討論' } as const
 /** The last lines of a log worth showing on a sheet this size. */
 const LOG_LINES = 40
+
+/** How far across each sheet in the stack sits, from the left (0) to right beside the company file (1). */
+const SHEET_ACROSS = [0, 1, 1 / 3, 2 / 3]
 
 export function Detail({ item, teamId, depth, covered, above, leaving, onGone, onBack, onDone, onClear, onPush }: {
   item: Item
@@ -98,7 +105,7 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
   const id = `fx-detail-title-${depth}`
   return (
     <aside id={depth === 0 ? 'fx-detail' : undefined} className={`fx-detail${leaving ? ' leaving' : ''}`}
-      style={{ '--depth': depth } as CSSProperties} aria-labelledby={id}
+      style={{ '--depth': depth, '--across': SHEET_ACROSS[depth] ?? 0 } as CSSProperties} aria-labelledby={id}
       aria-hidden={leaving || undefined} inert={leaving || undefined}
       onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
@@ -158,8 +165,12 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           )}
           {item.kind === 'fire' && <Fire id={item.id} title={title} tid={id} onDone={onClear} />}
           {item.kind === 'newTask' && (
-            <NewTask teamId={teamId} copyOf={item.copyOf} title={title} tid={id} open={above?.kind === 'staff' ? above.node : null}
+            <NewTask teamId={teamId} copyOf={item.copyOf} seed={item.seed} title={title} tid={id} open={above?.kind === 'staff' ? above.node : null}
               onOpen={(node) => onPush({ kind: 'staff', node })} onDone={onDone} />
+          )}
+          {(item.kind === 'chat' || item.kind === 'newChat') && (
+            <ChatSheet id={item.kind === 'chat' ? item.id : undefined} teamId={teamId} title={title} tid={id} creating={above?.kind === 'newTask'}
+              onTask={(seed) => onPush({ kind: 'newTask', seed })} onGoneChat={onDone} />
           )}
           {item.kind === 'disband' && <Disband teamId={teamId} title={title} tid={id} onDone={onDone} />}
           {item.kind === 'staff' && <StaffPick node={item.node} teamId={teamId} title={title} tid={id} onDone={onDone} />}
@@ -171,13 +182,13 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
 }
 
 type Title = React.RefObject<HTMLHeadingElement | null>
-type Head = { title: Title; tid: string }
+export type Head = { title: Title; tid: string }
 
-function Heading({ title, tid, children }: Head & { children: React.ReactNode }) {
+export function Heading({ title, tid, children }: Head & { children: React.ReactNode }) {
   return <h2 id={tid} ref={title} tabIndex={-1}>{children}</h2>
 }
 
-function Gone(h: Head) {
+export function Gone(h: Head) {
   return <Heading {...h}>已經不在了</Heading>
 }
 
@@ -208,7 +219,8 @@ export function LogList({ lines, order }: { lines: LogLine[]; order: LogOrder })
           {l.node && <b>{l.node}</b>}
           {/* the user's own replies, merges and send-backs */}
           {l.kind === 'human' && <strong className="fx-d-log-user">使用者</strong>}
-          <span>{l.text}</span>
+          {/* what an employee says or thinks is Markdown; tool calls and the user's own words are as they are */}
+          {l.kind === 'say' || l.kind === 'think' ? <div className="fx-d-log-text"><Markdown text={l.text} /></div> : <span>{l.text}</span>}
         </li>
       ))}
     </ol>
@@ -293,7 +305,7 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
           )}
         </p>
       </header>
-      {task.description && <p className="fx-d-text">{task.description}</p>}
+      {task.description && <div className="fx-d-text-md"><Markdown text={task.description} /></div>}
       {task.images.length > 0 && (
         <div className="fx-thumbs">
           {task.images.map((im, i) => (
@@ -357,7 +369,7 @@ function Progress({ wf, subs, open, onOpen }: { wf: Workflow; subs: SubTask[]; o
                   {s.rework && <span className="fx-d-muted">重做</span>}
                 </span>
                 {out
-                  ? <span className={s.sentBack ? 'fx-d-hand-text fx-d-hand-back' : 'fx-d-hand-text'}>{out}</span>
+                  ? <span className={s.sentBack ? 'fx-d-hand-text fx-d-hand-back' : 'fx-d-hand-text'}><MarkdownLine text={out} noLinks /></span>
                   : <SubState sub={s} />}
               </span>
               {out && s.endedAt !== undefined && <time>{fmtClock(s.endedAt)}</time>}
@@ -462,7 +474,9 @@ function Chat({ sub }: { sub: SubTask }) {
         {talk.messages.map((m, i) => (
           <li key={i} className={`fx-chat-msg fx-chat-${m.from}`}>
             {m.from === 'agent' && face}
-            <p><span className="fx-sr">{m.from === 'agent' ? r?.name ?? '員工' : '你'}：</span>{m.text}</p>
+            {m.from === 'agent'
+              ? <div className="fx-chat-bubble"><span className="fx-sr">{r?.name ?? '員工'}：</span><Markdown text={m.text} /></div>
+              : <p className="fx-chat-bubble"><span className="fx-sr">你：</span>{m.text}</p>}
             <time>{fmtClock(m.at)}</time>
           </li>
         ))}
@@ -758,7 +772,7 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
       {sub.talk && <Section name="討論"><Chat key={sub.id} sub={sub} /></Section>}
       {sub.review && sub.review.kind !== 'talk' && (
         <Section name="等你回覆">
-          <p className="fx-d-text fx-d-quote">{askText(w, sub)}</p>
+          <div className="fx-d-text-md fx-d-quote"><Markdown text={askText(w, sub)} /></div>
           <Reply key={sub.review.at} sub={sub} />
         </Section>
       )}
@@ -775,7 +789,7 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
       <Section name="經過">
         <dl className="fx-d-facts">
           <dt>接自</dt><dd>{from.length ? from.join('、') : '任務本身'}</dd>
-          {sub.rework && <><dt>退回自</dt><dd>{name(w.subTasks[sub.rework.from]?.nodeId ?? '')}：{sub.rework.reason}</dd></>}
+          {sub.rework && <><dt>退回自</dt><dd>{name(w.subTasks[sub.rework.from]?.nodeId ?? '')}：<MarkdownLine text={sub.rework.reason} /></dd></>}
           {sub.startedAt !== undefined && <><dt>開始</dt><dd>{fmtClock(sub.startedAt)}</dd></>}
           {sub.endedAt !== undefined && <><dt>結束</dt><dd>{fmtClock(sub.endedAt)}</dd></>}
           {sub.attempts > 1 && <><dt>嘗試</dt><dd>{sub.attempts} 次</dd></>}
@@ -787,18 +801,18 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
       </Section>
       {out && (
         <Section name="交接">
-          <p className="fx-d-text"><b>{out.headline}</b></p>
-          {out.did.length > 0 && <ul className="fx-d-memory">{out.did.map((x, i) => <li key={i}>{x}</li>)}</ul>}
+          <p className="fx-d-text"><b><MarkdownLine text={out.headline} /></b></p>
+          {out.did.length > 0 && <ul className="fx-d-memory">{out.did.map((x, i) => <li key={i}><Markdown text={x} /></li>)}</ul>}
           {out.outputs.length > 0 && (
             <ul className="fx-list fx-d-files" aria-label="交出的檔案">
               {out.outputs.map((x) => {
                 const file = outputFile(x)
-                if (!file) return <li key={x} className="fx-d-text">{x}</li>
+                if (!file) return <li key={x} className="fx-d-text"><MarkdownLine text={x} /></li>
                 return (
                   <li key={x}>
                     <button type="button" className="fx-row fx-hit" aria-expanded={open === file} onClick={() => onOpen(file)}>
                       <FileIcon />
-                      <span className="fx-row-main"><b>{file.split('/').pop()}</b><span>{x}</span></span>
+                      <span className="fx-row-main"><b>{file.split('/').pop()}</b><span><MarkdownLine text={x} noLinks /></span></span>
                     </button>
                   </li>
                 )
@@ -811,9 +825,6 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
     </>
   )
 }
-
-/** How many companies start their tasks on this flow. */
-export const defaultsOf = (w: World, id: string) => Object.values(w.teams).filter((t) => t.defaultWorkflowId === id).length
 
 function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
   id: string
@@ -832,7 +843,6 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
     act((x) => deleteWorkflow(x, id))
   }
   const tasks = Object.values(w.tasks).filter((t) => t.workflowId === wf.id && statusOf(w, t) !== 'complete')
-  const defaults = defaultsOf(w, id)
   return (
     <>
       <div className="fx-tools">
@@ -845,7 +855,6 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
       <header className="fx-d-head">
         <Heading {...h}>{wf.name}</Heading>
         <p className="fx-d-meta">
-          {defaults > 0 && <span className="fx-pill">{defaults} 間公司預設</span>}
           <span>{wf.nodes.length} 個步驟</span>
           <span>{tasks.length ? `${tasks.length} 個任務未完成` : '沒有未完成的任務'}</span>
         </p>
@@ -1535,10 +1544,12 @@ function Disband({ teamId, onDone, ...h }: Head & { teamId: string; onDone: () =
  * last task's on that flow; a step's note opens a sheet to change it. It can start once every step has
  * someone.
  */
-function NewTask({ teamId, copyOf, open, onOpen, onDone, ...h }: Head & {
+function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
   teamId: string
   /** The task to start from, if it is a copy. */
   copyOf?: string
+  /** What a chat came to, if it starts from one. */
+  seed?: ChatTaskSeed
   open: string | null
   onOpen: (nodeId: string) => void
   onDone: () => void
@@ -1547,14 +1558,17 @@ function NewTask({ teamId, copyOf, open, onOpen, onDone, ...h }: Head & {
   const act = useStore((s) => s.act)
   const draft = useDraft((s) => s.draft)
   const flows = flowList(w)
-  // a fresh draft on the company's default flow, or a copy of a task; dropped when the sheet goes
+  // a fresh draft on the flow last chosen, or a copy of a task; dropped when the sheet goes
   useEffect(() => {
     const s = useStore.getState().world
-    const workflowId = s.teams[teamId]?.defaultWorkflowId ?? ''
+    const workflowId = lastFlowId(s, teamId)
     const source = copyOf ? s.tasks[copyOf] : undefined
-    useDraft.setState({ draft: source ? copyDraft(s, teamId, source) : { title: '', description: '', workflowId, ...lastStaff(s, teamId, workflowId) } })
+    const last = lastStaff(s, teamId, workflowId)
+    useDraft.setState({ draft: source ? copyDraft(s, teamId, source) : {
+      workflowId, ...last, title: seed?.title ?? '', description: seed?.description ?? '', ownerId: seed?.ownerId ?? last.ownerId,
+    } })
     return () => useDraft.setState({ draft: null })
-  }, [teamId, copyOf])
+  }, [teamId, copyOf, seed])
   if (!draft) return null
   const wf = w.workflows[draft.workflowId]
   const missing = unstaffed(w, draft)
@@ -1804,10 +1818,10 @@ function DocDetail({ sub: subId, path, ...h }: Head & { sub: string; path: strin
 }
 
 function MockDoc({ doc }: { doc: Doc }) {
-  return doc.lang === 'code' ? <pre className="fx-doc-code"><code>{doc.text}</code></pre> : <Markdown text={doc.text} />
+  return doc.lang === 'code' ? <pre className="fx-doc-code"><code>{doc.text}</code></pre> : <Markdown text={doc.text} file />
 }
 
-/** The file as committed, character for character: wrapped, so long lines stay on the note. */
+/** The file as committed: a Markdown file rendered, anything else character for character, wrapped to stay on the note. */
 function RealDoc({ sub, path }: { sub: string; path: string }) {
   const [state, setState] = useState<{ text?: string; error?: string }>({})
   useEffect(() => {
@@ -1821,6 +1835,7 @@ function RealDoc({ sub, path }: { sub: string; path: string }) {
   }, [sub, path])
   if (state.error) return <p className="fx-d-text" role="alert">{state.error}</p>
   if (state.text === undefined) return <p className="fx-d-text">讀取中…</p>
+  if (/\.mdx?$/i.test(path)) return <Markdown text={state.text} file />
   return <pre className="fx-doc-code fx-doc-raw"><code>{state.text}</code></pre>
 }
 
@@ -1837,27 +1852,6 @@ function ImageDetail({ task: taskId, index, ...h }: Head & { task: string; index
       </header>
       <img className="fx-d-image" src={im.url} alt={im.name} />
     </>
-  )
-}
-
-/** Just enough Markdown for a handed-on note: headings, bullets and paragraphs. */
-function Markdown({ text }: { text: string }) {
-  return (
-    <div className="fx-doc">
-      {text.split('\n\n').map((block, i) => {
-        if (block.startsWith('# ')) return <h3 key={i} className="fx-doc-h1">{block.slice(2)}</h3>
-        const [first, ...rest] = block.split('\n')
-        const head = first.startsWith('## ') ? <h4>{first.slice(3)}</h4> : null
-        const body = head ? rest : [first, ...rest]
-        const items = body.filter((l) => l.startsWith('- '))
-        return (
-          <section key={i}>
-            {head}
-            {items.length ? <ul>{items.map((l, j) => <li key={j}>{l.slice(2)}</li>)}</ul> : body.length > 0 && <p>{body.join(' ')}</p>}
-          </section>
-        )
-      })}
-    </div>
   )
 }
 
@@ -1891,7 +1885,7 @@ function BinIcon() {
 }
 
 /** A bin that asks first: the first press turns it into 確定刪除, the second deletes; looking away cancels. */
-function DeleteTool({ what, onConfirm, disabled, why }: { what: string; onConfirm: () => void; disabled?: boolean; why?: string }) {
+export function DeleteTool({ what, onConfirm, disabled, why }: { what: string; onConfirm: () => void; disabled?: boolean; why?: string }) {
   const [asking, setAsking] = useState(false)
   return (
     <button type="button" className={asking ? 'fx-tool fx-tool-ask fx-hit' : 'fx-tool fx-hit'} disabled={disabled}
@@ -1939,7 +1933,6 @@ function FlowEdit({ id, onDone, ...h }: Head & {
   if (id && !w.workflows[id]) return <Gone {...h} />
   if (!draft) return null
   const { flow, end } = draft
-  const defaults = id ? defaultsOf(w, id) : 0
   const cut = loose(flow, end)
   const unnamed = flow.nodes.some((n) => !n.name.trim())
   if (!order.current.length) order.current = inOrder(flow).map((n) => n.id)
@@ -1979,7 +1972,6 @@ function FlowEdit({ id, onDone, ...h }: Head & {
             onChange={(e) => editFlowDraft((d) => ({ flow: { ...d.flow, name: e.target.value } }))} />
         </label>
       </div>
-      {defaults > 0 && <p className="fx-d-muted">有 {defaults} 間公司把它當預設任務流程</p>}
       <div className="fx-d-flowedit">
         <div className="fx-flow">
           <FlowNotes wf={flow} onOpen={setAim} edit={{

@@ -3,20 +3,21 @@
 import { useEffect } from 'react'
 import { nodeOf } from './core/domain/graph'
 import { statusOf, subsOf } from './core/domain/sim'
-import type { Status, TeamSettings } from './core/domain/types'
+import type { Chat, Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
 import { useT } from './core/i18n'
 import { byBlueprint, mindOf } from './crew'
-import { activity, flowList, teamReplicas, teamTasks } from './core/model'
+import { activity, teamReplicas, teamTasks } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { Select, Stepper, WaitBadge } from './Controls'
 import { editTeam, refreshPrompt } from './core/ops'
 import { itemKey, type Item } from './DrawerDetail'
 
-export type Tab = 'tasks' | 'crew' | 'settings'
+export type Tab = 'chats' | 'tasks' | 'crew' | 'settings'
 
 export const TABS: { id: Tab; label: string }[] = [
+  { id: 'chats', label: '對話' },
   { id: 'tasks', label: '任務' },
   { id: 'crew', label: '員工' },
   { id: 'settings', label: '設定' },
@@ -33,6 +34,7 @@ const COLUMNS: { status: Status; label: string }[] = [
 interface Opens { teamId: string; open: string | null; onOpen: (x: Item) => void }
 
 export function TabBody({ tab, ...p }: Opens & { tab: Tab }) {
+  if (tab === 'chats') return <Chats {...p} />
   if (tab === 'tasks') return <Tasks {...p} />
   if (tab === 'crew') return <Crew {...p} />
   return <Settings {...p} />
@@ -45,6 +47,36 @@ function opener(x: Item, { open, onOpen }: Opens) {
 
 function Empty({ children }: { children: string }) {
   return <p className="fx-empty">{children}</p>
+}
+
+/** The company's chats, the latest activity first, and a new one. */
+function Chats(p: Opens) {
+  const w = useStore((s) => s.world)
+  const lastAt = (c: Chat) => c.messages[c.messages.length - 1]?.at ?? c.createdAt
+  const chats = Object.values(w.chats).filter((c) => c.teamId === p.teamId).sort((a, b) => lastAt(b) - lastAt(a))
+  return (
+    <div className="fx-d-groups fx-crew-groups">
+      <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newChat' }, p)}>＋ 新對話</button>
+      {!chats.length && <Empty>還沒有對話</Empty>}
+      {chats.length > 0 && (
+        <ul className="fx-list">
+          {chats.map((c) => {
+            const r = w.replicas[c.replicaId]
+            const name = r?.name ?? c.name
+            return (
+              <li key={c.id}><button className="fx-row fx-hit" {...opener({ kind: 'chat', id: c.id }, p)}>
+                <PixelFace look={r?.look ?? c.look} name={name} size={34} />
+                <span className="fx-row-main">
+                  <b>{name}<span className="fx-chat-model">{c.model}</span></b>
+                  <span className="fx-chat-first">{c.messages[0]?.text}</span>
+                </span>
+              </button></li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 export function Tasks(p: Opens) {
@@ -129,8 +161,6 @@ function Crew(p: Opens) {
 
 function Settings({ teamId, ...p }: Opens) {
   const team = useStore((s) => s.world.teams[teamId])
-  const world = useStore((s) => s.world)
-  const flows = world.workflows
   const act = useStore((s) => s.act)
   // the prompt is the project's AGENTS.md: coming back to the app may mean it was just edited elsewhere
   useEffect(() => {
@@ -156,10 +186,6 @@ function Settings({ teamId, ...p }: Opens) {
       <Select
         label="目標分支" value={team.targetBranch} options={team.branches}
         onChange={(v) => act((x) => editTeam(x, teamId, { targetBranch: v }))}
-      />
-      <Select
-        label="預設任務流程" value={team.defaultWorkflowId} options={flowList(world).map((x) => x.id)} labelOf={(id) => flows[id]?.name ?? id}
-        onChange={(v) => act((x) => editTeam(x, teamId, { defaultWorkflowId: v }))}
       />
       <label className="fx-field fx-field-top">
         <span>AGENTS.md</span>

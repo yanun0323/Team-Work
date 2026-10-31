@@ -21,7 +21,7 @@ export type ServerEvent =
   | { type: 'notice'; kind: 'review' | 'awaitMerge'; taskId: string; subId?: string }
 
 const BOOKS: Record<string, keyof World> = {
-  team: 'teams', provider: 'providers', blueprint: 'blueprints', replica: 'replicas', workflow: 'workflows', task: 'tasks', subTask: 'subTasks',
+  team: 'teams', provider: 'providers', blueprint: 'blueprints', replica: 'replicas', workflow: 'workflows', task: 'tasks', subTask: 'subTasks', chat: 'chats',
 }
 
 /** Writes a batch of changes into the world. `skip` leaves out what the user is in the middle of editing. */
@@ -42,7 +42,7 @@ export const readHandedFile = (subId: string, path: string, signal: AbortSignal)
 
 /** A world with nothing in it, until the backend's snapshot arrives. */
 export const emptyWorld = (): World => ({
-  now: Date.now() / 1000, seq: 0, teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {},
+  now: Date.now() / 1000, seq: 0, teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
   nextDriftAt: Infinity, rng: 0, events: [],
 })
 

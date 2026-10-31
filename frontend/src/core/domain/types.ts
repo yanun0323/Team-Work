@@ -154,7 +154,6 @@ export interface Team {
   targetBranch: string
   branches: string[]
   initializedGit: boolean
-  defaultWorkflowId: string
   /** 公司規章: the project prompt every employee here works under, on top of their blueprint's own. */
   prompt: string
   settings: TeamSettings
@@ -217,8 +216,24 @@ export interface LogLine {
 /** One message in a 使用者討論 step, from the user or from the employee working it. */
 export interface ChatMessage {
   at: number
-  from: 'user' | 'agent'
+  /** `tool` is something the employee ran, in a chat. */
+  from: 'user' | 'agent' | 'tool'
   text: string
+}
+
+/** The user talking with one employee outside any task. Its employee and model never change. */
+export interface Chat {
+  id: string
+  teamId: string
+  replicaId: string
+  /** Who it was, for when the employee has left. */
+  name: string
+  look: Look
+  model: string
+  messages: ChatMessage[]
+  /** The employee is writing a reply. */
+  replyAt?: number
+  createdAt: number
 }
 
 /** How the user ended a discussion: hand on (to `to`, when the step picks one of several), send back, or stop the task. */
@@ -394,6 +409,7 @@ export interface World {
   workflows: Record<string, Workflow>
   tasks: Record<string, Task>
   subTasks: Record<string, SubTask>
+  chats: Record<string, Chat>
   nextDriftAt: number
   rng: number
   events: WorldEvent[]

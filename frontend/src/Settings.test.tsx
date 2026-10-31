@@ -3,7 +3,7 @@ import { expect, it } from 'vitest'
 import { version } from '../package.json'
 import { useStore } from './core/store'
 import { DEFAULT_PREFS, ordered } from './prefs'
-import { Settings } from './Settings'
+import { QuitTool, Settings, ReloadSettings } from './Settings'
 
 it('is a drawer headed as the airport, its model providers listed under the first tab', () => {
   const html = renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)
@@ -28,4 +28,17 @@ it('starts with every preference on and the newest log line first', () => {
   expect(DEFAULT_PREFS).toEqual({ logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true })
   expect(ordered([1, 2, 3], 'newestFirst')).toEqual([3, 2, 1])
   expect(ordered([1, 2, 3], 'newestLast')).toEqual([1, 2, 3])
+})
+
+it('leaves the power button to the app', () => {
+  expect(renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)).not.toContain('aria-label="退出"')
+  expect(renderToStaticMarkup(<QuitTool />)).toContain('aria-label="退出"')
+})
+
+
+it('offers a keyboard-accessible reload action with persistent announcement regions', () => {
+  const html = renderToStaticMarkup(<ReloadSettings />)
+  expect(html).toContain('<button type="button" class="fx-save">重新載入設定</button>')
+  expect(html).toContain('role="status"')
+  expect(html).toContain('role="alert"')
 })
