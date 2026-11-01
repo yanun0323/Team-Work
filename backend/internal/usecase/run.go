@@ -609,7 +609,8 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 		`"goal":{"type":"string"},"done":{"type":"array","items":{"type":"string"}},"outputs":{"type":"array","items":{"type":"string"},"description":"Files changed. Each item is the file's path from the repo root, then ' — ' and what it is, for example: docs/spec.md — the spec"},` +
 		`"decisions":{"type":"array","items":{"type":"string"}},"open":{"type":"array","items":{"type":"string"}},` +
 		`"next_node":{"type":"string","description":"When picking one next step: its id. Empty leaves the choice to the user."},"next_reason":{"type":"string"},` +
-		`"headline":{"type":"string","description":"One sentence for the user: the conclusion"},"did":{"type":"array","items":{"type":"string"},"description":"For the user: what was done"},"ask":{"type":"string","description":"For the user: anything they need to decide"}` +
+		`"headline":{"type":"string","description":"One sentence for the user: the conclusion"},"did":{"type":"array","items":{"type":"string"},"description":"For the user: what was done"},"ask":{"type":"string","description":"For the user: anything they need to decide"},` +
+		`"learned":{"type":"array","items":{"type":"string"},"description":"Optional, and most steps have none: project conventions, pitfalls or user preferences that later tasks need. Not task progress or one-off decisions."}` +
 		`},"required":["goal","done","headline","did"]}`
 	out := []adapter.Tool{
 		funcTool{model.ToolSpec{Name: "submit_handoff", Description: "Finish this step: commit the work and hand off to the next step.", Parameters: json.RawMessage(handoffSchema)}, e.submitHandoff(in)},
@@ -617,6 +618,8 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 			Parameters: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"options":{"type":"array","items":{"type":"string"}}},"required":["prompt"]}`)}, e.askUser(in)},
 		funcTool{model.ToolSpec{Name: "remember", Description: "Keep something useful for later tasks in this company: project conventions, pitfalls, the user's preferences. Not task progress.",
 			Parameters: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`)}, e.rememberTool(in)},
+		funcTool{model.ToolSpec{Name: "forget", Description: "Remove a note from your memory by its id, because it is wrong or out of date.",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`)}, e.forgetTool(in)},
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -644,6 +647,7 @@ func (e *Engine) submitHandoff(in subRun) func(context.Context, string, json.Raw
 			Headline   string   `json:"headline"`
 			Did        []string `json:"did"`
 			Ask        string   `json:"ask"`
+			Learned    []string `json:"learned"`
 		}
 		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Goal) == "" || strings.TrimSpace(a.Headline) == "" {
 			return toolError("goal and headline are required")
@@ -675,6 +679,9 @@ func (e *Engine) submitHandoff(in subRun) func(context.Context, string, json.Raw
 				h.Agent.Next = &model.NextStep{NodeID: a.NextNode, Reason: a.NextReason}
 			}
 			s.Handoff = h
+			for _, text := range a.Learned {
+				e.keepNote(t, s, text)
+			}
 			e.finish(t, s, commit)
 		})
 		return model.ToolResult{Stop: true}
@@ -724,11 +731,39 @@ func (e *Engine) rememberTool(in subRun) func(context.Context, string, json.RawM
 			return toolError("text is required")
 		}
 		e.apply(in, func(t *model.Task, s *model.SubTask) {
-			if e.remember(s.ReplicaID, a.Text, "work", t.ID) {
-				e.logLine(s, enum.LogSystem, i18n.T("寫入記憶：%s", a.Text), "memory", map[string]any{"text": a.Text})
-			}
+			e.keepNote(t, s, a.Text)
 		})
 		return model.ToolResult{Text: "remembered"}
+	}
+}
+
+// keepNote saves what an employee wrote down and logs it, skipping blanks and repeats.
+func (e *Engine) keepNote(t *model.Task, s *model.SubTask, text string) {
+	text = strings.TrimSpace(text)
+	if text != "" && e.remember(s.ReplicaID, text, "work", t.ID) {
+		e.logLine(s, enum.LogSystem, i18n.T("寫入記憶：%s", text), "memory", map[string]any{"text": text})
+	}
+}
+
+func (e *Engine) forgetTool(in subRun) func(context.Context, string, json.RawMessage) model.ToolResult {
+	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+		var a struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &a); err != nil || a.ID == "" {
+			return toolError("id is required")
+		}
+		found := false
+		e.apply(in, func(_ *model.Task, s *model.SubTask) {
+			text, ok := e.forget(s.ReplicaID, a.ID)
+			if found = ok; ok {
+				e.logLine(s, enum.LogSystem, i18n.T("移除記憶：%s", text), "forget", map[string]any{"text": text})
+			}
+		})
+		if !found {
+			return toolError("no note with id %s", a.ID)
+		}
+		return model.ToolResult{Text: "forgotten"}
 	}
 }
 

@@ -8,7 +8,7 @@ import { colon, listOf, tr, trRecorded } from './core/i18n'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { isFixed, nodeOf } from './core/domain/graph'
 import { blueprintUsers, gitSources, statusOf, subsOf } from './core/domain/sim'
-import { TOOLS, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type ProviderKind, type Replica, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
+import { TOOLS, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
 import { sourceState, sourceText, toolName } from './source'
 import { flowList, activity, fmtClock, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
@@ -39,7 +39,7 @@ import { fixedSteps, isPreset } from './core/data/presets'
 import type { TalkEnd } from './core/domain/types'
 import { addProvider, providerUsers, updateProvider, type ProviderLogin, DEFAULT_MODEL, RESOLVE_TIME, costLimit } from './core/domain/sim'
 import { readHandedFile, request } from './core/backend'
-import { attempt, createTask, deleteBlueprint, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, endTalk, fire, hire, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
+import { attempt, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, endTalk, fire, hire, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { ChatSheet, type ChatTaskSeed } from './ChatSheet'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, endOf, isMiddle, link, loose, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
@@ -432,7 +432,7 @@ function Reply({ sub }: { sub: SubTask }) {
         ))}
       </div>
       <textarea className="fx-control" rows={2} value={text} aria-label={tr('回覆')}
-        placeholder={question ? tr('回覆，或選上面一個') : tr('補充說明（會寫進記憶）')} onChange={(e) => setText(e.target.value)} />
+        placeholder={question ? tr('回覆，或選上面一個') : tr('補充說明')} onChange={(e) => setText(e.target.value)} />
       <div className="fx-d-merge-acts"><button type="submit" className="fx-save" disabled={!ready}>{tr('確認')}</button></div>
     </form>
   )
@@ -919,13 +919,47 @@ function CrewDetail({ id, editing, firing, onEdit, onFire, ...h }: Head & {
       <Section name={tr('記憶 {length}', { length: r.memory.length })}>
         {r.memory.length === 0 ? <p className="fx-d-muted">{tr('還沒有記憶')}</p> : (
           <ul className="fx-d-memory">
-            {r.memory.map((m) => (
-              <li key={m.id}>{m.text}{m.taskId && w.tasks[m.taskId] && <span className="fx-d-muted"> #{w.tasks[m.taskId].number}</span>}</li>
-            ))}
+            {r.memory.map((m) => <MemoryNote key={m.id} replicaId={r.id} note={m} />)}
           </ul>
         )}
       </Section>
     </>
+  )
+}
+
+/** One thing an employee remembers, which the user can correct or remove. */
+function MemoryNote({ replicaId, note }: { replicaId: string; note: MemoryEntry }) {
+  const w = useStore((s) => s.world)
+  const act = useStore((s) => s.act)
+  const [draft, setDraft] = useState<string | null>(null)
+  if (draft !== null) {
+    const text = draft.trim()
+    const save = (e: React.FormEvent) => {
+      e.preventDefault()
+      if (text && text !== note.text) act((x) => editMemory(x, replicaId, note.id, text))
+      setDraft(null)
+    }
+    return (
+      <li>
+        <form className="fx-d-reply" onSubmit={save}>
+          <textarea className="fx-control" rows={3} value={draft} autoFocus aria-label={tr('記憶')} onChange={(e) => setDraft(e.target.value)} />
+          <div className="fx-d-merge-acts">
+            <button type="button" className="fx-add" onClick={() => setDraft(null)}>{tr('取消')}</button>
+            <button type="submit" className="fx-save" disabled={!text}>{tr('儲存')}</button>
+          </div>
+        </form>
+      </li>
+    )
+  }
+  const task = note.taskId ? w.tasks[note.taskId] : undefined
+  return (
+    <li className="fx-d-note">
+      <span>{note.text}{task && <span className="fx-d-muted"> #{task.number}</span>}</span>
+      <div className="fx-d-note-tools">
+        <EditTool onClick={() => setDraft(note.text)} />
+        <DeleteTool what={tr('記憶')} onConfirm={() => act((x) => deleteMemory(x, replicaId, note.id))} />
+      </div>
+    </li>
   )
 }
 

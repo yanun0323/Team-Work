@@ -209,7 +209,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
       <>
         <p>Employees are the AI agents who work in a company. Each is made from a blueprint, then picks a model and thinking level . The model list is grouped by provider, and models no provider offers but an employee still uses are under Other. The model's provider decides the thinking levels; default leaves it to the provider. You can also roll the die for another look.</p>
         <p>In the list, each name has the model and thinking level under it, and while they work, the right side shows which step. In lists for picking people, the white notes are the tools they can use. An employee does one sub-task at a time, but chats do not take up their work.</p>
-        <p>An employee's details have their work log and memory. Memory stays in this company for later work and leaves out task progress. Before dismissing an employee, pick someone to take over their tasks and steps. A company's only employee cannot be dismissed.</p>
+        <p>An employee's details have their work log and memory. Memory stays in this company for later work and leaves out task progress. Employees add and remove notes themselves, and you can edit or delete them here. Before dismissing an employee, pick someone to take over their tasks and steps. A company's only employee cannot be dismissed.</p>
       </>
     ),
   },

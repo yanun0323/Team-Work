@@ -177,7 +177,7 @@ describe('workflow run', () => {
     run(w, 40)
     expect(nodesDone(w, t.id)).toContain('report')
     expect(nodesDone(w, t.id)).not.toContain('dev')
-    expect(w.replicas[research.replicaId!].memory[0].source).toBe('review')
+    expect(w.replicas[research.replicaId!].memory.some((m) => m.source === 'review')).toBe(false)
   })
 
   it('All-join waits for every upstream and hangs under their common ancestor', () => {
@@ -255,7 +255,7 @@ describe('workflow run', () => {
     resolveReview(w, a.id, '', 'Neither, use C')
     expect(a.review).toBeUndefined()
     expect(a.log.at(-1)?.text).toBe('Neither, use C')
-    expect(w.replicas[a.replicaId!].memory.some((m) => m.text.includes('Neither, use C'))).toBe(true)
+    expect(w.replicas[a.replicaId!].memory.some((m) => m.text.includes('Neither, use C'))).toBe(false)
     run(w, 30)
     expect(t.stage).toBe('awaitMerge')
   })
@@ -700,7 +700,7 @@ describe('使用者討論', () => {
     endTalk(t.w, sub.id, { kind: 'continue' })
     expect(sub.status).toBe('complete')
     expect(sub.handoff?.agent.decisions).toEqual(['使用者：先做基本版'])
-    expect(t.w.replicas[sub.replicaId!].memory[0].text).toContain('先做基本版')
+    expect(t.w.replicas[sub.replicaId!].memory.some((m) => m.text.includes('先做基本版'))).toBe(false)
     run(t.w, 10)
     expect(t.at('build')).toHaveLength(1)
   })

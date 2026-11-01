@@ -279,12 +279,7 @@ func (e *Engine) chatSpec(c *model.Chat) (agentSpec, error) {
 	if role := agentRole(bp); role != "" {
 		fmt.Fprintf(&b, "\n# Your role\n%s\n", role)
 	}
-	if len(r.Memory) > 0 {
-		b.WriteString("\n# Your memory\n")
-		for _, m := range r.Memory {
-			fmt.Fprintf(&b, "- %s\n", m.Text)
-		}
-	}
+	b.WriteString(memorySection(r))
 	spec.system = b.String()
 	return spec, nil
 }

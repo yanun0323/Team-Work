@@ -395,7 +395,6 @@ export function endTalk(w: World, subId: string, end: TalkEnd) {
   sub.talk!.ended = end.kind
   sub.talk!.replyAt = undefined
   sub.review = undefined
-  if (said.length) remember(w, sub.replicaId, `和使用者討論「${task.title}」的${node.name}：${said.join('；')}`, 'review', task.id)
 
   if (end.kind === 'stop') {
     log(sub, w.now, 'human', '結束討論：停止任務')
@@ -650,16 +649,11 @@ export function resolveReview(w: World, subId: string, optionId: string, note = 
   switch (r.kind) {
     case 'question':
       sub.status = 'todo'
-      remember(w, sub.replicaId, option
-        ? `使用者對「${r.prompt}」選擇「${label}」${note ? `，理由：${note}` : ''}`
-        : `使用者對「${r.prompt}」回覆：${note}`, 'review', task.id)
       break
     case 'pickRoute': {
       sub.status = 'complete'
       sub.routedTo = [optionId]
       if (sub.handoff) sub.handoff.agent.next = { nodeId: optionId, reason: note || '使用者指定' }
-      const name = nodeOf(task.workflow, sub.nodeId)?.name
-      remember(w, sub.replicaId, `${name}拿不定下游時，使用者選了「${label}」${note ? `，理由：${note}` : ''}`, 'review', task.id)
       break
     }
     case 'failed':

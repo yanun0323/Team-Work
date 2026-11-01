@@ -4,7 +4,7 @@
 
 import { request } from './backend'
 import * as sim from './domain/sim'
-import type { Attachment, Blueprint, Chat, Effort, FileInfo, Locale, Look, Replica, SkillInfo, TalkEnd, Team, Workflow, World } from './domain/types'
+import type { Attachment, Blueprint, Chat, Effort, FileInfo, Locale, Look, MemoryEntry, Replica, SkillInfo, TalkEnd, Team, Workflow, World } from './domain/types'
 import { MOCK } from './mode'
 
 /** Reports a request that failed; the store shows it. Set once at start. */
@@ -156,6 +156,20 @@ export const fire = pick('fire', (_w: World, id: string, heir: string) => fire_(
 export function updateReplica(w: World, id: string, p: Pick<Replica, 'name' | 'blueprintId' | 'model' | 'effort' | 'look'>) {
   if (!MOCK) return fire_('PATCH', `/replicas/${id}`, p)
   if (w.replicas[id]) Object.assign(w.replicas[id], p)
+}
+
+function saveMemory(w: World, id: string, memory: MemoryEntry[]) {
+  if (!MOCK) return fire_('PATCH', `/replicas/${id}`, { memory })
+  if (w.replicas[id]) w.replicas[id].memory = memory
+}
+
+/** Corrects a note. Built from the world at the moment of saving, so notes written while editing stay. */
+export function editMemory(w: World, id: string, memoryId: string, text: string) {
+  saveMemory(w, id, (w.replicas[id]?.memory ?? []).map((m) => (m.id === memoryId ? { ...m, text, source: 'user' as const, at: w.now } : m)))
+}
+
+export function deleteMemory(w: World, id: string, memoryId: string) {
+  saveMemory(w, id, (w.replicas[id]?.memory ?? []).filter((m) => m.id !== memoryId))
 }
 
 // ---------- blueprints ----------

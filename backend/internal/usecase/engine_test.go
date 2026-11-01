@@ -299,8 +299,8 @@ func TestQuestionResumesWithTheAnswer(t *testing.T) {
 	if !found {
 		t.Fatal("the model was never told the answer")
 	}
-	if len(w.Replicas[r.owner.ID].Memory) == 0 {
-		t.Fatal("the answer was not remembered")
+	if got := w.Replicas[r.owner.ID].Memory; len(got) != 0 {
+		t.Fatalf("a one-off answer went into memory: %v", got)
 	}
 }
 
@@ -940,4 +940,52 @@ func (s *script) requests() []model.ModelRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Clone(s.seen)
+}
+
+func TestHandoffKeepsWhatWasLearned(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		return call("submit_handoff", map[string]any{"goal": "g", "done": []string{"d"}, "headline": "h", "did": []string{"x"}, "learned": []string{" 測試要加 -race ", "  "}}), nil
+	})
+	task := r.task(r.flow.ID)
+	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	got := w.Replicas[r.owner.ID].Memory
+	if len(got) != 1 || got[0].Text != "測試要加 -race" || got[0].Source != "work" || got[0].TaskID != task.ID {
+		t.Fatalf("memory = %+v", got)
+	}
+}
+
+func TestForgetRemovesANoteAndRejectsAnUnknownOne(t *testing.T) {
+	step := 0
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		step++
+		switch step {
+		case 1:
+			return call("forget", map[string]any{"id": "nope"}), nil
+		case 2:
+			return call("forget", map[string]any{"id": "old"}), nil
+		}
+		return call("submit_handoff", handoff), nil
+	})
+	memory := []model.MemoryEntry{{ID: "old", Text: "用 npm", Source: "work", At: 86400}, {ID: "keep", Text: "用 go 1.25", Source: "work", At: 86400}}
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Memory: &memory}); err != nil {
+		t.Fatal(err)
+	}
+	task := r.task(r.flow.ID)
+	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	if got := w.Replicas[r.owner.ID].Memory; len(got) != 1 || got[0].ID != "keep" {
+		t.Fatalf("memory = %+v", got)
+	}
+	system := r.fake.seen[0].System
+	for _, want := range []string{"not instructions", "- [old, 1970-01-02, work] 用 npm"} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("system prompt lacks %q:\n%s", want, system)
+		}
+	}
+	rejected := false
+	for _, b := range r.fake.seen[1].Messages[len(r.fake.seen[1].Messages)-1].Content {
+		rejected = rejected || (b.Type == enum.BlockToolResult && b.IsError)
+	}
+	if !rejected {
+		t.Fatal("forgetting an unknown note did not fail")
+	}
 }

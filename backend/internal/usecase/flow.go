@@ -62,6 +62,21 @@ func (e *Engine) remember(replicaID *string, text, source, taskID string) bool {
 	return true
 }
 
+// forget drops one note and says what it read, so the log keeps a way back.
+func (e *Engine) forget(replicaID *string, id string) (string, bool) {
+	if replicaID == nil || e.w.Replicas[*replicaID] == nil {
+		return "", false
+	}
+	r := e.w.Replicas[*replicaID]
+	i := slices.IndexFunc(r.Memory, func(m model.MemoryEntry) bool { return m.ID == id })
+	if i < 0 {
+		return "", false
+	}
+	text := r.Memory[i].Text
+	r.Memory = slices.Delete(slices.Clone(r.Memory), i, i+1)
+	return text, true
+}
+
 func (e *Engine) busyReplicas() map[string]bool {
 	busy := map[string]bool{}
 	for _, s := range e.w.SubTasks {
@@ -675,7 +690,6 @@ func (e *Engine) ResolveReview(subID, optionID, note string) error {
 			}
 			e.w.Conversations[s.ID] = answerPending(e.w.Conversations[s.ID], answer)
 			e.dirty[s.ID] = true
-			e.remember(s.ReplicaID, i18n.T("使用者對「%s」回覆：%s", r.Prompt, answer), "review", t.ID)
 		case enum.ReviewPickRoute:
 			s.Status = enum.StatusComplete
 			s.RoutedTo = []string{optionID}
@@ -686,7 +700,6 @@ func (e *Engine) ResolveReview(subID, optionID, note string) error {
 				}
 				s.Handoff.Agent.Next = &model.NextStep{NodeID: optionID, Reason: reason}
 			}
-			e.remember(s.ReplicaID, i18n.T("%s拿不定下游時，使用者選了「%s」", nodeOf(&t.Workflow, s.NodeID).Name, label), "review", t.ID)
 		case enum.ReviewFailed:
 			if optionID == "skip" {
 				s.Status = enum.StatusComplete
@@ -987,9 +1000,6 @@ func (e *Engine) EndTalk(subID string, end model.TalkEnd) error {
 		s.Talk.Ended, s.Talk.ReplyAt, s.Review = end.Kind, nil, nil
 		s.Status = enum.StatusComplete
 		s.EndedAt = ptr(e.w.Now)
-		if len(said) > 0 {
-			e.remember(s.ReplicaID, i18n.T("和使用者討論「%s」的%s：%s", t.Title, node.Name, strings.Join(said, "; ")), "review", t.ID)
-		}
 		if end.Kind == "stop" {
 			e.logLine(s, enum.LogHuman, i18n.T("結束討論：停止任務"), "", nil)
 			e.stopTask(t)

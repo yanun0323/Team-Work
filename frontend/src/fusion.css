@@ -625,6 +625,11 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-d-chips { display: flex; flex-wrap: wrap; gap: 6px 8px; }
 .fx-d-chips span { padding: 1px 8px; background: var(--clip); box-shadow: var(--lift); font-size: 12.5px; }
 .fx-d-mono span { font-family: var(--font-mono); font-size: 12px; }
+.fx-d-note { display: flex; gap: 8px; align-items: flex-start; }
+.fx-d-note > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.fx-d-note-tools { display: flex; flex: none; gap: 2px; margin-block: -7px; opacity: 0; }
+.fx-d-note:hover .fx-d-note-tools, .fx-d-note-tools:focus-within { opacity: 1; }
+@media (hover: none) { .fx-d-note-tools { opacity: 1; } }
 /* every skill a source has; and the ones it leaves out, struck through */
 .fx-d-chips .fx-chip-all { background: none; box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink-2); }
 .fx-d-chips .fx-chip-out { background: none; box-shadow: inset 0 0 0 1px var(--rule); color: var(--muted); text-decoration: line-through; }

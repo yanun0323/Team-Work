@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyPatches, emptyWorld, request, unreachable } from './backend'
 import { fmtClock } from './model'
+import { deleteMemory, editMemory } from './ops'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -60,5 +61,26 @@ describe('the clock', () => {
   it('counts up on the simulator and tells the time on the backend', () => {
     expect(fmtClock(65)).toBe('1:05')
     expect(fmtClock(1793000000)).toMatch(/^\d{2}:\d{2}$/)
+  })
+})
+
+describe('correcting memory', () => {
+  const world = () => {
+    const w = emptyWorld()
+    w.now = 50
+    w.replicas.r = { memory: [{ id: 'a', text: 'old', source: 'work', at: 1 }, { id: 'b', text: 'keep', source: 'work', at: 2 }] } as never
+    return w
+  }
+
+  it('marks an edit as the user\'s own note and leaves the others', () => {
+    const w = world()
+    editMemory(w, 'r', 'a', 'new')
+    expect(w.replicas.r.memory).toEqual([{ id: 'a', text: 'new', source: 'user', at: 50 }, { id: 'b', text: 'keep', source: 'work', at: 2 }])
+  })
+
+  it('removes only the deleted note', () => {
+    const w = world()
+    deleteMemory(w, 'r', 'a')
+    expect(w.replicas.r.memory.map((m) => m.id)).toEqual(['b'])
   })
 })
