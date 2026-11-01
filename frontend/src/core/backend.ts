@@ -3,6 +3,7 @@
 
 import type { Locale, World } from './domain/types'
 import { tr } from './i18n'
+import { DEFAULT_PREFS, type Prefs } from '../prefs'
 
 export const unreachable = () => tr(import.meta.env.MODE === 'desktop'
   ? '連不上後端，請關閉並重新開啟 Team Work'
@@ -30,8 +31,13 @@ const BOOKS: Record<string, keyof World> = {
 /** Writes a batch of changes into the world. `skip` leaves out what the user is in the middle of editing. */
 export function applyPatches(w: World, ev: { upserts?: Patch[]; deletes?: Patch[] }, skip: (kind: string, id: string) => boolean = () => false) {
   for (const p of ev.upserts ?? []) {
+    if (p.kind === 'preferences') { w.preferences = p.data as Prefs; continue }
     const book = w[BOOKS[p.kind]] as Record<string, unknown> | undefined
     if (book && !skip(p.kind, p.id)) book[p.id] = p.data
+    else if (p.kind === 'team' && w.teams[p.id]) {
+      // A company settings form may hold its fields; map changes must still arrive.
+      w.teams[p.id].plot = (p.data as World['teams'][string]).plot
+    }
   }
   for (const p of ev.deletes ?? []) {
     const book = w[BOOKS[p.kind]] as Record<string, unknown> | undefined
@@ -45,7 +51,7 @@ export const readHandedFile = (subId: string, path: string, signal: AbortSignal)
 
 /** A world with nothing in it, until the backend's snapshot arrives. */
 export const emptyWorld = (): World => ({
-  now: Date.now() / 1000, seq: 0, language: 'zh', teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
+  preferences: { ...DEFAULT_PREFS }, now: Date.now() / 1000, seq: 0, language: 'zh', teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
   nextDriftAt: Infinity, rng: 0, events: [],
 })
 

@@ -210,7 +210,7 @@ function Flows({ open, onOpen }: { open: string | null; onOpen: (x: Item) => voi
 
 const LOG_ORDERS = { newestFirst: '新的在最上面', newestLast: '新的在最下面' } as const
 
-/** App-wide preferences; each change takes effect at once and is kept in the browser. */
+/** App-wide preferences; changes are persisted and broadcast by the backend. */
 export function ReloadSettings() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')

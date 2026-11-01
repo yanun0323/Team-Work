@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { DEFAULT_PREFS, usePrefs } from '../prefs'
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { applyPatches, connect, emptyWorld, type ServerEvent } from './backend'
@@ -73,7 +74,12 @@ export const useStore = create<State>()(
     loaded: MOCK,
     offline: false,
     failure: '',
-    receive: (ev) =>
+    receive: (ev) => {
+      // Install preferences before the loaded world can mount drawers or the scene.
+      if (ev.type === 'snapshot') usePrefs.setState({ ...DEFAULT_PREFS, ...ev.world.preferences })
+      if (ev.type === 'patch') for (const p of ev.upserts ?? []) {
+        if (p.kind === 'preferences') usePrefs.setState(p.data as typeof DEFAULT_PREFS)
+      }
       set((s) => {
         switch (ev.type) {
           case 'snapshot': {
@@ -117,7 +123,8 @@ export const useStore = create<State>()(
             s.toasts = s.toasts.slice(-4)
             break
         }
-      }),
+      })
+    },
     setOffline: () => set((s) => void (s.offline = true)),
     setFailure: (failure) => set((s) => void (s.failure = failure)),
     act: (fn) =>

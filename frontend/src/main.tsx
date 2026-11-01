@@ -11,7 +11,8 @@ function App() {
   useSimLoop()
   useBackend()
   useAppLanguage()
-  return <div className="fusion"><World /><Trouble /></div>
+  const loaded = useStore((s) => s.loaded)
+  return <div className="fusion">{loaded && <World />}<Trouble /></div>
 }
 
 /** Says when the backend can't be reached, or turned something down. */

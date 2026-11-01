@@ -72,6 +72,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.GET("/world", s.world)
 	api.POST("/settings/reload", s.reloadSettings)
 	api.PUT("/settings/language", s.setLanguage)
+	api.PATCH("/settings/preferences", s.updatePreferences)
 	api.GET("/events", s.events)
 
 	api.POST("/teams", s.createTeam)
@@ -690,4 +691,12 @@ func (s *Server) events(c echo.Context) error {
 			}
 		}
 	}
+}
+
+func (s *Server) updatePreferences(c echo.Context) error {
+	in, err := bind[map[string]json.RawMessage](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.UpdatePreferences(in))
 }

@@ -21,7 +21,7 @@ import { Board } from './Board'
 import { Fade, FADE_SECONDS } from './Fade'
 import { Island, useLand } from './Island'
 import { canMove, CELL, cellCenter, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
-import { NewCompanySheet, Placer, usePlots } from './NewCompany'
+import { NewCompanySheet, Placer } from './NewCompany'
 import { request } from './core/backend'
 import { createTeam, statusOf } from './core/domain/sim'
 import type { Team } from './core/domain/types'
@@ -59,7 +59,7 @@ function townKey(s: ReturnType<typeof useStore.getState>) {
   const w = s.world
   return Object.values(w.teams)
     .sort((a, b) => a.createdAt - b.createdAt)
-    .map((t) => `${t.id}\t${t.name}\t${Object.values(w.replicas).filter((r) => r.teamId === t.id).length}\t${doneOf(w, t.id)}`)
+    .map((t) => `${t.id}\t${t.name}\t${Object.values(w.replicas).filter((r) => r.teamId === t.id).length}\t${doneOf(w, t.id)}\t${JSON.stringify(t.plot)}`)
     .join('\n')
 }
 
@@ -67,16 +67,15 @@ export function World() {
   const { crowd, planes, clouds } = usePrefs()
   // the simulation changes the world ten times a second; rebuild the town only when its shape changes
   const key = useStore(townKey)
-  const plots = usePlots()
   const town = useMemo(() => {
     void key
     const w = useStore.getState().world
     const list = Object.values(w.teams).sort((a, b) => a.createdAt - b.createdAt)
     const members = (id: string) => Object.values(w.replicas).filter((r) => r.teamId === id).length
-    const lots = list.map((t) => ({ id: t.id, name: t.name, members: members(t.id), done: doneOf(w, t.id), at: plots[t.id]?.at, style: plots[t.id]?.style, seed: plots[t.id]?.seed }))
+    const lots = list.map((t) => ({ id: t.id, name: t.name, members: members(t.id), done: doneOf(w, t.id), ...t.plot }))
     // closed companies leave their land behind
     return layoutTown(lots)
-  }, [key, plots])
+  }, [key])
   const land = useLand(town)
 
   // founding a company: first put its plot anywhere on the map, then fill in the company on a sheet
@@ -174,32 +173,30 @@ export function World() {
   useEffect(() => {
     if (selected && !useStore.getState().world.teams[selected]) setSelected(null)
   }, [selected, key])
-  // every company keeps its spot, so closing or founding one moves no other building; a closed company's
-  // spot is forgotten, its land gone with it
-  const loaded = useStore((s) => s.loaded)
+  // The simulator pins its generated layout in memory; real positions arrive in team records.
   useEffect(() => {
-    // an empty world before the first snapshot says nothing about which spots are still in use
-    if (!loaded) return
-    const plots = usePlots.getState()
-    const live = town.lots.map((l) => l.id)
-    if (live.some((id) => !plots[id]) || Object.keys(plots).some((id) => !live.includes(id))) {
-      usePlots.setState(Object.fromEntries(town.lots.map((l) => [l.id, { at: l.at, style: l.style, seed: l.seed }])), true)
-    }
-  }, [town, loaded])
+    if (!MOCK) return
+    const missing = town.lots.filter((lot) => !useStore.getState().world.teams[lot.id]?.plot)
+    if (missing.length) useStore.setState((s) => {
+      for (const lot of missing) s.world.teams[lot.id].plot = { at: lot.at, style: lot.style, seed: lot.seed }
+    })
+  }, [town])
   // the company moves with its look; the land it leaves goes back to the sea. Put back where it was,
   // nothing changes
   const moveTo = (at: Spot) => {
     const lot = town.lots.find((l) => l.id === moving)
     setMoving(null)
     if (!lot || sameSpot(lot.at, at)) return
-    usePlots.setState({ [lot.id]: { at, style: lot.style, seed: lot.seed } })
+    const plot = { at, style: lot.style, seed: lot.seed }
+    if (MOCK) useStore.setState((s) => { s.world.teams[lot.id].plot = plot })
+    else void attempt(() => request('PATCH', `/teams/${lot.id}`, { plot }))
   }
   const pickMoving = (id: string) => setMoving((cur) => (cur === id ? null : id))
   const found = (input: Parameters<typeof createTeam>[1]) => {
     if (!spot) return
     // the town's shape is settled as it is now, with the new company on its plot
     const settle = (id: string) => {
-      usePlots.setState({ [id]: { at: spot, ...look } })
+      if (MOCK) useStore.setState((s) => { s.world.teams[id].plot = { at: spot, ...look } })
       setSpot(null)
       setPlacing(false)
       setSelected(id)
@@ -210,7 +207,7 @@ export function World() {
       return settle(id)
     }
     // the sheet stays open if the backend turns it down, so nothing typed is lost
-    void attempt(() => request<Team>('POST', '/teams', input)).then((team) => {
+    void attempt(() => request<Team>('POST', '/teams', { ...input, plot: { at: spot, ...look } })).then((team) => {
       if (!team) return
       useStore.setState((s) => { s.world.teams[team.id] = team })
       settle(team.id)

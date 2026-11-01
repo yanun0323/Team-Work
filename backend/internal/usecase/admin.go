@@ -22,9 +22,10 @@ const discoveryTimeout = 30 * time.Second
 
 // NewTeam is what a company is made from.
 type NewTeam struct {
-	Name         string `json:"name"`
-	Folder       string `json:"folder"`
-	TargetBranch string `json:"targetBranch"`
+	Plot         *model.Plot `json:"plot,omitempty"`
+	Name         string      `json:"name"`
+	Folder       string      `json:"folder"`
+	TargetBranch string      `json:"targetBranch"`
 }
 
 func (e *Engine) CreateTeam(ctx context.Context, in NewTeam) (*model.Team, error) {
@@ -56,9 +57,16 @@ func (e *Engine) CreateTeam(ctx context.Context, in NewTeam) (*model.Team, error
 	}
 	var out *model.Team
 	err = e.doSettings(func() error {
+		plot := in.Plot
+		if plot == nil {
+			plot = e.defaultPlot()
+		}
+		if err := e.checkPlot("", plot); err != nil {
+			return err
+		}
 		id := e.uid("team")
 		t := &model.Team{ID: id, Name: in.Name, Folder: in.Folder, TargetBranch: in.TargetBranch, Branches: branches, InitializedGit: initialized,
-			CreatedAt: e.w.Now, Settings: model.TeamSettings{TimeoutMin: 30, CostLimitUSD: 3, Retries: 1}}
+			Plot: clone(plot), CreatedAt: e.w.Now, Settings: model.TeamSettings{TimeoutMin: 30, CostLimitUSD: 3, Retries: 1}}
 		e.readPrompt(t)
 		e.w.Teams[id] = t
 		out = clone(t)
@@ -143,6 +151,7 @@ func (e *Engine) HandedFile(ctx context.Context, subID, path string) (string, er
 
 // TeamPatch changes a company; a nil field stays as it is.
 type TeamPatch struct {
+	Plot         *model.Plot         `json:"plot"`
 	Name         *string             `json:"name"`
 	Prompt       *string             `json:"prompt"`
 	TargetBranch *string             `json:"targetBranch"`
@@ -164,11 +173,19 @@ func (e *Engine) UpdateTeam(id string, p TeamPatch) error {
 		if s := p.Settings; s != nil && (s.TimeoutMin < 0 || s.CostLimitUSD < 0 || s.Retries < 0) {
 			return model.Errorf(model.CodeInvalid, "設定不能是負數")
 		}
+		if p.Plot != nil {
+			if err := e.checkPlot(id, p.Plot); err != nil {
+				return err
+			}
+		}
 		if p.Prompt != nil {
 			if err := e.writePrompt(t, *p.Prompt); err != nil {
 				return err
 			}
 			t.Prompt = *p.Prompt
+		}
+		if p.Plot != nil {
+			t.Plot = clone(p.Plot)
 		}
 		if p.Name != nil {
 			t.Name = strings.TrimSpace(*p.Name)

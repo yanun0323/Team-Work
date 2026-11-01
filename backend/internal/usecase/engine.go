@@ -280,6 +280,7 @@ func (e *Engine) load(ctx context.Context) error {
 		settings.Install(e.w)
 		e.settingsRaw, e.settingsEncoded = rawSettings, settingsBytes(e.w)
 	}
+	e.initializePlots()
 	return nil
 }
 
@@ -305,6 +306,8 @@ func (e *Engine) documents() map[string][]byte {
 	now := map[string][]byte{}
 	meta, _ := jsonx.Marshal(map[string]any{"seq": e.w.Seq, "language": e.w.Language})
 	now[docKey(kindMeta, "world")] = meta
+	prefs, _ := jsonx.Marshal(e.w.Preferences)
+	now[docKey("preferences", "world")] = prefs
 	encodeAll(now, "team", e.w.Teams)
 	encodeAll(now, "provider", e.w.Providers)
 	encodeAll(now, "blueprint", e.w.Blueprints)
@@ -356,6 +359,9 @@ func (e *Engine) sync() error {
 	}
 	runtime := make([]model.Doc, 0, len(upserts))
 	for _, d := range upserts {
+		if d.Kind == "preferences" {
+			continue // Published to clients; persisted only in YAML.
+		}
 		row, err := model.RuntimeDoc(d)
 		if err != nil {
 			return err

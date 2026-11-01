@@ -133,7 +133,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Task log order</dt><dd>Newest first or last, for task, sub-task and employee logs.</dd>
           <dt>Keep terminals</dt><dd>Off by default. When on, a terminal keeps running when you leave the company, is there when you return, and ends when the app closes.</dd>
           <dt>Game objects</dt><dd>Turn off details, shadows, people on the map, plane animation or clouds to make the screen run more smoothly.</dd>
-          <dt>Settings files</dt><dd>Companies, employees, your own blueprints and workflows, and providers are stored as files under <code>~/.team-work</code>. Built-in ones are not there. After editing them yourself, press Reload settings. They apply only if the whole batch passes its checks; otherwise the current settings stay.</dd>
+          <dt>Settings files</dt><dd>Interface preferences (preferences.yaml), companies, employees, your own blueprints and workflows, and providers are stored as files under <code>~/.team-work</code>. Built-in ones are not there. After editing them yourself, press Reload settings. They apply only if the whole batch passes its checks; otherwise the current settings stay.</dd>
         </dl>
       </>
     ),

@@ -30,7 +30,7 @@ func readSettings(t *testing.T, r *rig) model.Settings {
 
 func writeSettings(t *testing.T, r *rig, s model.Settings) {
 	t.Helper()
-	files := map[string]any{"provider.json": s.Providers}
+	files := map[string]any{"provider.json": s.Providers, "preferences.yaml": s.Preferences}
 	for id, v := range s.Teams {
 		files["teams/"+id+"/config.yaml"] = v
 	}

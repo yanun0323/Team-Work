@@ -1,0 +1,66 @@
+package delivery
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+)
+
+func TestPreferencesEndpoint(t *testing.T) {
+	api := setup(t).URL + "/api/v1"
+	if code, body := send(t, "PATCH", api+"/settings/preferences", `{"shadows":false,"defaultTab":"crew"}`); code != http.StatusNoContent {
+		t.Fatalf("%d %v", code, body)
+	}
+	for _, raw := range []string{`null`, `[]`, `{"shadows":null}`, `{"shadows":"false"}`, `{"defaultTab":"bogus"}`, `{"unknown":true}`} {
+		if code, body := send(t, "PATCH", api+"/settings/preferences", raw); code != http.StatusBadRequest {
+			t.Fatalf("%s: %d %v", raw, code, body)
+		}
+	}
+	if code, _ := send(t, "PATCH", api+"/settings/preferences", `{"clouds":false}`); code != http.StatusNoContent {
+		t.Fatal(code)
+	}
+	_, w := send(t, "GET", api+"/world", "")
+	p := w["preferences"].(map[string]any)
+	if p["shadows"] != false || p["clouds"] != false || p["defaultTab"] != "crew" || p["detail"] != true {
+		t.Fatalf("%v", p)
+	}
+}
+
+func TestCompanyPlotEndpoints(t *testing.T) {
+	api := setup(t).URL + "/api/v1"
+	folder, _ := json.Marshal(t.TempDir())
+	code, team := send(t, "POST", api+"/teams", `{"name":"plot","folder":`+string(folder)+`,"plot":{"at":[-8,-8],"style":"villa","seed":123}}`)
+	if code != http.StatusCreated {
+		t.Fatalf("%d %v", code, team)
+	}
+	id := team["id"].(string)
+	if code, body := send(t, "PATCH", api+"/teams/"+id, `{"plot":{"at":[10,10],"style":"brick","seed":321}}`); code != http.StatusNoContent {
+		t.Fatalf("%d %v", code, body)
+	}
+	for _, plot := range []string{
+		`{"at":[],"style":"villa","seed":1}`,
+		`{"at":[1,2,3],"style":"villa","seed":1}`,
+		`{"at":[1.5,2],"style":"villa","seed":1}`,
+		`{"at":[-20,-30],"style":"villa","seed":1}`,
+		`{"at":[100000,0],"style":"villa","seed":1}`,
+		`{"at":[400,400],"style":"villa","seed":1}`,
+		`{"at":[10,10],"style":"bogus","seed":1}`,
+		`{"at":[10,10],"style":"villa","seed":-1}`,
+	} {
+		if code, body := send(t, "PATCH", api+"/teams/"+id, `{"plot":`+plot+`}`); code != http.StatusBadRequest {
+			t.Fatalf("%s: %d %v", plot, code, body)
+		}
+	}
+	folder, _ = json.Marshal(t.TempDir())
+	if code, body := send(t, "POST", api+"/teams", `{"name":"overlap","folder":`+string(folder)+`,"plot":{"at":[10,10],"style":"villa","seed":1}}`); code != http.StatusConflict {
+		t.Fatalf("%d %v", code, body)
+	}
+	if code, _ := send(t, "PATCH", api+"/teams/missing", `{"plot":{"at":[10,10],"style":"villa","seed":1}}`); code != http.StatusNotFound {
+		t.Fatal(code)
+	}
+	_, w := send(t, "GET", api+"/world", "")
+	p := w["teams"].(map[string]any)[id].(map[string]any)["plot"].(map[string]any)
+	if p["style"] != "brick" || p["seed"] != float64(321) {
+		t.Fatalf("failed requests changed plot: %v", p)
+	}
+}

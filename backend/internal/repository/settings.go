@@ -39,7 +39,7 @@ func validID(id string) bool {
 
 func settingPath(path string) bool {
 	p := strings.Split(filepath.ToSlash(path), "/")
-	if path == "provider.json" {
+	if path == "provider.json" || path == "preferences.yaml" {
 		return true
 	}
 	if len(p) == 2 && (p[0] == "blueprints" || p[0] == "workflows") {
@@ -109,12 +109,14 @@ func (s *Store) readFile(rel string) ([]byte, error) {
 
 func (s *Store) readFiles() (map[string][]byte, error) {
 	files := map[string][]byte{}
-	raw, err := s.readFile("provider.json")
-	if err != nil {
-		return nil, err
-	}
-	if raw != nil {
-		files["provider.json"] = raw
+	for _, path := range []string{"provider.json", "preferences.yaml"} {
+		raw, err := s.readFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if raw != nil {
+			files[path] = raw
+		}
 	}
 	for _, dir := range []string{"teams", "blueprints", "workflows"} {
 		root := filepath.Join(s.dataDir, dir)
@@ -194,13 +196,17 @@ func assemble(files map[string][]byte) ([]byte, error) {
 	if len(files) == 0 {
 		return nil, nil
 	}
-	c := model.Settings{Version: 1, Teams: map[string]model.TeamConfig{}, Replicas: map[string]model.ReplicaConfig{}, Providers: map[string]model.ProviderConfig{}, Blueprints: map[string]*model.Blueprint{}, Workflows: map[string]*model.Workflow{}}
+	c := model.Settings{Version: 1, Preferences: model.DefaultPreferences(), Teams: map[string]model.TeamConfig{}, Replicas: map[string]model.ReplicaConfig{}, Providers: map[string]model.ProviderConfig{}, Blueprints: map[string]*model.Blueprint{}, Workflows: map[string]*model.Workflow{}}
 	if files["provider.json"] == nil {
 		return nil, fileError("provider.json", i18n.Errorf("設定檔遺失"))
 	}
 	for path, raw := range files {
 		p := strings.Split(path, "/")
 		switch {
+		case path == "preferences.yaml":
+			if err := decodeFile(path, raw, &c.Preferences); err != nil {
+				return nil, err
+			}
 		case path == "provider.json":
 			if err := decodeFile(path, raw, &c.Providers); err != nil {
 				return nil, err
@@ -286,6 +292,9 @@ func splitSettings(raw []byte) (map[string][]byte, error) {
 		}
 		files[path] = raw
 		return nil
+	}
+	if err := put("preferences.yaml", c.Preferences); err != nil {
+		return nil, err
 	}
 	if err := put("provider.json", c.Providers); err != nil {
 		return nil, err

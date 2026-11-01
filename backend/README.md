@@ -16,12 +16,13 @@ make test-backend  # 測試
 | 路徑（相對於 `TEAM_WORK_HOME`） | 內容 |
 |---|---|
 | `config.yaml` | 全域啟動設定 |
+| `preferences.yaml` | 介面偏好：預設頁籤、紀錄排序、保留終端機、細節、陰影、民眾、飛機與雲朵 |
 | `teams/<team_id>/config.yaml` | 公司名稱、專案位置、目標分支、逾時與費用限制 |
 | `teams/<team_id>/replicas/<replica_id>.json` | 每位員工的名稱、藍圖、外觀、模型、思考等級 |
 | `blueprints/<blueprint_id>.yaml` | 每份員工藍圖 |
 | `workflows/<workflow_id>.yaml` | 每條任務流程 |
 | `provider.json` | 供應商設定，以供應商 id 為鍵；含網址、登入方式 `authKind`、模型、`thinking` 與價格，不含憑證 |
-| `company.db` | SQLite：任務、子任務、交接、流程快照、對話、用量、員工記憶、登入狀態、憑證，以及項目識別與建立時間 |
+| `company.db` | SQLite：任務、子任務、交接、流程快照、對話、用量、員工記憶、登入狀態、憑證、語言、公司位置與建築外觀，以及項目識別與建立時間 |
 | `worktrees/` | 任務工作目錄 |
 
 公司共同指示仍在公司專案資料夾的 `AGENTS.md`，不放進設定檔。憑證沒有加密，靠檔案權限保護。
@@ -38,6 +39,16 @@ debug: false
 ```
 
 `config.yaml` 修改後需要重啟，不由「重新載入設定」套用。可用 `TEAM_WORK_HOST`、`TEAM_WORK_PORT`、`TEAM_WORK_ALLOWED_ORIGINS`（空白分隔）、`TEAM_WORK_DEBUG` 覆寫；桌面版會覆寫自己的本機連接埠與來源，不改檔案。只允許本機監聽位址。Claude 執行檔仍用 `MHO_CLAUDE_EXECUTABLE` 指定，預設 `claude`。
+
+### 介面偏好與地圖
+
+Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及地圖位置。`preferences.yaml` 在介面修改後立即儲存；手動編輯後按「重新載入設定」，不必重啟。省略的欄位使用預設值，未知欄位、`null`、錯誤型別或不存在的頁籤會被拒絕。
+
+偏好欄位的預設值：`logOrder: newestFirst`（也可用 `newestLast`）、`defaultTab: tasks`（`chats`、`tasks`、`crew`、`terminal`、`settings`）、`defaultAirportTab: providers`（`providers`、`blueprints`、`flows`、`prefs`、`about`）；`detail`、`shadows`、`crowd`、`planes`、`clouds` 預設 `true`，`keepTerminals` 預設 `false`。語言沿用 SQLite 儲存。
+
+公司位置、建築樣式和配色種子存在 SQLite 的公司記錄，建立與移動時儲存，解散時一起移除。位置必須為整數格、兩軸各介於 -512 到 512，不可重疊公司或機場，並沿用介面的離岸距離限制。不讀取或搬移舊的網頁 `localStorage`；沒有共用位置的公司會重新配置位置與外觀。`make dev-mock` 的偏好和地圖只存在記憶體。
+
+已連到同一個後端的頁面會同步更新；這不代表可以讓 Mac App 與 `make dev` 的兩個後端同時使用同一資料目錄。
 
 ### 編輯與匯入
 
@@ -72,10 +83,11 @@ debug: false
 | 方法與路徑 | 說明 |
 |---|---|
 | `PUT /settings/language` | 設定 App 語言與員工回覆語言（`zh` 或 `en`），存在 SQLite；世界資料的 `language` 會更新 |
+| `PATCH /settings/preferences` | 部分更新介面偏好；讀取包含在 `/world`，更新透過事件同步 |
 | `POST /settings/reload` | 驗證並重新載入實體設定檔（不含全域 config.yaml）；成功回 204，錯誤保留現有設定 |
 | `GET /world` | 整個世界，欄位與前端 `types.ts` 相同 |
 | `GET /events` | WebSocket：先送 `snapshot`，之後送 `patch`（實體異動）、`delta`（對話或討論裡員工正在寫的文字，`subId` 是對話或子任務的 id）、`deltaReset`（重試時收回已寫的文字）、`notice`（`review`、`awaitMerge`）。斷線重連會拿到新的 snapshot，以及寫到一半的文字 |
-| `POST /teams`、`PATCH`/`DELETE /teams/:id` | 公司；資料夾沒有 git 時會初始化並建立 `master`。關閉公司不會刪資料夾，但會刪它的任務分支與 work tree |
+| `POST /teams`、`PATCH`/`DELETE /teams/:id` | 公司；建立與修改可帶 `plot: {at: [x,z], style, seed}`（省略時建立自動配置）；資料夾沒有 git 時會初始化並建立 `master`。關閉公司不會刪資料夾，但會刪它的任務分支與 work tree |
 | `GET /branches?folder=` | 查資料夾的分支（只讀），`repo` 是它是不是 git repo |
 | `POST /teams/:id/prompt/refresh` | 重新讀專案的 `AGENTS.md`。公司的 `prompt` 就是這個檔案：`PATCH` 會寫回檔案（不會 commit），建立公司、啟動和員工開工時都會重新讀 |
 | `POST /folder-picker` | 開系統的選擇資料夾視窗（目前只有 macOS），回傳完整路徑 `path`，取消時是空字串 |

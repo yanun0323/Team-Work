@@ -24,8 +24,10 @@ describe('changes from the backend', () => {
   it('leaves what the user is editing alone', () => {
     const w = emptyWorld()
     w.teams.a = { id: 'a', name: '正在打字' } as never
-    applyPatches(w, { upserts: [{ kind: 'team', id: 'a', data: { id: 'a', name: '舊的' } }] }, (k, id) => k === 'team' && id === 'a')
+    const plot = { at: [10, 10], style: 'villa', seed: 123 }
+    applyPatches(w, { upserts: [{ kind: 'team', id: 'a', data: { id: 'a', name: '舊的', plot } }] }, (k, id) => k === 'team' && id === 'a')
     expect(w.teams.a.name).toBe('正在打字')
+    expect(w.teams.a.plot).toEqual(plot)
   })
 })
 

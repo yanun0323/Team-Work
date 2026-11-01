@@ -1,7 +1,9 @@
-// App-wide preferences from the settings' 設定 tab, kept in the browser between visits.
+// Shared preferences; real clients read and write them through the backend.
 
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { MOCK } from './core/mode'
+import { request } from './core/backend'
+import { attempt } from './core/ops'
 import type { Tab } from './DrawerTabs'
 
 /** The airport's tabs. */
@@ -43,20 +45,13 @@ export interface Prefs {
 
 export const DEFAULT_PREFS: Prefs = { logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, defaultTab: 'tasks', defaultAirportTab: 'providers' }
 
-export const usePrefs = create<Prefs & { set: (p: Partial<Prefs>) => void }>()(
-  persist((set) => ({ ...DEFAULT_PREFS, set: (p) => set(p) }), {
-    name: 'mho-prefs',
-    // only the values, so a preference added later starts at its default
-    partialize: ({ set: _, ...prefs }) => prefs,
-  }),
-)
-
-// a change made in another tab of the app shows here too
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (e) => {
-    if (e.key === 'mho-prefs') void usePrefs.persist.rehydrate()
-  })
-}
+export const usePrefs = create<Prefs & { set: (p: Partial<Prefs>) => void }>()((set) => ({
+  ...DEFAULT_PREFS,
+  set: (patch) => {
+    if (MOCK) set(patch)
+    else void attempt(() => request('PATCH', '/settings/preferences', patch))
+  },
+}))
 
 /** Log lines in the order the preference asks for; they come oldest first. */
 export const ordered = <T,>(lines: T[], order: LogOrder) => (order === 'newestFirst' ? [...lines].reverse() : lines)

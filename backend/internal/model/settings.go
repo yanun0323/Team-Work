@@ -10,12 +10,13 @@ import (
 // Settings is the editable configuration. IDs bind it to runtime records in SQLite.
 // Credentials, employee memory, task snapshots and project instructions never belong here.
 type Settings struct {
-	Version    int                       `json:"version"`
-	Teams      map[string]TeamConfig     `json:"teams"`
-	Replicas   map[string]ReplicaConfig  `json:"replicas"`
-	Providers  map[string]ProviderConfig `json:"providers"`
-	Blueprints map[string]*Blueprint     `json:"blueprints"`
-	Workflows  map[string]*Workflow      `json:"workflows"`
+	Preferences Preferences               `json:"preferences"`
+	Version     int                       `json:"version"`
+	Teams       map[string]TeamConfig     `json:"teams"`
+	Replicas    map[string]ReplicaConfig  `json:"replicas"`
+	Providers   map[string]ProviderConfig `json:"providers"`
+	Blueprints  map[string]*Blueprint     `json:"blueprints"`
+	Workflows   map[string]*Workflow      `json:"workflows"`
 }
 
 type TeamConfig struct {
@@ -58,7 +59,7 @@ func WithoutPresets[T any](all map[string]T) map[string]T {
 }
 
 func SettingsOf(w *World) Settings {
-	s := Settings{Version: 1, Teams: map[string]TeamConfig{}, Replicas: map[string]ReplicaConfig{}, Providers: map[string]ProviderConfig{}, Blueprints: WithoutPresets(w.Blueprints), Workflows: WithoutPresets(w.Workflows)}
+	s := Settings{Version: 1, Preferences: w.Preferences, Teams: map[string]TeamConfig{}, Replicas: map[string]ReplicaConfig{}, Providers: map[string]ProviderConfig{}, Blueprints: WithoutPresets(w.Blueprints), Workflows: WithoutPresets(w.Workflows)}
 	for id, t := range w.Teams {
 		s.Teams[id] = TeamConfig{t.ID, t.Name, t.Folder, t.TargetBranch, t.Settings}
 	}
@@ -73,6 +74,7 @@ func SettingsOf(w *World) Settings {
 
 // Install changes configuration only; the caller has validated IDs and references.
 func (s Settings) Install(w *World) {
+	w.Preferences = s.Preferences
 	for id, c := range s.Teams {
 		t := w.Teams[id]
 		t.Name, t.Folder, t.TargetBranch, t.Settings = c.Name, c.Folder, c.TargetBranch, c.Settings
@@ -101,12 +103,13 @@ func RuntimeDoc(d Doc) (Doc, error) {
 		}
 		// Folder is a binding to an existing repo, not an invitation to move active work.
 		v = struct {
+			Plot           *Plot    `json:"plot,omitempty"`
 			ID             string   `json:"id"`
 			Folder         string   `json:"folder"`
 			Branches       []string `json:"branches"`
 			InitializedGit bool     `json:"initializedGit"`
 			CreatedAt      float64  `json:"createdAt"`
-		}{t.ID, t.Folder, t.Branches, t.InitializedGit, t.CreatedAt}
+		}{t.Plot, t.ID, t.Folder, t.Branches, t.InitializedGit, t.CreatedAt}
 	case "replica":
 		var r Replica
 		if err := json.Unmarshal(d.Data, &r); err != nil {

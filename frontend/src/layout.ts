@@ -241,6 +241,8 @@ const grow = (r: Rect, n: number): Rect => ({ x: r.x - n, z: r.z - n, w: r.w + n
  * further out to sea than `REACH_CELLS` from them. Anything else is fine, sea included: the land grows to it.
  */
 export function canPlace(town: Pick<Town, 'lots'>, at: Spot): boolean {
+  // Match the backend bound on dense terrain allocation.
+  if (at.some((v) => !Number.isInteger(v) || Math.abs(v) > 512)) return false
   const plot = { x: at[0], z: at[1], w: PLOT_CELLS, d: PLOT_CELLS }
   const plots = town.lots.map((l) => ({ x: l.at[0], z: l.at[1], w: PLOT_CELLS, d: PLOT_CELLS }))
   const others = [...plots, AIRPORT]

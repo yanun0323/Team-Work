@@ -7,12 +7,10 @@ import { tr } from './core/i18n'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import * as THREE from 'three'
-import { create } from 'zustand'
 import { createTeam } from './core/domain/sim'
 import { Select } from './Controls'
 import { BuildingIcon } from './Drawer'
 import { Reroll } from './DrawerDetail'
-import { persist } from 'zustand/middleware'
 import { MOCK } from './core/mode'
 import { branchesOf } from './core/ops'
 import { canPlace, CELL, landGained, PLOT_CELLS, spotCenter, spotUnder, type BuildingLook, type BuildingStyle, type Spot, type Town } from './layout'
@@ -26,11 +24,6 @@ const KNOWN_REPOS: Record<string, string[]> = {
   '~/code/landing-page': ['main'],
   '~/code/acme-shop': ['main', 'develop', 'release/2.3'],
 }
-
-/** Company id → its spot in town cells and its building's look, for companies whose place is settled. */
-type Plots = Record<string, { at: Spot; style: BuildingStyle; seed: number }>
-// the map is this browser's, not the backend's, so with real companies it is kept here
-export const usePlots = MOCK ? create<Plots>(() => ({})) : create<Plots>()(persist(() => ({}), { name: 'mho-plots' }))
 
 /** A press that moved further than this, in pixels, was a pan, not a click. */
 const CLICK_SLOP = 5

@@ -2,6 +2,8 @@ package i18n
 
 // en is the English of every text the backend tells the user, by its Chinese. Words follow CONTEXT.md.
 var en = map[string]string{
+	"公司位置或外觀不正確":             "Invalid company position or appearance",
+	"公司用地不能重疊":               "Company plots cannot overlap",
 	"最多附加 %d 個附件":            "At most %d attachments are allowed",
 	"檔案格式無效或超過 3.75MB":       "Invalid file data or file exceeds 3.75MB",
 	"選擇專案資料夾":                "Choose the project folder",

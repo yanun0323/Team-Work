@@ -1,3 +1,5 @@
+import type { Prefs } from '../../prefs'
+import type { BuildingLook, Spot } from '../../layout'
 // Domain types. Names follow CONTEXT.md at the repo root.
 
 export type Locale = 'zh' | 'en'
@@ -153,6 +155,7 @@ export interface TeamSettings {
 }
 
 export interface Team {
+  plot?: BuildingLook & { at: Spot }
   id: string
   name: string
   folder: string
@@ -409,6 +412,7 @@ export interface ModelProvider {
 }
 
 export interface World {
+  preferences?: Prefs
   now: number
   seq: number
   /** The language of the app and of what employees write to the user. */

@@ -72,6 +72,9 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 	if s.Version != 1 {
 		return s, settingsError("version", i18n.Errorf("必須是 1"))
 	}
+	if _, err := model.MergePreferences(s.Preferences, nil); err != nil {
+		return s, settingsError("preferences.yaml", err)
+	}
 	for _, err := range []error{
 		sameIDs("teams", s.Teams, e.w.Teams), sameIDs("replicas", s.Replicas, e.w.Replicas),
 		sameIDs("providers", s.Providers, e.w.Providers), sameIDs("blueprints", s.Blueprints, model.WithoutPresets(e.w.Blueprints), true),
@@ -274,8 +277,24 @@ func (e *Engine) ReloadSettings(ctx context.Context) error {
 
 // prepareSettings writes initial defaults before any employee may start.
 func (e *Engine) prepareSettings(ctx context.Context) error {
-	if e.settingsRaw.Data != nil {
+	if e.settingsRaw.Data != nil && e.settingsRaw.Files["preferences.yaml"] != nil {
 		return nil
 	}
+	e.settingsEncoded = nil
 	return e.sync()
+}
+
+// UpdatePreferences merges only the submitted fields, so clients cannot overwrite unrelated changes.
+func (e *Engine) UpdatePreferences(patch map[string]json.RawMessage) error {
+	if patch == nil {
+		return model.Errorf(model.CodeInvalid, "preferences must be an object")
+	}
+	return e.doSettings(func() error {
+		next, err := model.MergePreferences(e.w.Preferences, patch)
+		if err != nil {
+			return settingsError("preferences.yaml", err)
+		}
+		e.w.Preferences = next
+		return nil
+	})
 }

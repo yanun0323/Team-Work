@@ -155,7 +155,7 @@ func TestSettingsPreserveUnchangedYAMLComments(t *testing.T) {
 }
 
 func TestFileNameIsTheIDOfBlueprintsAndWorkflows(t *testing.T) {
-	c := model.Settings{Version: 1, Providers: map[string]model.ProviderConfig{},
+	c := model.Settings{Version: 1, Preferences: model.DefaultPreferences(), Providers: map[string]model.ProviderConfig{},
 		Blueprints: map[string]*model.Blueprint{"bp-a": {ID: "bp-a", Name: "a"}},
 		Workflows:  map[string]*model.Workflow{"wf-a": {ID: "wf-a", Name: "a"}}}
 	raw, err := json.Marshal(c)
