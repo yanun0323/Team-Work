@@ -1,7 +1,7 @@
 import { CELL, layoutTown } from './layout'
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { boxOnScreen, drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot } from './camera'
+import { boxOnScreen, drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot, seaCoverZoom, SEA_SIZE } from './camera'
 
 /** Screen position (pixels from the canvas centre, y up) of a world point, for a camera looking at `target`. */
 const project = (p: THREE.Vector3, target: THREE.Vector3, zoom: number) => {
@@ -162,4 +162,20 @@ describe('initial island overview', () => {
       })
     }
   }
+})
+
+describe('seaCoverZoom', () => {
+  it('keeps every screen corner on the sea', () => {
+    const target = new THREE.Vector3(20, 0, -30)
+    const view = { width: 1280, height: 820 }
+    const zoom = seaCoverZoom(target, view)
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+      const corner = target.clone()
+        .addScaledVector(SCREEN_RIGHT, (sx * view.width) / 2 / zoom)
+        .addScaledVector(SCREEN_UP, (sy * view.height) / 2 / zoom)
+      // follow the line of sight down to the ground
+      corner.addScaledVector(ISO_DIR, -corner.y / ISO_DIR.y)
+      expect(Math.max(Math.abs(corner.x), Math.abs(corner.z))).toBeLessThanOrEqual(SEA_SIZE / 2 + 1e-6)
+    }
+  })
 })

@@ -1,0 +1,55 @@
+/* The startup screen, shared by index.html and the Mac app's boot/index.html. Clouds part as the camera lands.
+   --leave must match LEAVE_MS in src/boot.ts. */
+html { background: #3b86c6; }
+#boot { --leave: 450ms; position: fixed; inset: 0; z-index: 40; overflow: hidden; display: grid; place-items: center; }
+#boot[data-leaving="full"] { --leave: 1200ms; }
+#boot::before { content: ""; position: absolute; inset: 0; background: #3b86c6; }
+#boot i { position: absolute; aspect-ratio: 2.2; transform: translate(-50%, -50%); }
+#boot i::before { content: ""; position: absolute; inset: 0; background: var(--img) center / contain no-repeat; }
+.boot-mark { position: relative; display: grid; justify-items: center; }
+.boot-mark img { display: block; }
+.boot-head { width: 148px; height: auto; }
+.boot-word { width: min(440px, 72vw); height: auto; margin-top: -10px; }
+.boot-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+#boot[data-leaving] { pointer-events: none; animation: boot-out var(--leave) ease-out forwards; }
+@keyframes boot-out { to { opacity: 0; } }
+
+@media (prefers-reduced-motion: no-preference) {
+  #boot:not([data-held], [data-leaving]) .boot-head { animation: boot-bob 1.1s steps(2, jump-none) infinite alternate; }
+  #boot:not([data-held]) i::before { animation: boot-drift 7s ease-in-out infinite alternate; }
+  @keyframes boot-bob { to { transform: translateY(-6px); } }
+  @keyframes boot-drift { to { transform: translateX(var(--drift)); } }
+
+  #boot[data-leaving] { animation: none; }
+  #boot[data-leaving]::before { animation: boot-out calc(var(--leave) * 0.5) ease-in forwards; }
+  #boot[data-leaving] .boot-mark { animation: boot-mark-out calc(var(--leave) * 0.35) ease-out forwards; }
+  #boot[data-leaving] i { animation: boot-part var(--leave) cubic-bezier(0.5, 0, 0.45, 1) both; }
+  @keyframes boot-mark-out { to { opacity: 0; transform: translateY(-12px) scale(1.04); } }
+  @keyframes boot-part {
+    70% { opacity: 1; }
+    to { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.7); }
+  }
+}
+
+#boot .c1 { left: 50%; top: 50%; width: 62vmax; --dx: 0vmax; --dy: -95vmax; --drift: -1.0vmax; --img: url(cloud-1.svg); animation-delay: 20ms; }
+#boot .c2 { left: 18%; top: 22%; width: 46vmax; --dx: -60vmax; --dy: -53vmax; --drift: 1.4vmax; --img: url(cloud-3.svg); animation-delay: 40ms; }
+#boot .c3 { left: 82%; top: 20%; width: 48vmax; --dx: 58vmax; --dy: -54vmax; --drift: -0.6vmax; --img: url(cloud-1.svg); animation-delay: 60ms; }
+#boot .c4 { left: 14%; top: 74%; width: 48vmax; --dx: -66vmax; --dy: 44vmax; --drift: 1.0vmax; --img: url(cloud-1.svg); animation-delay: 80ms; }
+#boot .c5 { left: 86%; top: 78%; width: 50vmax; --dx: 62vmax; --dy: 48vmax; --drift: -1.4vmax; --img: url(cloud-3.svg); animation-delay: 0ms; }
+#boot .c6 { left: 50%; top: 12%; width: 44vmax; --dx: 0vmax; --dy: -81vmax; --drift: 0.6vmax; --img: url(cloud-2.svg); animation-delay: 20ms; }
+#boot .c7 { left: 50%; top: 88%; width: 46vmax; --dx: 0vmax; --dy: 81vmax; --drift: -1.0vmax; --img: url(cloud-2.svg); animation-delay: 40ms; }
+#boot .c8 { left: 32%; top: 42%; width: 40vmax; --dx: -80vmax; --dy: -36vmax; --drift: 1.4vmax; --img: url(cloud-2.svg); animation-delay: 60ms; }
+#boot .c9 { left: 68%; top: 40%; width: 42vmax; --dx: 77vmax; --dy: -43vmax; --drift: -0.6vmax; --img: url(cloud-3.svg); animation-delay: 80ms; }
+#boot .c10 { left: 34%; top: 66%; width: 42vmax; --dx: -61vmax; --dy: 61vmax; --drift: 1.0vmax; --img: url(cloud-3.svg); animation-delay: 0ms; }
+#boot .c11 { left: 68%; top: 64%; width: 40vmax; --dx: 69vmax; --dy: 53vmax; --drift: -1.4vmax; --img: url(cloud-2.svg); animation-delay: 20ms; }
+#boot .c12 { left: 4%; top: 46%; width: 36vmax; --dx: -78vmax; --dy: -7vmax; --drift: 0.6vmax; --img: url(cloud-2.svg); animation-delay: 40ms; }
+#boot .c13 { left: 96%; top: 48%; width: 36vmax; --dx: 78vmax; --dy: -3vmax; --drift: -1.0vmax; --img: url(cloud-1.svg); animation-delay: 60ms; }
+#boot .c14 { left: 26%; top: 6%; width: 30vmax; --dx: -37vmax; --dy: -68vmax; --drift: 1.4vmax; --img: url(cloud-1.svg); animation-delay: 80ms; }
+#boot .c15 { left: 74%; top: 4%; width: 30vmax; --dx: 35vmax; --dy: -68vmax; --drift: -0.6vmax; --img: url(cloud-2.svg); animation-delay: 0ms; }
+#boot .c16 { left: 24%; top: 94%; width: 32vmax; --dx: -39vmax; --dy: 66vmax; --drift: 1.0vmax; --img: url(cloud-3.svg); animation-delay: 20ms; }
+#boot .c17 { left: 76%; top: 96%; width: 32vmax; --dx: 37vmax; --dy: 66vmax; --drift: -1.4vmax; --img: url(cloud-1.svg); animation-delay: 40ms; }
+#boot .c18 { left: 6%; top: 10%; width: 26vmax; --dx: -55vmax; --dy: -50vmax; --drift: 0.6vmax; --img: url(cloud-2.svg); animation-delay: 60ms; }
+#boot .c19 { left: 95%; top: 6%; width: 26vmax; --dx: 52vmax; --dy: -51vmax; --drift: -1.0vmax; --img: url(cloud-3.svg); animation-delay: 80ms; }
+#boot .c20 { left: 4%; top: 92%; width: 26vmax; --dx: -54vmax; --dy: 49vmax; --drift: 1.4vmax; --img: url(cloud-1.svg); animation-delay: 0ms; }
+#boot .c21 { left: 96%; top: 92%; width: 24vmax; --dx: 54vmax; --dy: 49vmax; --drift: -0.6vmax; --img: url(cloud-2.svg); animation-delay: 20ms; }

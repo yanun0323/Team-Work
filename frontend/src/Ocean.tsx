@@ -7,8 +7,8 @@ import * as THREE from 'three'
 import { FIELD_RES } from './land'
 import { SEA_D0, SEA_DSPAN, SEA_LEVEL, type SeaMap } from './Island'
 import { usePrefs } from './prefs'
+import { SEA_SIZE } from './camera'
 
-const SIZE = 500
 
 const head = /* glsl */ `
 varying vec3 vSea;
@@ -111,7 +111,7 @@ export function Ocean({ map, calm }: { map: SeaMap; calm: boolean }) {
 
   return (
     <mesh ref={mesh} rotation-x={-Math.PI / 2} position={[0, SEA_LEVEL, 0]} material={material.m} receiveShadow>
-      <planeGeometry args={[SIZE, SIZE]} />
+      <planeGeometry args={[SEA_SIZE, SEA_SIZE]} />
     </mesh>
   )
 }

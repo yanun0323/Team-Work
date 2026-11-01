@@ -9,6 +9,8 @@ import { CELL, FLOOR_CELLS, TREE_CELLS, type Town } from './layout'
  */
 export const ISO_DIR = new THREE.Vector3(48, 62, 48).normalize()
 export const CAMERA_DISTANCE = 200
+/** The sea is a square of this size, centred on the origin. */
+export const SEA_SIZE = 500
 /** Orthographic zoom = screen pixels per world unit. */
 export const MIN_ZOOM = 6
 export const MAX_ZOOM = 80
@@ -75,8 +77,6 @@ function screenBounds(box: FocusBox) {
   return { minX, maxX, minY, maxY }
 }
 
-/** Width of the right-hand drawer for a given canvas width: half, but never cramped. */
-export const drawerWidth = (width: number) => Math.min(width, Math.max(width / 2, 380))
 /** Whether any of the box shows on a screen of this size, for a camera looking at `center` (any point on its line of sight). */
 export function boxOnScreen(box: FocusBox, center: THREE.Vector3, zoom: number, view: Pick<View, 'width' | 'height'>): boolean {
   const { minX, maxX, minY, maxY } = screenBounds(box)
@@ -85,6 +85,8 @@ export function boxOnScreen(box: FocusBox, center: THREE.Vector3, zoom: number, 
   return maxX > u - halfW && minX < u + halfW && maxY > v - halfH && minY < v + halfH
 }
 
+/** Width of the right-hand drawer for a given canvas width: half, but never cramped. */
+export const drawerWidth = (width: number) => Math.min(width, Math.max(width / 2, 380))
 
 /** A camera view: where it looks on the ground, and its zoom. */
 export interface Shot {
@@ -106,6 +108,13 @@ export function shotAt(from: Shot, to: Shot, u: number): Shot {
   const still = to.target.clone().multiplyScalar(to.zoom).addScaledVector(from.target, -from.zoom).divideScalar(to.zoom - from.zoom)
   const target = from.target.clone().sub(still).multiplyScalar(from.zoom / zoom).add(still)
   return { target, zoom }
+}
+
+/** The lowest zoom at which the sea still fills a screen of this size, looking at `target`. */
+export function seaCoverZoom(target: THREE.Vector3, view: Pick<View, 'width' | 'height'>): number {
+  // the sea's edges run at 45° on screen; the ground is foreshortened vertically by the tilt
+  const corner = (view.width / 2 + view.height / 2 / ISO_DIR.y) / Math.SQRT2
+  return corner / (SEA_SIZE / 2 - Math.max(Math.abs(target.x), Math.abs(target.z)))
 }
 
 /** Fit projected land cells and static structures, not the origin-centred allocation rectangle. */

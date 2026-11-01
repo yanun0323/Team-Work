@@ -8,6 +8,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private let input = Pipe()
     private let output = Pipe()
     private var ready = false
+    private var bootDone = false
+    // The startup screen, the same as #boot in frontend/index.html.
+    private let bootPage = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "web/boot")
     private var stopping = false
     private var startupTimer: Timer?
     private let origin = URL(string: "http://127.0.0.1:18787")!
@@ -31,11 +34,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         window.title = "Team Work"
         window.minSize = NSSize(width: 800, height: 600)
         window.contentView = webView
+        window.backgroundColor = NSColor(srgbRed: 0x3b / 255, green: 0x86 / 255, blue: 0xc6 / 255, alpha: 1)
+        webView.underPageBackgroundColor = window.backgroundColor
         window.center()
+        // The window opens once this page has painted (see didFinish), so it never flashes white.
+        if let boot = bootPage { webView.loadFileURL(boot, allowingReadAccessTo: boot.deletingLastPathComponent()) } else { bootFinished() }
+        do { try startBackend() } catch { fail(say("無法啟動後端：\(error.localizedDescription)", "Could not start the backend: \(error.localizedDescription)")) }
+    }
+
+    private func bootFinished() {
+        guard !bootDone else { return }
+        bootDone = true
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        webView.loadHTMLString("<html lang='\(say("zh-Hant", "en"))'><body style='font:18px system-ui;padding:40px'>\(say("正在啟動 Team Work…", "Starting Team Work…"))</body></html>", baseURL: nil)
-        do { try startBackend() } catch { fail(say("無法啟動後端：\(error.localizedDescription)", "Could not start the backend: \(error.localizedDescription)")) }
+        openApp()
+    }
+
+    // Waits for the startup screen too: a file load still under way would replace the app's page.
+    private func openApp() {
+        guard ready, bootDone else { return }
+        webView.load(URLRequest(url: origin))
     }
 
     private func buildMenu() {
@@ -116,7 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 guard !self.stopping, String(data: data, encoding: .utf8) == "READY\n" else { return }
                 self.ready = true
                 self.startupTimer?.invalidate()
-                self.webView.load(URLRequest(url: self.origin))
+                self.openApp()
             }
         }
         startupTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: false) { [weak self] _ in
@@ -168,7 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             decisionHandler(.download)
             return
         }
-        if url.absoluteString == "about:blank" || (url.scheme == origin.scheme && url.host == origin.host && url.port == origin.port) {
+        if url == bootPage || url.absoluteString == "about:blank" || (url.scheme == origin.scheme && url.host == origin.host && url.port == origin.port) {
             decisionHandler(.allow)
         } else {
             if action.navigationType == .linkActivated, ["https", "http"].contains(url.scheme ?? "") { NSWorkspace.shared.open(url) }
@@ -204,10 +222,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        if !bootDone {
+            bootFinished()
+            return
+        }
         if ready { fail(error.localizedDescription) }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if !bootDone {
+            bootFinished()
+            return
+        }
         guard smoke, ready, webView.url?.host == origin.host else { return }
         let js = """
         const world = await (await fetch('/api/v1/world')).json();

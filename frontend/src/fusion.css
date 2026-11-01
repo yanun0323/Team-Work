@@ -11,8 +11,6 @@ body { margin: 0; overflow: hidden; }
   background: #3b86c6;
 }
 .fusion-stage, .fusion-canvas { position: absolute; inset: 0; }
-/* the whole scene appears from nothing on load */
-.fusion-stage { animation: fx-fade-in 600ms ease-out backwards; }
 @keyframes fx-fade-in { from { opacity: 0; } }
 @keyframes fx-fade-out { to { opacity: 0; } }
 
@@ -622,16 +620,16 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-d-chips { display: flex; flex-wrap: wrap; gap: 6px 8px; }
 .fx-d-chips span { padding: 1px 8px; background: var(--clip); box-shadow: var(--lift); font-size: 12.5px; }
 .fx-d-mono span { font-family: var(--font-mono); font-size: 12px; }
-.fx-d-note { display: flex; gap: 8px; align-items: flex-start; }
-.fx-d-note > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.fx-d-note-tools { display: flex; flex: none; gap: 2px; margin-block: -7px; opacity: 0; }
-.fx-d-note:hover .fx-d-note-tools, .fx-d-note-tools:focus-within { opacity: 1; }
-@media (hover: none) { .fx-d-note-tools { opacity: 1; } }
 /* every skill a source has; and the ones it leaves out, struck through */
 .fx-d-chips .fx-chip-all { background: none; box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink-2); }
 .fx-d-chips .fx-chip-out { background: none; box-shadow: inset 0 0 0 1px var(--rule); color: var(--muted); text-decoration: line-through; }
 .fx-d-memory { display: grid; gap: 8px; font-size: 13.5px; }
 .fx-d-memory > li { padding-inline-start: 12px; border-inline-start: 2px solid var(--rule); }
+.fx-d-note { display: flex; gap: 8px; align-items: flex-start; }
+.fx-d-note > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.fx-d-note-tools { display: flex; flex: none; gap: 2px; margin-block: -7px; opacity: 0; }
+.fx-d-note:hover .fx-d-note-tools, .fx-d-note-tools:focus-within { opacity: 1; }
+@media (hover: none) { .fx-d-note-tools { opacity: 1; } }
 .fx-d-log { display: grid; gap: 4px; font-size: 13px; }
 .fx-d-log > li { display: flex; gap: 8px; align-items: baseline; }
 .fx-d-log time { flex: none; font: 500 11px/1 var(--font-mono); color: var(--muted); }
@@ -758,7 +756,7 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-stepper button:disabled { color: var(--rule); box-shadow: none; background: transparent; cursor: default; }
 
 @media (prefers-reduced-motion: reduce) {
-  .fusion-stage, .label, .fx-tag { animation: none; transition: none; }
+  .label, .fx-tag { animation: none; transition: none; }
   .fx-drawer, .fx-detail, .fx-page, .fx-slip { animation: none; }
   .fx-hit, .fx-detail-cover, .fx-flow-card, .fx-node, .fx-mid, .fx-mid-btn, .fx-node-del, .fx-detail { transition: none; }
   .fx-detail-cover { animation: none; }
@@ -788,9 +786,9 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-brand { position: absolute; top: 22px; inset-inline-start: 22px; z-index: 4; display: grid; gap: 2px; padding: 8px 14px 7px; pointer-events: none; }
 .fx-brand h1 { margin: 0; font: inherit; font-size: 18px; line-height: 1.2; letter-spacing: -0.01em; }
 .fx-brand p { margin: 0; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.fx-settings-trigger:disabled { background-color: #d6d4cf; color: #76747c; cursor: not-allowed; filter: grayscale(1); }
 @media (max-width: 640px) { .fx-brand { top: 78px; } }
 .fx-settings-trigger { display: grid; place-items: center; width: 44px; padding: 0; }
+.fx-settings-trigger:disabled { background-color: #d6d4cf; color: #76747c; cursor: not-allowed; filter: grayscale(1); }
 /* what to pick on the map, across the middle of the top; narrow windows have no room beside the buttons */
 .fx-map-tip { position: absolute; top: 22px; inset-inline: 0; z-index: 4; display: flex; justify-content: center; pointer-events: none; }
 @media (max-width: 760px) { .fx-map-tip { top: 78px; } }

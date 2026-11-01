@@ -13,7 +13,7 @@ import { LabelLayer, LabelProjector, type LabelSpec } from './core/voxel/labels'
 import { Airport, AIRPORT_TOP, TERMINAL } from './Airport'
 import { Ambient, shadowHalf } from './Ambient'
 import { Building, BuildingPreview, CUT, FLOOR, ROOF_TOP } from './Building'
-import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, shotAt, type FocusBox, type Shot } from './camera'
+import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, seaCoverZoom, shotAt, type FocusBox, type Shot } from './camera'
 import { Drawer } from './Drawer'
 import { Settings } from './Settings'
 import { Help } from './Help'
@@ -36,6 +36,7 @@ import { usePrefs } from './prefs'
 import { propBoxes, type Box } from './streetProps'
 import { useSound } from './sound'
 import { Brand } from './Brand'
+import { nextIntro, revealBoot, skipBoot, type Intro } from './boot'
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -489,6 +490,8 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
   const size = useThree((s) => s.size)
   const fitted = useRef(false)
   const keys = useRef(new Set<string>())
+  const bootKind = useRef<Intro['kind'] | undefined>(undefined)
+  const bootFrames = useRef(0)
 
   // the zoom that fits a grid `reach` wide, with its tallest building, in view
   const fit = (reach: number) => {
@@ -508,8 +511,24 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
     camera.position.copy(shot.target).addScaledVector(ISO_DIR, distance)
     camera.far = distance * 3
     camera.lookAt(shot.target)
-    camera.zoom = shot.zoom
+    const intro = nextIntro(localStorage, calm)
+    bootKind.current = intro?.kind
+    // never so far out that the edge of the sea shows
+    camera.zoom = intro ? Math.min(shot.zoom, Math.max(shot.zoom * intro.zoomFrom, seaCoverZoom(shot.target, size))) : shot.zoom
     camera.updateProjectionMatrix()
+    if (intro) {
+      controls.minZoom = Math.min(controls.minZoom, camera.zoom)
+      const landing = { from: { target: shot.target, zoom: camera.zoom }, to: shot, time: -intro.hold, seconds: intro.seconds, intro: true }
+      fly.current = landing
+      // any input skips the landing and goes through to the map
+      const inputs = new AbortController()
+      const skip = () => {
+        inputs.abort()
+        skipBoot()
+        if (fly.current === landing) landing.time = landing.seconds
+      }
+      for (const type of ['pointerdown', 'wheel', 'keydown']) window.addEventListener(type, skip, { capture: true, signal: inputs.signal })
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     controls.update()
   }, [camera, controls, size, town])
@@ -517,7 +536,7 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
   const around = (REACH_CELLS + PLOT_CELLS) * CELL
 
   // where the camera is flying to, and the view to go back to when the building closes
-  const fly = useRef<{ from: Shot; to: Shot; time: number } | null>(null)
+  const fly = useRef<{ from: Shot; to: Shot; time: number; seconds?: number; intro?: boolean } | null>(null)
   const home = useRef<Shot | null>(null)
   /** Starts a flight from wherever the camera is now. */
   const flyTo = (to: Shot) => {
@@ -609,6 +628,8 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
 
   useFrame((_, delta) => {
     if (!controls) return
+    // the second frame with the camera in place: the first has compiled and drawn the scene
+    if (fitted.current && bootFrames.current < 2 && ++bootFrames.current === 2) revealBoot(bootKind.current)
     const t = controls.target
     let ax = 0
     let az = 0
@@ -640,7 +661,7 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
       const f = fly.current
       // fast at first, settling gently; straight there when motion is reduced
       f.time += Math.min(delta, 0.05)
-      const p = calm ? 1 : Math.min(1, f.time / FLY_SECONDS)
+      const p = calm ? 1 : THREE.MathUtils.clamp(f.time / (f.seconds ?? FLY_SECONDS), 0, 1)
       const shot = shotAt(f.from, f.to, 1 - (1 - p) ** 3)
       // the camera keeps its offset from what it looks at; it lands exactly on the goal, so closing a
       // building returns to the very same view
@@ -649,7 +670,10 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
       camera.position.copy(t).add(offset)
       camera.zoom = p === 1 ? f.to.zoom : shot.zoom
       camera.updateProjectionMatrix()
-      if (p === 1) fly.current = null
+      if (p === 1) {
+        fly.current = null
+        if (f.intro && controls) controls.minZoom = Math.min(MIN_ZOOM, f.to.zoom)
+      }
     }
     // the view's center stays over the island, so it can't be lost at sea; not while flying or with a
     // building open, whose view may sit a little past it (pulling it back would bend the flight)

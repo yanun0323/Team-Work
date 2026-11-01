@@ -1,10 +1,14 @@
 import { tr } from './core/i18n'
+import { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
+import { holdBoot, revealBoot } from './boot'
 import { useAppLanguage, useBackend, useSimLoop, useStore } from './core/store'
 import { unreachable } from './core/backend'
 import { World } from './World'
 import './fonts.css'
 import './fusion.css'
+
+const BOOT_LIMIT_MS = 15000
 
 function App() {
   // the fake runtime keeps the company files live
@@ -12,6 +16,14 @@ function App() {
   useBackend()
   useAppLanguage()
   const loaded = useStore((s) => s.loaded)
+  const offline = useStore((s) => s.offline)
+  useEffect(() => holdBoot(offline), [offline])
+  // the scene lifts the startup screen on its first frames; never leave it covering a scene that didn't draw
+  useEffect(() => {
+    if (!loaded) return
+    const timer = setTimeout(revealBoot, BOOT_LIMIT_MS)
+    return () => clearTimeout(timer)
+  }, [loaded])
   return <div className="fusion">{loaded && <World />}<Trouble /></div>
 }
 
