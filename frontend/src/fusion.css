@@ -709,7 +709,8 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
   .fx-slip-row .fx-staff-tools { grid-column: 2 / -1; justify-self: start; }
 }
 .fx-slip li.fx-slip-row:has(.fx-pick-flow) { grid-template-columns: minmax(0, 1fr) auto; }
-.fx-pick-flow { grid-column: 1 / -1; cursor: pointer; }
+/* Pick-list previews already sit inside the option's padding; do not add the shared flow indent. */
+.fx-pick-flow { display: block; min-width: 0; grid-column: 1 / -1; cursor: pointer; }
 .fx-pick-flow .fx-flow-scroll { overflow: hidden; padding: 0; }
 .fx-language { position: relative; }
 .fx-language-menu { inset-inline: auto 0; width: max-content; min-width: 150px; background: #fdfbf5; color: #1f1d2b; }
