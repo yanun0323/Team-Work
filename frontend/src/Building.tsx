@@ -12,11 +12,12 @@
 // head count: the layout (office.ts) and every colour in it, so it is rearranged whenever someone joins
 // or leaves.
 
-import { useFrame, type ThreeEvent } from '@react-three/fiber'
-import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { activity, teamReplicas } from './core/model'
 import { useStore } from './core/store'
+import { boxOnScreen } from './camera'
 import { CELL, FLOOR_CELLS, growth, hash, rectCenter, spotCenter, type BuildingLook, type BuildingStyle, type Lot, type Spot, type Town } from './layout'
 import { Fade } from './Fade'
 import { usePrefs } from './prefs'
@@ -371,12 +372,12 @@ function Part({ p, c, children }: { p: V3; c: string; children: ReactNode }) {
   return <mesh position={p} material={toon(c)} castShadow receiveShadow>{children}</mesh>
 }
 
-export function Building({ lot, town, open, hidden, hover, onHover, onSelect }: {
+export function Building({ lot, town, open, another, hover, onHover, onSelect }: {
   lot: Lot
   town: Town
   open: boolean
-  /** Faded out entirely, so it doesn't block the view of the open building behind it. */
-  hidden: boolean
+  /** Another company is open. This building then fades out once its plot leaves the screen, as it may still rise into view. */
+  another: boolean
   /** Under the pointer while no company is open: shaded to show it can be clicked. */
   hover: boolean
   onHover: (id: string, on: boolean) => void
@@ -385,6 +386,14 @@ export function Building({ lot, town, open, hidden, hover, onHover, onSelect }: 
   const [x, z] = rectCenter(town, lot.building)
   const detail = usePrefs((s) => s.detail)
   const grounds = useMemo(() => plotBoxes(town, lot, detail), [town, lot, detail])
+  const [hidden, setHidden] = useState(false)
+  const size = useThree((s) => s.size)
+  const plot = useMemo(() => {
+    const [px, pz] = rectCenter(town, lot.plot)
+    return { x: px, z: pz, w: lot.plot.w * CELL, d: lot.plot.d * CELL, height: 0 }
+  }, [town, lot])
+  // the camera moves every frame during a flight and on the player's zoom; React skips the render when nothing changed
+  useFrame(({ camera }) => setHidden(another && !boxOnScreen(plot, camera.position, camera.zoom, size)))
   const click = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
     // a press that moved was a pan, not a click

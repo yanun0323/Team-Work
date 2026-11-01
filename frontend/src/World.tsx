@@ -241,31 +241,32 @@ export function World() {
   // the airport's tag is in words, so it changes with the language
   const language = useStore((s) => s.world.language)
   const labels = useMemo(() => {
-    // while a company is open only its people are named; its own name is in the drawer.
     // People move about, so each tag follows the point its person writes every frame
-    if (open) {
-      return crewNames.split('\n').filter(Boolean).map((line): LabelSpec => {
-        const [id, name] = line.split('\t')
-        return { id: `fusion-crew-${id}`, tone: 'fusion-crew', text: name }
-      })
-    }
+    const crew = crewNames.split('\n').filter(Boolean).map((line): LabelSpec => {
+      const [id, name] = line.split('\t')
+      return { id: `fusion-crew-${id}`, tone: 'fusion-crew', text: name }
+    })
     const [ax, az] = rectCenter(town, town.airport)
     const airport: LabelSpec = {
       id: 'fusion-airport', at: [ax + AIRPORT_TAG[0], AIRPORT_TAG[1], az + AIRPORT_TAG[2]],
-      tone: hovered === AIRPORT_ID && !settingsOpen && !placing && !editing ? 'fusion lifted' : 'fusion',
+      tone: hovered === AIRPORT_ID && !open && !settingsOpen && !placing && !editing ? 'fusion lifted' : 'fusion',
       text: <span className="fx-tag">{tr('機場')}</span>,
       onClick: selectAirport,
     }
-    return [airport, ...town.lots.map((l): LabelSpec => {
+    const tags = town.lots.map((l, i): LabelSpec => {
       const [x, z] = rectCenter(town, l.building)
       return {
-        id: `fusion-${l.id}`, at: [x, l.floors * FLOOR + ROOF_TOP + 0.8, z], tone: (hovered === l.id && !settingsOpen && !placing) || moving === l.id ? 'fusion lifted' : 'fusion',
+        id: `fusion-${l.id}`, at: [x, l.floors * FLOOR + ROOF_TOP + 0.8, z], tone: (hovered === l.id && !open && !settingsOpen && !placing) || moving === l.id ? 'fusion lifted' : 'fusion',
         // the slip is an inner element: tilting the button itself would swing it round the screen corner,
-        // because its tilt applies after the transform that places it
-        text: <span className="fx-tag">{l.name}</span>,
+        // because its tilt applies after the transform that places it. The tilt goes by the company's place
+        // in town, so it doesn't change when the open company's tag leaves
+        text: <span className={i % 2 ? 'fx-tag' : 'fx-tag fx-tag-right'}>{l.name}</span>,
+        // with a company open, another company's tag goes straight to that company
         onClick: () => (helpOpen ? close() : editing ? pickMoving(l.id) : placing ? close() : settingsOpen ? close() : setSelected(l.id)),
       }
-    })]
+    })
+    // the open company's own name is in the drawer, and its roof is cut away
+    return [airport, ...tags.filter((t) => t.id !== `fusion-${open?.id}`), ...crew]
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [town, open, crewNames, hovered, hover, settingsOpen, placing, editing, moving, helpOpen, close, language])
 
@@ -290,15 +291,6 @@ export function World() {
       setByAirport(true)
       setPanel('settings')
     }
-  }
-
-  // while a company is open, every building nearer the camera than it fades away, so nothing blocks the view
-  const inFront = (lot: Town['lots'][number]) => {
-    if (!open || lot === open) return false
-    const [ax, az] = rectCenter(town, lot.building)
-    const [bx, bz] = rectCenter(town, open.building)
-    // the camera looks along -ISO_DIR, which has equal x and z, so nearer means a larger x + z
-    return ax + az > bx + bz
   }
 
   // clicks on empty land or sea close the drawer; a drag that pans the map doesn't
@@ -328,7 +320,7 @@ export function World() {
       {crowd && <Fade show><Strollers town={town} /></Fade>}
       <Trees town={town} />
       {town.lots.map((lot) => (
-        <Building key={lot.id} lot={lot} town={town} open={lot.id === selected} hidden={inFront(lot)}
+        <Building key={lot.id} lot={lot} town={town} open={lot.id === selected} another={!!open && lot !== open}
           hover={!selected && !settingsOpen && !placing && (hovered === lot.id || moving === lot.id)} onHover={hover} onSelect={select} />
       ))}
       <Airport town={town} calm={calm || !planes} still={editing} onSelect={selectAirport} onHover={(on) => hover(AIRPORT_ID, on)}
@@ -357,7 +349,7 @@ export function World() {
       )}
       <div className="fx-corner">
       {!placing && !editing && <button ref={boardButton} type="button" className="fx-settings-trigger fx-tag" aria-label={waiting ? tr('告示牌，{waiting} 個待回覆的任務', { waiting }) : tr('告示牌')}
-        onClick={() => setPanel('board')}>
+        disabled={town.lots.length === 0} onClick={() => setPanel('board')}>
         {waiting > 0 && <span className="fx-badge" aria-hidden="true">{waiting > 99 ? '99+' : waiting}</span>}
         {/* a notice board on two posts, a few lines written on it */}
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

@@ -77,6 +77,14 @@ function screenBounds(box: FocusBox) {
 
 /** Width of the right-hand drawer for a given canvas width: half, but never cramped. */
 export const drawerWidth = (width: number) => Math.min(width, Math.max(width / 2, 380))
+/** Whether any of the box shows on a screen of this size, for a camera looking at `center` (any point on its line of sight). */
+export function boxOnScreen(box: FocusBox, center: THREE.Vector3, zoom: number, view: Pick<View, 'width' | 'height'>): boolean {
+  const { minX, maxX, minY, maxY } = screenBounds(box)
+  const u = center.dot(SCREEN_RIGHT), v = center.dot(SCREEN_UP)
+  const halfW = view.width / 2 / zoom, halfH = view.height / 2 / zoom
+  return maxX > u - halfW && minX < u + halfW && maxY > v - halfH && minY < v + halfH
+}
+
 
 /** A camera view: where it looks on the ground, and its zoom. */
 export interface Shot {

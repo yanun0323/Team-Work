@@ -61,7 +61,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: 'A company open: the cut-away office on the left and the Tasks tab of its file on the right',
     body: (
       <>
-        <p>A company has one project folder and one target branch. The folder button after the project location opens it in Finder. Click the building, its plot or its name tag to open a company, and click elsewhere on the map or press Esc to put it away. On the right is the company file. On the left you can see employees in the office: those with work sit at their desks, and the rest walk around, chat with colleagues, sit on the sofa, have coffee or daydream. Every office has a coffee machine and a sofa.</p>
+        <p>A company has one project folder and one target branch. The folder button after the project location opens it in Finder. Click the building, its plot or its name tag to open a company, and click elsewhere on the map or press Esc to put it away. While one is open, other companies keep their name tags; click one to go straight to that company. On the right is the company file. On the left you can see employees in the office: those with work sit at their desks, and the rest walk around, chat with colleagues, sit on the sofa, have coffee or daydream. Every office has a coffee machine and a sofa.</p>
         <p>The building grows with the company: more finished tasks and employees mean more floors and a bigger footprint (up to 10×10 cells and 10 floors).</p>
         <p>The company file has Chats, Tasks, Employees, Terminal and Settings tabs. You can choose which one opens first with Default company tab in Airport → Settings.</p>
         <p>When something is not ready, a red stamp above the tabs says what is missing, and the matching add button is disabled:</p>
@@ -110,7 +110,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: 'Editing a workflow: a row of step notes with a small dot on each arrow, and Add step below',
     body: (
       <>
-        <p>A workflow is the steps for doing the work, drawn left to right as notes and arrows. Every workflow starts with Clarify requirements and ends with Acceptance review (red notes, always done by the task owner).</p>
+        <p>A workflow is the steps for doing the work, drawn left to right as notes and arrows. Every workflow starts with Clarify requirements and ends with Acceptance review (white notes, always done by the task owner).</p>
         <p>Each step in between either has an employee do the work (yellow, with a prompt) or discusses with an employee (green). Each step sets its assignment (first available or everyone), start condition and handoff. A step can branch to several next steps or wait for several previous ones. A dashed arrow means "pick one next step" or "start when any previous step is done".</p>
         <dl>
           <dt>Connect steps</dt><dd>While editing, drag a note onto another to connect them. Drag it to an empty part of the drawing to grow a new next step.</dd>
@@ -179,7 +179,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
         <p>For similar work, press Copy at the top right of a task's details. A new task opens with the title, description, attachments, workflow and staff filled in. Change what you need and press Start.</p>
         <dl>
           <dt>Four columns</dt><dd>Todo, Progressing, Wait for Review and Complete. A note with a red exclamation mark needs your reply, and a green merge icon is waiting for you to merge.</dd>
-          <dt>Noticeboard</dt><dd>The noticeboard at the top right of the main screen lists every company's tasks, and you can add tasks there too. The red circle on its button counts all tasks waiting for review.</dd>
+          <dt>Noticeboard</dt><dd>The noticeboard at the top right of the main screen lists every company's tasks, and you can add tasks there too. The red circle on its button counts all tasks waiting for review. With no companies yet, the button is gray and can't be pressed.</dd>
           <dt>Pause</dt><dd>Pause and continue at the top right of a task's details.</dd>
           <dt>Cost</dt><dd>Sub-tasks record their cost. When a task reaches the company's limit, it stops and asks you.</dd>
         </dl>

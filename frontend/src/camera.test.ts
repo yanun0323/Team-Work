@@ -1,7 +1,7 @@
 import { CELL, layoutTown } from './layout'
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot } from './camera'
+import { boxOnScreen, drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot } from './camera'
 
 /** Screen position (pixels from the canvas centre, y up) of a world point, for a camera looking at `target`. */
 const project = (p: THREE.Vector3, target: THREE.Vector3, zoom: number) => {
@@ -108,6 +108,35 @@ describe('flying between two views', () => {
   })
 })
 
+
+describe('boxOnScreen', () => {
+  const view = { width: 1000, height: 600 }
+  const plot = { x: 0, z: 0, w: 32, d: 32, height: 0 }
+  // how far the plot's far corner sits above its centre on screen
+  const reach = new THREE.Vector3(-16, 0, -16).dot(SCREEN_UP)
+  /** A camera looking at the point `pixels` above the plot's highest corner on screen, at this zoom. */
+  const above = (pixels: number, zoom: number) => new THREE.Vector3().addScaledVector(SCREEN_UP, reach + pixels / zoom)
+
+  it('counts a plot as off screen only once all of it has left', () => {
+    const zoom = 20
+    expect(boxOnScreen(plot, above(view.height / 2 - 5, zoom), zoom, view)).toBe(true)
+    expect(boxOnScreen(plot, above(view.height / 2 + 5, zoom), zoom, view)).toBe(false)
+  })
+
+  it('brings a plot back on screen when zooming out', () => {
+    const center = above(1000, 20)
+    expect(boxOnScreen(plot, center, 20, view)).toBe(false)
+    expect(boxOnScreen(plot, center, 6, view)).toBe(true)
+  })
+
+  it('sees past either side of the screen', () => {
+    const across = new THREE.Vector3(16, 0, -16).dot(SCREEN_RIGHT)
+    const at = (pixels: number) => new THREE.Vector3().addScaledVector(SCREEN_RIGHT, pixels / 20)
+    expect(boxOnScreen(plot, at(across * 20 + view.width / 2 - 5), 20, view)).toBe(true)
+    expect(boxOnScreen(plot, at(across * 20 + view.width / 2 + 5), 20, view)).toBe(false)
+    expect(boxOnScreen(plot, at(-(across * 20 + view.width / 2 + 5)), 20, view)).toBe(false)
+  })
+})
 
 describe('initial island overview', () => {
   for (const at of [[-8, -8], [160, 40], [-160, -90]] as [number, number][]) {

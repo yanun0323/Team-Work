@@ -47,7 +47,7 @@ body { margin: 0; overflow: hidden; }
   rotate: -1.5deg;
   transition: box-shadow 200ms ease-out, rotate 200ms ease-out, translate 200ms ease-out;
 }
-.label-fusion:nth-child(even) .fx-tag { rotate: 1.2deg; }
+.label-fusion .fx-tag-right { rotate: 1.2deg; }
 /* a strip of tape holding it up */
 .fx-tag::before {
   content: ""; position: absolute; left: 50%; top: -5px; width: 26px; height: 9px;
@@ -81,7 +81,7 @@ body { margin: 0; overflow: hidden; }
   /* the same colour as the theme in Terminal.tsx */
   --terminal-note: #18181b;
   /* the two steps every flow has, 整理需求 and 審查, which cannot be renamed or removed */
-  --note-fixed: #f6c6bb;
+  --note-fixed: #fff;
   /* 使用者討論: a step the user talks through with an employee */
   --note-talk: #cfe8b5;
   --ink: #1f1d2b;
@@ -299,7 +299,7 @@ body { margin: 0; overflow: hidden; }
   background: var(--note); box-shadow: var(--lift), inset 0 0 0 100vmax var(--unshade); rotate: -1.2deg;
 }
 .fx-flow .flow-node:nth-child(even) .fx-node { rotate: 1deg; }
-/* the two fixed steps (the task itself and the review at the end), a red pad of notes */
+/* the two fixed steps (the task itself and the review at the end), a white pad of notes */
 .fx-node-fixed { background: var(--note-fixed); }
 .fx-node-talk { background: var(--note-talk); }
 .fx-node b {
@@ -388,8 +388,6 @@ body { margin: 0; overflow: hidden; }
 /* each face is a little photo with a white border, pasted slightly askew */
 .fx-row > svg { padding: 3px; background: var(--clip); box-shadow: var(--lift); transform: rotate(-2deg); }
 .fx-list li:nth-child(even) .fx-row > svg { transform: rotate(1.5deg); }
-/* a blueprint is its own white sheet: no photo border round it */
-.fx-row > .fx-bp-icon { padding: 0; background: #fff; }
 .fx-row-main { display: grid; min-width: 0; }
 /* a row with nothing in front of its name */
 .fx-row-plain { grid-template-columns: minmax(0, 1fr) auto; }
@@ -530,7 +528,6 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-d-sub code { font: inherit; overflow-wrap: anywhere; }
 .fx-d-who { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 16px; }
 .fx-d-who > svg { padding: 3px; background: var(--clip); box-shadow: var(--lift); transform: rotate(-2deg); }
-.fx-d-who > .fx-bp-icon { padding: 0; background: #fff; }
 .fx-d-who > div { display: grid; gap: 6px; }
 .fx-d-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 13px; color: var(--ink-2); }
 .fx-d-sec { display: grid; gap: 10px; }
@@ -562,7 +559,7 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-bp-head svg { display: block; background: #fff; box-shadow: var(--lift); }
 /* the steps under a flow drawing, in the order it runs: space between steps, a finished one greyed */
 .fx-d-steps { display: grid; gap: 22px; margin: 0; padding: 0; list-style: none; }
-/* each step a whole sticky note, coloured as on the drawing: yellow work, green talk, red the fixed two, grey
+/* each step a whole sticky note, coloured as on the drawing: yellow work, green talk, white the fixed two, grey
    once finished */
 .fx-d-steps > li.fx-step-note {
   padding: 14px 16px 16px; background: var(--note); box-shadow: var(--lift); rotate: -0.35deg;
@@ -791,6 +788,7 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-brand { position: absolute; top: 22px; inset-inline-start: 22px; z-index: 4; display: grid; gap: 2px; padding: 8px 14px 7px; pointer-events: none; }
 .fx-brand h1 { margin: 0; font: inherit; font-size: 18px; line-height: 1.2; letter-spacing: -0.01em; }
 .fx-brand p { margin: 0; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fx-settings-trigger:disabled { background-color: #d6d4cf; color: #76747c; cursor: not-allowed; filter: grayscale(1); }
 @media (max-width: 640px) { .fx-brand { top: 78px; } }
 .fx-settings-trigger { display: grid; place-items: center; width: 44px; padding: 0; }
 /* what to pick on the map, across the middle of the top; narrow windows have no room beside the buttons */
@@ -807,7 +805,7 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
   rotate: 1.5deg;
 }
 :is(.fx-settings-trigger, .fx-corner-text):focus-visible { outline: 2px solid #1f1d2b; outline-offset: 4px; }
-@media (hover: hover) { :is(.fx-settings-trigger, .fx-corner-text):hover { filter: brightness(0.94); } }
+@media (hover: hover) { :is(.fx-settings-trigger, .fx-corner-text):hover:not(:disabled) { filter: brightness(0.94); } }
 @media (prefers-reduced-motion: no-preference) {
   :is(.fx-settings-trigger, .fx-corner-text) { transition: scale 150ms ease-out; }
   :is(.fx-settings-trigger, .fx-corner-text):active:not(:disabled) { scale: 0.96; }
