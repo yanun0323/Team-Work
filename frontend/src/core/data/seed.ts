@@ -108,7 +108,7 @@ function node(
 
 export function seedWorld(): World {
   const w: World = {
-    now: 0, seq: 100, teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
+    now: 0, seq: 100, language: 'zh', teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
     nextDriftAt: 75, rng: 20261028, events: [],
   }
   for (const p of PROVIDERS) w.providers[p.id] = structuredClone(p)

@@ -23,7 +23,7 @@ const (
 	// maxModelCalls bounds one run, so a model going round in circles ends up with the user.
 	maxModelCalls = 200
 	toolAskUser   = "ask_user"
-	nudgeText     = "還沒有交接。如果做完了就呼叫 submit_handoff；如果需要使用者決定就呼叫 ask_user；否則繼續工作。"
+	nudgeText     = "You have not handed off. If done, call submit_handoff. If the user must decide, call ask_user. Otherwise keep working."
 )
 
 var retryDelay = time.Second
@@ -197,7 +197,7 @@ func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Rep
 	if node != nil {
 		team := e.w.Teams[t.TeamID]
 		e.readPrompt(team)
-		spec.system = composePrompt(t, team, node, bp, r)
+		spec.system = composePrompt(t, team, node, bp, r, e.w.Language)
 	}
 	for _, pack := range bp.Skills {
 		source := bp.Source
@@ -266,7 +266,7 @@ func (e *Engine) ownPrompt(ctx context.Context, own *model.BlueprintSource) (str
 	if err != nil {
 		return "", nil
 	}
-	return "\n# 你的角色\n" + string(raw) + "\n", nil
+	return "\n# Your role\n" + string(raw) + "\n", nil
 }
 
 // startSub starts a run for a sub-task just dispatched. Call it holding the lock.
@@ -286,7 +286,7 @@ func (e *Engine) startSub(t *model.Task, s *model.SubTask) {
 	} else {
 		conv = answerPending(conv, "")
 		if conv[len(conv)-1].Role == enum.RoleAssistant {
-			conv = append(conv, userText("請繼續。"))
+			conv = append(conv, userText("Please continue."))
 		}
 	}
 	e.w.Conversations[s.ID] = conv

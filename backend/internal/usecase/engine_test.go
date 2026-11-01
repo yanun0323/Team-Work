@@ -84,7 +84,7 @@ var handoff = map[string]any{"goal": "g", "done": []string{"d"}, "headline": "h"
 
 // stepOf reads which step a request is for, from the system prompt.
 func stepOf(req model.ModelRequest) string {
-	_, rest, _ := strings.Cut(req.System, "# 這一步：")
+	_, rest, _ := strings.Cut(req.System, "# This step: ")
 	name, _, _ := strings.Cut(rest, "\n")
 	return name
 }
@@ -243,7 +243,7 @@ func TestTaskRunsToMergeOnRealGit(t *testing.T) {
 	}
 	// the review step was told what came from upstream
 	last := r.fake.seen[len(r.fake.seen)-1]
-	if !strings.Contains(last.Messages[0].Content[0].Text, "上游「整理需求」的交接") {
+	if !strings.Contains(last.Messages[0].Content[0].Text, `Handoff from "整理需求"`) {
 		t.Fatalf("no upstream handoff in: %s", last.Messages[0].Content[0].Text)
 	}
 	if _, err := os.Stat(filepath.Join(r.folder, "feature.txt")); err == nil {
@@ -408,8 +408,8 @@ func TestEveryStepSeesItsNeighbours(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	for step, wants := range map[string][]string{
-		"寫碼": {"- 整理需求：" + usecase.StartPrompt, "- 討論（id: talk）：" + usecase.TalkPrompt},
-		"討論": {"- 寫碼：寫碼的指示", "- 驗收：" + usecase.EndPrompt},
+		"寫碼": {"- 整理需求: " + usecase.StartPrompt, "- 討論 (id: talk): " + usecase.TalkPrompt},
+		"討論": {"- 寫碼: 寫碼的指示", "- 驗收: " + usecase.EndPrompt},
 	} {
 		for _, want := range wants {
 			if !strings.Contains(systems[step], want) {
@@ -517,7 +517,7 @@ func TestMergeConflictIsResolvedByTheOwner(t *testing.T) {
 	var folder = r.folder
 	r.fake.mu.Lock()
 	r.fake.reply = func(req model.ModelRequest) (model.ModelReply, error) {
-		if strings.Contains(req.System, "合併") && stepOf(req) == "" {
+		if strings.Contains(req.System, "merging a task branch") && stepOf(req) == "" {
 			if lastIsResult(req) {
 				return say("留下雙方"), nil
 			}

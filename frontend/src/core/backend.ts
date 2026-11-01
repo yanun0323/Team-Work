@@ -1,7 +1,7 @@
 // The connection to the backend. It owns the truth: the world arrives over a WebSocket, as a snapshot and then
 // as changes; asking for something is a request, and what comes of it arrives the same way.
 
-import type { World } from './domain/types'
+import type { Locale, World } from './domain/types'
 
 export const UNREACHABLE = import.meta.env.MODE === 'desktop'
   ? '連不上後端，請關閉並重新開啟 Team Work'
@@ -19,6 +19,7 @@ export type ServerEvent =
   | { type: 'patch'; upserts?: Patch[]; deletes?: Patch[] }
   | { type: 'delta'; subId: string; text: string }
   | { type: 'deltaReset'; subId: string }
+  | { type: 'language'; language: Locale }
   | { type: 'notice'; kind: 'review' | 'awaitMerge'; taskId: string; subId?: string }
 
 const BOOKS: Record<string, keyof World> = {
@@ -43,7 +44,7 @@ export const readHandedFile = (subId: string, path: string, signal: AbortSignal)
 
 /** A world with nothing in it, until the backend's snapshot arrives. */
 export const emptyWorld = (): World => ({
-  now: Date.now() / 1000, seq: 0, teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
+  now: Date.now() / 1000, seq: 0, language: 'zh', teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
   nextDriftAt: Infinity, rng: 0, events: [],
 })
 

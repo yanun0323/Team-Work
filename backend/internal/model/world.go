@@ -345,6 +345,7 @@ type World struct {
 	Now           float64                   `json:"now"`
 	Seq           int                       `json:"seq"`
 	Presets       bool                      `json:"-"` // the preset blueprints and flows were added
+	Language      string                    `json:"language"`
 	Teams         map[string]*Team          `json:"teams"`
 	Providers     map[string]*ModelProvider `json:"providers"`
 	Blueprints    map[string]*Blueprint     `json:"blueprints"`
@@ -356,9 +357,16 @@ type World struct {
 	Conversations map[string][]Message      `json:"-"`
 }
 
+// The languages of the app and of what employees write to the user.
+const (
+	LanguageZh = "zh"
+	LanguageEn = "en"
+)
+
 func NewWorld() *World {
 	return &World{
-		Teams: map[string]*Team{}, Providers: map[string]*ModelProvider{}, Blueprints: map[string]*Blueprint{},
+		Language: LanguageZh,
+		Teams:    map[string]*Team{}, Providers: map[string]*ModelProvider{}, Blueprints: map[string]*Blueprint{},
 		Replicas: map[string]*Replica{}, Workflows: map[string]*Workflow{}, Tasks: map[string]*Task{},
 		SubTasks: map[string]*SubTask{}, Chats: map[string]*Chat{}, Conversations: map[string][]Message{},
 	}

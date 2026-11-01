@@ -7,7 +7,7 @@ import { between, chance, hex, pick, uid } from './rng'
 import { taskStatus } from './rollup'
 import type {
   Chat,
-  Attachment, Blueprint, GitSource, LogKind, MemorySource, ModelProvider, ProviderAuth, Replica, Review, Script, SubTask, TalkEnd, Task, Team, Workflow, World,
+  Attachment, Blueprint, GitSource, Locale, LogKind, MemorySource, ModelProvider, ProviderAuth, Replica, Review, Script, SubTask, TalkEnd, Task, Team, Workflow, World,
 } from './types'
 
 /** Seconds a box spends on the belt between two nodes. */
@@ -998,4 +998,8 @@ export function deleteTeam(w: World, teamId: string, _opts: { removeFiles: boole
   for (const c of Object.values(w.chats)) if (c.teamId === teamId) delete w.chats[c.id]
   w.events = w.events.filter((e) => !('taskId' in e) || !tasks.has(e.taskId))
   delete w.teams[teamId]
+}
+
+export function setLanguage(w: World, language: Locale) {
+  w.language = language
 }

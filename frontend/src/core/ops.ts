@@ -4,7 +4,7 @@
 
 import { request } from './backend'
 import * as sim from './domain/sim'
-import type { Attachment, Blueprint, Chat, Effort, Look, Replica, TalkEnd, Team, Workflow, World } from './domain/types'
+import type { Attachment, Blueprint, Chat, Effort, Locale, Look, Replica, TalkEnd, Team, Workflow, World } from './domain/types'
 import { MOCK } from './mode'
 
 /** Reports a request that failed; the store shows it. Set once at start. */
@@ -29,6 +29,8 @@ export async function attempt<T>(work: () => Promise<T>): Promise<T | undefined>
 type Sim = typeof sim
 
 const pick = <K extends keyof Sim>(name: K, real: (...args: never[]) => unknown) => (MOCK ? sim[name] : real) as Sim[K]
+
+export const setLanguage = pick('setLanguage', (_w: World, language: Locale) => fire_('PUT', '/settings/language', { language }))
 
 // ---------- tasks ----------
 

@@ -404,6 +404,8 @@ export interface ModelProvider {
 export interface World {
   now: number
   seq: number
+  /** The language of the app and of what employees write to the user. */
+  language: Locale
   teams: Record<string, Team>
   providers: Record<string, ModelProvider>
   blueprints: Record<string, Blueprint>

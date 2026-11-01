@@ -13,7 +13,7 @@ const calm: Partial<Script> = { duration: 10, costRate: 0.001, route: 0, ask: un
 
 function world(): World {
   const w: World = {
-    now: 0, seq: 0, teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
+    now: 0, seq: 0, language: 'zh', teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
     nextDriftAt: Infinity, rng: 42, events: [],
   }
   w.blueprints.bp = {

@@ -49,6 +49,8 @@ type Event struct {
 	// deltaReset: start that text over.
 	SubID string `json:"subId,omitempty"`
 	Text  string `json:"text,omitempty"`
+	// language: the language picked, for clients already connected
+	Language string `json:"language,omitempty"`
 	// notice: review or awaitMerge
 	Kind   string `json:"kind,omitempty"`
 	TaskID string `json:"taskId,omitempty"`
@@ -233,11 +235,15 @@ func (e *Engine) load(ctx context.Context) error {
 		switch d.Kind {
 		case kindMeta:
 			var meta struct {
-				Seq     int  `json:"seq"`
-				Presets bool `json:"presets"`
+				Seq      int    `json:"seq"`
+				Presets  bool   `json:"presets"`
+				Language string `json:"language"`
 			}
 			err = jsonx.Unmarshal(d.Data, &meta)
 			e.w.Seq, e.w.Presets = meta.Seq, meta.Presets
+			if meta.Language != "" {
+				e.w.Language = meta.Language
+			}
 
 		case kindConv:
 			var conv []model.Message
@@ -299,7 +305,7 @@ func encodeAll[T any](docs map[string][]byte, kind string, all map[string]*T) {
 // documents captures the public entities plus private runtime records for change detection.
 func (e *Engine) documents() map[string][]byte {
 	now := map[string][]byte{}
-	meta, _ := jsonx.Marshal(map[string]any{"seq": e.w.Seq, "presets": e.w.Presets})
+	meta, _ := jsonx.Marshal(map[string]any{"seq": e.w.Seq, "presets": e.w.Presets, "language": e.w.Language})
 	now[docKey(kindMeta, "world")] = meta
 	encodeAll(now, "team", e.w.Teams)
 	encodeAll(now, "provider", e.w.Providers)

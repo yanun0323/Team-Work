@@ -304,6 +304,24 @@ func (e *Engine) DeleteWorkflow(id string) error {
 	})
 }
 
+// SetLanguage picks the language of the app and of what employees write to the user. It takes effect from their next reply.
+func (e *Engine) SetLanguage(language string) error {
+	if languageNames[language] == "" {
+		return model.Errorf(model.CodeInvalid, "不支援這個語言")
+	}
+	err := e.do(func() error {
+		e.w.Language = language
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.publish(Event{Type: "language", Language: language})
+	return nil
+}
+
 // ---------- model providers ----------
 
 // ProviderLogin is how a provider is signed in to. The key is kept apart and only its last 4 characters are shown.

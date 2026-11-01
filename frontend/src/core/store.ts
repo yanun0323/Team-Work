@@ -95,6 +95,9 @@ export const useStore = create<State>()(
           case 'deltaReset':
             clearLive(ev.subId)
             break
+          case 'language':
+            s.world.language = ev.language
+            break
           case 'patch': {
             // what was being written has become a message
             const said = (id: string) => (s.world.chats[id]?.messages ?? s.world.subTasks[id]?.talk?.messages ?? []).length

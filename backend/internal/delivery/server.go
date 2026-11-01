@@ -70,6 +70,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api := e.Group("/api/v1")
 	api.GET("/world", s.world)
 	api.POST("/settings/reload", s.reloadSettings)
+	api.PUT("/settings/language", s.setLanguage)
 	api.GET("/events", s.events)
 
 	api.POST("/teams", s.createTeam)
@@ -280,6 +281,16 @@ func (s *Server) updateTeam(c echo.Context) error {
 		return err
 	}
 	return done(c, s.engine.UpdateTeam(c.Param("id"), in))
+}
+
+func (s *Server) setLanguage(c echo.Context) error {
+	in, err := bind[struct {
+		Language string `json:"language"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.SetLanguage(in.Language))
 }
 
 func (s *Server) refreshPrompt(c echo.Context) error {

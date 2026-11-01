@@ -15,7 +15,9 @@ import { FlowNotes, openCard } from './FlowNotes'
 import { sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, PROVIDER_KINDS } from './providers'
-import { Select, Toggle } from './Controls'
+import { Select, Switcher, Toggle } from './Controls'
+import type { Locale } from './core/domain/types'
+import { setLanguage } from './core/ops'
 import { TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
 import { usePrefs, type LogOrder, type Prefs } from './prefs'
 import { request } from './core/backend'
@@ -233,8 +235,13 @@ export function ReloadSettings() {
   )
 }
 
+const LANGUAGES = ['zh', 'en'] as const
+const LANGUAGE_NAMES: Record<Locale, string> = { zh: '繁體中文', en: 'English' }
+
 function PrefsPage() {
   const prefs = usePrefs()
+  const language = useStore((s) => s.world.language)
+  const act = useStore((s) => s.act)
   const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab'>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
@@ -244,6 +251,8 @@ function PrefsPage() {
       <section className="fx-d-group" aria-labelledby="fx-prefs-use">
         <h4 id="fx-prefs-use">功能</h4>
         <div className="fx-fields">
+          <Switcher label="語言" value={language} options={LANGUAGES} labelOf={(l) => LANGUAGE_NAMES[l]}
+            onChange={(l) => act((x) => void setLanguage(x, l))} />
           <Select label="任務紀錄排序" value={prefs.logOrder} options={Object.keys(LOG_ORDERS)} labelOf={(o) => LOG_ORDERS[o as LogOrder]}
             onChange={(v) => prefs.set({ logOrder: v as LogOrder })} />
           <Select label="預設頁籤" value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.map((x) => x.id)}

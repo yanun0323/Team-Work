@@ -39,7 +39,7 @@ func TestChatWorksInTheFolderWithoutTheEmployeesTaskSlot(t *testing.T) {
 	if len(msgs) != 3 || msgs[0].From != "user" || msgs[1].From != "tool" || msgs[2].Text != "寫好了" {
 		t.Fatalf("%+v", msgs)
 	}
-	if !strings.Contains(r.fake.seen[0].System, "專案資料夾本身") || r.fake.seen[0].Cwd != r.folder {
+	if !strings.Contains(r.fake.seen[0].System, "project folder itself") || r.fake.seen[0].Cwd != r.folder {
 		t.Fatalf("%q %q", r.fake.seen[0].System, r.fake.seen[0].Cwd)
 	}
 	if err := r.e.SayInChat(c.ID, "  ", nil); err == nil {
@@ -456,5 +456,69 @@ func TestRewindStopsAReplyBeingWritten(t *testing.T) {
 	}
 	if got := r.world().Chats[c.ID]; got.ReplyAt != nil || len(got.Messages) != 0 {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestEmployeesWriteInTheLanguagePicked(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	said := func(text string) string {
+		t.Helper()
+		c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.wait("reply", chatDone(c.ID))
+		return r.fake.seen[len(r.fake.seen)-1].System
+	}
+	if got := said("嗨"); !strings.Contains(got, "user reads in Traditional Chinese") {
+		t.Fatalf("zh is the default: %s", got)
+	}
+	if r.world().Language != model.LanguageZh {
+		t.Fatal(r.world().Language)
+	}
+	if err := r.e.SetLanguage("fr"); err == nil {
+		t.Fatal("an unknown language went through")
+	}
+	_, events, cancel, err := r.e.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	if err := r.e.SetLanguage(model.LanguageEn); err != nil {
+		t.Fatal(err)
+	}
+	if ev := <-events; ev.Type != "language" || ev.Language != model.LanguageEn {
+		t.Fatalf("connected clients were not told: %+v", ev)
+	}
+	if got := said("hi"); !strings.Contains(got, "user reads in English") || strings.Contains(got, "Traditional Chinese") {
+		t.Fatalf("en: %s", got)
+	}
+	r.e.Close()
+	newEngine(t, r)
+	if r.world().Language != model.LanguageEn {
+		t.Fatalf("not kept over a restart: %s", r.world().Language)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "draft"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	if _, err := r.e.ChatTaskDraft(context.Background(), c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.fake.seen[len(r.fake.seen)-1].System; !strings.Contains(got, "user reads in English") {
+		t.Fatalf("draft: %s", got)
+	}
+}
+
+func TestTaskStepsAreToldTheLanguage(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	if err := r.e.SetLanguage(model.LanguageEn); err != nil {
+		t.Fatal(err)
+	}
+	r.task(r.flow.ID)
+	r.wait("first step", func(*model.World) bool { return len(r.fake.seen) > 0 })
+	if got := r.fake.seen[0].System; !strings.Contains(got, "user reads in English") || strings.Contains(got, "# 這一步") {
+		t.Fatalf("%s", got)
 	}
 }
