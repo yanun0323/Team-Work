@@ -1,6 +1,7 @@
+import { CELL, layoutTown } from './layout'
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { drawerWidth, focusView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot } from './camera'
+import { drawerWidth, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot } from './camera'
 
 /** Screen position (pixels from the canvas centre, y up) of a world point, for a camera looking at `target`. */
 const project = (p: THREE.Vector3, target: THREE.Vector3, zoom: number) => {
@@ -94,4 +95,31 @@ describe('flying between two views', () => {
     expect(s.target.distanceTo(from.target.clone().lerp(to.target, 0.5))).toBeLessThan(1e-9)
     expect(s.zoom).toBeCloseTo(from.zoom)
   })
+})
+
+
+describe('initial island overview', () => {
+  for (const at of [[-8, -8], [160, 40], [-160, -90]] as [number, number][]) {
+    for (const [width, height] of [[1440, 900], [640, 900]]) {
+      it(`fits and centres all land at ${at} in ${width}x${height}`, () => {
+        const town = layoutTown([{ id: 'a', name: 'A', members: 0, at }])
+        const shot = islandView(town, { width, height })
+        const xs: number[] = [], ys: number[] = []
+        town.ground.forEach((cell, k) => {
+          if (!cell) return
+          for (const dx of [0, 1]) for (const dz of [0, 1]) {
+            const [x, y] = project(new THREE.Vector3((k % town.cols - town.cols / 2 + dx) * CELL, 0, (Math.floor(k / town.cols) - town.rows / 2 + dz) * CELL), shot.target, shot.zoom)
+            xs.push(x); ys.push(y)
+          }
+        })
+        expect(Math.min(...xs)).toBeGreaterThan(-width / 2 + 20)
+        expect(Math.max(...xs)).toBeLessThan(width / 2 - 20)
+        expect(Math.min(...ys)).toBeGreaterThan(-height / 2 + 20)
+        expect(Math.max(...ys)).toBeLessThan(height / 2 - 20)
+        // Ground remains close to centre; vertical room also accommodates roofs and the tower.
+        expect(Math.abs((Math.min(...xs) + Math.max(...xs)) / 2)).toBeLessThan(20)
+        expect(Math.abs((Math.min(...ys) + Math.max(...ys)) / 2)).toBeLessThan(80)
+      })
+    }
+  }
 })

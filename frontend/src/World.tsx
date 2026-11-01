@@ -13,7 +13,7 @@ import { LabelLayer, LabelProjector, type LabelSpec } from './core/voxel/labels'
 import { Airport, AIRPORT_TOP, TERMINAL } from './Airport'
 import { Ambient, shadowHalf } from './Ambient'
 import { Building, BuildingPreview, CUT, FLOOR, ROOF_TOP } from './Building'
-import { CAMERA_DISTANCE, drawerWidth, focusView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, shotAt, type FocusBox, type Shot } from './camera'
+import { CAMERA_DISTANCE, drawerWidth, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, shotAt, type FocusBox, type Shot } from './camera'
 import { Drawer } from './Drawer'
 import { Settings } from './Settings'
 import { Help } from './Help'
@@ -336,7 +336,7 @@ export function World() {
       <Ambient town={town} calm={calm} clouds={clouds} planes={planes} />
       <MapControls makeDefault enableRotate={false} enableDamping dampingFactor={0.12} screenSpacePanning={false}
         minZoom={MIN_ZOOM} maxZoom={MAX_ZOOM} zoomSpeed={ZOOM_SPEED} />
-      <CameraRig radius={town.radius} span={span} top={town.top} focus={focus} focusKey={airportShown ? 'airport' : selected ?? (spot ? `spot:${spot}` : null)}
+      <CameraRig town={town} radius={town.radius} span={span} top={town.top} focus={focus} focusKey={airportShown ? 'airport' : selected ?? (spot ? `spot:${spot}` : null)}
         blocked={settingsOpen || helpOpen} wide={(placing || editing) && !selected ? town.middle : null} />
       <LabelProjector />
       <PixelPass pixel={2} />
@@ -476,12 +476,12 @@ const FLY_SECONDS = 0.9
 /** An open office fills a bit more than the free area: its empty outer floor corners may be cut off. */
 const OFFICE_ZOOM = 1.14
 
-function CameraRig({ radius, span, top, focus, focusKey, blocked, wide }: {
-  radius: number; span: number; top: number; focus: FocusBox | null; focusKey: string | null; blocked: boolean
+function CameraRig({ town, radius, span, top, focus, focusKey, blocked, wide }: {
+  town: Town; radius: number; span: number; top: number; focus: FocusBox | null; focusKey: string | null; blocked: boolean
   /** Placing a new company: the middle of the town, which is shown with the sea a new plot may go on. */
   wide: [number, number] | null
 }) {
-  const controls = useThree((s) => s.controls) as unknown as (THREE.EventDispatcher<{ start: object }> & { target: THREE.Vector3; update: () => void; enabled: boolean; zoomToCursor: boolean }) | null
+  const controls = useThree((s) => s.controls) as unknown as (THREE.EventDispatcher<{ start: object }> & { target: THREE.Vector3; update: () => void; enabled: boolean; zoomToCursor: boolean; minZoom: number }) | null
   const gl = useThree((s) => s.gl)
   const camera = useThree((s) => s.camera) as THREE.OrthographicCamera
   const size = useThree((s) => s.size)
@@ -497,12 +497,20 @@ function CameraRig({ radius, span, top, focus, focusKey, blocked, wide }: {
     return THREE.MathUtils.clamp(Math.min((size.width * 0.85) / across, (size.height * 0.8) / tall), MIN_ZOOM, MAX_ZOOM)
   }
   useEffect(() => {
-    if (fitted.current || !size.width) return
+    if (fitted.current || !size.width || !size.height || !controls) return
     fitted.current = true
-    camera.zoom = fit(span)
+    const shot = islandView(town, size)
+    controls.minZoom = Math.min(MIN_ZOOM, shot.zoom)
+    controls.target.copy(shot.target)
+    const distance = Math.max(CAMERA_DISTANCE, town.radius * 3)
+    camera.position.copy(shot.target).addScaledVector(ISO_DIR, distance)
+    camera.far = distance * 3
+    camera.lookAt(shot.target)
+    camera.zoom = shot.zoom
     camera.updateProjectionMatrix()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camera, size, span, top])
+    controls.update()
+  }, [camera, controls, size, town])
   // the sea all round where a new plot may go
   const around = (REACH_CELLS + PLOT_CELLS) * CELL
 

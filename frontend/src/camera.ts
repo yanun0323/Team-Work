@@ -1,6 +1,7 @@
 // The fixed isometric camera and the maths for focusing on one building. No React.
 
 import * as THREE from 'three'
+import { CELL, FLOOR_CELLS, TREE_CELLS, type Town } from './layout'
 
 /**
  * Fixed isometric view, same angle as agent-factory: orthographic, looking from the +x/+z corner
@@ -86,5 +87,40 @@ export function shotAt(from: Shot, to: Shot, u: number): Shot {
   // a point P sits at (P - target) * zoom on screen; the still point F keeps (F - target) * zoom fixed
   const still = to.target.clone().multiplyScalar(to.zoom).addScaledVector(from.target, -from.zoom).divideScalar(to.zoom - from.zoom)
   const target = from.target.clone().sub(still).multiplyScalar(from.zoom / zoom).add(still)
+  return { target, zoom }
+}
+
+/** Fit projected land cells and static structures, not the origin-centred allocation rectangle. */
+export function islandView(town: Town, view: Pick<View, 'width' | 'height'>): Shot {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+  const point = new THREE.Vector3()
+  const include = (x: number, y: number, z: number) => {
+    point.set(x, y, z)
+    const u = point.dot(SCREEN_RIGHT), v = point.dot(SCREEN_UP)
+    minX = Math.min(minX, u); maxX = Math.max(maxX, u)
+    minY = Math.min(minY, v); maxY = Math.max(maxY, v)
+  }
+  const box = (x: number, z: number, w: number, d: number, height: number, margin = 0) => {
+    for (const px of [x * CELL - margin, (x + w) * CELL + margin]) {
+      for (const pz of [z * CELL - margin, (z + d) * CELL + margin]) {
+        include(px, 0, pz); include(px, height, pz)
+      }
+    }
+  }
+  town.ground.forEach((cell, k) => {
+    // Includes the beach beyond the grass and the island's soil edge.
+    if (cell) box(k % town.cols - town.cols / 2, Math.floor(k / town.cols) - town.rows / 2, 1, 1, -2, 1.5)
+  })
+  for (const lot of town.lots) box(lot.building.x - town.cols / 2, lot.building.z - town.rows / 2, lot.building.w, lot.building.d, lot.floors * FLOOR_CELLS * CELL + 4)
+  for (const tree of town.trees) box(tree.x - town.cols / 2, tree.z - town.rows / 2, TREE_CELLS, TREE_CELLS, tree.height * CELL)
+  const airport = { ...town.airport, x: town.airport.x - town.cols / 2, z: town.airport.z - town.rows / 2 }
+  box(airport.x, airport.z, airport.w, airport.d, 5)
+  // Control tower, in world units relative to the airport centre (Airport.tsx).
+  const ax = (airport.x + airport.w / 2) * CELL - 14, az = (airport.z + airport.d / 2) * CELL - 15
+  for (const x of [ax - 2, ax + 2]) for (const z of [az - 2, az + 2]) include(x, 17, z)
+  // Leave space for name tags and the toolbar; allow large islands below the normal manual zoom floor.
+  const zoom = Math.min(MAX_ZOOM, Math.max(1, view.width - 80) / (maxX - minX), Math.max(1, view.height - 160) / (maxY - minY))
+  const target = SCREEN_RIGHT.clone().multiplyScalar((minX + maxX) / 2).addScaledVector(SCREEN_UP, (minY + maxY) / 2)
+  target.addScaledVector(ISO_DIR, -target.y / ISO_DIR.y)
   return { target, zoom }
 }
