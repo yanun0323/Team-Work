@@ -3,21 +3,11 @@
 // drawers, a click on the map or Esc puts it away.
 
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import aboutShot from './help/about.jpg'
-import airportShot from './help/airport.jpg'
-import blueprintShot from './help/blueprint.jpg'
-import chatShot from './help/chat.jpg'
-import companyShot from './help/company.jpg'
-import crewShot from './help/crew.jpg'
-import flowShot from './help/flow.jpg'
-import mapShot from './help/map.jpg'
-import providerShot from './help/provider.jpg'
-import startShot from './help/start.jpg'
-import prefsShot from './help/prefs.jpg'
-import talkShot from './help/talk.jpg'
-import taskShot from './help/task.jpg'
-import teamsetShot from './help/teamset.jpg'
-import terminalShot from './help/terminal.jpg'
+import { appLanguage, tr } from './core/i18n'
+import { HELP_EN } from './HelpEn'
+
+/** Each topic's screenshot, one set per language: help/<language>/<topic>.jpg. */
+const SHOTS = import.meta.glob<string>('./help/*/*.jpg', { eager: true, query: '?url', import: 'default' })
 
 const GROUPS = ['機場', '公司'] as const
 type Group = (typeof GROUPS)[number]
@@ -29,8 +19,7 @@ interface Topic {
   group?: Group
   /** Its title on the page, when the label alone would be unclear. */
   title?: string
-  /** A screenshot of that part of the app, and what it shows. */
-  shot: string
+  /** What its screenshot shows. */
   alt: string
   body: ReactNode
 }
@@ -38,8 +27,7 @@ interface Topic {
 const TOPICS: Topic[] = [
   {
     id: 'start',
-    shot: startShot,
-    alt: '島上的兩間公司和機場，右上角是告示牌、新公司、編輯地圖、說明和設定（飛機）按鈕',
+    alt: '島上的兩間公司和機場，右上角是告示牌、新公司、編輯地圖、語言、說明和設定（飛機）按鈕',
     label: '快速開始',
     body: (
       <>
@@ -47,25 +35,25 @@ const TOPICS: Topic[] = [
         <ol>
           <li>在「機場 → 模型供應商」接上至少一個供應商，員工才有模型可用。</li>
           <li>按「＋ 新公司」，在地圖上選位置，再填專案資料夾、名稱和目標分支。</li>
-          <li>在公司的「員工」頁籤新增員工：選一個員工藍圖和模型。</li>
+          <li>在公司的「員工」頁籤新增員工：選一個員工藍圖和模型。藍圖和任務流程都有內建的，可以直接用。</li>
           <li>在「任務」頁籤建立任務：寫下要做什麼、選任務流程，再為每一步挑員工（整理需求和驗收由任務負責人做）。</li>
           <li>員工照任務流程接力完成；打開任務看「進度」，有紅色驚嘆號的那一步在等你，點開它回覆。</li>
         </ol>
-        <p>缺了什麼時，公司的頁籤上會蓋印章告訴你先做哪一步。拖曳地圖可以移動視角，按 Esc 或點地圖可以收起打開的東西。</p>
+        <p>缺了什麼時，公司的頁籤上會蓋印章告訴你先做哪一步。拖曳地圖可以移動視角，按 Esc 或點地圖可以收起打開的東西。要換語言，按右上角的地球。</p>
       </>
     ),
   },
   {
     id: 'map',
-    shot: mapShot,
     alt: '編輯地圖時，選取的公司跟著游標出現一塊虛線用地',
     label: '地圖',
     body: (
       <>
-        <p>島上每棟大樓是一間公司，公司的位置由你決定。選位置時，右上角的便利貼會告訴你現在要選什麼，虛線框旁綠色半透明的範圍是會長出來的陸地。</p>
+        <p>島上每棟大樓是一間公司，公司的位置由你決定。選位置時，上方中央的便利貼會告訴你現在要選什麼，虛線框旁綠色半透明的範圍是會長出來的陸地。</p>
         <dl>
           <dt>移動視角</dt><dd>拖曳地圖，或用 WASD、方向鍵（按住 Shift 加速）；滾輪縮放：拉近時朝游標所在處，拉遠時以畫面中央為中心。</dd>
           <dt>＋ 新公司</dt><dd>虛線框跟著游標走，陸地或海上都能放；變紅就是太擠或離岸太遠。放在海上會自動長出陸地接回島上。放好後先看到大樓的預覽，外觀是隨機的，可以擲骰子換一套。</dd>
+          <dt>右上角按鈕</dt><dd>依序是告示牌、＋ 新公司、編輯地圖、語言（地球）、說明（問號）和機場（飛機）。挑選位置時只留下「取消」或「完成」。</dd>
           <dt>解散或搬走後</dt><dd>只為那間公司長出來的陸地會變回海，其他公司或機場還用到的陸地留著。</dd>
           <dt>編輯地圖</dt><dd>點一間公司選取它，再點新的位置就搬過去，綠色半透明的範圍是會長出來的陸地；放回原處則不變，再點一次同一間可以取消選取。機場不能搬。按「完成」或 Esc 結束。</dd>
         </dl>
@@ -74,12 +62,11 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'airport',
-    shot: airportShot,
     alt: '打開的機場：地圖上的機場和右邊的機場檔案',
     label: '機場',
     body: (
       <>
-        <p>機場是整座島的管理中心，放著所有公司共用的東西。點地圖上的機場或它的名牌打開，鏡頭會移到機場；用右上角的飛機按鈕打開則不移動。點地圖其他地方或按 Esc 收起。</p>
+        <p>機場是整座島的管理中心，放著所有公司共用的東西。點地圖上的機場或它的名牌打開，鏡頭會移到機場；用右上角的飛機按鈕打開則不移動。點地圖其他地方或按 Esc 收起。打開時先顯示哪個頁籤，可以在「設定」的「預設機場頁籤」更改。</p>
         <p>機場固定在島上，不能搬，新公司也不能蓋在上面。飛機會降落、滑行到停機位、再起飛，偶爾也有其他飛機從高空飛越。</p>
         <dl>
           <dt>模型供應商</dt><dd>員工用的模型從這裡來。</dd>
@@ -94,20 +81,17 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'company',
-    shot: companyShot,
     alt: '打開的公司：左邊是剖開的辦公室，右邊是公司檔案的任務頁籤',
     label: '公司',
     body: (
       <>
         <p>一間公司對應一個專案資料夾和一個目標分支，專案位置後面的資料夾按鈕會在 Finder 打開它。點大樓、它的用地或名牌打開公司，點地圖其他地方或按 Esc 收起。打開後，右邊是公司檔案，左邊的辦公室裡看得到員工：有工作的人坐在位子上，沒事的人會起身走動、找同事聊天、坐沙發、喝咖啡或發呆。每間辦公室都有咖啡機和沙發。</p>
         <p>大樓會跟著公司成長：完成的任務和員工越多，樓層越高、佔地越大（最大 10×10 格、10 層）。</p>
-        <p>公司檔案的頁籤有對話、任務、員工、終端機和設定，打開時先顯示哪一個可以在「機場 → 設定」更改。</p>
+        <p>公司檔案的頁籤有對話、任務、員工、終端機和設定，打開時先顯示哪一個可以在「機場 → 設定」的「預設公司頁籤」更改。</p>
         <p>事情還沒準備好時，頁籤上方會蓋紅色印章告訴你缺什麼，同時停用對應的新增按鈕：</p>
         <dl>
           <dt>模型供應商</dt><dd>沒有，或無法使用：到機場新增、登入或重新取得模型。影響對話、任務和員工。</dd>
           <dt>員工</dt><dd>公司還沒有員工：先新增。影響對話和任務。某位員工的模型失效時只會提醒，其他員工照常。</dd>
-          <dt>員工藍圖</dt><dd>沒有藍圖就不能新增員工：到機場新增。</dd>
-          <dt>任務流程</dt><dd>沒有流程就不能新增任務：到機場新增。</dd>
           <dt>專案資料夾</dt><dd>找不到資料夾：放回原位。影響對話、任務和終端機。</dd>
           <dt>git repo</dt><dd>資料夾不是 git repo：在終端機執行 <code>git init</code>。影響任務。</dd>
           <dt>目標分支</dt><dd>分支不見了：到公司的「設定」更換。影響任務。</dd>
@@ -117,7 +101,6 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'provider',
-    shot: providerShot,
     alt: '模型供應商的詳細內容：連線方式、模型和使用中的員工',
     label: '模型供應商',
     group: '機場',
@@ -125,8 +108,8 @@ const TOPICS: Topic[] = [
       <>
         <p>模型供應商提供員工可用的模型，在「機場 → 模型供應商」管理。類型有 Anthropic、OpenAI、Google Gemini 和 OpenAI 相容（例如 DeepSeek、本機的 Ollama）。</p>
         <dl>
-          <dt>API Key</dt><dd>填入 API Key，只會保存最後四碼供辨認。OpenAI 相容要填 API 位址。</dd>
-          <dt>訂閱登入</dt><dd>Anthropic 和 OpenAI 可以改用 Claude 或 ChatGPT 訂閱登入，不需要 API Key。Claude 訂閱要透過 Claude Code 使用：這台電腦沒有的話，會先問你是否同意安裝，再到瀏覽器登入。這一步需要後端在跑（<code>make dev</code>）。</dd>
+          <dt>API Key</dt><dd>填入 API Key。畫面上只顯示最後四碼，完整的 Key 存在這台電腦的資料庫，不會寫進設定檔。OpenAI 相容要填 API 位址。</dd>
+          <dt>訂閱登入</dt><dd>Anthropic 和 OpenAI 可以改用 Claude 或 ChatGPT 訂閱登入，不需要 API Key。Claude 訂閱要透過 Claude Code 使用：這台電腦沒有的話，會先問你是否同意安裝，再到瀏覽器登入。網頁版要先啟動後端（<code>make dev</code>）。</dd>
         </dl>
         <p>模型由供應商提供，不用自己輸入。還有員工使用它的模型時不能刪除。不支援看圖的模型收到圖片時，供應商可能回報錯誤。</p>
       </>
@@ -134,7 +117,6 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'blueprint',
-    shot: blueprintShot,
     alt: '員工藍圖的詳細內容：來源、Prompt、技能和工具',
     label: '員工藍圖',
     group: '機場',
@@ -153,8 +135,7 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'flow',
-    shot: flowShot,
-    alt: '編輯任務流程：整理需求和研究兩張便條紙，裡面是種類、Prompt、任務分派和交接欄位',
+    alt: '編輯任務流程：一排步驟便條紙，箭頭中間有小圓點，下面是新增步驟',
     label: '任務流程',
     group: '機場',
     body: (
@@ -172,28 +153,27 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'settings',
-    shot: prefsShot,
-    alt: '機場的設定頁籤：設定檔、功能和遊戲物件',
+    alt: '機場的設定頁籤：一般、功能、遊戲物件和設定檔',
     label: '設定',
     group: '機場',
     title: '機場設定',
     body: (
       <>
-        <p>這裡的功能和遊戲物件改了立刻生效，並記在這台電腦的瀏覽器裡。</p>
+        <p>改了立刻生效。語言存在後端，其他選項只記在這台電腦上。</p>
         <dl>
-          <dt>設定檔</dt><dd>公司、員工、藍圖、任務流程和供應商都存成檔案，在 <code>~/.team-work</code> 下。在外面改過後按「重新載入設定」，整批檢查通過才生效，有錯就保留原本的設定。Mac App 也一樣。</dd>
-          <dt>語言</dt><dd>介面文字、內建藍圖和任務流程顯示的語言，也是員工回覆你時用的語言。介面立刻切換；員工從下一則回覆開始，舊訊息不變。</dd>
+          <dt>語言</dt><dd>主畫面右上角的地球按鈕也能切換。介面文字、內建藍圖和任務流程顯示的語言，也是員工回覆你時用的語言。介面立刻切換；員工從下一則回覆開始，舊訊息不變。</dd>
+          <dt>預設機場頁籤</dt><dd>打開機場時先顯示哪個頁籤，預設是「模型供應商」。</dd>
+          <dt>預設公司頁籤</dt><dd>打開公司時先顯示哪個頁籤，預設是「任務」。</dd>
           <dt>任務紀錄排序</dt><dd>新的在最上面或最下面，套用到任務、子任務和員工的紀錄。</dd>
-          <dt>預設頁籤</dt><dd>打開公司時先顯示哪個頁籤，預設是「任務」。</dd>
           <dt>保留終端機</dt><dd>預設不勾選。勾選後，離開公司時終端機繼續執行，回來時接著用，關閉 App 才結束。</dd>
           <dt>遊戲物件</dt><dd>關掉細節、陰影、地圖民眾、飛機動畫或雲朵，可以讓畫面跑得更順。</dd>
+          <dt>設定檔</dt><dd>公司、員工、自己的藍圖和任務流程，以及供應商都存成檔案，在 <code>~/.team-work</code> 下；內建的不在裡面。在外面改過後按「重新載入設定」，整批檢查通過才生效，有錯就保留原本的設定。</dd>
         </dl>
       </>
     ),
   },
   {
     id: 'about',
-    shot: aboutShot,
     alt: '機場的關於頁籤：相關連結、感謝名單和版本號',
     label: '關於',
     group: '機場',
@@ -201,7 +181,6 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'chat',
-    shot: chatShot,
     alt: '和員工的對話：你的訊息下方有編輯用的筆，下面是輸入框和附圖按鈕',
     label: '對話',
     group: '公司',
@@ -221,7 +200,6 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'task',
-    shot: taskShot,
     alt: '任務的詳細內容：任務流程圖和每一步的進度',
     label: '任務',
     group: '公司',
@@ -230,7 +208,7 @@ const TOPICS: Topic[] = [
         <p>任務是你交給公司的一件工作，照一條任務流程進行。每個任務有一位「任務負責人」，負責開頭的「整理需求」和結尾的「驗收」。</p>
         <p>任務流程的每一步會變成一個子任務，交給那一步指定的員工；做完寫下交接摘要，交給下一步。詳細內容的「進度」列出每個子任務的狀態，點開可以看紀錄和交接的檔案。</p>
         <p>每個任務有自己的分支，寫在詳細內容的標題下方，每一步都把工作提交到這個分支。</p>
-        <p>新增任務時可以附圖：按「＋」選圖片，或直接在文字框貼上截圖。</p>
+        <p>新增任務時可以附圖：按「＋」選圖片，或直接在文字框貼上截圖。任務流程的選單會列出每條流程的名稱和流程圖。</p>
         <p>要重複做類似的工作時，按任務詳細內容右上角的複製，會打開一張填好標題、說明、附圖、任務流程和人員的新任務，改好後按「開始」。</p>
         <dl>
           <dt>四個欄位</dt><dd>待辦、進行中、待回覆、完成。紅色驚嘆號的便利貼要你回覆，綠色合併圖示等你合併。</dd>
@@ -238,13 +216,12 @@ const TOPICS: Topic[] = [
           <dt>暫停</dt><dd>任務詳細內容右上角可以暫停和繼續。</dd>
           <dt>費用</dt><dd>子任務會記下花費；任務花費到達公司設定的上限時會停下來問你。</dd>
         </dl>
-        <p>驗收沒過時，工作會退回前一步重做，一個任務最多退回兩次。任務可以編輯（標題、說明、負責人和每一步的員工）、暫停和刪除。</p>
+        <p>驗收沒過時，工作會退回前一步重做，一個任務最多退回兩次。任務可以編輯（標題、說明、負責人和每一步的員工，任務流程開始後不能換）、暫停和刪除。</p>
       </>
     ),
   },
   {
     id: 'reply',
-    shot: talkShot,
     alt: '子任務裡的討論：員工和你來回的訊息，下面是輸入框和結束討論按鈕',
     label: '回覆與討論',
     group: '公司',
@@ -262,21 +239,19 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'crew',
-    shot: crewShot,
     alt: '員工頁籤：依員工藍圖分組，名字下寫著模型和思考等級',
     label: '員工',
     group: '公司',
     body: (
       <>
-        <p>員工是在公司裡工作的 AI agent。每位員工由一個員工藍圖建立，再選自己的模型和思考等級（能選哪些由模型的供應商決定，預設是 default，交給供應商），還可以擲骰子換外觀。</p>
-        <p>員工列表的名字下寫著模型和思考等級，最右邊的白色便利貼是他能用的工具。同一時間一位員工只做一個子任務，但對話不佔用他的工作。</p>
+        <p>員工是在公司裡工作的 AI agent。每位員工由一個員工藍圖建立，再選自己的模型和思考等級，模型選單依供應商分組，沒有供應商提供但還有員工在用的模型列在「其他」。思考等級能選哪些由模型的供應商決定，預設是 default，交給供應商。還可以擲骰子換外觀。</p>
+        <p>員工列表的名字下寫著模型和思考等級，有工作時右邊會標出正在做哪一步。挑人的選單裡，白色便利貼是他能用的工具。同一時間一位員工只做一個子任務，但對話不佔用他的工作。</p>
         <p>員工的詳細內容有工作紀錄和記憶。記憶只留在這間公司，下次工作還用得到，不包含任務進度。解僱員工前要選一位接手的人，他手上的任務和步驟會交接過去；公司只剩一位員工時不能解僱。</p>
       </>
     ),
   },
   {
     id: 'terminal',
-    shot: terminalShot,
     alt: '公司檔案的終端機頁籤：黑色便利貼上的 zsh',
     label: '終端機',
     group: '公司',
@@ -293,7 +268,6 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'teamset',
-    shot: teamsetShot,
     alt: '公司檔案的設定頁籤：名稱、目標分支、AGENTS.md 和執行限制',
     label: '設定',
     group: '公司',
@@ -302,6 +276,7 @@ const TOPICS: Topic[] = [
       <>
         <p>公司檔案的「設定」頁籤只影響這間公司。</p>
         <dl>
+          <dt>名稱</dt><dd>公司的名字，也是地圖名牌上顯示的文字。</dd>
           <dt>AGENTS.md</dt><dd>給這間公司每位員工的共同指示，接在藍圖的 Prompt 之上。它就是專案資料夾裡的同一個檔案，兩邊改都會同步，但不會自動 commit。</dd>
           <dt>目標分支</dt><dd>任務完成後合併回去的分支。清單在建立公司時存下，之後新開的分支不會出現。</dd>
           <dt>子任務逾時</dt><dd>一個子任務最多跑多久。</dd>
@@ -317,6 +292,11 @@ const TOPICS: Topic[] = [
 /** A topic's place in the list, for the arrow keys. */
 const indexOf = (t: Topic) => TOPICS.indexOf(t)
 
+/** A topic in the language picked. */
+const inLanguage = (t: Topic): Topic => (appLanguage() === 'en' ? { ...t, title: undefined, ...HELP_EN[t.id] } : t)
+
+export const helpTopicIdsForTest = () => TOPICS.map((t) => t.id)
+
 export function Help({ leaving, onGone }: {
   leaving: boolean
   /** Called when the sheet has come off. */
@@ -327,6 +307,7 @@ export function Help({ leaving, onGone }: {
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   useEffect(() => title.current?.focus({ preventScroll: true }), [])
   const current = TOPICS.find((t) => t.id === topic) ?? TOPICS[0]
+  const shown = inLanguage(current)
 
   // up and down move between topics too
   const onTabKey = (e: KeyboardEvent) => {
@@ -342,7 +323,7 @@ export function Help({ leaving, onGone }: {
   const link = (t: Topic) => (
     <button key={t.id} ref={(el) => void (tabs.current[indexOf(t)] = el)} type="button"
       aria-current={topic === t.id ? 'page' : undefined} aria-controls="fx-help-panel" onClick={() => setTopic(t.id)}>
-      {t.label}
+      {inLanguage(t).label}
     </button>
   )
 
@@ -354,23 +335,23 @@ export function Help({ leaving, onGone }: {
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
       <div className="fx-sheet">
         <header className="fx-head fx-head-rule fx-help-head">
-          <h1 id="fx-help-title" ref={title} tabIndex={-1}>使用說明</h1>
+          <h1 id="fx-help-title" ref={title} tabIndex={-1}>{tr('使用說明')}</h1>
         </header>
         <div className="fx-help-body">
-          <nav className="fx-help-nav" aria-label="說明項目" onKeyDown={onTabKey}>
+          <nav className="fx-help-nav" aria-label={tr('說明項目')} onKeyDown={onTabKey}>
             {TOPICS.filter((t) => !t.group).map(link)}
             {GROUPS.map((g) => (
               <section key={g} aria-labelledby={`fx-help-group-${g}`}>
-                <h2 id={`fx-help-group-${g}`}>{g}</h2>
+                <h2 id={`fx-help-group-${g}`}>{tr(g)}</h2>
                 {TOPICS.filter((t) => t.group === g).map(link)}
               </section>
             ))}
           </nav>
           {/* keyed, so each topic turns in like a fresh page */}
           <section key={current.id} id="fx-help-panel" className="fx-page fx-help-page" aria-labelledby="fx-help-page-title">
-            <h2 id="fx-help-page-title">{current.title ?? current.label}</h2>
-            <img className="fx-help-shot" src={current.shot} alt={current.alt} />
-            {current.body}
+            <h2 id="fx-help-page-title">{shown.title ?? shown.label}</h2>
+            <img className="fx-help-shot" src={SHOTS[`./help/${appLanguage()}/${current.id}.jpg`]} alt={shown.alt} />
+            {shown.body}
           </section>
         </div>
       </div>

@@ -708,6 +708,17 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
   .fx-slip li.fx-slip-row { grid-template-columns: auto minmax(0, 1fr) auto; }
   .fx-slip-row .fx-staff-tools { grid-column: 2 / -1; justify-self: start; }
 }
+.fx-slip li.fx-slip-row:has(.fx-pick-flow) { grid-template-columns: minmax(0, 1fr) auto; }
+.fx-pick-flow { grid-column: 1 / -1; cursor: pointer; }
+.fx-pick-flow .fx-flow-scroll { overflow: hidden; padding: 0; }
+.fx-language { position: relative; }
+.fx-language-menu { inset-inline: auto 0; width: max-content; min-width: 150px; background: #fdfbf5; color: #1f1d2b; }
+.fx-language-menu button {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 8px; border: 0; border-radius: 2px;
+  background: none; color: inherit; font: inherit; font-size: 14.5px; text-align: start; cursor: pointer;
+}
+.fx-language-menu button:is(:hover, :focus-visible) { background: rgb(31 29 43 / 0.07); outline: none; }
+.fx-language-menu button[aria-checked="true"] { font-weight: 600; }
 .fx-slip-check { display: inline-grid; place-items: center; width: 14px; flex: none; color: var(--accent); }
 
 /* stepper: − value + on one wash, the tabs pressed in when clicked */
@@ -760,6 +771,9 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-brand p { margin: 0; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (max-width: 640px) { .fx-brand { top: 78px; } }
 .fx-settings-trigger { display: grid; place-items: center; width: 44px; padding: 0; }
+/* what to pick on the map, across the middle of the top; narrow windows have no room beside the buttons */
+.fx-map-tip { position: absolute; top: 22px; inset-inline: 0; z-index: 4; display: flex; justify-content: center; pointer-events: none; }
+@media (max-width: 760px) { .fx-map-tip { top: 78px; } }
 .fx-corner-note { margin: 0; padding: 12px 16px 11px; font-size: 14px; white-space: nowrap; pointer-events: none; }
 .fx-corner-text { padding: 0 16px; font-size: 14px; white-space: nowrap; }
 /* tasks waiting on the user: their count in a red dot on the button's top right corner, a pill when it runs long */

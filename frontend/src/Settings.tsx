@@ -3,6 +3,7 @@
 // the app-wide preferences and the about page. Providers and blueprints, and adding one, open on the same stack of detail sheets over the upper left. There is no
 // close button: a click on the map puts everything away.
 
+import { LANGUAGE_NAMES, LANGUAGES } from './LanguageMenu'
 import { tr } from './core/i18n'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useStore } from './core/store'
@@ -18,10 +19,9 @@ import { sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, PROVIDER_KINDS } from './providers'
 import { Select, Switcher, Toggle } from './Controls'
-import type { Locale } from './core/domain/types'
 import { setLanguage } from './core/ops'
 import { TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
-import { usePrefs, type LogOrder, type Prefs } from './prefs'
+import { airportTabOr, AIRPORT_TABS, type AirportTab, usePrefs, type LogOrder, type Prefs } from './prefs'
 import { request } from './core/backend'
 import { MOCK } from './core/mode'
 
@@ -35,14 +35,6 @@ const LINKS = [
 ]
 const THANKS = [{ name: 'yanun0323', href: 'https://github.com/yanun0323' }]
 
-const TABS = [
-  { id: 'providers', label: '模型供應商' },
-  { id: 'blueprints', label: '員工藍圖' },
-  { id: 'flows', label: '任務流程#tab' },
-  { id: 'prefs', label: '設定' },
-  { id: 'about', label: '關於' },
-] as const
-type Tab = (typeof TABS)[number]['id']
 
 /**
  * Ends the app. With work under way it would stop that work, so it asks first, like deleting. The app listens for
@@ -72,7 +64,7 @@ export function Settings({ leaving, onGone }: {
   /** Called when the page has turned away. */
   onGone: () => void
 }) {
-  const [tab, setTab] = useState<Tab>('providers')
+  const [tab, setTab] = useState<AirportTab>(() => airportTabOr(usePrefs.getState().defaultAirportTab))
   const title = useRef<HTMLHeadingElement>(null)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const sheets = useSheets()
@@ -82,18 +74,18 @@ export function Settings({ leaving, onGone }: {
   const open = base && !base.leaving ? itemKey(base.item) : null
 
   // the sheet belongs to the tab it was opened from
-  const pick = (next: Tab) => {
+  const pick = (next: AirportTab) => {
     if (next !== tab) back(-1, false)
     setTab(next)
   }
   // arrow keys move between tabs, as in any tab list
   const onTabKey = (e: KeyboardEvent) => {
-    const i = TABS.findIndex((x) => x.id === tab)
-    const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: TABS.length - 1 }[e.key]
+    const i = AIRPORT_TABS.findIndex((x) => x.id === tab)
+    const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: AIRPORT_TABS.length - 1 }[e.key]
     if (next === undefined) return
     e.preventDefault()
-    const j = (next + TABS.length) % TABS.length
-    pick(TABS[j].id)
+    const j = (next + AIRPORT_TABS.length) % AIRPORT_TABS.length
+    pick(AIRPORT_TABS[j].id)
     tabs.current[j]?.focus()
   }
 
@@ -114,7 +106,7 @@ export function Settings({ leaving, onGone }: {
             {import.meta.env.MODE === 'desktop' && <QuitTool />}
           </div>
           <div className="fx-tabs" role="tablist" aria-label={tr('設定')} onKeyDown={onTabKey}>
-            {TABS.map((x, i) => (
+            {AIRPORT_TABS.map((x, i) => (
               <button key={x.id} ref={(el) => void (tabs.current[i] = el)} type="button" role="tab"
                 id={`fx-settings-tab-${x.id}`} aria-controls="fx-settings-panel" aria-selected={tab === x.id}
                 tabIndex={tab === x.id ? 0 : -1} onClick={() => pick(x.id)}>
@@ -248,28 +240,31 @@ export function ReloadSettings() {
   )
 }
 
-const LANGUAGES = ['zh', 'en'] as const
-const LANGUAGE_NAMES: Record<Locale, string> = { zh: '繁體中文', en: 'English' }
-
-function PrefsPage() {
+export function PrefsPage() {
   const prefs = usePrefs()
   const language = useStore((s) => s.world.language)
   const act = useStore((s) => s.act)
-  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab'>, label: string) => (
+  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab'>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
   return (
     <div className="fx-d-groups">
-      {!MOCK && <ReloadSettings />}
-      <section className="fx-d-group" aria-labelledby="fx-prefs-use">
-        <h4 id="fx-prefs-use">{tr('功能')}</h4>
+      <section className="fx-d-group" aria-labelledby="fx-prefs-general">
+        <h4 id="fx-prefs-general">{tr('一般')}</h4>
         <div className="fx-fields">
           <Switcher label={tr('語言')} value={language} options={LANGUAGES} labelOf={(l) => LANGUAGE_NAMES[l]}
             onChange={(l) => act((x) => void setLanguage(x, l))} />
+          <Select label={tr('預設機場頁籤')} value={airportTabOr(prefs.defaultAirportTab)} options={AIRPORT_TABS.map((x) => x.id)}
+            labelOf={(id) => tr(AIRPORT_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultAirportTab: v as AirportTab })} />
+          <Select label={tr('預設公司頁籤')} value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.map((x) => x.id)}
+            labelOf={(id) => tr(COMPANY_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultTab: v as CompanyTab })} />
+        </div>
+      </section>
+      <section className="fx-d-group" aria-labelledby="fx-prefs-use">
+        <h4 id="fx-prefs-use">{tr('功能')}</h4>
+        <div className="fx-fields">
           <Select label={tr('任務紀錄排序')} value={prefs.logOrder} options={Object.keys(LOG_ORDERS)} labelOf={(o) => tr(LOG_ORDERS[o as LogOrder])}
             onChange={(v) => prefs.set({ logOrder: v as LogOrder })} />
-          <Select label={tr('預設頁籤')} value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.map((x) => x.id)}
-            labelOf={(id) => tr(COMPANY_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultTab: v as CompanyTab })} />
           {!MOCK && <Toggle label={tr('保留終端機')} checked={prefs.keepTerminals} onChange={(v) => prefs.set({ keepTerminals: v })} />}
         </div>
       </section>
@@ -283,6 +278,7 @@ function PrefsPage() {
           {check('clouds', tr('雲朵'))}
         </div>
       </section>
+      {!MOCK && <ReloadSettings />}
     </div>
   )
 }

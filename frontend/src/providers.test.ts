@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { addProvider, deleteProvider, providerUsers, updateProvider } from './core/domain/sim'
 import { seedWorld } from './core/data/seed'
-import { modelsOf } from './crew'
+import { modelGroups, modelsOf } from './crew'
 import { authLabel, providerUrl } from './providers'
 
 describe('model providers', () => {
@@ -44,5 +44,23 @@ describe('model providers', () => {
   it('uses the kind’s own address when none is given', () => {
     expect(providerUrl({ kind: 'openai', baseUrl: '' })).toBe('https://api.openai.com/v1')
     expect(providerUrl({ kind: 'openai', baseUrl: 'https://proxy/v1' })).toBe('https://proxy/v1')
+  })
+})
+
+describe('modelGroups', () => {
+  it('lists each model once, under the first provider offering it, and the orphaned ones last', () => {
+    const w = seedWorld()
+    w.providers = {
+      a: { ...Object.values(w.providers)[0], id: 'a', name: 'First', models: ['m1', 'shared'] },
+      b: { ...Object.values(w.providers)[0], id: 'b', name: 'Second', models: ['shared', 'm2'] },
+      c: { ...Object.values(w.providers)[0], id: 'c', name: 'Empty', models: [] },
+    }
+    w.replicas = { r: { ...Object.values(w.replicas)[0], model: 'gone' } }
+    expect(modelGroups(w)).toEqual([
+      { label: 'First', models: ['m1', 'shared'] },
+      { label: 'Second', models: ['m2'] },
+      { label: '其他', models: ['gone'] },
+    ])
+    expect(modelsOf(w)).toEqual(['m1', 'shared', 'm2', 'gone'])
   })
 })

@@ -2,6 +2,7 @@
 // Clicking a building flies the camera to it, opens it up and shows the company file in a drawer.
 
 import { tr } from './core/i18n'
+import { LanguageMenu } from './LanguageMenu'
 import { MapControls } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -344,12 +345,15 @@ export function World() {
     <LabelLayer labels={shownLabels} />
     {!drawer.value && !settings.value && !sheet.value && !help.value && <Brand />}
     {!drawer.value && !settings.value && !sheet.value && !help.value && (
-      <div className="fx-corner">
+      <>
       {(placing || editing) && (
-        <p className="fx-corner-note fx-tag" role="status">
-          {placing ? tr('挑選建立公司的地點') : moving ? tr('選取公司新地點') : tr('選取想要移動的公司')}
-        </p>
+        <div className="fx-map-tip">
+          <p className="fx-corner-note fx-tag" role="status">
+            {placing ? tr('挑選建立公司的地點') : moving ? tr('選取公司新地點') : tr('選取想要移動的公司')}
+          </p>
+        </div>
       )}
+      <div className="fx-corner">
       {!placing && !editing && <button ref={boardButton} type="button" className="fx-settings-trigger fx-tag" aria-label={waiting ? tr('告示牌，{waiting} 個待回覆的任務', { waiting }) : tr('告示牌')}
         onClick={() => setPanel('board')}>
         {waiting > 0 && <span className="fx-badge" aria-hidden="true">{waiting > 99 ? '99+' : waiting}</span>}
@@ -368,6 +372,7 @@ export function World() {
         onClick={() => { setEditing(!editing); setMoving(null) }}>
         {editing ? tr('完成#button') : tr('編輯地圖')}
       </button>}
+      {!placing && !editing && <LanguageMenu />}
       {!placing && !editing && <button ref={helpButton} type="button" className="fx-settings-trigger fx-tag" aria-label={tr('說明')}
         onClick={() => setHelpOpen(true)}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -384,6 +389,7 @@ export function World() {
         </svg>
       </button>}
       </div>
+      </>
     )}
     {sheet.value && <NewCompanySheet leaving={sheet.leaving} onGone={sheet.gone} onCreate={found} look={look} onReroll={() => setLook(randomLook())} />}
     {help.value && <Help leaving={help.leaving} onGone={help.gone} />}

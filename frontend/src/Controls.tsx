@@ -10,7 +10,7 @@ const Chevron = () => (
   </svg>
 )
 
-const Check = () => (
+export const Check = () => (
   <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
     <path d="M2 6.5 4.8 9 10 3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
@@ -156,7 +156,7 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, sh
           <ul ref={list} id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} className={`fx-slip${rowOf ? ' fx-slip-rows' : ''}`}>
             {groups && groupOf
               ? groups.map((g, at) => (
-                <li key={g.label} role="group" aria-label={g.label} className="fx-slip-group">
+                <li key={at} role="group" aria-label={g.label} className="fx-slip-group">
                   <span className="fx-slip-head" aria-hidden="true">{g.label}<span className="fx-count">{g.count}</span></span>
                   <ul role="presentation">{options.filter((o) => groupOf(o) === at).map(option)}</ul>
                 </li>

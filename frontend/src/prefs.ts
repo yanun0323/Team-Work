@@ -4,6 +4,20 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { Tab } from './DrawerTabs'
 
+/** The airport's tabs. */
+export const AIRPORT_TABS = [
+  { id: 'providers', label: '模型供應商' },
+  { id: 'blueprints', label: '員工藍圖' },
+  { id: 'flows', label: '任務流程#tab' },
+  { id: 'prefs', label: '設定' },
+  { id: 'about', label: '關於' },
+] as const
+export type AirportTab = (typeof AIRPORT_TABS)[number]['id']
+
+/** The tab asked for, or the first one if the app no longer has it. */
+export const airportTabOr = (wanted: AirportTab): AirportTab =>
+  AIRPORT_TABS.some((x) => x.id === wanted) ? wanted : 'providers'
+
 export type LogOrder = 'newestFirst' | 'newestLast'
 
 export interface Prefs {
@@ -23,9 +37,11 @@ export interface Prefs {
   keepTerminals: boolean
   /** The tab a company's file opens on. */
   defaultTab: Tab
+  /** The tab the airport opens on. */
+  defaultAirportTab: AirportTab
 }
 
-export const DEFAULT_PREFS: Prefs = { logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, defaultTab: 'tasks' }
+export const DEFAULT_PREFS: Prefs = { logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, defaultTab: 'tasks', defaultAirportTab: 'providers' }
 
 export const usePrefs = create<Prefs & { set: (p: Partial<Prefs>) => void }>()(
   persist((set) => ({ ...DEFAULT_PREFS, set: (p) => set(p) }), {

@@ -2,6 +2,7 @@
 
 import { HAIRS, SKINS } from './core/domain/sim'
 import type { Blueprint, Chat, Look, Replica, World } from './core/domain/types'
+import { tr } from './core/i18n'
 import { blueprintList } from './core/model'
 
 export function byBlueprint(w: World, crew: Replica[]): { bp: Blueprint; list: Replica[] }[] {
@@ -15,8 +16,19 @@ export function byBlueprint(w: World, crew: Replica[]): { bp: Blueprint; list: R
  * provider since removed, say), so their own stays pickable.
  */
 export function modelsOf(w: World): string[] {
-  const offered = Object.values(w.providers).flatMap((p) => p.models)
-  return [...new Set([...offered, ...Object.values(w.replicas).map((r) => r.model)])]
+  return modelGroups(w).flatMap((g) => g.models)
+}
+
+/**
+ * The same models under the provider each comes from. A model two providers offer sits under the first, the one its
+ * thinking levels are read from, and the ones no provider offers now go last under 其他.
+ */
+export function modelGroups(w: World): { label: string; models: string[] }[] {
+  const seen = new Set<string>()
+  const fresh = (models: string[]) => models.filter((m) => !seen.has(m) && !!seen.add(m))
+  const groups = Object.values(w.providers).map((p) => ({ label: p.name, models: fresh(p.models) }))
+  groups.push({ label: tr('其他'), models: fresh(Object.values(w.replicas).map((r) => r.model)) })
+  return groups.filter((g) => g.models.length > 0)
 }
 
 /** Leaves the level to the provider; every model takes it. */

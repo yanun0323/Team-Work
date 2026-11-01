@@ -21,9 +21,9 @@ import { ordered, usePrefs, type LogOrder } from './prefs'
 import { ClaudeAccount } from './ClaudeAccount'
 import { Markdown, MarkdownLine } from './Markdown'
 import { Select, Switcher, WaitBadge } from './Controls'
-import { FlowNotes, openCard } from './FlowNotes'
+import { FlowNotes, FlowPreview, openCard } from './FlowNotes'
 import { addImages, copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, unstaffed, useDraft, type TaskDraft } from './draft'
-import { byBlueprint, DEFAULT_EFFORT, effortsOf, mindOf, modelsOf, randomLook } from './crew'
+import { byBlueprint, DEFAULT_EFFORT, effortsOf, mindOf, modelGroups, modelsOf, randomLook } from './crew'
 import { docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
 import { parseGithub } from './github'
@@ -1537,7 +1537,9 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
           <input className="fx-control" value={name} onChange={(e) => setName(e.target.value)} required />
         </label>
         <BlueprintSelect label={tr('藍圖')} value={bp} onChange={setBp} />
-        <Select label={tr('模型')} value={model} options={modelsOf(w)} onChange={setModel} />
+        <Select label={tr('模型')} value={model} options={modelsOf(w)} onChange={setModel}
+          groups={modelGroups(w).map((g) => ({ label: g.label, count: g.models.length }))}
+          groupOf={(m) => modelGroups(w).findIndex((g) => g.models.includes(m))} />
         <Select label={tr('思考等級')} value={level} options={levels} onChange={setEffort} />
       </div>
       <Prereqs list={needs} />
@@ -1724,6 +1726,13 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
         </div>
         <Select label={tr('任務流程')} value={draft.workflowId} options={flows.map((x) => x.id)} labelOf={(x) => w.workflows[x]?.name ?? x}
           {...mineAndBuiltIn(flows.map((x) => x.id))}
+          rowOf={(id, on) => (
+            <>
+              <b>{w.workflows[id].name}</b>
+              <span className="fx-check" aria-hidden="true">{on ? '✓' : ''}</span>
+              <FlowPreview wf={w.workflows[id]} />
+            </>
+          )}
           onChange={(id) => editDraft((d) => {
             const last = lastStaff(useStore.getState().world, teamId, id)
             return { workflowId: id, ...last, ownerId: d.ownerId ?? last.ownerId }

@@ -3,8 +3,8 @@ import { tabOr, type Tab } from './DrawerTabs'
 import { expect, it } from 'vitest'
 import { version } from '../package.json'
 import { useStore } from './core/store'
-import { DEFAULT_PREFS, ordered } from './prefs'
-import { QuitTool, Settings, ReloadSettings } from './Settings'
+import { airportTabOr, DEFAULT_PREFS, ordered, type AirportTab } from './prefs'
+import { PrefsPage, QuitTool, Settings, ReloadSettings } from './Settings'
 
 it('is a drawer headed as the airport, its model providers listed under the first tab', () => {
   const html = renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)
@@ -26,7 +26,7 @@ it('is a drawer headed as the airport, its model providers listed under the firs
 })
 
 it('starts with every preference on and the newest log line first', () => {
-  expect(DEFAULT_PREFS).toEqual({ logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, defaultTab: 'tasks' })
+  expect(DEFAULT_PREFS).toEqual({ logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, defaultTab: 'tasks', defaultAirportTab: 'providers' })
   expect(ordered([1, 2, 3], 'newestFirst')).toEqual([3, 2, 1])
   expect(ordered([1, 2, 3], 'newestLast')).toEqual([1, 2, 3])
 })
@@ -47,4 +47,19 @@ it('offers a keyboard-accessible reload action with persistent announcement regi
 it('opens a company on the chosen tab, or on 任務 where that tab does not exist', () => {
   expect(tabOr('crew')).toBe('crew')
   expect(tabOr('nope' as Tab)).toBe('tasks')
+})
+
+it('opens the airport on the chosen tab, or on 模型供應商 where that tab does not exist', () => {
+  expect(airportTabOr('about')).toBe('about')
+  expect(airportTabOr('nope' as AirportTab)).toBe('providers')
+})
+
+it('lists the settings groups in order, with the general ones first', () => {
+  const html = renderToStaticMarkup(<PrefsPage />)
+  const at = (x: string) => html.indexOf(x)
+  expect(at('語言')).toBeLessThan(at('預設機場頁籤'))
+  expect(at('預設機場頁籤')).toBeLessThan(at('預設公司頁籤'))
+  expect(at('>一般<')).toBeLessThan(at('語言'))
+  expect(at('預設公司頁籤')).toBeLessThan(at('>功能<'))
+  expect(at('>功能<')).toBeLessThan(at('>遊戲物件<'))
 })
