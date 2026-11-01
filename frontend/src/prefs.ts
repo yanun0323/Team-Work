@@ -28,9 +28,15 @@ export const MUSIC_STYLES = [
 ] as const
 export type MusicStyle = (typeof MUSIC_STYLES)[number]['id']
 
+export const AUTO_VIEWS = { panZoom: '位移和縮放', pan: '位移', off: '關閉#view' } as const
+/** panZoom flies there, zooms in and locks the view; pan goes there at the same zoom and locks only panning; off leaves the camera alone. */
+export type AutoView = keyof typeof AUTO_VIEWS
+
 export type LogOrder = 'newestFirst' | 'newestLast'
 
 export interface Prefs {
+  /** Music and effects stop while the app or page is not the one in use. */
+  muteInBackground: boolean
   musicStyle: MusicStyle
   /** Independent channel levels, 0–100; zero mutes the channel. */
   musicVolume: number
@@ -54,13 +60,22 @@ export interface Prefs {
   clouds: boolean
   /** A company's terminal runs on when the company closes, until the app does. */
   keepTerminals: boolean
+  /** What the camera does on opening a company or the airport, or picking a plot. */
+  autoView: AutoView
+  /** How fast the wheel zooms the map, in percent of the normal speed. */
+  zoomSensitivity: number
+  /** Typed into each terminal as it starts; empty runs nothing. */
+  terminalCommand: string
   /** The tab a company's file opens on. */
   defaultTab: Tab
   /** The tab the airport opens on. */
   defaultAirportTab: AirportTab
 }
 
-export const DEFAULT_PREFS: Prefs = { musicStyle: 'bossa', soundNotice: true, musicVolume: 100, effectsVolume: 100, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, defaultTab: 'tasks', defaultAirportTab: 'providers' }
+export const DEFAULT_PREFS: Prefs = { muteInBackground: true, musicStyle: 'bossa', soundNotice: true, musicVolume: 100, effectsVolume: 100, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers' }
+
+/** The range of `zoomSensitivity`; the backend checks the same. */
+export const ZOOM_SENSITIVITY = { min: 20, max: 300 }
 
 export const usePrefs = create<Prefs & { set: (p: Partial<Prefs>) => void }>()((set) => ({
   ...DEFAULT_PREFS,

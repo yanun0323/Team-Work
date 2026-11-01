@@ -1,7 +1,7 @@
 import { CELL, layoutTown } from './layout'
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { drawerWidth, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot } from './camera'
+import { drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot } from './camera'
 
 /** Screen position (pixels from the canvas centre, y up) of a world point, for a camera looking at `target`. */
 const project = (p: THREE.Vector3, target: THREE.Vector3, zoom: number) => {
@@ -19,6 +19,17 @@ describe('fusion camera', () => {
     const up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1)
     expect(right.distanceTo(SCREEN_RIGHT)).toBeLessThan(1e-6)
     expect(up.distanceTo(SCREEN_UP)).toBeLessThan(1e-6)
+  })
+
+  it('centres the box in the free area at any zoom when only panning', () => {
+    const box = { x: 7, z: -3, w: 12, d: 12, height: 3 }
+    const view = { width: 1200, height: 800, coverRight: 600 }
+    const middle = new THREE.Vector3(box.x, box.height / 2, box.z)
+    for (const zoom of [8, 20, 50]) {
+      const [x, y] = project(middle, focusTarget(box, view, zoom), zoom)
+      expect(x).toBeCloseTo(-300)
+      expect(y).toBeCloseTo(0)
+    }
   })
 
   it('zooms in further by a scale, keeping the same centre', () => {

@@ -16,6 +16,7 @@ type Preferences struct {
 	SoundLanding      bool   `json:"soundLanding"`
 	SoundFlyover      bool   `json:"soundFlyover"`
 	SoundUI           bool   `json:"soundUI"`
+	MuteInBackground  bool   `json:"muteInBackground"`
 	LogOrder          string `json:"logOrder"`
 	Detail            bool   `json:"detail"`
 	Shadows           bool   `json:"shadows"`
@@ -23,12 +24,15 @@ type Preferences struct {
 	Planes            bool   `json:"planes"`
 	Clouds            bool   `json:"clouds"`
 	KeepTerminals     bool   `json:"keepTerminals"`
+	AutoView          string `json:"autoView"`
+	ZoomSensitivity   int    `json:"zoomSensitivity"`
+	TerminalCommand   string `json:"terminalCommand"`
 	DefaultTab        string `json:"defaultTab"`
 	DefaultAirportTab string `json:"defaultAirportTab"`
 }
 
 func DefaultPreferences() Preferences {
-	return Preferences{MusicStyle: "bossa", SoundNotice: true, MusicVolume: 100, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, DefaultTab: "tasks", DefaultAirportTab: "providers"}
+	return Preferences{MuteInBackground: true, MusicStyle: "bossa", SoundNotice: true, MusicVolume: 100, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers"}
 }
 
 // MergePreferences accepts only known, non-null fields; omitted fields keep their values.
@@ -53,7 +57,9 @@ func MergePreferences(current Preferences, patch map[string]json.RawMessage) (Pr
 		next.DefaultAirportTab = "prefs"
 	}
 	if !slices.Contains([]string{"piano", "ambient", "bossa", "chiptune"}, next.MusicStyle) || next.MusicVolume < 0 || next.MusicVolume > 100 || next.EffectsVolume < 0 || next.EffectsVolume > 100 ||
+		next.ZoomSensitivity < 20 || next.ZoomSensitivity > 300 ||
 		!slices.Contains([]string{"newestFirst", "newestLast"}, next.LogOrder) ||
+		!slices.Contains([]string{"panZoom", "pan", "off"}, next.AutoView) ||
 		!slices.Contains([]string{"chats", "tasks", "crew", "terminal", "settings"}, next.DefaultTab) ||
 		!slices.Contains([]string{"providers", "blueprints", "flows", "prefs", "about"}, next.DefaultAirportTab) {
 		return current, fmt.Errorf("invalid preference value")
@@ -69,6 +75,13 @@ func (p *Preferences) UnmarshalJSON(raw []byte) error {
 	}
 	if patch == nil {
 		return fmt.Errorf("preferences must be an object")
+	}
+	// Files written while this was a checkbox.
+	if old, ok := patch["autoZoom"]; ok {
+		delete(patch, "autoZoom")
+		if _, set := patch["autoView"]; !set && string(old) == "false" {
+			patch["autoView"] = json.RawMessage(`"off"`)
+		}
 	}
 	next, err := MergePreferences(DefaultPreferences(), patch)
 	if err != nil {

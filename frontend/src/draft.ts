@@ -81,6 +81,10 @@ export const draftStaff = (w: World, d: TaskDraft, nodeId: string): string[] => 
   return d.staff[nodeId] ?? []
 }
 
+/** The owner alone on every step of the draft's flow. No longer the staff of an earlier task, so `from` goes too. */
+export const ownerOnEveryStep = (w: World, d: TaskDraft): Partial<TaskDraft> =>
+  d.ownerId ? { staff: Object.fromEntries((draftFlow(w, d)?.nodes ?? []).map((n) => [n.id, [d.ownerId!]])), from: null } : {}
+
 /** The steps nobody works yet, ends included while there is no owner. A task can start only when there are none. */
 export const unstaffed = (w: World, d: TaskDraft) =>
   (draftFlow(w, d)?.nodes ?? []).filter((n) => !draftStaff(w, d, n.id).length)

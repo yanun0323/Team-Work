@@ -410,6 +410,9 @@ func docOf(key string, data []byte) model.Doc {
 	return model.Doc{Kind: key[:i], ID: key[i+1:], Data: data}
 }
 
+// DataDir is where the settings files and the database live: TEAM_WORK_HOME.
+func (e *Engine) DataDir() string { return e.dataDir }
+
 // notice sends after the changes it is about.
 func (e *Engine) notice(ev Event) { e.pending = append(e.pending, ev) }
 

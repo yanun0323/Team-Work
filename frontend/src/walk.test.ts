@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { CELL, layoutTown } from './layout'
+import { CELL, cellCenter, layoutTown } from './layout'
 import { officePlan } from './office'
 import {
-  advance, benchSeats, crowdSize, findPath, freeCells, isFree, nearestFree, officeGrid, smooth, townGrid, type Grid, type P,
+  advance, benchSeats, cellPos, crowdSize, findPath, freeCells, isFree, nearestFree, officeGrid, resettle, route, smooth, townGrid, type Grid, type P, type Stroller,
 } from './walk'
 
 /** A grid from rows of text: '.' free, '#' blocked. Cell centres are at whole numbers. */
@@ -105,6 +105,67 @@ describe('the island', () => {
     }
     for (const t of town.trees) expect(isFree(g, t.x, t.z)).toBe(false)
     town.ground.forEach((ground, i) => ground !== 'grass' && ground !== 'pave' && expect(g.free[i]).toBe(0))
+  })
+
+  /** Whether a point is on a building's cells. */
+  const onBuilding = (t: typeof town, [x, z]: P) => t.lots.some(({ building: b }) => {
+    const [cx, cz] = [x / CELL + t.cols / 2, z / CELL + t.rows / 2]
+    return cx >= b.x && cx <= b.x + b.w && cz >= b.z && cz <= b.z + b.d
+  })
+  const crossesBuilding = (t: typeof town, from: P, path: P[]) => {
+    let a = from
+    for (const b of path) {
+      for (let k = 0; k <= 40; k++) if (onBuilding(t, [a[0] + (b[0] - a[0]) * k / 40, a[1] + (b[1] - a[1]) * k / 40])) return true
+      a = b
+    }
+    return false
+  }
+
+  it('no route between any two free cells crosses a building, at any size', () => {
+    const big = layoutTown([
+      { id: 'a', name: 'A', members: 1 }, { id: 'b', name: 'B', members: 6 },
+      { id: 'c', name: 'C', members: 12 }, { id: 'd', name: 'D', members: 20, done: 40 },
+    ])
+    const g = townGrid(big)
+    const cells = freeCells(g)
+    for (let i = 0; i < 400; i++) {
+      const a = cellPos(g, ...cells[(i * 37) % cells.length])
+      const r = route(g, a, cellPos(g, ...cells[(i * 101 + 7) % cells.length]))
+      expect(crossesBuilding(big, a, r)).toBe(false)
+    }
+  })
+
+  it('every bench can still be reached around the largest building', () => {
+    const big = layoutTown([{ id: 'a', name: 'A', members: 20, done: 40 }, { id: 'b', name: 'B', members: 20, done: 40 }])
+    expect(big.lots[0].building.w).toBe(10)
+    const g = townGrid(big)
+    const seats = benchSeats(big, g)
+    expect(seats.length).toBe(big.lots.length * 4 * 2)
+    const at = (p: P): P => [Math.round((p[0] - g.x0) / g.step), Math.round((p[1] - g.z0) / g.step)]
+    for (const s of seats) expect(findPath(g, at(seats[0].front), at(s.front))).not.toBeNull()
+  })
+
+  it('when a building grows, nobody stays inside it and no route still crosses it', () => {
+    const small = layoutTown([{ id: 'a', name: 'A', members: 1 }, { id: 'b', name: 'B', members: 1 }])
+    const grown = layoutTown([{ id: 'a', name: 'A', members: 20, done: 40 }, { id: 'b', name: 'B', members: 1 }])
+    const before = townGrid(small)
+    const after = townGrid(grown)
+    const seat = benchSeats(small, before)[0]
+    const { building: b } = grown.lots[0]
+    const inside = cellCenter(grown, b.x + 1, b.z + 1)
+    const [left, right] = [cellCenter(grown, b.x - 2, b.z + 4), cellCenter(grown, b.x + b.w + 1, b.z + 4)]
+    const base = { heading: 0, wait: 1, seat: null, toSeat: false } as const
+    const people: Stroller[] = [
+      { ...base, x: inside[0], z: inside[1], route: [], mode: 'standing' },
+      { ...base, x: left[0], z: left[1], route: [right], mode: 'walking' },
+      { ...base, x: left[0], z: left[1], route: [right], mode: 'walking', seat, toSeat: true },
+    ]
+    resettle(people, after, benchSeats(grown, after))
+    for (const p of people) {
+      expect(onBuilding(grown, [p.x, p.z])).toBe(false)
+      expect(crossesBuilding(grown, [p.x, p.z], p.route)).toBe(false)
+    }
+    expect(people[1].route.length).toBeGreaterThan(1)
   })
 
   it('every bench seat is reached from a free cell connected to the rest', () => {

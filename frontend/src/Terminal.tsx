@@ -3,6 +3,7 @@
 
 import { tr } from './core/i18n'
 import { useEffect, useRef, useState } from 'react'
+import { typesIntoTerminal } from './terminalKeys'
 import { endTerminal, focusTerminal, showTerminal } from './terminalSessions'
 
 export default function Terminal({ teamId, focusRequest, onLeave }: {
@@ -26,6 +27,18 @@ export default function Terminal({ teamId, focusRequest, onLeave }: {
   useEffect(() => {
     if (focusRequest) focusTerminal(teamId)
   }, [teamId, focusRequest, run])
+
+  // With the tab showing, typing goes to the terminal wherever focus is. The browser delivers the text of a key
+  // to what has focus once the keydown is over; held back from the map, whose WASD would otherwise pan as well.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!host.current?.clientWidth || !typesIntoTerminal(e, document.activeElement)) return
+      e.stopPropagation()
+      focusTerminal(teamId)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [teamId])
 
   return (
     <div className="fx-terminal">

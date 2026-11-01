@@ -10,7 +10,7 @@ const SOUND_GROUPS = [
   { key: 'soundNotice', label: '告示牌通知', keys: ['soundNotice'] },
 ] as const
 
-function Volume({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+export function Volume({ label, value, onChange, min = 0, max = 100 }: { label: string; value: number; onChange: (value: number) => void; min?: number; max?: number }) {
   const id = useId()
   const [draft, setDraft] = useState(value)
   useEffect(() => setDraft(value), [value])
@@ -24,18 +24,23 @@ function Volume({ label, value, onChange }: { label: string; value: number; onCh
   return <label className="fx-field" htmlFor={id}>
     <span>{label}</span>
     <span className="fx-volume">
-      <input id={id} type="range" min="0" max="100" step="1" value={draft} aria-valuetext={`${draft}%`} style={{ '--volume': draft / 100 } as CSSProperties}
+      <input id={id} type="range" min={min} max={max} step="1" value={draft} aria-valuetext={`${draft}%`} style={{ '--volume': (draft - min) / (max - min) } as CSSProperties}
         onChange={(e) => setDraft(Number(e.target.value))} onPointerUp={save} onKeyUp={save} onBlur={save} />
       <output htmlFor={id}>{draft}%</output>
     </span>
   </label>
 }
 
-export function SoundSection() {
+export function MusicSection() {
   const prefs = usePrefs()
-  return <section className="fx-d-group" aria-labelledby="fx-sound-title" data-sound-controls>
-    <h4 id="fx-sound-title">{tr('聲音')}</h4>
+  return <section className="fx-d-group" aria-labelledby="fx-music-title" data-sound-controls>
+    <h4 id="fx-music-title">{tr('音樂')}</h4>
     <div className="fx-fields">
+      <Toggle label={tr('背景執行時靜音')} checked={prefs.muteInBackground} onChange={(muteInBackground) => prefs.set({ muteInBackground })} />
+      <Select label={tr('音樂風格')} value={prefs.musicStyle} options={MUSIC_STYLES.map((style) => style.id)}
+        labelOf={(id) => tr(MUSIC_STYLES.find((style) => style.id === id)!.label)}
+        onChange={(musicStyle) => prefs.set({ musicStyle: musicStyle as MusicStyle })} />
+      <Volume label={tr('背景音樂')} value={prefs.musicVolume} onChange={(musicVolume) => prefs.set({ musicVolume })} />
       <Volume label={tr('音效')} value={prefs.effectsVolume} onChange={(effectsVolume) => prefs.set({ effectsVolume })} />
       <div className="fx-sound-switches">
         {SOUND_GROUPS.map(({ key, label, keys }) => <div key={key} className="fx-sound-effect">
@@ -44,19 +49,6 @@ export function SoundSection() {
             disabled={!keys.some((name) => prefs[name]) || prefs.effectsVolume === 0} onClick={() => playSound(keys.find((name) => prefs[name]) ?? key, true)}>▶</button>
         </div>)}
       </div>
-    </div>
-  </section>
-}
-
-export function MusicSection() {
-  const prefs = usePrefs()
-  return <section className="fx-d-group" aria-labelledby="fx-music-title" data-sound-controls>
-    <h4 id="fx-music-title">{tr('音樂')}</h4>
-    <div className="fx-fields">
-      <Select label={tr('音樂風格')} value={prefs.musicStyle} options={MUSIC_STYLES.map((style) => style.id)}
-        labelOf={(id) => tr(MUSIC_STYLES.find((style) => style.id === id)!.label)}
-        onChange={(musicStyle) => prefs.set({ musicStyle: musicStyle as MusicStyle })} />
-      <Volume label={tr('背景音樂')} value={prefs.musicVolume} onChange={(musicVolume) => prefs.set({ musicVolume })} />
     </div>
   </section>
 }

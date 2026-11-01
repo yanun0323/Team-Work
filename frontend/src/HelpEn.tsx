@@ -48,8 +48,8 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Blueprints</dt><dd>Templates for making employees.</dd>
           <dt>Workflows</dt><dd>The steps a task goes through.</dd>
           <dt>Settings</dt><dd>Preferences and settings files for the whole app.</dd>
-          <dt>Settings → Music</dt><dd>Choose Retro game (default), Soft piano, Ambient or Bossa nova. Tracks cross-fade when changed, and your selection is saved.</dd>
-          <dt>Settings → Sound</dt><dd>Both volumes default to 100%. Separate music and effects volumes; 0 mutes either channel. Toggle or preview aircraft sounds (takeoff, landing and flyover together), interface clicks and noticeboard sounds separately. New requests for replies or merges play a four-note announcement-style chime; existing notifications are not replayed. Audio starts after your first click or key press and pauses when the page is hidden. Preferences are shared and saved.</dd>
+          <dt>Settings → Controls</dt><dd>Set how fast the wheel zooms, and what the camera does when you open a company or the airport (Auto view).</dd>
+          <dt>Settings → Music</dt><dd>Mute in background is on by default: music and effects stop when you switch to another app or page, and carry on when you return. Turn it off to keep them playing. Choose Bossa nova (default), Retro game, Soft piano or Ambient. Tracks cross-fade when changed, and your selection is saved. Both volumes default to 100%. Separate music and effects volumes; 0 mutes either channel. Toggle or preview aircraft sounds (takeoff, landing and flyover together), interface clicks and noticeboard sounds separately. New requests for replies or merges play a four-note announcement-style chime; existing notifications are not replayed. Audio starts after your first click or key press. Preferences are shared and saved.</dd>
           <dt>About</dt><dd>Links, thanks and the version number.</dd>
           <dt>Quit</dt><dd>In the Mac app, the power button beside the Airport title quits the app. If work is running it asks first, and open terminals end too. The web version has no such button.</dd>
         </dl>
@@ -133,9 +133,12 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Default airport tab</dt><dd>Which tab the airport opens on. Model providers by default.</dd>
           <dt>Default company tab</dt><dd>Which tab a company opens on. Tasks by default.</dd>
           <dt>Task log order</dt><dd>Newest first or last, for task, sub-task and employee logs.</dd>
+          <dt>Auto view</dt><dd>What the camera does when you click a company, the airport or a spot for a new company. Pan and zoom (the default) moves there and zooms in, and locks the map. Pan only moves there: you can zoom but not pan. Off leaves the camera alone, and you can pan and zoom.</dd>
           <dt>Keep terminals</dt><dd>Off by default. When on, a terminal keeps running when you leave the company, is there when you return, and ends when the app closes.</dd>
+          <dt>Zoom sensitivity</dt><dd>How fast scrolling zooms the map. 100% by default.</dd>
+          <dt>Terminal startup command</dt><dd>Under Advanced, empty by default. When filled in, each new terminal runs this command as it starts.</dd>
           <dt>Game objects</dt><dd>Turn off details, shadows, people on the map, plane animation or clouds to make the screen run more smoothly.</dd>
-          <dt>Settings files</dt><dd>Interface preferences (preferences.yaml), companies, employees, your own blueprints and workflows, and providers are stored as files under <code>~/.team-work</code>. Built-in ones are not there. After editing them yourself, press Reload settings. They apply only if the whole batch passes its checks; otherwise the current settings stay.</dd>
+          <dt>Settings files</dt><dd>Interface preferences (preferences.yaml), companies, employees, your own blueprints and workflows, and providers are stored as files under <code>~/.team-work</code>. Built-in ones are not there. After editing them yourself, press Reload settings. They apply only if the whole batch passes its checks; otherwise the current settings stay. Open settings folder shows this location in Finder.</dd>
         </dl>
       </>
     ),
@@ -172,7 +175,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
         <p>A task is a piece of work you give the company, following one workflow. Each task has a task owner, who does Clarify requirements at the start and Acceptance review at the end.</p>
         <p>Each step of the workflow becomes a sub-task for the employees assigned to it. When done, they write a handoff for the next step. Progress in the details lists each sub-task's state, and opening one shows its log and the files handed off.</p>
         <p>Each task has its own branch, shown under the title in the details. Every step commits its work to this branch.</p>
-        <p>You can attach images and files to a new task: press ＋ to pick them, or paste a screenshot in the text box. Images can be up to 3.75MB and other files up to 25MB, with 6 in total. The workflow list shows each workflow's name and drawing.</p>
+        <p>You can attach images and files to a new task: press ＋ to pick them, or paste a screenshot in the text box. Images can be up to 3.75MB and other files up to 25MB, with 6 in total. Press Apply to all steps, to the right of Task owner, to have the task owner alone do every step, when adding or editing a task. The workflow list shows each workflow's name and drawing.</p>
         <p>For similar work, press Copy at the top right of a task's details. A new task opens with the title, description, attachments, workflow and staff filled in. Change what you need and press Start.</p>
         <dl>
           <dt>Four columns</dt><dd>Todo, Progressing, Wait for Review and Complete. A note with a red exclamation mark needs your reply, and a green merge icon is waiting for you to merge.</dd>
@@ -219,7 +222,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
         <dl>
           <dt>When it ends</dt><dd>It keeps running while you switch tabs, and ends when you close the company file or change company.</dd>
           <dt>Keep terminals</dt><dd>With this on in Airport → Settings, it keeps running when you leave the company and is there when you return, until the app closes or the company is disbanded. On the web, a refresh counts as closing.</dd>
-          <dt>Keyboard</dt><dd>Press F6 to leave the terminal. Focus returns to the tab.</dd>
+          <dt>Keyboard</dt><dd>Opening this tab puts the keyboard in the terminal, and typing brings it back from elsewhere, unless you are typing in another field. Press F6 to leave the terminal. Focus returns to the tab. Option works as Alt. Option+←→ moves by word, Command+←→ goes to the start or end of the line, Command+Delete deletes to the start of the line, Shift+Enter adds a line without running it, Command+K clears the screen, and Command+↑↓ scrolls to the top or bottom.</dd>
         </dl>
       </>
     ),

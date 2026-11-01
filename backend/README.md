@@ -22,7 +22,7 @@ make test-backend  # 測試
 | `blueprints/<blueprint_id>.yaml` | 每份員工藍圖 |
 | `workflows/<workflow_id>.yaml` | 每條任務流程 |
 | `provider.json` | 供應商設定，以供應商 id 為鍵；含網址、登入方式 `authKind`、模型、`thinking` 與價格，不含憑證 |
-| `company.db` | SQLite：任務、子任務、交接、流程快照、對話、用量、員工記憶、登入狀態、憑證、語言、公司位置與建築外觀，以及項目識別與建立時間 |
+| `data.db` | SQLite：任務、子任務、交接、流程快照、對話、用量、員工記憶、登入狀態、憑證、語言、公司位置與建築外觀，以及項目識別與建立時間 |
 | `worktrees/` | 任務工作目錄 |
 
 公司共同指示仍在公司專案資料夾的 `AGENTS.md`，不放進設定檔。憑證沒有加密，靠檔案權限保護。
@@ -44,7 +44,7 @@ debug: false
 
 Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及地圖位置。`preferences.yaml` 在介面修改後立即儲存；手動編輯後按「重新載入設定」，不必重啟。省略的欄位使用預設值，未知欄位、`null`、錯誤型別或不存在的頁籤會被拒絕。
 
-偏好欄位的預設值：`logOrder: newestFirst`（也可用 `newestLast`）、`defaultTab: tasks`（`chats`、`tasks`、`crew`、`terminal`、`settings`）、`defaultAirportTab: providers`（`providers`、`blueprints`、`flows`、`prefs`、`about`）；`detail`、`shadows`、`crowd`、`planes`、`clouds` 預設 `true`，`keepTerminals` 預設 `false`。語言沿用 SQLite 儲存。聲音偏好 `musicVolume`（預設 100）、`effectsVolume`（預設 100）接受 0–100 的整數，0 為靜音；`soundTakeoff`、`soundLanding`、`soundFlyover`、`soundUI`、`soundNotice` 分別控制起飛、降落、飛越、介面和告示牌通知音效，預設皆為 `true`。`musicStyle` 可選 `bossa`（預設）、`chiptune`、`piano`、`ambient`。舊偏好檔缺少的欄位會補上預設值。
+偏好欄位的預設值：`logOrder: newestFirst`（也可用 `newestLast`）、`defaultTab: tasks`（`chats`、`tasks`、`crew`、`terminal`、`settings`）、`defaultAirportTab: providers`（`providers`、`blueprints`、`flows`、`prefs`、`about`）；`detail`、`shadows`、`crowd`、`planes`、`clouds` 預設 `true`，`autoView` 預設 `panZoom`（也可用 `pan`、`off`；舊欄位 `autoZoom` 讀取時會自動換成它），`zoomSensitivity` 預設 100（接受 20–300 的整數），`terminalCommand` 預設空字串，`keepTerminals` 預設 `false`。語言沿用 SQLite 儲存。聲音偏好 `muteInBackground`（預設 `true`）、`musicVolume`（預設 100）、`effectsVolume`（預設 100）接受 0–100 的整數，0 為靜音；`soundTakeoff`、`soundLanding`、`soundFlyover`、`soundUI`、`soundNotice` 分別控制起飛、降落、飛越、介面和告示牌通知音效，預設皆為 `true`。`musicStyle` 可選 `bossa`（預設）、`chiptune`、`piano`、`ambient`。舊偏好檔缺少的欄位會補上預設值。
 
 公司位置、建築樣式和配色種子存在 SQLite 的公司記錄，建立與移動時儲存，解散時一起移除。位置必須為整數格、兩軸各介於 -512 到 512，不可重疊公司或機場，並且整塊 16×16 用地都必須落在現有陸地格子向八個方向擴張 32 格的範圍內。搬家以搬動前的陸地計算，包含所選公司的原有陸地；機場保留兩格間距。前後端以相同的陸地格子（含連接陸地與填平的內湖）驗證。不讀取或搬移舊的網頁 `localStorage`；沒有共用位置的公司會重新配置位置與外觀。`make dev-mock` 的偏好和地圖只存在記憶體。
 
@@ -72,7 +72,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 ## 安全
 
 - API 沒有登入。所以只聽本機，並檢查 `Host` 與 `Origin`，別的網站不能透過使用者的瀏覽器連進來。
-- API Key 和 ChatGPT Token 只存在 `company.db`（權限 `0600`）的 `secrets` 表，不會出現在任何回應或事件裡，API Key 對外只有最後 4 碼。
+- API Key 和 ChatGPT Token 只存在 `data.db`（權限 `0600`）的 `secrets` 表，不會出現在任何回應或事件裡，API Key 對外只有最後 4 碼。
 - `read_file`、`write_file` 限制在任務的 work tree 內（技能資料夾可讀），符號連結也擋。`read_file` 也能讀 PNG、JPEG、GIF、WebP 圖片（最大 3.75MB），圖片會交給模型看。
 - `run_command` **沒有沙盒**：員工能做到伺服器使用者能做的任何事。只雇用你信任其指示的藍圖，也留意任務內容與網頁可能夾帶指示。
 
@@ -84,6 +84,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 |---|---|
 | `PUT /settings/language` | 設定 App 語言與員工回覆語言（`zh` 或 `en`），存在 SQLite；世界資料的 `language` 會更新 |
 | `PATCH /settings/preferences` | 部分更新介面偏好；讀取包含在 `/world`，更新透過事件同步 |
+| `POST /settings/open-folder` | 在 Finder 打開設定檔資料夾（`TEAM_WORK_HOME`） |
 | `POST /settings/reload` | 驗證並重新載入實體設定檔（不含全域 config.yaml）；成功回 204，錯誤保留現有設定 |
 | `GET /world` | 整個世界，欄位與前端 `types.ts` 相同 |
 | `GET /events` | WebSocket：先送 `snapshot`，之後送 `patch`（實體異動）、`delta`（對話或討論裡員工正在寫的文字，`subId` 是對話或子任務的 id）、`deltaReset`（重試時收回已寫的文字）、`notice`（`review`、`awaitMerge`）。斷線重連會拿到新的 snapshot，以及寫到一半的文字 |
@@ -133,7 +134,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /providers/:id/logout` | 登出 |
 | `POST /providers/:id/models` | 重新取得模型清單 |
 
-- **ChatGPT（`openai`）**：以 Codex CLI 的方式走 OAuth。`browser` 會在伺服器這台電腦打開登入頁，並用 `127.0.0.1:1455` 等它回來（這個連接埠被占用時可以貼網址）；`device` 回傳一組代碼。Token 存在 `company.db` 的 `secrets` 表，到期前自動更新。
+- **ChatGPT（`openai`）**：以 Codex CLI 的方式走 OAuth。`browser` 會在伺服器這台電腦打開登入頁，並用 `127.0.0.1:1455` 等它回來（這個連接埠被占用時可以貼網址）；`device` 回傳一組代碼。Token 存在 `data.db` 的 `secrets` 表，到期前自動更新。
 - **Claude（`anthropic`）**：透過本機的 Claude Code（`claude` 執行檔），登入由它自己管，這裡不保存憑證。可以用下面的 `/claude-code` 檢查、安裝和登入，或自己在終端機執行 `claude auth login`，再呼叫登入 API 確認。登出只影響這個供應商，不會登出 `claude`。可用 `MHO_CLAUDE_EXECUTABLE` 指定執行檔。設定了 `ANTHROPIC_API_KEY` 等環境變數時會拒絕執行，避免請求被轉到別的帳務。Claude 自己的工具全部關閉，只會用這裡提供的工具。
 - 訂閱的模型 id 有前綴（`openai-codex/…`、`claude-code/…`），不會和同名的 API Key 模型混淆。
 - 訂閱不是按 token 計費，所以費用記為 0，**費用上限對它無效**。

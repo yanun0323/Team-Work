@@ -4,7 +4,7 @@ import { expect, it } from 'vitest'
 import { version } from '../package.json'
 import { useStore } from './core/store'
 import { airportTabOr, DEFAULT_PREFS, ordered, type AirportTab } from './prefs'
-import { PrefsPage, QuitTool, Settings, ReloadSettings } from './Settings'
+import { AdvancedSection, PrefsPage, QuitTool, Settings, ReloadSettings } from './Settings'
 
 it('is a drawer headed as the airport, its model providers listed under the first tab', () => {
   const html = renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)
@@ -26,7 +26,7 @@ it('is a drawer headed as the airport, its model providers listed under the firs
 })
 
 it('starts with every preference on and the newest log line first', () => {
-  expect(DEFAULT_PREFS).toEqual({ musicStyle: 'bossa', soundNotice: true, musicVolume: 100, effectsVolume: 100, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, defaultTab: 'tasks', defaultAirportTab: 'providers' })
+  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, musicStyle: 'bossa', soundNotice: true, musicVolume: 100, effectsVolume: 100, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers' })
   expect(ordered([1, 2, 3], 'newestFirst')).toEqual([3, 2, 1])
   expect(ordered([1, 2, 3], 'newestLast')).toEqual([1, 2, 3])
 })
@@ -40,6 +40,7 @@ it('leaves the power button to the app', () => {
 it('offers a keyboard-accessible reload action with persistent announcement regions', () => {
   const html = renderToStaticMarkup(<ReloadSettings />)
   expect(html).toContain('<button type="button" class="fx-save">重新載入設定</button>')
+  expect(html).toContain('<button type="button" class="fx-save">開啟設定檔資料夾</button>')
   expect(html).toContain('role="status"')
   expect(html).toContain('role="alert"')
 })
@@ -70,9 +71,44 @@ it('offers sound inside preferences, not as an airport tab with separate labeled
   const settings = renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)
   expect(settings).not.toContain('id="fx-settings-tab-sound"')
   const html = renderToStaticMarkup(<PrefsPage />)
-  expect(html.match(/type="range"/g)).toHaveLength(2)
+  expect(html.match(/type="range"/g)).toHaveLength(3)
   for (const name of ['音樂風格', '輕快波莎', '告示牌通知', '背景音樂', '音效', '飛機音效', '介面操作']) expect(html).toContain(name)
   expect(html).toContain('aria-valuetext="100%"')
   expect(html).toContain('aria-label="試聽 飛機音效"')
   for (const old of ['飛機起飛', '飛機降落', '飛機飛越']) expect(html).not.toContain(old)
+})
+
+it('merges sound into one 音樂 group that starts with muting in the background, on by default', () => {
+  const html = renderToStaticMarkup(<PrefsPage />)
+  expect(html).not.toContain('>聲音<')
+  const group = html.indexOf('>音樂<')
+  const mute = html.indexOf('背景執行時靜音')
+  expect(mute).toBeGreaterThan(group)
+  expect(mute).toBeLessThan(html.indexOf('音樂風格'))
+  expect(html.indexOf('告示牌通知')).toBeGreaterThan(mute)
+  expect(DEFAULT_PREFS.muteInBackground).toBe(true)
+})
+
+it('offers auto view in the 操作 group, panning and zooming by default', () => {
+  const html = renderToStaticMarkup(<PrefsPage />)
+  const at = html.indexOf('自動檢視')
+  expect(at).toBeGreaterThan(html.indexOf('>操作<'))
+  expect(at).toBeLessThan(html.indexOf('>功能<'))
+  expect(html).toContain('位移和縮放')
+  expect(DEFAULT_PREFS.autoView).toBe('panZoom')
+})
+
+it('offers zoom sensitivity under 操作, at the normal speed', () => {
+  const html = renderToStaticMarkup(<PrefsPage />)
+  const at = html.indexOf('縮放靈敏度')
+  expect(at).toBeGreaterThan(html.indexOf('>操作<'))
+  expect(at).toBeLessThan(html.indexOf('>功能<'))
+  expect(html).toContain('min="20" max="300"')
+})
+
+it('offers the terminal startup command under 進階, empty by default', () => {
+  const html = renderToStaticMarkup(<AdvancedSection />)
+  expect(html).toContain('進階')
+  expect(html).toContain('終端機預設指令')
+  expect(html).toContain('value=""')
 })

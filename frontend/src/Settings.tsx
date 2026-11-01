@@ -21,9 +21,9 @@ import { authLabel, PROVIDER_KINDS } from './providers'
 import { Select, Switcher, Toggle } from './Controls'
 import { setLanguage } from './core/ops'
 import { TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
-import { airportTabOr, AIRPORT_TABS, type AirportTab, usePrefs, type LogOrder, type Prefs } from './prefs'
+import { airportTabOr, AIRPORT_TABS, AUTO_VIEWS, type AirportTab, type AutoView, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY } from './prefs'
 import { request } from './core/backend'
-import { MusicSection, SoundSection } from './SoundPage'
+import { MusicSection, Volume } from './SoundPage'
 import { MOCK } from './core/mode'
 
 // TODO: the real addresses; these are placeholders until they are given
@@ -229,14 +229,48 @@ export function ReloadSettings() {
       setBusy(false)
     }
   }
+  const openFolder = async () => {
+    setMessage('')
+    setError('')
+    try {
+      await request('POST', '/settings/open-folder')
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
   return (
     <section className="fx-d-group" aria-labelledby="fx-settings-files">
       <h4 id="fx-settings-files">{tr('設定檔')}</h4>
-      <button type="button" className="fx-save" disabled={busy} onClick={() => void reload()}>
-        {busy ? tr('載入中…') : tr('重新載入設定')}
-      </button>
+      <div className="fx-settings-file-acts">
+        <button type="button" className="fx-save" disabled={busy} onClick={() => void reload()}>
+          {busy ? tr('載入中…') : tr('重新載入設定')}
+        </button>
+        <button type="button" className="fx-save" onClick={() => void openFolder()}>{tr('開啟設定檔資料夾')}</button>
+      </div>
       <p role="status">{message}</p>
       <p role="alert">{error}</p>
+    </section>
+  )
+}
+
+export function AdvancedSection() {
+  const saved = usePrefs((s) => s.terminalCommand)
+  const set = usePrefs((s) => s.set)
+  const [draft, setDraft] = useState(saved)
+  useEffect(() => setDraft(saved), [saved])
+  // Save when leaving the field, not once per letter.
+  const save = () => { if (draft !== saved) set({ terminalCommand: draft }) }
+  return (
+    <section className="fx-d-group" aria-labelledby="fx-prefs-advanced">
+      <h4 id="fx-prefs-advanced">{tr('進階')}</h4>
+      <div className="fx-fields">
+        <label className="fx-field">
+          <span>{tr('終端機預設指令')}</span>
+          <input className="fx-control" value={draft} spellCheck={false} autoComplete="off" autoCapitalize="off"
+            onChange={(e) => setDraft(e.target.value)} onBlur={save}
+            onKeyDown={(e) => { if (e.key === 'Enter') save() }} />
+        </label>
+      </div>
     </section>
   )
 }
@@ -245,7 +279,7 @@ export function PrefsPage() {
   const prefs = usePrefs()
   const language = useStore((s) => s.world.language)
   const act = useStore((s) => s.act)
-  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'musicVolume' | 'effectsVolume' | 'musicStyle'>, label: string) => (
+  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView'>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
   return (
@@ -259,6 +293,14 @@ export function PrefsPage() {
             labelOf={(id) => tr(AIRPORT_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultAirportTab: v as AirportTab })} />
           <Select label={tr('預設公司頁籤')} value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.map((x) => x.id)}
             labelOf={(id) => tr(COMPANY_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultTab: v as CompanyTab })} />
+        </div>
+      </section>
+      <section className="fx-d-group" aria-labelledby="fx-prefs-controls">
+        <h4 id="fx-prefs-controls">{tr('操作')}</h4>
+        <div className="fx-fields">
+          <Volume label={tr('縮放靈敏度')} value={prefs.zoomSensitivity} {...ZOOM_SENSITIVITY} onChange={(zoomSensitivity) => prefs.set({ zoomSensitivity })} />
+          <Select label={tr('自動檢視')} value={prefs.autoView} options={Object.keys(AUTO_VIEWS)} labelOf={(o) => tr(AUTO_VIEWS[o as AutoView])}
+            onChange={(v) => prefs.set({ autoView: v as AutoView })} />
         </div>
       </section>
       <section className="fx-d-group" aria-labelledby="fx-prefs-use">
@@ -280,7 +322,7 @@ export function PrefsPage() {
         </div>
       </section>
       <MusicSection />
-      <SoundSection />
+      {!MOCK && <AdvancedSection />}
       {!MOCK && <ReloadSettings />}
     </div>
   )

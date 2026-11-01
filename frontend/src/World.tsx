@@ -13,7 +13,7 @@ import { LabelLayer, LabelProjector, type LabelSpec } from './core/voxel/labels'
 import { Airport, AIRPORT_TOP, TERMINAL } from './Airport'
 import { Ambient, shadowHalf } from './Ambient'
 import { Building, BuildingPreview, CUT, FLOOR, ROOF_TOP } from './Building'
-import { CAMERA_DISTANCE, drawerWidth, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, shotAt, type FocusBox, type Shot } from './camera'
+import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, shotAt, type FocusBox, type Shot } from './camera'
 import { Drawer } from './Drawer'
 import { Settings } from './Settings'
 import { Help } from './Help'
@@ -67,7 +67,7 @@ function townKey(s: ReturnType<typeof useStore.getState>) {
 
 export function World() {
   useSound()
-  const { crowd, planes, clouds } = usePrefs()
+  const { crowd, planes, clouds, autoView, zoomSensitivity } = usePrefs()
   // the simulation changes the world ten times a second; rebuild the town only when its shape changes
   const key = useStore(townKey)
   const town = useMemo(() => {
@@ -219,6 +219,7 @@ export function World() {
 
   const airportShown = byAirport && panel === 'settings'
   const focus = useMemo<FocusBox | null>(() => {
+    if (autoView === 'off') return null
     if (airportShown) {
       const [x, z] = rectCenter(town, town.airport)
       return { x, z, w: town.airport.w * CELL, d: town.airport.d * CELL, height: AIRPORT_TOP }
@@ -231,7 +232,7 @@ export function World() {
     const [x, z] = rectCenter(town, open.building)
     // the cut-away ground floor, with room above for the name tags
     return { x, z, w: open.building.w * CELL, d: open.building.d * CELL, height: CUT + 1.2 }
-  }, [open, spot, town, airportShown])
+  }, [open, spot, town, airportShown, autoView])
 
   // one `id<TAB>name` line per employee of the open company
   // tasks waiting on the user, in every company: their count goes on the board button in a red badge
@@ -337,9 +338,9 @@ export function World() {
       {moving && <Placer key={moving} town={town} picked={null} onPick={moveTo} moved={moving} can={(s) => canMove(town, moving, s)} />}
       <Ambient town={town} calm={calm} clouds={clouds} planes={planes} />
       <MapControls makeDefault enableRotate={false} enableDamping dampingFactor={0.12} screenSpacePanning={false}
-        minZoom={MIN_ZOOM} maxZoom={MAX_ZOOM} zoomSpeed={ZOOM_SPEED} />
-      <CameraRig town={town} radius={town.radius} span={span} top={town.top} focus={focus} focusKey={airportShown ? 'airport' : selected ?? (spot ? `spot:${spot}` : null)}
-        blocked={settingsOpen || helpOpen} wide={(placing || editing) && !selected ? town.middle : null} />
+        minZoom={MIN_ZOOM} maxZoom={MAX_ZOOM} zoomSpeed={ZOOM_SPEED * zoomSensitivity / 100} />
+      <CameraRig town={town} radius={town.radius} span={span} top={town.top} focus={focus} focusKey={!focus ? null : airportShown ? 'airport' : selected ?? (spot ? `spot:${spot}` : null)}
+        panOnly={autoView === 'pan'} blocked={(settingsOpen && (autoView === 'panZoom' || !airportShown)) || helpOpen} wide={(placing || editing) && !selected ? town.middle : null} />
       <LabelProjector />
       <PixelPass pixel={2} />
     </Canvas>
@@ -470,7 +471,9 @@ function Sun({ reach }: { reach: number }) {
 
 /**
  * Fits the island on first load, pans with WASD / arrow keys, and keeps the view over the island. Opening a
- * building flies to it and locks the view; closing it flies back to where the player was and unlocks.
+ * building flies to it and locks the view; closing it flies back to where the player was and unlocks. With
+ * the auto view preference at pan, it goes there at the player's zoom and only panning locks; at off there is
+ * no `focus`, so the camera neither moves nor locks.
  */
 /** How long the camera takes to fly to a building and back, in seconds. */
 const FLY_SECONDS = 0.9
@@ -478,12 +481,17 @@ const FLY_SECONDS = 0.9
 /** An open office fills a bit more than the free area: its empty outer floor corners may be cut off. */
 const OFFICE_ZOOM = 1.14
 
-function CameraRig({ town, radius, span, top, focus, focusKey, blocked, wide }: {
-  town: Town; radius: number; span: number; top: number; focus: FocusBox | null; focusKey: string | null; blocked: boolean
+/** The airport is long and thin, so it fills the free area with its runway ends running off the side. */
+const AIRPORT_ZOOM = 1.35
+/** Share of the screen to look further down: the tower's top needs little room, the runway below needs it more. */
+const AIRPORT_PAN_DOWN = 0.1
+
+function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked, wide }: {
+  town: Town; radius: number; span: number; top: number; focus: FocusBox | null; focusKey: string | null; panOnly: boolean; blocked: boolean
   /** Placing a new company: the middle of the town, which is shown with the sea a new plot may go on. */
   wide: [number, number] | null
 }) {
-  const controls = useThree((s) => s.controls) as unknown as (THREE.EventDispatcher<{ start: object }> & { target: THREE.Vector3; update: () => void; enabled: boolean; zoomToCursor: boolean; minZoom: number }) | null
+  const controls = useThree((s) => s.controls) as unknown as (THREE.EventDispatcher<{ start: object }> & { target: THREE.Vector3; update: () => void; enabled: boolean; enablePan: boolean; zoomToCursor: boolean; minZoom: number }) | null
   const gl = useThree((s) => s.gl)
   const camera = useThree((s) => s.camera) as THREE.OrthographicCamera
   const size = useThree((s) => s.size)
@@ -524,6 +532,11 @@ function CameraRig({ town, radius, span, top, focus, focusKey, blocked, wide }: 
     if (controls) fly.current = { from: { target: controls.target.clone(), zoom: camera.zoom }, to, time: 0 }
   }
   const locked = useRef(false)
+  // panning to a building and staying on it, while the player zooms: `aim` is where to look at a given zoom
+  const pan = useRef<{ from: THREE.Vector3; aim: (zoom: number) => THREE.Vector3; time: number } | null>(null)
+  const panLocked = useRef(false)
+  // whether the view left `home` zoomed in by us, so going back should undo the zoom too
+  const zoomed = useRef(false)
   useEffect(() => {
     if (!wide || !controls) return
     // pull back over the middle of the town, if not already far enough out
@@ -535,18 +548,33 @@ function CameraRig({ town, radius, span, top, focus, focusKey, blocked, wide }: 
     if (focus) {
       // remember the player's view only when coming from the map, not when switching companies
       if (!home.current) home.current = { target: controls.target.clone(), zoom: camera.zoom }
-      flyTo(focusView(focus, { width: size.width, height: size.height, coverRight: drawerWidth(size.width) }, focusKey?.startsWith('spot:') || focusKey === 'airport' ? 1 : OFFICE_ZOOM))
-    } else if (home.current) {
-      flyTo(home.current)
+      const view = { width: size.width, height: size.height, coverRight: drawerWidth(size.width) }
+      const panDown = focusKey === 'airport' ? AIRPORT_PAN_DOWN : 0
+      if (panOnly) {
+        fly.current = null
+        pan.current = { from: controls.target.clone(), aim: (zoom) => focusTarget(focus, view, zoom, panDown), time: 0 }
+      } else {
+        pan.current = null
+        zoomed.current = true
+        flyTo(focusView(focus, view, focusKey === 'airport' ? AIRPORT_ZOOM : focusKey?.startsWith('spot:') ? 1 : OFFICE_ZOOM, panDown))
+      }
+    } else {
+      pan.current = null
+      if (home.current) flyTo(zoomed.current ? home.current : { target: home.current.target, zoom: camera.zoom })
       home.current = null
+      zoomed.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusKey, controls])
+  }, [focusKey, panOnly, controls])
   useEffect(() => {
     locked.current = !!focus || blocked
-    if (controls) controls.enabled = !locked.current
+    panLocked.current = !!focus && panOnly && !blocked
+    if (controls) {
+      controls.enabled = !locked.current || panLocked.current
+      controls.enablePan = !panLocked.current
+    }
     if (locked.current) keys.current.clear()
-  }, [focus, blocked, controls])
+  }, [focus, panOnly, blocked, controls])
   useEffect(() => {
     if (!controls) return
     const cancel = () => void (fly.current = null)
@@ -558,7 +586,8 @@ function CameraRig({ town, radius, span, top, focus, focusKey, blocked, wide }: 
   useEffect(() => {
     const host = gl.domElement.parentElement
     if (!controls || !host) return
-    const pick = (e: WheelEvent) => void (controls.zoomToCursor = e.deltaY < 0)
+    // zooming towards the pointer would pan, which is locked while panned to a building
+    const pick = (e: WheelEvent) => void (controls.zoomToCursor = e.deltaY < 0 && !panLocked.current)
     host.addEventListener('wheel', pick, { capture: true, passive: true })
     return () => host.removeEventListener('wheel', pick, { capture: true })
   }, [controls, gl])
@@ -604,6 +633,16 @@ function CameraRig({ town, radius, span, top, focus, focusKey, blocked, wide }: 
       const move = right.multiplyScalar(ax).add(fwd.multiplyScalar(az)).normalize().multiplyScalar(step)
       t.add(move)
       camera.position.add(move)
+    }
+    if (pan.current) {
+      // the zoom stays the player's, even mid-way; the building stays centred as it changes
+      const f = pan.current
+      f.time += Math.min(delta, 0.05)
+      const p = calm ? 1 : Math.min(1, f.time / FLY_SECONDS)
+      const goal = f.aim(camera.zoom)
+      const offset = camera.position.clone().sub(t)
+      t.copy(p === 1 ? goal : f.from.clone().lerp(goal, 1 - (1 - p) ** 3))
+      camera.position.copy(t).add(offset)
     }
     if (fly.current) {
       const f = fly.current

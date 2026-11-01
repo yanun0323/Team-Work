@@ -158,3 +158,12 @@ func TestTerminalRefusals(t *testing.T) {
 		t.Fatalf("foreign websocket: %v %v", err, res)
 	}
 }
+
+// The startup command preference is sent the moment the socket opens, before the shell has read its zshrc.
+func TestTerminalRunsWhatIsSentBeforeTheShellIsReady(t *testing.T) {
+	conn, _ := openTerminal(t, setup(t).URL)
+	if err := conn.WriteMessage(websocket.BinaryMessage, []byte("echo loaded-$zshrc_loaded\r")); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, conn, "loaded-yes")
+}

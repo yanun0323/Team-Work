@@ -119,7 +119,10 @@ export function Drawer({ teamId, look, leaving, onGone }: {
     back(-1, false)
     const start = tabOr(usePrefs.getState().defaultTab)
     setTab(start)
-    if (start === 'terminal') setTerminalTeam(teamId)
+    if (start === 'terminal') {
+      setTerminalTeam(teamId)
+      setTerminalFocus((n) => n + 1)
+    }
   }, [teamId, back])
   if (!team) return null
   const base = sheets.layers[0]

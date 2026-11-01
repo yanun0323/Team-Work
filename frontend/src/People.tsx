@@ -14,8 +14,8 @@ import { hash, type Town } from './layout'
 import { OFFICE_SCALE, type OfficePlan } from './office'
 import { toon } from './toon'
 import {
-  advance, benchSeats, cellPos, crowdSize, findPath, freeCells, headingOf, isFree, nearestFree, officeGrid, smooth, townGrid,
-  type BenchSeat, type Grid, type P, type Walker,
+  advance, benchSeats, cellPos, crowdSize, freeCells, headingOf, isFree, officeGrid, resettle, route, townGrid,
+  type BenchSeat, type P, type Stroller as WalkStroller, type Walker,
 } from './walk'
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -259,15 +259,6 @@ function pose(rig: Rig, w: Walker & { phase: number }, seated: boolean, moved: n
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a)
 const pick = <T,>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)]
-
-/** A route over the grid between two points, smoothed; empty when there is none. */
-function route(g: Grid, from: P, to: P): P[] {
-  const a = nearestFree(g, ...from)
-  const b = nearestFree(g, ...to)
-  if (!a || !b) return []
-  const path = findPath(g, a, b)
-  return path ? smooth(g, path) : []
-}
 
 // ---------------------------------------------------------------- in the office
 
@@ -646,14 +637,8 @@ const CHAIR_TOP = 0.23
 /** A seated figure on a bench: its feet sit this far up, so its shins reach down this much further. */
 const BENCH_LIFT = BENCH_TOP / OFFICE_SCALE - CHAIR_TOP
 
-interface Stroller extends Walker {
+interface Stroller extends WalkStroller {
   phase: number
-  mode: 'walking' | 'standing' | 'sitting'
-  wait: number
-  /** The bench seat held, while going to it or sitting on it. */
-  seat: BenchSeat | null
-  /** On the way to sit down. */
-  toSeat: boolean
 }
 
 /**
@@ -684,10 +669,7 @@ export function Strollers({ town }: { town: Town }) {
     // only a new crowd starts over: when a building grows the grid changes, and people carry on from where they are
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [looks])
-  // a building that grew may now stand where someone was heading: everyone walking picks a new way
-  useEffect(() => {
-    for (const p of people) if (p.mode === 'walking' && !p.toSeat) p.route = p.route.length ? route(grid, [p.x, p.z], p.route[p.route.length - 1]) : []
-  }, [grid, people])
+  useEffect(() => resettle(people, grid, seats), [grid, seats, people])
 
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.1)

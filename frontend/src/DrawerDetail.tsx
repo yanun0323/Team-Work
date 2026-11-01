@@ -23,7 +23,7 @@ import { ClaudeAccount } from './ClaudeAccount'
 import { Markdown, MarkdownLine } from './Markdown'
 import { Select, Switcher, WaitBadge } from './Controls'
 import { FlowNotes, FlowPreview, openCard } from './FlowNotes'
-import { copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, unstaffed, useDraft, type TaskDraft } from './draft'
+import { copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
 import { byBlueprint, DEFAULT_EFFORT, effortsOf, mindOf, modelGroups, modelsOf, randomLook } from './crew'
 import { docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
@@ -1899,8 +1899,13 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
  * the owner works.
  */
 function OwnerField({ teamId, draft }: { teamId: string; draft: TaskDraft }) {
-  const crew = teamReplicas(useStore((s) => s.world), teamId)
-  return <CrewSelect label={tr('任務負責人')} value={draft.ownerId ?? ''} crew={crew} placeholder={tr('選擇員工')} onChange={(id) => editDraft(() => ({ ownerId: id }))} />
+  const w = useStore((s) => s.world)
+  return (
+    <div className="fx-owner-field">
+      <CrewSelect label={tr('任務負責人')} value={draft.ownerId ?? ''} crew={teamReplicas(w, teamId)} placeholder={tr('選擇員工')} onChange={(id) => editDraft(() => ({ ownerId: id }))} />
+      <button type="button" className="fx-save fx-plain fx-owner-apply" disabled={!draft.ownerId} onClick={() => editDraft((d) => ownerOnEveryStep(w, d))}>{tr('套用到所有節點')}</button>
+    </div>
+  )
 }
 
 /** What still keeps a task from starting: its owner first, then the steps nobody works. */

@@ -400,6 +400,17 @@ func TestEventsSendSnapshotThenChanges(t *testing.T) {
 	}
 }
 
+func TestOpenSettingsFolderShowsTheDataDirectory(t *testing.T) {
+	api := setup(t).URL + "/api/v1"
+	opened = ""
+	if code, body := send(t, "POST", api+"/settings/open-folder", ""); code != http.StatusNoContent {
+		t.Fatalf("%d %v", code, body)
+	}
+	if _, err := os.Stat(filepath.Join(opened, "data.db")); err != nil {
+		t.Fatalf("%q is not the data directory: %v", opened, err)
+	}
+}
+
 func TestOpenFolderShowsTheCompanysFolder(t *testing.T) {
 	api := setup(t).URL + "/api/v1"
 	dir := t.TempDir()

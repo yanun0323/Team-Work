@@ -140,6 +140,15 @@ export function smooth(g: Grid, path: P[]): P[] {
   return out
 }
 
+/** A route over the grid between two points, smoothed; empty when there is none. */
+export function route(g: Grid, from: P, to: P): P[] {
+  const a = nearestFree(g, ...from)
+  const b = nearestFree(g, ...to)
+  if (!a || !b) return []
+  const path = findPath(g, a, b)
+  return path ? smooth(g, path) : []
+}
+
 /** A person moving through a list of points. */
 export interface Walker {
   x: number
@@ -202,7 +211,7 @@ export function officeGrid(plan: OfficePlan): Grid {
   return { cols: n, rows: n, free, x0, z0: x0, step: OFFICE_STEP }
 }
 
-/** Free land on the island, in world units: grass and paving, clear of buildings, trees, street furniture and the shore. */
+/** Free land on the island, in world units: grass and paving, a cell clear of buildings, clear of trees, street furniture and the shore. */
 export function townGrid(town: Town): Grid {
   const free = new Uint8Array(town.cols * town.rows)
   for (let i = 0; i < free.length; i++) free[i] = town.ground[i] === 'grass' || town.ground[i] === 'pave' ? 1 : 0
@@ -210,12 +219,45 @@ export function townGrid(town: Town): Grid {
     for (let k = z; k < z + d; k++) for (let j = x; j < x + w; j++) free[k * town.cols + j] = 0
   }
   for (const l of town.lots) {
-    block(l.building.x, l.building.z, l.building.w, l.building.d)
+    // a cell's margin all round, as a figure has width and a wall shouldn't clip it
+    block(l.building.x - 1, l.building.z - 1, l.building.w + 2, l.building.d + 2)
     for (const p of l.props) block(p.x, p.z, p.w, p.d)
   }
   for (const t of town.trees) block(t.x, t.z, TREE_CELLS, TREE_CELLS)
   const [x0, z0] = cellCenter(town, 0, 0)
   return { cols: town.cols, rows: town.rows, free, x0, z0, step: CELL }
+}
+
+/** What the crowd keeps track of on the island. */
+export interface Stroller extends Walker {
+  mode: 'walking' | 'standing' | 'sitting'
+  wait: number
+  /** The bench seat held, while going to it or sitting on it. */
+  seat: BenchSeat | null
+  /** On the way to sit down. */
+  toSeat: boolean
+}
+
+/**
+ * The land changed: a building grew or a company moved, perhaps over someone or their way. Nobody stays on what is
+ * now blocked, and every route is worked out again, so that none crosses the new building.
+ */
+export function resettle(people: Stroller[], g: Grid, seats: BenchSeat[]) {
+  const sameSeat = (s: BenchSeat | null) => seats.find((x) => s && `${x.at}` === `${s.at}`) ?? null
+  for (const p of people) {
+    p.seat = sameSeat(p.seat)
+    if (p.mode === 'sitting' && p.seat) continue
+    if (p.mode === 'sitting') p.mode = 'standing'
+    if (!p.seat) p.toSeat = false
+    if (!isFree(g, ...cellOf(g, p.x, p.z))) {
+      const near = nearestFree(g, p.x, p.z)
+      if (near) [p.x, p.z] = cellPos(g, ...near)
+    }
+    if (p.mode !== 'walking') continue
+    const goal = p.toSeat && p.seat ? p.seat.front : p.route.at(-1)
+    p.route = goal ? route(g, [p.x, p.z], goal) : []
+    if (p.toSeat && p.seat) p.route.push(p.seat.at)
+  }
 }
 
 /** How many people are out on the island: two to five per building. */

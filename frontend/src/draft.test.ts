@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { seedWorld } from './core/data/seed'
 import { createTask, createTeam } from './core/domain/sim'
 import { flowList, teamReplicas, teamTasks } from './core/model'
-import { copyDraft, lastFlowId, unstaffed } from './draft'
+import { copyDraft, draftStaff, lastFlowId, ownerOnEveryStep, unstaffed } from './draft'
 
 const fixture = () => {
   const w = seedWorld()
@@ -54,5 +54,22 @@ describe('the flow a new task starts on', () => {
     expect(lastFlowId(w, t.teamId)).toBe(other.id)
     const fresh = createTeam(w, { name: 'n', folder: '/n', targetBranch: 'main', branches: ['main'], initializedGit: false })
     expect(lastFlowId(w, fresh.id)).toBe(flowList(w)[0].id)
+  })
+})
+
+describe('ownerOnEveryStep', () => {
+  it('leaves the owner as the only employee on every step', () => {
+    const { w, t } = fixture()
+    const d = copyDraft(w, t.teamId, t)
+    const applied = { ...d, ...ownerOnEveryStep(w, d) }
+    for (const n of w.workflows[t.workflowId].nodes) expect(draftStaff(w, applied, n.id)).toEqual([t.ownerId])
+    expect(applied.from).toBeNull()
+    expect(unstaffed(w, applied)).toEqual([])
+  })
+
+  it('changes nothing without an owner', () => {
+    const { w, t } = fixture()
+    const d = { ...copyDraft(w, t.teamId, t), ownerId: null }
+    expect(ownerOnEveryStep(w, d)).toEqual({})
   })
 })

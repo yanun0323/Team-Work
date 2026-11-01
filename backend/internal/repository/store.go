@@ -43,7 +43,7 @@ func NewStore(dataDir string) (*Store, error) {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create data folder: %w", err)
 	}
-	path := filepath.Join(dataDir, "company.db")
+	path := filepath.Join(dataDir, "data.db")
 	// created here, so the database never exists with wider permissions
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {

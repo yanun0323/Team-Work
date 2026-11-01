@@ -7,6 +7,7 @@ import { Terminal as XTerm } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { useStore } from './core/store'
 import { usePrefs } from './prefs'
+import { terminalKey } from './terminalKeys'
 
 interface Session {
   term: XTerm
@@ -28,6 +29,8 @@ function start(teamId: string, host: HTMLElement): Session {
   host.append(el)
   const term = new XTerm({
     cursorBlink: true, fontSize: 13, scrollback: 5000,
+    // Option is Alt for the shell and its programs, as they expect, not the Mac's special characters
+    macOptionIsMeta: true,
     fontFamily: 'ui-monospace, "SF Mono", Menlo, "PingFang TC", monospace',
     theme: { background: '#18181b', foreground: '#e8e6df', cursor: '#e8e6df', red: '#ff6b6b' },
   })
@@ -45,12 +48,27 @@ function start(teamId: string, host: HTMLElement): Session {
   }
   const send = (data: string | Uint8Array<ArrayBuffer>) => { if (socket.readyState === WebSocket.OPEN) socket.send(data) }
   const encoder = new TextEncoder()
+  // As if typed: the shell picks it up once its startup files have run, and stays open afterwards.
+  const command = usePrefs.getState().terminalCommand.trim()
+  socket.onopen = () => { if (command) send(encoder.encode(`${command}\r`)) }
   term.onData((d) => send(encoder.encode(d)))
   term.onBinary((d) => send(Uint8Array.from(d, (c) => c.charCodeAt(0))))
   term.onResize(({ cols, rows }) => send(JSON.stringify({ cols, rows })))
   term.attachCustomKeyEventHandler((e) => {
-    if (e.key !== 'F6') return true
-    if (e.type === 'keydown') s.onLeave()
+    if (e.key === 'F6') {
+      if (e.type === 'keydown') s.onLeave()
+      return false
+    }
+    const key = terminalKey(e)
+    if (!key) return true
+    // Command+Left would otherwise also go back a page in the browser. Every phase is claimed, or the
+    // keypress of Shift+Enter would still reach the shell as a plain Enter.
+    e.preventDefault()
+    if (e.type !== 'keydown') return false
+    if ('send' in key) send(encoder.encode(key.send))
+    else if (key.run === 'clear') term.clear()
+    else if (key.run === 'scrollTop') term.scrollToTop()
+    else term.scrollToBottom()
     return false
   })
   return s

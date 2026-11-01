@@ -71,6 +71,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api := e.Group("/api/v1")
 	api.GET("/world", s.world)
 	api.POST("/settings/reload", s.reloadSettings)
+	api.POST("/settings/open-folder", s.openSettingsFolder)
 	api.PUT("/settings/language", s.setLanguage)
 	api.PATCH("/settings/preferences", s.updatePreferences)
 	api.GET("/events", s.events)
@@ -567,6 +568,10 @@ func (s *Server) endTalk(c echo.Context) error {
 		return err
 	}
 	return done(c, s.engine.EndTalk(c.Param("id"), in))
+}
+
+func (s *Server) openSettingsFolder(c echo.Context) error {
+	return done(c, s.folders.OpenFolder(c.Request().Context(), s.engine.DataDir()))
 }
 
 func (s *Server) openFolder(c echo.Context) error {

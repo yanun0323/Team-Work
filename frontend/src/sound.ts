@@ -149,35 +149,46 @@ export class SoundPlayer {
   }
 }
 
+/** Whether sound should stop now: the page is hidden or another window has the focus, and the user wants it quiet then. */
+export function silenced(mute: boolean, page: Pick<Document, 'hidden' | 'hasFocus'>) {
+  return mute && (page.hidden || !page.hasFocus())
+}
+const silencedNow = () => silenced(usePrefs.getState().muteInBackground, document)
+
 let player: SoundPlayer | undefined
 export function playSound(key: SoundEffect, preview = false) {
-  if (typeof document !== 'undefined' && !document.hidden) player?.play(key, preview)
+  if (typeof document !== 'undefined' && !silencedNow()) player?.play(key, preview)
 }
 export function stopSound(key: SoundEffect) { player?.stop(key) }
 
-/** One audio owner, created only by a user gesture. Hidden pages never keep playing. */
+/** One audio owner, created only by a user gesture. In the background it follows the muteInBackground preference. */
 export function useSound() {
   useEffect(() => {
     let disposed = false
     const unlock = () => {
-      if (document.hidden || typeof AudioContext === 'undefined') return
+      if (silencedNow() || typeof AudioContext === 'undefined') return
       try {
         player ??= new SoundPlayer(new AudioContext())
         const current = player
-        void current.resume().then(() => { if (disposed || document.hidden) current.pause() }).catch(() => {})
+        void current.resume().then(() => { if (disposed || silencedNow()) current.pause() }).catch(() => {})
       } catch { /* Audio is optional on browsers without an available output device. */ }
     }
     const key = (event: KeyboardEvent) => { if (!event.repeat) unlock() }
     const click = (event: MouseEvent) => {
       if (event.target instanceof Element && event.target.closest('button:not(:disabled)') && !event.target.closest('[data-sound-controls]')) playSound('soundUI')
     }
-    const visibility = () => { if (document.hidden) player?.pause(); else if (player) unlock() }
+    const follow = () => { if (silencedNow()) player?.pause(); else if (player) unlock() }
     const unsubscribeNotices = subscribeNoticeSound(() => playSound('soundNotice'))
-    const unsubscribe = usePrefs.subscribe((prefs) => player?.update(prefs))
+    const unsubscribe = usePrefs.subscribe((prefs, before) => {
+      player?.update(prefs)
+      if (prefs.muteInBackground !== before.muteInBackground) follow()
+    })
     document.addEventListener('pointerdown', unlock)
     document.addEventListener('keydown', key)
     document.addEventListener('click', click)
-    document.addEventListener('visibilitychange', visibility)
+    document.addEventListener('visibilitychange', follow)
+    window.addEventListener('blur', follow)
+    window.addEventListener('focus', follow)
     return () => {
       disposed = true
       unsubscribe()
@@ -185,7 +196,9 @@ export function useSound() {
       document.removeEventListener('pointerdown', unlock)
       document.removeEventListener('keydown', key)
       document.removeEventListener('click', click)
-      document.removeEventListener('visibilitychange', visibility)
+      document.removeEventListener('visibilitychange', follow)
+      window.removeEventListener('blur', follow)
+      window.removeEventListener('focus', follow)
       player?.dispose(); player = undefined
     }
   }, [])

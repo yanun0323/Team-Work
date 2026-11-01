@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { DEFAULT_PREFS, MUSIC_STYLES, usePrefs } from './prefs'
 import { useStore } from './core/store'
-import { SoundPlayer, subscribeNoticeSound } from './sound'
+import { silenced, SoundPlayer, subscribeNoticeSound } from './sound'
 import { effectSamples, musicSamples, NOTICE_DUCK, NOTICE_ECHO, NOTICE_GAP, NOTICE_LEAD_IN, NOTICE_NOTES, NOTICE_SECONDS, TAP_SECOND_SNAP, type Stereo } from './soundSynth'
 
 const param = () => ({ value: 0, setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn(), cancelScheduledValues: vi.fn(), setTargetAtTime: vi.fn() })
@@ -282,4 +282,12 @@ it('cancels a chime muted during its lead-in and restores the mix', () => {
   expect(source.disconnect).toHaveBeenCalled()
   expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(1, 10, 0.03)
   player.dispose()
+})
+
+it('goes quiet in the background only if asked to', () => {
+  const page = (hidden: boolean, focused: boolean) => ({ hidden, hasFocus: () => focused })
+  expect(silenced(true, page(false, true))).toBe(false)
+  expect(silenced(true, page(true, true))).toBe(true)
+  expect(silenced(true, page(false, false))).toBe(true)
+  expect(silenced(false, page(true, false))).toBe(false)
 })
