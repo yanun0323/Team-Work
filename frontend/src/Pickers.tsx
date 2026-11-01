@@ -1,5 +1,6 @@
 // The pick-lists of who does the work: employees under their blueprint, and blueprints, each row saying what it can do.
 
+import { tr } from './core/i18n'
 import { BlueprintIcon } from './BlueprintIcon'
 import { Select } from './Controls'
 import { isPreset } from './core/data/presets'
@@ -8,13 +9,13 @@ import { blueprintList } from './core/model'
 import { useStore } from './core/store'
 import { byBlueprint, mindOf } from './crew'
 import { PixelFace } from './core/voxel/PixelFace'
-import { sourceText, TOOL_NAMES } from './source'
+import { sourceText, toolName } from './source'
 
 /** What a blueprint's employees can use, as up to four notes, two by two. */
 export function ToolNotes({ bp }: { bp: Blueprint }) {
   return (
     <span className="fx-staff-tools">
-      {TOOLS.filter((t) => bp.tools.includes(t)).map((t) => <span key={t}>{TOOL_NAMES[t]}</span>)}
+      {TOOLS.filter((t) => bp.tools.includes(t)).map((t) => <span key={t}>{toolName(t)}</span>)}
     </span>
   )
 }
@@ -65,7 +66,7 @@ export function CrewSelect({ label, value, crew, placeholder, onChange }: {
 /** Headings for a list with the user's own first: 我的, then 內建. Without any of their own, just 內建. */
 export function mineAndBuiltIn(ids: string[]) {
   const mine = ids.filter((id) => !isPreset(id)).length
-  const groups = [{ label: '我的', count: mine }, { label: '內建', count: ids.length - mine }]
+  const groups = [{ label: tr('我的'), count: mine }, { label: tr('內建'), count: ids.length - mine }]
   return mine
     ? { groups, groupOf: (id: string) => (isPreset(id) ? 1 : 0) }
     : { groups: groups.slice(1), groupOf: () => 0 }

@@ -2,10 +2,11 @@
 // as changes; asking for something is a request, and what comes of it arrives the same way.
 
 import type { Locale, World } from './domain/types'
+import { tr } from './i18n'
 
-export const UNREACHABLE = import.meta.env.MODE === 'desktop'
+export const unreachable = () => tr(import.meta.env.MODE === 'desktop'
   ? '連不上後端，請關閉並重新開啟 Team Work'
-  : '連不上後端，請先執行 make dev'
+  : '連不上後端，請先執行 make dev')
 
 /** One changed entity. No data means it is gone. */
 export interface Patch {
@@ -57,12 +58,12 @@ export async function request<T = void>(method: string, path: string, body?: unk
     })
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e
-    throw new Error(UNREACHABLE)
+    throw new Error(unreachable())
   }
   if (!res.ok) {
     // the dev proxy answers without JSON when the backend is not running
     const err = await res.json().catch(() => null) as { error?: { message?: string } } | null
-    throw new Error(err?.error?.message ?? UNREACHABLE)
+    throw new Error(err?.error?.message ?? unreachable())
   }
   return (res.status === 204 ? undefined : await res.json()) as T
 }

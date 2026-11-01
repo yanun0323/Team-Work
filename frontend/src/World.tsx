@@ -1,6 +1,7 @@
 // The main Fusion game view: a pixel-art island town in the sea. One building per company.
 // Clicking a building flies the camera to it, opens it up and shows the company file in a drawer.
 
+import { tr } from './core/i18n'
 import { MapControls } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -235,6 +236,8 @@ export function World() {
   // tasks waiting on the user, in every company: their count goes on the board button in a red badge
   const waiting = useStore((s) => Object.values(s.world.tasks).filter((t) => t.stage !== 'cancelled' && !!s.world.teams[t.teamId] && statusOf(s.world, t) === 'review').length)
   const crewNames = useStore((s) => (selected ? teamReplicas(s.world, selected).map((r) => `${r.id}\t${r.name}`).join('\n') : ''))
+  // the airport's tag is in words, so it changes with the language
+  const language = useStore((s) => s.world.language)
   const labels = useMemo(() => {
     // while a company is open only its people are named; its own name is in the drawer.
     // People move about, so each tag follows the point its person writes every frame
@@ -248,7 +251,7 @@ export function World() {
     const airport: LabelSpec = {
       id: 'fusion-airport', at: [ax + AIRPORT_TAG[0], AIRPORT_TAG[1], az + AIRPORT_TAG[2]],
       tone: hovered === AIRPORT_ID && !settingsOpen && !placing && !editing ? 'fusion lifted' : 'fusion',
-      text: <span className="fx-tag">機場</span>,
+      text: <span className="fx-tag">{tr('機場')}</span>,
       onClick: selectAirport,
     }
     return [airport, ...town.lots.map((l): LabelSpec => {
@@ -262,7 +265,7 @@ export function World() {
       }
     })]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [town, open, crewNames, hovered, hover, settingsOpen, placing, editing, moving, helpOpen, close])
+  }, [town, open, crewNames, hovered, hover, settingsOpen, placing, editing, moving, helpOpen, close, language])
 
   const shownLabels = useFadingLabels(labels)
   const help = useLingering(helpOpen ? 'help' : null)
@@ -344,10 +347,10 @@ export function World() {
       <div className="fx-corner">
       {(placing || editing) && (
         <p className="fx-corner-note fx-tag" role="status">
-          {placing ? '挑選建立公司的地點' : moving ? '選取公司新地點' : '選取想要移動的公司'}
+          {placing ? tr('挑選建立公司的地點') : moving ? tr('選取公司新地點') : tr('選取想要移動的公司')}
         </p>
       )}
-      {!placing && !editing && <button ref={boardButton} type="button" className="fx-settings-trigger fx-tag" aria-label={waiting ? `告示牌，${waiting} 個待回覆的任務` : '告示牌'}
+      {!placing && !editing && <button ref={boardButton} type="button" className="fx-settings-trigger fx-tag" aria-label={waiting ? tr('告示牌，{waiting} 個待回覆的任務', { waiting }) : tr('告示牌')}
         onClick={() => setPanel('board')}>
         {waiting > 0 && <span className="fx-badge" aria-hidden="true">{waiting > 99 ? '99+' : waiting}</span>}
         {/* a notice board on two posts, a few lines written on it */}
@@ -359,13 +362,13 @@ export function World() {
       </button>}
       {!editing && <button ref={newButton} type="button" className="fx-corner-text fx-tag"
         onClick={() => setPlacing(!placing)}>
-        {placing ? '取消' : '＋ 新公司'}
+        {placing ? tr('取消') : tr('＋ 新公司')}
       </button>}
       {!placing && <button type="button" className="fx-corner-text fx-tag" aria-pressed={editing}
         onClick={() => { setEditing(!editing); setMoving(null) }}>
-        {editing ? '完成' : '編輯地圖'}
+        {editing ? tr('完成#button') : tr('編輯地圖')}
       </button>}
-      {!placing && !editing && <button ref={helpButton} type="button" className="fx-settings-trigger fx-tag" aria-label="說明"
+      {!placing && !editing && <button ref={helpButton} type="button" className="fx-settings-trigger fx-tag" aria-label={tr('說明')}
         onClick={() => setHelpOpen(true)}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="10" />
@@ -373,7 +376,7 @@ export function World() {
           <path d="M12 17h.01" />
         </svg>
       </button>}
-      {!placing && !editing && <button ref={settingsButton} type="button" className="fx-settings-trigger fx-tag" aria-label="設定"
+      {!placing && !editing && <button ref={settingsButton} type="button" className="fx-settings-trigger fx-tag" aria-label={tr('設定')}
         onClick={() => setPanel('settings')}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           {/* a plane seen from above, nose to the top right */}

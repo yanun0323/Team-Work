@@ -3,6 +3,7 @@
 // on the plot meanwhile, in a look rolled at random; the die on the sheet rolls another. Spots the player
 // picked are pinned here, so the town keeps its shape as it grows.
 
+import { tr } from './core/i18n'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import * as THREE from 'three'
@@ -190,10 +191,10 @@ function PlotOutline({ x, z, size, on, bad }: { x: number; z: number; size: numb
 
 const basename = (path: string) => path.split(/[/\\]/).filter(Boolean).pop() ?? ''
 
-const STYLE_NAMES: Record<BuildingStyle, string> = {
+const STYLE_NAMES = {
   tower: '玻璃大樓', brick: '紅磚樓', studio: '工作室', loft: '工業倉庫', timber: '木屋', classic: '石造', tech: '科技大樓',
   pagoda: '東方樓閣', deco: '裝飾藝術', eco: '垂直森林', villa: '地中海別墅',
-}
+} as const satisfies Record<BuildingStyle, string>
 
 /** The sheet for the company itself: name, folder and target branch. Founding it hands back its id. */
 export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
@@ -255,26 +256,26 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
       <div className="fx-sheet">
         <header className="fx-head fx-head-rule">
           <div className="fx-title fx-title-plain">
-            <h1 id="fx-new-company-title" ref={title} tabIndex={-1}>新公司</h1>
+            <h1 id="fx-new-company-title" ref={title} tabIndex={-1}>{tr('新公司')}</h1>
           </div>
         </header>
         <form className="fx-page fx-d-form" onSubmit={save}>
           <div className="fx-fields">
             <div className="fx-field">
-              <span>外觀</span>
+              <span>{tr('外觀')}</span>
               <div className="fx-look fx-look-building">
                 <BuildingIcon look={look} />
-                <span aria-live="polite">{STYLE_NAMES[look.style]}</span>
-                <Reroll onClick={onReroll} label="隨機外觀" />
+                <span aria-live="polite">{tr(STYLE_NAMES[look.style])}</span>
+                <Reroll onClick={onReroll} label={tr('隨機外觀')} />
               </div>
             </div>
             <label className="fx-field">
-              <span>專案位置</span>
+              <span>{tr('專案位置')}</span>
               <span className="fx-path">
-                <input className="fx-control" value={folder} required pattern=".*\S.*" title="專案位置不可為空"
+                <input className="fx-control" value={folder} required pattern=".*\S.*" title={tr('專案位置不可為空')}
                   placeholder="~/code/my-app" spellCheck={false} autoComplete="off"
                   onChange={(e) => takeFolder(e.target.value)} />
-                <button type="button" className="fx-control fx-browse fx-hit" onClick={browse} disabled={browsing} aria-label="選擇資料夾" title="選擇資料夾">
+                <button type="button" className="fx-control fx-browse fx-hit" onClick={browse} disabled={browsing} aria-label={tr('選擇資料夾')} title={tr('選擇資料夾')}>
                   <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true">
                     <path d="M1.75 4.25v8.5h12.5v-7h-6.5l-1.5-1.5z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                   </svg>
@@ -282,21 +283,21 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
               </span>
             </label>
             <label className="fx-field">
-              <span>名稱</span>
-              <input className="fx-control" value={name} required pattern=".*\S.*" title="名稱不可為空"
+              <span>{tr('名稱')}</span>
+              <input className="fx-control" value={name} required pattern=".*\S.*" title={tr('名稱不可為空')}
                 onChange={(e) => { setName(e.target.value); setNamed(true) }} />
             </label>
             {known ? (
-              <Select label="目標分支" value={target} options={known} onChange={setBranch} />
+              <Select label={tr('目標分支')} value={target} options={known} onChange={setBranch} />
             ) : (
               <label className="fx-field">
-                <span>目標分支</span>
-                <input className="fx-control" value={branch} required pattern=".*\S.*" title="目標分支不可為空"
+                <span>{tr('目標分支')}</span>
+                <input className="fx-control" value={branch} required pattern=".*\S.*" title={tr('目標分支不可為空')}
                   spellCheck={false} autoComplete="off" onChange={(e) => setBranch(e.target.value)} />
               </label>
             )}
           </div>
-          <button type="submit" className="fx-save">建立</button>
+          <button type="submit" className="fx-save">{tr('建立')}</button>
         </form>
       </div>
     </aside>

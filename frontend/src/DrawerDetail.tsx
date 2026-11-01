@@ -3,12 +3,12 @@
 // tapes an edit sheet over theirs, a little lower and to the right, and clicking the strip of the sheet
 // below that still shows puts the top one away unsaved. They read the live world.
 
+import { colon, listOf, tr, trRecorded } from './core/i18n'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { isFixed, nodeOf } from './core/domain/graph'
 import { blueprintUsers, gitSources, statusOf, subsOf } from './core/domain/sim'
-import { TOOLS, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type ProviderKind, type Replica, type Status, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
-import { sourceState, sourceText, TOOL_NAMES } from './source'
-import { useT } from './core/i18n'
+import { TOOLS, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type ProviderKind, type Replica, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
+import { sourceState, sourceText, toolName } from './source'
 import { flowList, activity, fmtClock, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
 import { useStore } from './core/store'
@@ -73,7 +73,7 @@ export type Item =
 export const itemKey = (x: Item) =>
   x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'image' ? `image:${x.task}:${x.index}` : `${x.kind}::${x.id}`
 
-const STATUS: Record<Status, string> = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' }
+const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 const ASSIGN = { firstAvailable: '誰有空誰做', everyone: '每個人都做' } as const
 const HANDOFF = { pickOne: '交給其中一個下一步', all: '交給所有下一步' } as const
 const JOIN = { any: '任一個前一步完成就開始', all: '所有前一步都完成才開始' } as const
@@ -185,7 +185,7 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           {item.kind === 'staff' && <StaffPick node={item.node} teamId={teamId} title={title} tid={id} onDone={onDone} />}
         </div>
       </div>
-      {covered && !leaving && <button type="button" className="fx-detail-cover" aria-label="收起上面那張，回到這張" onClick={onBack} />}
+      {covered && !leaving && <button type="button" className="fx-detail-cover" aria-label={tr('收起上面那張，回到這張')} onClick={onBack} />}
     </aside>
   )
 }
@@ -198,7 +198,7 @@ export function Heading({ title, tid, children }: Head & { children: React.React
 }
 
 export function Gone(h: Head) {
-  return <Heading {...h}>已經不在了</Heading>
+  return <Heading {...h}>{tr('已經不在了')}</Heading>
 }
 
 function Section({ name, children }: { name: string; children: React.ReactNode }) {
@@ -218,7 +218,7 @@ function Log({ lines }: { lines: LogLine[] }) {
 }
 
 export function LogList({ lines, order }: { lines: LogLine[]; order: LogOrder }) {
-  if (!lines.length) return <p className="fx-d-muted">還沒有紀錄</p>
+  if (!lines.length) return <p className="fx-d-muted">{tr('還沒有紀錄')}</p>
   return (
     <ol className="fx-d-log" reversed={order === 'newestFirst' || undefined}>
       {ordered(lines, order).map((l, i) => (
@@ -227,7 +227,7 @@ export function LogList({ lines, order }: { lines: LogLine[]; order: LogOrder })
           {l.who}
           {l.node && <b>{l.node}</b>}
           {/* the user's own replies, merges and send-backs */}
-          {l.kind === 'human' && <strong className="fx-d-log-user">使用者</strong>}
+          {l.kind === 'human' && <strong className="fx-d-log-user">{tr('使用者')}</strong>}
           {/* what an employee says or thinks is Markdown; tool calls and the user's own words are as they are */}
           {l.kind === 'say' || l.kind === 'think' ? <div className="fx-d-log-text"><Markdown text={l.text} /></div> : <span>{l.text}</span>}
         </li>
@@ -262,7 +262,6 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
   /** Called once the task is deleted, to put its sheet away. */
   onGoneTask: () => void
 }) {
-  const t = useT()
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const task = w.tasks[id]
@@ -278,35 +277,35 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
   const staffOf = (n: string) => nodeOf(task.workflow, n)?.replicaIds ?? []
   const owner = task.ownerId ? w.replicas[task.ownerId] : undefined
   const lines = [
-    ...taskLines(subs).map((l) => ({ ...l, text: logText(t, l), node: stepName(task.workflow, l.s.nodeId) })),
-    ...(task.merge?.log ?? []).map((l) => ({ ...l, node: '合併' })),
+    ...taskLines(subs).map((l) => ({ ...l, text: logText(l), node: stepName(task.workflow, l.s.nodeId) })),
+    ...(task.merge?.log ?? []).map((l) => ({ ...l, node: tr('合併') })),
   ].sort((a, b) => a.at - b.at).slice(-LOG_LINES)
   return (
     <>
       <div className="fx-tools">
         <EditTool onClick={onEdit} open={editing} />
-        <button type="button" className="fx-tool fx-hit" onClick={onCopy} aria-expanded={copying} aria-label="複製" title="複製">
+        <button type="button" className="fx-tool fx-hit" onClick={onCopy} aria-expanded={copying} aria-label={tr('複製')} title={tr('複製')}>
           <CopyIcon />
         </button>
         <button type="button" className="fx-tool fx-hit" disabled={!canPause} aria-pressed={task.paused}
           onClick={() => act((x) => (task.paused ? resumeTask(x, id) : pauseTask(x, id)))}
-          aria-label={task.paused ? '繼續' : '暫停'} title={task.paused ? '繼續' : '暫停'}>
+          aria-label={task.paused ? tr('繼續') : tr('暫停')} title={task.paused ? tr('繼續') : tr('暫停')}>
           <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
             {task.paused ? <path d="M5 3l8 5-8 5z" fill="currentColor" /> : <path d="M5 3v10M11 3v10" stroke="currentColor" strokeWidth="2" />}
           </svg>
         </button>
-        <DeleteTool what="任務" onConfirm={remove} />
+        <DeleteTool what={tr('任務')} onConfirm={remove} />
       </div>
       <header className="fx-d-head">
         <Heading {...h}><span className="fx-task-no">#{task.number}</span>{task.title}</Heading>
         <p className="fx-d-sub">
-          <span className="fx-branch" title="任務分支"><BranchIcon /><span className="fx-sr">任務分支 </span><code>{task.branch}</code></span>
+          <span className="fx-branch" title={tr('任務分支')}><BranchIcon /><span className="fx-sr">{tr('任務分支 ')}</span><code>{task.branch}</code></span>
         </p>
         <p className="fx-d-meta">
           {/* one state: paused or merging says more than the column it sits in */}
-          <span className="fx-pill">{task.stage === 'cancelled' ? '已停止' : task.paused ? '已暫停' : task.stage === 'merging' ? '合併中' : STATUS[status]}</span>
+          <span className="fx-pill">{task.stage === 'cancelled' ? tr('已停止') : task.paused ? tr('已暫停') : task.stage === 'merging' ? tr('合併中') : tr(STATUS[status])}</span>
           {owner && (
-            <span className="fx-d-owner">負責人
+            <span className="fx-d-owner">{tr('負責人')}
               <button type="button" className="fx-hit" aria-expanded={crew === owner.id} onClick={() => onCrew(owner.id)}>
                 <PixelFace look={owner.look} name={owner.name} size={18} />{owner.name}
               </button>
@@ -329,11 +328,11 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
         <h3><button type="button" className="fx-flow-open" aria-expanded={flowOpen} onClick={onFlow}>{flow}</button></h3>
         <FlowNotes wf={task.workflow} staff={staffOf} done={(n) => stepDone(subs, n)} />
       </section>
-      <Section name="進度">
+      <Section name={tr('進度')}>
         <Progress wf={task.workflow} subs={subs} open={open} onOpen={onOpen} />
         <MergeRow taskId={task.id} />
       </Section>
-      <Section name="紀錄"><Log lines={lines} /></Section>
+      <Section name={tr('紀錄')}><Log lines={lines} /></Section>
     </>
   )
 }
@@ -362,7 +361,7 @@ export const BranchIcon = () => (
 function Progress({ wf, subs, open, onOpen }: { wf: Workflow; subs: SubTask[]; open: string | null; onOpen: (subId: string) => void }) {
   const w = useStore((s) => s.world)
   const replicas = w.replicas
-  if (!subs.length) return <p className="fx-d-muted">還沒有開始</p>
+  if (!subs.length) return <p className="fx-d-muted">{tr('還沒有開始')}</p>
   return (
     <ul className="fx-list">
       {subs.map((s) => {
@@ -375,7 +374,7 @@ function Progress({ wf, subs, open, onOpen }: { wf: Workflow; subs: SubTask[]; o
               <span className="fx-row-main">
                 <span className="fx-d-hand-head">
                   <span className={`fx-d-stepname fx-d-stepname-sm${noteCls(wf, s.nodeId)}`}>{stepName(wf, s.nodeId)}</span>
-                  {s.rework && <span className="fx-d-muted">重做</span>}
+                  {s.rework && <span className="fx-d-muted">{tr('重做')}</span>}
                 </span>
                 {out
                   ? <span className={s.sentBack ? 'fx-d-hand-text fx-d-hand-back' : 'fx-d-hand-text'}><MarkdownLine text={out} noLinks /></span>
@@ -396,12 +395,12 @@ function askText(w: World, sub: SubTask): string {
   const r = sub.review!
   const task = w.tasks[sub.taskId]
   if (r.kind === 'question') return r.prompt ?? ''
-  if (r.kind === 'pickRoute') return '這一步做完了，但我不確定接下來要交給哪一步，請幫我選一個。'
+  if (r.kind === 'pickRoute') return tr('這一步做完了，但我不確定接下來要交給哪一步，請幫我選一個。')
   if (r.kind === 'failed') {
     const max = w.teams[task.teamId]?.settings.retries ?? 0
-    return `執行${r.reason === 'timeout' ? '逾時' : '出錯'}，自動重試 ${max} 次都沒成功。要再試一次，還是略過這一步？`
+    return tr('執行{a}，自動重試 {max} 次都沒成功。要再試一次，還是略過這一步？', { a: r.reason === 'timeout' ? tr('逾時') : tr('出錯'), max })
   }
-  return `任務花費已經到上限 $${costLimit(w, task).toFixed(2)}，我先停下來了。要提高上限繼續，還是暫停任務？`
+  return tr('任務花費已經到上限 ${a}，我先停下來了。要提高上限繼續，還是暫停任務？', { a: costLimit(w, task).toFixed(2) })
 }
 
 /**
@@ -409,7 +408,6 @@ function askText(w: World, sub: SubTask): string {
  * box to write in and 確認. A question can be answered in words alone; anything else needs one of its choices.
  */
 function Reply({ sub }: { sub: SubTask }) {
-  const t = useT()
   const act = useStore((s) => s.act)
   const [choice, setChoice] = useState('')
   const [text, setText] = useState('')
@@ -422,17 +420,17 @@ function Reply({ sub }: { sub: SubTask }) {
   }
   return (
     <form className="fx-d-reply" onSubmit={send}>
-      <div className="fx-d-choices" role="group" aria-label="選項">
+      <div className="fx-d-choices" role="group" aria-label={tr('選項')}>
         {r.options.map((o) => (
           <button key={o.id} type="button" aria-pressed={choice === o.id} className="fx-choice"
             title={o.detail || undefined} onClick={() => setChoice(choice === o.id ? '' : o.id)}>
-            {o.label ?? t(`option.${o.id}`)}
+            {o.label ?? trRecorded(`option.${o.id}`)}
           </button>
         ))}
       </div>
-      <textarea className="fx-control" rows={2} value={text} aria-label="回覆"
-        placeholder={question ? '回覆，或選上面一個' : '補充說明（會寫進記憶）'} onChange={(e) => setText(e.target.value)} />
-      <div className="fx-d-merge-acts"><button type="submit" className="fx-save" disabled={!ready}>確認</button></div>
+      <textarea className="fx-control" rows={2} value={text} aria-label={tr('回覆')}
+        placeholder={question ? tr('回覆，或選上面一個') : tr('補充說明（會寫進記憶）')} onChange={(e) => setText(e.target.value)} />
+      <div className="fx-d-merge-acts"><button type="submit" className="fx-save" disabled={!ready}>{tr('確認')}</button></div>
     </form>
   )
 }
@@ -473,23 +471,23 @@ function Chat({ sub }: { sub: SubTask }) {
     setEnding(null)
   }
   const face = r ? <PixelFace look={r.look} name={r.name} size={22} /> : <span className="fx-d-noface" />
-  const ENDED = { continue: '討論結束，繼續下一步', back: '討論結束，退回重做', stop: '討論結束，任務已停止' } as const
+  const ENDED = { continue: tr('討論結束，繼續下一步'), back: tr('討論結束，退回重做'), stop: tr('討論結束，任務已停止') } as const
   return (
     <div className="fx-chat">
-      <ol ref={list} className="fx-chat-log" aria-live="polite" aria-label={`和 ${r?.name ?? '員工'} 的討論`}>
+      <ol ref={list} className="fx-chat-log" aria-live="polite" aria-label={tr('和 {a} 的討論', { a: r?.name ?? tr('員工') })}>
         {talk.messages.map((m, i) => (
           <li key={i} className={`fx-chat-msg fx-chat-${m.from}`}>
             {m.from === 'agent' && face}
             {m.from === 'agent'
-              ? <div className="fx-chat-bubble"><span className="fx-sr">{r?.name ?? '員工'}：</span><Markdown text={m.text} /></div>
-              : <p className="fx-chat-bubble"><span className="fx-sr">你：</span>{m.text}</p>}
+              ? <div className="fx-chat-bubble"><span className="fx-sr">{r?.name ?? tr('員工')}{colon()}</span><Markdown text={m.text} /></div>
+              : <p className="fx-chat-bubble"><span className="fx-sr">{tr('你：')}</span>{m.text}</p>}
             <time>{fmtClock(m.at)}</time>
           </li>
         ))}
         {writing && (
           <li className="fx-chat-msg fx-chat-agent fx-chat-writing">
             {face}
-            <span className="fx-sr">{r?.name ?? '員工'} 正在回覆</span>
+            <span className="fx-sr">{tr('{a} 正在回覆', { a: r?.name ?? tr('員工') })}</span>
             {live
               // read out when it is done, not piece by piece
               ? <div className="fx-chat-bubble" aria-hidden="true"><Markdown text={live} /></div>
@@ -500,7 +498,7 @@ function Chat({ sub }: { sub: SubTask }) {
       {talk.ended && <p className="fx-d-muted">{ENDED[talk.ended]}</p>}
       {open && !ending && (
         <form className="fx-chat-say" onSubmit={(e) => { e.preventDefault(); send() }}>
-          <textarea className="fx-control" rows={2} value={text} aria-label="訊息" placeholder={writing ? `${r?.name ?? '員工'} 正在回覆…` : '輸入訊息'}
+          <textarea className="fx-control" rows={2} value={text} aria-label={tr('訊息')} placeholder={writing ? tr('{a} 正在回覆…', { a: r?.name ?? tr('員工') }) : tr('輸入訊息')}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               // Enter sends; not while a Chinese word is still being picked in the input method
@@ -510,35 +508,35 @@ function Chat({ sub }: { sub: SubTask }) {
               }
             }} />
           <div className="fx-d-merge-acts">
-            <button type="submit" className="fx-save" disabled={!text.trim() || writing}>送出</button>
-            <button type="button" className="fx-save fx-plain" onClick={() => setEnding('pick')}>結束討論</button>
+            <button type="submit" className="fx-save" disabled={!text.trim() || writing}>{tr('送出')}</button>
+            <button type="button" className="fx-save fx-plain" onClick={() => setEnding('pick')}>{tr('結束討論')}</button>
           </div>
         </form>
       )}
       {open && ending && (
-        <div className="fx-chat-end" role="group" aria-label="結束討論"
+        <div className="fx-chat-end" role="group" aria-label={tr('結束討論')}
           onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setEnding(null) } }}>
           {ending === 'back' ? (
             <form className="fx-d-merge-back" onSubmit={(e) => { e.preventDefault(); if (reason.trim()) end({ kind: 'back', reason }) }}>
-              <textarea className="fx-control" rows={2} autoFocus value={reason} aria-label="退回原因" placeholder="要改什麼"
+              <textarea className="fx-control" rows={2} autoFocus value={reason} aria-label={tr('退回原因')} placeholder={tr('要改什麼')}
                 onChange={(e) => setReason(e.target.value)} />
               <div className="fx-d-merge-acts">
-                <button type="submit" className="fx-save fx-plain" disabled={!reason.trim()}>退回</button>
-                <button type="button" className="fx-add" onClick={() => setEnding('pick')}>返回</button>
+                <button type="submit" className="fx-save fx-plain" disabled={!reason.trim()}>{tr('退回')}</button>
+                <button type="button" className="fx-add" onClick={() => setEnding('pick')}>{tr('返回')}</button>
               </div>
             </form>
           ) : (
             <div className="fx-d-merge-acts">
               {routes
                 ? routes.map((to) => (
-                    <button key={to} type="button" className="fx-save" onClick={() => end({ kind: 'continue', to })}>繼續：{stepName(wf, to)}</button>
+                    <button key={to} type="button" className="fx-save" onClick={() => end({ kind: 'continue', to })}>{tr('繼續：{a}', { a: stepName(wf, to) })}</button>
                   ))
-                : <button type="button" className="fx-save" autoFocus onClick={() => end({ kind: 'continue' })}>繼續</button>}
-              {sub.upstreamIds.length > 0 && <button type="button" className="fx-save fx-plain" onClick={() => setEnding('back')}>退回</button>}
+                : <button type="button" className="fx-save" autoFocus onClick={() => end({ kind: 'continue' })}>{tr('繼續')}</button>}
+              {sub.upstreamIds.length > 0 && <button type="button" className="fx-save fx-plain" onClick={() => setEnding('back')}>{tr('退回')}</button>}
               {ending === 'stop'
-                ? <button type="button" className="fx-save fx-danger" autoFocus onClick={() => end({ kind: 'stop' })} onBlur={() => setEnding('pick')}>確定停止任務</button>
-                : <button type="button" className="fx-save fx-plain" onClick={() => setEnding('stop')}>停止任務</button>}
-              <button type="button" className="fx-add" onClick={() => setEnding(null)}>取消</button>
+                ? <button type="button" className="fx-save fx-danger" autoFocus onClick={() => end({ kind: 'stop' })} onBlur={() => setEnding('pick')}>{tr('確定停止任務')}</button>
+                : <button type="button" className="fx-save fx-plain" onClick={() => setEnding('stop')}>{tr('停止任務')}</button>}
+              <button type="button" className="fx-add" onClick={() => setEnding(null)}>{tr('取消')}</button>
             </div>
           )}
         </div>
@@ -567,9 +565,9 @@ function MergeRow({ taskId }: { taskId: string }) {
   const done = task.stage === 'done'
   const busy = m?.startedAt !== undefined && m.endsAt !== undefined && !done
   const state = waiting ? `${task.branch} → ${target}`
-    : done ? `已合併回 ${target}`
-    : !busy ? `等 ${r?.name ?? '負責人'} 有空`
-    : m!.conflict && w.now - m!.startedAt! < RESOLVE_TIME ? '解衝突中' : '合併中'
+    : done ? tr('已合併回 {target}', { target })
+    : !busy ? tr('等 {a} 有空', { a: r?.name ?? tr('負責人') })
+    : m!.conflict && w.now - m!.startedAt! < RESOLVE_TIME ? tr('解衝突中') : tr('合併中')
   const sendBack = () => {
     act((x) => returnTask(x, taskId, feedback))
     setReturning(false)
@@ -578,7 +576,7 @@ function MergeRow({ taskId }: { taskId: string }) {
   const face = r ? <PixelFace look={r.look} name={r.name} size={26} /> : <span className="fx-d-noface" />
   const main = (
     <span className="fx-row-main">
-      <span className="fx-d-hand-head"><span className="fx-d-stepname fx-d-stepname-sm fx-node-fixed">合併</span></span>
+      <span className="fx-d-hand-head"><span className="fx-d-stepname fx-d-stepname-sm fx-node-fixed">{tr('合併')}</span></span>
       {busy
         ? <span className="fx-d-run fx-d-hand-text"><Bar value={(w.now - m!.startedAt!) / (m!.endsAt! - m!.startedAt!)} /><span className="fx-d-muted">{state}</span></span>
         : <span className="fx-d-hand-text fx-d-muted">{state}</span>}
@@ -594,8 +592,8 @@ function MergeRow({ taskId }: { taskId: string }) {
           <div className="fx-d-merge-acts">
             <WaitBadge merge inline />
             {!returning && <>
-              <button type="button" className="fx-save fx-danger" onClick={() => act((x) => mergeTask(x, taskId))}>合併</button>
-              <button type="button" className="fx-save fx-plain" onClick={() => setReturning(true)}>退回</button>
+              <button type="button" className="fx-save fx-danger" onClick={() => act((x) => mergeTask(x, taskId))}>{tr('合併')}</button>
+              <button type="button" className="fx-save fx-plain" onClick={() => setReturning(true)}>{tr('退回')}</button>
             </>}
           </div>
         )}
@@ -603,11 +601,11 @@ function MergeRow({ taskId }: { taskId: string }) {
       {waiting && returning && (
         <form className="fx-d-merge-back" onSubmit={(e) => { e.preventDefault(); sendBack() }}
           onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setReturning(false) } }}>
-          <textarea className="fx-control" rows={3} autoFocus value={feedback} aria-label="退回原因"
-            placeholder="要改什麼" onChange={(e) => setFeedback(e.target.value)} />
+          <textarea className="fx-control" rows={3} autoFocus value={feedback} aria-label={tr('退回原因')}
+            placeholder={tr('要改什麼')} onChange={(e) => setFeedback(e.target.value)} />
           <div className="fx-d-merge-acts">
-            <button type="submit" className="fx-save fx-plain" disabled={!feedback.trim()}>退回</button>
-            <button type="button" className="fx-add" onClick={() => setReturning(false)}>取消</button>
+            <button type="submit" className="fx-save fx-plain" disabled={!feedback.trim()}>{tr('退回')}</button>
+            <button type="button" className="fx-add" onClick={() => setReturning(false)}>{tr('取消')}</button>
           </div>
         </form>
       )}
@@ -620,15 +618,15 @@ function SubState({ sub }: { sub: SubTask }) {
   if (sub.status === 'progressing') {
     return (
       <span className="fx-d-run fx-d-hand-text">
-        <Bar value={sub.progress} /><span className="fx-d-muted">{Math.round(sub.progress * 100)}%{sub.attempts > 1 ? `・第 ${sub.attempts} 次` : ''}</span>
+        <Bar value={sub.progress} /><span className="fx-d-muted">{Math.round(sub.progress * 100)}%{sub.attempts > 1 ? tr('・第 {attempts} 次', { attempts: sub.attempts }) : ''}</span>
       </span>
     )
   }
-  const word = sub.skipped ? '略過'
-    : sub.status === 'complete' ? '完成'
-    : sub.review ? (sub.review.kind === 'talk' ? '討論中，等你回覆' : '等你回覆')
-    : sub.waiting ? '等其他前一步完成'
-    : sub.replicaId ? '準備開始' : '等人接手'
+  const word = sub.skipped ? tr('略過')
+    : sub.status === 'complete' ? tr('完成')
+    : sub.review ? (sub.review.kind === 'talk' ? tr('討論中，等你回覆') : tr('等你回覆'))
+    : sub.waiting ? tr('等其他前一步完成')
+    : sub.replicaId ? tr('準備開始') : tr('等人接手')
   return <span className="fx-d-hand-text fx-d-muted">{word}</span>
 }
 
@@ -697,25 +695,25 @@ function StepFacts({ wf, id }: { wf: Workflow; id: string }) {
   const before = inEdges(wf, id).length
   return (
     <dl className="fx-d-facts">
-      {n.kind === 'talk' && <><dt>種類</dt><dd>{KINDS.talk}</dd></>}
-      {!isFixed(wf, id) && <><dt>任務分派</dt><dd>{ASSIGN[n.assignment]}</dd></>}
-      {before > 1 && <><dt>開始條件</dt><dd>{JOIN[n.join]}</dd></>}
-      {next.length > 1 && <><dt>交接</dt><dd>{HANDOFF[n.handoff]}</dd></>}
-      <dt>下一步</dt><dd>{next.length ? next.join('、') : '結束'}</dd>
+      {n.kind === 'talk' && <><dt>{tr('種類')}</dt><dd>{KINDS.talk}</dd></>}
+      {!isFixed(wf, id) && <><dt>{tr('任務分派')}</dt><dd>{tr(ASSIGN[n.assignment])}</dd></>}
+      {before > 1 && <><dt>{tr('開始條件')}</dt><dd>{tr(JOIN[n.join])}</dd></>}
+      {next.length > 1 && <><dt>{tr('交接')}</dt><dd>{tr(HANDOFF[n.handoff])}</dd></>}
+      <dt>{tr('下一步')}</dt><dd>{next.length ? listOf(next.filter((x) => x !== undefined)) : tr('結束')}</dd>
     </dl>
   )
 }
 
 /** Who works 整理需求 and 驗收 on a flow, which names nobody: whoever owns the task. */
 function Owner() {
-  return <ul className="fx-d-crew"><li className="fx-d-crew-owner">任務負責人</li></ul>
+  return <ul className="fx-d-crew"><li className="fx-d-crew-owner">{tr('任務負責人')}</li></ul>
 }
 
 /** The employees on a step, face and name; each opens on its own sheet when `onOpen` is given. */
 function Crew({ ids, open, onOpen }: { ids: string[]; open?: string | null; onOpen?: (id: string) => void }) {
   const replicas = useStore((s) => s.world.replicas)
   const crew = ids.map((id) => replicas[id]).filter(Boolean)
-  if (!crew.length) return <p className="fx-d-muted">沒有人</p>
+  if (!crew.length) return <p className="fx-d-muted">{tr('沒有人')}</p>
   return (
     <ul className="fx-d-crew">
       {crew.map((r) => {
@@ -759,7 +757,6 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
   /** The employee whose sheet lies on this one, if any. */
   crew: string | null; onCrew: (id: string) => void
 }) {
-  const t = useT()
   const w = useStore((s) => s.world)
   const sub = w.subTasks[id]
   const task = sub && w.tasks[sub.taskId]
@@ -774,20 +771,20 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
       <header className="fx-d-head">
         <Heading {...h}>{name(sub.nodeId)}</Heading>
         <p className="fx-d-meta">
-          <span className="fx-pill">{task.stage === 'cancelled' ? '已停止' : sub.skipped ? '略過' : STATUS[sub.status]}</span>
+          <span className="fx-pill">{task.stage === 'cancelled' ? tr('已停止') : sub.skipped ? tr('略過') : tr(STATUS[sub.status])}</span>
           <span><span className="fx-task-no">#{task.number}</span>{task.title}</span>
         </p>
       </header>
       {sub.status === 'progressing' && <p className="fx-d-run"><Bar value={sub.progress} /><span className="fx-d-muted">{Math.round(sub.progress * 100)}%</span></p>}
       {/* the user answers here: a discussion in its chat, anything else under what the employee asks */}
-      {(sub.talk || (nodeOf(wf, sub.nodeId)?.kind === 'talk' && sub.status === 'progressing')) && <Section name="討論"><Chat key={sub.id} sub={sub} /></Section>}
+      {(sub.talk || (nodeOf(wf, sub.nodeId)?.kind === 'talk' && sub.status === 'progressing')) && <Section name={tr('討論')}><Chat key={sub.id} sub={sub} /></Section>}
       {sub.review && sub.review.kind !== 'talk' && (
-        <Section name="等你回覆">
+        <Section name={tr('等你回覆')}>
           <div className="fx-d-text-md fx-d-quote"><Markdown text={askText(w, sub)} /></div>
           <Reply key={sub.review.at} sub={sub} />
         </Section>
       )}
-      <Section name="負責員工">
+      <Section name={tr('負責員工')}>
         {r ? (
           <ul className="fx-list">
             <li><button type="button" className="fx-row fx-hit" aria-expanded={crew === r.id} onClick={() => onCrew(r.id)}>
@@ -795,27 +792,27 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
               <span className="fx-row-main"><b>{r.name}</b><span>{w.blueprints[r.blueprintId]?.name}</span></span>
             </button></li>
           </ul>
-        ) : <p className="fx-d-muted">等人接手</p>}
+        ) : <p className="fx-d-muted">{tr('等人接手')}</p>}
       </Section>
-      <Section name="經過">
+      <Section name={tr('經過')}>
         <dl className="fx-d-facts">
-          <dt>接自</dt><dd>{from.length ? from.join('、') : '任務本身'}</dd>
-          {sub.rework && <><dt>退回自</dt><dd>{name(w.subTasks[sub.rework.from]?.nodeId ?? '')}：<MarkdownLine text={sub.rework.reason} /></dd></>}
-          {sub.startedAt !== undefined && <><dt>開始</dt><dd>{fmtClock(sub.startedAt)}</dd></>}
-          {sub.endedAt !== undefined && <><dt>結束</dt><dd>{fmtClock(sub.endedAt)}</dd></>}
-          {sub.attempts > 1 && <><dt>嘗試</dt><dd>{sub.attempts} 次</dd></>}
-          <dt>花費</dt><dd>${sub.costUsd.toFixed(2)}</dd>
+          <dt>{tr('接自')}</dt><dd>{from.length ? listOf(from) : tr('任務本身')}</dd>
+          {sub.rework && <><dt>{tr('退回自')}</dt><dd>{name(w.subTasks[sub.rework.from]?.nodeId ?? '')}{colon()}<MarkdownLine text={sub.rework.reason} /></dd></>}
+          {sub.startedAt !== undefined && <><dt>{tr('開始')}</dt><dd>{fmtClock(sub.startedAt)}</dd></>}
+          {sub.endedAt !== undefined && <><dt>{tr('結束')}</dt><dd>{fmtClock(sub.endedAt)}</dd></>}
+          {sub.attempts > 1 && <><dt>{tr('嘗試')}</dt><dd>{tr('{attempts} 次', { attempts: sub.attempts })}</dd></>}
+          <dt>{tr('花費')}</dt><dd>${sub.costUsd.toFixed(2)}</dd>
           {sub.sentBack
-            ? <><dt>退回給</dt><dd>{sub.sentBack.to.map(name).join('、')}</dd></>
-            : sub.routedTo.length > 0 && <><dt>交給</dt><dd>{sub.routedTo.map(name).join('、')}</dd></>}
+            ? <><dt>{tr('退回給')}</dt><dd>{listOf(sub.sentBack.to.map(name))}</dd></>
+            : sub.routedTo.length > 0 && <><dt>{tr('交給')}</dt><dd>{listOf(sub.routedTo.map(name))}</dd></>}
         </dl>
       </Section>
       {out && (
-        <Section name="交接">
+        <Section name={tr('交接')}>
           <p className="fx-d-text"><b><MarkdownLine text={out.headline} /></b></p>
           {out.did.length > 0 && <ul className="fx-d-memory">{out.did.map((x, i) => <li key={i}><Markdown text={x} /></li>)}</ul>}
           {out.outputs.length > 0 && (
-            <ul className="fx-list fx-d-files" aria-label="交出的檔案">
+            <ul className="fx-list fx-d-files" aria-label={tr('交出的檔案')}>
               {out.outputs.map((x) => {
                 const file = outputFile(x)
                 if (!file) return <li key={x} className="fx-d-text"><MarkdownLine text={x} /></li>
@@ -832,7 +829,7 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
           )}
         </Section>
       )}
-      <Section name="紀錄"><Log lines={sub.log.slice(-LOG_LINES).map((l) => ({ ...l, text: logText(t, l) }))} /></Section>
+      <Section name={tr('紀錄')}><Log lines={sub.log.slice(-LOG_LINES).map((l) => ({ ...l, text: logText(l) }))} /></Section>
     </>
   )
 }
@@ -857,16 +854,16 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
     <>
       <div className="fx-tools">
         {!isPreset(id) && <EditTool onClick={onEdit} open={editing} />}
-        <button type="button" className="fx-tool fx-hit" onClick={() => act((x) => void duplicateWorkflow(x, id))} aria-label="複製" title="複製">
+        <button type="button" className="fx-tool fx-hit" onClick={() => act((x) => void duplicateWorkflow(x, id))} aria-label={tr('複製')} title={tr('複製')}>
           <CopyIcon />
         </button>
-        {!isPreset(id) && <DeleteTool what="任務流程" onConfirm={remove} />}
+        {!isPreset(id) && <DeleteTool what={tr('任務流程')} onConfirm={remove} />}
       </div>
       <header className="fx-d-head">
         <Heading {...h}>{wf.name}</Heading>
         <p className="fx-d-meta">
-          <span>{wf.nodes.length} 個步驟</span>
-          <span>{tasks.length ? `${tasks.length} 個任務未完成` : '沒有未完成的任務'}</span>
+          <span>{tr('{length} 個步驟', { length: wf.nodes.length })}</span>
+          <span>{tasks.length ? tr('{length} 個任務未完成', { length: tasks.length }) : tr('沒有未完成的任務')}</span>
         </p>
       </header>
       <FlowSteps wf={wf} />
@@ -881,7 +878,6 @@ function CrewDetail({ id, editing, firing, onEdit, onFire, ...h }: Head & {
   onEdit: () => void
   onFire: () => void
 }) {
-  const t = useT()
   const w = useStore((s) => s.world)
   const r = w.replicas[id]
   if (!r) return <Gone {...h} />
@@ -894,7 +890,7 @@ function CrewDetail({ id, editing, firing, onEdit, onFire, ...h }: Head & {
       <div className="fx-tools">
         <EditTool onClick={onEdit} open={editing} />
         <button type="button" className="fx-tool fx-hit" onClick={onFire} aria-expanded={firing} disabled={alone}
-          aria-label="解僱" title={alone ? '公司至少要有一位員工' : '解僱'}>
+          aria-label={tr('解僱')} title={alone ? tr('公司至少要有一位員工') : tr('解僱')}>
           <BinIcon />
         </button>
       </div>
@@ -905,20 +901,20 @@ function CrewDetail({ id, editing, firing, onEdit, onFire, ...h }: Head & {
           <p className="fx-d-meta">
             <span>{w.blueprints[r.blueprintId]?.name}</span>
             <span>{mindOf(r)}</span>
-            {doing ? <span className="fx-pill fx-pill-on">{doing}</span> : <span>沒有工作</span>}
+            {doing ? <span className="fx-pill fx-pill-on">{doing}</span> : <span>{tr('沒有工作')}</span>}
           </p>
         </div>
       </header>
-      <Section name="負責的任務">
-        {steps.length === 0 ? <p className="fx-d-muted">還沒被安排</p> : (
+      <Section name={tr('負責的任務')}>
+        {steps.length === 0 ? <p className="fx-d-muted">{tr('還沒被安排')}</p> : (
           <p className="fx-d-chips">{steps.map(({ task, n }) => <span key={task.id + n.id}>#{task.number} › {stepName(task.workflow, n.id)}</span>)}</p>
         )}
       </Section>
-      <Section name="最近的工作">
-        <Log lines={(last?.log ?? []).slice(-LOG_LINES).map((l) => ({ ...l, text: logText(t, l) }))} />
+      <Section name={tr('最近的工作')}>
+        <Log lines={(last?.log ?? []).slice(-LOG_LINES).map((l) => ({ ...l, text: logText(l) }))} />
       </Section>
-      <Section name={`記憶 ${r.memory.length}`}>
-        {r.memory.length === 0 ? <p className="fx-d-muted">還沒有記憶</p> : (
+      <Section name={tr('記憶 {length}', { length: r.memory.length })}>
+        {r.memory.length === 0 ? <p className="fx-d-muted">{tr('還沒有記憶')}</p> : (
           <ul className="fx-d-memory">
             {r.memory.map((m) => (
               <li key={m.id}>{m.text}{m.taskId && w.tasks[m.taskId] && <span className="fx-d-muted"> #{w.tasks[m.taskId].number}</span>}</li>
@@ -942,7 +938,7 @@ function staffedOn(w: World, r: Replica) {
 function doingOf(w: World, r: Replica) {
   const a = activity(w, r)
   if (a.sub && a.task) return `${nodeOf(a.task.workflow, a.sub.nodeId)?.name ?? ''} · #${a.task.number}`
-  return a.merging ? `合併 · #${a.merging.number}` : null
+  return a.merging ? tr('合併 · #{number}', { number: a.merging.number }) : null
 }
 
 /** A model provider: how it is reached, the models it offers, and who runs on them. */
@@ -966,24 +962,24 @@ function ProviderDetail({ id, editing, onEdit, onGoneProvider, ...h }: Head & {
     <>
       <div className="fx-tools">
         <EditTool onClick={onEdit} open={editing} />
-        <DeleteTool what="供應商" onConfirm={remove} disabled={crew.length > 0} why={`還有 ${crew.length} 位員工使用這個供應商，無法刪除`} />
+        <DeleteTool what={tr('供應商')} onConfirm={remove} disabled={crew.length > 0} why={tr('還有 {length} 位員工使用這個供應商，無法刪除', { length: crew.length })} />
       </div>
       <header className="fx-d-head"><Heading {...h}>{p.name}</Heading></header>
-      <Section name="類型"><p className="fx-d-text">{PROVIDER_KINDS[p.kind].label}</p></Section>
-      <Section name="連線方式"><p className="fx-d-text">{authLabel(p)}</p></Section>
+      <Section name={tr('類型')}><p className="fx-d-text">{PROVIDER_KINDS[p.kind].label}</p></Section>
+      <Section name={tr('連線方式')}><p className="fx-d-text">{authLabel(p)}</p></Section>
       {p.auth.kind === 'apiKey' && (
         <>
-          <Section name="API 位址"><p className="fx-d-text"><code>{providerUrl(p)}</code></p></Section>
-          <Section name="API Key"><p className="fx-d-text"><code>{p.auth.keyHint ? `••••${p.auth.keyHint}` : '沒有'}</code></p></Section>
+          <Section name={tr('API 位址')}><p className="fx-d-text"><code>{providerUrl(p)}</code></p></Section>
+          <Section name="API Key"><p className="fx-d-text"><code>{p.auth.keyHint ? `••••${p.auth.keyHint}` : tr('沒有')}</code></p></Section>
         </>
       )}
-      <Section name="模型">
-        {p.models.length === 0 ? <p className="fx-d-muted">沒有</p> : (
+      <Section name={tr('模型#list')}>
+        {p.models.length === 0 ? <p className="fx-d-muted">{tr('沒有')}</p> : (
           <p className="fx-d-chips fx-d-mono">{p.models.map((m) => <span key={m}>{m}</span>)}</p>
         )}
       </Section>
-      <Section name="使用中的員工">
-        {crew.length === 0 ? <p className="fx-d-muted">沒有人</p> : (
+      <Section name={tr('使用中的員工')}>
+        {crew.length === 0 ? <p className="fx-d-muted">{tr('沒有人')}</p> : (
           <ul className="fx-d-people">
             {crew.map((r) => <li key={r.id}><PixelFace look={r.look} name={r.name} size={26} /><b>{r.name}</b><span>{r.model}</span></li>)}
           </ul>
@@ -1028,7 +1024,7 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
   }
   if (id && !old) return <Gone {...h} />
   const sub = SUBSCRIPTIONS[kind]
-  const nameFor = (k: ProviderKind, a: typeof auth) => (a === 'subscription' ? `${SUBSCRIPTIONS[k]} 訂閱` : PROVIDER_KINDS[k].label)
+  const nameFor = (k: ProviderKind, a: typeof auth) => (a === 'subscription' ? tr('{a} 訂閱', { a: SUBSCRIPTIONS[k] }) : PROVIDER_KINDS[k].label)
   const pickKind = (k: ProviderKind) => {
     const a = SUBSCRIPTIONS[k] ? auth : 'apiKey'
     setKind(k)
@@ -1079,25 +1075,25 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
   }
   return (
     <form className="fx-d-form" onSubmit={save}>
-      <header className="fx-d-head"><Heading {...h}>{old ? `編輯 ${old.name}` : '新增模型供應商'}</Heading></header>
+      <header className="fx-d-head"><Heading {...h}>{old ? tr('編輯 {name}', { name: old.name }) : tr('新增模型供應商')}</Heading></header>
       <div className="fx-fields">
         {!old && (
-          <Select label="類型" value={kind} options={Object.keys(PROVIDER_KINDS)} labelOf={(k) => PROVIDER_KINDS[k as ProviderKind].label}
+          <Select label={tr('類型')} value={kind} options={Object.keys(PROVIDER_KINDS)} labelOf={(k) => PROVIDER_KINDS[k as ProviderKind].label}
             onChange={(k) => pickKind(k as ProviderKind)} />
         )}
         {sub && (
-          <Switcher label="連線方式" value={auth} options={['apiKey', 'subscription'] as const}
-            labelOf={(a) => (a === 'apiKey' ? 'API Key' : `${sub} 訂閱`)} onChange={pickAuth} />
+          <Switcher label={tr('連線方式')} value={auth} options={['apiKey', 'subscription'] as const}
+            labelOf={(a) => (a === 'apiKey' ? 'API Key' : tr('{sub} 訂閱', { sub }))} onChange={pickAuth} />
         )}
         <label className="fx-field">
-          <span>名稱</span>
-          <input className="fx-control" value={name} required pattern=".*\S.*" title="名稱不可為空"
+          <span>{tr('名稱')}</span>
+          <input className="fx-control" value={name} required pattern=".*\S.*" title={tr('名稱不可為空')}
             onChange={(e) => { setName(e.target.value); setNamed(true) }} />
         </label>
         {auth === 'apiKey' ? (
           <>
             <label className="fx-field">
-              <span>API 位址</span>
+              <span>{tr('API 位址')}</span>
               <input className="fx-control" type="url" value={url} required={custom} spellCheck={false} autoComplete="off"
                 placeholder={PROVIDER_KINDS[kind].url || 'http://localhost:11434/v1'} onChange={(e) => setUrl(e.target.value)} />
             </label>
@@ -1112,7 +1108,7 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
           <>
             <ClaudeAccount describedBy={loginError ? 'fx-login-error' : undefined}
               onModels={(m) => { setClaudeModels(m); if (m.length) setLoginError(false) }} />
-            {loginError && <p id="fx-login-error" className="fx-field-error">請先登入 {sub}</p>}
+            {loginError && <p id="fx-login-error" className="fx-field-error">{tr('請先登入 {sub}', { sub })}</p>}
           </>
         ) : !MOCK ? (
           <>
@@ -1120,29 +1116,29 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
               ? <SubscriptionLogin id={old?.id ?? (made as string)} />
               : (
                 <div className="fx-field">
-                  <span>帳號</span>
-                  <button type="button" className="fx-control fx-login fx-hit" onClick={() => void startChatGPT()}>登入 {sub}</button>
+                  <span>{tr('帳號')}</span>
+                  <button type="button" className="fx-control fx-login fx-hit" onClick={() => void startChatGPT()}>{tr('登入 {sub}', { sub })}</button>
                 </div>
               )}
-            {loginError && <p id="fx-login-error" className="fx-field-error">請先登入 {sub}</p>}
+            {loginError && <p id="fx-login-error" className="fx-field-error">{tr('請先登入 {sub}', { sub })}</p>}
           </>
         ) : (
           <>
             <div className="fx-field">
-              <span>帳號</span>
+              <span>{tr('帳號')}</span>
               {signedIn ? (
-                <p className="fx-signed" role="status">✓ 已登入 {sub}</p>
+                <p className="fx-signed" role="status">{tr('✓ 已登入 {sub}', { sub })}</p>
               ) : (
                 // stands in for the provider's own sign-in page, opened in the browser
                 <button type="button" className="fx-control fx-login fx-hit" aria-describedby={loginError ? 'fx-login-error' : undefined}
-                  onClick={() => { setSignedIn(true); setLoginError(false) }}>登入 {sub}</button>
+                  onClick={() => { setSignedIn(true); setLoginError(false) }}>{tr('登入 {sub}', { sub })}</button>
               )}
             </div>
-            {loginError && <p id="fx-login-error" className="fx-field-error">請先登入 {sub}</p>}
+            {loginError && <p id="fx-login-error" className="fx-field-error">{tr('請先登入 {sub}', { sub })}</p>}
           </>
         )}
       </div>
-      <button type="submit" className="fx-save">{old ? '儲存' : '新增'}</button>
+      <button type="submit" className="fx-save">{old ? tr('儲存') : tr('新增')}</button>
     </form>
   )
 }
@@ -1173,42 +1169,42 @@ function BlueprintDetail({ id, teamId, editing, copying, onEdit, onCopy, onGoneB
     <>
       <div className="fx-tools">
         {!isPreset(id) && <EditTool onClick={onEdit} open={editing} />}
-        <button type="button" className="fx-tool fx-hit" onClick={onCopy} aria-expanded={copying} aria-label="複製" title="複製">
+        <button type="button" className="fx-tool fx-hit" onClick={onCopy} aria-expanded={copying} aria-label={tr('複製')} title={tr('複製')}>
           <CopyIcon />
         </button>
-        {!isPreset(id) && <DeleteTool what="藍圖" onConfirm={remove} disabled={users > 0} why={`還有 ${users} 位員工使用這個藍圖，無法刪除`} />}
+        {!isPreset(id) && <DeleteTool what={tr('藍圖')} onConfirm={remove} disabled={users > 0} why={tr('還有 {users} 位員工使用這個藍圖，無法刪除', { users })} />}
       </div>
       <header className="fx-d-head fx-d-who">
         <BlueprintIcon look={bp.look} name={bp.name} size={52} />
         <Heading {...h}>{bp.name}</Heading>
       </header>
-      <Section name="來源"><ul className="fx-src-list"><SourceRow source={bp.source} now={w.now} /></ul></Section>
+      <Section name={tr('來源')}><ul className="fx-src-list"><SourceRow source={bp.source} now={w.now} /></ul></Section>
       {bp.prompt && <Section name="Prompt"><p className="fx-d-text fx-d-quote">{bp.prompt}</p></Section>}
-      {bp.comment && <Section name="備註"><p className="fx-d-text">{bp.comment}</p></Section>}
-      <Section name="技能">
-        {bp.skills.length === 0 ? <p className="fx-d-muted">沒有</p> : (
+      {bp.comment && <Section name={tr('備註')}><p className="fx-d-text">{bp.comment}</p></Section>}
+      <Section name={tr('技能')}>
+        {bp.skills.length === 0 ? <p className="fx-d-muted">{tr('沒有')}</p> : (
           <ul className="fx-src-list">
             {bp.skills.map((p, i) => (
               <SourceRow key={i} source={p.source} now={w.now}>
                 <p className="fx-d-chips">
-                  {p.include ? p.include.map((x) => <span key={x}>{x}</span>) : <span className="fx-chip-all">全部</span>}
-                  {p.exclude.map((x) => <span key={x} className="fx-chip-out"><span className="fx-sr">排除 </span>{x}</span>)}
+                  {p.include ? p.include.map((x) => <span key={x}>{x}</span>) : <span className="fx-chip-all">{tr('全部')}</span>}
+                  {p.exclude.map((x) => <span key={x} className="fx-chip-out"><span className="fx-sr">{tr('排除 ')}</span>{x}</span>)}
                 </p>
               </SourceRow>
             ))}
           </ul>
         )}
       </Section>
-      <Section name="工具">
-        {bp.tools.length === 0 ? <p className="fx-d-muted">沒有</p> : (
+      <Section name={tr('工具')}>
+        {bp.tools.length === 0 ? <p className="fx-d-muted">{tr('沒有')}</p> : (
           // in the order of TOOLS, whatever order they were allowed in
-          <p className="fx-d-chips">{TOOLS.filter((t) => bp.tools.includes(t)).map((t) => <span key={t}>{TOOL_NAMES[t]}</span>)}</p>
+          <p className="fx-d-chips">{TOOLS.filter((t) => bp.tools.includes(t)).map((t) => <span key={t}>{toolName(t)}</span>)}</p>
         )}
       </Section>
-      <Section name="使用中的員工">
-        {crew.length === 0 ? <p className="fx-d-muted">沒有人</p> : (
+      <Section name={tr('使用中的員工')}>
+        {crew.length === 0 ? <p className="fx-d-muted">{tr('沒有人')}</p> : (
           <ul className="fx-d-people">
-            {crew.map((r) => <li key={r.id}><PixelFace look={r.look} name={r.name} size={26} /><b>{r.name}</b><span>{doingOf(w, r) ?? '沒有工作'}</span></li>)}
+            {crew.map((r) => <li key={r.id}><PixelFace look={r.look} name={r.name} size={26} /><b>{r.name}</b><span>{doingOf(w, r) ?? tr('沒有工作')}</span></li>)}
           </ul>
         )}
       </Section>
@@ -1225,9 +1221,9 @@ function SourceRow({ source, now, children }: { source: BlueprintSource | LocalS
   return (
     <li className="fx-src">
       <p className="fx-src-head">
-        {!source ? <span>藍圖本身</span> : source.kind === 'yaml' || source.kind === 'preset' ? <span>{sourceText(source)}</span> : <code>{sourceText(source)}</code>}
-        {source?.kind === 'git' && source.private && <span className="fx-d-muted">私有</span>}
-        {source?.kind === 'local' && <span className="fx-d-muted">本機</span>}
+        {!source ? <span>{tr('藍圖本身')}</span> : source.kind === 'yaml' || source.kind === 'preset' ? <span>{sourceText(source)}</span> : <code>{sourceText(source)}</code>}
+        {source?.kind === 'git' && source.private && <span className="fx-d-muted">{tr('私有')}</span>}
+        {source?.kind === 'local' && <span className="fx-d-muted">{tr('本機')}</span>}
         {state && <span className={`fx-src-state fx-src-${state.tone}`}>{state.label}</span>}
       </p>
       {state?.note && <p className={state.tone === 'bad' ? 'fx-src-note fx-src-note-bad' : 'fx-src-note'}>{state.note}</p>}
@@ -1270,7 +1266,7 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
   const [comment, setComment] = useState(from?.comment ?? '')
   const [rows, setRows] = useState<SkillRow[]>(() => skillRowsOf(from?.skills ?? []))
   const [tools, setTools] = useState<Tool[]>(from?.tools ?? ['readFile', 'writeFile'])
-  const [name, setName] = useState(old?.name ?? (from ? (language === 'en' ? `${from.name} copy` : `${from.name} 副本`) : ''))
+  const [name, setName] = useState(old?.name ?? (from ? (language === 'en' ? `${from.name} copy` : tr('{name} 副本', { name: from.name })) : ''))
   const [named, setNamed] = useState(!!from)
   // the face it is drawn with now, fixed, so the form shows the same one whatever name it goes by
   const [look, setLook] = useState<Look>(() => (old ? pinLook(old.look, old.name) : randomLook()))
@@ -1340,28 +1336,28 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
     // the prompt and skills are the repo's own; the prototype has no files to read them from, and with the
     // backend an empty prompt means its AGENTS.md. The tools start read and write only.
     keep({
-      name: name.trim(), source, prompt: MOCK ? '（從 AGENTS.md 讀取）' : '', comment: '',
+      name: name.trim(), source, prompt: MOCK ? tr('（從 AGENTS.md 讀取）') : '', comment: '',
       skills: [{ source: null, include: MOCK ? ['code-review', 'tdd', 'summarize'] : null, exclude: [] }], tools: ['readFile', 'writeFile'],
     })
   }
   return (
     <form className="fx-d-form" onSubmit={save}>
       <header className="fx-d-head fx-d-who">
-        <BlueprintIcon look={look} name={name || old?.name || '新藍圖'} size={52} />
-        <Heading {...h}>{old ? `編輯 ${old.name}` : '新增員工藍圖'}</Heading>
+        <BlueprintIcon look={look} name={name || old?.name || tr('新藍圖')} size={52} />
+        <Heading {...h}>{old ? tr('編輯 {name}', { name: old.name }) : tr('新增員工藍圖')}</Heading>
       </header>
       <div className="fx-fields">
         <div className="fx-field fx-field-top">
-          <span>樣式</span>
+          <span>{tr('樣式')}</span>
           <div className="fx-look">
-            <BlueprintIcon look={look} name="藍圖樣式" size={96} />
-            <Reroll onClick={() => setLook(randomLook())} label="隨機樣式" />
+            <BlueprintIcon look={look} name={tr('藍圖樣式')} size={96} />
+            <Reroll onClick={() => setLook(randomLook())} label={tr('隨機樣式')} />
           </div>
         </div>
         <label className="fx-field">
-          <span>名稱</span>
+          <span>{tr('名稱')}</span>
           {/* not blank: spaces alone are no name */}
-          <input className="fx-control" value={name} required pattern=".*\S.*" title="名稱不可為空"
+          <input className="fx-control" value={name} required pattern=".*\S.*" title={tr('名稱不可為空')}
             onChange={(e) => { setName(e.target.value); setNamed(true) }} />
         </label>
         {kind === 'git' ? (
@@ -1374,9 +1370,9 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
                 onPaste={(e) => { if (takeRepo(e.clipboardData.getData('text'))) e.preventDefault() }}
                 onBlur={() => repo.trim() && takeRepo(repo)} />
             </label>
-            {repoError && <p id="fx-repo-error" className="fx-field-error">請輸入 owner/repo 或 GitHub 網址</p>}
+            {repoError && <p id="fx-repo-error" className="fx-field-error">{tr('請輸入 owner/repo 或 GitHub 網址')}</p>}
             <label className="fx-field">
-              <span>版本</span>
+              <span>{tr('版本')}</span>
               <input className="fx-control" value={ref} onChange={(e) => setRef(e.target.value)} spellCheck={false} autoComplete="off"
                 placeholder="master / main" />
             </label>
@@ -1388,7 +1384,7 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
               <textarea className="fx-control" rows={8} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
             </label>
             <label className="fx-field fx-field-top">
-              <span>備註</span>
+              <span>{tr('備註')}</span>
               <textarea className="fx-control" rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
             </label>
           </>
@@ -1396,7 +1392,7 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
       </div>
       {kind === 'local' && (
         <>
-          <Section name="技能">
+          <Section name={tr('技能')}>
             {rows.length > 0 && (
               <ul className="fx-skill-rows">
                 {rows.map((row, i) => {
@@ -1404,13 +1400,13 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
                   const bad = badRow === row.key
                   return (
                     <li key={row.key} className="fx-skill-row">
-                      <Select label="位置" value={row.kind} options={['local', 'git']} labelOf={(x) => (x === 'local' ? '本機資料夾' : 'GitHub')}
+                      <Select label={tr('位置')} value={row.kind} options={['local', 'git']} labelOf={(x) => (x === 'local' ? tr('本機資料夾') : 'GitHub')}
                         onChange={(x) => {
                           if (x !== row.kind) change({ kind: x as SkillRow['kind'], where: '', ref: '' })
                           setBadRow(null)
                         }} />
                       <label className="fx-field">
-                        <span>{row.kind === 'local' ? '資料夾' : 'Repo'}</span>
+                        <span>{row.kind === 'local' ? tr('資料夾') : 'Repo'}</span>
                         <input ref={(el) => { if (el) rowFields.current.set(row.key, el); else rowFields.current.delete(row.key) }}
                           className="fx-control" value={row.where} required pattern=".*\S.*" spellCheck={false} autoComplete="off"
                           placeholder={row.kind === 'local' ? '~/.agents/' : 'owner/repo'} aria-invalid={bad || undefined}
@@ -1422,25 +1418,25 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
                             if (g) change({ where: g.repo, ref: g.ref || row.ref })
                           }} />
                       </label>
-                      {bad && <p id={`fx-skill-error-${row.key}`} className="fx-field-error">請輸入 owner/repo 或 GitHub 網址</p>}
+                      {bad && <p id={`fx-skill-error-${row.key}`} className="fx-field-error">{tr('請輸入 owner/repo 或 GitHub 網址')}</p>}
                       {row.kind === 'git' && (
                         <label className="fx-field">
-                          <span>版本</span>
+                          <span>{tr('版本')}</span>
                           <input className="fx-control" value={row.ref} spellCheck={false} autoComplete="off" placeholder="master / main"
                             onChange={(e) => change({ ref: e.target.value })} />
                         </label>
                       )}
                       <label className="fx-field">
-                        <span>只載入</span>
-                        <input className="fx-control" value={row.include} spellCheck={false} autoComplete="off" placeholder="全部（以逗號分隔）"
+                        <span>{tr('只載入')}</span>
+                        <input className="fx-control" value={row.include} spellCheck={false} autoComplete="off" placeholder={tr('全部（以逗號分隔）')}
                           onChange={(e) => change({ include: e.target.value })} />
                       </label>
                       <label className="fx-field">
-                        <span>排除</span>
-                        <input className="fx-control" value={row.exclude} spellCheck={false} autoComplete="off" placeholder="無（以逗號分隔）"
+                        <span>{tr('排除')}</span>
+                        <input className="fx-control" value={row.exclude} spellCheck={false} autoComplete="off" placeholder={tr('無（以逗號分隔）')}
                           onChange={(e) => change({ exclude: e.target.value })} />
                       </label>
-                      <button type="button" className="fx-tool fx-hit fx-skill-remove" aria-label={`刪除第 ${i + 1} 個技能來源`} title="刪除"
+                      <button type="button" className="fx-tool fx-hit fx-skill-remove" aria-label={tr('刪除第 {a} 個技能來源', { a: i + 1 })} title={tr('刪除')}
                         onClick={() => {
                           setRows((rs) => rs.filter((r) => r.key !== row.key))
                           addRow.current?.focus()
@@ -1459,22 +1455,22 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
                 const row = newSkillRow()
                 setRows((rs) => [...rs, row])
                 setFocusRow(row.key)
-              }}>＋ 新增技能來源</button>
+              }}>{tr('＋ 新增技能來源')}</button>
           </Section>
-          <Section name="工具">
-            <div className="fx-tool-picks" role="group" aria-label="允許的工具">
+          <Section name={tr('工具')}>
+            <div className="fx-tool-picks" role="group" aria-label={tr('允許的工具')}>
               {TOOLS.map((t) => (
                 <label key={t}>
                   <input type="checkbox" className="fx-tick" checked={tools.includes(t)}
                     onChange={(e) => setTools((ts) => (e.target.checked ? [...ts, t] : ts.filter((x) => x !== t)))} />
-                  {TOOL_NAMES[t]}
+                  {toolName(t)}
                 </label>
               ))}
             </div>
           </Section>
         </>
       )}
-      <button type="submit" className="fx-save">{old ? '儲存' : '新增'}</button>
+      <button type="submit" className="fx-save">{old ? tr('儲存') : tr('新增')}</button>
     </form>
   )
 }
@@ -1526,26 +1522,26 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
     <form className="fx-d-form" onSubmit={save}>
       <header className="fx-d-head fx-d-who">
         <PixelFace look={look} name={name || '?'} size={52} />
-        <Heading {...h}>{r ? `編輯 ${r.name}` : '新增員工'}</Heading>
+        <Heading {...h}>{r ? tr('編輯 {name}', { name: r.name }) : tr('新增員工')}</Heading>
       </header>
       <div className="fx-fields">
         <div className="fx-field fx-field-top">
-          <span>外型</span>
+          <span>{tr('外型')}</span>
           <div className="fx-look">
             <Standee look={look} seed={look.style ?? seedOf(r?.id ?? '')} />
-            <Reroll onClick={() => setLook(randomLook())} label="隨機外型" />
+            <Reroll onClick={() => setLook(randomLook())} label={tr('隨機外型')} />
           </div>
         </div>
         <label className="fx-field">
-          <span>名字</span>
+          <span>{tr('名字')}</span>
           <input className="fx-control" value={name} onChange={(e) => setName(e.target.value)} required />
         </label>
-        <BlueprintSelect label="藍圖" value={bp} onChange={setBp} />
-        <Select label="模型" value={model} options={modelsOf(w)} onChange={setModel} />
-        <Select label="思考等級" value={level} options={levels} onChange={setEffort} />
+        <BlueprintSelect label={tr('藍圖')} value={bp} onChange={setBp} />
+        <Select label={tr('模型')} value={model} options={modelsOf(w)} onChange={setModel} />
+        <Select label={tr('思考等級')} value={level} options={levels} onChange={setEffort} />
       </div>
       <Prereqs list={needs} />
-      <button type="submit" className="fx-save" disabled={!name.trim() || !bp || blocked(needs)}>{r ? '儲存' : '新增'}</button>
+      <button type="submit" className="fx-save" disabled={!name.trim() || !bp || blocked(needs)}>{r ? tr('儲存') : tr('新增')}</button>
     </form>
   )
 }
@@ -1576,17 +1572,17 @@ function Fire({ id, onDone, ...h }: Head & { id: string; onDone: () => void }) {
     <form className="fx-d-form" onSubmit={go}>
       <header className="fx-d-head fx-d-who">
         <PixelFace look={r.look} name={r.name} size={52} />
-        <Heading {...h}>解僱 {r.name}</Heading>
+        <Heading {...h}>{tr('解僱 {name}', { name: r.name })}</Heading>
       </header>
-      <Section name="要交接的工作">
-        {owned.length + steps.length === 0 ? <p className="fx-d-muted">沒有</p> : (
+      <Section name={tr('要交接的工作')}>
+        {owned.length + steps.length === 0 ? <p className="fx-d-muted">{tr('沒有')}</p> : (
           <p className="fx-d-chips">
-            {owned.map((t) => <span key={t.id}>#{t.number} 負責人</span>)}
+            {owned.map((t) => <span key={t.id}>{tr('#{number} 負責人', { number: t.number })}</span>)}
             {steps.map(({ task, n }) => <span key={task.id + n.id}>#{task.number} › {stepName(task.workflow, n.id)}</span>)}
           </p>
         )}
       </Section>
-      <Section name="交接給">
+      <Section name={tr('交接給')}>
         <div className="fx-d-groups">
           {byBlueprint(w, others).map(({ bp, list }) => (
             <section key={bp.id} className="fx-d-group" aria-label={bp.name}>
@@ -1606,7 +1602,7 @@ function Fire({ id, onDone, ...h }: Head & { id: string; onDone: () => void }) {
           ))}
         </div>
       </Section>
-      <button type="submit" className="fx-save" disabled={!heir}>交接並解僱</button>
+      <button type="submit" className="fx-save" disabled={!heir}>{tr('交接並解僱')}</button>
     </form>
   )
 }
@@ -1630,17 +1626,17 @@ function Disband({ teamId, onDone, ...h }: Head & { teamId: string; onDone: () =
   return (
     <form className="fx-d-form" onSubmit={go}>
       <header className="fx-d-head">
-        <Heading {...h}>解散 {team.name}</Heading>
-        <p className="fx-d-meta"><span>{people} 位員工</span><span>{open} 個未完成的任務</span></p>
+        <Heading {...h}>{tr('解散 {name}', { name: team.name })}</Heading>
+        <p className="fx-d-meta"><span>{tr('{people} 位員工', { people })}</span><span>{tr('{open} 個未完成的任務', { open })}</span></p>
       </header>
       {MOCK && (
         <button type="button" role="checkbox" aria-checked={removeFiles} className="fx-row fx-row-plain fx-hit fx-d-toggle"
           onClick={() => setRemoveFiles(!removeFiles)}>
-          <span className="fx-row-main"><b>同時刪除本地檔案</b><span><code>{team.folder}</code></span></span>
+          <span className="fx-row-main"><b>{tr('同時刪除本地檔案')}</b><span><code>{team.folder}</code></span></span>
           <span className="fx-box" aria-hidden="true">{removeFiles ? '✓' : ''}</span>
         </button>
       )}
-      <button type="submit" className="fx-save fx-danger">解散公司</button>
+      <button type="submit" className="fx-save fx-danger">{tr('解散公司')}</button>
     </form>
   )
 }
@@ -1698,35 +1694,35 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
   const images = draft.images ?? []
   return (
     <form className="fx-d-form" onSubmit={start} onPaste={paste}>
-      <header className="fx-d-head"><Heading {...h}>新增任務</Heading></header>
+      <header className="fx-d-head"><Heading {...h}>{tr('新增任務')}</Heading></header>
       <div className="fx-fields">
         <label className="fx-field">
-          <span>標題</span>
+          <span>{tr('標題')}</span>
           <input className="fx-control" value={draft.title} onChange={(e) => editDraft(() => ({ title: e.target.value }))} required />
         </label>
         <label className="fx-field fx-field-top">
-          <span>說明</span>
-          <textarea className="fx-control" rows={3} value={draft.description} placeholder="可直接貼上截圖"
+          <span>{tr('說明#task')}</span>
+          <textarea className="fx-control" rows={3} value={draft.description} placeholder={tr('可直接貼上截圖')}
             onChange={(e) => editDraft(() => ({ description: e.target.value }))} />
         </label>
         <div className="fx-field fx-field-top" role="group" aria-labelledby="fx-images-label">
-          <span id="fx-images-label">附圖</span>
+          <span id="fx-images-label">{tr('附圖')}</span>
           <div className="fx-thumbs">
             {images.map((im, i) => (
               <figure key={i} className="fx-thumb">
                 <img src={im.url} alt={im.name} />
-                <button type="button" className="fx-thumb-x" aria-label={`移除 ${im.name}`}
+                <button type="button" className="fx-thumb-x" aria-label={tr('移除 {name}', { name: im.name })}
                   onClick={() => editDraft((d) => ({ images: (d.images ?? []).filter((_, j) => j !== i) }))}>×</button>
               </figure>
             ))}
             <label className="fx-thumb fx-thumb-add fx-hit">
               <span aria-hidden="true">＋</span>
-              <input type="file" accept="image/*" multiple className="fx-sr" aria-label="加入圖片"
+              <input type="file" accept="image/*" multiple className="fx-sr" aria-label={tr('加入圖片')}
                 onChange={(e) => { void addImages(e.target.files ?? []); e.target.value = '' }} />
             </label>
           </div>
         </div>
-        <Select label="任務流程" value={draft.workflowId} options={flows.map((x) => x.id)} labelOf={(x) => w.workflows[x]?.name ?? x}
+        <Select label={tr('任務流程')} value={draft.workflowId} options={flows.map((x) => x.id)} labelOf={(x) => w.workflows[x]?.name ?? x}
           {...mineAndBuiltIn(flows.map((x) => x.id))}
           onChange={(id) => editDraft((d) => {
             const last = lastStaff(useStore.getState().world, teamId, id)
@@ -1735,8 +1731,8 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
         {wf && <OwnerField teamId={teamId} draft={draft} />}
       </div>
       {wf && (
-        <Section name="人員">
-          {draft.from !== null && <p className="fx-d-muted">沿用 #{draft.from} 的配置</p>}
+        <Section name={tr('人員')}>
+          {draft.from !== null && <p className="fx-d-muted">{tr('沿用 #{from} 的配置', { from: draft.from })}</p>}
           <div className="fx-flow">
             <FlowNotes wf={wf} staff={(n) => draftStaff(w, draft, n)} open={open} onOpen={onOpen}
               canOpen={(n) => !isFixed(wf, n)} />
@@ -1744,7 +1740,7 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
         </Section>
       )}
       <p className="fx-d-actions">
-        <button type="submit" className="fx-save" disabled={!ready}>開始</button>
+        <button type="submit" className="fx-save" disabled={!ready}>{tr('開始')}</button>
         <Prereqs list={needs} />
         {wf && <Missing draft={draft} missing={missing.length} />}
       </p>
@@ -1774,7 +1770,7 @@ function StaffPick({ node, teamId, onDone, ...h }: Head & { node: string; teamId
         <Heading {...h}>{stepName(wf, node)}</Heading>
         <p className="fx-d-meta">
           <span>{wf.name}</span>
-          {picked.length > 1 && <span>任務分派：{ASSIGN[n.assignment]}</span>}
+          {picked.length > 1 && <span>{tr('任務分派：{a}', { a: tr(ASSIGN[n.assignment]) })}</span>}
         </p>
       </header>
       {n.prompt && <p className="fx-d-text fx-d-quote">{n.prompt}</p>}
@@ -1800,7 +1796,7 @@ function StaffPick({ node, teamId, onDone, ...h }: Head & { node: string; teamId
           </section>
         ))}
       </div>
-      <button type="submit" className="fx-save" disabled={picked.length === 0}>確定</button>
+      <button type="submit" className="fx-save" disabled={picked.length === 0}>{tr('確定')}</button>
     </form>
   )
 }
@@ -1838,26 +1834,26 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
   }
   return (
     <form className="fx-d-form" onSubmit={save}>
-      <header className="fx-d-head"><Heading {...h}>編輯 #{task.number}</Heading></header>
+      <header className="fx-d-head"><Heading {...h}>{tr('編輯 #{number}', { number: task.number })}</Heading></header>
       <div className="fx-fields">
         <label className="fx-field">
-          <span>標題</span>
+          <span>{tr('標題')}</span>
           <input className="fx-control" value={draft.title} onChange={(e) => editDraft(() => ({ title: e.target.value }))} required />
         </label>
         <label className="fx-field fx-field-top">
-          <span>說明</span>
+          <span>{tr('說明#task')}</span>
           <textarea className="fx-control" rows={3} value={draft.description} onChange={(e) => editDraft(() => ({ description: e.target.value }))} />
         </label>
         <OwnerField teamId={task.teamId} draft={draft} />
       </div>
-      <Section name="人員">
+      <Section name={tr('人員')}>
         <div className="fx-flow">
           <FlowNotes wf={task.workflow} staff={(n) => draftStaff(w, draft, n)} open={open} onOpen={onOpen}
             canOpen={(n) => !isFixed(task.workflow, n)} />
         </div>
       </Section>
       <p className="fx-d-actions">
-        <button type="submit" className="fx-save" disabled={!ready}>儲存</button>
+        <button type="submit" className="fx-save" disabled={!ready}>{tr('儲存')}</button>
         <Missing draft={draft} missing={missing.length} />
       </p>
     </form>
@@ -1870,13 +1866,13 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
  */
 function OwnerField({ teamId, draft }: { teamId: string; draft: TaskDraft }) {
   const crew = teamReplicas(useStore((s) => s.world), teamId)
-  return <CrewSelect label="任務負責人" value={draft.ownerId ?? ''} crew={crew} placeholder="選擇員工" onChange={(id) => editDraft(() => ({ ownerId: id }))} />
+  return <CrewSelect label={tr('任務負責人')} value={draft.ownerId ?? ''} crew={crew} placeholder={tr('選擇員工')} onChange={(id) => editDraft(() => ({ ownerId: id }))} />
 }
 
 /** What still keeps a task from starting: its owner first, then the steps nobody works. */
 function Missing({ draft, missing }: { draft: TaskDraft; missing: number }) {
-  if (!draft.ownerId) return <span className="fx-d-muted">還沒有任務負責人</span>
-  return missing > 0 ? <span className="fx-d-muted">還有 {missing} 步沒有人</span> : null
+  if (!draft.ownerId) return <span className="fx-d-muted">{tr('還沒有任務負責人')}</span>
+  return missing > 0 ? <span className="fx-d-muted">{tr('還有 {missing} 步沒有人', { missing })}</span> : null
 }
 
 function FileIcon() {
@@ -1931,7 +1927,7 @@ function RealDoc({ sub, path }: { sub: string; path: string }) {
     return () => stop.abort()
   }, [sub, path])
   if (state.error) return <p className="fx-d-text" role="alert">{state.error}</p>
-  if (state.text === undefined) return <p className="fx-d-text">讀取中…</p>
+  if (state.text === undefined) return <p className="fx-d-text">{tr('讀取中…')}</p>
   if (/\.mdx?$/i.test(path)) return <Markdown text={state.text} file />
   return <pre className="fx-doc-code fx-doc-raw"><code>{state.text}</code></pre>
 }
@@ -1955,7 +1951,7 @@ function ImageDetail({ task: taskId, index, ...h }: Head & { task: string; index
 /** The round pencil in a sheet's upper right. */
 function EditTool({ onClick, open }: { onClick: () => void; open?: boolean }) {
   return (
-    <button type="button" className="fx-tool fx-hit" onClick={onClick} aria-expanded={open} aria-label="編輯" title="編輯">
+    <button type="button" className="fx-tool fx-hit" onClick={onClick} aria-expanded={open} aria-label={tr('編輯')} title={tr('編輯')}>
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path d="M2.5 13.5l.6-3L10.6 3l2.4 2.4-7.5 7.5z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
         <path d="M9 4.6l2.4 2.4" stroke="currentColor" strokeWidth="1.5" />
@@ -1987,8 +1983,8 @@ export function DeleteTool({ what, onConfirm, disabled, why }: { what: string; o
   return (
     <button type="button" className={asking ? 'fx-tool fx-tool-ask fx-hit' : 'fx-tool fx-hit'} disabled={disabled}
       onClick={() => (asking ? onConfirm() : setAsking(true))} onBlur={() => setAsking(false)}
-      aria-label={asking ? `確定刪除這個${what}` : '刪除'} title={disabled ? why : asking ? undefined : '刪除'}>
-      {asking ? '確定刪除' : (
+      aria-label={asking ? tr('確定刪除這個{what}', { what }) : tr('刪除')} title={disabled ? why : asking ? undefined : tr('刪除')}>
+      {asking ? tr('確定刪除') : (
         <BinIcon />
       )}
     </button>
@@ -2061,10 +2057,10 @@ function FlowEdit({ id, onDone, ...h }: Head & {
   }
   return (
     <form className="fx-d-form" onSubmit={save}>
-      <header className="fx-d-head"><Heading {...h}>{id ? `編輯 ${w.workflows[id].name}` : '新增任務流程'}</Heading></header>
+      <header className="fx-d-head"><Heading {...h}>{id ? tr('編輯 {name}', { name: w.workflows[id].name }) : tr('新增任務流程')}</Heading></header>
       <div className="fx-fields">
         <label className="fx-field">
-          <span>名稱</span>
+          <span>{tr('名稱')}</span>
           <input className="fx-control" value={flow.name} required
             onChange={(e) => editFlowDraft((d) => ({ flow: { ...d.flow, name: e.target.value } }))} />
         </label>
@@ -2081,15 +2077,15 @@ function FlowEdit({ id, onDone, ...h }: Head & {
             remove: (n) => editFlowDraft((d) => ({ flow: removeStep(d.flow, n) })),
           }} />
         </div>
-        <button type="button" className="fx-task fx-task-new fx-flow-new fx-hit" onClick={add}>＋ 新增步驟</button>
+        <button type="button" className="fx-task fx-task-new fx-flow-new fx-hit" onClick={add}>{tr('＋ 新增步驟')}</button>
         <ol className="fx-d-steps">
           {order.current.map((x) => <StepForm key={x} flow={flow} end={end} id={x} />)}
         </ol>
       </div>
       <p className="fx-d-actions">
-        <button type="submit" className="fx-save" disabled={!ready}>{id ? '儲存' : '建立'}</button>
-        {cut.length > 0 && <span className="fx-d-muted">{cut.map((n) => n.name.trim() || '沒有名稱的步驟').join('、')} 沒有接上</span>}
-        {unnamed && <span className="fx-d-muted">有步驟沒有名稱</span>}
+        <button type="submit" className="fx-save" disabled={!ready}>{id ? tr('儲存') : tr('建立')}</button>
+        {cut.length > 0 && <span className="fx-d-muted">{tr('{a} 沒有接上', { a: listOf(cut.map((n) => n.name.trim() || tr('沒有名稱的步驟'))) })}</span>}
+        {unnamed && <span className="fx-d-muted">{tr('有步驟沒有名稱')}</span>}
       </p>
     </form>
   )
@@ -2117,9 +2113,9 @@ function StepForm({ flow, end, id }: { flow: Workflow; end: string; id: string }
     <li id={`fx-step-${id}`} className={`fx-step-form fx-step-note${noteCls(flow, id)}`}>
       <div className="fx-step-head">
         {middle
-          ? <input className="fx-control fx-step-name" aria-label="步驟名稱" placeholder="步驟名稱" value={n.name} onChange={(e) => put({ name: e.target.value })} />
+          ? <input className="fx-control fx-step-name" aria-label={tr('步驟名稱')} placeholder={tr('步驟名稱')} value={n.name} onChange={(e) => put({ name: e.target.value })} />
           : <h4>{n.name}</h4>}
-        {middle && <DeleteTool what="步驟" onConfirm={() => editFlowDraft((d) => ({ flow: removeStep(d.flow, id) }))} />}
+        {middle && <DeleteTool what={tr('步驟')} onConfirm={() => editFlowDraft((d) => ({ flow: removeStep(d.flow, id) }))} />}
       </div>
       {!middle && <Owner />}
       <div className="fx-fields">
@@ -2127,7 +2123,7 @@ function StepForm({ flow, end, id }: { flow: Workflow; end: string; id: string }
           <>
             {/* a discussion has its own fixed instructions, and is held by one employee, so everyone working
                 it is not offered; back to work, it starts with no instructions */}
-            <Select label="種類" value={n.kind} options={Object.keys(KINDS)} labelOf={(x) => KINDS[x as keyof typeof KINDS]}
+            <Select label={tr('種類')} value={n.kind} options={Object.keys(KINDS)} labelOf={(x) => tr(KINDS[x as keyof typeof KINDS])}
               onChange={(x) => put(x === 'talk'
                 ? { kind: 'talk', prompt: fixedSteps(useStore.getState().world.language).talkPrompt, ...(n.assignment === 'everyone' ? { assignment: 'firstAvailable' as const } : {}) }
                 : { kind: 'work', prompt: '' })} />
@@ -2137,25 +2133,25 @@ function StepForm({ flow, end, id }: { flow: Workflow; end: string; id: string }
                 <textarea className="fx-control" rows={2} value={n.prompt} onChange={(e) => put({ prompt: e.target.value })} />
               </label>
             )}
-            <Select label="任務分派" value={n.assignment} options={Object.keys(ASSIGN).filter((x) => n.kind !== 'talk' || x !== 'everyone')}
-              labelOf={(x) => ASSIGN[x as keyof typeof ASSIGN]} onChange={(x) => put({ assignment: x as typeof n.assignment })} />
+            <Select label={tr('任務分派')} value={n.assignment} options={Object.keys(ASSIGN).filter((x) => n.kind !== 'talk' || x !== 'everyone')}
+              labelOf={(x) => tr(ASSIGN[x as keyof typeof ASSIGN])} onChange={(x) => put({ assignment: x as typeof n.assignment })} />
           </>
         )}
         {before > 1 && (
-          <Select label="開始條件" value={n.join} options={Object.keys(JOIN)} labelOf={(x) => JOIN[x as keyof typeof JOIN]}
+          <Select label={tr('開始條件')} value={n.join} options={Object.keys(JOIN)} labelOf={(x) => tr(JOIN[x as keyof typeof JOIN])}
             onChange={(x) => put({ join: x as typeof n.join })} />
         )}
         {next.length > 1 && (
-          <Select label="交接" value={n.handoff} options={Object.keys(HANDOFF)} labelOf={(x) => HANDOFF[x as keyof typeof HANDOFF]}
+          <Select label={tr('交接')} value={n.handoff} options={Object.keys(HANDOFF)} labelOf={(x) => tr(HANDOFF[x as keyof typeof HANDOFF])}
             onChange={(x) => put({ handoff: x as typeof n.handoff })} />
         )}
         {!isEnd && (
-          <div className="fx-field fx-field-top" role="group" aria-label={`${n.name || '這一步'}的下一步`}>
-            <span>下一步</span>
+          <div className="fx-field fx-field-top" role="group" aria-label={tr('{a}的下一步', { a: n.name || tr('這一步') })}>
+            <span>{tr('下一步')}</span>
             <div className="fx-d-picks">
               {choices.map((c) => (
                 <button key={c.id} type="button" className="fx-hit" aria-pressed={next.includes(c.id)} onClick={() => toggle(c.id)}>
-                  {next.includes(c.id) && <span aria-hidden="true">✓ </span>}{c.name.trim() || '沒有名稱'}
+                  {next.includes(c.id) && <span aria-hidden="true">✓ </span>}{c.name.trim() || tr('沒有名稱')}
                 </button>
               ))}
             </div>

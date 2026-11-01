@@ -1,3 +1,4 @@
+import { tr } from './core/i18n'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { claudeStatus, INSTALL_COMMAND, installClaude, loginClaude, phaseOf, type ClaudePhase } from './claudeCode'
 
@@ -43,31 +44,31 @@ export function ClaudeAccount({ describedBy, onModels }: { describedBy?: string;
 
   return (
     <div className="fx-field">
-      <span>帳號</span>
+      <span>{tr('帳號')}</span>
       <div className="fx-claude" aria-live="polite">
-        {phase === 'signedIn' && <p className="fx-signed" role="status">✓ 已登入 Claude</p>}
-        {phase === 'checking' && !error && <p>正在檢查 Claude Code…</p>}
-        {phase === 'checking' && error && <button type="button" className="fx-control fx-login fx-hit" onClick={check}>重試</button>}
+        {phase === 'signedIn' && <p className="fx-signed" role="status">{tr('✓ 已登入 Claude')}</p>}
+        {phase === 'checking' && !error && <p>{tr('正在檢查 Claude Code…')}</p>}
+        {phase === 'checking' && error && <button type="button" className="fx-control fx-login fx-hit" onClick={check}>{tr('重試')}</button>}
         {phase === 'missing' && (
           <>
-            <p>Claude 訂閱要透過 Claude Code 使用，這台電腦還沒安裝。同意後會從 claude.ai 下載並執行官方安裝程式：</p>
+            <p>{tr('Claude 訂閱要透過 Claude Code 使用，這台電腦還沒安裝。同意後會從 claude.ai 下載並執行官方安裝程式：')}</p>
             <code>{INSTALL_COMMAND}</code>
-            <button type="button" className="fx-control fx-login fx-hit" onClick={() => void step('installing', 'missing', installClaude)}>同意並安裝</button>
+            <button type="button" className="fx-control fx-login fx-hit" onClick={() => void step('installing', 'missing', installClaude)}>{tr('同意並安裝')}</button>
           </>
         )}
         {phase === 'installing' && (
           <>
-            <p role="status">正在安裝 Claude Code…</p>
-            <button type="button" className="fx-control fx-login fx-hit" onClick={() => stop('missing')}>取消</button>
+            <p role="status">{tr('正在安裝 Claude Code…')}</p>
+            <button type="button" className="fx-control fx-login fx-hit" onClick={() => stop('missing')}>{tr('取消')}</button>
           </>
         )}
         {phase === 'signedOut' && (
-          <button type="button" className="fx-control fx-login fx-hit" aria-describedby={describedBy} onClick={() => void step('loggingIn', 'signedOut', loginClaude)}>登入 Claude</button>
+          <button type="button" className="fx-control fx-login fx-hit" aria-describedby={describedBy} onClick={() => void step('loggingIn', 'signedOut', loginClaude)}>{tr('登入 Claude')}</button>
         )}
         {phase === 'loggingIn' && (
           <>
-            <p role="status">請在瀏覽器完成登入…</p>
-            <button type="button" className="fx-control fx-login fx-hit" onClick={() => stop('signedOut')}>取消</button>
+            <p role="status">{tr('請在瀏覽器完成登入…')}</p>
+            <button type="button" className="fx-control fx-login fx-hit" onClick={() => stop('signedOut')}>{tr('取消')}</button>
           </>
         )}
         {error && <p className="fx-field-error" role="alert">{error}</p>}

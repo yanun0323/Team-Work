@@ -1,5 +1,6 @@
 // What each tab of the company file needs before its work can run, and what to say about what is missing. Pure, no React.
 
+import { listOf, tr } from './core/i18n'
 import { teamReplicas } from './core/model'
 import type { ModelProvider, World } from './core/domain/types'
 
@@ -28,8 +29,8 @@ const usable = (p: ModelProvider) =>
 
 function providers(w: World): Prereq | null {
   const all = Object.values(w.providers)
-  if (!all.length) return { id: 'provider', text: '沒有模型供應商。請先到機場新增模型供應商', blocks: true }
-  if (!all.some(usable)) return { id: 'providerReady', text: '模型供應商無法使用。請先到機場登入或重新取得模型', blocks: true }
+  if (!all.length) return { id: 'provider', text: tr('沒有模型供應商。請先到機場新增模型供應商'), blocks: true }
+  if (!all.some(usable)) return { id: 'providerReady', text: tr('模型供應商無法使用。請先到機場登入或重新取得模型'), blocks: true }
   return null
 }
 
@@ -38,17 +39,17 @@ function stranded(w: World, teamId: string): Prereq | null {
   const offered = Object.values(w.providers).filter(usable).flatMap((p) => p.models)
   const names = teamReplicas(w, teamId).filter((r) => !offered.includes(r.model)).map((r) => r.name)
   if (!names.length) return null
-  return { id: 'crewModel', text: `${names.join('、')} 的模型無法使用。請先更換模型，或到機場檢查模型供應商`, blocks: false }
+  return { id: 'crewModel', text: tr('{a} 的模型無法使用。請先更換模型，或到機場檢查模型供應商', { a: listOf(names) }), blocks: false }
 }
 
 const folder = (h: ProjectHealth | null): Prereq | null =>
-  (h && !h.folder ? { id: 'folder', text: '找不到專案資料夾。請把資料夾放回原位', blocks: true } : null)
+  (h && !h.folder ? { id: 'folder', text: tr('找不到專案資料夾。請把資料夾放回原位'), blocks: true } : null)
 
 /** Tasks work in branches of the repo and merge into the target branch. */
 const repo = (w: World, teamId: string, h: ProjectHealth | null): Prereq | null => {
   if (!h?.folder) return null
-  if (!h.repo) return { id: 'repo', text: '專案資料夾不是 git repo。請先在終端機執行 git init', blocks: true }
-  if (!h.targetBranch) return { id: 'targetBranch', text: `找不到目標分支 ${w.teams[teamId]?.targetBranch}。請先到「設定」頁籤更換目標分支`, blocks: true }
+  if (!h.repo) return { id: 'repo', text: tr('專案資料夾不是 git repo。請先在終端機執行 git init'), blocks: true }
+  if (!h.targetBranch) return { id: 'targetBranch', text: tr('找不到目標分支 {targetBranch}。請先到「設定」頁籤更換目標分支', { targetBranch: w.teams[teamId]?.targetBranch }), blocks: true }
   return null
 }
 
@@ -57,17 +58,17 @@ export function prereqsOf(w: World, teamId: string, tab: PrereqTab, health: Proj
   const provider = providers(w)
   // with no provider at all, that is the thing to fix and not each employee's model
   const models = provider ? null : stranded(w, teamId)
-  const noCrew: Prereq | null = teamReplicas(w, teamId).length ? null : { id: 'crew', text: '沒有員工。請先新增員工', blocks: true }
+  const noCrew: Prereq | null = teamReplicas(w, teamId).length ? null : { id: 'crew', text: tr('沒有員工。請先新增員工'), blocks: true }
   const list = {
     chats: [provider, noCrew, models, folder(health)],
     tasks: [
       provider, noCrew,
-      Object.keys(w.workflows).length ? null : { id: 'workflow', text: '沒有任務流程。請先到機場新增任務流程', blocks: true },
+      Object.keys(w.workflows).length ? null : { id: 'workflow', text: tr('沒有任務流程。請先到機場新增任務流程'), blocks: true },
       models, folder(health), repo(w, teamId, health),
     ],
     crew: [
       provider,
-      Object.keys(w.blueprints).length ? null : { id: 'blueprint', text: '沒有員工藍圖。請先到機場新增員工藍圖', blocks: true },
+      Object.keys(w.blueprints).length ? null : { id: 'blueprint', text: tr('沒有員工藍圖。請先到機場新增員工藍圖'), blocks: true },
       models,
     ],
     terminal: [folder(health)],

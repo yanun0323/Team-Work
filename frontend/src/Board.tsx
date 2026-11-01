@@ -4,6 +4,7 @@
 // open on the same stack of detail sheets as in a company file. There is no close button: a click on the
 // map puts everything away.
 
+import { tr } from './core/i18n'
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from './core/store'
 import { CompanyTitle, SheetStack, useSheets } from './Drawer'
@@ -32,7 +33,7 @@ export function Board({ lookOf, leaving, onGone }: {
 
   return (
     <>
-    <aside id="fx-board" className={leaving ? 'fx-drawer leaving' : 'fx-drawer'} aria-label="所有任務"
+    <aside id="fx-board" className={leaving ? 'fx-drawer leaving' : 'fx-drawer'} aria-label={tr('所有任務')}
       aria-hidden={leaving || undefined} inert={leaving || undefined}
       onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />

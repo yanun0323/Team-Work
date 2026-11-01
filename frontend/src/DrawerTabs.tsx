@@ -1,12 +1,12 @@
 // What each tab of the company file shows. All of it reads the live world, so it moves with the simulation.
 
+import { tr, type Key } from './core/i18n'
 import { useEffect } from 'react'
 import { nodeOf } from './core/domain/graph'
 import { statusOf, subsOf } from './core/domain/sim'
 import type { Chat, Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
 import { MOCK } from './core/mode'
-import { useT } from './core/i18n'
 import { byBlueprint, chatMindOf, mindOf } from './crew'
 import { activity, teamReplicas, teamTasks } from './core/model'
 import { useStore } from './core/store'
@@ -19,19 +19,19 @@ import { Prereqs, usePrereqs } from './PrereqStamps'
 
 export type Tab = 'chats' | 'tasks' | 'crew' | 'terminal' | 'settings'
 
-export const TABS: { id: Tab; label: string }[] = [
-  { id: 'chats', label: '對話' },
-  { id: 'tasks', label: '任務' },
-  { id: 'crew', label: '員工' },
+export const TABS: { id: Tab; label: Key }[] = [
+  { id: 'chats', label: '對話#tab' },
+  { id: 'tasks', label: '任務#tab' },
+  { id: 'crew', label: '員工#tab' },
   // the simulator has no computer to run a shell on
-  ...(MOCK ? [] : [{ id: 'terminal' as const, label: '終端機' }]),
+  ...(MOCK ? [] : [{ id: 'terminal' as const, label: '終端機' as const }]),
   { id: 'settings', label: '設定' },
 ]
 
 /** The tab to open on: the wanted one, or 任務 where it does not exist, as with 終端機 in the simulator. */
 export const tabOr = (wanted: Tab): Tab => (TABS.some((x) => x.id === wanted) ? wanted : 'tasks')
 
-const COLUMNS: { status: Status; label: string }[] = [
+const COLUMNS: { status: Status; label: Key }[] = [
   { status: 'todo', label: '待辦' },
   { status: 'progressing', label: '進行中' },
   { status: 'review', label: '待回覆' },
@@ -67,8 +67,8 @@ function Chats(p: Opens) {
   return (
     <div className="fx-d-groups fx-crew-groups">
       <Prereqs list={needs} />
-      <button className="fx-task fx-task-new fx-flow-new fx-hit" disabled={blocked(needs)} {...opener({ kind: 'newChat' }, p)}>＋ 新對話</button>
-      {!chats.length && <Empty>還沒有對話</Empty>}
+      <button className="fx-task fx-task-new fx-flow-new fx-hit" disabled={blocked(needs)} {...opener({ kind: 'newChat' }, p)}>{tr('＋ 新對話')}</button>
+      {!chats.length && <Empty>{tr('還沒有對話')}</Empty>}
       {chats.length > 0 && (
         <ul className="fx-list">
           {chats.map((c) => {
@@ -79,7 +79,7 @@ function Chats(p: Opens) {
                 <PixelFace look={r?.look ?? c.look} name={name} size={34} />
                 <span className="fx-row-main">
                   <b>{name}<span className="fx-chat-model">{chatMindOf(w, c)}</span></b>
-                  <span className="fx-chat-first">{c.messages[0]?.text || (c.messages[0]?.images?.length ? '圖片' : '')}</span>
+                  <span className="fx-chat-first">{c.messages[0]?.text || (c.messages[0]?.images?.length ? tr('圖片') : '')}</span>
                 </span>
               </button></li>
             )
@@ -102,10 +102,10 @@ export function Tasks(p: Opens) {
       {COLUMNS.map((c) => {
         const list = tasks.filter((x) => statusOf(w, x) === c.status)
         return (
-          <section key={c.status} className={`fx-lane fx-lane-${c.status}`} aria-label={c.label}>
-            <h3>{c.label}<span className="fx-count">{list.length}</span></h3>
+          <section key={c.status} className={`fx-lane fx-lane-${c.status}`} aria-label={tr(c.label)}>
+            <h3>{tr(c.label)}<span className="fx-count">{list.length}</span></h3>
             {c.status === 'todo' && (
-              <button className="fx-task fx-task-new fx-hit" disabled={blocked(needs)} {...opener({ kind: 'newTask' }, p)}>＋ 新增任務</button>
+              <button className="fx-task fx-task-new fx-hit" disabled={blocked(needs)} {...opener({ kind: 'newTask' }, p)}>{tr('＋ 新增任務')}</button>
             )}
             {list.map((task) => {
               const faces = subsOf(w, task.id)
@@ -124,7 +124,7 @@ export function Tasks(p: Opens) {
                   )}
                   {/* only what the column doesn't already say */}
                   {(task.paused || task.stage === 'merging') && (
-                    <span className="fx-pill">{task.paused ? '已暫停' : '合併中'}</span>
+                    <span className="fx-pill">{task.paused ? tr('已暫停') : tr('合併中')}</span>
                   )}
                 </button>
               )
@@ -139,15 +139,14 @@ export function Tasks(p: Opens) {
 
 function Crew(p: Opens) {
   const { teamId } = p
-  const t = useT()
   const w = useStore((s) => s.world)
   const crew = teamReplicas(w, teamId)
   const needs = usePrereqs(teamId, 'crew')
   return (
     <div className="fx-d-groups fx-crew-groups">
       <Prereqs list={needs} />
-      <button className="fx-task fx-task-new fx-flow-new fx-hit" disabled={blocked(needs)} {...opener({ kind: 'newCrew' }, p)}>＋ 新增員工</button>
-      {!crew.length && <Empty>{t('roster.empty')}</Empty>}
+      <button className="fx-task fx-task-new fx-flow-new fx-hit" disabled={blocked(needs)} {...opener({ kind: 'newCrew' }, p)}>{tr('＋ 新增員工')}</button>
+      {!crew.length && <Empty>{tr('還沒有員工')}</Empty>}
       {byBlueprint(w, crew).map(({ bp, list }) => (
         <section key={bp.id} className="fx-d-group" aria-label={bp.name}>
           {/* the group's title is its blueprint, which opens on a sheet of its own */}
@@ -160,7 +159,7 @@ function Crew(p: Opens) {
               // idle people show nothing; busy ones show the step and task
               const doing = a.sub && a.task
                 ? `${nodeOf(a.task.workflow, a.sub.nodeId)?.name ?? ''} · #${a.task.number}`
-                : a.merging ? `合併 · #${a.merging.number}` : null
+                : a.merging ? tr('合併 · #{number}', { number: a.merging.number }) : null
               return (
                 <li key={r.id}><button className="fx-row fx-hit" {...opener({ kind: 'crew', id: r.id }, p)}>
                   <PixelFace look={r.look} name={r.name} size={34} />
@@ -197,11 +196,11 @@ function Settings({ teamId, ...p }: Opens) {
   return (
     <div className="fx-fields">
       <label className="fx-field">
-        <span>名稱</span>
+        <span>{tr('名稱')}</span>
         <input className="fx-control" value={team.name} onChange={(e) => act((x) => editTeam(x, teamId, { name: e.target.value }))} />
       </label>
       <Select
-        label="目標分支" value={team.targetBranch} options={team.branches}
+        label={tr('目標分支')} value={team.targetBranch} options={team.branches}
         onChange={(v) => act((x) => editTeam(x, teamId, { targetBranch: v }))}
       />
       <label className="fx-field fx-field-top">
@@ -210,11 +209,11 @@ function Settings({ teamId, ...p }: Opens) {
           onChange={(e) => act((x) => editTeam(x, teamId, { prompt: e.target.value }))} />
       </label>
       <hr />
-      {num('timeoutMin', '子任務逾時', '分鐘', 1, 1)}
-      {num('costLimitUsd', '任務費用上限', 'USD', 0.5, 0.5)}
-      {num('retries', '失敗重試', '次', 0, 1)}
+      {num('timeoutMin', tr('子任務逾時'), tr('分鐘'), 1, 1)}
+      {num('costLimitUsd', tr('任務費用上限'), 'USD', 0.5, 0.5)}
+      {num('retries', tr('失敗重試'), tr('次'), 0, 1)}
       <hr />
-      <button className="fx-save fx-danger" {...opener({ kind: 'disband' }, { teamId, ...p })}>解散公司</button>
+      <button className="fx-save fx-danger" {...opener({ kind: 'disband' }, { teamId, ...p })}>{tr('解散公司')}</button>
     </div>
   )
 }

@@ -1,6 +1,7 @@
 // A chat with an employee, on a detail sheet: who it is with on top, the notes in the middle, the message box below.
 // Until the first message it is only a choice of employee, whose model it runs on; after that both stay as they are.
 
+import { colon, tr } from './core/i18n'
 import { Markdown } from './Markdown'
 import { useEffect, useRef, useState } from 'react'
 import { blocked } from './prereqs'
@@ -120,9 +121,9 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
       {chat && (
         <div className="fx-tools">
           <button type="button" className="fx-tool fx-tool-text fx-hit" disabled={drafting || writing || left} aria-expanded={creating} onClick={() => void draftTask()}>
-            {drafting ? '整理中…' : '建立任務'}
+            {drafting ? tr('整理中…') : tr('建立任務')}
           </button>
-          <DeleteTool what="對話" onConfirm={() => { act((x) => deleteChat(x, chat.id)); onGoneChat() }} />
+          <DeleteTool what={tr('對話')} onConfirm={() => { act((x) => deleteChat(x, chat.id)); onGoneChat() }} />
         </div>
       )}
       <header className="fx-room-head">
@@ -134,30 +135,30 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
           </div>
         ) : (
           <div className="fx-room-picks">
-            <span className="fx-sr"><Heading {...h}>新對話</Heading></span>
-            <CrewSelect label="員工" value={replicaId} crew={crew} onChange={setReplicaId} />
-            <p className="fx-field"><span>模型</span><span className="fx-room-model">{replica && mindOf(replica)}</span></p>
+            <span className="fx-sr"><Heading {...h}>{tr('新對話')}</Heading></span>
+            <CrewSelect label={tr('員工')} value={replicaId} crew={crew} onChange={setReplicaId} />
+            <p className="fx-field"><span>{tr('模型')}</span><span className="fx-room-model">{replica && mindOf(replica)}</span></p>
           </div>
         )}
       </header>
       <Prereqs list={needs} />
-      <ol ref={log} className="fx-room-log" aria-live="polite" aria-label={`和 ${name} 的對話`}>
+      <ol ref={log} className="fx-room-log" aria-live="polite" aria-label={tr('和 {name} 的對話', { name })}>
         {chat?.messages.map((m, i) => m.from === 'tool'
           ? <li key={i} className="fx-room-tool"><code>{m.text}</code></li>
           : (
             <li key={i} className={`fx-chat-msg fx-chat-${m.from}`}>
               {m.from === 'agent'
-                ? <div className="fx-chat-bubble"><span className="fx-sr">{name}：</span><Markdown text={m.text} /></div>
+                ? <div className="fx-chat-bubble"><span className="fx-sr">{name}{colon()}</span><Markdown text={m.text} /></div>
                 : (
                   <div className="fx-chat-said">
                     {m.images && m.images.length > 0 && (
                       <div className="fx-chat-images">{m.images.map((im, j) => <img key={j} src={im.url} alt={im.name} />)}</div>
                     )}
-                    {m.text && <p className="fx-chat-bubble"><span className="fx-sr">你：</span>{m.text}</p>}
+                    {m.text && <p className="fx-chat-bubble"><span className="fx-sr">{tr('你：')}</span>{m.text}</p>}
                     <div className="fx-chat-foot">
                     <time>{fmtClock(m.at)}</time>
                     {!left && (
-                      <button type="button" className="fx-chat-edit fx-hit" aria-label="編輯這則訊息" title="編輯" disabled={sending} onClick={() => edit(i)}>
+                      <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('編輯這則訊息')} title={tr('編輯')} disabled={sending} onClick={() => edit(i)}>
                         <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
                           <path d="M2.5 13.5l.6-3L10.6 3l2.4 2.4-7.5 7.5z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                           <path d="M9 4.6l2.4 2.4" stroke="currentColor" strokeWidth="1.5" />
@@ -172,7 +173,7 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
           ))}
         {writing && (
           <li className="fx-chat-msg fx-chat-agent fx-chat-writing">
-            <span className="fx-sr">{name} 正在回覆</span>
+            <span className="fx-sr">{tr('{name} 正在回覆', { name })}</span>
             {live
               // read out when it is done, not piece by piece
               ? <div className="fx-chat-bubble" aria-hidden="true"><Markdown text={live} /></div>
@@ -180,10 +181,10 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
           </li>
         )}
       </ol>
-      {!chat && !crew.length && <p className="fx-d-muted">這間公司還沒有員工</p>}
-      {!chat && uncommitted && <p className="fx-room-warn" role="status">專案資料夾有未提交的改動，員工可能會改到同一份檔案</p>}
+      {!chat && !crew.length && <p className="fx-d-muted">{tr('這間公司還沒有員工')}</p>}
+      {!chat && uncommitted && <p className="fx-room-warn" role="status">{tr('專案資料夾有未提交的改動，員工可能會改到同一份檔案')}</p>}
       {left
-        ? <p className="fx-d-muted">{name} 已經離開公司</p>
+        ? <p className="fx-d-muted">{tr('{name} 已經離開公司', { name })}</p>
         : (
           <form className="fx-room-say" onSubmit={(e) => { e.preventDefault(); void send() }}
             onPaste={(e) => {
@@ -193,26 +194,26 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
               e.preventDefault()
               void attach(files)
             }}>
-            {refused && <p className="fx-room-warn fx-room-say-wide" role="status">圖片只能是 PNG、JPEG、GIF 或 WebP，單張最大 3.75MB，一則最多 {MAX_IMAGES} 張</p>}
+            {refused && <p className="fx-room-warn fx-room-say-wide" role="status">{tr('圖片只能是 PNG、JPEG、GIF 或 WebP，單張最大 3.75MB，一則最多 {MAX_IMAGES} 張', { MAX_IMAGES })}</p>}
             {images.length > 0 && (
               <div className="fx-thumbs fx-room-say-wide">
                 {images.map((im, i) => (
                   <figure key={i} className="fx-thumb">
                     <img src={im.url} alt={im.name} />
-                    <button type="button" className="fx-thumb-x" aria-label={`移除 ${im.name}`}
+                    <button type="button" className="fx-thumb-x" aria-label={tr('移除 {name}', { name: im.name })}
                       onClick={() => setImages((now) => now.filter((_, j) => j !== i))}>×</button>
                   </figure>
                 ))}
               </div>
             )}
-            <label className="fx-room-attach fx-hit" title="加入圖片">
+            <label className="fx-room-attach fx-hit" title={tr('加入圖片')}>
               <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
                 <path d="M13 7.5 8 12.5a3 3 0 0 1-4.3-4.2l5.4-5.4a2 2 0 0 1 2.9 2.8l-5.4 5.4a1 1 0 0 1-1.4-1.4L10 5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <input type="file" accept={IMAGE_TYPES.join(',')} multiple className="fx-sr" aria-label="加入圖片"
+              <input type="file" accept={IMAGE_TYPES.join(',')} multiple className="fx-sr" aria-label={tr('加入圖片')}
                 onChange={(e) => { void attach([...(e.target.files ?? [])]); e.target.value = '' }} />
             </label>
-            <textarea ref={box} className="fx-control" rows={2} value={text} aria-label="訊息" placeholder="輸入訊息"
+            <textarea ref={box} className="fx-control" rows={2} value={text} aria-label={tr('訊息')} placeholder={tr('輸入訊息')}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
                 // Enter sends; not while a Chinese word is still being picked in the input method
@@ -223,11 +224,11 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
               }} />
             {writing
               ? (
-                <button type="button" className="fx-room-send" aria-label="暫停" title="暫停" onClick={() => act((x) => stopChat(x, chat!.id))}>
+                <button type="button" className="fx-room-send" aria-label={tr('暫停')} title={tr('暫停')} onClick={() => act((x) => stopChat(x, chat!.id))}>
                   <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M5 3v10M11 3v10" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" /></svg>
                 </button>
               ) : (
-                <button type="submit" className="fx-room-send" disabled={!ready} aria-label="發送" title="發送">
+                <button type="submit" className="fx-room-send" disabled={!ready} aria-label={tr('發送')} title={tr('發送')}>
                   <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </button>
               )}

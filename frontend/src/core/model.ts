@@ -5,7 +5,7 @@ import { depths, inEdges, nodeOf, outEdges, wouldCreateCycle } from './domain/gr
 import { combine } from './domain/rollup'
 import { statusOf, subsOf, TRAVEL } from './domain/sim'
 import type { LogLine, Replica, Status, SubTask, Task, World, Workflow, WorkflowNode } from './domain/types'
-import type { T } from './i18n'
+import { appLanguage, colon, trRecorded } from './i18n'
 import { presetRank } from './data/presets'
 import { useStore } from './store'
 
@@ -17,7 +17,7 @@ export const fmtCost = (usd: number) => `$${usd.toFixed(2)}`
 /** Simulated seconds as m:ss. */
 export const fmtClock = (sec: number) => {
   // the backend's clock is real time; the simulator's counts up from zero
-  if (sec >= 1e9) return new Date(sec * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false })
+  if (sec >= 1e9) return new Date(sec * 1000).toLocaleTimeString(appLanguage() === 'zh' ? 'zh-TW' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
   const s = Math.max(0, Math.floor(sec))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
@@ -25,13 +25,13 @@ export const fmtClock = (sec: number) => {
 /** A stable hue per task number, used to tell tasks apart. */
 export const taskHue = (n: number) => (n * 67 + 200) % 360
 
-export function logText(t: T, l: LogLine): string {
+export function logText(l: LogLine): string {
   if (!l.key) return l.text
   if (l.kind === 'human') {
     const note = l.args?.note
-    return note ? `${t(l.key)}：${note}` : t(l.key)
+    return note ? `${trRecorded(l.key)}${colon()}${note}` : trRecorded(l.key)
   }
-  return t(`log.${l.key}`, l.args)
+  return trRecorded(`log.${l.key}`, l.args)
 }
 
 export const teamTasks = (w: World, teamId: string) =>
@@ -90,11 +90,6 @@ export function inbox(w: World, teamId: string | null): InboxItem[] {
     }
   }
   return items
-}
-
-export function inboxLabel(t: T, w: World, i: InboxItem) {
-  if (i.kind === 'awaitMerge') return t('task.awaitMerge', { branch: w.teams[i.task.teamId].targetBranch })
-  return t(`review.${i.kind}`, { name: i.name })
 }
 
 export function counts(w: World, teamId: string) {

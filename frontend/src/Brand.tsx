@@ -13,7 +13,7 @@ export function clockText(now: Date, locale: Locale) {
 }
 
 export function Brand() {
-  const locale = useStore((s) => s.locale)
+  const locale = useStore((s) => s.world.language)
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000)

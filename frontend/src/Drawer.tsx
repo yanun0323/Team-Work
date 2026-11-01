@@ -4,6 +4,7 @@
 // opens shows its detail on a sheet over the upper left of the map (DrawerDetail). There is no close
 // button: a click on the map puts everything away.
 
+import { tr } from './core/i18n'
 import { openFolder } from './core/ops'
 import { MOCK } from './core/mode'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
@@ -68,18 +69,18 @@ export function CompanyTitle({ team, look, canOpenFolder, children }: { team: Te
         {children}
         <p className="fx-where">
           <span className="fx-folder">
-            <code title="專案位置">{team.folder}</code>
+            <code title={tr('專案位置')}>{team.folder}</code>
             {canOpenFolder && !MOCK && (
-              <button type="button" className="fx-tool fx-hit fx-folder-open" aria-label="在 Finder 打開" title="在 Finder 打開" onClick={() => openFolder(team.id)}>
+              <button type="button" className="fx-tool fx-hit fx-folder-open" aria-label={tr('在 Finder 打開')} title={tr('在 Finder 打開')} onClick={() => openFolder(team.id)}>
                 <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
                   <path d="M1.75 12.5v-9h4.2l1.5 1.75h6.8v7.25z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
                 </svg>
               </button>
             )}
           </span>
-          <span className="fx-branch" title="目標分支">
+          <span className="fx-branch" title={tr('目標分支')}>
             <BranchIcon />
-            <span className="fx-sr">目標分支 </span>
+            <span className="fx-sr">{tr('目標分支 ')}</span>
             <code>{team.targetBranch}</code>
           </span>
         </p>
@@ -153,7 +154,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
           <CompanyTitle team={team} look={look} canOpenFolder>
             <h1 id="fx-drawer-title" ref={title} tabIndex={-1}>{team.name}</h1>
           </CompanyTitle>
-          <div className="fx-tabs" role="tablist" aria-label="公司檔案" onKeyDown={onTabKey}>
+          <div className="fx-tabs" role="tablist" aria-label={tr('公司檔案')} onKeyDown={onTabKey}>
             {TABS.map((x, i) => (
               <button key={x.id} ref={(el) => void (tabs.current[i] = el)} type="button" role="tab"
                 id={`fx-tab-${x.id}`} aria-controls="fx-panel" aria-selected={tab === x.id} tabIndex={tab === x.id ? 0 : -1}
@@ -161,7 +162,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
                   pick(x.id)
                   if (x.id === 'terminal') setTerminalFocus((n) => n + 1)
                 }}>
-                {x.label}
+                {tr(x.label)}
               </button>
             ))}
           </div>

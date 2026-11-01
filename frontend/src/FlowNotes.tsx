@@ -13,6 +13,7 @@
 // a note's top right corner shows a bin to remove it, all but the two ends. The step list under the drawing
 // offers the same by keyboard.
 
+import { tr } from './core/i18n'
 import { useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import type { Workflow, WorkflowEdge } from './core/domain/types'
 import { FlowView } from './core/FlowView'
@@ -160,11 +161,11 @@ export function FlowNotes({ wf, staff, done, open, onOpen, canOpen, edit }: {
         renderEdgeLabel={edit && ((e) => (
           <span className="fx-mid">
             <button type="button" className="fx-mid-btn" onClick={() => edit.insert(e.id)}
-              aria-label={`在 ${nameOf(e.from)} 和 ${nameOf(e.to)} 之間插入步驟`} title="插入步驟">
+              aria-label={tr('在 {a} 和 {b} 之間插入步驟', { a: nameOf(e.from), b: nameOf(e.to) })} title={tr('插入步驟')}>
               <svg viewBox="0 0 10 10" width="13" height="13" aria-hidden="true"><path d="M5 1.5v7M1.5 5h7" stroke="currentColor" strokeWidth="1.4" /></svg>
             </button>
             <button type="button" className="fx-mid-btn fx-mid-cut" onClick={() => edit.unlink(e.id)}
-              aria-label={`拿掉 ${nameOf(e.from)} 到 ${nameOf(e.to)} 的箭頭`} title="拿掉這條箭頭">
+              aria-label={tr('拿掉 {a} 到 {b} 的箭頭', { a: nameOf(e.from), b: nameOf(e.to) })} title={tr('拿掉這條箭頭')}>
               <svg viewBox="0 0 10 10" width="13" height="13" aria-hidden="true"><path d="M2.5 2.5l5 5M7.5 2.5l-5 5" stroke="currentColor" strokeWidth="1.4" /></svg>
             </button>
           </span>
@@ -180,7 +181,7 @@ export function FlowNotes({ wf, staff, done, open, onOpen, canOpen, edit }: {
                 </span>
               )}
               {/* nobody works it yet: a round ! pinned to the note's corner */}
-              {crew?.length === 0 && <span className="fx-node-warn" role="img" aria-label="沒有分配人員" title="沒有分配人員">!</span>}
+              {crew?.length === 0 && <span className="fx-node-warn" role="img" aria-label={tr('沒有分配人員')} title={tr('沒有分配人員')}>!</span>}
             </>
           )
           // while an arrow is drawn: the notes it may reach, the one under the pointer, the rest faded
@@ -201,8 +202,8 @@ export function FlowNotes({ wf, staff, done, open, onOpen, canOpen, edit }: {
             <button type="button" className={ask ? 'fx-node-del fx-node-del-ask' : 'fx-node-del'}
               onClick={() => { if (ask) { setAsking(null); edit.remove(n.id) } else setAsking(n.id) }}
               onBlur={() => setAsking(null)} onPointerLeave={() => setAsking(null)}
-              aria-label={ask ? `確定刪除 ${n.name || '這一步'}` : `刪除 ${n.name || '這一步'}`} title={ask ? undefined : '刪除這一步'}>
-              {ask ? '確定刪除' : (
+              aria-label={ask ? tr('確定刪除 {a}', { a: n.name || tr('這一步') }) : tr('刪除 {a}', { a: n.name || tr('這一步') })} title={ask ? undefined : tr('刪除這一步')}>
+              {ask ? tr('確定刪除') : (
                 <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
                   <path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.8 9h6.4l.8-9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                 </svg>

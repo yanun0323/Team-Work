@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { applyPatches, emptyWorld, request, UNREACHABLE } from './backend'
+import { applyPatches, emptyWorld, request, unreachable } from './backend'
 import { fmtClock } from './model'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -48,9 +48,9 @@ describe('requests', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":{"code":"conflict","message":"不行"}}', { status: 409 })))
     await expect(request('POST', '/x')).rejects.toThrow('不行')
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })))
-    await expect(request('POST', '/x')).rejects.toThrow(UNREACHABLE)
+    await expect(request('POST', '/x')).rejects.toThrow(unreachable())
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed') }))
-    await expect(request('POST', '/x')).rejects.toThrow(UNREACHABLE)
+    await expect(request('POST', '/x')).rejects.toThrow(unreachable())
   })
 })
 

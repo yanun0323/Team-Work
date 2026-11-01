@@ -3,6 +3,7 @@
 // two ends: it always starts with 整理需求 (the task node) and ends with 驗收. Which step is the end is fixed
 // when the draft is made (`end`), since cutting a step's last arrow would otherwise make it look like one.
 
+import { tr } from './core/i18n'
 import { create } from 'zustand'
 import { canReach, endNodeOf, inEdges, outEdges, taskNodeOf } from './core/domain/graph'
 import { flowEnds } from './core/domain/sim'
@@ -35,8 +36,8 @@ export const isMiddle = (wf: Workflow, end: string, id: string) => id !== taskNo
 function newName(wf: Workflow) {
   const taken = new Set(wf.nodes.map((n) => n.name.trim()))
   let i = 1
-  while (taken.has(`新步驟${i}`)) i++
-  return `新步驟${i}`
+  while (taken.has(tr('新步驟{i}', { i }))) i++
+  return tr('新步驟{i}', { i })
 }
 
 const blankStep = (wf: Workflow): WorkflowNode => ({

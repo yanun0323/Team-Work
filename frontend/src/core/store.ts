@@ -5,7 +5,8 @@ import { applyPatches, connect, emptyWorld, type ServerEvent } from './backend'
 import { seedWorld } from './data/seed'
 import { addLive, clearAllLive, clearLive } from './live'
 import { tick } from './domain/sim'
-import type { Locale, World, WorldEvent } from './domain/types'
+import { setAppLanguage } from './i18n'
+import type { World, WorldEvent } from './domain/types'
 import { MOCK } from './mode'
 import { editing, setFailureHandler } from './ops'
 
@@ -28,7 +29,6 @@ export interface Toast {
 
 interface State {
   world: World
-  locale: Locale
   view: View
   teamId: string | null
   workflowId: string | null
@@ -46,7 +46,7 @@ interface State {
   /** Change the world. Domain functions from sim.ts mutate in place and run inside this. */
   act: (fn: (w: World) => void) => void
   step: (dt: number) => void
-  set: (patch: Partial<Pick<State, 'locale' | 'view' | 'teamId' | 'workflowId' | 'nodeId' | 'panel' | 'speed'>>) => void
+  set: (patch: Partial<Pick<State, 'view' | 'teamId' | 'workflowId' | 'nodeId' | 'panel' | 'speed'>>) => void
   dismiss: (id: number) => void
   /** Take in what the backend sends. */
   receive: (ev: ServerEvent) => void
@@ -62,7 +62,6 @@ const firstTeam = Object.values(world.teams).sort((a, b) => a.createdAt - b.crea
 export const useStore = create<State>()(
   immer((set) => ({
     world,
-    locale: 'zh',
     // Open straight into the first team; the team list is one click away.
     view: firstTeam ? 'home' : 'teams',
     teamId: firstTeam?.id ?? null,
@@ -174,10 +173,14 @@ export function useBackend() {
   }, [])
 }
 
-/** Keep <html lang> in sync with the chosen language. */
-export function useDocumentLang() {
-  const locale = useStore((s) => s.locale)
+/**
+ * Puts the interface in the world's language. Called from the root while rendering, ahead of everything under it, so a
+ * change of language renders the whole interface again with `tr` already answering in it.
+ */
+export function useAppLanguage() {
+  const language = useStore((s) => s.world.language)
+  setAppLanguage(language)
   useEffect(() => {
-    document.documentElement.lang = locale === 'zh' ? 'zh-Hant' : 'en'
-  }, [locale])
+    document.documentElement.lang = language === 'zh' ? 'zh-Hant' : 'en'
+  }, [language])
 }

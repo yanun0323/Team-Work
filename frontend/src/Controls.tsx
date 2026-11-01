@@ -1,6 +1,7 @@
 // Form controls for the company file, drawn to match the newsprint: a pick-list that drops a paper slip,
 // and a number field with paper − / + tabs. Both keep the keyboard behaviour of the native controls.
 
+import { tr } from './core/i18n'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 
 const Chevron = () => (
@@ -224,7 +225,7 @@ export function Stepper({ label, unit, value, min, step, onChange }: {
       <label htmlFor={id}>{label}</label>
       <span className="fx-unit">
         <span className="fx-stepper">
-          <button type="button" tabIndex={-1} aria-label={`${label}減少`} disabled={value - step < min} onClick={() => by(-1)}>
+          <button type="button" tabIndex={-1} aria-label={tr('{label}減少', { label })} disabled={value - step < min} onClick={() => by(-1)}>
             <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 5h7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
           </button>
           <input
@@ -234,7 +235,7 @@ export function Stepper({ label, unit, value, min, step, onChange }: {
               if (e.target.value !== '' && Number.isFinite(v) && v >= min) onChange(v)
             }}
           />
-          <button type="button" tabIndex={-1} aria-label={`${label}增加`} onClick={() => by(1)}>
+          <button type="button" tabIndex={-1} aria-label={tr('{label}增加', { label })} onClick={() => by(1)}>
             <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 5h7M5 1.5v7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
           </button>
         </span>
@@ -246,7 +247,7 @@ export function Stepper({ label, unit, value, min, step, onChange }: {
 
 /** The round badge of something waiting on the user: red ! when they must answer, green merge mark when work only needs their nod. */
 export function WaitBadge({ merge, inline }: { merge?: boolean; inline?: boolean }) {
-  const label = merge ? '可以合併' : '需要回覆'
+  const label = merge ? tr('可以合併') : tr('需要回覆')
   return (
     <span className={`fx-badge${merge ? ' fx-badge-merge' : ''}${inline ? ' fx-badge-inline' : ''}`} title={label}>
       {merge

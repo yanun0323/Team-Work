@@ -1,6 +1,7 @@
+import { tr } from './core/i18n'
 import { createRoot } from 'react-dom/client'
-import { useBackend, useSimLoop, useStore } from './core/store'
-import { UNREACHABLE } from './core/backend'
+import { useAppLanguage, useBackend, useSimLoop, useStore } from './core/store'
+import { unreachable } from './core/backend'
 import { World } from './World'
 import './fonts.css'
 import './fusion.css'
@@ -9,6 +10,7 @@ function App() {
   // the fake runtime keeps the company files live
   useSimLoop()
   useBackend()
+  useAppLanguage()
   return <div className="fusion"><World /><Trouble /></div>
 }
 
@@ -20,8 +22,8 @@ function Trouble() {
   if (!offline && !failure) return null
   return (
     <div className="fx-trouble" role="alert">
-      <span>{offline ? UNREACHABLE : failure}</span>
-      {!offline && <button type="button" className="fx-tool fx-hit" aria-label="關閉" title="關閉" onClick={() => setFailure('')}>✕</button>}
+      <span>{offline ? unreachable() : failure}</span>
+      {!offline && <button type="button" className="fx-tool fx-hit" aria-label={tr('關閉')} title={tr('關閉')} onClick={() => setFailure('')}>✕</button>}
     </div>
   )
 }
