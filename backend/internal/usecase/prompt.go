@@ -38,7 +38,8 @@ func languageRule(language string) string {
 // composePrompt builds the system prompt, highest priority first: the fixed rules, this step, how to hand off,
 // the company's prompt, then the employee's own prompt and memory.
 func composePrompt(t *model.Task, team *model.Team, node *model.WorkflowNode, bp *model.Blueprint, r *model.Replica, language string) string {
-	wf := &t.Workflow
+	wf := agentFlow(&t.Workflow)
+	node = nodeOf(wf, node.ID)
 	var b strings.Builder
 	b.WriteString(systemRules)
 	b.WriteString("\n")
@@ -87,8 +88,8 @@ func composePrompt(t *model.Task, team *model.Team, node *model.WorkflowNode, bp
 	if team.Prompt != "" {
 		fmt.Fprintf(&b, "\n# Company rules\n%s\n", team.Prompt)
 	}
-	if bp.Prompt != "" {
-		fmt.Fprintf(&b, "\n# Your role\n%s\n", bp.Prompt)
+	if role := agentRole(bp); role != "" {
+		fmt.Fprintf(&b, "\n# Your role\n%s\n", role)
 	}
 	if len(r.Memory) > 0 {
 		b.WriteString("\n# Your memory\n")
@@ -101,6 +102,7 @@ func composePrompt(t *model.Task, team *model.Team, node *model.WorkflowNode, bp
 
 // firstMessage is what a run starts from: the task itself, what came from upstream, and why it is being redone.
 func (e *Engine) firstMessage(t *model.Task, s *model.SubTask) model.Message {
+	wf := agentFlow(&t.Workflow)
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Task #%d: %s\n%s\n", t.Number, t.Title, t.Description)
 	for _, id := range s.UpstreamIDs {
@@ -109,7 +111,7 @@ func (e *Engine) firstMessage(t *model.Task, s *model.SubTask) model.Message {
 			continue
 		}
 		h := u.Handoff.Agent
-		fmt.Fprintf(&b, "\n# Handoff from \"%s\"\nGoal: %s\n", nodeOf(&t.Workflow, u.NodeID).Name, h.Goal)
+		fmt.Fprintf(&b, "\n# Handoff from \"%s\"\nGoal: %s\n", nodeOf(wf, u.NodeID).Name, h.Goal)
 		for _, part := range []struct {
 			name  string
 			items []string

@@ -487,8 +487,13 @@ func TestEmployeesWriteInTheLanguagePicked(t *testing.T) {
 	if err := r.e.SetLanguage(model.LanguageEn); err != nil {
 		t.Fatal(err)
 	}
-	if ev := <-events; ev.Type != "language" || ev.Language != model.LanguageEn {
-		t.Fatalf("connected clients were not told: %+v", ev)
+	for ev := range events {
+		if ev.Type == "language" {
+			if ev.Language != model.LanguageEn {
+				t.Fatalf("connected clients were told: %+v", ev)
+			}
+			break
+		}
 	}
 	if got := said("hi"); !strings.Contains(got, "user reads in English") || strings.Contains(got, "Traditional Chinese") {
 		t.Fatalf("en: %s", got)

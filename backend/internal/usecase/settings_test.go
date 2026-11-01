@@ -244,7 +244,7 @@ func TestReloadKeepsTaskSnapshotAndConversation(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := readSettings(t, r)
-	s.Workflows[r.flow.ID].Nodes[0].Prompt = "new task instructions"
+	s.Workflows[r.flow.ID].Name = "new name"
 	writeSettings(t, r, s)
 	if err := r.e.ReloadSettings(context.Background()); err != nil {
 		t.Fatal(err)
@@ -276,7 +276,7 @@ func TestReloadKeepsTaskSnapshotAndConversation(t *testing.T) {
 			t.Fatal("reload deleted conversation")
 		}
 	}
-	if r.world().Workflows[r.flow.ID].Nodes[0].Prompt != "new task instructions" {
+	if r.world().Workflows[r.flow.ID].Name != "new name" {
 		t.Fatal("shared workflow not updated")
 	}
 }

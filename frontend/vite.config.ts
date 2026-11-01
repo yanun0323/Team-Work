@@ -6,7 +6,8 @@ const BACKEND = { '/api': { target: 'http://127.0.0.1:8787', changeOrigin: true,
 
 export default defineConfig({
   plugins: [react()],
-  server: { port: 5173, strictPort: true, proxy: BACKEND },
+  // `..` for the built-in blueprints and flows, whose text the backend shares
+  server: { port: 5173, strictPort: true, proxy: BACKEND, fs: { allow: ['..'] } },
   preview: { port: 5173, strictPort: true, proxy: BACKEND },
   test: { environment: 'node', include: ['src/**/*.test.{ts,tsx}'] },
 })

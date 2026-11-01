@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -226,7 +227,7 @@ func TestTaskRunsToMergeOnRealGit(t *testing.T) {
 		if lastIsResult(req) {
 			return call("submit_handoff", handoff), nil
 		}
-		if stepOf(req) == "整理需求" {
+		if stepOf(req) == "Clarify requirements" {
 			return call("write_file", map[string]string{"path": "feature.txt", "content": "new\n"}), nil
 		}
 		return call("submit_handoff", handoff), nil
@@ -243,7 +244,7 @@ func TestTaskRunsToMergeOnRealGit(t *testing.T) {
 	}
 	// the review step was told what came from upstream
 	last := r.fake.seen[len(r.fake.seen)-1]
-	if !strings.Contains(last.Messages[0].Content[0].Text, `Handoff from "整理需求"`) {
+	if !strings.Contains(last.Messages[0].Content[0].Text, `Handoff from "Clarify requirements"`) {
 		t.Fatalf("no upstream handoff in: %s", last.Messages[0].Content[0].Text)
 	}
 	if _, err := os.Stat(filepath.Join(r.folder, "feature.txt")); err == nil {
@@ -358,7 +359,7 @@ func TestHandedFileReadsTheCommit(t *testing.T) {
 		if lastIsResult(req) {
 			return call("submit_handoff", handoff), nil
 		}
-		if stepOf(req) == "整理需求" {
+		if stepOf(req) == "Clarify requirements" {
 			return call("write_file", map[string]string{"path": "docs/spec.md", "content": "# 真的內容\n"}), nil
 		}
 		return call("submit_handoff", handoff), nil
@@ -408,8 +409,8 @@ func TestEveryStepSeesItsNeighbours(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	for step, wants := range map[string][]string{
-		"寫碼": {"- 整理需求: " + usecase.StartPrompt, "- 討論 (id: talk): " + usecase.TalkPrompt},
-		"討論": {"- 寫碼: 寫碼的指示", "- 驗收: " + usecase.EndPrompt},
+		"寫碼": {"- Clarify requirements: " + usecase.StartPrompt, "- 討論 (id: talk): " + usecase.TalkPrompt},
+		"討論": {"- 寫碼: 寫碼的指示", "- Acceptance review: " + usecase.EndPrompt},
 	} {
 		for _, want := range wants {
 			if !strings.Contains(systems[step], want) {
@@ -491,7 +492,7 @@ func TestDiscussion(t *testing.T) {
 func TestSendBackThenPass(t *testing.T) {
 	sent := false
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
-		if stepOf(req) == "驗收" && !sent {
+		if stepOf(req) == "Acceptance review" && !sent {
 			sent = true
 			return call("send_back", map[string]string{"reason": "少了測試"}), nil
 		}
@@ -523,7 +524,7 @@ func TestMergeConflictIsResolvedByTheOwner(t *testing.T) {
 			}
 			return call("write_file", map[string]string{"path": "f.txt", "content": "both\n"}), nil
 		}
-		if stepOf(req) == "整理需求" && !lastIsResult(req) {
+		if stepOf(req) == "Clarify requirements" && !lastIsResult(req) {
 			return call("write_file", map[string]string{"path": "f.txt", "content": "task\n"}), nil
 		}
 		return call("submit_handoff", handoff), nil
@@ -560,7 +561,7 @@ func TestMergeLeftUnresolvedCanBeTriedAgain(t *testing.T) {
 			}
 			return say("好了"), nil
 		}
-		if stepOf(req) == "整理需求" && !lastIsResult(req) {
+		if stepOf(req) == "Clarify requirements" && !lastIsResult(req) {
 			return call("write_file", map[string]string{"path": "f.txt", "content": "task\n"}), nil
 		}
 		return call("submit_handoff", handoff), nil
@@ -850,16 +851,6 @@ func TestCannotDeleteWhatIsInUse(t *testing.T) {
 	if err := r.e.DeleteBlueprint(r.owner.BlueprintID); err == nil {
 		t.Fatal("a blueprint in use was deleted")
 	}
-	for id := range w.Workflows {
-		if id != r.flow.ID {
-			if err := r.e.DeleteWorkflow(id); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if err := r.e.DeleteWorkflow(r.flow.ID); err == nil {
-		t.Fatal("the last flow was deleted")
-	}
 	bad := *r.flow
 	bad.Edges = append(bad.Edges, model.WorkflowEdge{ID: "x", From: bad.Nodes[1].ID, To: bad.Nodes[0].ID})
 	if err := r.e.SaveWorkflow(bad.ID, bad); err == nil {
@@ -942,4 +933,11 @@ func TestSkillsFromSeveralFolders(t *testing.T) {
 		}
 	}
 	t.Fatal("the model was never given the file")
+}
+
+// requests is what the model was asked so far, safe while a run is under way.
+func (s *script) requests() []model.ModelRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.seen)
 }

@@ -12,14 +12,25 @@ import (
 	"github.com/yanun0323/mho-company/internal/usecase"
 )
 
+func presetFlowOf(t *testing.T, w *model.World, id string) *model.Workflow {
+	t.Helper()
+	wf := w.Workflows[id]
+	if wf == nil {
+		t.Fatalf("no flow %s", id)
+	}
+	return wf
+}
+
 func TestPresets(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	w := r.world()
 	names := map[string]string{}
 	for id, b := range w.Blueprints {
-		names[b.Name] = id
-		if b.Source.Kind == "yaml" && b.Source.Text == "" {
-			t.Fatalf("%s has no text", b.Name)
+		if model.IsPresetID(id) {
+			names[b.Name] = id
+			if b.Source.Kind != model.SourcePreset {
+				t.Fatalf("%s: %+v", b.Name, b.Source)
+			}
 		}
 	}
 	for _, want := range []string{"專案經理", "產品負責人", "設計師", "後端工程師", "前端工程師", "測試工程師"} {
@@ -27,51 +38,112 @@ func TestPresets(t *testing.T) {
 			t.Fatalf("no blueprint %s: %v", want, names)
 		}
 	}
-
 	if !slices.Contains(w.Blueprints[names["設計師"]].Tools, enum.ToolRunCommand) {
 		t.Fatal("the designer can't run commands")
 	}
-
-	flows := map[string]*model.Workflow{}
-	for _, wf := range r.world().Workflows {
-		if flows[wf.Name] != nil {
-			t.Fatalf("two flows named %s", wf.Name)
-		}
-		flows[wf.Name] = wf
+	feature := presetFlowOf(t, w, "preset-feature")
+	if feature.Name != "功能開發" || len(feature.Edges) != 7 {
+		t.Fatalf("%+v", feature)
 	}
-	for _, want := range []string{"功能開發", "修 Bug", "產品規劃"} {
-		wf := flows[want]
-		if wf == nil {
-			t.Fatalf("no flow %s", want)
+	for _, id := range []string{"preset-feature", "preset-bugfix", "preset-planning"} {
+		// a copy goes through the same checks as a flow drawn by hand
+		c, err := r.e.DuplicateWorkflow(id)
+		if err != nil {
+			t.Fatal(err)
 		}
-		// saving runs the same checks as a flow drawn by hand
-		if err := r.e.SaveWorkflow(wf.ID, *wf); err != nil {
-			t.Fatalf("%s: %v", want, err)
+		if err := r.e.SaveWorkflow(c.ID, *c); err != nil {
+			t.Fatalf("%s: %v", id, err)
 		}
-	}
-	if len(flows["功能開發"].Edges) != 7 {
-		t.Fatalf("%+v", flows["功能開發"].Edges)
-	}
-	if flows["預設任務流程"] != nil {
-		t.Fatal("the plain default flow is back")
 	}
 }
 
-func TestDeletedPresetStaysDeleted(t *testing.T) {
-	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
-	for id, b := range r.world().Blueprints {
-		if b.Name == "測試工程師" {
-			if err := r.e.DeleteBlueprint(id); err != nil {
-				t.Fatal(err)
-			}
+func TestPresetsCannotChangeButCanBeCopied(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
+	w := r.world()
+	bp, wf := *w.Blueprints["preset-pm"], *presetFlowOf(t, w, "preset-feature")
+	for what, err := range map[string]error{
+		"save blueprint":   r.e.SaveBlueprint(bp.ID, bp),
+		"delete blueprint": r.e.DeleteBlueprint(bp.ID),
+		"save flow":        r.e.SaveWorkflow(wf.ID, wf),
+		"delete flow":      r.e.DeleteWorkflow(wf.ID),
+	} {
+		if err == nil {
+			t.Errorf("%s went through", what)
 		}
 	}
+	if _, err := r.e.CreateBlueprint(bp); err == nil {
+		t.Error("made a blueprint that says it is built in")
+	}
+	// a copy takes what is shown, is the user's own, and does not change with the language
+	c, err := r.e.DuplicateWorkflow(wf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.IsPresetID(c.ID) || c.Name != "功能開發-1" {
+		t.Fatalf("%s %s", c.ID, c.Name)
+	}
+	if err := r.e.SetLanguage(model.LanguageEn); err != nil {
+		t.Fatal(err)
+	}
+	w = r.world()
+	if got := w.Workflows[c.ID]; got.Name != "功能開發-1" || got.Nodes[2].Name != "撰寫規格" || got.Nodes[0].Name != "Clarify requirements" {
+		t.Fatalf("%s %+v", got.Name, got.Nodes[:3])
+	}
+	if got := presetFlowOf(t, w, wf.ID); got.Name != "Feature development" || got.Nodes[2].Name != "Write spec" {
+		t.Fatalf("%+v", got)
+	}
+	if got := w.Blueprints[bp.ID]; got.Name != "Project Manager" || strings.Contains(got.Prompt, "你是") {
+		t.Fatalf("%+v", got)
+	}
+	// the files hold only what the user made, and a restart brings the built-in ones back in the language picked
 	r.e.Close()
 	newEngine(t, r)
-	for _, b := range r.world().Blueprints {
-		if b.Name == "測試工程師" {
-			t.Fatal("the preset came back")
+	w = r.world()
+	if w.Blueprints[bp.ID].Name != "Project Manager" || w.Workflows[wf.ID].Name != "Feature development" {
+		t.Fatal("restart lost the presets")
+	}
+	if err := r.e.ReloadSettings(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if r.world().Workflows[wf.ID] == nil || r.world().Blueprints[bp.ID] == nil {
+		t.Fatal("reload lost the presets")
+	}
+}
+
+// Whatever the user sees, employees are told a built-in blueprint and flow in English, with the language to reply in.
+func TestEmployeesAreToldPresetsInEnglish(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	pm, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: "preset-pm", Name: "Pam", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "加功能", WorkflowID: "preset-bugfix", OwnerID: &pm.ID,
+		Staff: map[string][]string{"preset-bugfix-0-0": {pm.ID}, "preset-bugfix-1-0": {pm.ID}, "preset-bugfix-2-0": {pm.ID}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Workflow.Nodes[2].Name != "重現問題" {
+		t.Fatalf("the task shows %q", task.Workflow.Nodes[2].Name)
+	}
+	r.wait("the second step", func(*model.World) bool { return len(r.fake.requests()) > 1 })
+	got := r.fake.requests()[1]
+	for _, want := range []string{"company's project manager", "# This step: Reproduce", "user reads in Traditional Chinese", "- Clarify requirements: "} {
+		if !strings.Contains(got.System, want) {
+			t.Errorf("no %q in:\n%s", want, got.System)
 		}
+	}
+	if strings.Contains(got.System, "專案經理") || strings.Contains(got.System, "重現問題") {
+		t.Errorf("Chinese in:\n%s", got.System)
+	}
+	if !strings.Contains(got.Messages[0].Content[0].Text, `Handoff from "Clarify requirements"`) {
+		t.Errorf("%s", got.Messages[0].Content[0].Text)
+	}
+	// a task under way shows the new language too
+	if err := r.e.SetLanguage(model.LanguageEn); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.world().Tasks[task.ID].Workflow.Nodes[2].Name; got != "Reproduce" {
+		t.Fatalf("%q", got)
 	}
 }
 
@@ -164,8 +236,8 @@ func TestThinkingLevelsComeFromTheProvider(t *testing.T) {
 func TestPresetsUseTheAgentFolders(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	found := 0
-	for _, b := range r.world().Blueprints {
-		if !slices.Contains([]string{"專案經理", "產品負責人", "設計師", "後端工程師", "前端工程師", "測試工程師"}, b.Name) {
+	for id, b := range r.world().Blueprints {
+		if !model.IsPresetID(id) {
 			continue
 		}
 		found++
@@ -174,9 +246,6 @@ func TestPresetsUseTheAgentFolders(t *testing.T) {
 			paths = append(paths, p.Source.Path)
 			if p.Source.Kind != "local" || p.Include != nil {
 				t.Fatalf("%s: %+v", b.Name, p)
-			}
-			if !strings.Contains(b.Source.Text, "- path: "+p.Source.Path+"\n") {
-				t.Fatalf("%s's YAML leaves out %s:\n%s", b.Name, p.Source.Path, b.Source.Text)
 			}
 		}
 		if !slices.Equal(paths, []string{"~/.agents/", "~/.codex/", "~/.claude/"}) {
@@ -188,31 +257,17 @@ func TestPresetsUseTheAgentFolders(t *testing.T) {
 	}
 }
 
-func TestRestartDoesNotRewritePresetEdits(t *testing.T) {
+func TestRestartKeepsTheUsersOwn(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
-	var bp *model.Blueprint
-	for _, b := range r.world().Blueprints {
-		if b.Name == "專案經理" {
-			bp = b
-			break
-		}
-	}
+	bp := r.world().Blueprints[r.owner.BlueprintID]
 	bp.Name, bp.Prompt = "PM", "my instructions"
 	if err := r.e.SaveBlueprint(bp.ID, *bp); err != nil {
-		t.Fatal(err)
-	}
-	wf := r.world().Workflows[r.flow.ID]
-	wf.Nodes[0].Prompt = "讀懂任務，整理目標、範圍與驗收條件，交給下一個節點。"
-	if err := r.e.SaveWorkflow(wf.ID, *wf); err != nil {
 		t.Fatal(err)
 	}
 	r.e.Close()
 	newEngine(t, r)
 	if got := r.world().Blueprints[bp.ID]; got.Name != "PM" || got.Prompt != "my instructions" {
 		t.Fatal("restart rewrote blueprint")
-	}
-	if r.world().Workflows[wf.ID].Nodes[0].Prompt != wf.Nodes[0].Prompt {
-		t.Fatal("restart rewrote node prompt")
 	}
 }
 

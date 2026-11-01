@@ -79,7 +79,7 @@ debug: false
 | `GET /branches?folder=` | 查資料夾的分支（只讀），`repo` 是它是不是 git repo |
 | `POST /teams/:id/prompt/refresh` | 重新讀專案的 `AGENTS.md`。公司的 `prompt` 就是這個檔案：`PATCH` 會寫回檔案（不會 commit），建立公司、啟動和員工開工時都會重新讀 |
 | `POST /folder-picker` | 開系統的選擇資料夾視窗（目前只有 macOS），回傳完整路徑 `path`，取消時是空字串 |
-| `POST /workflows`、`PUT`/`DELETE /workflows/:id`、`POST /workflows/:id/duplicate` | 任務流程，所有公司共用；不允許迴圈，至少留一條 |
+| `POST /workflows`、`PUT`/`DELETE /workflows/:id`、`POST /workflows/:id/duplicate` | 任務流程，所有公司共用；不允許迴圈，內建的只能複製 |
 | `POST /providers`、`PATCH`/`DELETE /providers/:id` | 模型供應商；模型清單由供應商提供，`prices` 是每百萬 token 的美元價格 |
 | `POST /blueprints`、`PUT`/`DELETE /blueprints/:id`、`POST /blueprints/:id/update` | 藍圖；`update` 把 Git 來源移到最新版 |
 | `POST /replicas`、`PATCH /replicas/:id`、`DELETE /replicas/:id?heir=` | 雇用、修改（含記憶）、離職交接 |
@@ -127,7 +127,7 @@ Claude Code 的設定：
 
 ## 預設內容
 
-第一次啟動時會建立六個員工藍圖：專案經理、產品負責人、設計師、後端工程師、前端工程師、測試工程師，只建一次，刪掉不會再出現。任務流程也一樣：「功能開發」「修 Bug」「產品規劃」，內容在 `internal/usecase/presets.go`。
+內建六個員工藍圖（專案經理、產品負責人、設計師、後端工程師、前端工程師、測試工程師）和三條任務流程（「功能開發」「修 Bug」「產品規劃」），繁中和英文都在 `internal/usecase/presets.json`。它們的 id 以 `preset-` 開頭，不存進設定檔，也不能修改或刪除；世界資料裡是目前語言的版本，員工收到的一律是英文。自訂項目不能用這個開頭的 id。
 
 任務流程由所有公司共用，任務開始時留一份，之後改任務流程不影響它。任務流程不指定員工，由每個任務決定。
 

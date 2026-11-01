@@ -45,7 +45,12 @@ export interface YamlSource {
   text: string
 }
 
-export type BlueprintSource = GitSource | YamlSource
+/** Built into the app: it cannot be changed, only copied. */
+export interface PresetSource {
+  kind: 'preset'
+}
+
+export type BlueprintSource = GitSource | YamlSource | PresetSource
 
 /**
  * A folder of skills on this computer: an agents folder (`~/.agents/`, whose `skills/` is read) or the

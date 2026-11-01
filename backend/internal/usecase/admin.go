@@ -214,12 +214,15 @@ func (e *Engine) DeleteTeam(id string) error {
 
 // ---------- flows ----------
 
+// errPreset answers any attempt to change what is built into the app.
+var errPreset = model.Errorf(model.CodeConflict, "內建的項目不能修改，請複製後再改")
+
 func (e *Engine) newWorkflow(name string) *model.Workflow {
 	start, end := e.uid("n"), e.uid("n")
 	wf := &model.Workflow{ID: e.uid("wf"), Name: name,
 		Nodes: []model.WorkflowNode{
-			{ID: start, Kind: enum.NodeTask, Name: "整理需求", Prompt: StartPrompt, ReplicaIDs: []string{}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll},
-			{ID: end, Kind: enum.NodeWork, Name: "驗收", Prompt: EndPrompt, ReplicaIDs: []string{}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll, Pos: model.Point{Y: 200}},
+			{ID: start, Kind: enum.NodeTask, Name: presets.Start.Name.in(e.w.Language), Prompt: presets.Start.Prompt.in(e.w.Language), ReplicaIDs: []string{}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll},
+			{ID: end, Kind: enum.NodeWork, Name: presets.End.Name.in(e.w.Language), Prompt: presets.End.Prompt.in(e.w.Language), ReplicaIDs: []string{}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll, Pos: model.Point{Y: 200}},
 		},
 		Edges: []model.WorkflowEdge{{ID: e.uid("e"), From: start, To: end}},
 	}
@@ -246,6 +249,9 @@ func (e *Engine) SaveWorkflow(id string, wf model.Workflow) error {
 		if old == nil {
 			return model.Errorf(model.CodeNotFound, "找不到任務流程")
 		}
+		if model.IsPresetID(id) {
+			return errPreset
+		}
 		wf.ID = id
 		if strings.TrimSpace(wf.Name) == "" {
 			return model.Errorf(model.CodeInvalid, "任務流程要有名稱")
@@ -260,6 +266,7 @@ func (e *Engine) SaveWorkflow(id string, wf model.Workflow) error {
 				}
 			}
 		}
+		localizeFlow(&wf, e.w.Language)
 		e.w.Workflows[id] = &wf
 		return nil
 	})
@@ -290,14 +297,14 @@ func (e *Engine) DuplicateWorkflow(id string) (*model.Workflow, error) {
 	return out, err
 }
 
-// DeleteWorkflow removes a flow; the last one stays, and companies defaulting to it move to another.
+// DeleteWorkflow removes a flow.
 func (e *Engine) DeleteWorkflow(id string) error {
 	return e.doSettings(func() error {
 		if e.w.Workflows[id] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到任務流程")
 		}
-		if len(e.w.Workflows) == 1 {
-			return model.Errorf(model.CodeConflict, "至少要留一條任務流程")
+		if model.IsPresetID(id) {
+			return errPreset
 		}
 		delete(e.w.Workflows, id)
 		return nil
@@ -309,8 +316,12 @@ func (e *Engine) SetLanguage(language string) error {
 	if languageNames[language] == "" {
 		return model.Errorf(model.CodeInvalid, "不支援這個語言")
 	}
-	err := e.do(func() error {
+	err := e.doSettings(func() error {
 		e.w.Language = language
+		e.installPresets()
+		for _, t := range e.w.Tasks {
+			localizeFlow(&t.Workflow, language)
+		}
 		return nil
 	})
 	if err != nil {
@@ -731,6 +742,9 @@ func checkBlueprint(b *model.Blueprint) error {
 			return model.Errorf(model.CodeInvalid, "不認識的工具 %s", t)
 		}
 	}
+	if b.Source.Kind == model.SourcePreset {
+		return errPreset
+	}
 	if b.Skills == nil {
 		b.Skills = []model.SkillPack{}
 	}
@@ -759,6 +773,9 @@ func (e *Engine) SaveBlueprint(id string, b model.Blueprint) error {
 		if e.w.Blueprints[id] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到藍圖")
 		}
+		if model.IsPresetID(id) {
+			return errPreset
+		}
 		if err := checkBlueprint(&b); err != nil {
 			return err
 		}
@@ -772,6 +789,9 @@ func (e *Engine) DeleteBlueprint(id string) error {
 	return e.doSettings(func() error {
 		if e.w.Blueprints[id] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到藍圖")
+		}
+		if model.IsPresetID(id) {
+			return errPreset
 		}
 		for _, r := range e.w.Replicas {
 			if r.BlueprintID == id {

@@ -128,16 +128,12 @@ describe('workflow run', () => {
     expect(duplicateWorkflow(w, wf.id)!.name).toBe('修 Bug-1')
   })
 
-  it('deletes a flow but never the last, ', () => {
+  it('deletes a flow, and a task on it runs on', () => {
     const { w, team } = setup([['start', 'dev']])
     const first = firstFlow(w)
     const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: first, overrides: { '*': calm } })
     deleteWorkflow(w, first)
-    expect(w.workflows[first]).toBeDefined()
-    const second = newWorkflow(w, 'b')
-    deleteWorkflow(w, first)
     expect(w.workflows[first]).toBeUndefined()
-    expect(Object.keys(w.workflows)).toEqual([second.id])
     run(w, 40)
     expect(w.tasks[t.id].workflow.nodes.length).toBeGreaterThan(0)
   })

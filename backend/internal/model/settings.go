@@ -46,8 +46,18 @@ type ProviderConfig struct {
 	Prices   map[string]ModelPrice `json:"prices,omitempty"`
 }
 
+func WithoutPresets[T any](all map[string]T) map[string]T {
+	out := make(map[string]T, len(all))
+	for id, v := range all {
+		if !IsPresetID(id) {
+			out[id] = v
+		}
+	}
+	return out
+}
+
 func SettingsOf(w *World) Settings {
-	s := Settings{Version: 1, Teams: map[string]TeamConfig{}, Replicas: map[string]ReplicaConfig{}, Providers: map[string]ProviderConfig{}, Blueprints: w.Blueprints, Workflows: w.Workflows}
+	s := Settings{Version: 1, Teams: map[string]TeamConfig{}, Replicas: map[string]ReplicaConfig{}, Providers: map[string]ProviderConfig{}, Blueprints: WithoutPresets(w.Blueprints), Workflows: WithoutPresets(w.Workflows)}
 	for id, t := range w.Teams {
 		s.Teams[id] = TeamConfig{t.ID, t.Name, t.Folder, t.TargetBranch, t.Settings}
 	}

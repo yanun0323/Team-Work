@@ -120,9 +120,7 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.w.Now = e.clock()
-	if !e.w.Presets {
-		e.addPresets()
-	}
+	e.installPresets()
 	for _, t := range e.w.Teams {
 		e.readPrompt(t)
 	}
@@ -191,7 +189,6 @@ func (e *Engine) change(config bool, fn func() error) error {
 		}
 		before = clone(e.w)
 		before.Conversations = e.w.Conversations
-		before.Presets = e.w.Presets
 	}
 	e.w.Now = e.clock()
 	if err := fn(); err != nil {
@@ -236,11 +233,10 @@ func (e *Engine) load(ctx context.Context) error {
 		case kindMeta:
 			var meta struct {
 				Seq      int    `json:"seq"`
-				Presets  bool   `json:"presets"`
 				Language string `json:"language"`
 			}
 			err = jsonx.Unmarshal(d.Data, &meta)
-			e.w.Seq, e.w.Presets = meta.Seq, meta.Presets
+			e.w.Seq = meta.Seq
 			if meta.Language != "" {
 				e.w.Language = meta.Language
 			}
@@ -305,7 +301,7 @@ func encodeAll[T any](docs map[string][]byte, kind string, all map[string]*T) {
 // documents captures the public entities plus private runtime records for change detection.
 func (e *Engine) documents() map[string][]byte {
 	now := map[string][]byte{}
-	meta, _ := jsonx.Marshal(map[string]any{"seq": e.w.Seq, "presets": e.w.Presets, "language": e.w.Language})
+	meta, _ := jsonx.Marshal(map[string]any{"seq": e.w.Seq, "language": e.w.Language})
 	now[docKey(kindMeta, "world")] = meta
 	encodeAll(now, "team", e.w.Teams)
 	encodeAll(now, "provider", e.w.Providers)

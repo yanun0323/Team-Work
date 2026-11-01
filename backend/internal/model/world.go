@@ -3,6 +3,7 @@ package model
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/yanun0323/mho-company/internal/model/enum"
 )
@@ -344,7 +345,6 @@ type ModelSpec struct {
 type World struct {
 	Now           float64                   `json:"now"`
 	Seq           int                       `json:"seq"`
-	Presets       bool                      `json:"-"` // the preset blueprints and flows were added
 	Language      string                    `json:"language"`
 	Teams         map[string]*Team          `json:"teams"`
 	Providers     map[string]*ModelProvider `json:"providers"`
@@ -362,6 +362,15 @@ const (
 	LanguageZh = "zh"
 	LanguageEn = "en"
 )
+
+// SourcePreset marks a blueprint built into the app. Built-in blueprints and flows have ids starting with PresetPrefix:
+// they cannot be changed or deleted and are not kept in the settings files, and copies of them get ids of their own.
+const (
+	SourcePreset = "preset"
+	PresetPrefix = "preset-"
+)
+
+func IsPresetID(id string) bool { return strings.HasPrefix(id, PresetPrefix) }
 
 func NewWorld() *World {
 	return &World{

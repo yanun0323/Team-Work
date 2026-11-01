@@ -2,9 +2,10 @@
 
 import { HAIRS, SKINS } from './core/domain/sim'
 import type { Blueprint, Chat, Look, Replica, World } from './core/domain/types'
+import { blueprintList } from './core/model'
 
 export function byBlueprint(w: World, crew: Replica[]): { bp: Blueprint; list: Replica[] }[] {
-  return Object.values(w.blueprints)
+  return blueprintList(w)
     .map((bp) => ({ bp, list: crew.filter((r) => r.blueprintId === bp.id) }))
     .filter((g) => g.list.length > 0)
 }

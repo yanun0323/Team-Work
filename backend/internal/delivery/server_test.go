@@ -441,6 +441,9 @@ func TestReloadSettingsEndpoint(t *testing.T) {
 	}
 	srv := httptest.NewServer(NewServer(e, claude, pickedFolder{}, repository.Terminals{}, []string{origin}, zerolog.Nop()).Handler())
 	defer func() { srv.Close(); e.Close(); store.Close() }()
+	if _, err := e.CreateWorkflow("mine"); err != nil {
+		t.Fatal(err)
+	}
 	snapshot, err := store.LoadSettings(context.Background())
 	if err != nil {
 		t.Fatal(err)

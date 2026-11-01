@@ -2,6 +2,7 @@
 // (the store wraps calls in immer), so tests can use plain objects.
 
 import { makeHandoff, makeScript, roleOf } from './content'
+import { fixedSteps, installPresets, localizeFlow } from '../data/presets'
 import { canReach, isFixed, feedsOnly, inEdges, nodeOf, outEdges, taskNodeOf } from './graph'
 import { between, chance, hex, pick, uid } from './rng'
 import { taskStatus } from './rollup'
@@ -99,28 +100,24 @@ export function createTask(w: World, input: NewTask): Task {
     ownerId: null,
   }
   for (const n of task.workflow.nodes) if (input.staff?.[n.id]) n.replicaIds = [...input.staff[n.id]]
+  localizeFlow(task.workflow, w.language)
   setOwner(task, input.ownerId ?? null)
   w.tasks[task.id] = task
   spawn(w, task, taskNodeOf(task.workflow).id, [], null, w.now)
   return task
 }
 
-/** What 整理需求 and 驗收 are told to do; no flow can change it. */
-export const START_PROMPT = '讀懂任務說明和附圖，看過專案現況，把需求整理成下一步不用再猜就能動手的內容。這一步只整理，不實作。\n\n交接時寫清楚：\n1. 目標：要解決什麼問題，做完後會有什麼不同。\n2. 範圍：這次要做的事，以及明確不做的事。\n3. 驗收條件：逐條列出，每條都能實際檢查，並判定通過或不通過。\n4. 相關檔案、已知限制和你做的假設。\n\n任務沒寫的細節，能從專案現況判斷的就自己決定，並記在決策裡；會影響範圍或結果又判斷不了的，用 ask_user 問使用者。'
-export const END_PROMPT = '逐條檢查成果是否符合上游交接裡的驗收條件；上游沒寫就依任務說明判斷。不要只看上游的說法：讀實際的改動，能執行的就實際執行（測試、建置或功能本身）。也要檢查有沒有超出範圍的改動，以及上游標記未完成的項目。\n\n- 全部符合：呼叫 submit_handoff，寫下每一條的結果和依據，再交給使用者決定是否合併。\n- 有不符合：呼叫 send_back，理由寫清楚哪一條沒過、實際看到什麼、應該變成怎樣。不要自己修改。\n- 不符合但沒有 send_back 可用（已達退回上限）：呼叫 submit_handoff，把沒過的項目列在未完成，讓使用者決定。'
-/** What every 和員工討論 step is told to do; no flow writes its own. */
-export const TALK_PROMPT = '讀過上游的交接，也看下一步需要什麼，和使用者談到下一步可以直接動手為止。\n\n- 先用幾句話說明你對現況的理解，再提問。一次問幾個最影響結果的問題，可以附上選項和你的建議。\n- 要談定的事：目標、範圍和不做的事、驗收條件，以及下一步需要知道的資訊。\n- 使用者沒談到的不要自己假設，列為待確認。\n\n每次回覆的最後都整理一次目前的結論、完整的驗收條件和待確認事項：討論結束時，你最後一則回覆會原文交給下一步。'
+/** What 整理需求, 驗收 and every 和員工討論 step are told to do in Chinese, for the sample tasks; no flow can change it. */
+export const { startPrompt: START_PROMPT, endPrompt: END_PROMPT, talkPrompt: TALK_PROMPT } = fixedSteps('zh')
 
 /**
- * Make `ownerId` the task's owner: they work its two fixed steps, 整理需求 and 驗收, which also get their
- * own instructions back. With no owner (a task made where none is picked), the flow's staff stays on them.
+ * Make `ownerId` the task's owner: they work its two fixed steps, 整理需求 and 驗收, With no owner (a task made where none is picked), the flow's staff stays on them.
  */
 export function setOwner(task: Task, ownerId: string | null) {
   task.ownerId = ownerId
   const wf = task.workflow
   for (const n of wf.nodes) {
     if (!isFixed(wf, n.id)) continue
-    n.prompt = n.kind === 'task' ? START_PROMPT : END_PROMPT
     if (ownerId) {
       n.replicaIds = [ownerId]
       n.assignment = 'firstAvailable'
@@ -708,6 +705,7 @@ export function changeWorkflow(w: World, taskId: string, workflowId: string) {
   for (const s of subsOf(w, taskId)) delete w.subTasks[s.id]
   task.workflowId = workflowId
   task.workflow = ownStaff(w, task.teamId, clone(w.workflows[workflowId]))
+  localizeFlow(task.workflow, w.language)
   setOwner(task, task.ownerId)
   task.paused = false
   task.pausedAt = undefined
@@ -927,17 +925,18 @@ function drift(w: World) {
 }
 
 /** What every flow starts as: sorting out what the task asks, then a review. `id` names each node and edge. */
-export function flowEnds(id: (prefix: string) => string): Pick<Workflow, 'nodes' | 'edges'> {
+export function flowEnds(id: (prefix: string) => string, language: Locale = 'zh'): Pick<Workflow, 'nodes' | 'edges'> {
+  const text = fixedSteps(language)
   const start = id('n')
   const end = id('n')
   return {
     nodes: [
       {
-        id: start, kind: 'task', name: '整理需求', prompt: START_PROMPT,
+        id: start, kind: 'task', name: text.startName, prompt: text.startPrompt,
         replicaIds: [], assignment: 'firstAvailable', handoff: 'all', join: 'all', pos: { x: 0, y: 0 },
       },
       {
-        id: end, kind: 'work', name: '驗收', prompt: END_PROMPT,
+        id: end, kind: 'work', name: text.endName, prompt: text.endPrompt,
         replicaIds: [], assignment: 'firstAvailable', handoff: 'all', join: 'all', pos: { x: 0, y: 200 },
       },
     ],
@@ -946,7 +945,7 @@ export function flowEnds(id: (prefix: string) => string): Pick<Workflow, 'nodes'
 }
 
 export function newWorkflow(w: World, name: string): Workflow {
-  const wf: Workflow = { id: uid(w, 'wf'), name, ...flowEnds((p) => uid(w, p)) }
+  const wf: Workflow = { id: uid(w, 'wf'), name, ...flowEnds((p) => uid(w, p), w.language) }
   w.workflows[wf.id] = wf
   return wf
 }
@@ -963,13 +962,8 @@ export function duplicateWorkflow(w: World, wfId: string): Workflow | undefined 
   return wf
 }
 
-/**
- * Remove a flow. Tasks keep the copy they were started with, so they run on; the last flow stays.
- */
+/** Remove a flow. Tasks keep the copy they were started with, so they run on. */
 export function deleteWorkflow(w: World, wfId: string) {
-  if (!w.workflows[wfId]) return
-  const others = Object.values(w.workflows).filter((x) => x.id !== wfId)
-  if (!others.length) return
   delete w.workflows[wfId]
 }
 
@@ -1002,4 +996,6 @@ export function deleteTeam(w: World, teamId: string, _opts: { removeFiles: boole
 
 export function setLanguage(w: World, language: Locale) {
   w.language = language
+  installPresets(w)
+  for (const t of Object.values(w.tasks)) localizeFlow(t.workflow, language)
 }

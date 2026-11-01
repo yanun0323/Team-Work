@@ -6,7 +6,7 @@
 import { create } from 'zustand'
 import { canReach, endNodeOf, inEdges, outEdges, taskNodeOf } from './core/domain/graph'
 import { flowEnds } from './core/domain/sim'
-import type { Workflow, WorkflowNode } from './core/domain/types'
+import type { Workflow, WorkflowNode, Locale } from './core/domain/types'
 
 export interface FlowDraft {
   flow: Workflow
@@ -23,7 +23,7 @@ export const editFlowDraft = (f: (d: FlowDraft) => Partial<FlowDraft>) =>
 let seq = 0
 const tmp = (prefix: string) => `${prefix}-${Date.now().toString(36)}${++seq}`
 
-export const blankFlow = (): Workflow => ({ id: '', name: '', ...flowEnds(tmp) })
+export const blankFlow = (language: Locale = 'zh'): Workflow => ({ id: '', name: '', ...flowEnds(tmp, language) })
 
 /** The end of a flow as saved: the last step after which nothing follows. Only for making a draft. */
 export const endOf = endNodeOf

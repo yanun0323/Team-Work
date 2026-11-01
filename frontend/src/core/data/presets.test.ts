@@ -1,32 +1,46 @@
 import { describe, expect, it } from 'vitest'
 import { taskNodeOf } from '../domain/graph'
 import { effortsOf } from '../../crew'
-import { flowList } from '../model'
-import { parse } from 'yaml'
+import { blueprintList, flowList } from '../model'
 import type { LocalSkills, World } from '../domain/types'
 import { seedWorld } from './seed'
-import { addPresetFlows, PRESET_BLUEPRINTS } from './presets'
+import { isPreset } from './presets'
+import { duplicateWorkflow, setLanguage } from '../domain/sim'
 
 describe('presets', () => {
-  it('are in the mock world', () => {
+  const blueprints = (w: World) => Object.values(w.blueprints).filter((b) => isPreset(b.id))
+
+  it('are in the mock world, in the language picked', () => {
     const w = seedWorld()
-    for (const b of PRESET_BLUEPRINTS) expect(w.blueprints[b.id].name).toBe(b.name)
-    expect(PRESET_BLUEPRINTS.map((b) => b.name)).toEqual(['專案經理', '產品負責人', '設計師', '後端工程師', '前端工程師', '測試工程師'])
+    expect(blueprints(w).map((b) => b.name)).toEqual(['專案經理', '產品負責人', '設計師', '後端工程師', '前端工程師', '測試工程師'])
+    setLanguage(w, 'en')
+    expect(w.blueprints['preset-pm'].name).toBe('Project Manager')
+    expect(w.blueprints['preset-pm'].prompt).toContain("company's project manager")
+    expect(w.workflows['preset-feature'].name).toBe('Feature development')
   })
 
-  it('find skills in the agent folders, and say so in their YAML', () => {
-    for (const b of PRESET_BLUEPRINTS) {
+  it('have every text in both languages', () => {
+    const w = seedWorld()
+    const zh = structuredClone(w)
+    setLanguage(w, 'en')
+    for (const [id, b] of Object.entries(w.blueprints)) {
+      if (!isPreset(id)) continue
+      expect(b.prompt).not.toMatch(/[\u4e00-\u9fff]/)
+      expect(zh.blueprints[id].prompt).toMatch(/[\u4e00-\u9fff]/)
+    }
+    for (const n of Object.values(w.workflows).filter((f) => isPreset(f.id)).flatMap((f) => f.nodes)) {
+      expect(`${n.name} ${n.prompt}`).not.toMatch(/[\u4e00-\u9fff]/)
+    }
+  })
+
+  it('find skills in the agent folders', () => {
+    for (const b of blueprints(seedWorld())) {
       expect(b.skills.map((p) => (p.source as LocalSkills).path)).toEqual(['~/.agents/', '~/.codex/', '~/.claude/'])
-      const text = b.source.kind === 'yaml' ? parse(b.source.text) : null
-      expect(text).toMatchObject({ name: b.name, skills: [{ path: '~/.agents/' }, { path: '~/.codex/' }, { path: '~/.claude/' }] })
-      expect(text.prompt.trim()).toBe(b.prompt)
     }
   })
 
   it('join every step up, and run side by side where drawn', () => {
-    const w = seedWorld()
-    const flows = Object.values(w.workflows)
-    const feature = flows.find((f) => f.name === '功能開發')!
+    const feature = seedWorld().workflows['preset-feature']
     expect(taskNodeOf(feature)?.name).toBe('整理需求')
     expect(feature.edges).toHaveLength(7)
     const at = (name: string) => feature.nodes.find((n) => n.name === name)!.pos
@@ -38,10 +52,27 @@ describe('presets', () => {
     }
   })
 
-  it('leave a flow of the same name alone', () => {
+  it('copy as shown, and a copy stays as it was while what the app wrote follows the language', () => {
     const w = seedWorld()
-    addPresetFlows(w)
-    expect(Object.values(w.workflows).filter((f) => f.name === '修 Bug')).toHaveLength(1)
+    const copy = duplicateWorkflow(w, 'preset-feature')!
+    expect(isPreset(copy.id)).toBe(false)
+    expect(copy.name).toBe('功能開發-1')
+    setLanguage(w, 'en')
+    const shown = w.workflows[copy.id]
+    expect(shown.name).toBe('功能開發-1')
+    expect(shown.nodes.map((n) => n.name)).toContain('撰寫規格')
+    expect(shown.nodes[0].name).toBe('Clarify requirements')
+    expect(shown.nodes[0].prompt).toContain('next step can act')
+  })
+})
+
+describe('own first', () => {
+  it('lists the user\'s own before the built-in ones', () => {
+    const w = seedWorld()
+    const ids = blueprintList(w).map((b) => b.id)
+    expect(ids.findIndex(isPreset)).toBe(ids.length - 6)
+    expect(ids.slice(-6)[0]).toBe('preset-pm')
+    expect(flowList(w).at(-3)!.id).toBe('preset-feature')
   })
 })
 

@@ -14,7 +14,7 @@ import { useLiveText } from './core/live'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { BlueprintIcon, pinLook } from './BlueprintIcon'
-import { BlueprintSelect, CrewSelect, ToolNotes } from './Pickers'
+import { BlueprintSelect, CrewSelect, mineAndBuiltIn, ToolNotes } from './Pickers'
 import { seedOf } from './People'
 import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
@@ -32,7 +32,8 @@ import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { newSkillRow, skillPacksOf, skillRowsOf, type SkillRow } from './blueprintForm'
 import { authLabel, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
-import { talking, TALK_PROMPT } from './core/domain/sim'
+import { talking } from './core/domain/sim'
+import { fixedSteps, isPreset } from './core/data/presets'
 import type { TalkEnd } from './core/domain/types'
 import { addProvider, providerUsers, updateProvider, type ProviderLogin, DEFAULT_MODEL, RESOLVE_TIME, costLimit } from './core/domain/sim'
 import { readHandedFile, request } from './core/backend'
@@ -61,7 +62,8 @@ export type Item =
   | { kind: 'image'; task: string; index: number }
   | { kind: 'flowEdit'; id: string }
   | { kind: 'newFlow' }
-  | { kind: 'newBlueprint' }
+  /** With copyOf, the sheet starts filled in from that blueprint. */
+  | { kind: 'newBlueprint'; copyOf?: string }
   | { kind: 'provider'; id: string }
   | { kind: 'providerEdit'; id: string }
   | { kind: 'newProvider' }
@@ -69,7 +71,7 @@ export type Item =
   | { kind: 'disband' }
 
 export const itemKey = (x: Item) =>
-  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newBlueprint' || x.kind === 'newProvider' || x.kind === 'disband' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'image' ? `image:${x.task}:${x.index}` : `${x.kind}::${x.id}`
+  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'image' ? `image:${x.task}:${x.index}` : `${x.kind}::${x.id}`
 
 const STATUS: Record<Status, string> = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' }
 const ASSIGN = { firstAvailable: '誰有空誰做', everyone: '每個人都做' } as const
@@ -160,10 +162,12 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           )}
           {item.kind === 'blueprint' && (
             <BlueprintDetail id={item.id} teamId={teamId} title={title} tid={id} editing={above?.kind === 'blueprintEdit'}
-              onEdit={() => onPush({ kind: 'blueprintEdit', id: item.id })} onGoneBlueprint={onDone} />
+              copying={above?.kind === 'newBlueprint'} onEdit={() => onPush({ kind: 'blueprintEdit', id: item.id })}
+              onCopy={() => onPush({ kind: 'newBlueprint', copyOf: item.id })} onGoneBlueprint={onDone} />
           )}
           {(item.kind === 'blueprintEdit' || item.kind === 'newBlueprint') && (
-            <BlueprintEdit id={item.kind === 'blueprintEdit' ? item.id : null} title={title} tid={id} onDone={onDone} />
+            <BlueprintEdit id={item.kind === 'blueprintEdit' ? item.id : null} copyOf={item.kind === 'newBlueprint' ? item.copyOf : undefined}
+              title={title} tid={id} onDone={onDone} />
           )}
           {(item.kind === 'crewEdit' || item.kind === 'newCrew') && (
             <CrewEdit id={item.kind === 'crewEdit' ? item.id : null} teamId={teamId} title={title} tid={id} onDone={onDone} />
@@ -844,7 +848,6 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
   const act = useStore((s) => s.act)
   const wf = w.workflows[id]
   if (!wf) return <Gone {...h} />
-  const last = Object.keys(w.workflows).length < 2
   const remove = () => {
     onGoneFlow()
     act((x) => deleteWorkflow(x, id))
@@ -853,11 +856,11 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
   return (
     <>
       <div className="fx-tools">
-        <EditTool onClick={onEdit} open={editing} />
+        {!isPreset(id) && <EditTool onClick={onEdit} open={editing} />}
         <button type="button" className="fx-tool fx-hit" onClick={() => act((x) => void duplicateWorkflow(x, id))} aria-label="複製" title="複製">
           <CopyIcon />
         </button>
-        <DeleteTool what="任務流程" onConfirm={remove} disabled={last} why="至少要有一條任務流程" />
+        {!isPreset(id) && <DeleteTool what="任務流程" onConfirm={remove} />}
       </div>
       <header className="fx-d-head">
         <Heading {...h}>{wf.name}</Heading>
@@ -1144,11 +1147,13 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
   )
 }
 
-function BlueprintDetail({ id, teamId, editing, onEdit, onGoneBlueprint, ...h }: Head & {
+function BlueprintDetail({ id, teamId, editing, copying, onEdit, onCopy, onGoneBlueprint, ...h }: Head & {
   id: string
   teamId: string
   editing: boolean
+  copying: boolean
   onEdit: () => void
+  onCopy: () => void
   /** Called once the blueprint is deleted, to put its sheet away. */
   onGoneBlueprint: () => void
 }) {
@@ -1167,8 +1172,11 @@ function BlueprintDetail({ id, teamId, editing, onEdit, onGoneBlueprint, ...h }:
   return (
     <>
       <div className="fx-tools">
-        <EditTool onClick={onEdit} open={editing} />
-        <DeleteTool what="藍圖" onConfirm={remove} disabled={users > 0} why={`還有 ${users} 位員工使用這個藍圖，無法刪除`} />
+        {!isPreset(id) && <EditTool onClick={onEdit} open={editing} />}
+        <button type="button" className="fx-tool fx-hit" onClick={onCopy} aria-expanded={copying} aria-label="複製" title="複製">
+          <CopyIcon />
+        </button>
+        {!isPreset(id) && <DeleteTool what="藍圖" onConfirm={remove} disabled={users > 0} why={`還有 ${users} 位員工使用這個藍圖，無法刪除`} />}
       </div>
       <header className="fx-d-head fx-d-who">
         <BlueprintIcon look={bp.look} name={bp.name} size={52} />
@@ -1217,7 +1225,7 @@ function SourceRow({ source, now, children }: { source: BlueprintSource | LocalS
   return (
     <li className="fx-src">
       <p className="fx-src-head">
-        {!source ? <span>藍圖本身</span> : source.kind === 'yaml' ? <span>{sourceText(source)}</span> : <code>{sourceText(source)}</code>}
+        {!source ? <span>藍圖本身</span> : source.kind === 'yaml' || source.kind === 'preset' ? <span>{sourceText(source)}</span> : <code>{sourceText(source)}</code>}
         {source?.kind === 'git' && source.private && <span className="fx-d-muted">私有</span>}
         {source?.kind === 'local' && <span className="fx-d-muted">本機</span>}
         {state && <span className={`fx-src-state fx-src-${state.tone}`}>{state.label}</span>}
@@ -1247,20 +1255,23 @@ export function blueprintOf(id: string, prev: Blueprint | undefined, look: Look,
  * field. With no version the default branch is used. A new one's icon is rolled at random. Nothing changes
  * until it is saved.
  */
-function BlueprintEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: () => void }) {
+function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null; copyOf?: string; onDone: () => void }) {
   const act = useStore((s) => s.act)
   const old = useStore((s) => (id ? s.world.blueprints[id] : undefined))
-  const was = old?.source
+  const language = useStore((s) => s.world.language)
+  // what the form starts from: a copy takes the text as it is shown now
+  const from = useStore((s) => (copyOf ? s.world.blueprints[copyOf] : old))
+  const was = from?.source
   // new ones are filled in here; one already from GitHub stays tied to its repo
   const kind = was?.kind === 'git' ? 'git' : 'local'
   const [repo, setRepo] = useState(was?.kind === 'git' ? was.repo.replace('git@github.com:', '') : '')
   const [ref, setRef] = useState(was?.kind === 'git' ? was.ref : '')
-  const [prompt, setPrompt] = useState(old?.prompt ?? '')
-  const [comment, setComment] = useState(old?.comment ?? '')
-  const [rows, setRows] = useState<SkillRow[]>(() => skillRowsOf(old?.skills ?? []))
-  const [tools, setTools] = useState<Tool[]>(old?.tools ?? ['readFile', 'writeFile'])
-  const [name, setName] = useState(old?.name ?? '')
-  const [named, setNamed] = useState(!!old)
+  const [prompt, setPrompt] = useState(from?.prompt ?? '')
+  const [comment, setComment] = useState(from?.comment ?? '')
+  const [rows, setRows] = useState<SkillRow[]>(() => skillRowsOf(from?.skills ?? []))
+  const [tools, setTools] = useState<Tool[]>(from?.tools ?? ['readFile', 'writeFile'])
+  const [name, setName] = useState(old?.name ?? (from ? (language === 'en' ? `${from.name} copy` : `${from.name} 副本`) : ''))
+  const [named, setNamed] = useState(!!from)
   // the face it is drawn with now, fixed, so the form shows the same one whatever name it goes by
   const [look, setLook] = useState<Look>(() => (old ? pinLook(old.look, old.name) : randomLook()))
   const [repoError, setRepoError] = useState(false)
@@ -1716,6 +1727,7 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
           </div>
         </div>
         <Select label="任務流程" value={draft.workflowId} options={flows.map((x) => x.id)} labelOf={(x) => w.workflows[x]?.name ?? x}
+          {...mineAndBuiltIn(flows.map((x) => x.id))}
           onChange={(id) => editDraft((d) => {
             const last = lastStaff(useStore.getState().world, teamId, id)
             return { workflowId: id, ...last, ownerId: d.ownerId ?? last.ownerId }
@@ -1998,7 +2010,7 @@ function FlowEdit({ id, onDone, ...h }: Head & {
     const s = useStore.getState().world
     const wf = id ? s.workflows[id] : undefined
     if (id && !wf) return
-    const flow = wf ? structuredClone(wf) : blankFlow()
+    const flow = wf ? structuredClone(wf) : blankFlow(s.language)
     useFlowDraft.setState({ draft: { flow, end: endOf(flow)?.id ?? '' } })
     return () => useFlowDraft.setState({ draft: null })
   }, [id])
@@ -2117,7 +2129,7 @@ function StepForm({ flow, end, id }: { flow: Workflow; end: string; id: string }
                 it is not offered; back to work, it starts with no instructions */}
             <Select label="種類" value={n.kind} options={Object.keys(KINDS)} labelOf={(x) => KINDS[x as keyof typeof KINDS]}
               onChange={(x) => put(x === 'talk'
-                ? { kind: 'talk', prompt: TALK_PROMPT, ...(n.assignment === 'everyone' ? { assignment: 'firstAvailable' as const } : {}) }
+                ? { kind: 'talk', prompt: fixedSteps(useStore.getState().world.language).talkPrompt, ...(n.assignment === 'everyone' ? { assignment: 'firstAvailable' as const } : {}) }
                 : { kind: 'work', prompt: '' })} />
             {n.kind !== 'talk' && (
               <label className="fx-field fx-field-top">

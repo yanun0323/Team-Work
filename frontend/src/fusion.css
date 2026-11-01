@@ -648,6 +648,8 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 :is(.fx-drawer, .fx-detail) :is(.fx-control, .fx-stepper input):focus-visible { outline: none; }
 .fx-control:focus, .fx-control[aria-expanded="true"], .fx-stepper:focus-within { --wash: rgb(31 29 43 / 0.13); }
 
+.fx-owned { display: grid; gap: 10px; min-width: 0; }
+
 /* a few choices side by side: a slip of paper slides under the picked one */
 .fx-switcher {
   position: relative; display: grid; grid-template-columns: repeat(var(--count), minmax(0, 1fr));

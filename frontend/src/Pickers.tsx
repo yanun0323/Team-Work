@@ -2,7 +2,9 @@
 
 import { BlueprintIcon } from './BlueprintIcon'
 import { Select } from './Controls'
+import { isPreset } from './core/data/presets'
 import { TOOLS, type Blueprint, type Replica } from './core/domain/types'
+import { blueprintList } from './core/model'
 import { useStore } from './core/store'
 import { byBlueprint, mindOf } from './crew'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -60,12 +62,23 @@ export function CrewSelect({ label, value, crew, placeholder, onChange }: {
   )
 }
 
+/** Headings for a list with the user's own first: 我的, then 內建. Without any of their own, just 內建. */
+export function mineAndBuiltIn(ids: string[]) {
+  const mine = ids.filter((id) => !isPreset(id)).length
+  const groups = [{ label: '我的', count: mine }, { label: '內建', count: ids.length - mine }]
+  return mine
+    ? { groups, groupOf: (id: string) => (isPreset(id) ? 1 : 0) }
+    : { groups: groups.slice(1), groupOf: () => 0 }
+}
+
 /** Picks one of the island's blueprints, in the same rows as employees. */
 export function BlueprintSelect({ label, value, onChange }: { label: string; value: string; onChange: (id: string) => void }) {
-  const blueprints = useStore((s) => s.world.blueprints)
+  const w = useStore((s) => s.world)
+  const blueprints = w.blueprints
+  const ids = blueprintList(w).map((b) => b.id)
   return (
     <Select
-      label={label} value={value} options={Object.keys(blueprints)} labelOf={(id) => blueprints[id]?.name ?? id} onChange={onChange}
+      label={label} value={value} options={ids} labelOf={(id) => blueprints[id]?.name ?? id} onChange={onChange} {...mineAndBuiltIn(ids)}
       shownAs={(id) => {
         const bp = blueprints[id]
         return bp && <span className="fx-pick-value"><Picture><BlueprintIcon look={bp.look} name={bp.name} size={18} /></Picture>{bp.name}</span>
@@ -75,7 +88,7 @@ export function BlueprintSelect({ label, value, onChange }: { label: string; val
         return (
           <>
             <Picture><BlueprintIcon look={bp.look} name={bp.name} size={26} /></Picture>
-            <span className="fx-row-main"><b>{bp.name}</b><span>{sourceText(bp.source)}</span></span>
+            <span className="fx-row-main"><b>{bp.name}</b>{!isPreset(id) && <span>{sourceText(bp.source)}</span>}</span>
             <Tick on={on} />
             <ToolNotes bp={bp} />
           </>

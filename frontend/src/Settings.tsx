@@ -9,7 +9,8 @@ import { version } from '../package.json'
 import { BlueprintIcon } from './BlueprintIcon'
 import { SheetStack, useSheets } from './Drawer'
 import { gitSources } from './core/domain/sim'
-import { flowList } from './core/model'
+import { blueprintList, flowList } from './core/model'
+import { isPreset } from './core/data/presets'
 import { itemKey, type Item } from './DrawerDetail'
 import { FlowNotes, openCard } from './FlowNotes'
 import { sourceState, sourceText } from './source'
@@ -156,28 +157,41 @@ function Providers({ open, onOpen }: { open: string | null; onOpen: (x: Item) =>
   )
 }
 
+/** The user's own under 我的, when there are any, then the built-in ones under 內建. */
+function MineAndBuiltIn<T extends { id: string }>({ items, render }: { items: T[]; render: (list: T[]) => React.ReactNode }) {
+  const mine = items.filter((x) => !isPreset(x.id))
+  return (
+    <>
+      {mine.length > 0 && <section className="fx-d-group fx-owned"><h4>我的</h4>{render(mine)}</section>}
+      <section className="fx-d-group fx-owned"><h4>內建</h4>{render(items.filter((x) => isPreset(x.id)))}</section>
+    </>
+  )
+}
+
 function Blueprints({ open, onOpen }: { open: string | null; onOpen: (x: Item) => void }) {
   const w = useStore((s) => s.world)
   const opener = (x: Item) => ({ type: 'button' as const, 'aria-expanded': open === itemKey(x), 'aria-controls': 'fx-detail', onClick: () => onOpen(x) })
   return (
     <div className="fx-d-groups">
       <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newBlueprint' })}>＋ 新增員工藍圖</button>
-      <ul className="fx-list">
-        {Object.values(w.blueprints).map((bp) => {
-          // a repo that can't be found or failed to update is flagged on the list too
-          const trouble = gitSources(bp).filter((s) => sourceState(s, w.now).tone === 'bad').length
-          return (
-            <li key={bp.id}><button className="fx-row fx-hit" {...opener({ kind: 'blueprint', id: bp.id })}>
-              <span aria-hidden="true"><BlueprintIcon look={bp.look} name={bp.name} size={34} /></span>
-              <span className="fx-row-main">
-                <b>{bp.name}</b>
-                <span>{sourceText(bp.source)}</span>
-                {trouble > 0 && <span className="fx-src-note-bad">{trouble} 個來源有問題</span>}
-              </span>
-            </button></li>
-          )
-        })}
-      </ul>
+      <MineAndBuiltIn items={blueprintList(w)} render={(list) => (
+        <ul className="fx-list">
+          {list.map((bp) => {
+            // a repo that can't be found or failed to update is flagged on the list too
+            const trouble = gitSources(bp).filter((s) => sourceState(s, w.now).tone === 'bad').length
+            return (
+              <li key={bp.id}><button className="fx-row fx-hit" {...opener({ kind: 'blueprint', id: bp.id })}>
+                <span aria-hidden="true"><BlueprintIcon look={bp.look} name={bp.name} size={34} /></span>
+                <span className="fx-row-main">
+                  <b>{bp.name}</b>
+                  {!isPreset(bp.id) && <span>{sourceText(bp.source)}</span>}
+                  {trouble > 0 && <span className="fx-src-note-bad">{trouble} 個來源有問題</span>}
+                </span>
+              </button></li>
+            )
+          })}
+        </ul>
+      )} />
     </div>
   )
 }
@@ -189,16 +203,14 @@ function Flows({ open, onOpen }: { open: string | null; onOpen: (x: Item) => voi
     <div className="fx-flows">
       <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newFlow' })}>＋ 新增任務流程</button>
       {/* each flow opens as a whole; its title is the button, stretched over the flow */}
-      {flowList(w).map((wf) => {
-        return (
-          <section key={wf.id} className="fx-flow fx-flow-card" onClick={openCard}>
-            <h3>
-              <button className="fx-flow-open" {...opener({ kind: 'flow', id: wf.id })}>{wf.name}</button>
-            </h3>
-            <FlowNotes wf={wf} />
-          </section>
-        )
-      })}
+      <MineAndBuiltIn items={flowList(w)} render={(list) => list.map((wf) => (
+        <section key={wf.id} className="fx-flow fx-flow-card" onClick={openCard}>
+          <h3>
+            <button className="fx-flow-open" {...opener({ kind: 'flow', id: wf.id })}>{wf.name}</button>
+          </h3>
+          <FlowNotes wf={wf} />
+        </section>
+      ))} />
     </div>
   )
 }

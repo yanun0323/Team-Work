@@ -262,8 +262,8 @@ func (e *Engine) chatSpec(c *model.Chat) (agentSpec, error) {
 	if team.Prompt != "" {
 		fmt.Fprintf(&b, "\n# Company rules\n%s\n", team.Prompt)
 	}
-	if bp.Prompt != "" {
-		fmt.Fprintf(&b, "\n# Your role\n%s\n", bp.Prompt)
+	if role := agentRole(bp); role != "" {
+		fmt.Fprintf(&b, "\n# Your role\n%s\n", role)
 	}
 	if len(r.Memory) > 0 {
 		b.WriteString("\n# Your memory\n")

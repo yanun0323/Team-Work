@@ -2,7 +2,7 @@
 
 import { autoLayout } from '../domain/graph'
 import { mockThinking } from '../../providers'
-import { addPresetFlows, PRESET_BLUEPRINTS } from './presets'
+import { installPresets } from './presets'
 import {
   createTask, createTeam, END_PROMPT, TALK_PROMPT, hire, mergeTask, newWorkflow, pauseTask, remember, REPLY_TIME, sayInTalk, START_PROMPT, tick,
 } from '../domain/sim'
@@ -112,7 +112,7 @@ export function seedWorld(): World {
     nextDriftAt: 75, rng: 20261028, events: [],
   }
   for (const p of PROVIDERS) w.providers[p.id] = structuredClone(p)
-  for (const bp of [...BLUEPRINTS, ...PRESET_BLUEPRINTS]) w.blueprints[bp.id] = structuredClone(bp)
+  for (const bp of BLUEPRINTS) w.blueprints[bp.id] = structuredClone(bp)
 
   // ---------- team 1: web shop ----------
   const shop = createTeam(w, {
@@ -256,7 +256,7 @@ export function seedWorld(): World {
   run(REPLY_TIME + 1)
   void report
 
-  addPresetFlows(w)
+  installPresets(w)
   // the tasks above took their staff from the flows; shared flows name nobody
   for (const wf of Object.values(w.workflows)) for (const n of wf.nodes) n.replicaIds = []
 

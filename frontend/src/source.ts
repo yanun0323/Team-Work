@@ -9,6 +9,7 @@ import type { BlueprintSource, GitSource, LocalSkills, Tool } from './core/domai
  */
 export function sourceText(s: BlueprintSource | LocalSkills) {
   if (s.kind === 'yaml') return '本地'
+  if (s.kind === 'preset') return '內建'
   if (s.kind === 'local') return s.path
   const repo = s.repo.replace('git@github.com:', '')
   return s.ref ? `${repo} @ ${s.ref}` : repo
