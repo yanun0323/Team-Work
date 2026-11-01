@@ -216,9 +216,7 @@ func assemble(files map[string][]byte) ([]byte, error) {
 				return nil, err
 			}
 			id := strings.TrimSuffix(p[1], ".yaml")
-			if v.ID != id {
-				return nil, fileError(path, i18n.Errorf("id 必須和檔名一致"))
-			}
+			v.ID = id // the file name is the id
 			c.Blueprints[id] = &v
 		case p[0] == "workflows":
 			var v model.Workflow
@@ -226,9 +224,7 @@ func assemble(files map[string][]byte) ([]byte, error) {
 				return nil, err
 			}
 			id := strings.TrimSuffix(p[1], ".yaml")
-			if v.ID != id {
-				return nil, fileError(path, i18n.Errorf("id 必須和檔名一致"))
-			}
+			v.ID = id // the file name is the id
 			c.Workflows[id] = &v
 		case len(p) == 3:
 			var v model.TeamConfig
@@ -274,6 +270,9 @@ func splitSettings(raw []byte) (map[string][]byte, error) {
 			var v any
 			if err := json.Unmarshal(raw, &v); err != nil {
 				return err
+			}
+			if named, ok := v.(map[string]any); ok && (strings.HasPrefix(path, "blueprints/") || strings.HasPrefix(path, "workflows/")) {
+				delete(named, "id") // the file name is the id
 			}
 			raw, err = yaml.Marshal(v)
 			if err != nil {

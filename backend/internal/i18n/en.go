@@ -24,7 +24,6 @@ var en = map[string]string{
 	"只能有一個 JSON 物件":          "Only one JSON object is allowed",
 	"設定檔遺失":                  "Settings file missing",
 	"供應商 id 不正確":             "Invalid provider id",
-	"id 必須和檔名一致":             "The id must match the file name",
 	"id 必須和公司資料夾一致":          "The id must match the company folder",
 	"id 或 teamId 與路徑不符":      "The id or teamId does not match the path",
 	"員工 id 重複":               "Duplicate employee id",

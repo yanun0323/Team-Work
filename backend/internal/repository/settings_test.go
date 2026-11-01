@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -150,5 +151,37 @@ func TestSettingsPreserveUnchangedYAMLComments(t *testing.T) {
 		if err := decodeFile("blueprints/b.yaml", []byte(input), &bp); err == nil {
 			t.Fatalf("accepted %q", input)
 		}
+	}
+}
+
+func TestFileNameIsTheIDOfBlueprintsAndWorkflows(t *testing.T) {
+	c := model.Settings{Version: 1, Providers: map[string]model.ProviderConfig{},
+		Blueprints: map[string]*model.Blueprint{"bp-a": {ID: "bp-a", Name: "a"}},
+		Workflows:  map[string]*model.Workflow{"wf-a": {ID: "wf-a", Name: "a"}}}
+	raw, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := splitSettings(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"blueprints/bp-a.yaml", "workflows/wf-a.yaml"} {
+		if bytes.HasPrefix(files[path], []byte("id:")) || bytes.Contains(files[path], []byte("\nid:")) {
+			t.Fatalf("%s still has an id:\n%s", path, files[path])
+		}
+	}
+	// A stale id left in a copied file loses to the file name.
+	files["blueprints/copy.yaml"] = []byte("id: bp-a\nname: copy\n")
+	out, err := assemble(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got model.Settings
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Blueprints["bp-a"].ID != "bp-a" || got.Workflows["wf-a"].ID != "wf-a" || got.Blueprints["copy"].ID != "copy" || got.Blueprints["copy"].Name != "copy" {
+		t.Fatalf("ids not from file names: %s", out)
 	}
 }
