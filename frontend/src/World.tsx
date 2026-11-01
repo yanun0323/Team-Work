@@ -299,8 +299,8 @@ export function World() {
   const span = town.span
   return (
     <div className="fusion-stage" onPointerDownCapture={(e) => void (down.current = [e.clientX, e.clientY])}>
-    {/* pixel art: one CSS pixel per device pixel, no smoothing; PixelPass scales the picture up */}
-    <Canvas className="fusion-canvas" shadows="basic" dpr={1} orthographic gl={{ antialias: false }}
+    {/* pixel art: PixelPass scales the low-res picture up with hard edges; dpr 2 keeps them sharp on Retina */}
+    <Canvas className="fusion-canvas" shadows="basic" dpr={2} orthographic gl={{ antialias: false }}
       camera={{ position: ISO_DIR.clone().multiplyScalar(CAMERA_DISTANCE).toArray(), zoom: 20, near: 1, far: 600 }}
       onPointerMissed={(e) => {
         if (e.type === 'click' && Math.hypot(e.clientX - down.current[0], e.clientY - down.current[1]) <= CLICK_SLOP) close()

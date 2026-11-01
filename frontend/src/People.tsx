@@ -14,7 +14,7 @@ import { hash, type Town } from './layout'
 import { OFFICE_SCALE, type OfficePlan } from './office'
 import { toon } from './toon'
 import {
-  advance, benchSeats, cellPos, crowdSize, freeCells, headingOf, isFree, officeGrid, resettle, route, townGrid,
+  advance, benchSeats, cellPos, crowdSize, freeCells, headingOf, isFree, officeGrid, resettle, route, seatRoute, townGrid,
   type BenchSeat, type P, type Stroller as WalkStroller, type Walker,
 } from './walk'
 
@@ -700,8 +700,9 @@ export function Strollers({ town }: { town: Town }) {
           }
         } else if (p.mode === 'standing' && p.wait <= 0) {
           const free = seats.filter((s) => !held.has(spot(s)))
-          if (free.length && Math.random() < 0.3) {
-            const seat = pick(free)
+          const seat = free.length && Math.random() < 0.3 ? pick(free) : null
+          const toBench = seat ? seatRoute(grid, [p.x, p.z], seat) : []
+          if (seat && toBench.length) {
             held.add(spot(seat))
             p.seat = seat
             p.toSeat = true

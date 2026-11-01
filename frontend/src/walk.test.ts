@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CELL, cellCenter, layoutTown } from './layout'
 import { officePlan } from './office'
 import {
-  advance, benchSeats, cellPos, crowdSize, findPath, freeCells, isFree, nearestFree, officeGrid, resettle, route, smooth, townGrid, type Grid, type P, type Stroller,
+  advance, benchSeats, cellPos, crowdSize, findPath, freeCells, isFree, nearestFree, officeGrid, resettle, route, seatRoute, smooth, townGrid, type Grid, type P, type Stroller,
 } from './walk'
 
 /** A grid from rows of text: '.' free, '#' blocked. Cell centres are at whole numbers. */
@@ -166,6 +166,19 @@ describe('the island', () => {
       expect(crossesBuilding(grown, [p.x, p.z], p.route)).toBe(false)
     }
     expect(people[1].route.length).toBeGreaterThan(1)
+  })
+
+  it('nobody heading for a bench out of reach cuts straight across the sea', () => {
+    // two pieces of ground with sea between them, the bench on the far one
+    const g = grid(['..#..', '..#..'])
+    const seat = { at: [4.5, 0] as P, front: [4, 0] as P, heading: 0 }
+    const p: Stroller = { x: 0, z: 0, route: [seat.at], heading: 0, mode: 'walking', wait: 1, seat, toSeat: true }
+    resettle([p], g, [seat])
+    expect(p.route).toEqual([])
+    expect(p.seat).toBeNull()
+    expect(p.toSeat).toBe(false)
+    expect(seatRoute(g, [0, 0], seat)).toEqual([])
+    expect(seatRoute(g, [3, 0], seat).at(-1)).toEqual(seat.at)
   })
 
   it('every bench seat is reached from a free cell connected to the rest', () => {

@@ -149,6 +149,12 @@ export function route(g: Grid, from: P, to: P): P[] {
   return path ? smooth(g, path) : []
 }
 
+/** The way to sit on a bench seat, through its front cell; empty when the seat can't be reached from here. */
+export function seatRoute(g: Grid, from: P, seat: BenchSeat): P[] {
+  const way = route(g, from, seat.front)
+  return way.length ? [...way, seat.at] : []
+}
+
 /** A person moving through a list of points. */
 export interface Walker {
   x: number
@@ -254,9 +260,14 @@ export function resettle(people: Stroller[], g: Grid, seats: BenchSeat[]) {
       if (near) [p.x, p.z] = cellPos(g, ...near)
     }
     if (p.mode !== 'walking') continue
-    const goal = p.toSeat && p.seat ? p.seat.front : p.route.at(-1)
+    if (p.toSeat && p.seat) {
+      p.route = seatRoute(g, [p.x, p.z], p.seat)
+      // cut off from the bench: let it go rather than walk straight there
+      if (!p.route.length) [p.seat, p.toSeat] = [null, false]
+      continue
+    }
+    const goal = p.route.at(-1)
     p.route = goal ? route(g, [p.x, p.z], goal) : []
-    if (p.toSeat && p.seat) p.route.push(p.seat.at)
   }
 }
 
