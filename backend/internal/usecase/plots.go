@@ -21,7 +21,21 @@ func overlapsPlot(a, b plotRect, gap int) bool {
 	return a.x < b.x+b.w+gap && b.x < a.x+a.w+gap && a.z < b.z+b.d+gap && b.z < a.z+a.d+gap
 }
 
+func (e *Engine) currentPlotLand() plotLand {
+	var plots []plotRect
+	for _, t := range e.w.Teams {
+		if t.Plot != nil {
+			plots = append(plots, plotRect{t.Plot.At[0], t.Plot.At[1], plotCells, plotCells})
+		}
+	}
+	return makePlotLand(plots)
+}
+
 func (e *Engine) checkPlot(id string, p *model.Plot) error {
+	return e.checkPlotOnLand(id, p, e.currentPlotLand())
+}
+
+func (e *Engine) checkPlotOnLand(id string, p *model.Plot, land plotLand) error {
 	bad := func() error { return model.Errorf(model.CodeInvalid, "公司位置或外觀不正確") }
 	if p == nil || len(p.At) != 2 || !slices.Contains(buildingStyles, p.Style) {
 		return bad()
@@ -34,7 +48,6 @@ func (e *Engine) checkPlot(id string, p *model.Plot) error {
 	if overlapsPlot(r, airportRect, 2) {
 		return bad()
 	}
-	others := []plotRect{airportRect}
 	for key, t := range e.w.Teams {
 		if key == id || t.Plot == nil {
 			continue
@@ -43,19 +56,15 @@ func (e *Engine) checkPlot(id string, p *model.Plot) error {
 		if overlapsPlot(r, o, 0) {
 			return model.Errorf(model.CodeConflict, "公司用地不能重疊")
 		}
-		others = append(others, o)
 	}
-	// Each rectangle grows by six coast cells; the remaining sea gap is at most 24.
-	for _, o := range others {
-		gap := max(0, r.x-(o.x+o.w), o.x-(r.x+r.w), r.z-(o.z+o.d), o.z-(r.z+r.d))
-		if gap <= 36 {
-			return nil
-		}
+	if land.containsExpanded(r) {
+		return nil
 	}
 	return bad()
 }
 
 func (e *Engine) defaultPlot() *model.Plot {
+	land := e.currentPlotLand()
 	p := &model.Plot{Style: buildingStyles[len(e.w.Teams)%len(buildingStyles)], Seed: uint32(e.w.Seq)}
 	// Search from the origin outward; stored plots never move when a company closes.
 	for radius := 0; radius <= plotLimit/18; radius++ {
@@ -65,7 +74,7 @@ func (e *Engine) defaultPlot() *model.Plot {
 					continue
 				}
 				p.At = []int{x*18 - 8, z*18 - 8}
-				if e.checkPlot("", p) == nil {
+				if e.checkPlotOnLand("", p, land) == nil {
 					return p
 				}
 			}

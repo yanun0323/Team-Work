@@ -31,7 +31,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>＋ New company</dt><dd>A dashed frame follows the cursor and can go on land or sea. It turns red when it is too crowded or too far from shore. On the sea, land grows to join it to the island. Once placed, you see a preview of the building. Its look is random, and the die picks another.</dd>
           <dt>Top right buttons</dt><dd>In order: noticeboard, ＋ New company, Edit map, language (globe), help (question mark) and airport (plane). While you pick a spot, only Cancel or Done stays.</dd>
           <dt>After disbanding or moving</dt><dd>Land grown only for that company turns back into sea. Land other companies or the airport still use stays.</dd>
-          <dt>Edit map</dt><dd>Click a company to select it, then click a new spot to move it. The translucent green area is the land that would grow. Putting it back changes nothing, and clicking the same company again deselects it. The airport cannot move. Press Done or Esc to finish.</dd>
+          <dt>Edit map</dt><dd>New company and Edit map modes show a faint white grid only where a company plot can fit; leaving either mode hides it. The entire plot must fit within the current land expanded by 32 cells, without overlapping other companies or the airport. Click a company to select it, then click a new spot to move it. The translucent green area is the land that would grow. Putting it back changes nothing, and clicking the same company again deselects it. The airport cannot move. Press Done or Esc to finish.</dd>
         </dl>
       </>
     ),

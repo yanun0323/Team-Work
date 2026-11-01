@@ -117,8 +117,8 @@ describe('fusion town grid', () => {
   it('builds land out to a plot put at sea, as one island, and keeps the others where they were', () => {
     const town = layoutTown(teams(2))
     const left = Math.min(...town.lots.map((l) => l.at[0]))
-    // well out to sea, up and to the left, as far as allowed
-    const far: [number, number] = [left - PLOT_CELLS - REACH_CELLS - 12, -40]
+    // A whole plot fits in the coastline’s 32-cell expansion.
+    const far: [number, number] = [left - PLOT_CELLS, 0]
     expect(canPlace(town, far)).toBe(true)
     const grown = layoutTown([
       ...town.lots.map((l) => ({ id: l.id, name: l.name, members: 3, at: l.at })),
@@ -187,10 +187,10 @@ describe('fusion town grid', () => {
     const away = (i: 0 | 1) => a.at[i] + Math.sign(a.at[i] - b.at[i]) * 4
     expect(canMove(town, a.id, [away(0), away(1)])).toBe(true)
     expect(canMove(town, a.id, b.at)).toBe(false)
-    // alone, it stays within reach of the airport's land
+    // Moving uses the existing island, including this company’s land.
     const one = layoutTown(teams(1))
     const [c] = one.lots
-    expect(canMove(one, c.id, [c.at[0] + 40, c.at[1]])).toBe(true)
+    expect(canMove(one, c.id, [c.at[0] + 16, c.at[1]])).toBe(true)
     expect(canMove(one, c.id, [c.at[0] + 200, c.at[1]])).toBe(false)
   })
 

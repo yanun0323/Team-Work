@@ -64,3 +64,22 @@ func TestCompanyPlotEndpoints(t *testing.T) {
 		t.Fatalf("failed requests changed plot: %v", p)
 	}
 }
+
+func TestPlotMustFitExpandedIsland(t *testing.T) {
+	api := setup(t).URL + "/api/v1"
+	folder, _ := json.Marshal(t.TempDir())
+	// Nearest-edge distance allowed this before; its far edge exceeds land + 32.
+	body := `{"name":"outside","folder":` + string(folder) + `,"plot":{"at":[52,-24],"style":"villa","seed":1}}`
+	if code, response := send(t, "POST", api+"/teams", body); code != http.StatusBadRequest {
+		t.Fatalf("%d %v", code, response)
+	}
+	body = `{"name":"inside","folder":` + string(folder) + `,"plot":{"at":[36,-24],"style":"villa","seed":1}}`
+	code, team := send(t, "POST", api+"/teams", body)
+	if code != http.StatusCreated {
+		t.Fatalf("%d %v", code, team)
+	}
+	// Move relative to the island before the move, including the selected company's land.
+	if code, response := send(t, "PATCH", api+"/teams/"+team["id"].(string), `{"plot":{"at":[68,-24],"style":"villa","seed":1}}`); code != http.StatusNoContent {
+		t.Fatalf("%d %v", code, response)
+	}
+}

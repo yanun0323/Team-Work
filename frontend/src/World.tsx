@@ -20,6 +20,7 @@ import { Help } from './Help'
 import { Board } from './Board'
 import { Fade, FADE_SECONDS } from './Fade'
 import { Island, useLand } from './Island'
+import { MapGrid } from './MapGrid'
 import { canMove, CELL, cellCenter, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
 import { NewCompanySheet, Placer } from './NewCompany'
 import { request } from './core/backend'
@@ -319,6 +320,7 @@ export function World() {
       <Ocean map={land.sea} calm={calm} />
       <Island town={town} land={land} />
       <Pavement town={town} />
+      {(placing || editing) && <MapGrid town={town} moved={moving ?? undefined} />}
       <StreetProps town={town} />
       {crowd && <Fade show><Strollers town={town} /></Fade>}
       <Trees town={town} />

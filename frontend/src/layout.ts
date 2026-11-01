@@ -132,8 +132,8 @@ const PITCH_CELLS = PLOT_CELLS + GAP_CELLS
 const PAD_CELLS = SHORE_CELLS + 2
 /** Width of the land laid across the sea to a plot placed away from the island. */
 const BRIDGE_CELLS = 6
-/** How far out at sea, in cells, a new plot may go: the land it needs reaches no further. */
-export const REACH_CELLS = 24
+/** Existing land expands this many cells in each direction; the whole plot must fit. */
+export const REACH_CELLS = 32
 /**
  * The airport, in town cells like a spot: fixed, behind the first plots (on the far side from the camera),
  * with room for a runway along x. Nothing can be built on it, and it is never moved.
@@ -230,29 +230,71 @@ export const spotCenter = ([x, z]: Spot): [number, number] => [(x + PLOT_CELLS /
 /** The spot whose plot is centred as near as can be on a world point. */
 export const spotUnder = (wx: number, wz: number): Spot => [Math.round(wx / CELL - PLOT_CELLS / 2), Math.round(wz / CELL - PLOT_CELLS / 2)]
 
-/** Cells between two rectangles, along the farther axis; 0 when they touch or overlap. */
-const apart = (a: Rect, b: Rect) =>
-  Math.max(0, a.x - (b.x + b.w), b.x - (a.x + a.w), a.z - (b.z + b.d), b.z - (a.z + a.d))
-
 const grow = (r: Rect, n: number): Rect => ({ x: r.x - n, z: r.z - n, w: r.w + n * 2, d: r.d + n * 2 })
 
-/**
- * Whether a new plot may go on a spot: not on another plot (touching is fine), clear of the airport by its lawn, and no
- * further out to sea than `REACH_CELLS` from them. Anything else is fine, sea included: the land grows to it.
- */
-export function canPlace(town: Pick<Town, 'lots'>, at: Spot): boolean {
-  // Match the backend bound on dense terrain allocation.
-  if (at.some((v) => !Number.isInteger(v) || Math.abs(v) > 512)) return false
-  const plot = { x: at[0], z: at[1], w: PLOT_CELLS, d: PLOT_CELLS }
-  const plots = town.lots.map((l) => ({ x: l.at[0], z: l.at[1], w: PLOT_CELLS, d: PLOT_CELLS }))
-  const others = [...plots, AIRPORT]
-  if (plots.some((o) => overlaps(plot, o)) || overlaps(plot, AIRPORT, GAP_CELLS)) return false
-  return Math.min(...others.map((o) => apart(grow(plot, PAD_CELLS), grow(o, PAD_CELLS)))) <= REACH_CELLS
+type PlacementTown = Pick<Town, 'cols' | 'rows' | 'ground' | 'lots'>
+export interface PlacementArea {
+  x0: number
+  z0: number
+  cols: number
+  rows: number
+  /** Legal plot corners, in world cells. */
+  valid: Uint8Array
+}
+const placementCache = new WeakMap<PlacementTown, Map<string, PlacementArea>>()
+
+/** Summed cells make both expansion and whole-footprint checks constant-time. */
+function cellSums(cols: number, rows: number, cell: (x: number, z: number) => number) {
+  const stride = cols + 1
+  const sums = new Int32Array(stride * (rows + 1))
+  for (let z = 0; z < rows; z++) for (let x = 0; x < cols; x++) {
+    const k = (z + 1) * stride + x + 1
+    sums[k] = cell(x, z) + sums[k - 1] + sums[k - stride] - sums[k - stride - 1]
+  }
+  return (x0: number, z0: number, x1: number, z1: number) => {
+    x0 = Math.max(0, Math.min(cols, x0)); x1 = Math.max(0, Math.min(cols, x1))
+    z0 = Math.max(0, Math.min(rows, z0)); z1 = Math.max(0, Math.min(rows, z1))
+    return sums[z1 * stride + x1] - sums[z0 * stride + x1] - sums[z1 * stride + x0] + sums[z0 * stride + x0]
+  }
 }
 
-/** Whether company `id` may move to `at`: as for a new plot, but against the other companies only. */
-export function canMove(town: Pick<Town, 'lots'>, id: string, at: Spot): boolean {
-  return canPlace({ lots: town.lots.filter((l) => l.id !== id) }, at)
+/** One source for the grid, placement cursor and move validation. Moving keeps the current land. */
+export function placementArea(town: PlacementTown, moved?: string): PlacementArea {
+  let cached = placementCache.get(town)
+  if (!cached) { cached = new Map(); placementCache.set(town, cached) }
+  const key = moved ?? ''
+  const existing = cached.get(key)
+  if (existing) return existing
+  const n = REACH_CELLS
+  const cols = town.cols + n * 2, rows = town.rows + n * 2
+  const x0 = -town.cols / 2 - n, z0 = -town.rows / 2 - n
+  const land = cellSums(town.cols, town.rows, (x, z) => town.ground[z * town.cols + x] ? 1 : 0)
+  const blocked = cellSums(cols, rows, (x, z) => {
+    const wx = x + x0, wz = z + z0
+    // The expansion is a square-cell dilation of the actual coastline, not its bounding box.
+    if (!land(x - 2 * n, z - 2 * n, x + 1, z + 1)) return 1
+    if (wx >= AIRPORT.x - GAP_CELLS && wx < AIRPORT.x + AIRPORT.w + GAP_CELLS &&
+        wz >= AIRPORT.z - GAP_CELLS && wz < AIRPORT.z + AIRPORT.d + GAP_CELLS) return 1
+    return town.lots.some((l) => l.id !== moved && wx >= l.at[0] && wx < l.at[0] + PLOT_CELLS && wz >= l.at[1] && wz < l.at[1] + PLOT_CELLS) ? 1 : 0
+  })
+  const valid = new Uint8Array(cols * rows)
+  for (let z = 0; z <= rows - PLOT_CELLS; z++) for (let x = 0; x <= cols - PLOT_CELLS; x++) {
+    if (Math.abs(x + x0) <= 512 && Math.abs(z + z0) <= 512 && !blocked(x, z, x + PLOT_CELLS, z + PLOT_CELLS)) valid[z * cols + x] = 1
+  }
+  const area = { x0, z0, cols, rows, valid }
+  cached.set(key, area)
+  return area
+}
+
+export function canPlace(town: PlacementTown, at: Spot, moved?: string): boolean {
+  if (at.some((v) => !Number.isInteger(v) || Math.abs(v) > 512)) return false
+  const area = placementArea(town, moved)
+  const x = at[0] - area.x0, z = at[1] - area.z0
+  return x >= 0 && z >= 0 && x < area.cols && z < area.rows && !!area.valid[z * area.cols + x]
+}
+
+export function canMove(town: PlacementTown, id: string, at: Spot): boolean {
+  return canPlace(town, at, id)
 }
 
 export const sameSpot = (a: Spot, b: Spot) => a[0] === b[0] && a[1] === b[1]
