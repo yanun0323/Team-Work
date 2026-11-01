@@ -1,7 +1,8 @@
-// Original synthesized music and effects; no downloads or third-party recordings.
+// Plays the synthesized music and effects (soundSynth.ts) through Web Audio.
 import { useEffect } from 'react'
 import { usePrefs, type Prefs, type MusicStyle } from './prefs'
 import { useStore, type Toast } from './core/store'
+import { effectSamples, musicSamples, NOTICE_DUCK, NOTICE_LEAD_IN, RATE, type Stereo } from './soundSynth'
 
 export const SOUND_EFFECTS = [
   { key: 'soundTakeoff', label: '飛機起飛' },
@@ -12,53 +13,8 @@ export const SOUND_EFFECTS = [
 ] as const
 export type SoundEffect = (typeof SOUND_EFFECTS)[number]['key']
 
-// An original ascending four-note announcement cue, not an airport recording.
-export const NOTICE_NOTES = [523.25, 659.25, 783.99, 1046.5] as const
-const RATE = 22050
-const CHORDS = [[48, 55, 60, 64], [45, 52, 60, 64], [41, 48, 57, 60], [43, 50, 57, 62]]
-const MELODY = [72, 76, 79, 76, 69, 72, 76, 72, 69, 72, 77, 72, 71, 74, 79, 74]
-const hz = (note: number) => 440 * 2 ** ((note - 69) / 12)
-
-/** Original arrangements with different timing, voicings and instruments. Wrap tails into the loop. */
-export function musicSamples(rate = RATE, style: MusicStyle = 'chiptune') {
-  const beat = { piano: 1, ambient: 1.5, bossa: 0.625, chiptune: 0.5 }[style]
-  const samples = new Float32Array(Math.round(rate * beat * 32))
-  const note = (midi: number, start: number, seconds: number, level: number) => {
-    const frequency = hz(midi)
-    for (let i = 0; i < Math.floor(seconds * rate); i++) {
-      const t = i / rate, phase = 2 * Math.PI * frequency * t
-      const attack = style === 'ambient' ? 0.8 : 0.015
-      const decay = style === 'ambient' ? 0.35 : style === 'bossa' ? 4 : 2.4
-      const envelope = Math.min(1, t / attack) * Math.exp(-decay * t) * Math.min(1, (seconds - t) / 0.2)
-      // Band-limited odd harmonics evoke a game console without harsh square-wave aliasing.
-      const wave = style === 'chiptune'
-        ? Math.sin(phase) + Math.sin(phase * 3) / 3 + Math.sin(phase * 5) / 5
-        : Math.sin(phase) + (style === 'ambient' ? 0.08 : 0.18) * Math.sin(phase * 2)
-      samples[(Math.round(start * rate) + i) % samples.length] += wave * envelope * level
-    }
-  }
-  for (let bar = 0; bar < 8; bar++) {
-    const chord = CHORDS[bar % 4], start = bar * beat * 4
-    if (style === 'ambient') {
-      chord.forEach((pitch) => note(pitch, start, beat * 7, 0.035))
-      note(MELODY[bar * 2], start + beat, beat * 4, 0.045)
-    } else if (style === 'bossa') {
-      // Alternating bass and syncopated plucked seventh chords.
-      for (const pulse of [0, 2]) note(chord[pulse ? 1 : 0] - 12, start + pulse * beat, beat * 1.5, 0.09)
-      for (const pulse of [0.5, 1.5, 3]) [...chord.slice(1), chord[0] + 10].forEach((pitch, i) => note(pitch, start + pulse * beat + i * 0.018, beat * 1.5, 0.045))
-      note(MELODY[bar * 2], start, beat * 2, 0.055)
-      note(MELODY[bar * 2 + 1], start + 2.5 * beat, beat * 1.5, 0.055)
-    } else if (style === 'chiptune') {
-      for (let pulse = 0; pulse < 8; pulse++) note(chord[pulse % 4] + 12, start + pulse * beat / 2, beat * 0.8, 0.055)
-      for (const pulse of [0, 2]) note(chord[0] - 12, start + pulse * beat, beat, 0.08)
-      note(MELODY[bar * 2] + 12, start, beat * 2, 0.035)
-    } else {
-      chord.forEach((pitch, i) => note(pitch, start + i * 0.08, 4, 0.045))
-      for (let pulse = 0; pulse < 4; pulse++) note(MELODY[(bar * 2 + pulse) % MELODY.length], start + pulse, 2, pulse % 2 ? 0.035 : 0.065)
-    }
-  }
-  return samples
-}
+/** How long music styles take to cross over, seconds. */
+const CROSSFADE = 1.2
 
 const aircraft = (key: SoundEffect) => key === 'soundTakeoff' || key === 'soundLanding' || key === 'soundFlyover'
 
@@ -85,7 +41,7 @@ export class SoundPlayer {
   private style?: MusicStyle
   private song?: { source: AudioBufferSourceNode; gain: GainNode }
   private songs = new Set<{ source: AudioBufferSourceNode; gain: GainNode }>()
-  private noise: AudioBuffer
+  private sounds = new Map<SoundEffect, AudioBuffer>()
 
   constructor(private context: AudioContext) {
     this.music = context.createGain()
@@ -97,10 +53,13 @@ export class SoundPlayer {
       gain.connect(context.destination)
       this.effects.set(key, gain)
     }
-    this.noise = context.createBuffer(1, RATE * 2, RATE)
-    const noise = this.noise.getChannelData(0)
-    for (let i = 0; i < noise.length; i++) noise[i] = Math.random() * 2 - 1
     this.update(usePrefs.getState())
+  }
+
+  private buffer(samples: Stereo) {
+    const buffer = this.context.createBuffer(2, samples[0].length, RATE)
+    samples.forEach((channel, i) => buffer.copyToChannel(channel, i))
+    return buffer
   }
 
   private changeMusic(style: MusicStyle) {
@@ -108,16 +67,13 @@ export class SoundPlayer {
     const context = this.context, now = context.currentTime
     if (this.song) {
       this.song.gain.gain.cancelScheduledValues(now)
-      this.song.gain.gain.setTargetAtTime(0, now, 0.06)
-      this.song.source.stop(now + 0.3)
+      this.song.gain.gain.setTargetAtTime(0, now, CROSSFADE / 4)
+      this.song.source.stop(now + CROSSFADE)
     }
-    const data = musicSamples(RATE, style)
-    const buffer = context.createBuffer(1, data.length, RATE)
-    buffer.copyToChannel(data, 0)
     const source = context.createBufferSource(), gain = context.createGain()
     gain.gain.setValueAtTime(0, now)
-    gain.gain.linearRampToValueAtTime(1, now + 0.3)
-    source.buffer = buffer
+    gain.gain.linearRampToValueAtTime(1, now + CROSSFADE)
+    source.buffer = this.buffer(musicSamples(style))
     source.loop = true
     source.connect(gain).connect(this.music)
     const song = { source, gain }
@@ -130,7 +86,7 @@ export class SoundPlayer {
 
   private mixLevels(prefs: Prefs) {
     const now = this.context.currentTime
-    const duck = this.active.has('soundNotice') ? 0.12 : 1
+    const duck = this.active.has('soundNotice') ? NOTICE_DUCK : 1
     const level = (gain: GainNode, value: number) => {
       gain.gain.cancelScheduledValues(now)
       gain.gain.setTargetAtTime(value, now, duck < 1 ? 0.015 : 0.03)
@@ -154,64 +110,16 @@ export class SoundPlayer {
     const prefs = usePrefs.getState()
     if (this.context.state !== 'running' || !prefs[key] || !prefs.effectsVolume || (!preview && aircraft(key) && !prefs.planes)) return
     this.stop(key)
-    const context = this.context, now = context.currentTime
     const notice = key === 'soundNotice'
-    const onset = now + (notice ? 0.08 : 0)
-    const click = key === 'soundUI' || notice
-    const duration = notice ? 2.75 : click ? 0.09 : key === 'soundFlyover' ? 6 : 10
-    const envelope = context.createGain()
-    envelope.connect(this.effects.get(key)!)
-    // One soft repeat, no feedback loop; muting disconnects both dry sound and echo.
-    const echo = notice ? context.createDelay(0.2) : undefined
-    const wet = notice ? context.createGain() : undefined
-    if (echo && wet) {
-      echo.delayTime.value = 0.18
-      wet.gain.value = 0.32
-      envelope.connect(echo).connect(wet).connect(this.effects.get(key)!)
-    }
-    envelope.gain.setValueAtTime(0, now)
-    if (notice) {
-      for (let i = 0; i < NOTICE_NOTES.length; i++) {
-        const start = onset + i * 0.55
-        envelope.gain.setValueAtTime(0, start)
-        envelope.gain.linearRampToValueAtTime(0.28, start + 0.012)
-        envelope.gain.setValueAtTime(0.28, start + 0.12)
-        envelope.gain.exponentialRampToValueAtTime(0.001, start + (i === 3 ? 1.08 : 0.52))
-        envelope.gain.linearRampToValueAtTime(0, start + (i === 3 ? 1.1 : 0.54))
-      }
-    } else {
-      envelope.gain.linearRampToValueAtTime(click ? 0.12 : 0.32, now + (click ? 0.008 : duration * 0.3))
-      envelope.gain.linearRampToValueAtTime(0, now + duration)
-    }
-    const source = click ? context.createOscillator() : context.createBufferSource()
-    const filter = context.createBiquadFilter()
-    if (source instanceof OscillatorNode) {
-      source.type = 'sine'
-      if (notice) {
-        // A restrained second/third harmonic makes the bell clearer on small speakers.
-        source.setPeriodicWave(context.createPeriodicWave(new Float32Array(4), new Float32Array([0, 1, 0.25, 0.12])))
-        NOTICE_NOTES.forEach((frequency, i) => source.frequency.setValueAtTime(frequency, onset + i * 0.55))
-      }
-      else {
-        source.frequency.setValueAtTime(660, now)
-        source.frequency.exponentialRampToValueAtTime(440, now + duration)
-      }
-    } else {
-      source.buffer = this.noise
-      source.loop = true
-      source.playbackRate.setValueAtTime(key === 'soundTakeoff' ? 0.65 : 1, now)
-      source.playbackRate.linearRampToValueAtTime(key === 'soundTakeoff' ? 1.3 : 0.6, now + duration)
-    }
-    filter.type = 'lowpass'
-    filter.frequency.setValueAtTime(notice ? 4000 : click ? 2000 : 350, now)
-    if (!click) {
-      filter.frequency.linearRampToValueAtTime(key === 'soundTakeoff' ? 1400 : 700, now + duration * 0.4)
-      filter.frequency.linearRampToValueAtTime(180, now + duration)
-    }
-    source.connect(filter).connect(envelope)
+    let buffer = this.sounds.get(key)
+    if (!buffer) this.sounds.set(key, buffer = this.buffer(effectSamples(key)))
+    const source = this.context.createBufferSource()
+    source.buffer = buffer
+    // The same tap every time would sound like a machine.
+    if (key === 'soundUI') source.playbackRate.value = 0.95 + Math.random() * 0.1
+    source.connect(this.effects.get(key)!)
     const clean = () => {
-      source.disconnect(); filter.disconnect(); envelope.disconnect()
-      echo?.disconnect(); wet?.disconnect()
+      source.disconnect()
       if (this.active.get(key) === stop) {
         this.active.delete(key)
         if (notice) this.mixLevels(usePrefs.getState())
@@ -221,8 +129,8 @@ export class SoundPlayer {
     source.onended = clean
     this.active.set(key, stop)
     if (notice) this.mixLevels(prefs)
-    source.start(onset)
-    source.stop(onset + duration + (notice ? 0.2 : 0))
+    // Other sounds duck first, so the chime begins in the clear.
+    source.start(this.context.currentTime + (notice ? NOTICE_LEAD_IN : 0))
   }
 
   stop(key: SoundEffect) { this.active.get(key)?.() }

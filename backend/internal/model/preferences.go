@@ -28,7 +28,7 @@ type Preferences struct {
 }
 
 func DefaultPreferences() Preferences {
-	return Preferences{MusicStyle: "chiptune", SoundNotice: true, MusicVolume: 100, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, DefaultTab: "tasks", DefaultAirportTab: "providers"}
+	return Preferences{MusicStyle: "bossa", SoundNotice: true, MusicVolume: 100, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, DefaultTab: "tasks", DefaultAirportTab: "providers"}
 }
 
 // MergePreferences accepts only known, non-null fields; omitted fields keep their values.

@@ -26,7 +26,7 @@ it('is a drawer headed as the airport, its model providers listed under the firs
 })
 
 it('starts with every preference on and the newest log line first', () => {
-  expect(DEFAULT_PREFS).toEqual({ musicStyle: 'chiptune', soundNotice: true, musicVolume: 100, effectsVolume: 100, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, defaultTab: 'tasks', defaultAirportTab: 'providers' })
+  expect(DEFAULT_PREFS).toEqual({ musicStyle: 'bossa', soundNotice: true, musicVolume: 100, effectsVolume: 100, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, defaultTab: 'tasks', defaultAirportTab: 'providers' })
   expect(ordered([1, 2, 3], 'newestFirst')).toEqual([3, 2, 1])
   expect(ordered([1, 2, 3], 'newestLast')).toEqual([1, 2, 3])
 })
@@ -71,7 +71,7 @@ it('offers sound inside preferences, not as an airport tab with separate labeled
   expect(settings).not.toContain('id="fx-settings-tab-sound"')
   const html = renderToStaticMarkup(<PrefsPage />)
   expect(html.match(/type="range"/g)).toHaveLength(2)
-  for (const name of ['音樂風格', '復古遊戲', '告示牌通知', '背景音樂', '音效', '飛機音效', '介面操作']) expect(html).toContain(name)
+  for (const name of ['音樂風格', '輕快波莎', '告示牌通知', '背景音樂', '音效', '飛機音效', '介面操作']) expect(html).toContain(name)
   expect(html).toContain('aria-valuetext="100%"')
   expect(html).toContain('aria-label="試聽 飛機音效"')
   for (const old of ['飛機起飛', '飛機降落', '飛機飛越']) expect(html).not.toContain(old)
