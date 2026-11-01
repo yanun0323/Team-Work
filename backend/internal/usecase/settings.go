@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 	"github.com/yanun0323/mho-company/internal/model/enum"
 )
@@ -42,16 +43,16 @@ func settingsError(field string, err error) error {
 
 func sameIDs[T, U any](field string, next map[string]T, old map[string]U, imports ...bool) error {
 	if next == nil {
-		return settingsError(field, fmt.Errorf("不能省略或設為 null"))
+		return settingsError(field, i18n.Errorf("不能省略或設為 null"))
 	}
 	for id := range old {
 		if _, ok := next[id]; !ok {
-			return settingsError(field+"."+id, fmt.Errorf("不能以刪除設定的方式刪除資料，請使用介面"))
+			return settingsError(field+"."+id, i18n.Errorf("不能以刪除設定的方式刪除資料，請使用介面"))
 		}
 	}
 	for id := range next {
 		if _, ok := old[id]; !ok && len(imports) == 0 {
-			return settingsError(field+"."+id, fmt.Errorf("請先從介面建立項目，再編輯設定"))
+			return settingsError(field+"."+id, i18n.Errorf("請先從介面建立項目，再編輯設定"))
 		}
 	}
 	return nil
@@ -66,10 +67,10 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 	}
 	var extra any
 	if err := d.Decode(&extra); err != io.EOF {
-		return s, settingsError("", fmt.Errorf("只能有一個 JSON 物件"))
+		return s, settingsError("", i18n.Errorf("只能有一個 JSON 物件"))
 	}
 	if s.Version != 1 {
-		return s, settingsError("version", fmt.Errorf("必須是 1"))
+		return s, settingsError("version", i18n.Errorf("必須是 1"))
 	}
 	for _, err := range []error{
 		sameIDs("teams", s.Teams, e.w.Teams), sameIDs("replicas", s.Replicas, e.w.Replicas),
@@ -81,7 +82,7 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 		}
 	}
 	bad := func(field, text string) (model.Settings, error) {
-		return s, settingsError(field, fmt.Errorf("%s", text))
+		return s, settingsError(field, i18n.Errorf(text))
 	}
 	for id, t := range s.Teams {
 		field := "teams." + id

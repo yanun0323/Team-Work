@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 	"github.com/yanun0323/mho-company/internal/model/enum"
 )
@@ -69,7 +70,7 @@ type CompleteResult struct {
 }
 
 func modelUnavailable() *Error {
-	return &Error{Code: CodeInvalidRequest, Message: "模型目前不能用，請換一個模型再試"}
+	return &Error{Code: CodeInvalidRequest, Message: i18n.T("模型目前不能用，請換一個模型再試")}
 }
 
 // modelRefused recognizes explicit model errors, not generic failures.
@@ -131,7 +132,9 @@ func (c *Client) Models(ctx context.Context) ([]model.ModelSpec, error) {
 	return out, nil
 }
 
-var errLoggedOut = &Error{Code: CodeInvalidRequest, Message: "Claude Code 還沒登入訂閱：請在終端機執行 claude auth login"}
+func errLoggedOut() error {
+	return rejected("Claude Code 還沒登入訂閱：請在終端機執行 claude auth login")
+}
 
 func discover(ctx context.Context) ([]string, map[string][]string, error) {
 	home, err := osHome()
@@ -150,7 +153,7 @@ func discover(ctx context.Context) ([]string, map[string][]string, error) {
 	if err != nil {
 		var auth *authError
 		if errors.As(err, &auth) {
-			return nil, nil, errLoggedOut
+			return nil, nil, errLoggedOut()
 		}
 		return nil, nil, safeError(err)
 	}
@@ -168,7 +171,7 @@ func discover(ctx context.Context) ([]string, map[string][]string, error) {
 		return nil, nil, unavailable("Claude Code 回了無法讀取的帳號資料")
 	}
 	if init.Account.APIProvider != "firstParty" || init.Account.SubscriptionType == "" {
-		return nil, nil, errLoggedOut
+		return nil, nil, errLoggedOut()
 	}
 	if init.Models == nil {
 		return nil, nil, unavailable("Claude Code 回了無法讀取的模型清單")
@@ -182,7 +185,7 @@ func discover(ctx context.Context) ([]string, map[string][]string, error) {
 		}
 	}
 	if len(ids) == 0 {
-		return nil, nil, errLoggedOut
+		return nil, nil, errLoggedOut()
 	}
 	return ids, efforts, nil
 }

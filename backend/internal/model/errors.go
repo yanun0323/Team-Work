@@ -1,6 +1,6 @@
 package model
 
-import "fmt"
+import "github.com/yanun0323/mho-company/internal/i18n"
 
 // Machine codes returned to clients.
 const (
@@ -20,5 +20,5 @@ type Error struct {
 func (e *Error) Error() string { return e.Message }
 
 func Errorf(code, format string, args ...any) *Error {
-	return &Error{Code: code, Message: fmt.Sprintf(format, args...)}
+	return &Error{Code: code, Message: i18n.T(format, args...)}
 }

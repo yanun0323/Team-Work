@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yanun0323/mho-company/internal/adapter"
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 	"github.com/yanun0323/mho-company/internal/model/enum"
 )
@@ -215,7 +216,9 @@ func (e *Engine) DeleteTeam(id string) error {
 // ---------- flows ----------
 
 // errPreset answers any attempt to change what is built into the app.
-var errPreset = model.Errorf(model.CodeConflict, "內建的項目不能修改，請複製後再改")
+func errPreset() error {
+	return model.Errorf(model.CodeConflict, "內建的項目不能修改，請複製後再改")
+}
 
 func (e *Engine) newWorkflow(name string) *model.Workflow {
 	start, end := e.uid("n"), e.uid("n")
@@ -250,7 +253,7 @@ func (e *Engine) SaveWorkflow(id string, wf model.Workflow) error {
 			return model.Errorf(model.CodeNotFound, "找不到任務流程")
 		}
 		if model.IsPresetID(id) {
-			return errPreset
+			return errPreset()
 		}
 		wf.ID = id
 		if strings.TrimSpace(wf.Name) == "" {
@@ -304,7 +307,7 @@ func (e *Engine) DeleteWorkflow(id string) error {
 			return model.Errorf(model.CodeNotFound, "找不到任務流程")
 		}
 		if model.IsPresetID(id) {
-			return errPreset
+			return errPreset()
 		}
 		delete(e.w.Workflows, id)
 		return nil
@@ -318,6 +321,7 @@ func (e *Engine) SetLanguage(language string) error {
 	}
 	err := e.doSettings(func() error {
 		e.w.Language = language
+		i18n.Set(language)
 		e.installPresets()
 		for _, t := range e.w.Tasks {
 			localizeFlow(&t.Workflow, language)
@@ -743,7 +747,7 @@ func checkBlueprint(b *model.Blueprint) error {
 		}
 	}
 	if b.Source.Kind == model.SourcePreset {
-		return errPreset
+		return errPreset()
 	}
 	if b.Skills == nil {
 		b.Skills = []model.SkillPack{}
@@ -774,7 +778,7 @@ func (e *Engine) SaveBlueprint(id string, b model.Blueprint) error {
 			return model.Errorf(model.CodeNotFound, "找不到藍圖")
 		}
 		if model.IsPresetID(id) {
-			return errPreset
+			return errPreset()
 		}
 		if err := checkBlueprint(&b); err != nil {
 			return err
@@ -791,7 +795,7 @@ func (e *Engine) DeleteBlueprint(id string) error {
 			return model.Errorf(model.CodeNotFound, "找不到藍圖")
 		}
 		if model.IsPresetID(id) {
-			return errPreset
+			return errPreset()
 		}
 		for _, r := range e.w.Replicas {
 			if r.BlueprintID == id {
@@ -823,7 +827,7 @@ func (e *Engine) UpdateBlueprint(ctx context.Context, id string) error {
 		s.Update = &model.SourceUpdate{At: e.clock(), OK: err == nil}
 		if err != nil {
 			e.log.Warn().Err(err).Str("repo", s.Repo).Msg("check source")
-			s.Update.Error = "找不到上游，或沒有讀取權限"
+			s.Update.Error = i18n.T("找不到上游，或沒有讀取權限")
 			return
 		}
 		s.Latest, s.Commit = latest, latest
@@ -1003,7 +1007,7 @@ func (e *Engine) Fire(id, heirID string) error {
 			if s.Status == enum.StatusProgressing {
 				s.Status = enum.StatusTodo
 			}
-			e.logLine(s, enum.LogSystem, r.Name+" 離職，交給 "+heir.Name, "handover", map[string]any{"from": r.Name, "to": heir.Name})
+			e.logLine(s, enum.LogSystem, i18n.T("%s 離職，交給 %s", r.Name, heir.Name), "handover", map[string]any{"from": r.Name, "to": heir.Name})
 		}
 		delete(e.w.Replicas, id)
 		return nil

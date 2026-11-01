@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yanun0323/mho-company/internal/adapter"
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 	"github.com/yanun0323/mho-company/internal/model/enum"
 	"github.com/yanun0323/mho-company/internal/usecase/tools"
@@ -203,7 +204,7 @@ func (e *Engine) interruptChats() {
 	for _, c := range e.w.Chats {
 		if c.ReplyAt != nil {
 			c.ReplyAt = nil
-			c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: "（伺服器重新啟動，這次回覆中斷了）"})
+			c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: i18n.T("（伺服器重新啟動，這次回覆中斷了）")})
 		}
 	}
 }
@@ -329,7 +330,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	}()
 	failed := func(detail string) {
 		e.applyChat(in, func(c *model.Chat) {
-			c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: "（回覆失敗：" + detail + "）"})
+			c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: i18n.T("（回覆失敗：%s）", detail)})
 		})
 	}
 	if own := in.spec.own; own != nil {
@@ -380,7 +381,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	if _, err := t.run(ctx); err != nil {
 		switch {
 		case errors.Is(ctx.Err(), context.DeadlineExceeded):
-			failed("執行逾時")
+			failed(i18n.T("執行逾時"))
 		case ctx.Err() != nil: // stopped on purpose
 		default:
 			var known *model.Error

@@ -527,3 +527,22 @@ func TestTaskStepsAreToldTheLanguage(t *testing.T) {
 		t.Fatalf("%s", got)
 	}
 }
+
+func TestMessagesFollowTheLanguage(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
+	if err := r.e.SayInChat("nobody", "hi", nil); err == nil || err.Error() != "找不到對話" {
+		t.Fatalf("%v", err)
+	}
+	if err := r.e.SetLanguage(model.LanguageEn); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.SayInChat("nobody", "hi", nil); err == nil || err.Error() != "Chat not found" {
+		t.Fatalf("%v", err)
+	}
+	// a restart keeps it
+	r.e.Close()
+	newEngine(t, r)
+	if err := r.e.DeleteBlueprint("preset-pm"); err == nil || !strings.Contains(err.Error(), "Built-in") {
+		t.Fatalf("%v", err)
+	}
+}

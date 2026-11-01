@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 	"go.yaml.in/yaml/v3"
 )
@@ -58,7 +58,7 @@ func fileError(path string, err error) error {
 // safePath refuses links in every managed path component, including directories.
 func (s *Store) safePath(rel string) (string, error) {
 	if !settingPath(rel) {
-		return "", fileError(rel, fmt.Errorf("不正確的設定檔路徑"))
+		return "", fileError(rel, i18n.Errorf("不正確的設定檔路徑"))
 	}
 	path := s.dataDir
 	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
@@ -71,7 +71,7 @@ func (s *Store) safePath(rel string) (string, error) {
 			return "", err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return "", fileError(rel, fmt.Errorf("不接受符號連結"))
+			return "", fileError(rel, i18n.Errorf("不接受符號連結"))
 		}
 	}
 	return path, nil
@@ -95,14 +95,14 @@ func (s *Store) readFile(rel string) ([]byte, error) {
 		return nil, err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, fileError(rel, fmt.Errorf("必須是一般檔案"))
+		return nil, fileError(rel, i18n.Errorf("必須是一般檔案"))
 	}
 	raw, err := io.ReadAll(io.LimitReader(f, (16<<20)+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(raw) > 16<<20 {
-		return nil, fileError(rel, fmt.Errorf("不能超過 16 MB"))
+		return nil, fileError(rel, i18n.Errorf("不能超過 16 MB"))
 	}
 	return raw, nil
 }
@@ -131,14 +131,14 @@ func (s *Store) readFiles() (map[string][]byte, error) {
 			}
 			rel = filepath.ToSlash(rel)
 			if entry.Type()&os.ModeSymlink != 0 {
-				return fileError(rel, fmt.Errorf("不接受符號連結"))
+				return fileError(rel, i18n.Errorf("不接受符號連結"))
 			}
 			if entry.IsDir() {
 				return nil
 			}
 			if !settingPath(rel) {
 				if strings.HasSuffix(rel, ".json") || strings.HasSuffix(rel, ".yaml") || strings.HasSuffix(rel, ".yml") {
-					return fileError(rel, fmt.Errorf("設定檔名稱或位置不正確"))
+					return fileError(rel, i18n.Errorf("設定檔名稱或位置不正確"))
 				}
 				return nil // editor temporary files are not configuration
 			}
@@ -167,7 +167,7 @@ func decodeFile(path string, raw []byte, into any) error {
 		}
 		var extra any
 		if err := d.Decode(&extra); err != io.EOF {
-			return fileError(path, fmt.Errorf("只能有一份 YAML 文件"))
+			return fileError(path, i18n.Errorf("只能有一份 YAML 文件"))
 		}
 		var err error
 		raw, err = json.Marshal(value)
@@ -176,7 +176,7 @@ func decodeFile(path string, raw []byte, into any) error {
 		}
 	}
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return fileError(path, fmt.Errorf("不能為 null"))
+		return fileError(path, i18n.Errorf("不能為 null"))
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
@@ -185,7 +185,7 @@ func decodeFile(path string, raw []byte, into any) error {
 	}
 	var extra any
 	if err := d.Decode(&extra); err != io.EOF {
-		return fileError(path, fmt.Errorf("只能有一個 JSON 物件"))
+		return fileError(path, i18n.Errorf("只能有一個 JSON 物件"))
 	}
 	return nil
 }
@@ -196,7 +196,7 @@ func assemble(files map[string][]byte) ([]byte, error) {
 	}
 	c := model.Settings{Version: 1, Teams: map[string]model.TeamConfig{}, Replicas: map[string]model.ReplicaConfig{}, Providers: map[string]model.ProviderConfig{}, Blueprints: map[string]*model.Blueprint{}, Workflows: map[string]*model.Workflow{}}
 	if files["provider.json"] == nil {
-		return nil, fileError("provider.json", fmt.Errorf("設定檔遺失"))
+		return nil, fileError("provider.json", i18n.Errorf("設定檔遺失"))
 	}
 	for path, raw := range files {
 		p := strings.Split(path, "/")
@@ -207,7 +207,7 @@ func assemble(files map[string][]byte) ([]byte, error) {
 			}
 			for id, provider := range c.Providers {
 				if !validID(id) || id != provider.ID {
-					return nil, fileError(path, fmt.Errorf("供應商 id 不正確"))
+					return nil, fileError(path, i18n.Errorf("供應商 id 不正確"))
 				}
 			}
 		case p[0] == "blueprints":
@@ -217,7 +217,7 @@ func assemble(files map[string][]byte) ([]byte, error) {
 			}
 			id := strings.TrimSuffix(p[1], ".yaml")
 			if v.ID != id {
-				return nil, fileError(path, fmt.Errorf("id 必須和檔名一致"))
+				return nil, fileError(path, i18n.Errorf("id 必須和檔名一致"))
 			}
 			c.Blueprints[id] = &v
 		case p[0] == "workflows":
@@ -227,7 +227,7 @@ func assemble(files map[string][]byte) ([]byte, error) {
 			}
 			id := strings.TrimSuffix(p[1], ".yaml")
 			if v.ID != id {
-				return nil, fileError(path, fmt.Errorf("id 必須和檔名一致"))
+				return nil, fileError(path, i18n.Errorf("id 必須和檔名一致"))
 			}
 			c.Workflows[id] = &v
 		case len(p) == 3:
@@ -236,7 +236,7 @@ func assemble(files map[string][]byte) ([]byte, error) {
 				return nil, err
 			}
 			if v.ID != p[1] {
-				return nil, fileError(path, fmt.Errorf("id 必須和公司資料夾一致"))
+				return nil, fileError(path, i18n.Errorf("id 必須和公司資料夾一致"))
 			}
 			c.Teams[v.ID] = v
 		case len(p) == 4:
@@ -245,10 +245,10 @@ func assemble(files map[string][]byte) ([]byte, error) {
 				return nil, err
 			}
 			if v.TeamID != p[1] || v.ID != strings.TrimSuffix(p[3], ".json") {
-				return nil, fileError(path, fmt.Errorf("id 或 teamId 與路徑不符"))
+				return nil, fileError(path, i18n.Errorf("id 或 teamId 與路徑不符"))
 			}
 			if _, exists := c.Replicas[v.ID]; exists {
-				return nil, fileError(path, fmt.Errorf("員工 id 重複"))
+				return nil, fileError(path, i18n.Errorf("員工 id 重複"))
 			}
 			c.Replicas[v.ID] = v
 		}
@@ -264,7 +264,7 @@ func splitSettings(raw []byte) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	put := func(path string, value any) error {
 		if !settingPath(path) {
-			return fileError(path, fmt.Errorf("id 只能包含英文字母、數字、底線與連字號"))
+			return fileError(path, i18n.Errorf("id 只能包含英文字母、數字、底線與連字號"))
 		}
 		raw, err := json.MarshalIndent(value, "", "  ")
 		if err != nil {
@@ -283,7 +283,7 @@ func splitSettings(raw []byte) (map[string][]byte, error) {
 			raw = append(raw, '\n')
 		}
 		if len(raw) > 16<<20 {
-			return fileError(path, fmt.Errorf("不能超過 16 MB"))
+			return fileError(path, i18n.Errorf("不能超過 16 MB"))
 		}
 		files[path] = raw
 		return nil

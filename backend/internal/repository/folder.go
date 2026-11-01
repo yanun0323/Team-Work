@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"slices"
 	"strings"
 
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 )
 
@@ -22,7 +24,9 @@ type FolderPicker struct {
 	Opener []string
 }
 
-var finderDialog = []string{"osascript", "-e", "activate", "-e", `POSIX path of (choose folder with prompt "選擇專案資料夾")`}
+func finderDialog() []string {
+	return []string{"osascript", "-e", "activate", "-e", fmt.Sprintf(`POSIX path of (choose folder with prompt %q)`, i18n.T("選擇專案資料夾"))}
+}
 
 // OpenFolder shows a folder in Finder.
 func (p FolderPicker) OpenFolder(ctx context.Context, path string) error {
@@ -49,7 +53,7 @@ func (p FolderPicker) PickFolder(ctx context.Context) (string, error) {
 		if runtime.GOOS != "darwin" {
 			return "", model.Errorf(model.CodeInvalid, "這個系統還不能用視窗選資料夾，請直接輸入路徑")
 		}
-		command = finderDialog
+		command = finderDialog()
 	}
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)

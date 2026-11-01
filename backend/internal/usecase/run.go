@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yanun0323/mho-company/internal/adapter"
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 	"github.com/yanun0323/mho-company/internal/model/enum"
 	"github.com/yanun0323/mho-company/internal/usecase/tools"
@@ -222,7 +223,7 @@ func (e *Engine) loadSkills(ctx context.Context, packs []packRoot) (found []skil
 		case "git":
 			dir, err := e.git.Fetch(ctx, p.source.Repo, p.source.Commit)
 			if err != nil {
-				problems = append(problems, "技能來源 "+p.source.Repo+" 讀取失敗")
+				problems = append(problems, i18n.T("技能來源 %s 讀取失敗", p.source.Repo))
 				continue
 			}
 			root = dir
@@ -250,7 +251,7 @@ func (e *Engine) repoPrompt(ctx context.Context, in subRun) string {
 	prompt, err := e.ownPrompt(ctx, in.spec.own)
 	if err != nil {
 		e.apply(in, func(_ *model.Task, s *model.SubTask) {
-			e.logLine(s, enum.LogSystem, "藍圖來源 "+in.spec.own.Repo+" 讀取失敗", "", nil)
+			e.logLine(s, enum.LogSystem, i18n.T("藍圖來源 %s 讀取失敗", in.spec.own.Repo), "", nil)
 		})
 	}
 	return prompt
@@ -311,7 +312,7 @@ func (e *Engine) startTalkReply(t *model.Task, s *model.SubTask) {
 
 func (e *Engine) talkFailed(s *model.SubTask, detail string) {
 	s.Talk.ReplyAt = nil
-	text := "（回覆失敗：" + detail + "）"
+	text := i18n.T("（回覆失敗：%s）", detail)
 	s.Talk.Messages = append(s.Talk.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: text})
 	e.logLine(s, enum.LogSystem, text, "", nil)
 }
@@ -350,7 +351,7 @@ func safeText(err error) string {
 	if errors.As(err, &failure) {
 		return failure.Message
 	}
-	return "執行時發生內部錯誤"
+	return i18n.T("執行時發生內部錯誤")
 }
 
 type subRun struct {
@@ -405,7 +406,7 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 	stop := func(err error) {
 		switch {
 		case errors.Is(ctx.Err(), context.DeadlineExceeded):
-			failed("timeout", "執行逾時")
+			failed("timeout", i18n.T("執行逾時"))
 		case ctx.Err() != nil: // stopped on purpose; whoever stopped it has moved the sub-task on
 		default:
 			var known *model.Error
@@ -448,7 +449,7 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 			return
 		}
 		if nudges == maxNudges {
-			failed("error", "員工沒有交接就停下來了")
+			failed("error", i18n.T("員工沒有交接就停下來了"))
 			return
 		}
 		msg := userText(nudgeText)
@@ -572,7 +573,7 @@ func (e *Engine) onSubReply(in subRun, tr *turn, calls *int) func(model.ModelRep
 				s.CostUSD += cost(reply.Usage, *in.spec.price)
 			} else if !in.spec.subscription && !s.Unpriced {
 				s.Unpriced = true
-				e.logLine(s, enum.LogSystem, fmt.Sprintf("模型 %s 沒有設定價格，費用不列入上限", in.spec.model), "", nil)
+				e.logLine(s, enum.LogSystem, i18n.T("模型 %s 沒有設定價格，費用不列入上限", in.spec.model), "", nil)
 			}
 			goOn = true
 			if !talking(s) && e.taskCost(t) >= e.costLimit(t) {
@@ -580,7 +581,7 @@ func (e *Engine) onSubReply(in subRun, tr *turn, calls *int) func(model.ModelRep
 					if o.ID != s.ID && o.Status == enum.StatusProgressing {
 						e.stopRun(o.ID)
 						o.Status = enum.StatusTodo
-						e.logLine(o, enum.LogSystem, "費用達到上限，暫停執行", "budgetHold", nil)
+						e.logLine(o, enum.LogSystem, i18n.T("費用達到上限，暫停執行"), "budgetHold", nil)
 					}
 				}
 				e.openReview(t, s, model.Review{Kind: enum.ReviewBudget, Options: []model.ReviewOption{{ID: "addBudget"}, {ID: "pauseTask"}}})
@@ -653,7 +654,7 @@ func (e *Engine) submitHandoff(in subRun) func(context.Context, string, json.Raw
 		if badNext {
 			return toolError("%s is not a next step of this one", a.NextNode)
 		}
-		commit, err := e.git.Commit(ctx, cwd, in.spec.name, in.label+"："+a.Headline)
+		commit, err := e.git.Commit(ctx, cwd, in.spec.name, in.label+": "+a.Headline)
 		if err != nil {
 			e.log.Warn().Err(err).Str("sub", in.subID).Msg("commit handoff")
 			return toolError("commit failed: %v; fix it and call submit_handoff again", err)
@@ -678,7 +679,7 @@ func (e *Engine) finish(_ *model.Task, s *model.SubTask, commit string) {
 	s.Status = enum.StatusComplete
 	s.Progress = 1
 	s.EndedAt = ptr(e.w.Now)
-	e.logLine(s, enum.LogSystem, "完成，commit "+commit, "done", map[string]any{"commit": commit})
+	e.logLine(s, enum.LogSystem, i18n.T("完成，commit %s", commit), "done", map[string]any{"commit": commit})
 }
 
 func orEmpty(items []string) []string {
@@ -718,7 +719,7 @@ func (e *Engine) rememberTool(in subRun) func(context.Context, string, json.RawM
 		}
 		e.apply(in, func(t *model.Task, s *model.SubTask) {
 			if e.remember(s.ReplicaID, a.Text, "work", t.ID) {
-				e.logLine(s, enum.LogSystem, "寫入記憶："+a.Text, "memory", map[string]any{"text": a.Text})
+				e.logLine(s, enum.LogSystem, i18n.T("寫入記憶：%s", a.Text), "memory", map[string]any{"text": a.Text})
 			}
 		})
 		return model.ToolResult{Text: "remembered"}
@@ -733,7 +734,7 @@ func (e *Engine) sendBackTool(in subRun) func(context.Context, string, json.RawM
 		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Reason) == "" {
 			return toolError("reason is required")
 		}
-		commit, err := e.git.Commit(ctx, cwd, in.spec.name, in.label+"：退回")
+		commit, err := e.git.Commit(ctx, cwd, in.spec.name, in.label+i18n.T("：退回"))
 		if err != nil {
 			return toolError("commit failed: %v", err)
 		}
@@ -741,7 +742,7 @@ func (e *Engine) sendBackTool(in subRun) func(context.Context, string, json.RawM
 			s.SendBackReason = a.Reason
 			s.Handoff = &model.Handoff{Commit: commit,
 				Agent: model.AgentHandoff{Goal: t.Title, Done: []string{}, Outputs: []string{}, Decisions: []string{}, Open: []string{a.Reason}},
-				Human: model.HumanSummary{Headline: "退回：" + a.Reason, Did: []string{}, Outputs: []string{}},
+				Human: model.HumanSummary{Headline: i18n.T("退回：%s", a.Reason), Did: []string{}, Outputs: []string{}},
 			}
 			e.finish(t, s, commit)
 		})

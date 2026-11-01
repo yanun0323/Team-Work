@@ -13,19 +13,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os/exec"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/yanun0323/mho-company/internal/adapter"
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 	"github.com/yanun0323/mho-company/internal/model/enum"
 )
@@ -134,7 +133,7 @@ func (c *Client) browserLogin() (*adapter.LoginFlow, error) {
 				http.Error(w, "This is not the login that was started.", http.StatusBadRequest)
 				return
 			}
-			_, _ = io.WriteString(w, "<!doctype html><meta charset=utf-8><title>Mho Company</title><p>登入成功，可以關閉這個視窗。")
+			_, _ = io.WriteString(w, "<!doctype html><meta charset=utf-8><title>Team Work</title><p>"+i18n.T("登入成功，可以關閉這個視窗。"))
 			select {
 			case arrived <- q.Get("code"):
 			default:
@@ -657,7 +656,7 @@ func readStream(ctx context.Context, body io.Reader, onText func(string)) (model
 
 func orUnknown(code string) string {
 	if code == "" {
-		return "沒有說明原因"
+		return i18n.T("沒有說明原因")
 	}
 	return code
 }
@@ -678,13 +677,13 @@ func statusError(res *http.Response) *model.Error {
 	case res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden:
 		return rejected("ChatGPT 不接受這個登入，請重新登入")
 	case strings.Contains(kind, "usage_limit_reached") || strings.Contains(kind, "usage_not_included"):
-		msg := "ChatGPT 訂閱的額度用完了"
+		msg := i18n.T("ChatGPT 訂閱的額度用完了")
 		if body.Error.ResetsAt > 0 {
-			msg += "，大約 " + strconv.Itoa(max(int(time.Until(time.Unix(body.Error.ResetsAt, 0)).Minutes()), 0)) + " 分鐘後恢復"
+			msg = i18n.T("ChatGPT 訂閱的額度用完了，大約 %d 分鐘後恢復", max(int(time.Until(time.Unix(body.Error.ResetsAt, 0)).Minutes()), 0))
 		}
 		return rejected("%s", msg)
 	case res.StatusCode == http.StatusTooManyRequests || res.StatusCode >= 500:
 		return unavailable("ChatGPT 忙碌中（%d）", res.StatusCode)
 	}
-	return rejected("%s", fmt.Sprintf("ChatGPT 拒絕了請求（%d）", res.StatusCode))
+	return rejected("ChatGPT 拒絕了請求（%d）", res.StatusCode)
 }

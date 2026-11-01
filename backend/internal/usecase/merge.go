@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/yanun0323/mho-company/internal/adapter"
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 	"github.com/yanun0323/mho-company/internal/model/enum"
 	"github.com/yanun0323/mho-company/internal/usecase/tools"
@@ -32,7 +33,7 @@ func (e *Engine) stepMerge(t *model.Task) {
 	if m.ReplicaID != nil && e.w.Replicas[*m.ReplicaID] != nil {
 		name = e.w.Replicas[*m.ReplicaID].Name + " "
 	}
-	e.mergeLog(t, fmt.Sprintf("%s開始把 %s 合併到 %s", name, t.Branch, team.TargetBranch))
+	e.mergeLog(t, i18n.T("%s開始把 %s 合併到 %s", name, t.Branch, team.TargetBranch))
 
 	var spec *agentSpec
 	replicaID := ""
@@ -99,13 +100,13 @@ func (e *Engine) runMerge(ctx context.Context, in mergeRun) {
 			if !errors.As(err, &known) {
 				e.log.Error().Err(err).Str("task", t.ID).Msg("merge failed")
 			}
-			e.mergeLog(t, "合併失敗："+safeText(err))
+			e.mergeLog(t, i18n.T("合併失敗：%s", safeText(err)))
 			t.Merge.StartedAt = nil
 			t.Stage = enum.StageAwaitMerge
 			e.notice(Event{Type: "notice", Kind: "awaitMerge", TaskID: t.ID})
 			return
 		}
-		e.mergeLog(t, fmt.Sprintf("已合併回 %s，移除 work tree", in.target))
+		e.mergeLog(t, i18n.T("已合併回 %s，移除 work tree", in.target))
 		t.Stage = enum.StageDone
 		t.DoneAt = ptr(e.w.Now)
 	})
@@ -122,7 +123,7 @@ func (e *Engine) doMerge(ctx context.Context, in mergeRun) error {
 	if conflict {
 		e.applyMerge(in, func(t *model.Task) {
 			t.Merge.Conflict = true
-			e.mergeLog(t, fmt.Sprintf("和 %s 有衝突，先解衝突", in.target))
+			e.mergeLog(t, i18n.T("和 %s 有衝突，先解衝突", in.target))
 		})
 		if in.spec == nil {
 			return model.Errorf(model.CodeConflict, "和 %s 有衝突，但沒有員工可以解", in.target)
@@ -133,7 +134,7 @@ func (e *Engine) doMerge(ctx context.Context, in mergeRun) error {
 		if err := e.git.FinishMerge(ctx, in.dir, in.spec.name); err != nil {
 			return err
 		}
-		e.applyMerge(in, func(t *model.Task) { e.mergeLog(t, "衝突已解決") })
+		e.applyMerge(in, func(t *model.Task) { e.mergeLog(t, i18n.T("衝突已解決")) })
 	}
 	if err := e.git.Land(ctx, in.folder, in.branch, in.target); err != nil {
 		e.log.Error().Err(err).Str("task", in.taskID).Msg("land branch")

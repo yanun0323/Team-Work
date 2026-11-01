@@ -16,6 +16,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/yanun0323/mho-company/internal/adapter"
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 	"github.com/yanun0323/mho-company/internal/model/enum"
 	"github.com/yanun0323/mho-company/pkg/jsonx"
@@ -120,6 +121,7 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.w.Now = e.clock()
+	i18n.Set(e.w.Language)
 	e.installPresets()
 	for _, t := range e.w.Teams {
 		e.readPrompt(t)
@@ -132,7 +134,7 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 		// nobody works across a restart: back in the queue, keeping the conversation so far
 		if s.Status == enum.StatusProgressing {
 			s.Status = enum.StatusTodo
-			e.logLine(s, enum.LogSystem, "伺服器重新啟動，重新排入佇列", "", nil)
+			e.logLine(s, enum.LogSystem, i18n.T("伺服器重新啟動，重新排入佇列"), "", nil)
 		}
 	}
 	for _, p := range e.w.Providers {

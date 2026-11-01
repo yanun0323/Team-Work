@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model/enum"
 )
 
@@ -152,7 +153,7 @@ type SettingsChange struct {
 type SettingsPending struct{ Err error }
 
 func (e *SettingsPending) Error() string {
-	return "設定儲存尚未完成，請重新啟動伺服器：" + e.Err.Error()
+	return i18n.T("設定儲存尚未完成，請重新啟動伺服器：%s", e.Err.Error())
 }
 func (e *SettingsPending) Unwrap() error { return e.Err }
 

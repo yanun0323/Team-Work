@@ -484,7 +484,7 @@ func TestDiscussion(t *testing.T) {
 		t.Fatal(err)
 	}
 	w = r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
-	if d := w.SubTasks[s.ID].Handoff.Agent.Decisions; len(d) != 1 || d[0] != "使用者：用 A" {
+	if d := w.SubTasks[s.ID].Handoff.Agent.Decisions; len(d) != 1 || d[0] != "User: 用 A" {
 		t.Fatalf("decisions = %v", d)
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/yanun0323/mho-company/internal/adapter"
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 	"github.com/yanun0323/mho-company/internal/usecase"
 	"github.com/yanun0323/mho-company/pkg/jsonx"
@@ -202,7 +203,7 @@ func (s *Server) handleError(err error, c echo.Context) {
 	if c.Response().Committed {
 		return
 	}
-	code, message, status := model.CodeInternal, "伺服器發生錯誤", http.StatusInternalServerError
+	code, message, status := model.CodeInternal, i18n.T("伺服器發生錯誤"), http.StatusInternalServerError
 	var known *model.Error
 	var web *echo.HTTPError
 	switch {

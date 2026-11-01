@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 	"github.com/yanun0323/mho-company/internal/model/enum"
 )
@@ -101,7 +102,7 @@ func (e *Engine) spawn(t *model.Task, nodeID string, upstream []string, parent *
 	}
 	e.w.SubTasks[s.ID] = s
 	if waiting {
-		e.logLine(s, enum.LogSystem, "等待其他上游完成", "joinWaiting", nil)
+		e.logLine(s, enum.LogSystem, i18n.T("等待其他上游完成"), "joinWaiting", nil)
 	} else {
 		e.release(t, s)
 	}
@@ -130,7 +131,7 @@ func (e *Engine) release(t *model.Task, s *model.SubTask) {
 			}
 		}
 	}
-	e.logLine(s, enum.LogSystem, "已排入佇列", "queued", nil)
+	e.logLine(s, enum.LogSystem, i18n.T("已排入佇列"), "queued", nil)
 }
 
 // step moves everything along as far as it goes, without waiting on anyone.
@@ -269,9 +270,9 @@ func (e *Engine) sendBack(t *model.Task, s *model.SubTask, members []*model.SubT
 		m.SendBackReason = ""
 		m.SentBack = &model.SentBack{To: to, Reason: reason}
 		if m.Handoff != nil {
-			m.Handoff.Human.Headline = fmt.Sprintf("退回 %s：%s", joined, reason)
+			m.Handoff.Human.Headline = i18n.T("退回 %s：%s", joined, reason)
 		}
-		e.logLine(m, enum.LogSystem, fmt.Sprintf("退回 %s 重做：%s", joined, reason), "sentBack", map[string]any{"nodes": joined, "reason": reason})
+		e.logLine(m, enum.LogSystem, i18n.T("退回 %s 重做：%s", joined, reason), "sentBack", map[string]any{"nodes": joined, "reason": reason})
 	}
 	from := nodeOf(wf, s.NodeID).Name
 	for _, nodeID := range to {
@@ -283,7 +284,7 @@ func (e *Engine) sendBack(t *model.Task, s *model.SubTask, members []*model.SubT
 		for _, r := range e.groupOf(t, redo) {
 			r.Rework = &model.Rework{From: s.ID, Reason: reason}
 			r.RoutedTo = slices.Clone(u.RoutedTo)
-			e.logLine(r, enum.LogSystem, fmt.Sprintf("%s 退回重做：%s", from, reason), "reworkFrom", map[string]any{"node": from, "reason": reason})
+			e.logLine(r, enum.LogSystem, i18n.T("%s 退回重做：%s", from, reason), "reworkFrom", map[string]any{"node": from, "reason": reason})
 		}
 	}
 }
@@ -317,7 +318,7 @@ func (e *Engine) arrive(t *model.Task, nodeID string, from []*model.SubTask) {
 		started := e.spawn(t, nodeID, fromIDs, ptr(lead.ID), false, round)
 		for _, o := range e.subsOf(t.ID) {
 			if isLive(o) && o.ID != started.ID && o.Group != started.ID && !slices.Contains(fromIDs, o.ID) && feedsOnly(wf, o.NodeID, nodeID) {
-				e.cancelSub(o, "匯合節點已開始，取消這個分支", "joinCancelled")
+				e.cancelSub(o, i18n.T("匯合節點已開始，取消這個分支"), "joinCancelled")
 			}
 		}
 		return
@@ -327,7 +328,7 @@ func (e *Engine) arrive(t *model.Task, nodeID string, from []*model.SubTask) {
 		existing.ParentID = e.commonAncestor(existing.UpstreamIDs)
 		existing.ArrivedAt = e.w.Now
 		name := nodeOf(wf, lead.NodeID).Name
-		e.logLine(existing, enum.LogSystem, fmt.Sprintf("收到 %s 的交接", name), "joinArrived", map[string]any{"node": name})
+		e.logLine(existing, enum.LogSystem, i18n.T("收到 %s 的交接", name), "joinArrived", map[string]any{"node": name})
 		return
 	}
 	s := e.spawn(t, nodeID, fromIDs, ptr(lead.ID), true, round)
@@ -349,7 +350,7 @@ func (e *Engine) checkJoins() bool {
 			}
 		}
 		if !pending {
-			e.logLine(s, enum.LogSystem, "所有會執行到的上游都已完成", "joinReady", nil)
+			e.logLine(s, enum.LogSystem, i18n.T("所有會執行到的上游都已完成"), "joinReady", nil)
 			e.release(t, s)
 			moved = true
 		}
@@ -422,7 +423,7 @@ func (e *Engine) dispatch() {
 		s.Status = enum.StatusProgressing
 		busy[id] = true
 		name := e.w.Replicas[id].Name
-		e.logLine(s, enum.LogSystem, name+" 開始工作", "start", map[string]any{"name": name})
+		e.logLine(s, enum.LogSystem, i18n.T("%s 開始工作", name), "start", map[string]any{"name": name})
 		if s.StartedAt == nil {
 			s.StartedAt = ptr(e.w.Now)
 		}
@@ -437,7 +438,7 @@ func (e *Engine) openReview(t *model.Task, s *model.SubTask, r model.Review) {
 	}
 	s.Review = &r
 	s.Status = enum.StatusReview
-	e.logLine(s, enum.LogSystem, "等待使用者審核", "review."+string(r.Kind), nil)
+	e.logLine(s, enum.LogSystem, i18n.T("等待使用者審核"), "review."+string(r.Kind), nil)
 	e.notice(Event{Type: "notice", Kind: "review", TaskID: t.ID, SubID: s.ID})
 }
 
@@ -450,7 +451,7 @@ func (e *Engine) fail(t *model.Task, s *model.SubTask, reason, detail string) {
 		key = "retryTimeout"
 	}
 	if s.Attempts <= limit {
-		e.logLine(s, enum.LogSystem, fmt.Sprintf("%s，自動重試 %d/%d", detail, s.Attempts, limit), key, map[string]any{"n": s.Attempts, "max": limit})
+		e.logLine(s, enum.LogSystem, i18n.T("%s，自動重試 %d/%d", detail, s.Attempts, limit), key, map[string]any{"n": s.Attempts, "max": limit})
 		s.Status = enum.StatusTodo
 		return
 	}
@@ -667,26 +668,26 @@ func (e *Engine) ResolveReview(subID, optionID, note string) error {
 			}
 			e.w.Conversations[s.ID] = answerPending(e.w.Conversations[s.ID], answer)
 			e.dirty[s.ID] = true
-			e.remember(s.ReplicaID, fmt.Sprintf("使用者對「%s」回覆：%s", r.Prompt, answer), "review", t.ID)
+			e.remember(s.ReplicaID, i18n.T("使用者對「%s」回覆：%s", r.Prompt, answer), "review", t.ID)
 		case enum.ReviewPickRoute:
 			s.Status = enum.StatusComplete
 			s.RoutedTo = []string{optionID}
 			if s.Handoff != nil {
 				reason := note
 				if reason == "" {
-					reason = "使用者指定"
+					reason = "The user chose"
 				}
 				s.Handoff.Agent.Next = &model.NextStep{NodeID: optionID, Reason: reason}
 			}
-			e.remember(s.ReplicaID, fmt.Sprintf("%s拿不定下游時，使用者選了「%s」", nodeOf(&t.Workflow, s.NodeID).Name, label), "review", t.ID)
+			e.remember(s.ReplicaID, i18n.T("%s拿不定下游時，使用者選了「%s」", nodeOf(&t.Workflow, s.NodeID).Name, label), "review", t.ID)
 		case enum.ReviewFailed:
 			if optionID == "skip" {
 				s.Status = enum.StatusComplete
 				s.Skipped = true
 				s.EndedAt = ptr(e.w.Now)
 				s.Handoff = &model.Handoff{
-					Agent: model.AgentHandoff{Goal: t.Title, Done: []string{}, Outputs: []string{}, Decisions: []string{"使用者略過此節點"}, Open: []string{"此節點沒有產出"}},
-					Human: model.HumanSummary{Headline: "此節點已略過，沒有產出。", Did: []string{}, Outputs: []string{}},
+					Agent: model.AgentHandoff{Goal: t.Title, Done: []string{}, Outputs: []string{}, Decisions: []string{"The user skipped this step"}, Open: []string{"This step produced nothing"}},
+					Human: model.HumanSummary{Headline: i18n.T("此節點已略過，沒有產出。"), Did: []string{}, Outputs: []string{}},
 				}
 			} else {
 				s.Status = enum.StatusTodo
@@ -718,7 +719,7 @@ func (e *Engine) pause(t *model.Task) {
 		if s.Status == enum.StatusProgressing {
 			e.stopRun(s.ID)
 			s.Status = enum.StatusTodo
-			e.logLine(s, enum.LogSystem, "任務已暫停，中斷工作", "paused", nil)
+			e.logLine(s, enum.LogSystem, i18n.T("任務已暫停，中斷工作"), "paused", nil)
 		}
 	}
 }
@@ -775,7 +776,7 @@ func (e *Engine) stopTask(t *model.Task) {
 		if isLive(s) {
 			s.Cancelled = true
 			s.Review = nil
-			e.logLine(s, enum.LogSystem, "任務已取消", "cancelled", nil)
+			e.logLine(s, enum.LogSystem, i18n.T("任務已取消"), "cancelled", nil)
 		}
 	}
 	e.removeTree(t)
@@ -886,7 +887,7 @@ func (e *Engine) MergeTask(id string) error {
 		if t.Merge != nil {
 			earlier = t.Merge.Log
 		}
-		t.Merge = &model.Merge{ReplicaID: by, Log: append(earlier, model.LogLine{At: e.w.Now, Kind: enum.LogHuman, Text: "合併"})}
+		t.Merge = &model.Merge{ReplicaID: by, Log: append(earlier, model.LogLine{At: e.w.Now, Kind: enum.LogHuman, Text: i18n.T("合併")})}
 		return nil
 	})
 }
@@ -909,7 +910,7 @@ func (e *Engine) ReturnTask(id, feedback string) error {
 		if review == nil || len(review.UpstreamIDs) == 0 {
 			return model.Errorf(model.CodeConflict, "沒有可以退回的步驟")
 		}
-		e.logLine(review, enum.LogHuman, "退回："+reason, "", nil)
+		e.logLine(review, enum.LogHuman, i18n.T("退回：%s", reason), "", nil)
 		t.Stage = enum.StageRunning
 		e.sendBack(t, review, e.groupOf(t, review), reason)
 		return nil
@@ -980,20 +981,20 @@ func (e *Engine) EndTalk(subID string, end model.TalkEnd) error {
 		s.Status = enum.StatusComplete
 		s.EndedAt = ptr(e.w.Now)
 		if len(said) > 0 {
-			e.remember(s.ReplicaID, fmt.Sprintf("和使用者討論「%s」的%s：%s", t.Title, node.Name, strings.Join(said, "；")), "review", t.ID)
+			e.remember(s.ReplicaID, i18n.T("和使用者討論「%s」的%s：%s", t.Title, node.Name, strings.Join(said, "; ")), "review", t.ID)
 		}
 		if end.Kind == "stop" {
-			e.logLine(s, enum.LogHuman, "結束討論：停止任務", "", nil)
+			e.logLine(s, enum.LogHuman, i18n.T("結束討論：停止任務"), "", nil)
 			e.stopTask(t)
 			return nil
 		}
 		decisions := make([]string, len(said))
 		for i, x := range said {
-			decisions[i] = "使用者：" + x
+			decisions[i] = "User: " + x
 		}
 		did := decisions
 		if len(did) == 0 {
-			did = []string{"使用者沒有補充，照原計畫進行"}
+			did = []string{i18n.T("使用者沒有補充，照原計畫進行")}
 		}
 		done := []string{}
 		if lastAgent != "" {
@@ -1001,19 +1002,19 @@ func (e *Engine) EndTalk(subID string, end model.TalkEnd) error {
 		}
 		s.Handoff = &model.Handoff{
 			Agent: model.AgentHandoff{Goal: t.Title, Done: done, Outputs: []string{}, Decisions: decisions, Open: []string{}},
-			Human: model.HumanSummary{Headline: "討論結束：" + node.Name, Did: did, Outputs: []string{}},
+			Human: model.HumanSummary{Headline: i18n.T("討論結束：%s", node.Name), Did: did, Outputs: []string{}},
 		}
 		if end.Kind == "back" {
-			e.logLine(s, enum.LogHuman, fmt.Sprintf("結束討論：退回（%s）", end.Reason), "", nil)
+			e.logLine(s, enum.LogHuman, i18n.T("結束討論：退回（%s）", end.Reason), "", nil)
 			e.sendBack(t, s, []*model.SubTask{s}, end.Reason)
 			return nil
 		}
 		if end.To != "" && nodeOf(wf, end.To) != nil {
 			s.RoutedTo = []string{end.To}
-			s.Handoff.Agent.Next = &model.NextStep{NodeID: end.To, Reason: "使用者在討論後指定"}
-			e.logLine(s, enum.LogHuman, "結束討論：繼續，交給 "+nodeOf(wf, end.To).Name, "", nil)
+			s.Handoff.Agent.Next = &model.NextStep{NodeID: end.To, Reason: "The user chose after the discussion"}
+			e.logLine(s, enum.LogHuman, i18n.T("結束討論：繼續，交給 %s", nodeOf(wf, end.To).Name), "", nil)
 		} else {
-			e.logLine(s, enum.LogHuman, "結束討論：繼續", "", nil)
+			e.logLine(s, enum.LogHuman, i18n.T("結束討論：繼續"), "", nil)
 		}
 		return nil
 	})

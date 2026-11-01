@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 )
 
@@ -81,7 +82,7 @@ func (s *Setup) Status(ctx context.Context) (Status, error) {
 	}
 	status.Version = versionNumber.FindString(string(out))
 	ids, _, err := discover(ctx)
-	if errors.Is(err, errLoggedOut) {
+	if err != nil && err.Error() == errLoggedOut().Error() {
 		return status, nil
 	}
 	if err != nil {
@@ -107,7 +108,7 @@ func run(ctx context.Context, env []string, name string, args ...string) error {
 // Install runs the installer. Its caller answers for the user having agreed to it.
 func (s *Setup) Install(ctx context.Context) error {
 	if !s.busy.TryLock() {
-		return &Error{Code: model.CodeConflict, Message: "正在安裝或登入 Claude Code"}
+		return &Error{Code: model.CodeConflict, Message: i18n.T("正在安裝或登入 Claude Code")}
 	}
 	defer s.busy.Unlock()
 	if _, found := executable(); found {
@@ -122,7 +123,7 @@ func (s *Setup) Install(ctx context.Context) error {
 		case ctx.Err() != nil:
 			return ctx.Err()
 		}
-		return unavailable("安裝失敗，請確認網路後再試一次，或到終端機執行：" + InstallScript)
+		return unavailable(i18n.T("安裝失敗，請確認網路後再試一次，或到終端機執行：%s", InstallScript))
 	}
 	if _, found := executable(); !found {
 		return unavailable("安裝程式跑完了，但找不到 Claude Code，請到終端機執行 claude --version 確認")
@@ -133,12 +134,12 @@ func (s *Setup) Install(ctx context.Context) error {
 // Login runs Claude Code's own sign-in, which opens the browser and keeps the credentials itself.
 func (s *Setup) Login(ctx context.Context) error {
 	if !s.busy.TryLock() {
-		return &Error{Code: model.CodeConflict, Message: "正在安裝或登入 Claude Code"}
+		return &Error{Code: model.CodeConflict, Message: i18n.T("正在安裝或登入 Claude Code")}
 	}
 	defer s.busy.Unlock()
 	path, found := executable()
 	if !found {
-		return &Error{Code: model.CodeConflict, Message: "還沒安裝 Claude Code"}
+		return &Error{Code: model.CodeConflict, Message: i18n.T("還沒安裝 Claude Code")}
 	}
 	// the same check every call makes, so a key in the environment cannot take over the sign-in
 	env, err := childEnvironment()

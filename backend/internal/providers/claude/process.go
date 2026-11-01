@@ -12,6 +12,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/yanun0323/mho-company/internal/i18n"
 )
 
 const maxFrame = 16 << 20
@@ -20,10 +22,10 @@ const toolPrefix = "mcp__mho__"
 type object = map[string]any
 
 func rejected(message string) error {
-	return &Error{Code: CodeInvalidRequest, Message: message}
+	return &Error{Code: CodeInvalidRequest, Message: i18n.T(message)}
 }
 func unavailable(message string) error {
-	return &Error{Code: CodeUnavailable, Message: message}
+	return &Error{Code: CodeUnavailable, Message: i18n.T(message)}
 }
 
 // Never expose raw CLI errors: they can contain prompts, paths or credentials.
@@ -50,7 +52,7 @@ func (e *authError) Unwrap() error { return e.error }
 func childEnvironment() ([]string, error) {
 	for _, key := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"} {
 		if os.Getenv(key) != "" {
-			return nil, rejected("要使用 Claude 訂閱，請先移除環境變數 " + key)
+			return nil, rejected(i18n.T("要使用 Claude 訂閱，請先移除環境變數 %s", key))
 		}
 	}
 	env := []string{}
