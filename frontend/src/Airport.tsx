@@ -1,13 +1,15 @@
 // The airport: a fixed field behind the town (layout.ts `AIRPORT`). A terminal and a control tower along the
 // far side, an apron (停機坪) in front of them with a parked plane and a helipad beside it, two taxiways down
 // to a runway along x on the town side. A plane keeps landing, taxiing to its stand, waiting, and taking off
-// again. Clicking anywhere on it opens the settings.
+// again. Clicking anywhere on it opens the settings; while they are open the terminal and the tower's cab are
+// shown from inside (AirportInterior.tsx).
 
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
+import { AirportInterior } from './AirportInterior'
 import { Fade } from './Fade'
-import { AIRPORT, CELL, rectCenter, RUNWAY_CELLS, RUNWAY_LINE, type Town } from './layout'
+import { AIRPORT, CELL, rectCenter, RUNWAY_CELLS, RUNWAY_LINE, BRIDGE_DX, HALL_LIFT, STAND_Z, STANDS, TERMINAL, TOWER, type Town } from './layout'
 import { NO_OUTLINE_LAYER } from './PixelPass'
 import { usePrefs } from './prefs'
 import { playSound, stopSound } from './sound'
@@ -15,9 +17,9 @@ import { toon } from './toon'
 
 type V3 = [number, number, number]
 
-function B({ p, s, c, shadow = true }: { p: V3; s: V3; c: string; shadow?: boolean }) {
+function B({ p, s, c, r, shadow = true }: { p: V3; s: V3; c: string; r?: V3; shadow?: boolean }) {
   return (
-    <mesh position={p} scale={s} material={toon(c)} castShadow={shadow} receiveShadow>
+    <mesh position={p} rotation={r} scale={s} material={toon(c)} castShadow={shadow} receiveShadow>
       <boxGeometry />
     </mesh>
   )
@@ -41,12 +43,9 @@ const RUNWAY_HALF = HALF_W - 3
 const TAXI_X = [-6, 14]
 const TAXI_W = 1.5 * CELL
 /** Apron, in front of the terminal. */
-const APRON = { x0: -10, x1: 32, z0: -13, z1: -3 }
-/** Terminal and tower along the far side. */
-export const TERMINAL = { x0: -4, x1: 32, z0: -19, z1: -13, h: 5 }
-const TOWER = { x: -14, z: -15, h: 14 }
-/** The top of the tower's cab, the airport's highest point. */
-export const AIRPORT_TOP = TOWER.h + 3
+const APRON = { x0: -10, x1: TERMINAL.x1, z0: TERMINAL.z1, z1: 1.5 }
+/** Where planes cross the apron, clear of the parked one's nose. */
+const LANE_Z = 0
 const HELIPAD = { x: -28, z: -8, r: 3.4 }
 
 /** A short airliner, nose along +x, wheels on y = 0: about four cells long. */
@@ -95,6 +94,7 @@ interface Key {
 const PI = Math.PI
 const R = RUNWAY_Z
 const [WEST, EAST] = TAXI_X
+const STAND = STANDS[0]
 /**
  * One landing and one take-off, both eastbound: in over the sea, roll out and turn off up the east taxiway,
  * across the apron to the stand facing the terminal, wait, push back, taxi down the west taxiway, line up
@@ -108,19 +108,17 @@ const FLIGHT: Key[] = [
   { t: 15, p: [9, 0, R], h: 0 },
   { t: 16.5, p: [EAST - 1, 0, R - 1], h: 0.8 },
   { t: 17.5, p: [EAST, 0, R - 3], h: PI / 2 },
-  { t: 21, p: [EAST, 0, -1], h: PI / 2 },
-  { t: 22, p: [EAST - 1, 0, -2.6], h: PI * 0.8 },
-  { t: 23, p: [EAST - 3, 0, -3], h: PI },
-  { t: 25, p: [6.5, 0, -3], h: PI },
-  { t: 26.5, p: [4.6, 0, -5], h: PI * 0.6 },
-  { t: 28, p: [4, 0, -8], h: PI / 2 },
+  { t: 21, p: [EAST, 0, LANE_Z + 2.5], h: PI / 2 },
+  { t: 23, p: [EAST - 1, 0, LANE_Z + 0.5], h: PI * 0.8 },
+  { t: 25, p: [STAND + 0.5, 0, LANE_Z - 1], h: PI * 0.6 },
+  { t: 28, p: [STAND, 0, STAND_Z], h: PI / 2 },
   // at the stand
-  { t: 40, p: [4, 0, -8], h: PI / 2 },
+  { t: 40, p: [STAND, 0, STAND_Z], h: PI / 2 },
   // pushed back, the nose swinging round to the west
-  { t: 45, p: [4.5, 0, -3.5], h: PI },
-  { t: 47, p: [4.5, 0, -3.5], h: PI },
-  { t: 50, p: [WEST + 2, 0, -3.5], h: PI },
-  { t: 51.5, p: [WEST, 0, -1.5], h: PI * 1.5 },
+  { t: 45, p: [STAND + 0.5, 0, LANE_Z], h: PI },
+  { t: 47, p: [STAND + 0.5, 0, LANE_Z], h: PI },
+  { t: 50, p: [WEST + 2, 0, LANE_Z], h: PI },
+  { t: 51.5, p: [WEST, 0, LANE_Z + 2], h: PI * 1.5 },
   { t: 55.5, p: [WEST, 0, R - 3], h: PI * 1.5 },
   { t: 56.5, p: [WEST + 1, 0, R - 1], h: PI * 1.8 },
   { t: 57.5, p: [WEST + 3, 0, R], h: PI * 2 },
@@ -220,11 +218,35 @@ function Shade({ on }: { on: boolean }) {
   )
 }
 
+/**
+ * From the raised hall down to the plane's front door: a slim sloping tube, as tall as the fuselage, a cab turned onto the door and a wheeled leg under it.
+ */
+function JetBridge({ x }: { x: number }) {
+  const door = { x: x + 0.95, y: 1.4, z: STAND_Z - 2.9 }
+  const tube = { x: x + BRIDGE_DX, y0: HALL_LIFT + 0.75, y1: door.y + 0.1, z0: TERMINAL.z1, z1: door.z }
+  const run = tube.z1 - tube.z0
+  const drop = tube.y0 - tube.y1
+  const mid: V3 = [tube.x, (tube.y0 + tube.y1) / 2, (tube.z0 + tube.z1) / 2]
+  const tilt: V3 = [Math.atan2(drop, run), 0, 0]
+  return (
+    <>
+      <B p={mid} s={[0.72, 1.05, Math.hypot(run, drop) + 0.4]} r={tilt} c="#c9ced8" />
+      <B p={[mid[0] + 0.37, mid[1] + 0.12, mid[2]]} s={[0.02, 0.2, Math.hypot(run, drop) - 0.2]} r={tilt} c="#3d4a5c" shadow={false} />
+      <B p={[door.x + 0.25, door.y + 0.1, door.z]} s={[1.0, 1.05, 0.95]} c="#aeb5c2" />
+      <B p={[door.x - 0.28, door.y + 0.1, door.z]} s={[0.1, 0.98, 0.82]} c="#3a3f4a" />
+      <B p={[tube.x, door.y / 2, door.z - 0.2]} s={[0.22, door.y, 0.22]} c="#3a3f4a" />
+      <B p={[tube.x, 0.2, door.z - 0.2]} s={[0.9, 0.24, 0.4]} c="#2a2e36" />
+    </>
+  )
+}
+
 /** Flat markings: never casting a shadow, just over what they are painted on. */
 const paint = (x: number, z: number, w: number, d: number, c = MARK, y = PAVE + 0.005): { p: V3; s: V3; c: string } => ({ p: [x, y, z], s: [w, 0.01, d], c })
 
-export function Airport({ town, hover, still, calm, onHover, onSelect }: {
+export function Airport({ town, open, hover, still, calm, onHover, onSelect }: {
   town: Town
+  /** The settings are open: the exterior gives way to the inside. */
+  open: boolean
   /** Editing the map: the airport can't be moved, so it takes no clicks. */
   still: boolean
   /** Under the pointer, with nothing else open: shaded to show it can be clicked. */
@@ -248,11 +270,11 @@ export function Airport({ town, hover, still, calm, onHover, onSelect }: {
     // taxiways: a yellow line down the middle, curving onto the runway's centre line
     for (const tx of TAXI_X) out.push(paint(tx, (APRON.z1 + RUNWAY_Z) / 2 - 0.5, 0.3, RUNWAY_Z - APRON.z1 - 1, YELLOW))
     // apron: a lead-in line and a stop bar at each stand
-    for (const sx of [4, 22]) {
-      out.push(paint(sx, -7, 0.3, 6, YELLOW))
-      out.push(paint(sx, -11.2, 1.8, 0.3, YELLOW))
+    for (const sx of STANDS) {
+      out.push(paint(sx, (STAND_Z - 4.6 + LANE_Z) / 2, 0.3, LANE_Z - STAND_Z + 4.6, YELLOW))
+      out.push(paint(sx, STAND_Z - 4.6, 1.8, 0.3, YELLOW))
     }
-    out.push(paint((APRON.x0 + APRON.x1) / 2, -3.6, APRON.x1 - APRON.x0 - 1, 0.3, YELLOW))
+    out.push(paint((APRON.x0 + APRON.x1) / 2, LANE_Z, APRON.x1 - APRON.x0 - 1, 0.3, YELLOW))
     // runway edge lights
     if (detail) for (let rx = -RUNWAY_HALF + 1; rx <= RUNWAY_HALF - 1; rx += 6) for (const side of [-1, 1]) {
       out.push({ p: [rx, PAVE + 0.1, RUNWAY_Z + side * (RUNWAY_W / 2 + 0.3)], s: [0.22, 0.2, 0.22], c: '#ffe7a3' })
@@ -271,7 +293,7 @@ export function Airport({ town, hover, still, calm, onHover, onSelect }: {
   const tz = (TERMINAL.z0 + TERMINAL.z1) / 2
   return (
     <group position={[x, 0, z]} onClick={click}
-      onPointerOver={(e) => { e.stopPropagation(); onHover(true); document.body.style.cursor = still ? '' : 'pointer' }}
+      onPointerOver={(e) => { e.stopPropagation(); onHover(true); document.body.style.cursor = still || open ? '' : 'pointer' }}
       onPointerOut={() => { onHover(false); document.body.style.cursor = '' }}>
       {/* runway, taxiways and apron, at the plots' paving height */}
       <B p={[0, PAVE / 2, RUNWAY_Z]} s={[RUNWAY_HALF * 2, PAVE, RUNWAY_W]} c={ASPHALT} />
@@ -290,6 +312,7 @@ export function Airport({ town, hover, still, calm, onHover, onSelect }: {
         <B p={[0, PAVE + 0.006, 0]} s={[1.6, 0.01, 0.36]} c={MARK} shadow={false} />
       </group>
 
+      <Fade show={!open}>
       {/* terminal: a long low hall, glass facing the apron, a white roof with a band of the airport colour */}
       <B p={[tx, TERMINAL.h / 2, tz]} s={[tw, TERMINAL.h, td]} c="#dfe3ea" />
       <B p={[tx, TERMINAL.h * 0.45, TERMINAL.z1 + 0.02]} s={[tw - 1.2, TERMINAL.h * 0.62, 0.06]} c="#5b8ab4" />
@@ -300,23 +323,21 @@ export function Airport({ town, hover, still, calm, onHover, onSelect }: {
       {/* air-conditioning units on the roof */}
       {detail && [-12, -5, 6, 13].map((dx) => <B key={dx} p={[tx + dx, TERMINAL.h + 0.6, tz - 0.6]} s={[2.2, 0.6, 1.6]} c="#b9bec8" />)}
       <B p={[tx, TERMINAL.h - 0.25, TERMINAL.z1 + 0.32]} s={[tw + 0.6, 0.3, 0.06]} c="#3b6fb0" shadow={false} />
+      </Fade>
       {/* a jet bridge out to each stand */}
-      {[4, 22].map((sx) => (
-        <group key={sx}>
-          <B p={[sx + 3, 2.2, -11.5]} s={[1.0, 1.0, 3.4]} c="#c9ced8" />
-          <B p={[sx + 3, 0.85, -10.2]} s={[0.3, 1.7, 0.3]} c="#3a3f4a" />
-        </group>
-      ))}
+      {STANDS.map((sx) => <JetBridge key={sx} x={sx} />)}
 
       {/* control tower: a shaft with a glass cab and an antenna */}
       <group position={[TOWER.x, 0, TOWER.z]}>
         <B p={[0, 0.6, 0]} s={[3.2, 1.2, 3.2]} c="#dfe3ea" />
         <B p={[0, TOWER.h / 2, 0]} s={[1.6, TOWER.h, 1.6]} c="#e8ebf0" />
         <B p={[0, TOWER.h + 0.1, 0]} s={[3.2, 0.2, 3.2]} c="#c9ced8" />
-        <B p={[0, TOWER.h + 1.0, 0]} s={[2.9, 1.6, 2.9]} c="#5b8ab4" />
-        <B p={[0, TOWER.h + 1.95, 0]} s={[3.4, 0.3, 3.4]} c="#3a3f4a" />
-        <B p={[0, TOWER.h + 2.8, 0]} s={[0.1, 1.4, 0.1]} c="#3a3f4a" />
-        <B p={[0, TOWER.h + 3.55, 0]} s={[0.25, 0.25, 0.25]} c="#e5533a" />
+        <Fade show={!open}>
+          <B p={[0, TOWER.h + 1.0, 0]} s={[2.9, 1.6, 2.9]} c="#5b8ab4" />
+          <B p={[0, TOWER.h + 1.95, 0]} s={[3.4, 0.3, 3.4]} c="#3a3f4a" />
+          <B p={[0, TOWER.h + 2.8, 0]} s={[0.1, 1.4, 0.1]} c="#3a3f4a" />
+          <B p={[0, TOWER.h + 3.55, 0]} s={[0.25, 0.25, 0.25]} c="#e5533a" />
+        </Fade>
       </group>
 
       {/* windsock at the runway's end */}
@@ -327,10 +348,11 @@ export function Airport({ town, hover, still, calm, onHover, onSelect }: {
       </group>}
 
       {/* a plane at the other stand, and the one that comes and goes */}
-      <group position={[22, 0, -8]} rotation={[0, PI / 2, 0]}>
+      <group position={[STANDS[1], 0, STAND_Z]} rotation={[0, PI / 2, 0]}>
         <Plane body="#f4f4f0" tail="#c8643f" />
       </group>
       <Flight calm={calm} />
+      <Fade show={open}><AirportInterior /></Fade>
       <Shade on={hover} />
     </group>
   )

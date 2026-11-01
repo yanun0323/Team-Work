@@ -10,7 +10,7 @@ import * as THREE from 'three'
 import { inTerminal, teamReplicas } from './core/model'
 import { useStore } from './core/store'
 import { LabelLayer, LabelProjector, type LabelSpec } from './core/voxel/labels'
-import { Airport, AIRPORT_TOP, TERMINAL } from './Airport'
+import { Airport } from './Airport'
 import { Ambient, shadowHalf } from './Ambient'
 import { Building, BuildingPreview, CUT, FLOOR, ROOF_TOP } from './Building'
 import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, seaCoverZoom, shotAt, type FocusBox, type Shot } from './camera'
@@ -21,7 +21,7 @@ import { Board } from './Board'
 import { Fade, FADE_SECONDS } from './Fade'
 import { Island, useLand } from './Island'
 import { MapGrid } from './MapGrid'
-import { canMove, CELL, cellCenter, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
+import { canMove, CELL, cellCenter, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, HALL_LIFT, TERMINAL, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
 import { NewCompanySheet, Placer } from './NewCompany'
 import { request } from './core/backend'
 import { createTeam, statusOf } from './core/domain/sim'
@@ -223,7 +223,9 @@ export function World() {
     if (autoView === 'off') return null
     if (airportShown) {
       const [x, z] = rectCenter(town, town.airport)
-      return { x, z, w: town.airport.w * CELL, d: town.airport.d * CELL, height: AIRPORT_TOP }
+      // the terminal alone, as it stands cut away, from corner to corner of the free area
+      const { x0, x1, z0, z1 } = TERMINAL
+      return { x: x + (x0 + x1) / 2, z: z + (z0 + z1) / 2, w: x1 - x0, d: z1 - z0, height: CUT + HALL_LIFT }
     }
     if (spot) {
       const [x, z] = spotCenter(spot)
@@ -267,9 +269,9 @@ export function World() {
       }
     })
     // the open company's own name is in the drawer, and its roof is cut away
-    return [airport, ...tags.filter((t) => t.id !== `fusion-${open?.id}`), ...crew]
+    return [...(panel === 'settings' ? [] : [airport]), ...tags.filter((t) => t.id !== `fusion-${open?.id}`), ...crew]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [town, open, crewNames, hovered, hover, settingsOpen, placing, editing, moving, helpOpen, close, language])
+  }, [town, open, crewNames, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language])
 
   const shownLabels = useFadingLabels(labels)
   const help = useLingering(helpOpen ? 'help' : null)
@@ -324,7 +326,7 @@ export function World() {
         <Building key={lot.id} lot={lot} town={town} open={lot.id === selected} another={!!open && lot !== open}
           hover={!selected && !settingsOpen && !placing && (hovered === lot.id || moving === lot.id)} onHover={hover} onSelect={select} />
       ))}
-      <Airport town={town} calm={calm || !planes} still={editing} onSelect={selectAirport} onHover={(on) => hover(AIRPORT_ID, on)}
+      <Airport town={town} open={panel === 'settings'} calm={calm || !planes} still={editing} onSelect={selectAirport} onHover={(on) => hover(AIRPORT_ID, on)}
         hover={hovered === AIRPORT_ID && !selected && !settingsOpen && !placing && !editing && !helpOpen} />
       {placing && <Placer town={town} picked={spot} onPick={pickSpot} />}
       {spot && <BuildingPreview look={look} at={spot} />}
@@ -474,10 +476,6 @@ const FLY_SECONDS = 0.9
 /** An open office fills a bit more than the free area: its empty outer floor corners may be cut off. */
 const OFFICE_ZOOM = 1.14
 
-/** The airport is long and thin, so it fills the free area with its runway ends running off the side. */
-const AIRPORT_ZOOM = 1.35
-/** Share of the screen to look further down: the tower's top needs little room, the runway below needs it more. */
-const AIRPORT_PAN_DOWN = 0.1
 
 function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked, wide }: {
   town: Town; radius: number; span: number; top: number; focus: FocusBox | null; focusKey: string | null; panOnly: boolean; blocked: boolean
@@ -560,14 +558,13 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
       // remember the player's view only when coming from the map, not when switching companies
       if (!home.current) home.current = { target: controls.target.clone(), zoom: camera.zoom }
       const view = { width: size.width, height: size.height, coverRight: drawerWidth(size.width) }
-      const panDown = focusKey === 'airport' ? AIRPORT_PAN_DOWN : 0
       if (panOnly) {
         fly.current = null
-        pan.current = { from: controls.target.clone(), aim: (zoom) => focusTarget(focus, view, zoom, panDown), time: 0 }
+        pan.current = { from: controls.target.clone(), aim: (zoom) => focusTarget(focus, view, zoom), time: 0 }
       } else {
         pan.current = null
         zoomed.current = true
-        flyTo(focusView(focus, view, focusKey === 'airport' ? AIRPORT_ZOOM : focusKey?.startsWith('spot:') ? 1 : OFFICE_ZOOM, panDown))
+        flyTo(focusView(focus, view, focusKey === 'airport' || focusKey?.startsWith('spot:') ? 1 : OFFICE_ZOOM, focusKey === 'airport'))
       }
     } else {
       pan.current = null

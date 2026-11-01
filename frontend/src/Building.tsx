@@ -599,7 +599,7 @@ function frontWall(color: string) {
   return m
 }
 
-function Clear({ p, s, c }: { p: V3; s: V3; c: string }) {
+export function Clear({ p, s, c }: { p: V3; s: V3; c: string }) {
   const ref = useRef<THREE.Mesh>(null)
   useLayoutEffect(() => ref.current?.layers.set(NO_OUTLINE_LAYER), [])
   return (

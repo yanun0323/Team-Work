@@ -179,3 +179,21 @@ describe('seaCoverZoom', () => {
     }
   })
 })
+
+describe('focusView, tight', () => {
+  it('fits the box to the free area, touching its edges with no margin', () => {
+    const box = { x: 14, z: -15, w: 44, d: 8.5, height: 6 }
+    const view = { width: 1440, height: 900, coverRight: 700 }
+    const { target, zoom } = focusView(box, view, 1, true)
+    const corners = [-1, 1].flatMap((sx) => [-1, 1].flatMap((sz) => [0, box.height].map((y) =>
+      new THREE.Vector3(box.x + (sx * box.w) / 2, y, box.z + (sz * box.d) / 2).sub(target))))
+    const xs = corners.map((c) => c.dot(SCREEN_RIGHT) * zoom + view.width / 2)
+    const ys = corners.map((c) => view.height / 2 - c.dot(SCREEN_UP) * zoom)
+    const free = view.width - view.coverRight
+    const [w, h] = [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)]
+    // the tighter direction fills the free area exactly, and the box stays centred in it
+    expect(Math.max(w / free, h / view.height)).toBeCloseTo(1, 5)
+    expect((Math.max(...xs) + Math.min(...xs)) / 2).toBeCloseTo(free / 2, 5)
+    expect((Math.max(...ys) + Math.min(...ys)) / 2).toBeCloseTo(view.height / 2, 5)
+  })
+})

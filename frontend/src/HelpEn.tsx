@@ -41,8 +41,9 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: 'The airport open: the airport on the map and its file on the right',
     body: (
       <>
-        <p>The airport is the island's control center and holds what all companies share. Click the airport or its name tag on the map to open it, and the view moves there. The plane button at the top right opens it without moving the view. Click elsewhere on the map or press Esc to put it away. You can choose which tab opens first with Default airport tab in Settings.</p>
+        <p>The airport is the island's control center and holds what all companies share. Click the airport or its name tag on the map to open it, and the view zooms in on the terminal. The plane button at the top right opens it without moving the view. Click elsewhere on the map or press Esc to put it away. You can choose which tab opens first with Default airport tab in Settings.</p>
         <p>The airport stays where it is, and no company can be built on it. Planes land, taxi to a stand and take off again, and now and then others pass high overhead.</p>
+        <p>While the airport is open, its roof comes off to show the terminal inside: escalators, check-in, security, a duty-free shop, a café and the gates, plus the controllers in the tower. Passengers come up from underground on one escalator, check in, pass security and board at a gate; arriving passengers pass customs and leave down the other. Put it away and the roof returns.</p>
         <dl>
           <dt>Model providers</dt><dd>Where employees' models come from.</dd>
           <dt>Blueprints</dt><dd>Templates for making employees.</dd>

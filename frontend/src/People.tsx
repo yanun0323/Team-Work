@@ -238,7 +238,7 @@ export const Figure = memo(function Figure({ look, rig, seed, drop = 0, scale = 
  * Puts a figure where its walker is: seated or standing, legs swinging by how far it walked this frame.
  * `lift` raises someone seated higher than a chair (a sofa), shins stretched down to the floor.
  */
-function pose(rig: Rig, w: Walker & { phase: number }, seated: boolean, moved: number, y: number, dt: number, lift = 0) {
+export function pose(rig: Rig, w: Walker & { phase: number }, seated: boolean, moved: number, y: number, dt: number, lift = 0) {
   const root = rig.root
   if (!root || !rig.seated || !rig.standing) return
   rig.seated.visible = seated
@@ -621,7 +621,7 @@ const HAIR = ['#2a2018', '#5a3a24', '#9a6a3a', '#d8b26a', '#1c1c24', '#b04a2a', 
 const SHIRT = ['#e85d4a', '#3f7fd0', '#f2c14e', '#4fae6a', '#f0f0f0', '#8a5cc8', '#ef8fb0', '#2f9c9c']
 const PANTS = ['#34405a', '#4a4a52', '#6b5642', '#2f3e6b', '#c8b48a']
 
-const lookOf = (i: number): Look => ({
+export const lookOf = (i: number): Look => ({
   skin: SKIN[Math.floor(hash(i, 1) * SKIN.length)],
   hair: HAIR[Math.floor(hash(i, 2) * HAIR.length)],
   shirt: SHIRT[Math.floor(hash(i, 3) * SHIRT.length)],
@@ -706,7 +706,7 @@ export function Strollers({ town }: { town: Town }) {
             held.add(spot(seat))
             p.seat = seat
             p.toSeat = true
-            p.route = [...route(grid, [p.x, p.z], seat.front), seat.at]
+            p.route = toBench
           } else {
             // mostly along the paving round the buildings, sometimes out on the grass
             const [x, z] = Math.random() < 0.7 && paved.length ? pick(paved) : pick(cells)

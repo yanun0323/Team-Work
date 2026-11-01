@@ -43,21 +43,21 @@ const FILL_H = 0.95
 /**
  * Where the camera should look, on the ground, and how far to zoom so the box sits centred in the part
  * of the screen the right-hand panel leaves free. `scale` above 1 zooms in further, letting the box's
- * outer corners run past the free area; `panDown` then looks further down by that share of the screen.
+ * outer corners run past the free area. `tight` drops the margin, so the box touches the free area's edges.
  */
-export function focusView(box: FocusBox, view: View, scale = 1, panDown = 0): { target: THREE.Vector3; zoom: number } {
+export function focusView(box: FocusBox, view: View, scale = 1, tight = false): { target: THREE.Vector3; zoom: number } {
   const { minX, maxX, minY, maxY } = screenBounds(box)
   const free = Math.max(1, view.width - view.coverRight)
-  const zoom = THREE.MathUtils.clamp(scale * Math.min((free * FILL_W) / (maxX - minX), (view.height * FILL_H) / (maxY - minY)), MIN_ZOOM, MAX_ZOOM)
-  return { target: focusTarget(box, view, zoom, panDown), zoom }
+  const zoom = THREE.MathUtils.clamp(scale * Math.min((free * (tight ? 1 : FILL_W)) / (maxX - minX), (view.height * (tight ? 1 : FILL_H)) / (maxY - minY)), MIN_ZOOM, MAX_ZOOM)
+  return { target: focusTarget(box, view, zoom), zoom }
 }
 
 /** Where to look so the box sits centred in the free part of the screen at the given zoom. */
-export function focusTarget(box: FocusBox, view: View, zoom: number, panDown = 0): THREE.Vector3 {
+export function focusTarget(box: FocusBox, view: View, zoom: number): THREE.Vector3 {
   const { minX, maxX, minY, maxY } = screenBounds(box)
   // the box's screen centre goes to the middle of the free part, which is coverRight / 2 left of the screen centre
   const u = (minX + maxX) / 2 + view.coverRight / 2 / zoom
-  const v = (minY + maxY) / 2 - (view.height * panDown) / zoom
+  const v = (minY + maxY) / 2
   const target = SCREEN_RIGHT.clone().multiplyScalar(u).addScaledVector(SCREEN_UP, v)
   // slide along the view direction down to the ground; that doesn't move anything on screen
   return target.addScaledVector(ISO_DIR, -target.y / ISO_DIR.y)

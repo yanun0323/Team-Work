@@ -142,6 +142,15 @@ export const AIRPORT: Rect = { x: -20, z: -30, w: 40, d: 20 }
 /** The runway's centre line, in cells from the airport's far edge, and its width: it runs the airport's length along x. */
 export const RUNWAY_LINE = 16
 export const RUNWAY_CELLS = 3
+/** Terminal and control tower along the airport's far side, in world units about its middle. */
+export const TERMINAL = { x0: -8, x1: 36, z0: -19.5, z1: -11, h: 6.5 }
+/** The terminal's hall stands this far above the ground, on a solid base: its floor has an opening with depth. */
+export const HALL_LIFT = 2.5
+/** Where each plane stands, its nose towards the terminal; the jet bridge leaves the terminal at `BRIDGE_DX` beside it. */
+export const STANDS = [11, 30]
+export const STAND_Z = -5
+export const BRIDGE_DX = 1.9
+export const TOWER = { x: -14, z: -15, h: 14 }
 /** Cells either side of the runway kept clear of trees all the way along its line, so planes coming in or climbing out clear them. */
 const APPROACH_CELLS = RUNWAY_CELLS / 2 + 3
 /** Fixed noise seed for the coast and trees; cells hash by their town position, so growing keeps them. */
