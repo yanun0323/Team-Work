@@ -15,6 +15,7 @@ import { attempt, chatTaskDraft, deleteChat, hasUncommitted, rewindChat, sayInCh
 import { useLiveText } from './core/live'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
+import { MentionBox } from './MentionBox'
 import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, splitAttachments } from './attachments'
 
 export interface ChatTaskSeed { title: string; description: string; ownerId: string | null }
@@ -181,6 +182,13 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
           </li>
         )}
       </ol>
+      {!left && !writing && !!chat?.question?.options.length && (
+        <div className="fx-d-choices" role="group" aria-label={tr('選項')}>
+          {chat.question.options.map((o) => (
+            <button key={o} type="button" className="fx-choice" onClick={() => act((x) => sayInChat(x, chat.id, o))}>{o}</button>
+          ))}
+        </div>
+      )}
       {!chat && !crew.length && <p className="fx-d-muted">{tr('這間公司還沒有員工')}</p>}
       {!chat && uncommitted && <p className="fx-room-warn" role="status">{tr('專案資料夾有未提交的改動，員工可能會改到同一份檔案')}</p>}
       {left
@@ -214,15 +222,7 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
               <input type="file" disabled={reading} multiple className="fx-sr" aria-label={tr('加入附件')}
                 onChange={(e) => { void attach([...(e.target.files ?? [])]); e.target.value = '' }} />
             </label>
-            <textarea ref={box} className="fx-control" rows={2} value={text} aria-label={tr('訊息')} placeholder={tr('輸入訊息')}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                // Enter sends; not while a Chinese word is still being picked in the input method
-                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault()
-                  void send()
-                }
-              }} />
+            <MentionBox box={box} value={text} teamId={teamId} replicaIds={replica ? [replica.id] : []} label={tr('訊息')} placeholder={tr('輸入訊息，$ 選技能，@ 選檔案，可直接貼上截圖')} onChange={setText} onSend={() => void send()} />
             {writing
               ? (
                 <button type="button" className="fx-room-send" aria-label={tr('暫停')} title={tr('暫停')} onClick={() => act((x) => stopChat(x, chat!.id))}>

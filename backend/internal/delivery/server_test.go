@@ -417,6 +417,8 @@ func TestChatEndpoints(t *testing.T) {
 	api := setup(t).URL + "/api/v1"
 	for _, tt := range []struct{ method, path, body string }{
 		{"GET", "/teams/nope/uncommitted", ""},
+		{"GET", "/teams/nope/files", ""},
+		{"GET", "/replicas/nope/skills", ""},
 		{"POST", "/chats", `{"teamId":"nope","replicaId":"nope","text":"hi"}`},
 		{"POST", "/chats/nope/say", `{"text":"hi"}`},
 		{"POST", "/chats/nope/stop", ""},

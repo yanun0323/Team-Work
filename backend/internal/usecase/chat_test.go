@@ -47,6 +47,178 @@ func TestChatWorksInTheFolderWithoutTheEmployeesTaskSlot(t *testing.T) {
 	}
 }
 
+func TestChatMessageBringsTheSkillItNames(t *testing.T) {
+	root := t.TempDir()
+	for name, body := range map[string]string{"tdd": "先寫測試", "other": "別的做法"} {
+		dir := filepath.Join(root, "skills", name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		content := "---\nname: " + name + "\ndescription: 說明 " + name + "\n---\n" + body
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	bp := *r.world().Blueprints[r.owner.BlueprintID]
+	bp.Skills = []model.SkillPack{{Source: &model.BlueprintSource{Kind: "local", Path: root}, Exclude: []string{"other"}}}
+	if err := r.e.SaveBlueprint(bp.ID, bp); err != nil {
+		t.Fatal(err)
+	}
+
+	skills, err := r.e.ReplicaSkills(context.Background(), r.owner.ID)
+	if err != nil || len(skills) != 1 || skills[0].Name != "tdd" || skills[0].Description != "說明 tdd" {
+		t.Fatalf("%+v %v", skills, err)
+	}
+
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "用 $tdd，順便 $tdd $other $nope"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	said := func(req model.ModelRequest, at int) string {
+		var b strings.Builder
+		for _, block := range req.Messages[at].Content {
+			b.WriteString(block.Text + "\n")
+		}
+		return b.String()
+	}
+	first := said(r.fake.seen[0], 0)
+	if strings.Count(first, "先寫測試") != 1 || strings.Contains(first, "別的做法") {
+		t.Fatalf("%s", first)
+	}
+	if got := r.world().Chats[c.ID].Messages[0].Text; strings.Contains(got, "先寫測試") {
+		t.Fatalf("the instructions show in the chat: %s", got)
+	}
+
+	// it stays with its message, and does not come along with later ones
+	if err := r.e.SayInChat(c.ID, "繼續", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("second reply", func(w *model.World) bool { return w.Chats[c.ID].ReplyAt == nil && len(w.Chats[c.ID].Messages) == 4 })
+	last := r.fake.seen[len(r.fake.seen)-1]
+	if !strings.Contains(said(last, 0), "先寫測試") || strings.Contains(said(last, 2), "先寫測試") {
+		t.Fatalf("%+v", last.Messages)
+	}
+
+	// taking the message back takes its skill too
+	if err := r.e.RewindChat(c.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.SayInChat(c.ID, "沒有技能", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("third reply", func(w *model.World) bool { return w.Chats[c.ID].ReplyAt == nil && len(w.Chats[c.ID].Messages) == 2 })
+	if got := said(r.fake.seen[len(r.fake.seen)-1], 0); strings.Contains(got, "先寫測試") {
+		t.Fatalf("%s", got)
+	}
+}
+
+func TestAttachedFileNamesNoSkill(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "skills", "tdd")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: tdd\n---\n先寫測試"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	bp := *r.world().Blueprints[r.owner.BlueprintID]
+	bp.Skills = []model.SkillPack{{Source: &model.BlueprintSource{Kind: "local", Path: root}, Exclude: []string{}}}
+	if err := r.e.SaveBlueprint(bp.ID, bp); err != nil {
+		t.Fatal(err)
+	}
+	file := model.Attachment{Name: "a.txt", URL: "data:text/plain;base64," + base64.StdEncoding.EncodeToString([]byte("價格 $tdd 元"))}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "看附件", Files: []model.Attachment{file}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	for _, block := range r.fake.seen[0].Messages[0].Content {
+		if strings.Contains(block.Text, "先寫測試") {
+			t.Fatalf("%s", block.Text)
+		}
+	}
+}
+
+func TestTaskStepKnowsWhatAtMeans(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	task := r.task(r.flow.ID)
+	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	if got := r.fake.seen[0].System; !strings.Contains(got, "@path") {
+		t.Fatalf("%s", got)
+	}
+}
+
+func TestChatAskUserWaitsForTheNextMessage(t *testing.T) {
+	calls := 0
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		calls++
+		if calls == 1 {
+			return call("ask_user", map[string]any{"prompt": "用哪個？", "options": []string{"甲", " ", "乙", "甲"}}), nil
+		}
+		return say("好"), nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "開始"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("question", func(w *model.World) bool { c := w.Chats[c.ID]; return c.ReplyAt == nil && c.Question != nil })
+	got := r.world().Chats[c.ID]
+	if !slices.Equal(got.Question.Options, []string{"甲", "乙"}) || len(got.Messages) != 2 || got.Messages[1].From != "agent" || got.Messages[1].Text != "用哪個？" {
+		t.Fatalf("%+v %+v", got.Question, got.Messages)
+	}
+	if calls != 1 {
+		t.Fatalf("went on without an answer: %d calls", calls)
+	}
+
+	if err := r.e.SayInChat(c.ID, "乙", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", func(w *model.World) bool { c := w.Chats[c.ID]; return c.ReplyAt == nil && len(c.Messages) == 4 })
+	if r.world().Chats[c.ID].Question != nil {
+		t.Fatal("the question stayed open")
+	}
+	seen := r.fake.seen[len(r.fake.seen)-1].Messages
+	if n := len(seen); n != 4 || seen[2].Content[0].Type != enum.BlockToolResult || seen[2].Content[0].IsError || seen[3].Content[0].Text != "乙" {
+		t.Fatalf("%+v", seen)
+	}
+
+	// taking the answer back leaves the chat where it can go on, counted right past the tool's result
+	if err := r.e.RewindChat(c.ID, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.SayInChat(c.ID, "甲", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply again", func(w *model.World) bool { c := w.Chats[c.ID]; return c.ReplyAt == nil && len(c.Messages) == 4 })
+	seen = r.fake.seen[len(r.fake.seen)-1].Messages
+	if n := len(seen); n != 4 || seen[3].Content[0].Text != "甲" {
+		t.Fatalf("%+v", seen)
+	}
+}
+
+func TestSearchFilesLeavesOutWhatGitIgnores(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	for name, body := range map[string]string{".gitignore": "secret.txt\n", "secret.txt": "x", "notes/plan.md": "x"} {
+		path := filepath.Join(r.folder, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	found, err := r.e.SearchFiles(context.Background(), r.team.ID, "notes/")
+	if err != nil || len(found) != 1 || found[0].Path != "notes/plan.md" {
+		t.Fatalf("%+v %v", found, err)
+	}
+	if found, _ := r.e.SearchFiles(context.Background(), r.team.ID, "secret"); len(found) != 0 {
+		t.Fatalf("%+v", found)
+	}
+}
+
 func TestChatKeepsItsModelAndGoesOnAfterAStop(t *testing.T) {
 	release := make(chan struct{})
 	first := true

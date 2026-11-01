@@ -9,6 +9,7 @@ import { taskStatus } from './rollup'
 import type {
   Chat,
   Attachment, Blueprint, GitSource, Locale, LogKind, MemorySource, ModelProvider, ProviderAuth, Replica, Review, Script, SubTask, TalkEnd, Task, Team, Workflow, World,
+  FileInfo, SkillInfo,
 } from './types'
 
 /** Seconds a box spends on the belt between two nodes. */
@@ -318,8 +319,29 @@ export function sayInChat(w: World, id: string, text: string, images: Attachment
   const chat = w.chats[id]
   text = text.trim()
   if (!chat || (!text && !images.length && !files.length) || chat.replyAt !== undefined || !w.replicas[chat.replicaId]) return
+  delete chat.question
   chat.messages.push({ at: w.now, from: 'user', text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) })
   chat.replyAt = w.now + REPLY_TIME
+}
+
+export function replicaSkills(w: World, replicaId: string): SkillInfo[] {
+  const packs = w.blueprints[w.replicas[replicaId]?.blueprintId]?.skills ?? []
+  const names = packs.flatMap((p) => (p.include ?? []).filter((name) => !p.exclude.includes(name)))
+  return [...new Set(names)].map((name) => ({ name, description: '' }))
+}
+
+const MOCK_FILES: FileInfo[] = [
+  { path: 'docs', dir: true }, { path: 'src', dir: true }, { path: 'README.md', dir: false }, { path: 'my notes.txt', dir: false },
+  { path: 'docs/design.md', dir: false }, { path: 'src/app.ts', dir: false }, { path: 'src/app.test.ts', dir: false },
+]
+
+export function searchFiles(query: string): FileInfo[] {
+  const at = query.lastIndexOf('/')
+  const folder = query.slice(0, at + 1)
+  const q = query.toLowerCase()
+  return MOCK_FILES.filter((f) => (query && at < 0
+    ? f.path.toLowerCase().includes(q)
+    : f.path.startsWith(folder) && !f.path.slice(folder.length).includes('/') && f.path.toLowerCase().startsWith(q)))
 }
 
 export function stopChat(w: World, id: string) {
@@ -332,6 +354,7 @@ export function rewindChat(w: World, id: string, index: number) {
   if (chat?.messages[index]?.from !== 'user') return
   chat.messages.length = index
   delete chat.replyAt
+  delete chat.question
 }
 
 export function deleteChat(w: World, id: string) {
@@ -340,6 +363,12 @@ export function deleteChat(w: World, id: string) {
 
 function answerChat(w: World, chat: Chat) {
   delete chat.replyAt
+  // a question gets one back, to show what an employee asking looks like
+  if (/[?？]$/.test(chat.messages.at(-1)?.text ?? '')) {
+    chat.messages.push({ at: w.now, from: 'agent', text: '你想先做哪一個？' })
+    chat.question = { options: ['先做前端', '先做後端'] }
+    return
+  }
   chat.messages.push({ at: w.now, from: 'agent', text: '收到。這是模擬的回覆，要實際對話請接上後端。' })
 }
 

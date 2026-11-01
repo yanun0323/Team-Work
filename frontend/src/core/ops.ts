@@ -4,7 +4,7 @@
 
 import { request } from './backend'
 import * as sim from './domain/sim'
-import type { Attachment, Blueprint, Chat, Effort, Locale, Look, Replica, TalkEnd, Team, Workflow, World } from './domain/types'
+import type { Attachment, Blueprint, Chat, Effort, FileInfo, Locale, Look, Replica, SkillInfo, TalkEnd, Team, Workflow, World } from './domain/types'
 import { MOCK } from './mode'
 
 /** Reports a request that failed; the store shows it. Set once at start. */
@@ -66,6 +66,16 @@ export function startChat(act: (fn: (w: World) => void) => void, input: sim.NewC
 export const chatTaskDraft = (w: World, id: string) => (MOCK
   ? Promise.resolve(sim.chatTaskDraft(w, id))
   : request<{ title: string; description: string }>('POST', `/chats/${id}/task-draft`))
+
+/** The skills "$" offers in a chat with this employee. */
+export const replicaSkills = (w: World, replicaId: string, signal?: AbortSignal) => (MOCK
+  ? Promise.resolve(sim.replicaSkills(w, replicaId))
+  : request<SkillInfo[]>('GET', `/replicas/${replicaId}/skills`, undefined, signal))
+
+/** The files and folders "@" offers from a company's folder. */
+export const searchFiles = (teamId: string, query: string, signal?: AbortSignal) => (MOCK
+  ? Promise.resolve(sim.searchFiles(query))
+  : request<FileInfo[]>('GET', `/teams/${teamId}/files?q=${encodeURIComponent(query)}`, undefined, signal))
 
 /** Whether a company's folder has changes not committed. */
 export const hasUncommitted = (teamId: string) => (MOCK

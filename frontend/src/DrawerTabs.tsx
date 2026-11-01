@@ -81,6 +81,7 @@ function Chats(p: Opens) {
                   <b>{name}<span className="fx-chat-model">{chatMindOf(w, c)}</span></b>
                   <span className="fx-chat-first">{c.messages[0]?.text || (c.messages[0]?.images?.length ? tr('圖片') : c.messages[0]?.files?.length ? tr('附件') : '')}</span>
                 </span>
+                {c.question && <WaitBadge inline />}
               </button></li>
             )
           })}

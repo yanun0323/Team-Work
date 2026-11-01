@@ -31,6 +31,7 @@ import { parseGithub } from './github'
 import { blueprintToYaml } from './blueprintYaml'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
+import { MentionBox } from './MentionBox'
 import { newSkillRow, skillPacksOf, skillRowsOf, type SkillRow } from './blueprintForm'
 import { authLabel, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
 import { talking } from './core/domain/sim'
@@ -1722,8 +1723,10 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
         </label>
         <label className="fx-field fx-field-top">
           <span>{tr('說明#task')}</span>
-          <textarea className="fx-control" rows={3} value={draft.description} placeholder={tr('可直接貼上截圖')}
-            onChange={(e) => editDraft(() => ({ description: e.target.value }))} />
+          <div className="fx-mention-wrap">
+            <MentionBox value={draft.description} teamId={teamId} label={tr('說明#task')} placeholder={tr('@ 選檔案，可直接貼上截圖')}
+              rows={3} below onChange={(description) => editDraft(() => ({ description }))} />
+          </div>
         </label>
         <div className="fx-field fx-field-top" role="group" aria-labelledby="fx-images-label">
           <span id="fx-images-label">{tr('附件')}</span>
@@ -1870,7 +1873,10 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
         </label>
         <label className="fx-field fx-field-top">
           <span>{tr('說明#task')}</span>
-          <textarea className="fx-control" rows={3} value={draft.description} onChange={(e) => editDraft(() => ({ description: e.target.value }))} />
+          <div className="fx-mention-wrap">
+            <MentionBox value={draft.description} teamId={task.teamId} label={tr('說明#task')} placeholder={tr('@ 選檔案')}
+              rows={3} below onChange={(description) => editDraft(() => ({ description }))} />
+          </div>
         </label>
         <OwnerField teamId={task.teamId} draft={draft} />
       </div>

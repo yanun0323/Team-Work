@@ -81,3 +81,18 @@ describe('chats', () => {
     expect(w.chats).toEqual({})
   })
 })
+
+describe('a question from the employee', () => {
+  it('stays open until the next message, which answers it', () => {
+    const { w, chat } = setup()
+    for (let i = 0; i < 60; i++) tick(w, 0.1)
+    sayInChat(w, chat.id, '可以嗎？')
+    for (let i = 0; i < 60; i++) tick(w, 0.1)
+    expect(chat.question?.options).toHaveLength(2)
+    expect(chat.messages.at(-1)?.from).toBe('agent')
+    sayInChat(w, chat.id, chat.question!.options[0])
+    expect(chat.question).toBeUndefined()
+    for (let i = 0; i < 60; i++) tick(w, 0.1)
+    expect(chat.question).toBeUndefined()
+  })
+})

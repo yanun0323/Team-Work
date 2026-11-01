@@ -125,6 +125,8 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/subtasks/:id/talk/end", s.endTalk)
 
 	api.GET("/teams/:id/uncommitted", s.uncommitted)
+	api.GET("/teams/:id/files", s.searchFiles)
+	api.GET("/replicas/:id/skills", s.replicaSkills)
 	api.POST("/teams/:id/open-folder", s.openFolder)
 	api.GET("/teams/:id/terminal", s.terminal)
 	api.GET("/teams/:id/health", s.teamHealth)
@@ -589,6 +591,22 @@ func (s *Server) uncommitted(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, map[string]bool{"uncommitted": dirty})
+}
+
+func (s *Server) searchFiles(c echo.Context) error {
+	files, err := s.engine.SearchFiles(c.Request().Context(), c.Param("id"), c.QueryParam("q"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, files)
+}
+
+func (s *Server) replicaSkills(c echo.Context) error {
+	skills, err := s.engine.ReplicaSkills(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, skills)
 }
 
 func (s *Server) createChat(c echo.Context) error {

@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -16,6 +17,7 @@ import (
 )
 
 const chatRules = "You are a company employee chatting with the user to discuss things or do simple work. The working directory is the project folder itself, and changes reach the user's files immediately: change only what was asked, and commit only if the user asks. Attached files may be read from their supplied paths outside the project, but must not be modified.\n" +
+	mentionRule + "\n" +
 	"Reply in plain text. If the work grows or needs several steps, suggest creating a task from this chat.\n" +
 	dataRule
 
@@ -128,6 +130,7 @@ func (e *Engine) RewindChat(id string, index int) error {
 		}
 		e.stopRun(c.ID)
 		c.ReplyAt = nil
+		c.Question = nil
 		c.Messages = c.Messages[:index]
 		e.w.Conversations[c.ID] = e.w.Conversations[c.ID][:end]
 		e.dirty[c.ID] = true
@@ -241,7 +244,13 @@ func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Att
 		}
 	}
 	said.Content = append(said.Content, e.fileBlocks(c.ID, files)...)
-	e.w.Conversations[c.ID] = append(answerPending(e.w.Conversations[c.ID], ""), said)
+	// the answer goes as a message of its own, so it can hold attachments and be taken back like any other
+	answer := ""
+	if c.Question != nil {
+		answer = "see their next message"
+		c.Question = nil
+	}
+	e.w.Conversations[c.ID] = append(answerPending(e.w.Conversations[c.ID], answer), said)
 	e.dirty[c.ID] = true
 }
 
@@ -286,6 +295,8 @@ type chatRun struct {
 	spec   agentSpec
 	conv   []model.Message
 	folder string
+	// said is the user's words alone: an attached file's text in the conversation names no skill
+	said string
 }
 
 // launchChat starts a reply. Its run names no employee: a chat does not keep them from their tasks.
@@ -300,7 +311,7 @@ func (e *Engine) launchChat(c *model.Chat, spec agentSpec) {
 	r := &run{cancel: cancel}
 	e.runs[c.ID] = r
 	e.wg.Add(1)
-	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: team.Folder})
+	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: team.Folder, said: c.Messages[len(c.Messages)-1].Text})
 }
 
 // applyChat changes a chat for a run, unless the run was stopped or replaced meanwhile.
@@ -315,6 +326,32 @@ func (e *Engine) applyChat(in chatRun, fn func(c *model.Chat)) bool {
 	fn(c)
 	e.settle()
 	return true
+}
+
+// chatAskUser ends the reply with a question. The user's next message answers it.
+func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
+	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "End your reply and ask the user to decide; you go on with their answer. Call it alone, after the results of any other tools.",
+		Parameters: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"options":{"type":"array","items":{"type":"string"}}},"required":["prompt"]}`)},
+		func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+			var a struct {
+				Prompt  string   `json:"prompt"`
+				Options []string `json:"options"`
+			}
+			if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Prompt) == "" {
+				return toolError("prompt is required")
+			}
+			options := []string{}
+			for _, o := range a.Options {
+				if o = strings.TrimSpace(o); o != "" && !slices.Contains(options, o) {
+					options = append(options, o)
+				}
+			}
+			e.applyChat(in, func(c *model.Chat) {
+				c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: a.Prompt})
+				c.Question = &model.ChatQuestion{Options: options}
+			})
+			return model.ToolResult{Stop: true}
+		}}
 }
 
 func (e *Engine) runChat(ctx context.Context, in chatRun) {
@@ -345,7 +382,26 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		in.spec.system += role
 	}
 	skills, roots, _ := e.loadSkills(ctx, in.spec.packs)
-	list := tools.For(in.spec.allowed, append(roots, e.attachmentRoot(in.id)))
+	// kept with the message from here on, so what the employee was told does not change under the conversation
+	if last := len(in.conv) - 1; last >= 0 {
+		if named := mentionedSkills(in.said, skills); len(named) > 0 {
+			said := in.conv[last]
+			said.Content = slices.Clip(said.Content)
+			for _, text := range named {
+				said.Content = append(said.Content, model.Block{Type: enum.BlockText, Text: text})
+			}
+			in.conv[last] = said
+			kept := e.applyChat(in, func(c *model.Chat) {
+				conv := e.w.Conversations[c.ID]
+				conv[len(conv)-1] = said
+				e.dirty[c.ID] = true
+			})
+			if !kept {
+				return
+			}
+		}
+	}
+	list := append(tools.For(in.spec.allowed, append(roots, e.attachmentRoot(in.id))), e.chatAskUser(in))
 	specs := make([]model.ToolSpec, len(list))
 	byName := make(map[string]adapter.Tool, len(list))
 	for i, tool := range list {
@@ -371,6 +427,9 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			})
 		},
 		onTool: func(call model.Block) {
+			if call.Name == toolAskUser {
+				return // it shows as the question itself
+			}
 			e.applyChat(in, func(c *model.Chat) {
 				c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "tool", Text: call.Name + " " + clip(string(call.Args), 200)})
 			})

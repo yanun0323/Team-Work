@@ -200,14 +200,20 @@ func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Rep
 		e.readPrompt(team)
 		spec.system = composePrompt(t, team, node, bp, r, e.w.Language)
 	}
+	spec.packs = packsOf(bp)
+	return spec, nil
+}
+
+func packsOf(bp *model.Blueprint) []packRoot {
+	var packs []packRoot
 	for _, pack := range bp.Skills {
 		source := bp.Source
 		if pack.Source != nil {
 			source = *pack.Source
 		}
-		spec.packs = append(spec.packs, packRoot{source: source, include: pack.Include, exclude: pack.Exclude})
+		packs = append(packs, packRoot{source: source, include: pack.Include, exclude: pack.Exclude})
 	}
-	return spec, nil
+	return packs
 }
 
 // loadSkills finds the skills of a blueprint's packs; one that cannot be read is reported and left out. The same
@@ -431,7 +437,7 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 	}
 
 	t := e.subTurn(in, roots)
-	t.req.System += e.repoPrompt(ctx, in) + skillsPrompt(skills)
+	t.req.System += e.repoPrompt(ctx, in) + skillsPrompt(skills) + "\n" + mentionRule + "\n"
 	calls := 0
 	t.onReply = e.onSubReply(in, t, &calls)
 

@@ -87,6 +87,8 @@ type Git interface {
 	Branches(ctx context.Context, folder string) (branches []string, repo bool, err error)
 	// Uncommitted says whether a folder has changes not committed; a folder that is no repo has none.
 	Uncommitted(ctx context.Context, folder string) (bool, error)
+	// Files lists the files under a folder, relative to it with "/" separators: in a repo those git does not ignore.
+	Files(ctx context.Context, folder string) []string
 	// Worktree makes, or finds, the task's work tree at dir on a new branch off target.
 	Worktree(ctx context.Context, folder, dir, branch, target string) error
 	// Commit commits everything in the work tree and returns HEAD. Nothing to commit is no failure.

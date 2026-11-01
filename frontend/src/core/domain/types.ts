@@ -102,6 +102,18 @@ export interface MemoryEntry {
   taskId?: string
 }
 
+/** A skill "$" can name. */
+export interface SkillInfo {
+  name: string
+  description: string
+}
+
+/** A file or folder "@" can name, relative to the company's folder. */
+export interface FileInfo {
+  path: string
+  dir: boolean
+}
+
 export interface Replica {
   id: string
   teamId: string
@@ -244,6 +256,8 @@ export interface Chat {
   messages: ChatMessage[]
   /** The employee is writing a reply. */
   replyAt?: number
+  /** The employee waits for an answer to what they just asked; the next message is it. */
+  question?: { options: string[] }
   createdAt: number
 }
 

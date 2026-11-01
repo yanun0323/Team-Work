@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +23,8 @@ import (
 const (
 	remoteTimeout = 2 * time.Minute
 	maxReadFile   = 1 << 20
+	// maxWalkedFiles bounds how much of a folder that is not a repo gets walked.
+	maxWalkedFiles = 20_000
 )
 
 var conflictMarks = regexp.MustCompile(`(?m)^(<<<<<<<|>>>>>>>) `)
@@ -108,6 +111,32 @@ func (g *Git) Uncommitted(ctx context.Context, folder string) (bool, error) {
 	}
 	out, err := git(ctx, folder, "status", "--porcelain")
 	return out != "", err
+}
+
+func (g *Git) Files(ctx context.Context, folder string) []string {
+	if out, err := exec.CommandContext(ctx, "git", "-C", folder, "ls-files", "--cached", "--others", "--exclude-standard", "-z").Output(); err == nil {
+		return strings.FieldsFunc(string(out), func(r rune) bool { return r == 0 })
+	}
+	var files []string
+	_ = filepath.WalkDir(folder, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if rel, err := filepath.Rel(folder, p); err == nil {
+			files = append(files, filepath.ToSlash(rel))
+		}
+		if len(files) >= maxWalkedFiles {
+			return fs.SkipAll
+		}
+		return ctx.Err()
+	})
+	return files
 }
 
 func (g *Git) Worktree(ctx context.Context, folder, dir, branch, target string) error {

@@ -204,8 +204,15 @@ type Chat struct {
 	Model     string        `json:"model"`
 	Messages  []ChatMessage `json:"messages"`
 	// ReplyAt is set while the employee writes a reply: when they started.
-	ReplyAt   *float64 `json:"replyAt,omitempty"`
-	CreatedAt float64  `json:"createdAt"`
+	ReplyAt *float64 `json:"replyAt,omitempty"`
+	// Question is set while the employee waits for the answer to what they asked with ask_user.
+	Question  *ChatQuestion `json:"question,omitempty"`
+	CreatedAt float64       `json:"createdAt"`
+}
+
+// ChatQuestion is what an open question offers to answer with; the words of the question are a message in the chat.
+type ChatQuestion struct {
+	Options []string `json:"options"`
 }
 
 // TalkEnd is how the user ended a discussion: continue (to To), back (with Reason), or stop.
