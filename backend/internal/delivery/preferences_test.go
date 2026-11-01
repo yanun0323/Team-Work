@@ -91,10 +91,10 @@ func TestSoundPreferencesEndpoint(t *testing.T) {
 	if defaults["musicVolume"] != float64(100) || defaults["effectsVolume"] != float64(100) {
 		t.Fatalf("%v", defaults)
 	}
-	if code, body := send(t, "PATCH", api+"/settings/preferences", `{"musicVolume":0,"effectsVolume":100,"soundTakeoff":false,"soundLanding":false,"soundFlyover":false,"soundUI":false,"defaultAirportTab":"sound"}`); code != http.StatusNoContent {
+	if code, body := send(t, "PATCH", api+"/settings/preferences", `{"musicVolume":0,"effectsVolume":100,"musicMuted":true,"soundTakeoff":false,"soundLanding":false,"soundFlyover":false,"soundUI":false,"defaultAirportTab":"sound"}`); code != http.StatusNoContent {
 		t.Fatalf("%d %v", code, body)
 	}
-	for _, raw := range []string{`{"musicVolume":-1}`, `{"musicVolume":101}`, `{"effectsVolume":-1}`, `{"effectsVolume":101}`, `{"musicVolume":2.5}`, `{"effectsVolume":"40"}`, `{"soundTakeoff":null}`, `{"soundLanding":0}`, `{"soundFlyover":"false"}`, `{"soundUI":[]}`} {
+	for _, raw := range []string{`{"musicVolume":-1}`, `{"musicVolume":101}`, `{"effectsVolume":-1}`, `{"effectsVolume":101}`, `{"musicVolume":2.5}`, `{"effectsVolume":"40"}`, `{"soundTakeoff":null}`, `{"soundLanding":0}`, `{"soundFlyover":"false"}`, `{"soundUI":[]}`, `{"musicMuted":"true"}`, `{"effectsMuted":null}`} {
 		if code, body := send(t, "PATCH", api+"/settings/preferences", raw); code != http.StatusBadRequest {
 			t.Fatalf("%s: %d %v", raw, code, body)
 		}
@@ -104,7 +104,7 @@ func TestSoundPreferencesEndpoint(t *testing.T) {
 	}
 	_, world := send(t, "GET", api+"/world", "")
 	prefs := world["preferences"].(map[string]any)
-	if prefs["musicVolume"] != float64(0) || prefs["effectsVolume"] != float64(100) || prefs["soundTakeoff"] != false || prefs["soundLanding"] != true || prefs["soundFlyover"] != false || prefs["soundUI"] != false || prefs["defaultAirportTab"] != "prefs" {
+	if prefs["musicVolume"] != float64(0) || prefs["effectsVolume"] != float64(100) || prefs["musicMuted"] != true || prefs["effectsMuted"] != false || prefs["soundTakeoff"] != false || prefs["soundLanding"] != true || prefs["soundFlyover"] != false || prefs["soundUI"] != false || prefs["defaultAirportTab"] != "prefs" {
 		t.Fatalf("%v", prefs)
 	}
 }

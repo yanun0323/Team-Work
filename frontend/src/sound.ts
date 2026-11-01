@@ -92,23 +92,23 @@ export class SoundPlayer {
       gain.gain.setTargetAtTime(value, now, duck < 1 ? 0.015 : 0.03)
     }
     // Notification priority lasts through the echo tail; never change saved volumes.
-    level(this.music, prefs.musicVolume / 100 * duck)
+    level(this.music, prefs.musicMuted ? 0 : prefs.musicVolume / 100 * duck)
     for (const { key } of SOUND_EFFECTS) {
-      level(this.effects.get(key)!, prefs[key] ? prefs.effectsVolume / 100 * (aircraft(key) ? 0.6 : 1) * (key === 'soundNotice' ? 1 : duck) : 0)
+      level(this.effects.get(key)!, prefs[key] && !prefs.effectsMuted ? prefs.effectsVolume / 100 * (aircraft(key) ? 0.6 : 1) * (key === 'soundNotice' ? 1 : duck) : 0)
     }
   }
 
   update(prefs: Prefs) {
     this.changeMusic(prefs.musicStyle)
     for (const { key } of SOUND_EFFECTS) {
-      if (!prefs[key] || prefs.effectsVolume === 0 || (aircraft(key) && !prefs.planes)) this.stop(key)
+      if (!prefs[key] || prefs.effectsMuted || prefs.effectsVolume === 0 || (aircraft(key) && !prefs.planes)) this.stop(key)
     }
     this.mixLevels(prefs)
   }
 
   play(key: SoundEffect, preview = false) {
     const prefs = usePrefs.getState()
-    if (this.context.state !== 'running' || !prefs[key] || !prefs.effectsVolume || (!preview && aircraft(key) && !prefs.planes)) return
+    if (this.context.state !== 'running' || !prefs[key] || prefs.effectsMuted || !prefs.effectsVolume || (!preview && aircraft(key) && !prefs.planes)) return
     this.stop(key)
     const notice = key === 'soundNotice'
     let buffer = this.sounds.get(key)

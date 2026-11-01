@@ -43,6 +43,8 @@ const en = {
   '個別音效': 'Individual effects',
   '音量': 'Volume',
   '試聽 {name}': 'Preview {name}',
+  '靜音': 'Mute',
+  '靜音 {name}': 'Mute {name}',
   '收起上面那張，回到這張': 'Put away the sheet above and return here',
   '已經不在了': 'No longer here',
   '還沒有紀錄': 'No log yet',

@@ -26,7 +26,7 @@ it('is a drawer headed as the airport, its model providers listed under the firs
 })
 
 it('starts with every preference on and the newest log line first', () => {
-  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, musicStyle: 'bossa', soundNotice: true, musicVolume: 100, effectsVolume: 100, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers' })
+  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, musicStyle: 'bossa', soundNotice: true, musicVolume: 100, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers' })
   expect(ordered([1, 2, 3], 'newestFirst')).toEqual([3, 2, 1])
   expect(ordered([1, 2, 3], 'newestLast')).toEqual([1, 2, 3])
 })
@@ -75,6 +75,9 @@ it('offers sound inside preferences, not as an airport tab with separate labeled
   for (const name of ['音樂風格', '輕快波莎', '告示牌通知', '背景音樂', '音效', '飛機音效', '介面操作']) expect(html).toContain(name)
   expect(html).toContain('aria-valuetext="100%"')
   expect(html).toContain('aria-label="試聽 飛機音效"')
+  expect(html).toContain('aria-label="靜音 背景音樂"')
+  expect(html).toContain('aria-label="靜音 音效"')
+  expect(html.match(/aria-label="靜音 /g)).toHaveLength(2)
   for (const old of ['飛機起飛', '飛機降落', '飛機飛越']) expect(html).not.toContain(old)
 })
 

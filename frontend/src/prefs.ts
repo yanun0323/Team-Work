@@ -41,6 +41,9 @@ export interface Prefs {
   /** Independent channel levels, 0–100; zero mutes the channel. */
   musicVolume: number
   effectsVolume: number
+  /** Silence a channel without losing its level. */
+  musicMuted: boolean
+  effectsMuted: boolean
   soundTakeoff: boolean
   soundLanding: boolean
   soundFlyover: boolean
@@ -72,7 +75,7 @@ export interface Prefs {
   defaultAirportTab: AirportTab
 }
 
-export const DEFAULT_PREFS: Prefs = { muteInBackground: true, musicStyle: 'bossa', soundNotice: true, musicVolume: 100, effectsVolume: 100, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers' }
+export const DEFAULT_PREFS: Prefs = { muteInBackground: true, musicStyle: 'bossa', soundNotice: true, musicVolume: 100, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers' }
 
 /** The range of `zoomSensitivity`; the backend checks the same. */
 export const ZOOM_SENSITIVITY = { min: 20, max: 300 }

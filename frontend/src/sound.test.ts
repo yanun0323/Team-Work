@@ -145,6 +145,25 @@ it('routes music and effects independently and stops muted effects immediately',
   player.dispose()
 })
 
+it('mute silences a channel at once and restores its saved level', () => {
+  const { player, sources, gains } = context()
+  player.play('soundTakeoff')
+  const muted = { ...DEFAULT_PREFS, musicVolume: 40, effectsVolume: 50, musicMuted: true, effectsMuted: true }
+  usePrefs.setState(muted)
+  player.update(muted)
+  expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 10, 0.03)
+  expect(gains[2].gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 10, 0.03)
+  expect(sources[1].stop).toHaveBeenLastCalledWith()
+  player.play('soundUI')
+  expect(sources).toHaveLength(2)
+  const unmuted = { ...muted, musicMuted: false, effectsMuted: false }
+  usePrefs.setState(unmuted)
+  player.update(unmuted)
+  expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(0.4, 10, 0.03)
+  expect(gains[2].gain.setTargetAtTime).toHaveBeenLastCalledWith(0.3, 10, 0.03)
+  player.dispose()
+})
+
 it('does not queue suspended effects; stops aircraft when animation is disabled and cleans up', async () => {
   const { player, audio, sources } = context()
   player.play('soundFlyover')

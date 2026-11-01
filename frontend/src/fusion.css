@@ -1080,7 +1080,7 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 /* A native slider, so keyboard and focus still work: a strip of paper with pencil ticks and a highlighter
    stroke up to a paper tab. The custom properties exist because WebKit and Firefox rules cannot share a selector. */
 .fx-volume { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.fx-volume input {
+.fx-volume input[type="range"] {
   /* half the tab: where the tab's centre sits at 0 and at 100 */
   --tab: 9px;
   --strip:
@@ -1094,25 +1094,26 @@ p.fx-chat-bubble { white-space: pre-wrap; }
   border: 0; border-radius: 0; cursor: pointer;
   background: transparent;
 }
-.fx-volume input::-webkit-slider-runnable-track { height: 10px; background: var(--strip); box-shadow: var(--strip-edge); }
-.fx-volume input::-moz-range-track { height: 10px; background: var(--strip); box-shadow: var(--strip-edge); }
-.fx-volume input::-webkit-slider-thumb {
+.fx-volume input[type="range"]::-webkit-slider-runnable-track { height: 10px; background: var(--strip); box-shadow: var(--strip-edge); }
+.fx-volume input[type="range"]::-moz-range-track { height: 10px; background: var(--strip); box-shadow: var(--strip-edge); }
+.fx-volume input[type="range"]::-webkit-slider-thumb {
   appearance: none; -webkit-appearance: none; box-sizing: border-box; width: 18px; height: 24px; margin-top: -7px;
   border: 1px solid var(--muted); border-radius: 1px; background: var(--paper-tab); box-shadow: var(--lift);
   transform: rotate(-3deg);
 }
-.fx-volume input::-moz-range-thumb {
+.fx-volume input[type="range"]::-moz-range-thumb {
   box-sizing: border-box; width: 18px; height: 24px;
   border: 1px solid var(--muted); border-radius: 1px; background: var(--paper-tab); box-shadow: var(--lift);
   transform: rotate(-3deg);
 }
-.fx-volume input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.fx-volume input[type="range"]:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* pressed flat against the page while dragged */
-.fx-volume input:active::-webkit-slider-thumb { transform: none; box-shadow: 0 1px 1px rgb(40 30 10 / 0.25); }
-.fx-volume input:active::-moz-range-thumb { transform: none; box-shadow: 0 1px 1px rgb(40 30 10 / 0.25); }
+.fx-volume input[type="range"]:active::-webkit-slider-thumb { transform: none; box-shadow: 0 1px 1px rgb(40 30 10 / 0.25); }
+.fx-volume input[type="range"]:active::-moz-range-thumb { transform: none; box-shadow: 0 1px 1px rgb(40 30 10 / 0.25); }
 .fx-sound-switches { display: grid; }
 @media (forced-colors: active) {
-  .fx-volume input { appearance: auto; -webkit-appearance: auto; }
+  .fx-volume input[type="range"] { appearance: auto; -webkit-appearance: auto; }
 }
 .fx-volume output { min-width: 4ch; text-align: end; font-variant-numeric: tabular-nums; }
+.fx-mute { display: inline-flex; flex: none; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; }
 .fx-sound-effect { display: grid; grid-template-columns: minmax(0, 1fr) 32px; gap: 12px; align-items: center; }

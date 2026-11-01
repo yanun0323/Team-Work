@@ -12,6 +12,8 @@ type Preferences struct {
 	SoundNotice       bool   `json:"soundNotice"`
 	MusicVolume       int    `json:"musicVolume"`
 	EffectsVolume     int    `json:"effectsVolume"`
+	MusicMuted        bool   `json:"musicMuted"`
+	EffectsMuted      bool   `json:"effectsMuted"`
 	SoundTakeoff      bool   `json:"soundTakeoff"`
 	SoundLanding      bool   `json:"soundLanding"`
 	SoundFlyover      bool   `json:"soundFlyover"`
