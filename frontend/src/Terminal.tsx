@@ -29,13 +29,13 @@ export default function Terminal({ teamId, focusRequest, onLeave }: {
 
   return (
     <div className="fx-terminal">
-      <div ref={host} className="fx-terminal-screen" title={tr('按 F6 離開終端機')} />
       {ended && (
         <div className="fx-terminal-ended">
           <span>{tr('終端機已結束')}</span>
           <button type="button" className="fx-hit" onClick={() => { endTerminal(teamId); setRun((n) => n + 1) }}>{tr('重新開啟')}</button>
         </div>
       )}
+      <div ref={host} className="fx-terminal-screen" title={tr('按 F6 離開終端機')} />
     </div>
   )
 }

@@ -24,7 +24,7 @@ function Volume({ label, value, onChange }: { label: string; value: number; onCh
   return <label className="fx-field" htmlFor={id}>
     <span>{label}</span>
     <span className="fx-volume">
-      <input id={id} type="range" min="0" max="100" step="1" value={draft} aria-valuetext={`${draft}%`} style={{ '--volume': `${draft}%` } as CSSProperties}
+      <input id={id} type="range" min="0" max="100" step="1" value={draft} aria-valuetext={`${draft}%`} style={{ '--volume': draft / 100 } as CSSProperties}
         onChange={(e) => setDraft(Number(e.target.value))} onPointerUp={save} onKeyUp={save} onBlur={save} />
       <output htmlFor={id}>{draft}%</output>
     </span>
