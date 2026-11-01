@@ -105,12 +105,16 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /teams/:id/open-folder` | 在 Finder 打開公司資料夾 |
 | `GET /teams/:id/health` | 公司資料夾現在的狀態：`folder` 存在、`repo` 是 git repo、`targetBranch` 目標分支還在 |
 | `GET /teams/:id/terminal?cols=&rows=` | WebSocket：在公司資料夾開一個載入 `~/.zshrc` 的 zsh。二進位訊息是輸入與畫面輸出，文字訊息 `{"cols","rows"}` 調整大小；斷線時結束 shell 和它的工作 |
+| `POST /attachments` | 上傳一個檔案（請求內容就是檔案本身，最大 25MB），回傳放進 `files` 的 `url` |
+| `GET /attachments/:hash` | 下載上傳的檔案 |
 | `POST /chats` | 開始對話（`teamId`、`replicaId`、`text`、可選的 `images` 和 `files`），用員工當下的模型，員工開始回覆 |
 | `POST /chats/:id/say`、`POST /chats/:id/stop`、`DELETE /chats/:id` | 對話發言（`text`、`images`、`files`：附件格式見下方）、中斷回覆、刪除 |
 | `POST /chats/:id/rewind` | 收回第 `index` 則使用者訊息和它之後的所有內容，並中斷回覆；資料夾裡的改動不會還原 |
 | `POST /chats/:id/task-draft` | 把對話整理成任務的 `title` 和 `description`，不會建立任務 |
 
-任務與對話的 `images`、`files` 都是 `{ "name": "檔名", "url": "data:…;base64,…" }` 陣列，合計最多 6 個、每個最大 3.75MB。`images` 接受 PNG、JPEG、GIF、WebP，`files` 接受一般檔案，舊資料省略 `files` 仍可讀取。只有附件、沒有文字的對話也能發送。
+任務與對話的 `images`、`files` 都是 `{ "name": "檔名", "url": "…" }` 陣列，合計最多 6 個。`images` 接受 PNG、JPEG、GIF、WebP 的 data URL，每個最大 3.75MB。`files` 接受一般檔案，每個最大 25MB：`url` 是上傳後拿到的網址；舊資料的 data URL 仍可讀取，每個最大 3.75MB，省略 `files` 也可以。只有附件、沒有文字的對話也能發送。
+
+上傳的檔案存於資料目錄的 `attachments/uploads/`，內容相同只留一份；目前刪除任務或對話時不會清掉附件。
 
 一般檔案另外存於資料目錄的 `attachments/<task-or-chat-id>/`，不會寫入或提交到公司專案。員工會收到檔名、絕對路徑和文字預覽（最多 50KB），可用藍圖允許的讀檔工具繼續讀取；二進位文件須使用可用的命令與解析工具，沒有內建 PDF／Office 轉換。介面支援下載、移除待送附件、複製任務附件及收回訊息後重新編輯附件。
 

@@ -60,7 +60,7 @@ export async function request<T = void>(method: string, path: string, body?: unk
   let res: Response
   try {
     res = await fetch(`/api/v1${path}`, {
-      method, signal, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+      method, signal, ...(body === undefined ? {} : body instanceof Blob ? { body } : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
     })
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e

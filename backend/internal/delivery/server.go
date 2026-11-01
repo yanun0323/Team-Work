@@ -128,6 +128,9 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/teams/:id/open-folder", s.openFolder)
 	api.GET("/teams/:id/terminal", s.terminal)
 	api.GET("/teams/:id/health", s.teamHealth)
+	api.POST("/attachments", s.uploadAttachment)
+	api.GET("/attachments/:hash", s.downloadAttachment)
+
 	api.POST("/chats", s.createChat)
 	api.POST("/chats/:id/say", s.sayInChat)
 	api.POST("/chats/:id/stop", s.stopChat)
@@ -595,6 +598,30 @@ func (s *Server) createChat(c echo.Context) error {
 	}
 	out, err := s.engine.CreateChat(in)
 	return created(c, out, err)
+}
+
+func (s *Server) uploadAttachment(c echo.Context) error {
+	url, err := s.engine.SaveUpload(c.Request().Body)
+	return created(c, map[string]string{"url": url}, err)
+}
+
+func (s *Server) downloadAttachment(c echo.Context) error {
+	f, err := s.engine.UploadFile(c.Param("hash"))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	// Uploads are arbitrary files: never let the page's origin render them.
+	h := c.Response().Header()
+	h.Set("Content-Type", "application/octet-stream")
+	h.Set("Content-Disposition", "attachment")
+	h.Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(c.Response(), c.Request(), "", info.ModTime(), f)
+	return nil
 }
 
 func (s *Server) sayInChat(c echo.Context) error {

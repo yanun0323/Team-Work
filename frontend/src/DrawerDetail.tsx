@@ -1703,7 +1703,7 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
     if (reading) return
     const session = attachmentSession.current
     const { fit, refused } = attachable([...files], MAX_ATTACHMENTS - images.length)
-    setAttachmentError(refused ? tr('每個附件最大 3.75MB，最多 6 個附件') : '')
+    setAttachmentError(refused ? tr('圖片最大 3.75MB，其他檔案最大 25MB，最多 6 個附件') : '')
     setReading(true)
     try {
       const more = await readAttachments(fit)

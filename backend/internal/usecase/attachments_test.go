@@ -144,3 +144,62 @@ func TestInvalidFileAttachmentsAreRejectedBeforeMutation(t *testing.T) {
 		t.Fatal("invalid request changed world")
 	}
 }
+
+func TestUploadedFilesReachChatsAndTasksByReference(t *testing.T) {
+	content := strings.Repeat("uploaded ", 1<<20) // above the limit for inline data URLs
+	var seen []string
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		for _, block := range req.Messages[0].Content {
+			if strings.HasPrefix(block.Text, "Attached file") {
+				seen = append(seen, block.Text)
+			}
+		}
+		return say("ok"), nil
+	})
+	url, err := r.e.SaveUpload(strings.NewReader(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := r.e.SaveUpload(strings.NewReader(content))
+	if err != nil || again != url {
+		t.Fatalf("same content: %s %s %v", url, again, err)
+	}
+	files := []model.Attachment{{Name: "notes.txt", URL: url}}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Files: files})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("chat", chatDone(c.ID))
+	if len(seen) != 1 || !strings.Contains(seen[0], "[Preview truncated") || len(seen[0]) > 60<<10 {
+		t.Fatalf("model got %d blocks, first %d bytes", len(seen), len(seen[0]))
+	}
+	_, rest, _ := strings.Cut(seen[0], "read-only path: ")
+	path, _, _ := strings.Cut(rest, "\n")
+	raw, err := os.ReadFile(path)
+	if err != nil || string(raw) != content || filepath.Base(path) != "notes.txt" {
+		t.Fatalf("attached copy at %s: %d bytes, %v", path, len(raw), err)
+	}
+	if !strings.HasPrefix(path, filepath.Join(r.data, "attachments", c.ID)) {
+		t.Fatalf("outside the chat's root: %s", path)
+	}
+	if got := r.world().Chats[c.ID].Messages[0].Files; !slices.Equal(got, files) {
+		t.Fatalf("world holds %+v", got)
+	}
+
+	if _, err := r.e.SaveUpload(strings.NewReader(strings.Repeat("x", 25<<20+1))); err == nil {
+		t.Fatal("accepted an oversize upload")
+	}
+	missing := []model.Attachment{{Name: "gone", URL: "/api/v1/attachments/" + strings.Repeat("0", 64)}}
+	escape := []model.Attachment{{Name: "bad", URL: "/api/v1/attachments/../../secret"}}
+	for _, bad := range [][]model.Attachment{missing, escape} {
+		if err := r.e.SayInChat(c.ID, "", nil, bad); err == nil {
+			t.Fatalf("accepted %+v", bad)
+		}
+		if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "bad", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, Files: bad}); err == nil {
+			t.Fatalf("task accepted %+v", bad)
+		}
+	}
+	if err := r.e.SayInChat(c.ID, "", []model.Attachment{{Name: "pic", URL: url}}); err == nil {
+		t.Fatal("accepted an upload as an inline image")
+	}
+}

@@ -543,7 +543,7 @@ func (e *Engine) CreateTask(in NewTask) (*model.Task, error) {
 				number = max(number, t.Number+1)
 			}
 		}
-		if err := checkFiles(in.Images, in.Files); err != nil {
+		if err := e.checkFiles(in.Images, in.Files); err != nil {
 			return err
 		}
 		images := in.Images

@@ -55,6 +55,8 @@ describe('chats', () => {
     expect(attachable([file('image/png', 10)], 6)).toMatchObject({ refused: false })
     expect(attachable([file('application/pdf', 10), file('', 0)], 6)).toMatchObject({ refused: false })
     expect(attachable([file('image/png', 4 << 20)], 6)).toMatchObject({ fit: [], refused: true })
+    expect(attachable([file('application/pdf', 25 << 20)], 6)).toMatchObject({ refused: false })
+    expect(attachable([file('application/pdf', (25 << 20) + 1)], 6)).toMatchObject({ fit: [], refused: true })
     expect(attachable([file('image/png', 1), file('image/png', 1)], 1).fit).toHaveLength(1)
   })
 

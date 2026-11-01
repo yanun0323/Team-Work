@@ -194,7 +194,7 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
               e.preventDefault()
               void attach(files)
             }}>
-            {refused && <p className="fx-room-warn fx-room-say-wide" role="status">{tr('每個附件最大 3.75MB，最多 6 個附件')}</p>}
+            {refused && <p className="fx-room-warn fx-room-say-wide" role="status">{tr('圖片最大 3.75MB，其他檔案最大 25MB，最多 6 個附件')}</p>}
             {readFailed && <p className="fx-room-warn fx-room-say-wide" role="alert">{tr('讀取附件失敗，請重試')}</p>}
             {images.length > 0 && (
               <div className="fx-thumbs fx-room-say-wide">

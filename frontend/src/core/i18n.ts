@@ -170,7 +170,7 @@ const en = {
   '移除 {name}': 'Remove {name}',
   '加入附件': 'Add attachment',
   '附件': 'Attachments',
-  '每個附件最大 3.75MB，最多 6 個附件': 'Up to 6 attachments, 3.75MB each',
+  '圖片最大 3.75MB，其他檔案最大 25MB，最多 6 個附件': 'Up to 6 attachments: images up to 3.75MB, other files up to 25MB',
   '讀取附件失敗，請重試': 'Could not read attachments. Please try again.',
   '人員': 'Staff',
   '沿用 #{from} 的配置': 'Using the staff of #{from}',

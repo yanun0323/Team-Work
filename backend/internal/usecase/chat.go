@@ -48,7 +48,7 @@ func (e *Engine) CreateChat(in NewChat) (*model.Chat, error) {
 			return model.Errorf(model.CodeNotFound, "找不到公司或員工")
 		}
 		text := strings.TrimSpace(in.Text)
-		if err := checkSaid(text, in.Images, in.Files); err != nil {
+		if err := e.checkSaid(text, in.Images, in.Files); err != nil {
 			return err
 		}
 		c := &model.Chat{ID: e.uid("chat"), TeamID: in.TeamID, ReplicaID: r.ID, Name: r.Name, Look: r.Look, Model: r.Model, CreatedAt: e.w.Now, Messages: []model.ChatMessage{}}
@@ -80,7 +80,7 @@ func (e *Engine) SayInChat(id, text string, images []model.Attachment, attached 
 			return model.Errorf(model.CodeNotFound, "找不到對話")
 		}
 		text = strings.TrimSpace(text)
-		if err := checkSaid(text, images, files); err != nil {
+		if err := e.checkSaid(text, images, files); err != nil {
 			return err
 		}
 		if c.ReplyAt != nil {
@@ -150,14 +150,14 @@ func saidAt(conv []model.Message, nth int) int {
 }
 
 // checkSaid refuses a message that is empty, or holds pictures not every provider can take.
-func checkSaid(text string, images, files []model.Attachment) error {
+func (e *Engine) checkSaid(text string, images, files []model.Attachment) error {
 	if text == "" && len(images)+len(files) == 0 {
 		return model.Errorf(model.CodeInvalid, "訊息不能是空的")
 	}
 	if len(images) > maxChatImages {
 		return model.Errorf(model.CodeInvalid, "一則訊息最多附 %d 張圖", maxChatImages)
 	}
-	return checkFiles(images, files)
+	return e.checkFiles(images, files)
 }
 
 // StopChat interrupts the reply being written; the chat goes on from what is there.

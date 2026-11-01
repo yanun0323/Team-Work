@@ -16,7 +16,8 @@ import (
 	"github.com/yanun0323/mho-company/internal/i18n"
 )
 
-const maxFrame = 16 << 20
+// maxFrame fits a message with six images at the largest size, 5MB of base64 each.
+const maxFrame = 64 << 20
 const toolPrefix = "mcp__mho__"
 
 type object = map[string]any

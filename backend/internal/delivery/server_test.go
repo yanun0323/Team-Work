@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -526,6 +527,33 @@ func TestTeamHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect("the folder removed", map[string]any{"folder": false, "repo": false, "targetBranch": false})
+}
+
+func TestUploadedAttachments(t *testing.T) {
+	api := setup(t).URL + "/api/v1"
+	content := strings.Repeat("x", 25<<20)
+	code, body := send(t, "POST", api+"/attachments", content)
+	if code != http.StatusCreated {
+		t.Fatalf("upload: %d %v", code, body)
+	}
+	url := body["url"].(string)
+	res, err := http.Get(strings.TrimSuffix(api, "/api/v1") + url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	got, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK || string(got) != content || res.Header.Get("Content-Disposition") != "attachment" || res.Header.Get("Content-Type") != "application/octet-stream" {
+		t.Fatalf("download: %d %d bytes %v", res.StatusCode, len(got), res.Header)
+	}
+	if code, body := send(t, "POST", api+"/attachments", content+"x"); code != http.StatusBadRequest {
+		t.Fatalf("oversize: %d %v", code, body)
+	}
+	for _, hash := range []string{strings.Repeat("0", 64), "..%2F..%2Fsecrets"} {
+		if code, _ := send(t, "GET", api+"/attachments/"+hash, ""); code != http.StatusNotFound {
+			t.Fatalf("%s: %d", hash, code)
+		}
+	}
 }
 
 func TestFileAttachmentEndpoints(t *testing.T) {

@@ -164,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = action.request.url else { decisionHandler(.cancel); return }
-        if action.shouldPerformDownload, url.scheme == "data" {
+        if action.shouldPerformDownload, url.scheme == "data" || (url.scheme == origin.scheme && url.host == origin.host && url.port == origin.port) {
             decisionHandler(.download)
             return
         }
