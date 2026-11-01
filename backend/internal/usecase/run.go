@@ -485,7 +485,7 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 	if in.talk { // a discussion changes nothing; it only reads
 		allowed = slices.DeleteFunc(slices.Clone(allowed), func(x enum.Tool) bool { return x == enum.ToolWriteFile || x == enum.ToolRunCommand })
 	}
-	list := tools.For(allowed, roots)
+	list := tools.For(allowed, append(roots, e.attachmentRoot(in.taskID)))
 	if !in.talk {
 		list = append(list, e.agentTools(in)...)
 	}

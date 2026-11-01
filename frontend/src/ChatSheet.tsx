@@ -15,18 +15,7 @@ import { attempt, chatTaskDraft, deleteChat, hasUncommitted, rewindChat, sayInCh
 import { useLiveText } from './core/live'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
-import { readImages } from './draft'
-
-// what every provider can take, as the backend also checks; a message must fit in one request
-const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
-const MAX_IMAGE_BYTES = (5 << 20) / 4 * 3
-const MAX_IMAGES = 6
-
-/** The files that can go along, up to the room left, and whether any had to stay behind. */
-export const attachable = (files: File[], room: number) => {
-  const fit = files.filter((f) => IMAGE_TYPES.includes(f.type) && f.size <= MAX_IMAGE_BYTES).slice(0, Math.max(room, 0))
-  return { fit, refused: fit.length < files.length }
-}
+import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, splitAttachments } from './attachments'
 
 export interface ChatTaskSeed { title: string; description: string; ownerId: string | null }
 
@@ -52,6 +41,8 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
   const replica = w.replicas[chat?.replicaId ?? replicaId]
   const [text, setText] = useState('')
   const [images, setImages] = useState<Attachment[]>([])
+  const [reading, setReading] = useState(false)
+  const [readFailed, setReadFailed] = useState(false)
   const [refused, setRefused] = useState(false)
   const box = useRef<HTMLTextAreaElement>(null)
   const [sending, setSending] = useState(false)
@@ -72,19 +63,20 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
   const left = !!chat && !replica
   const name = chat?.name ?? replica?.name ?? ''
   const look = replica?.look ?? chat?.look
-  const ready = (!!text.trim() || images.length > 0) && !sending && !writing && !left && !!(chat || replica) && !blocked(needs)
+  const ready = (!!text.trim() || images.length > 0) && !reading && !sending && !writing && !left && !!(chat || replica) && !blocked(needs)
 
   const send = async () => {
     if (!ready) return
     const words = text.trim()
+    const attachments = splitAttachments(images)
     if (chat) {
-      act((x) => sayInChat(x, chat.id, words, images))
+      act((x) => sayInChat(x, chat.id, words, attachments.images, attachments.files))
       setText('')
       setImages([])
       return
     }
     setSending(true)
-    const made = await startChat(act, { teamId, replicaId, text: words, images })
+    const made = await startChat(act, { teamId, replicaId, text: words, ...attachments })
     setSending(false)
     if (made) {
       setStarted(made)
@@ -93,18 +85,25 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
     }
   }
   const attach = async (files: File[]) => {
-    const { fit, refused } = attachable(files, MAX_IMAGES - images.length)
+    if (reading) return
+    const { fit, refused } = attachable(files, MAX_ATTACHMENTS - images.length)
     setRefused(refused)
-    const more = await readImages(fit)
-    setImages((now) => [...now, ...more].slice(0, MAX_IMAGES))
+    setReadFailed(false)
+    setReading(true)
+    try {
+      const more = await readAttachments(fit)
+      setImages((now) => [...now, ...more].slice(0, MAX_ATTACHMENTS))
+    } catch { setReadFailed(true) }
+    finally { setReading(false) }
   }
+
   // back to the box, as it was when sent; what came after it is gone
   const edit = (index: number) => {
     if (!chat) return
-    const { text, images } = chat.messages[index]
+    const { text, images, files } = chat.messages[index]
     act((x) => rewindChat(x, chat.id, index))
     setText(text)
-    setImages(images ?? [])
+    setImages([...(images ?? []), ...(files ?? [])])
     setRefused(false)
     box.current?.focus()
   }
@@ -154,11 +153,12 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
                     {m.images && m.images.length > 0 && (
                       <div className="fx-chat-images">{m.images.map((im, j) => <img key={j} src={im.url} alt={im.name} />)}</div>
                     )}
+                    {!!m.files?.length && <div className="fx-chat-images">{m.files.map((file, j) => <FileAttachment key={j} file={file} />)}</div>}
                     {m.text && <p className="fx-chat-bubble"><span className="fx-sr">{tr('你：')}</span>{m.text}</p>}
                     <div className="fx-chat-foot">
                     <time>{fmtClock(m.at)}</time>
                     {!left && (
-                      <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('編輯這則訊息')} title={tr('編輯')} disabled={sending} onClick={() => edit(i)}>
+                      <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('編輯這則訊息')} title={tr('編輯')} disabled={sending || reading} onClick={() => edit(i)}>
                         <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
                           <path d="M2.5 13.5l.6-3L10.6 3l2.4 2.4-7.5 7.5z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                           <path d="M9 4.6l2.4 2.4" stroke="currentColor" strokeWidth="1.5" />
@@ -189,28 +189,29 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
           <form className="fx-room-say" onSubmit={(e) => { e.preventDefault(); void send() }}
             onPaste={(e) => {
               // a screenshot comes in as a picture; text pastes as usual
-              const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'))
+              const files = [...e.clipboardData.files]
               if (!files.length) return
               e.preventDefault()
               void attach(files)
             }}>
-            {refused && <p className="fx-room-warn fx-room-say-wide" role="status">{tr('圖片只能是 PNG、JPEG、GIF 或 WebP，單張最大 3.75MB，一則最多 {MAX_IMAGES} 張', { MAX_IMAGES })}</p>}
+            {refused && <p className="fx-room-warn fx-room-say-wide" role="status">{tr('每個附件最大 3.75MB，最多 6 個附件')}</p>}
+            {readFailed && <p className="fx-room-warn fx-room-say-wide" role="alert">{tr('讀取附件失敗，請重試')}</p>}
             {images.length > 0 && (
               <div className="fx-thumbs fx-room-say-wide">
                 {images.map((im, i) => (
-                  <figure key={i} className="fx-thumb">
-                    <img src={im.url} alt={im.name} />
+                  <figure key={i} className={isImage(im) ? "fx-thumb" : "fx-file-wrap"}>
+                    {isImage(im) ? <img src={im.url} alt={im.name} /> : <FileAttachment file={im} />}
                     <button type="button" className="fx-thumb-x" aria-label={tr('移除 {name}', { name: im.name })}
                       onClick={() => setImages((now) => now.filter((_, j) => j !== i))}>×</button>
                   </figure>
                 ))}
               </div>
             )}
-            <label className="fx-room-attach fx-hit" title={tr('加入圖片')}>
+            <label className="fx-room-attach fx-hit" title={tr('加入附件')}>
               <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
                 <path d="M13 7.5 8 12.5a3 3 0 0 1-4.3-4.2l5.4-5.4a2 2 0 0 1 2.9 2.8l-5.4 5.4a1 1 0 0 1-1.4-1.4L10 5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <input type="file" accept={IMAGE_TYPES.join(',')} multiple className="fx-sr" aria-label={tr('加入圖片')}
+              <input type="file" disabled={reading} multiple className="fx-sr" aria-label={tr('加入附件')}
                 onChange={(e) => { void attach([...(e.target.files ?? [])]); e.target.value = '' }} />
             </label>
             <textarea ref={box} className="fx-control" rows={2} value={text} aria-label={tr('訊息')} placeholder={tr('輸入訊息')}

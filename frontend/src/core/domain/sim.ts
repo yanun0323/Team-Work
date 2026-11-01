@@ -70,6 +70,7 @@ export interface NewTask {
   /** The task's owner, who works 整理需求 and 驗收 whatever `staff` says. */
   ownerId?: string
   images?: Attachment[]
+  files?: Attachment[]
 }
 
 /** A flow is shared, so a task's copy of it keeps only people from the task's own company. */
@@ -87,6 +88,7 @@ export function createTask(w: World, input: NewTask): Task {
     title: input.title,
     description: input.description,
     images: input.images ?? [],
+    files: input.files ?? [],
     workflowId: input.workflowId,
     workflow: ownStaff(w, input.teamId, clone(w.workflows[input.workflowId])),
     createdAt: w.now,
@@ -301,22 +303,22 @@ export function sayInTalk(w: World, subId: string, text: string) {
   log(sub, w.now, 'human', text)
 }
 
-export interface NewChat { teamId: string; replicaId: string; text: string; images?: Attachment[] }
+export interface NewChat { teamId: string; replicaId: string; text: string; images?: Attachment[]; files?: Attachment[] }
 
 /** A chat exists from the user's first message on; the employee answers a few seconds later. */
 export function createChat(w: World, i: NewChat): Chat {
   const r = w.replicas[i.replicaId]
   const chat: Chat = { id: uid(w, 'chat'), teamId: i.teamId, replicaId: i.replicaId, name: r.name, look: r.look, model: r.model, messages: [], createdAt: w.now }
   w.chats[chat.id] = chat
-  sayInChat(w, chat.id, i.text, i.images)
+  sayInChat(w, chat.id, i.text, i.images, i.files)
   return chat
 }
 
-export function sayInChat(w: World, id: string, text: string, images: Attachment[] = []) {
+export function sayInChat(w: World, id: string, text: string, images: Attachment[] = [], files: Attachment[] = []) {
   const chat = w.chats[id]
   text = text.trim()
-  if (!chat || (!text && !images.length) || chat.replyAt !== undefined || !w.replicas[chat.replicaId]) return
-  chat.messages.push({ at: w.now, from: 'user', text, ...(images.length ? { images } : {}) })
+  if (!chat || (!text && !images.length && !files.length) || chat.replyAt !== undefined || !w.replicas[chat.replicaId]) return
+  chat.messages.push({ at: w.now, from: 'user', text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) })
   chat.replyAt = w.now + REPLY_TIME
 }
 

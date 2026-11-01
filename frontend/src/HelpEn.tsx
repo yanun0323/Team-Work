@@ -152,8 +152,8 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
         <dl>
           <dt>Start</dt><dd>Press ＋ New chat and pick an employee. The default is the employee from this company's last new chat. The model comes with the employee. The chat exists once you send the first message, and after that the employee and model cannot change.</dd>
           <dt>Replies</dt><dd>Replies appear word by word, and you can pause while they are being written. Enter sends, and Shift+Enter starts a new line.</dd>
-          <dt>Images</dt><dd>Press the paper clip to pick images, or paste a screenshot. You can send images with no text. PNG, JPEG, GIF and WebP are supported, up to 3.75MB each and 6 per message.</dd>
-          <dt>Edit a message</dt><dd>Press the pencil under your message: it and everything after it disappear, and its text and images return to the box for you to change and resend. Pressing it during a reply also stops the reply. There is no undo, and files the employee changed are not restored.</dd>
+          <dt>Attachments</dt><dd>Press the paper clip to pick images or files, or paste a screenshot. You can send attachments with no text, up to 3.75MB each and 6 per message in total. PNG, JPEG, GIF and WebP show previews; other files show a name you can press to download. Employees receive a text preview for text files; PDF, Office and other formats require available tools and may not be readable.</dd>
+          <dt>Edit a message</dt><dd>Press the pencil under your message: it and everything after it disappear, and its text and attachments return to the box for you to change and resend. Pressing it during a reply also stops the reply. There is no undo, and files the employee changed are not restored.</dd>
           <dt>Create task</dt><dd>When you have discussed enough, press Create task. The employee writes the chat up as a new task for you to edit and start.</dd>
           <dt>Delete</dt><dd>Delete a chat at the top right. Changes in the folder stay. When an employee leaves the company, their chats stay readable, but you cannot post in them.</dd>
         </dl>
@@ -168,8 +168,8 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
         <p>A task is a piece of work you give the company, following one workflow. Each task has a task owner, who does Clarify requirements at the start and Acceptance review at the end.</p>
         <p>Each step of the workflow becomes a sub-task for the employees assigned to it. When done, they write a handoff for the next step. Progress in the details lists each sub-task's state, and opening one shows its log and the files handed off.</p>
         <p>Each task has its own branch, shown under the title in the details. Every step commits its work to this branch.</p>
-        <p>You can attach images to a new task: press ＋ to pick them, or paste a screenshot in the text box. The workflow list shows each workflow's name and drawing.</p>
-        <p>For similar work, press Copy at the top right of a task's details. A new task opens with the title, description, images, workflow and staff filled in. Change what you need and press Start.</p>
+        <p>You can attach images and files to a new task: press ＋ to pick them, or paste a screenshot in the text box. Each attachment can be up to 3.75MB, with 6 in total. The workflow list shows each workflow's name and drawing.</p>
+        <p>For similar work, press Copy at the top right of a task's details. A new task opens with the title, description, attachments, workflow and staff filled in. Change what you need and press Start.</p>
         <dl>
           <dt>Four columns</dt><dd>Todo, Progressing, Wait for Review and Complete. A note with a red exclamation mark needs your reply, and a green merge icon is waiting for you to merge.</dd>
           <dt>Noticeboard</dt><dd>The noticeboard at the top right of the main screen lists every company's tasks, and you can add tasks there too. The red circle on its button counts all tasks waiting for review.</dd>

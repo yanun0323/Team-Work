@@ -8,6 +8,7 @@ const fixture = () => {
   const w = seedWorld()
   const t = Object.values(w.tasks).find((x) => x.ownerId && w.workflows[x.workflowId] && x.workflow.nodes.length > 2)!
   t.images = [{ name: 'a.png', url: 'data:image/png;base64,AA' }]
+  t.files = [{ name: 'spec.txt', url: 'data:text/plain;base64,aGk=' }]
   return { w, t }
 }
 
@@ -15,10 +16,11 @@ describe('copyDraft', () => {
   it('brings along everything the task was written with', () => {
     const { w, t } = fixture()
     const d = copyDraft(w, t.teamId, t)
-    expect(d).toMatchObject({ title: t.title, description: t.description, images: t.images, workflowId: t.workflowId, ownerId: t.ownerId, from: t.number })
+    expect(d).toMatchObject({ title: t.title, description: t.description, images: t.images, files: t.files, workflowId: t.workflowId, ownerId: t.ownerId, from: t.number })
     for (const n of t.workflow.nodes) expect(d.staff[n.id]).toEqual(n.replicaIds)
     expect(d.taskId).toBeUndefined()
     expect(d.images).not.toBe(t.images)
+    expect(d.files).not.toBe(t.files)
   })
 
   it('leaves out employees who have left, so the step asks for someone', () => {

@@ -18,6 +18,7 @@ export interface TaskDraft {
   from: number | null
   /** Pictures to go with the description; only a new task takes them. */
   images?: Attachment[]
+  files?: Attachment[]
   /** Set when editing a task that exists: its own copy of the flow is the one staffed. */
   taskId?: string
 }
@@ -26,21 +27,6 @@ export const useDraft = create<{ draft: TaskDraft | null }>(() => ({ draft: null
 
 export const editDraft = (f: (d: TaskDraft) => Partial<TaskDraft>) =>
   useDraft.setState(({ draft }) => ({ draft: draft && { ...draft, ...f(draft) } }))
-
-/** The pictures among some files (picked, or pasted from the clipboard), read as data URLs. */
-export const readImages = (files: Iterable<File>): Promise<Attachment[]> =>
-  Promise.all([...files].filter((f) => f.type.startsWith('image/')).map((f) => new Promise<Attachment>((done, fail) => {
-    const r = new FileReader()
-    r.onload = () => done({ name: f.name || 'image.png', url: String(r.result) })
-    r.onerror = () => fail(r.error)
-    r.readAsDataURL(f)
-  })))
-
-/** Adds pictures to the draft, after any it has. */
-export const addImages = async (files: Iterable<File>) => {
-  const more = await readImages(files)
-  if (more.length) editDraft((d) => ({ images: [...(d.images ?? []), ...more] }))
-}
 
 /** The flow a new task starts on: the one the company last chose, if it is still there, or else the first. */
 export function lastFlowId(w: World, teamId: string): string {
@@ -72,7 +58,7 @@ export function lastStaff(w: World, teamId: string, workflowId: string): Pick<Ta
  */
 export function copyDraft(w: World, teamId: string, t: Task): TaskDraft {
   const here = new Set(teamReplicas(w, teamId).map((r) => r.id))
-  const content = { title: t.title, description: t.description, images: [...t.images], ownerId: t.ownerId && here.has(t.ownerId) ? t.ownerId : null }
+  const content = { title: t.title, description: t.description, images: [...t.images], files: [...(t.files ?? [])], ownerId: t.ownerId && here.has(t.ownerId) ? t.ownerId : null }
   if (!w.workflows[t.workflowId]) {
     const workflowId = lastFlowId(w, teamId)
     return { ...lastStaff(w, teamId, workflowId), ...content, workflowId }

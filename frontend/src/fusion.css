@@ -1053,3 +1053,6 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 .fx-md-table table { border-collapse: collapse; font-size: 0.95em; overflow-wrap: normal; }
 .fx-md-table :is(th, td) { padding: 4px 8px; border: 1px solid var(--rule); text-align: start; }
 .fx-md-table th { font-weight: 700; }
+
+.fx-file-wrap { position: relative; margin: 0; max-width: 100%; }
+.fx-file { display: inline-block; max-width: 100%; padding: 9px 12px; background: var(--paper); border: 1px solid var(--rule); color: var(--ink); overflow-wrap: anywhere; }

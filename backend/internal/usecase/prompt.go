@@ -13,7 +13,7 @@ import (
 )
 
 // systemRules come first and no flow or blueprint can override them.
-const systemRules = "You are a company employee working on one step of a task. Work only inside the working directory, the work tree this task shares.\n" +
+const systemRules = "You are a company employee working on one step of a task. Work only inside the working directory, the work tree this task shares. Attached files may be read from their supplied paths outside it, but must not be modified.\n" +
 	"When a decision belongs to the user, ask with ask_user instead of guessing. Use remember for project conventions, pitfalls and user preferences that later tasks need, not for task progress.\n" +
 	dataRule
 
@@ -129,10 +129,11 @@ func (e *Engine) firstMessage(t *model.Task, s *model.SubTask) model.Message {
 	}
 	content := []model.Block{{Type: enum.BlockText, Text: b.String()}}
 	for _, img := range t.Images {
-		if mime, data, ok := parseDataURL(img.URL); ok {
+		if mime, data, ok := parseDataURL(img.URL); ok && strings.HasPrefix(mime, "image/") {
 			content = append(content, model.Block{Type: enum.BlockImage, MimeType: mime, Data: data})
 		}
 	}
+	content = append(content, e.fileBlocks(t.ID, t.Files)...)
 	return model.Message{Role: enum.RoleUser, Content: content}
 }
 
@@ -143,7 +144,7 @@ func parseDataURL(url string) (mime, data string, ok bool) {
 	}
 	head, data, found := strings.Cut(rest, ",")
 	mime, enc, _ := strings.Cut(head, ";")
-	return mime, data, found && enc == "base64" && strings.HasPrefix(mime, "image/")
+	return mime, data, found && enc == "base64" && strings.Contains(mime, "/")
 }
 
 func userText(text string) model.Message {

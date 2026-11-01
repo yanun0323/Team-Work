@@ -516,6 +516,7 @@ type NewTask struct {
 	Staff       map[string][]string `json:"staff"`
 	OwnerID     *string             `json:"ownerId"`
 	Images      []model.Attachment  `json:"images"`
+	Files       []model.Attachment  `json:"files"`
 }
 
 func (e *Engine) CreateTask(in NewTask) (*model.Task, error) {
@@ -542,12 +543,15 @@ func (e *Engine) CreateTask(in NewTask) (*model.Task, error) {
 				number = max(number, t.Number+1)
 			}
 		}
+		if err := checkFiles(in.Images, in.Files); err != nil {
+			return err
+		}
 		images := in.Images
 		if images == nil {
 			images = []model.Attachment{}
 		}
 		t := &model.Task{
-			ID: e.uid("task"), TeamID: in.TeamID, Number: number, Title: strings.TrimSpace(in.Title), Description: in.Description, Images: images,
+			ID: e.uid("task"), TeamID: in.TeamID, Number: number, Title: strings.TrimSpace(in.Title), Description: in.Description, Images: images, Files: in.Files,
 			WorkflowID: in.WorkflowID, Workflow: clone(*wf), CreatedAt: e.w.Now, Stage: enum.StageRunning, Branch: fmt.Sprintf("task/%d", number),
 		}
 		for i := range t.Workflow.Nodes {
@@ -562,6 +566,9 @@ func (e *Engine) CreateTask(in NewTask) (*model.Task, error) {
 			if !slices.ContainsFunc(n.ReplicaIDs, func(r string) bool { return e.w.Replicas[r] != nil }) {
 				return model.Errorf(model.CodeInvalid, "節點「%s」沒有指派員工", n.Name)
 			}
+		}
+		if err := e.saveAttachments(t.ID, t.Files); err != nil {
+			return err
 		}
 		e.w.Tasks[t.ID] = t
 		e.spawn(t, taskNodeOf(&t.Workflow).ID, []string{}, nil, false, 0)

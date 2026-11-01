@@ -226,6 +226,7 @@ export interface ChatMessage {
   text: string
   /** What the user attached, in a chat. */
   images?: Attachment[]
+  files?: Attachment[]
 }
 
 /** The user talking with one employee outside any task. Its employee and model never change. */
@@ -333,7 +334,7 @@ export interface Merge {
   log: LogLine[]
 }
 
-/** A picture added to a task when it was written (a screenshot, say), kept as a data URL. */
+/** A user attachment, kept as a data URL. */
 export interface Attachment {
   name: string
   url: string
@@ -347,6 +348,7 @@ export interface Task {
   description: string
   /** Pictures added with the description. */
   images: Attachment[]
+  files?: Attachment[]
   workflowId: string
   /** The employee who owns the task and works its first and last steps (整理需求 and 驗收). */
   ownerId: string | null

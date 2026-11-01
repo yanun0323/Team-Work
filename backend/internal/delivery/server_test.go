@@ -527,3 +527,37 @@ func TestTeamHealth(t *testing.T) {
 	}
 	expect("the folder removed", map[string]any{"folder": false, "repo": false, "targetBranch": false})
 }
+
+func TestFileAttachmentEndpoints(t *testing.T) {
+	api := setup(t).URL + "/api/v1"
+	post := func(path string, input any, status int) map[string]any {
+		t.Helper()
+		raw, _ := json.Marshal(input)
+		code, body := send(t, "POST", api+path, string(raw))
+		if code != status {
+			t.Fatalf("%s: %d %v", path, code, body)
+		}
+		return body
+	}
+	team := post("/teams", map[string]any{"name": "files", "folder": t.TempDir()}, http.StatusCreated)
+	post("/providers", map[string]any{"name": "fake", "kind": "compatible", "login": map[string]any{"kind": "apiKey", "apiKey": "test"}}, http.StatusCreated)
+	bp := post("/blueprints", map[string]any{"name": "reader", "prompt": "read", "tools": []string{"readFile"}}, http.StatusCreated)
+	employee := post("/replicas", map[string]any{"teamId": team["id"], "blueprintId": bp["id"], "name": "reader", "model": "m"}, http.StatusCreated)
+	flow := post("/workflows", map[string]any{"name": "files"}, http.StatusCreated)
+	files := []map[string]string{{"name": "empty.txt", "url": "data:text/plain;base64,"}}
+	chat := post("/chats", map[string]any{"teamId": team["id"], "replicaId": employee["id"], "files": files}, http.StatusCreated)
+	if len(chat["messages"].([]any)[0].(map[string]any)["files"].([]any)) != 1 {
+		t.Fatal(chat)
+	}
+	id := chat["id"].(string)
+	post("/chats/"+id+"/stop", nil, http.StatusNoContent)
+	post("/chats/"+id+"/say", map[string]any{"files": files}, http.StatusNoContent)
+	task := post("/tasks", map[string]any{"teamId": team["id"], "title": "files", "workflowId": flow["id"], "ownerId": employee["id"], "files": files}, http.StatusCreated)
+	if len(task["files"].([]any)) != 1 {
+		t.Fatal(task)
+	}
+	bad := []map[string]string{{"name": "bad.txt", "url": "data:text/plain;base64,***"}}
+	post("/chats", map[string]any{"teamId": team["id"], "replicaId": employee["id"], "files": bad}, http.StatusBadRequest)
+	post("/chats/"+id+"/say", map[string]any{"files": bad}, http.StatusBadRequest)
+	post("/tasks", map[string]any{"teamId": team["id"], "title": "bad", "workflowId": flow["id"], "ownerId": employee["id"], "files": bad}, http.StatusBadRequest)
+}

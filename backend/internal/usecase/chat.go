@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"slices"
@@ -16,7 +15,7 @@ import (
 	"github.com/yanun0323/mho-company/internal/usecase/tools"
 )
 
-const chatRules = "You are a company employee chatting with the user to discuss things or do simple work. The working directory is the project folder itself, and changes reach the user's files immediately: change only what was asked, and commit only if the user asks.\n" +
+const chatRules = "You are a company employee chatting with the user to discuss things or do simple work. The working directory is the project folder itself, and changes reach the user's files immediately: change only what was asked, and commit only if the user asks. Attached files may be read from their supplied paths outside the project, but must not be modified.\n" +
 	"Reply in plain text. If the work grows or needs several steps, suggest creating a task from this chat.\n" +
 	dataRule
 
@@ -31,6 +30,7 @@ type NewChat struct {
 	ReplicaID string             `json:"replicaId"`
 	Text      string             `json:"text"`
 	Images    []model.Attachment `json:"images"`
+	Files     []model.Attachment `json:"files"`
 }
 
 // ChatDraft is a task written from a chat, for the user to go over.
@@ -48,7 +48,7 @@ func (e *Engine) CreateChat(in NewChat) (*model.Chat, error) {
 			return model.Errorf(model.CodeNotFound, "找不到公司或員工")
 		}
 		text := strings.TrimSpace(in.Text)
-		if err := checkSaid(text, in.Images); err != nil {
+		if err := checkSaid(text, in.Images, in.Files); err != nil {
 			return err
 		}
 		c := &model.Chat{ID: e.uid("chat"), TeamID: in.TeamID, ReplicaID: r.ID, Name: r.Name, Look: r.Look, Model: r.Model, CreatedAt: e.w.Now, Messages: []model.ChatMessage{}}
@@ -56,8 +56,11 @@ func (e *Engine) CreateChat(in NewChat) (*model.Chat, error) {
 		if err != nil {
 			return err
 		}
+		if err := e.saveAttachments(c.ID, in.Files); err != nil {
+			return err
+		}
 		e.w.Chats[c.ID] = c
-		e.chatHears(c, text, in.Images)
+		e.chatHears(c, text, in.Images, in.Files)
 		e.launchChat(c, spec)
 		out = clone(c)
 		return nil
@@ -66,14 +69,18 @@ func (e *Engine) CreateChat(in NewChat) (*model.Chat, error) {
 }
 
 // SayInChat adds the user's message and has the employee reply. Nothing can be said while they still write.
-func (e *Engine) SayInChat(id, text string, images []model.Attachment) error {
+func (e *Engine) SayInChat(id, text string, images []model.Attachment, attached ...[]model.Attachment) error {
+	var files []model.Attachment
+	for _, batch := range attached {
+		files = append(files, batch...)
+	}
 	return e.do(func() error {
 		c := e.w.Chats[id]
 		if c == nil {
 			return model.Errorf(model.CodeNotFound, "找不到對話")
 		}
 		text = strings.TrimSpace(text)
-		if err := checkSaid(text, images); err != nil {
+		if err := checkSaid(text, images, files); err != nil {
 			return err
 		}
 		if c.ReplyAt != nil {
@@ -86,7 +93,10 @@ func (e *Engine) SayInChat(id, text string, images []model.Attachment) error {
 		if err != nil {
 			return err
 		}
-		e.chatHears(c, text, images)
+		if err := e.saveAttachments(c.ID, files); err != nil {
+			return err
+		}
+		e.chatHears(c, text, images, files)
 		e.launchChat(c, spec)
 		return nil
 	})
@@ -140,21 +150,14 @@ func saidAt(conv []model.Message, nth int) int {
 }
 
 // checkSaid refuses a message that is empty, or holds pictures not every provider can take.
-func checkSaid(text string, images []model.Attachment) error {
-	if text == "" && len(images) == 0 {
+func checkSaid(text string, images, files []model.Attachment) error {
+	if text == "" && len(images)+len(files) == 0 {
 		return model.Errorf(model.CodeInvalid, "訊息不能是空的")
 	}
 	if len(images) > maxChatImages {
 		return model.Errorf(model.CodeInvalid, "一則訊息最多附 %d 張圖", maxChatImages)
 	}
-	for _, img := range images {
-		mime, data, ok := parseDataURL(img.URL)
-		raw, err := base64.StdEncoding.DecodeString(data)
-		if !ok || err != nil || !tools.CanLookAt(mime, len(raw)) {
-			return model.Errorf(model.CodeInvalid, "圖片只能是 PNG、JPEG、GIF 或 WebP，單張最大 3.75MB")
-		}
-	}
-	return nil
+	return checkFiles(images, files)
 }
 
 // StopChat interrupts the reply being written; the chat goes on from what is there.
@@ -226,8 +229,8 @@ func (e *Engine) Uncommitted(ctx context.Context, teamID string) (bool, error) {
 
 // chatHears puts the user's message into the chat and the conversation. Calls left without a result by an
 // interrupted reply are closed first, as the model refuses them otherwise.
-func (e *Engine) chatHears(c *model.Chat, text string, images []model.Attachment) {
-	c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "user", Text: text, Images: images})
+func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Attachment) {
+	c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "user", Text: text, Images: images, Files: files})
 	said := model.Message{Role: enum.RoleUser}
 	if text != "" { // a model refuses an empty text block
 		said.Content = append(said.Content, model.Block{Type: enum.BlockText, Text: text})
@@ -237,6 +240,7 @@ func (e *Engine) chatHears(c *model.Chat, text string, images []model.Attachment
 			said.Content = append(said.Content, model.Block{Type: enum.BlockImage, MimeType: mime, Data: data})
 		}
 	}
+	said.Content = append(said.Content, e.fileBlocks(c.ID, files)...)
 	e.w.Conversations[c.ID] = append(answerPending(e.w.Conversations[c.ID], ""), said)
 	e.dirty[c.ID] = true
 }
@@ -341,7 +345,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		in.spec.system += role
 	}
 	skills, roots, _ := e.loadSkills(ctx, in.spec.packs)
-	list := tools.For(in.spec.allowed, roots)
+	list := tools.For(in.spec.allowed, append(roots, e.attachmentRoot(in.id)))
 	specs := make([]model.ToolSpec, len(list))
 	byName := make(map[string]adapter.Tool, len(list))
 	for i, tool := range list {
@@ -411,6 +415,9 @@ func (e *Engine) ChatTaskDraft(ctx context.Context, id string) (ChatDraft, error
 			fmt.Fprintf(&transcript, "User: %s", m.Text)
 			if len(m.Images) > 0 {
 				fmt.Fprintf(&transcript, " (%d images attached)", len(m.Images))
+			}
+			for _, f := range m.Files {
+				fmt.Fprintf(&transcript, " (file attached: %q)", f.Name)
 			}
 			transcript.WriteString("\n\n")
 		case "agent":

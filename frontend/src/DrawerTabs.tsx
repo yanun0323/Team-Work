@@ -79,7 +79,7 @@ function Chats(p: Opens) {
                 <PixelFace look={r?.look ?? c.look} name={name} size={34} />
                 <span className="fx-row-main">
                   <b>{name}<span className="fx-chat-model">{chatMindOf(w, c)}</span></b>
-                  <span className="fx-chat-first">{c.messages[0]?.text || (c.messages[0]?.images?.length ? tr('圖片') : '')}</span>
+                  <span className="fx-chat-first">{c.messages[0]?.text || (c.messages[0]?.images?.length ? tr('圖片') : c.messages[0]?.files?.length ? tr('附件') : '')}</span>
                 </span>
               </button></li>
             )

@@ -182,6 +182,7 @@ type ChatMessage struct {
 	Text string  `json:"text"`
 	// Images are what the user attached, in a chat.
 	Images []Attachment `json:"images,omitempty"`
+	Files  []Attachment `json:"files,omitempty"`
 }
 
 type Talk struct {
@@ -277,6 +278,7 @@ type Task struct {
 	Title         string         `json:"title"`
 	Description   string         `json:"description"`
 	Images        []Attachment   `json:"images"`
+	Files         []Attachment   `json:"files,omitempty"`
 	WorkflowID    string         `json:"workflowId"`
 	OwnerID       *string        `json:"ownerId"`
 	Workflow      Workflow       `json:"workflow"`

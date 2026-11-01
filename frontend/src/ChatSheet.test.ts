@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attachable } from './ChatSheet'
+import { attachable, splitAttachments } from './attachments'
 import { seedWorld } from './core/data/seed'
 import { chatTaskDraft, createChat, deleteTeam, rewindChat, sayInChat, stopChat, tick } from './core/domain/sim'
 import { teamReplicas } from './core/model'
@@ -50,12 +50,26 @@ describe('chats', () => {
     expect(chat.messages).toHaveLength(1)
   })
 
-  it('leave behind files no provider can take', () => {
+  it('accept files as well as images, within count and size limits', () => {
     const file = (type: string, size: number) => ({ type, size }) as File
     expect(attachable([file('image/png', 10)], 6)).toMatchObject({ refused: false })
-    expect(attachable([file('image/bmp', 10)], 6)).toMatchObject({ fit: [], refused: true })
+    expect(attachable([file('application/pdf', 10), file('', 0)], 6)).toMatchObject({ refused: false })
     expect(attachable([file('image/png', 4 << 20)], 6)).toMatchObject({ fit: [], refused: true })
     expect(attachable([file('image/png', 1), file('image/png', 1)], 1).fit).toHaveLength(1)
+  })
+
+  it('keeps file-only messages and separates previews from downloadable files', () => {
+    const { w, chat } = setup()
+    stopChat(w, chat.id)
+    const file = { name: 'spec.txt', url: 'data:text/plain;base64,aGk=' }
+    const image = { name: 'shot.png', url: 'data:image/png;base64,AAAA' }
+    expect(splitAttachments([file, image])).toEqual({ files: [file], images: [image] })
+    sayInChat(w, chat.id, '', [], [file])
+    expect(chat.messages.at(-1)).toMatchObject({ text: '', files: [file] })
+    rewindChat(w, chat.id, 1)
+    expect(chat.messages).toHaveLength(1)
+    sayInChat(w, chat.id, '', [], [file])
+    expect(chat.messages.at(-1)?.files).toEqual([file])
   })
 
   it('write a task from what the user said, and go with their company', () => {

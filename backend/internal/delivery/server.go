@@ -600,11 +600,12 @@ func (s *Server) sayInChat(c echo.Context) error {
 	in, err := bind[struct {
 		Text   string             `json:"text"`
 		Images []model.Attachment `json:"images"`
+		Files  []model.Attachment `json:"files"`
 	}](c)
 	if err != nil {
 		return err
 	}
-	return done(c, s.engine.SayInChat(c.Param("id"), in.Text, in.Images))
+	return done(c, s.engine.SayInChat(c.Param("id"), in.Text, in.Images, in.Files))
 }
 
 func (s *Server) rewindChat(c echo.Context) error {

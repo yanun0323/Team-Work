@@ -1,3 +1,4 @@
+import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, splitAttachments } from './attachments'
 // The detail sheets: anything in the company file or the settings that can be opened (a task and its sub-tasks,
 // a flow and its steps, an employee, a blueprint, importing a blueprint) is shown on a sheet taped over the upper left of the map. Sheets stack: editing an employee
 // tapes an edit sheet over theirs, a little lower and to the right, and clicking the strip of the sheet
@@ -22,7 +23,7 @@ import { ClaudeAccount } from './ClaudeAccount'
 import { Markdown, MarkdownLine } from './Markdown'
 import { Select, Switcher, WaitBadge } from './Controls'
 import { FlowNotes, FlowPreview, openCard } from './FlowNotes'
-import { addImages, copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, unstaffed, useDraft, type TaskDraft } from './draft'
+import { copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, unstaffed, useDraft, type TaskDraft } from './draft'
 import { byBlueprint, DEFAULT_EFFORT, effortsOf, mindOf, modelGroups, modelsOf, randomLook } from './crew'
 import { docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
@@ -323,6 +324,7 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
           ))}
         </div>
       )}
+      {!!task.files?.length && <div className="fx-thumbs">{task.files.map((file, i) => <FileAttachment key={i} file={file} />)}</div>}
       {/* the drawing opens as a whole, as flows do in the company file: its title is the button */}
       <section className="fx-flow fx-flow-card fx-d-flowcard" onClick={openCard}>
         <h3><button type="button" className="fx-flow-open" aria-expanded={flowOpen} onClick={onFlow}>{flow}</button></h3>
@@ -1661,6 +1663,9 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const draft = useDraft((s) => s.draft)
+  const [reading, setReading] = useState(false)
+  const [attachmentError, setAttachmentError] = useState('')
+  const attachmentSession = useRef(0)
   const flows = flowList(w)
   // what a task needs may go while this is open
   const needs = usePrereqs(teamId, 'tasks').filter((x) => x.blocks)
@@ -1673,27 +1678,40 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
     useDraft.setState({ draft: source ? copyDraft(s, teamId, source) : {
       workflowId, ...last, title: seed?.title ?? '', description: seed?.description ?? '', ownerId: seed?.ownerId ?? last.ownerId,
     } })
-    return () => useDraft.setState({ draft: null })
+    return () => { attachmentSession.current++; useDraft.setState({ draft: null }) }
   }, [teamId, copyOf, seed])
   if (!draft) return null
   const wf = w.workflows[draft.workflowId]
   const missing = unstaffed(w, draft)
-  const ready = draft.title.trim() && wf && missing.length === 0 && !blocked(needs)
+  const ready = !reading && draft.title.trim() && wf && missing.length === 0 && !blocked(needs)
   const start = (e: React.FormEvent) => {
     e.preventDefault()
     if (!ready || !draft.ownerId) return
-    const { title, description, workflowId, staff, ownerId, images } = draft
-    act((x) => void createTask(x, { teamId, title: title.trim(), description: description.trim(), workflowId, staff, ownerId, images }))
+    const { title, description, workflowId, staff, ownerId, images, files } = draft
+    act((x) => void createTask(x, { teamId, title: title.trim(), description: description.trim(), workflowId, staff, ownerId, images, files }))
     onDone()
   }
   // a screenshot pasted into either text box comes in as a picture
   const paste = (e: React.ClipboardEvent) => {
-    const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'))
+    const files = [...e.clipboardData.files]
     if (!files.length) return
     e.preventDefault()
-    void addImages(files)
+    void attach(files)
   }
-  const images = draft.images ?? []
+  const images = [...(draft.images ?? []), ...(draft.files ?? [])]
+  const attach = async (files: Iterable<File>) => {
+    if (reading) return
+    const session = attachmentSession.current
+    const { fit, refused } = attachable([...files], MAX_ATTACHMENTS - images.length)
+    setAttachmentError(refused ? tr('每個附件最大 3.75MB，最多 6 個附件') : '')
+    setReading(true)
+    try {
+      const more = await readAttachments(fit)
+      // Do not add late reads to a different sheet.
+      if (attachmentSession.current === session) editDraft((d) => splitAttachments([...(d.images ?? []), ...(d.files ?? []), ...more].slice(0, MAX_ATTACHMENTS)))
+    } catch { setAttachmentError(tr('讀取附件失敗，請重試')) }
+    finally { setReading(false) }
+  }
   return (
     <form className="fx-d-form" onSubmit={start} onPaste={paste}>
       <header className="fx-d-head"><Heading {...h}>{tr('新增任務')}</Heading></header>
@@ -1708,22 +1726,23 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
             onChange={(e) => editDraft(() => ({ description: e.target.value }))} />
         </label>
         <div className="fx-field fx-field-top" role="group" aria-labelledby="fx-images-label">
-          <span id="fx-images-label">{tr('附圖')}</span>
+          <span id="fx-images-label">{tr('附件')}</span>
           <div className="fx-thumbs">
             {images.map((im, i) => (
-              <figure key={i} className="fx-thumb">
-                <img src={im.url} alt={im.name} />
+              <figure key={i} className={isImage(im) ? "fx-thumb" : "fx-file-wrap"}>
+                {isImage(im) ? <img src={im.url} alt={im.name} /> : <FileAttachment file={im} />}
                 <button type="button" className="fx-thumb-x" aria-label={tr('移除 {name}', { name: im.name })}
-                  onClick={() => editDraft((d) => ({ images: (d.images ?? []).filter((_, j) => j !== i) }))}>×</button>
+                  onClick={() => editDraft(() => splitAttachments(images.filter((_, j) => j !== i)))}>×</button>
               </figure>
             ))}
             <label className="fx-thumb fx-thumb-add fx-hit">
               <span aria-hidden="true">＋</span>
-              <input type="file" accept="image/*" multiple className="fx-sr" aria-label={tr('加入圖片')}
-                onChange={(e) => { void addImages(e.target.files ?? []); e.target.value = '' }} />
+              <input type="file" disabled={reading} multiple className="fx-sr" aria-label={tr('加入附件')}
+                onChange={(e) => { void attach(e.target.files ?? []); e.target.value = '' }} />
             </label>
           </div>
         </div>
+        {attachmentError && <p role="alert" className="fx-room-warn">{attachmentError}</p>}
         <Select label={tr('任務流程')} value={draft.workflowId} options={flows.map((x) => x.id)} labelOf={(x) => w.workflows[x]?.name ?? x}
           {...mineAndBuiltIn(flows.map((x) => x.id))}
           rowOf={(id, on) => (
