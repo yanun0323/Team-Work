@@ -34,6 +34,7 @@ import { NO_OUTLINE_LAYER, PixelPass } from './PixelPass'
 import { toonInstanced } from './toon'
 import { usePrefs } from './prefs'
 import { propBoxes, type Box } from './streetProps'
+import { useSound } from './sound'
 import { Brand } from './Brand'
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -65,6 +66,7 @@ function townKey(s: ReturnType<typeof useStore.getState>) {
 }
 
 export function World() {
+  useSound()
   const { crowd, planes, clouds } = usePrefs()
   // the simulation changes the world ten times a second; rebuild the town only when its shape changes
   const key = useStore(townKey)

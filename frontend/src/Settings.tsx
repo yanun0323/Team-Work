@@ -23,6 +23,7 @@ import { setLanguage } from './core/ops'
 import { TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
 import { airportTabOr, AIRPORT_TABS, type AirportTab, usePrefs, type LogOrder, type Prefs } from './prefs'
 import { request } from './core/backend'
+import { MusicSection, SoundSection } from './SoundPage'
 import { MOCK } from './core/mode'
 
 // TODO: the real addresses; these are placeholders until they are given
@@ -244,11 +245,11 @@ export function PrefsPage() {
   const prefs = usePrefs()
   const language = useStore((s) => s.world.language)
   const act = useStore((s) => s.act)
-  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab'>, label: string) => (
+  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'musicVolume' | 'effectsVolume' | 'musicStyle'>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
   return (
-    <div className="fx-d-groups">
+    <div className="fx-d-groups fx-prefs-groups">
       <section className="fx-d-group" aria-labelledby="fx-prefs-general">
         <h4 id="fx-prefs-general">{tr('一般')}</h4>
         <div className="fx-fields">
@@ -278,6 +279,8 @@ export function PrefsPage() {
           {check('clouds', tr('雲朵'))}
         </div>
       </section>
+      <MusicSection />
+      <SoundSection />
       {!MOCK && <ReloadSettings />}
     </div>
   )

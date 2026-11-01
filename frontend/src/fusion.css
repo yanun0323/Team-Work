@@ -542,6 +542,10 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-d-hand > .fx-d-noface { width: 32px; height: 32px; }
 /* sub-tasks under their step: space between steps, the step's name above its rows */
 .fx-d-groups { display: grid; gap: 18px; }
+.fx-prefs-groups { row-gap: 32px; }
+.fx-prefs-groups .fx-field { min-height: 36px; }
+.fx-prefs-groups .fx-sound-effect { min-height: 36px; }
+.fx-prefs-groups .fx-sound-switches { margin-top: 0; }
 .fx-d-group { display: grid; gap: 4px; }
 .fx-d-group h4 { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: 14px; font-weight: 700; color: var(--ink); }
 /* a group under its blueprint: the title, icon first, opens the blueprint; its shade reaches a little past it */
@@ -1057,3 +1061,46 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 
 .fx-file-wrap { position: relative; margin: 0; max-width: 100%; }
 .fx-file { display: inline-block; max-width: 100%; padding: 9px 12px; background: var(--paper); border: 1px solid var(--rule); color: var(--ink); overflow-wrap: anywhere; }
+
+/* Native sliders retain keyboard and focus behavior. */
+.fx-volume { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.fx-volume input {
+  appearance: none; -webkit-appearance: none; box-sizing: border-box;
+  min-width: 0; width: 100%; height: 36px; margin: 0; padding: 0;
+  border: 0; border-radius: 0; cursor: pointer;
+  background: transparent;
+}
+.fx-volume input::-webkit-slider-runnable-track {
+  height: 8px; border: 1px solid var(--muted); border-radius: 1px;
+  background: linear-gradient(to right, var(--muted) var(--volume), var(--paper-2) var(--volume));
+  box-shadow: inset 0 1px 2px rgb(40 30 10 / 0.15), 0 1px 0 rgb(255 255 255 / 0.7);
+}
+.fx-volume input::-moz-range-track {
+  height: 6px; border: 1px solid var(--muted); border-radius: 1px;
+  background: linear-gradient(to right, var(--muted) var(--volume), var(--paper-2) var(--volume));
+  box-shadow: inset 0 1px 2px rgb(40 30 10 / 0.15), 0 1px 0 rgb(255 255 255 / 0.7);
+}
+.fx-volume input::-webkit-slider-thumb {
+  appearance: none; -webkit-appearance: none; width: 22px; height: 28px; margin-top: -11px;
+  border: 1px solid var(--muted); border-radius: 1px;
+  background: linear-gradient(var(--muted), var(--muted)) center / 1px 10px no-repeat,
+    repeating-linear-gradient(0deg, transparent 0 3px, rgb(80 60 30 / 0.04) 3px 4px), var(--paper);
+  box-shadow: 1px 2px 2px rgb(40 30 10 / 0.2), inset 0 1px 0 #fff;
+  transform: rotate(-4deg);
+}
+.fx-volume input::-moz-range-thumb {
+  width: 20px; height: 26px; border: 1px solid var(--muted); border-radius: 1px;
+  background: linear-gradient(var(--muted), var(--muted)) center / 1px 10px no-repeat,
+    repeating-linear-gradient(0deg, transparent 0 3px, rgb(80 60 30 / 0.04) 3px 4px), var(--paper);
+  box-shadow: 1px 2px 2px rgb(40 30 10 / 0.2), inset 0 1px 0 #fff;
+  transform: rotate(-4deg);
+}
+.fx-volume input:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.fx-volume input:active::-webkit-slider-thumb { transform: rotate(0); box-shadow: 0 1px 1px rgb(40 30 10 / 0.2); }
+.fx-volume input:active::-moz-range-thumb { transform: rotate(0); box-shadow: 0 1px 1px rgb(40 30 10 / 0.2); }
+.fx-sound-switches { display: grid; gap: 6px; margin-top: 12px; }
+@media (forced-colors: active) {
+  .fx-volume input { appearance: auto; -webkit-appearance: auto; }
+}
+.fx-volume output { min-width: 4ch; text-align: end; font-variant-numeric: tabular-nums; }
+.fx-sound-effect { display: grid; grid-template-columns: minmax(0, 1fr) 32px; gap: 12px; align-items: center; }

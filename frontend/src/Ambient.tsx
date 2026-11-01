@@ -9,6 +9,7 @@ import { Fade } from './Fade'
 import { CELL, hash, type Town } from './layout'
 import { NO_OUTLINE_LAYER } from './PixelPass'
 import { fadingShadow } from './shadowFade'
+import { playSound, stopSound } from './sound'
 import { toon } from './toon'
 
 /** Which way the wind blows the clouds (x, z). */
@@ -155,6 +156,7 @@ const between = (a: number, b: number) => a + Math.random() * (b - a)
  * None with reduced motion.
  */
 function Overflights({ ring }: { ring: number }) {
+  useEffect(() => () => stopSound('soundFlyover'), [])
   const ref = useRef<THREE.Group>(null)
   // seconds until the next pass; the first comes soon after the page opens
   const wait = useRef(between(8, 20))
@@ -172,8 +174,10 @@ function Overflights({ ring }: { ring: number }) {
       }
       return
     }
+    const before = pass.t * pass.speed - half
     pass.t += dt
     const along = pass.t * pass.speed - half
+    if (before < -pass.speed * 3 && along >= -pass.speed * 3) playSound('soundFlyover')
     if (along > half) {
       setPass(null)
       setShown(false)

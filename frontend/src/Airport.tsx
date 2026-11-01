@@ -10,6 +10,7 @@ import { Fade } from './Fade'
 import { AIRPORT, CELL, rectCenter, RUNWAY_CELLS, RUNWAY_LINE, type Town } from './layout'
 import { NO_OUTLINE_LAYER } from './PixelPass'
 import { usePrefs } from './prefs'
+import { playSound, stopSound } from './sound'
 import { toon } from './toon'
 
 type V3 = [number, number, number]
@@ -156,6 +157,10 @@ function Flight({ calm }: { calm: boolean }) {
   // it goes straight there
   const clock = useRef(calm ? STAND_AT : 0)
   const [shown, setShown] = useState(true)
+  useEffect(() => {
+    if (calm) { stopSound('soundLanding'); stopSound('soundTakeoff') }
+    return () => { stopSound('soundLanding'); stopSound('soundTakeoff') }
+  }, [calm])
   useLayoutEffect(() => {
     if (calm) {
       clock.current = STAND_AT
@@ -165,8 +170,11 @@ function Flight({ calm }: { calm: boolean }) {
   }, [calm])
   useFrame((_, dt) => {
     if (calm || !ref.current) return
+    const before = clock.current
     clock.current = (clock.current + Math.min(dt, 0.1)) % CYCLE
     const t = clock.current
+    if (before < 3 && t >= 3) playSound('soundLanding')
+    if (before < 60 && t >= 60) playSound('soundTakeoff')
     poseAt(t, ref.current)
     const on = t >= SHOWN[0] && t < SHOWN[1]
     if (on !== shown) setShown(on)

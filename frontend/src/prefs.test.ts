@@ -18,13 +18,19 @@ it('loads server preferences on snapshots and patches without reading browser st
   const getItem = vi.fn(() => JSON.stringify({ state: { shadows: true } }))
   vi.stubGlobal('localStorage', { getItem, setItem: vi.fn() })
   const w = emptyWorld()
-  w.preferences = { ...DEFAULT_PREFS, shadows: false, defaultTab: 'crew' }
+  w.preferences = { ...DEFAULT_PREFS, shadows: false, defaultTab: 'crew', musicVolume: 0, soundTakeoff: false }
   useStore.getState().receive({ type: 'snapshot', world: w })
   expect(usePrefs.getState().shadows).toBe(false)
   expect(usePrefs.getState().defaultTab).toBe('crew')
-  const preferences = { ...w.preferences, clouds: false }
+  expect(usePrefs.getState().musicVolume).toBe(0)
+  expect(usePrefs.getState().soundTakeoff).toBe(false)
+  const preferences = { ...w.preferences, clouds: false, effectsVolume: 82, soundLanding: false, musicStyle: 'chiptune' as const, soundNotice: false }
   useStore.getState().receive({ type: 'patch', upserts: [{ kind: 'preferences', id: 'world', data: preferences }] })
   expect(usePrefs.getState().clouds).toBe(false)
+  expect(usePrefs.getState().effectsVolume).toBe(82)
+  expect(usePrefs.getState().musicStyle).toBe('chiptune')
+  expect(usePrefs.getState().soundNotice).toBe(false)
+  expect(usePrefs.getState().soundLanding).toBe(false)
   expect(useStore.getState().world.preferences).toEqual(preferences)
   expect(getItem).not.toHaveBeenCalled()
 })

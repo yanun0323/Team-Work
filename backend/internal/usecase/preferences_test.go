@@ -21,7 +21,7 @@ func TestSharedPreferencesAndPlots(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer cancel()
-	patch := map[string]json.RawMessage{"shadows": json.RawMessage(`false`), "defaultTab": json.RawMessage(`"crew"`)}
+	patch := map[string]json.RawMessage{"musicStyle": json.RawMessage(`"bossa"`), "soundNotice": json.RawMessage(`false`), "musicVolume": json.RawMessage(`0`), "effectsVolume": json.RawMessage(`73`), "soundTakeoff": json.RawMessage(`false`), "defaultAirportTab": json.RawMessage(`"sound"`), "shadows": json.RawMessage(`false`), "defaultTab": json.RawMessage(`"crew"`)}
 	if err := r.e.UpdatePreferences(patch); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestSharedPreferencesAndPlots(t *testing.T) {
 	r.e.Close()
 	newEngine(t, r)
 	w := r.world()
-	if w.Preferences.Shadows || w.Preferences.DefaultTab != "crew" || !reflect.DeepEqual(w.Teams[r.team.ID].Plot, plot) {
+	if w.Preferences.MusicStyle != "bossa" || w.Preferences.SoundNotice || w.Preferences.MusicVolume != 0 || w.Preferences.EffectsVolume != 73 || w.Preferences.SoundTakeoff || !w.Preferences.SoundLanding || w.Preferences.DefaultAirportTab != "prefs" || w.Preferences.Shadows || w.Preferences.DefaultTab != "crew" || !reflect.DeepEqual(w.Teams[r.team.ID].Plot, plot) {
 		t.Fatalf("restart lost preferences or plot: %+v %+v", w.Preferences, w.Teams[r.team.ID].Plot)
 	}
 	if err := r.e.DeleteTeam(r.team.ID); err != nil {

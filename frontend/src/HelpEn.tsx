@@ -48,6 +48,8 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Blueprints</dt><dd>Templates for making employees.</dd>
           <dt>Workflows</dt><dd>The steps a task goes through.</dd>
           <dt>Settings</dt><dd>Preferences and settings files for the whole app.</dd>
+          <dt>Settings → Music</dt><dd>Choose Retro game (default), Soft piano, Ambient or Bossa nova. Tracks cross-fade when changed, and your selection is saved.</dd>
+          <dt>Settings → Sound</dt><dd>Both volumes default to 100%. Separate music and effects volumes; 0 mutes either channel. Toggle or preview aircraft sounds (takeoff, landing and flyover together), interface clicks and noticeboard sounds separately. New requests for replies or merges play a four-note announcement-style chime; existing notifications are not replayed. Audio starts after your first click or key press and pauses when the page is hidden. Preferences are shared and saved.</dd>
           <dt>About</dt><dd>Links, thanks and the version number.</dd>
           <dt>Quit</dt><dd>In the Mac app, the power button beside the Airport title quits the app. If work is running it asks first, and open terminals end too. The web version has no such button.</dd>
         </dl>

@@ -83,3 +83,52 @@ func TestPlotMustFitExpandedIsland(t *testing.T) {
 		t.Fatalf("%d %v", code, response)
 	}
 }
+
+func TestSoundPreferencesEndpoint(t *testing.T) {
+	api := setup(t).URL + "/api/v1"
+	_, initial := send(t, "GET", api+"/world", "")
+	defaults := initial["preferences"].(map[string]any)
+	if defaults["musicVolume"] != float64(100) || defaults["effectsVolume"] != float64(100) {
+		t.Fatalf("%v", defaults)
+	}
+	if code, body := send(t, "PATCH", api+"/settings/preferences", `{"musicVolume":0,"effectsVolume":100,"soundTakeoff":false,"soundLanding":false,"soundFlyover":false,"soundUI":false,"defaultAirportTab":"sound"}`); code != http.StatusNoContent {
+		t.Fatalf("%d %v", code, body)
+	}
+	for _, raw := range []string{`{"musicVolume":-1}`, `{"musicVolume":101}`, `{"effectsVolume":-1}`, `{"effectsVolume":101}`, `{"musicVolume":2.5}`, `{"effectsVolume":"40"}`, `{"soundTakeoff":null}`, `{"soundLanding":0}`, `{"soundFlyover":"false"}`, `{"soundUI":[]}`} {
+		if code, body := send(t, "PATCH", api+"/settings/preferences", raw); code != http.StatusBadRequest {
+			t.Fatalf("%s: %d %v", raw, code, body)
+		}
+	}
+	if code, _ := send(t, "PATCH", api+"/settings/preferences", `{"soundLanding":true}`); code != http.StatusNoContent {
+		t.Fatal(code)
+	}
+	_, world := send(t, "GET", api+"/world", "")
+	prefs := world["preferences"].(map[string]any)
+	if prefs["musicVolume"] != float64(0) || prefs["effectsVolume"] != float64(100) || prefs["soundTakeoff"] != false || prefs["soundLanding"] != true || prefs["soundFlyover"] != false || prefs["soundUI"] != false || prefs["defaultAirportTab"] != "prefs" {
+		t.Fatalf("%v", prefs)
+	}
+}
+
+func TestMusicStyleAndNoticePreferences(t *testing.T) {
+	api := setup(t).URL + "/api/v1"
+	_, initial := send(t, "GET", api+"/world", "")
+	defaults := initial["preferences"].(map[string]any)
+	if defaults["musicStyle"] != "chiptune" || defaults["soundNotice"] != true {
+		t.Fatalf("%v", defaults)
+	}
+	for _, style := range []string{"piano", "ambient", "bossa", "chiptune"} {
+		if code, body := send(t, "PATCH", api+"/settings/preferences", `{"musicStyle":"`+style+`","soundNotice":false}`); code != http.StatusNoContent {
+			t.Fatalf("%d %v", code, body)
+		}
+	}
+	for _, raw := range []string{`{"musicStyle":"unknown"}`, `{"musicStyle":null}`, `{"musicStyle":3}`, `{"soundNotice":null}`, `{"soundNotice":"false"}`} {
+		if code, body := send(t, "PATCH", api+"/settings/preferences", raw); code != http.StatusBadRequest {
+			t.Fatalf("%s: %d %v", raw, code, body)
+		}
+	}
+	_, world := send(t, "GET", api+"/world", "")
+	prefs := world["preferences"].(map[string]any)
+	if prefs["musicStyle"] != "chiptune" || prefs["soundNotice"] != false || prefs["musicVolume"] != float64(100) {
+		t.Fatalf("%v", prefs)
+	}
+}
