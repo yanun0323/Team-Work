@@ -33,7 +33,7 @@ func TestPresets(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"專案經理", "產品負責人", "設計師", "後端工程師", "前端工程師", "測試工程師"} {
+	for _, want := range []string{"專案經理", "產品負責人", "設計師", "後端工程師", "前端工程師", "測試工程師", "研究員", "程式審查員", "技術架構師", "資安工程師", "DevOps 工程師", "技術文件寫手", "資料分析師", "行銷文案", "特助"} {
 		if names[want] == "" {
 			t.Fatalf("no blueprint %s: %v", want, names)
 		}
@@ -41,11 +41,16 @@ func TestPresets(t *testing.T) {
 	if !slices.Contains(w.Blueprints[names["設計師"]].Tools, enum.ToolRunCommand) {
 		t.Fatal("the designer can't run commands")
 	}
+	for _, tool := range []enum.Tool{enum.ToolReadFile, enum.ToolWriteFile, enum.ToolWebSearch, enum.ToolRunCommand} {
+		if !slices.Contains(w.Blueprints[names["特助"]].Tools, tool) {
+			t.Fatalf("the assistant lacks %s", tool)
+		}
+	}
 	feature := presetFlowOf(t, w, "preset-feature")
 	if feature.Name != "功能開發" || len(feature.Edges) != 7 {
 		t.Fatalf("%+v", feature)
 	}
-	for _, id := range []string{"preset-feature", "preset-bugfix", "preset-planning"} {
+	for _, id := range []string{"preset-feature", "preset-bugfix", "preset-planning", "preset-review", "preset-refactor"} {
 		// a copy goes through the same checks as a flow drawn by hand
 		c, err := r.e.DuplicateWorkflow(id)
 		if err != nil {
@@ -252,7 +257,7 @@ func TestPresetsUseTheAgentFolders(t *testing.T) {
 			t.Fatalf("%s: %v", b.Name, paths)
 		}
 	}
-	if found != 6 {
+	if found != 15 {
 		t.Fatalf("%d presets", found)
 	}
 }

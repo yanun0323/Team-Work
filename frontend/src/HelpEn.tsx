@@ -94,7 +94,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: "A blueprint's details: source, prompt, skills and tools",
     body: (
       <>
-        <p>A blueprint is a template for employees: a name, a prompt, skills and allowed tools. It has no model, because each employee picks their own. All companies share blueprints. Manage them in Airport → Blueprints, where the list is split into Mine and Built-in. The six built-in ones are Project Manager, Product Owner, Designer, Backend Engineer, Frontend Engineer and QA Engineer.</p>
+        <p>A blueprint is a template for employees: a name, a prompt, skills and allowed tools. It has no model, because each employee picks their own. All companies share blueprints. Manage them in Airport → Blueprints, where the list is split into Mine and Built-in. The 14 built-in ones are Project Manager, Product Owner, Designer, Backend Engineer, Frontend Engineer, QA Engineer, Researcher, Code Reviewer, Software Architect, Security Engineer, DevOps Engineer, Technical Writer, Data Analyst, Marketing Copywriter and Executive Assistant.</p>
         <p>Built-in blueprints are ready to use but cannot be changed or deleted. To change one, press Copy at the top right: it brings in the text in the language shown, for you to edit and save as your own. Built-in blueprints show in the app's language, but employees always receive the English version plus a rule about which language to reply in. Your own blueprints are given as you wrote them.</p>
         <dl>
           <dt>Add</dt><dd>Fill in the name, prompt, comment, skills and tools. Blueprints imported from GitHub earlier can still change their name, repo and version.</dd>
@@ -117,7 +117,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Change arrows</dt><dd>Move the cursor to the small dot in the middle of an arrow: ＋ inserts a step there and × removes the arrow.</dd>
           <dt>When you cannot save</dt><dd>You cannot save with an unconnected or unnamed step. A workflow cannot loop back to an earlier step.</dd>
         </dl>
-        <p>A workflow names no employees: each task decides who does the work. All companies share workflows. Manage them in Airport → Workflows, where the list is split into Mine and Built-in. You can add, edit, copy and delete your own. The built-in Feature development, Bug fix and Product planning cannot be changed or deleted, and a copy becomes your own in the language shown. Changing a workflow affects only tasks started later. A new task starts with the workflow this company last chose, or the first one.</p>
+        <p>A workflow names no employees: each task decides who does the work. All companies share workflows. Manage them in Airport → Workflows, where the list is split into Mine and Built-in. You can add, edit, copy and delete your own. The built-in Feature development, Bug fix, Product planning, Code review and Refactor cannot be changed or deleted, and a copy becomes your own in the language shown. Changing a workflow affects only tasks started later. A new task starts with the workflow this company last chose, or the first one.</p>
       </>
     ),
   },

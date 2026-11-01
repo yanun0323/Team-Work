@@ -12,7 +12,7 @@ describe('presets', () => {
 
   it('are in the mock world, in the language picked', () => {
     const w = seedWorld()
-    expect(blueprints(w).map((b) => b.name)).toEqual(['專案經理', '產品負責人', '設計師', '後端工程師', '前端工程師', '測試工程師'])
+    expect(blueprints(w).map((b) => b.name)).toEqual(['專案經理', '產品負責人', '設計師', '後端工程師', '前端工程師', '測試工程師', '研究員', '程式審查員', '技術架構師', '資安工程師', 'DevOps 工程師', '技術文件寫手', '資料分析師', '行銷文案', '特助'])
     setLanguage(w, 'en')
     expect(w.blueprints['preset-pm'].name).toBe('Project Manager')
     expect(w.blueprints['preset-pm'].prompt).toContain("company's project manager")
@@ -30,6 +30,14 @@ describe('presets', () => {
     }
     for (const n of Object.values(w.workflows).filter((f) => isPreset(f.id)).flatMap((f) => f.nodes)) {
       expect(`${n.name} ${n.prompt}`).not.toMatch(/[\u4e00-\u9fff]/)
+    }
+  })
+
+  it('keep read-only roles without the write tool', () => {
+    const { blueprints: all } = seedWorld()
+    for (const id of ['preset-reviewer', 'preset-security']) {
+      expect(all[id].tools).not.toContain('writeFile')
+      expect(all[id].prompt).toContain('不修改任何檔案')
     }
   })
 
@@ -70,9 +78,9 @@ describe('own first', () => {
   it('lists the user\'s own before the built-in ones', () => {
     const w = seedWorld()
     const ids = blueprintList(w).map((b) => b.id)
-    expect(ids.findIndex(isPreset)).toBe(ids.length - 6)
-    expect(ids.slice(-6)[0]).toBe('preset-pm')
-    expect(flowList(w).at(-3)!.id).toBe('preset-feature')
+    expect(ids.findIndex(isPreset)).toBe(ids.length - 15)
+    expect(ids.slice(-15)[0]).toBe('preset-pm')
+    expect(flowList(w).at(-5)!.id).toBe('preset-feature')
   })
 })
 
