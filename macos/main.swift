@@ -12,29 +12,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var startupTimer: Timer?
     private let origin = URL(string: "http://127.0.0.1:18787")!
     private let smoke = CommandLine.arguments.contains("--smoke-test")
+    // The page reports the app's language; it is remembered for what shows before the page loads.
+    private var english: Bool { UserDefaults.standard.string(forKey: "language") == "en" }
+    private func say(_ zh: String, _ en: String) -> String { english ? en : zh }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        let menu = NSMenu()
-        let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "關於 Team Work", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
-        appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "結束 Team Work", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        let appItem = NSMenuItem()
-        appItem.submenu = appMenu
-        menu.addItem(appItem)
-        let edit = NSMenu(title: "編輯")
-        for (title, action, key) in [("復原", "undo:", "z"), ("剪下", "cut:", "x"), ("拷貝", "copy:", "c"), ("貼上", "paste:", "v"), ("全選", "selectAll:", "a")] {
-            edit.addItem(withTitle: title, action: Selector(action), keyEquivalent: key)
-        }
-        let editItem = NSMenuItem(title: "編輯", action: nil, keyEquivalent: "")
-        editItem.submenu = edit
-        menu.addItem(editItem)
-        NSApp.mainMenu = menu
+        buildMenu()
 
         let configuration = WKWebViewConfiguration()
         if smoke { configuration.websiteDataStore = .nonPersistent() }
         configuration.userContentController.add(self, name: "quit")
+        configuration.userContentController.add(self, name: "language")
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -45,8 +34,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        webView.loadHTMLString("<html lang='zh-Hant'><body style='font:18px system-ui;padding:40px'>正在啟動 Team Work…</body></html>", baseURL: nil)
-        do { try startBackend() } catch { fail("無法啟動後端：\(error.localizedDescription)") }
+        webView.loadHTMLString("<html lang='\(say("zh-Hant", "en"))'><body style='font:18px system-ui;padding:40px'>\(say("正在啟動 Team Work…", "Starting Team Work…"))</body></html>", baseURL: nil)
+        do { try startBackend() } catch { fail(say("無法啟動後端：\(error.localizedDescription)", "Could not start the backend: \(error.localizedDescription)")) }
+    }
+
+    private func buildMenu() {
+        let menu = NSMenu()
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: say("關於 Team Work", "About Team Work"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: say("結束 Team Work", "Quit Team Work"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let appItem = NSMenuItem()
+        appItem.submenu = appMenu
+        menu.addItem(appItem)
+        let edit = NSMenu(title: say("編輯", "Edit"))
+        for (title, action, key) in [(say("復原", "Undo"), "undo:", "z"), (say("剪下", "Cut"), "cut:", "x"), (say("拷貝", "Copy"), "copy:", "c"), (say("貼上", "Paste"), "paste:", "v"), (say("全選", "Select All"), "selectAll:", "a")] {
+            edit.addItem(withTitle: title, action: Selector(action), keyEquivalent: key)
+        }
+        let editItem = NSMenuItem(title: say("編輯", "Edit"), action: nil, keyEquivalent: "")
+        editItem.submenu = edit
+        menu.addItem(editItem)
+        NSApp.mainMenu = menu
     }
 
     private func startBackend() throws {
@@ -93,7 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             DispatchQueue.main.async {
                 guard let self else { return }
                 if self.stopping { NSApp.reply(toApplicationShouldTerminate: true) }
-                else { self.fail("後端已停止。請查看 \(logURL.path)。若連接埠 18787 已被使用，請先關閉另一個 Team Work。") }
+                else { self.fail(self.say("後端已停止。請查看 \(logURL.path)。若連接埠 18787 已被使用，請先關閉另一個 Team Work。", "The backend stopped. See \(logURL.path). If port 18787 is in use, quit the other Team Work first.")) }
             }
         }
         backend = process
@@ -112,7 +120,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             }
         }
         startupTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: false) { [weak self] _ in
-            self?.fail("後端啟動逾時，請重新開啟 App。")
+            guard let self else { return }
+            self.fail(self.say("後端啟動逾時，請重新開啟 App。", "The backend took too long to start. Reopen the app."))
         }
     }
 
@@ -123,7 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             fputs("SMOKE FAILED: \(message)\n", stderr)
         } else {
             let alert = NSAlert()
-            alert.messageText = "Team Work 無法執行"
+            alert.messageText = say("Team Work 無法執行", "Team Work cannot run")
             alert.informativeText = message
             alert.runModal()
         }
@@ -132,6 +141,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     // The airport's power button. Navigation stays on our own origin, so only our page can send this.
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "language" {
+            if let language = message.body as? String, language != UserDefaults.standard.string(forKey: "language") {
+                UserDefaults.standard.set(language, forKey: "language")
+                buildMenu()
+            }
+            return
+        }
         NSApp.terminate(nil)
     }
 

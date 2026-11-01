@@ -182,5 +182,7 @@ export function useAppLanguage() {
   setAppLanguage(language)
   useEffect(() => {
     document.documentElement.lang = language === 'zh' ? 'zh-Hant' : 'en'
+    // the Mac app's menus follow too
+    ;(window as unknown as { webkit?: { messageHandlers?: { language?: { postMessage: (x: string) => void } } } }).webkit?.messageHandlers?.language?.postMessage(language)
   }, [language])
 }
