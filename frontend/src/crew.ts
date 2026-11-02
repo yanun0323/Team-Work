@@ -66,6 +66,11 @@ export const mindOf = (r: Replica) => `${r.model} · ${r.effort}`
  * employee's level, or the default once they have moved to another model. Nothing is known of the level of an
  * employee who has left, and their chat takes no more replies.
  */
+/** What a chat on the list shows beside it; only the most pressing of these. */
+export function chatSign(c: Chat) {
+  return c.replyAt !== undefined ? 'replying' : c.question ? 'question' : c.unread ? 'unread' : undefined
+}
+
 export function chatMindOf(w: World, c: Chat) {
   const r = w.replicas[c.replicaId]
   if (!r) return c.model

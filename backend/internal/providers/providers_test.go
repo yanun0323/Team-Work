@@ -275,3 +275,17 @@ func TestToolResultImagesReachTheModel(t *testing.T) {
 		t.Fatalf("openai: %s", body)
 	}
 }
+
+func TestTooLongIsToldApartFromOtherRefusals(t *testing.T) {
+	p, _, _ := serve(t, enum.ProviderOpenAI, http.StatusBadRequest, `{"error":{"code":"context_length_exceeded"}}`)
+	_, err := p.Complete(context.Background(), model.ModelRequest{Model: "m"}, func(string) {})
+	var failure *model.Error
+	if !errors.As(err, &failure) || failure.Code != model.CodeContextOverflow {
+		t.Fatalf("%v", err)
+	}
+	p, _, _ = serve(t, enum.ProviderOpenAI, http.StatusBadRequest, `{"error":{"code":"other"}}`)
+	_, err = p.Complete(context.Background(), model.ModelRequest{Model: "m"}, func(string) {})
+	if !errors.As(err, &failure) || failure.Code != model.CodeInvalid {
+		t.Fatalf("%v", err)
+	}
+}

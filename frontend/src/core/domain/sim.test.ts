@@ -3,7 +3,7 @@ import { combine } from './rollup'
 import {
   cancelTask, fire, changeWorkflow, createTask, createTeam, DEFAULT_MODEL, deleteBlueprint, deleteTask, deleteTeam, gitSources, updateBlueprint, updateSource, deleteWorkflow, duplicateWorkflow, newWorkflow, hire, pauseTask, mergeTask, returnTask,
   MERGE_TIME, RESOLVE_TIME, resolveReview, resumeTask, setOwner, statusOf, subsOf, tick, END_PROMPT, START_PROMPT,
-  endTalk, REPLY_TIME, sayInTalk,
+  endTalk, REPLY_TIME, sayInTalk, taskTokens, createChat, forkChat, rewindChat,
 } from './sim'
 import { composePrompt, validate, wouldCreateCycle } from './graph'
 import type { GitSource, Script, World, Workflow, WorkflowNode } from './types'
@@ -215,16 +215,17 @@ describe('workflow run', () => {
     expect(t.stage).toBe('awaitMerge')
   })
 
-  it('a Replica works on one sub-task at a time', () => {
+  it('a Replica works on several sub-tasks at once', () => {
     const { w, team, wf } = setup([['start', 'a'], ['start', 'b']])
     const shared = wf.nodes.find((n) => n.id === 'a')!.replicaIds[0]
     wf.nodes.find((n) => n.id === 'b')!.replicaIds = [shared]
     const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
+    let most = 0
     for (let i = 0; i < 160; i++) {
       tick(w, 0.5)
-      const busy = subsOf(w, t.id).filter((s) => s.status === 'progressing' && s.replicaId === shared)
-      expect(busy.length).toBeLessThanOrEqual(1)
+      most = Math.max(most, subsOf(w, t.id).filter((s) => s.status === 'progressing' && s.replicaId === shared).length)
     }
+    expect(most).toBe(2)
     expect(t.stage).toBe('awaitMerge')
   })
 
@@ -319,9 +320,26 @@ describe('workflow run', () => {
     changeWorkflow(w, t.id, firstFlow(w))
     expect(subsOf(w, t.id)).toHaveLength(1)
     expect(t.costCarry).toBeGreaterThan(0)
+    expect(t.tokensCarry).toBeGreaterThan(0)
+    expect(taskTokens(w, t)).toBe(t.tokensCarry)
     expect(t.paused).toBe(false)
   })
 
+})
+
+describe('chat tokens', () => {
+  it('counts each reply, starts a fork at zero and keeps the count through a rewind', () => {
+    const { w, team } = setup([['start', 'a']])
+    const replica = Object.values(w.replicas)[0]
+    const chat = createChat(w, { teamId: team.id, replicaId: replica.id, text: '嗨' })
+    expect(chat.tokens).toBe(0)
+    run(w, REPLY_TIME + 1)
+    const used = chat.tokens
+    expect(used).toBeGreaterThan(0)
+    expect(forkChat(w, chat.id, 1)?.tokens).toBe(0)
+    rewindChat(w, chat.id, 0)
+    expect(chat.tokens).toBe(used)
+  })
 })
 
 describe('work tree and merge', () => {
@@ -378,7 +396,7 @@ describe('work tree and merge', () => {
     expect(t.merge!.log.map((l) => l.text)).toContain('衝突已解決')
   })
 
-  it('the merge waits until the owner is free of other work', () => {
+  it('the merge does not wait for the owner to finish other work', () => {
     const { w, team, wf } = setup([['start', 'a']])
     const owner = wf.nodes[1].replicaIds[0]
     const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: wf.id, ownerId: owner, overrides: { '*': calm } })
@@ -390,9 +408,9 @@ describe('work tree and merge', () => {
     run(w, 5)
     expect(subsOf(w, other.id).some((s) => s.status === 'progressing' && s.replicaId === owner)).toBe(true)
     mergeTask(w, t.id)
+    run(w, 1)
+    expect(t.merge!.startedAt).toBeDefined()
     run(w, 20)
-    expect(t.merge!.startedAt).toBeUndefined()
-    run(w, 40)
     expect(t.stage).toBe('done')
   })
 
@@ -444,7 +462,7 @@ describe('task owner', () => {
     expect(task.workflow.nodes.map((n) => n.replicaIds)).toEqual([[y], [y]])
   })
 
-  it('firing hands every unfinished job to the heir, who works them one at a time', () => {
+  it('firing hands every unfinished job to the heir', () => {
     const { w, team, wf } = setup([['start', 'a'], ['start', 'b'], ['a', 'rev'], ['b', 'rev']])
     const gone = hire(w, team.id, 'bp', 'Gone').id
     const heir = wf.nodes.find((n) => n.id === 'b')!.replicaIds[0]
@@ -466,7 +484,6 @@ describe('task owner', () => {
     expect(a.progress).toBe(progress)
     for (let i = 0; i < 400 && task.stage === 'running'; i++) {
       tick(w, 0.5)
-      expect(subsOf(w, task.id).filter((s) => s.status === 'progressing' && s.replicaId === heir).length).toBeLessThanOrEqual(1)
     }
     expect(task.stage).toBe('awaitMerge')
   })

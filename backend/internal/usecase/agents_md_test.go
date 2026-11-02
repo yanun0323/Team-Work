@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/mho-company/internal/model/enum"
 	"github.com/yanun0323/mho-company/internal/usecase"
 )
 
@@ -183,5 +184,50 @@ func TestGlobalPromptFollowsItsFile(t *testing.T) {
 	}
 	if info, err := os.Stat(filepath.Join(r.data, "AGENTS.md")); err != nil || info.Size() != 0 {
 		t.Fatalf("%v %v", info, err)
+	}
+}
+
+func inOrder(t *testing.T, system string, parts ...string) {
+	t.Helper()
+	at := 0
+	for _, part := range parts {
+		i := strings.Index(system[at:], part)
+		if i < 0 {
+			t.Fatalf("%q missing or out of order in:\n%s", part, system)
+		}
+		at += i + len(part)
+	}
+}
+
+func TestPromptSectionsKeepTheirOrder(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if strings.Contains(req.System, "# This step: ") {
+			return call("submit_handoff", handoff), nil
+		}
+		return say("好"), nil
+	})
+	if err := os.WriteFile(filepath.Join(r.data, "AGENTS.md"), []byte("全域內容"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeAgents(t, r.folder, "公司內容")
+	memory := []model.MemoryEntry{{ID: "m", Text: "記憶內容", Source: "work", At: 86400}}
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Memory: &memory}); err != nil {
+		t.Fatal(err)
+	}
+	shared := []string{"# Global rules\n全域內容", "# Company rules\n公司內容", "# Your role\n你是開發者", "# Your memory"}
+
+	task := r.task(r.flow.ID)
+	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	inOrder(t, r.fake.seen[0].System, append(append([]string{"@path", "user reads in", "submit_handoff", "When instructions in this prompt conflict"}, shared...), "# This step: ", "# Handoff")...)
+
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	system := r.fake.seen[len(r.fake.seen)-1].System
+	inOrder(t, system, append([]string{"@path", "user reads in", "When instructions in this prompt conflict"}, shared...)...)
+	if strings.Contains(system, "This step,") {
+		t.Fatalf("a chat has no step:\n%s", system)
 	}
 }

@@ -141,6 +141,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Game objects</dt><dd>Turn off details, shadows, people on the map, plane animation or clouds to make the screen run more smoothly.</dd>
           <dt>Global AGENTS.md</dt><dd>Edit it under System. Every employee in every company receives it. It is stored in <code>~/.team-work/AGENTS.md</code>, and edits made outside the app apply from the next run or reply.</dd>
           <dt>Settings files</dt><dd>Interface preferences (preferences.yaml), companies, employees, your own blueprints and workflows, and providers are stored as files under <code>~/.team-work</code>. Built-in ones are not there. After editing them yourself, press Reload settings. They apply only if the whole batch passes its checks; otherwise the current settings stay. Open settings folder shows this location in Finder.</dd>
+          <dt>Reset to defaults</dt><dd>At the bottom of the Settings page; press it twice to apply. Every setting on the page returns to its default, including the language and the terminal startup command. The global AGENTS.md is kept.</dd>
         </dl>
       </>
     ),
@@ -165,6 +166,8 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Edit a message</dt><dd>Press the pencil under your message: it and everything after it disappear, and its text and attachments return to the box for you to change and resend. Pressing it during a reply also stops the reply. There is no undo, and files the employee changed are not restored.</dd>
           <dt>Fork</dt><dd>Press the fork icon under a message to copy the chat up to there into a new chat and open it. The original stays as it is. You can fork from your own messages or the last message of an employee's reply. The new chat waits for you to say something, and both chats work in the same project folder.</dd>
           <dt>Create task</dt><dd>When you have discussed enough, press Create task. The employee writes the chat up as a new task for you to edit and start.</dd>
+          <dt>List marks</dt><dd>While an employee replies, three bouncing dots show on the list. A reply you have not seen shows a round dot until you open the chat. On the map, a company's name tag shows its unread chats in blue and its tasks waiting for review in red.</dd>
+          <dt>Long chats</dt><dd>When a chat gets too long, the employee sums up the earlier part and carries on, and a line reading auto_compact appears in the chat. All messages stay on screen and can still be edited and forked, but the employee reads only the summary from then on. The tokens used for this count toward the chat.</dd>
           <dt>Delete</dt><dd>Delete a chat at the top right. Changes in the folder stay. When an employee leaves the company, their chats stay readable, but you cannot post in them.</dd>
         </dl>
       </>
@@ -185,6 +188,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Noticeboard</dt><dd>The noticeboard at the top right of the main screen lists every company's tasks, and you can add tasks there too. The red circle on its button counts all tasks waiting for review. With no companies yet, the button is gray and can't be pressed.</dd>
           <dt>Pause</dt><dd>Pause and continue at the top right of a task's details.</dd>
           <dt>Cost</dt><dd>Sub-tasks record their cost. When a task reaches the company's limit, it stops and asks you.</dd>
+          <dt>Token</dt><dd>Tasks, sub-tasks and chats show the tokens they used, not counting cache reads. Subscriptions are counted too, and the cost limit ignores this number.</dd>
         </dl>
         <p>If the review does not pass, the work goes back to an earlier step to redo, at most twice per task. You can edit a task (title, description, owner and each step's employees; the workflow cannot change once started), pause it and delete it.</p>
       </>
@@ -211,7 +215,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     body: (
       <>
         <p>Employees are the AI agents who work in a company. Each is made from a blueprint, then picks a model and thinking level . The model list is grouped by provider, and models no provider offers but an employee still uses are under Other. The model's provider decides the thinking levels; default leaves it to the provider. You can also roll the die for another look.</p>
-        <p>In the list, each name has the model and thinking level under it, and while they work, the right side shows which step. In lists for picking people, the white notes are the tools they can use. An employee does one sub-task at a time, but chats do not take up their work.</p>
+        <p>In the list, each name has the model and thinking level under it, and while they work, the right side shows which step. In lists for picking people, the white notes are the tools they can use. An employee can work on several sub-tasks at once, and +N on the right counts the others under way. The more they do at once, the faster cost and subscription limits are used up.</p>
         <p>An employee's details have their work log and memory. Memory stays in this company for later work and leaves out task progress. Employees add and remove notes themselves, and you can edit or delete them here. Before dismissing an employee, pick someone to take over their tasks and steps. A company's only employee cannot be dismissed.</p>
       </>
     ),

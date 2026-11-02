@@ -22,7 +22,7 @@ const (
 	CodeInvalidRequest  = model.CodeInvalid
 	CodeUnavailable     = model.CodeUnavailable
 	CodeBusy            = model.CodeUnavailable
-	CodeContextOverflow = "context_overflow"
+	CodeContextOverflow = model.CodeContextOverflow
 	CodeTimeout         = "timeout"
 )
 

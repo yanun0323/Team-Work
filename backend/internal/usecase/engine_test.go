@@ -242,6 +242,9 @@ func TestTaskRunsToMergeOnRealGit(t *testing.T) {
 	if first.CostUSD <= 0 {
 		t.Fatal("cost was not counted")
 	}
+	if first.Tokens <= 0 {
+		t.Fatal("tokens were not counted")
+	}
 	// the review step was told what came from upstream
 	last := r.fake.seen[len(r.fake.seen)-1]
 	if !strings.Contains(last.Messages[0].Content[0].Text, `Handoff from "Clarify requirements"`) {
@@ -544,6 +547,9 @@ func TestMergeConflictIsResolvedByTheOwner(t *testing.T) {
 	if !w.Tasks[task.ID].Merge.Conflict {
 		t.Fatal("no conflict was seen")
 	}
+	if w.Tasks[task.ID].TokensCarry <= 0 {
+		t.Fatal("resolving the conflict counted no tokens")
+	}
 	raw, _ := os.ReadFile(filepath.Join(folder, "f.txt"))
 	if string(raw) != "both\n" {
 		t.Fatalf("f.txt = %q", raw)
@@ -638,6 +644,31 @@ func TestPauseStopsTheRunAndResumeContinues(t *testing.T) {
 	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
 	if time.Since(started) > 8*time.Second {
 		t.Fatal("the command was not stopped")
+	}
+}
+
+func TestChangingTheWorkflowKeepsTheTokensSpent(t *testing.T) {
+	first := true
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		if first {
+			first = false
+			return call("run_command", map[string]any{"command": "sleep 30"}), nil
+		}
+		return call("submit_handoff", handoff), nil
+	})
+	task := r.task(r.flow.ID)
+	r.wait("counted", func(w *model.World) bool {
+		s := subAt(w, task.ID, "整理需求")
+		return s != nil && s.Tokens > 0
+	})
+	if err := r.e.PauseTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.ChangeWorkflow(task.ID, r.flow.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.world().Tasks[task.ID].TokensCarry; got != 2000 {
+		t.Fatalf("carried %d tokens", got)
 	}
 }
 
@@ -792,7 +823,7 @@ func TestSubscriptionRunsSayNothingAboutPrices(t *testing.T) {
 	}
 	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
 	s := subAt(w, task.ID, "整理需求")
-	if s.Unpriced || s.CostUSD != 0 {
+	if s.Unpriced || s.CostUSD != 0 || s.Tokens <= 0 {
 		t.Fatalf("%+v", s)
 	}
 }

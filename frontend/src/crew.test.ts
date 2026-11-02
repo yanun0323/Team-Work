@@ -9,7 +9,7 @@ function chatOn(effort: string): { w: World; chat: Chat } {
   w.providers = { p: { id: 'p', name: 'P', kind: 'openai', baseUrl: '', auth: { kind: 'apiKey', keyHint: 'x' }, models: ['m', 'n'], thinking: { m: ['low', 'high'] } } }
   r.model = 'm'
   r.effort = effort
-  return { w, chat: { id: 'c', teamId: r.teamId, replicaId: r.id, name: r.name, look: r.look, model: 'm', messages: [], createdAt: 0 } }
+  return { w, chat: { id: 'c', teamId: r.teamId, replicaId: r.id, name: r.name, look: r.look, model: 'm', tokens: 0, messages: [], createdAt: 0 } }
 }
 
 describe('what a chat runs on', () => {

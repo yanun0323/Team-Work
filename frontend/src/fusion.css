@@ -762,7 +762,7 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
   .fx-detail-cover { animation: none; }
   .fx-chevron { transition: none; }
   .fx-drawer.leaving, .fx-detail.leaving { animation: none; opacity: 0; }
-  .fx-chat-writing p span[aria-hidden] { animation: none; }
+  .fx-chat-writing p span[aria-hidden], .fx-chat-replying i { animation: none; }
 }
 
 /* the employee in 3D on the hire and edit sheets */
@@ -983,6 +983,10 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 
 /* the badge in a row (a step waiting on the user), at its end rather than on its corner */
 .fx-badge-merge { background: #1f7a43; padding: 0; }
+/* on a company's tag: unread chats in blue, tasks waiting for a reply in red */
+.fx-tag-alerts { position: absolute; top: -12px; inset-inline-end: -10px; display: flex; gap: 4px; }
+.fx-tag-alert { position: static; display: inline-flex; gap: 2px; rotate: none; }
+.fx-tag-alert-chat { background: #24579e; }
 .fx-badge-inline { position: static; align-self: center; rotate: none; box-shadow: none; }
 
 /* the merge row: 合併 and 退回 at its end */
@@ -1047,6 +1051,12 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 /* a chat on the list: the model after the name, the opening cut to one line */
 .fx-row-main b .fx-chat-model { margin-inline-start: 8px; font-size: 12px; font-weight: 500; }
 .fx-row-main .fx-chat-first { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.fx-chat-replying > span[aria-hidden] { display: flex; gap: 3px; }
+.fx-chat-replying i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: fx-chat-replying 1.2s ease-in-out infinite; }
+.fx-chat-replying i:nth-child(2) { animation-delay: 0.15s; }
+.fx-chat-replying i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes fx-chat-replying { 0%, 60%, 100% { transform: none; opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
+.fx-chat-unread { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
 .fx-claude-paste { display: grid; gap: 4px; width: 100%; }
 
 /* text written in Markdown: sized from where it sits, so it fits a chat bubble as well as a whole file */

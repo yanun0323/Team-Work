@@ -6,6 +6,7 @@ import { DEFAULT_PREFS, usePrefs } from './prefs'
 import { emptyWorld } from './core/backend'
 import { useStore } from './core/store'
 import { setFailureHandler } from './core/ops'
+import { resetSettings } from './Settings'
 
 const turn = () => new Promise((resolve) => setTimeout(resolve, 0))
 afterEach(() => {
@@ -54,4 +55,16 @@ it('takes persisted company positions from server snapshots and changes', () => 
   expect(useStore.getState().world.teams[team.id].plot).toEqual(team.plot)
   useStore.getState().receive({ type: 'patch', deletes: [{ kind: 'team', id: team.id }] })
   expect(useStore.getState().world.teams[team.id]).toBeUndefined()
+})
+
+it('resets every preference and the language, and leaves the global AGENTS.md alone', async () => {
+  const fetch = vi.fn().mockImplementation(async () => new Response(null, { status: 204 }))
+  vi.stubGlobal('fetch', fetch)
+  resetSettings()
+  await turn()
+  const calls = fetch.mock.calls.map(([url, init]) => [String(url).replace(/^.*\/api\/v1/, ''), init.method, JSON.parse(init.body)])
+  expect(calls).toEqual([
+    ['/settings/preferences', 'PATCH', DEFAULT_PREFS],
+    ['/settings/language', 'PUT', { language: 'zh' }],
+  ])
 })

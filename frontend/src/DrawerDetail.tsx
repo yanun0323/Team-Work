@@ -10,7 +10,7 @@ import { isFixed, nodeOf } from './core/domain/graph'
 import { blueprintUsers, gitSources, statusOf, subsOf } from './core/domain/sim'
 import { TOOLS, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
 import { sourceState, sourceText, toolName } from './source'
-import { flowList, activity, fmtClock, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
+import { flowList, activity, fmtClock, fmtTokens, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -37,7 +37,7 @@ import { authLabel, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } f
 import { talking } from './core/domain/sim'
 import { fixedSteps, isPreset } from './core/data/presets'
 import type { TalkEnd } from './core/domain/types'
-import { addProvider, providerUsers, updateProvider, type ProviderLogin, DEFAULT_MODEL, RESOLVE_TIME, costLimit } from './core/domain/sim'
+import { addProvider, providerUsers, updateProvider, type ProviderLogin, DEFAULT_MODEL, RESOLVE_TIME, costLimit, taskTokens } from './core/domain/sim'
 import { readHandedFile, request } from './core/backend'
 import { attempt, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, endTalk, fire, hire, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
@@ -313,6 +313,7 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
               </button>
             </span>
           )}
+          <span>Token {fmtTokens(taskTokens(w, task))}</span>
         </p>
       </header>
       {task.description && <div className="fx-d-text-md"><Markdown text={task.description} /></div>}
@@ -334,6 +335,7 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
       <Section name={tr('進度')}>
         <Progress wf={task.workflow} subs={subs} open={open} onOpen={onOpen} />
         <MergeRow taskId={task.id} />
+        <dl className="fx-d-facts"><dt>Token</dt><dd>{fmtTokens(taskTokens(w, task))}</dd></dl>
       </Section>
       <Section name={tr('紀錄')}><Log lines={lines} /></Section>
     </>
@@ -569,7 +571,7 @@ function MergeRow({ taskId }: { taskId: string }) {
   const busy = m?.startedAt !== undefined && m.endsAt !== undefined && !done
   const state = waiting ? `${task.branch} → ${target}`
     : done ? tr('已合併回 {target}', { target })
-    : !busy ? tr('等 {a} 有空', { a: r?.name ?? tr('負責人') })
+    : !busy ? tr('合併中')
     : m!.conflict && w.now - m!.startedAt! < RESOLVE_TIME ? tr('解衝突中') : tr('合併中')
   const sendBack = () => {
     act((x) => returnTask(x, taskId, feedback))
@@ -805,6 +807,7 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
           {sub.endedAt !== undefined && <><dt>{tr('結束')}</dt><dd>{fmtClock(sub.endedAt)}</dd></>}
           {sub.attempts > 1 && <><dt>{tr('嘗試')}</dt><dd>{tr('{attempts} 次', { attempts: sub.attempts })}</dd></>}
           <dt>{tr('花費')}</dt><dd>${sub.costUsd.toFixed(2)}</dd>
+          <dt>Token</dt><dd>{fmtTokens(sub.tokens)}</dd>
           {sub.sentBack
             ? <><dt>{tr('退回給')}</dt><dd>{listOf(sub.sentBack.to.map(name))}</dd></>
             : sub.routedTo.length > 0 && <><dt>{tr('交給')}</dt><dd>{listOf(sub.routedTo.map(name))}</dd></>}
@@ -974,8 +977,9 @@ function staffedOn(w: World, r: Replica) {
 /** What someone is working on right now, or null when idle. */
 function doingOf(w: World, r: Replica) {
   const a = activity(w, r)
-  if (a.sub && a.task) return `${nodeOf(a.task.workflow, a.sub.nodeId)?.name ?? ''} · #${a.task.number}`
-  return a.merging ? tr('合併 · #{number}', { number: a.merging.number }) : null
+  const more = a.more > 0 ? ` +${a.more}` : ''
+  if (a.sub && a.task) return `${nodeOf(a.task.workflow, a.sub.nodeId)?.name ?? ''} · #${a.task.number}${more}`
+  return a.merging ? tr('合併 · #{number}', { number: a.merging.number }) + more : null
 }
 
 /** A model provider: how it is reached, the models it offers, and who runs on them. */

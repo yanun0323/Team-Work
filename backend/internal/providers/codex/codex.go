@@ -46,6 +46,10 @@ const (
 	catalogClientVersion = "0.160.1"
 )
 
+func overflowed() *model.Error {
+	return model.Errorf(model.CodeContextOverflow, "對話太長，超過模型能讀取的長度")
+}
+
 // Credentials are the tokens of one ChatGPT account.
 type Credentials struct {
 	Access    string `json:"access"`
@@ -636,6 +640,9 @@ func readStream(ctx context.Context, body io.Reader, onText func(string)) (model
 			if ev.Type == "response.failed" {
 				code = ev.Response.Error.Code
 			}
+			if code == "context_length_exceeded" {
+				return model.ModelReply{}, overflowed()
+			}
 			return model.ModelReply{}, rejected("ChatGPT 無法回覆（%s）", orUnknown(code))
 		}
 	}
@@ -674,6 +681,8 @@ func statusError(res *http.Response) *model.Error {
 	_ = json.Unmarshal(raw, &body)
 	kind := body.Error.Code + " " + body.Error.Type
 	switch {
+	case strings.Contains(kind, "context_length_exceeded"):
+		return overflowed()
 	case res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden:
 		return rejected("ChatGPT 不接受這個登入，請重新登入")
 	case strings.Contains(kind, "usage_limit_reached") || strings.Contains(kind, "usage_not_included"):

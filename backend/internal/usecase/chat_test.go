@@ -339,6 +339,41 @@ func TestTaskDraftFromAChat(t *testing.T) {
 	}
 }
 
+func TestChatCountsTokensWithoutCacheReads(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		reply := say("**做登入**")
+		reply.Usage = model.ModelUsage{Input: 1000, Output: 50, CacheRead: 600}
+		return reply, nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	if got := r.world().Chats[c.ID].Tokens; got != 450 {
+		t.Fatalf("tokens = %d", got)
+	}
+	if _, err := r.e.ChatTaskDraft(context.Background(), c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.world().Chats[c.ID].Tokens; got != 900 {
+		t.Fatalf("tokens after the draft = %d", got)
+	}
+	fork, err := r.e.ForkChat(c.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fork.Tokens != 0 {
+		t.Fatalf("fork tokens = %d", fork.Tokens)
+	}
+	if err := r.e.RewindChat(c.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.world().Chats[c.ID].Tokens; got != 900 {
+		t.Fatalf("tokens after the rewind = %d", got)
+	}
+}
+
 func TestUncommittedChanges(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	ctx := context.Background()
@@ -848,5 +883,144 @@ func TestForkKeepsAnOpenQuestionAndRefusesWhileReplying(t *testing.T) {
 	r.wait("the answer", chatDone(fork.ID))
 	if got := r.world().Chats[fork.ID].Messages; got[len(got)-1].Text != "好" {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestChatReplyStaysUnreadUntilRead(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Unread {
+		t.Fatal("the user's own message counted as unread")
+	}
+	r.wait("reply", chatDone(c.ID))
+	if !r.world().Chats[c.ID].Unread {
+		t.Fatal("the reply is not unread")
+	}
+	if err := r.e.ReadChat(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if r.world().Chats[c.ID].Unread {
+		t.Fatal("still unread after reading")
+	}
+	if err := r.e.ReadChat("nope"); err == nil {
+		t.Fatal("read a chat that does not exist")
+	}
+}
+
+func TestChatFailureIsUnread(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) { return model.ModelReply{}, context.Canceled })
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("failure", chatDone(c.ID))
+	if !r.world().Chats[c.ID].Unread {
+		t.Fatal("the failure is not unread")
+	}
+}
+
+const summarySign = "Summarize the earlier part"
+
+func summarizing(req model.ModelRequest) bool { return strings.Contains(req.System, summarySign) }
+
+func TestChatCompactsOnceItReadsTooMuch(t *testing.T) {
+	var last model.ModelRequest
+	replies := 0
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if summarizing(req) {
+			return model.ModelReply{Content: []model.Block{{Type: enum.BlockText, Text: "摘要內容"}}, Usage: model.ModelUsage{Input: 700, Output: 300}}, nil
+		}
+		last, replies = req, replies+1
+		reply := say("好")
+		reply.Usage = model.ModelUsage{Input: 200_000, Output: 10}
+		return reply, nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: strings.Repeat("長", 40_000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first reply", chatDone(c.ID))
+	before := r.world().Chats[c.ID].Tokens
+	if err := r.e.SayInChat(c.ID, "下一句", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("second reply", func(w *model.World) bool { return replies == 2 && w.Chats[c.ID].ReplyAt == nil })
+	if len(last.Messages) != 3 || !strings.Contains(last.Messages[0].Content[0].Text, "摘要內容") || last.Messages[2].Content[0].Text != "下一句" {
+		t.Fatalf("%+v", last.Messages)
+	}
+	got := r.world().Chats[c.ID]
+	if got.Compact == nil || got.Tokens != before+200_010+1_000 {
+		t.Fatalf("the summary's tokens must count: %+v, %d after %d", got.Compact, got.Tokens, before)
+	}
+	// taking back what the summary covers takes the summary too
+	if err := r.e.RewindChat(c.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if r.world().Chats[c.ID].Compact != nil {
+		t.Fatal("a summary of what was taken back stayed")
+	}
+}
+
+func TestChatCompactsWhenTheModelSaysItIsTooLong(t *testing.T) {
+	var last model.ModelRequest
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if summarizing(req) {
+			return say("摘要內容"), nil
+		}
+		if len(req.Messages) == 3 && req.Messages[0].Content[0].Text != "" && !strings.Contains(req.Messages[0].Content[0].Text, "摘要內容") {
+			return model.ModelReply{}, model.Errorf(model.CodeContextOverflow, "太長")
+		}
+		last = req
+		return say("好"), nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: strings.Repeat("長", 40_000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first reply", chatDone(c.ID))
+	if err := r.e.SayInChat(c.ID, "下一句", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("second reply", chatDone(c.ID))
+	got := r.world().Chats[c.ID]
+	if got.Compact == nil || !strings.Contains(last.Messages[0].Content[0].Text, "摘要內容") {
+		t.Fatalf("%+v", got.Messages)
+	}
+	if said := got.Messages[len(got.Messages)-1]; said.Text != "好" {
+		t.Fatalf("it failed anyway: %+v", said)
+	}
+}
+
+func TestChatKeepsAToolResultWithItsCall(t *testing.T) {
+	var last model.ModelRequest
+	calls := 0
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if summarizing(req) {
+			return say("摘要內容"), nil
+		}
+		last = req
+		calls++
+		if calls <= 2 {
+			reply := call("read_file", map[string]any{"path": "nope.txt"})
+			reply.Usage.Input = 200_000
+			return reply, nil
+		}
+		return say("好"), nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: strings.Repeat("長", 40_000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	if r.world().Chats[c.ID].Compact == nil {
+		t.Fatal("did not compact during the turn")
+	}
+	for i, m := range last.Messages {
+		if i > 0 && m.Role == enum.RoleUser && m.Content[0].Type == enum.BlockToolResult && last.Messages[i-1].Role != enum.RoleAssistant {
+			t.Fatalf("a result lost its call: %+v", last.Messages)
+		}
 	}
 }

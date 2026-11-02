@@ -242,6 +242,8 @@ func (c client) do(ctx context.Context, method, path string, body any, auth func
 	if res.StatusCode != http.StatusOK {
 		defer res.Body.Close()
 		switch {
+		case contextOverflowed(res):
+			return nil, model.Errorf(model.CodeContextOverflow, "對話太長，超過模型能讀取的長度")
 		case res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden:
 			return nil, model.Errorf(model.CodeInvalid, "API Key 無效或沒有權限")
 		case res.StatusCode == http.StatusTooManyRequests || res.StatusCode >= 500:
@@ -334,4 +336,19 @@ func validCalls(calls []model.Block) error {
 		seen[c.ID] = true
 	}
 	return nil
+}
+
+// contextOverflowed reads a refusal for whether the conversation was too long. Providers only say so in words.
+func contextOverflowed(res *http.Response) bool {
+	if res.StatusCode != http.StatusBadRequest && res.StatusCode != http.StatusRequestEntityTooLarge {
+		return false
+	}
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
+	body := strings.ToLower(string(raw))
+	for _, sign := range []string{"context_length_exceeded", "maximum context length", "prompt is too long", "context window"} {
+		if strings.Contains(body, sign) {
+			return true
+		}
+	}
+	return false
 }

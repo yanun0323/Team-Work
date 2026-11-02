@@ -203,11 +203,24 @@ type Chat struct {
 	Look      Look          `json:"look"`
 	Model     string        `json:"model"`
 	Messages  []ChatMessage `json:"messages"`
+	Tokens    int           `json:"tokens"`
 	// ReplyAt is set while the employee writes a reply: when they started.
 	ReplyAt *float64 `json:"replyAt,omitempty"`
 	// Question is set while the employee waits for the answer to what they asked with ask_user.
-	Question  *ChatQuestion `json:"question,omitempty"`
-	CreatedAt float64       `json:"createdAt"`
+	Question *ChatQuestion `json:"question,omitempty"`
+	// Unread is set when the employee said something the user has not opened the chat to see.
+	Unread bool `json:"unread,omitempty"`
+	// Compact stands in for the start of the conversation when asking the model. The conversation itself stays whole.
+	Compact *ChatCompact `json:"compact,omitempty"`
+	// Context is how many tokens the model last read, to tell when to compact.
+	Context   int     `json:"context,omitempty"`
+	CreatedAt float64 `json:"createdAt"`
+}
+
+// ChatCompact is a summary of a conversation's messages before Upto.
+type ChatCompact struct {
+	Upto    int    `json:"upto"`
+	Summary string `json:"summary"`
 }
 
 // ChatQuestion is what an open question offers to answer with; the words of the question are a message in the chat.
@@ -247,6 +260,7 @@ type SubTask struct {
 	EndedAt     *float64    `json:"endedAt,omitempty"`
 	Attempts    int         `json:"attempts"`
 	CostUSD     float64     `json:"costUsd"`
+	Tokens      int         `json:"tokens"`
 	RoutedTo    []string    `json:"routedTo"`
 	Routed      bool        `json:"routed"`
 	ArrivedAt   float64     `json:"arrivedAt"`
@@ -300,6 +314,7 @@ type Task struct {
 	Branch        string         `json:"branch"`
 	BudgetBonus   float64        `json:"budgetBonus"`
 	CostCarry     float64        `json:"costCarry"`
+	TokensCarry   int            `json:"tokensCarry"`
 	MergeConflict bool           `json:"mergeConflict"`
 }
 

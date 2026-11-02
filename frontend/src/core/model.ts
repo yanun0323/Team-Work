@@ -14,6 +14,9 @@ export const useTeamId = () => useStore((s) => s.teamId) as string
 
 export const fmtCost = (usd: number) => `$${usd.toFixed(2)}`
 
+/** A token count; a dash when none were counted. */
+export const fmtTokens = (n: number) => (n > 0 ? n.toLocaleString('en-US') : '—')
+
 /** Simulated seconds as m:ss. */
 export const fmtClock = (sec: number) => {
   // the backend's clock is real time; the simulator's counts up from zero
@@ -41,12 +44,13 @@ export const teamReplicas = (w: World, teamId: string) =>
   Object.values(w.replicas).filter((r) => r.teamId === teamId).sort((a, b) => a.hiredAt - b.hiredAt || a.name.localeCompare(b.name))
 
 
-/** What a Replica is doing right now. */
-export function activity(w: World, r: Replica): { sub?: SubTask; task?: Task; merging?: Task } {
-  const sub = Object.values(w.subTasks).find((s) => s.replicaId === r.id && s.status === 'progressing' && !s.cancelled)
-  if (sub) return { sub, task: w.tasks[sub.taskId] }
-  const merging = Object.values(w.tasks).find((x) => x.stage === 'merging' && x.merge?.replicaId === r.id && x.merge.startedAt !== undefined)
-  return merging ? { merging } : {}
+/** What a Replica is doing right now: the first of it, and how much more there is. */
+export function activity(w: World, r: Replica): { sub?: SubTask; task?: Task; merging?: Task; more: number } {
+  const subs = Object.values(w.subTasks).filter((s) => s.replicaId === r.id && s.status === 'progressing' && !s.cancelled)
+  const merges = Object.values(w.tasks).filter((x) => x.stage === 'merging' && x.merge?.replicaId === r.id && x.merge.startedAt !== undefined)
+  const more = Math.max(subs.length + merges.length - 1, 0)
+  if (subs.length) return { sub: subs[0], task: w.tasks[subs[0].taskId], more }
+  return merges.length ? { merging: merges[0], more } : { more }
 }
 
 /** A sub-task of this Replica that is waiting for the user. */
@@ -90,6 +94,14 @@ export function inbox(w: World, teamId: string | null): InboxItem[] {
     }
   }
   return items
+}
+
+/** What waits for the user in a company, shown over its building. */
+export function teamAlerts(w: World, teamId: string) {
+  return {
+    unreadChats: Object.values(w.chats).filter((c) => c.teamId === teamId && c.unread).length,
+    waitingTasks: teamTasks(w, teamId).filter((t) => t.stage !== 'cancelled' && statusOf(w, t) === 'review').length,
+  }
 }
 
 export function counts(w: World, teamId: string) {

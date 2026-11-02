@@ -20,6 +20,7 @@ import (
 const chatRules = "You are a company employee chatting with the user to discuss things or do simple work. The working directory is the project folder itself, and changes reach the user's files immediately: change only what was asked, and commit only if the user asks. Attached files may be read from their supplied paths outside the project, but must not be modified.\n" +
 	mentionRule + "\n" +
 	"Reply in plain text. If the work grows or needs several steps, suggest creating a task from this chat.\n" +
+	sharedFilesRule + "\n" +
 	dataRule
 
 const chatDraftRules = "Write the chat below as a task for a colleague who has not seen it. First line: the task title, with no markup. Then a blank line and the description: goal, decisions, constraints and acceptance criteria. Use only what the chat says. Output nothing else."
@@ -134,6 +135,10 @@ func (e *Engine) RewindChat(id string, index int) error {
 		c.Question = nil
 		c.Messages = c.Messages[:index]
 		e.w.Conversations[c.ID] = e.w.Conversations[c.ID][:end]
+		if c.Compact != nil && end < c.Compact.Upto {
+			c.Compact = nil // it summed up what was just taken back
+		}
+		c.Context = 0
 		e.dirty[c.ID] = true
 		return nil
 	})
@@ -194,6 +199,9 @@ func (e *Engine) ForkChat(id string, index int) (*model.Chat, error) {
 				m.Content[i].Args = bytes.ReplaceAll(m.Content[i].Args, []byte(from), []byte(to))
 			}
 		}
+		if c.Compact != nil && end >= c.Compact.Upto {
+			fork.Compact = &model.ChatCompact{Upto: c.Compact.Upto, Summary: strings.ReplaceAll(c.Compact.Summary, from, to)}
+		}
 		e.w.Chats[fork.ID] = fork
 		e.w.Conversations[fork.ID] = copied
 		e.dirty[fork.ID] = true
@@ -241,6 +249,18 @@ func (e *Engine) StopChat(id string) error {
 	})
 }
 
+// ReadChat records that the user has seen what the employee said.
+func (e *Engine) ReadChat(id string) error {
+	return e.do(func() error {
+		c := e.w.Chats[id]
+		if c == nil {
+			return model.Errorf(model.CodeNotFound, "找不到對話")
+		}
+		c.Unread = false
+		return nil
+	})
+}
+
 // DeleteChat removes a chat and stops its reply. What the employee already changed in the folder stays.
 func (e *Engine) DeleteChat(id string) error {
 	return e.do(func() error {
@@ -275,7 +295,7 @@ func (e *Engine) interruptChats() {
 	for _, c := range e.w.Chats {
 		if c.ReplyAt != nil {
 			c.ReplyAt = nil
-			c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: i18n.T("（伺服器重新啟動，這次回覆中斷了）")})
+			e.chatSays(c, i18n.T("（伺服器重新啟動，這次回覆中斷了）"))
 		}
 	}
 }
@@ -293,6 +313,12 @@ func (e *Engine) Uncommitted(ctx context.Context, teamID string) (bool, error) {
 		return false, model.Errorf(model.CodeNotFound, "找不到公司")
 	}
 	return e.git.Uncommitted(ctx, folder)
+}
+
+// chatSays adds what the employee said, for the user to read.
+func (e *Engine) chatSays(c *model.Chat, text string) {
+	c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: text})
+	c.Unread = true
 }
 
 // chatHears puts the user's message into the chat and the conversation. Calls left without a result by an
@@ -336,14 +362,12 @@ func (e *Engine) chatSpec(c *model.Chat) (agentSpec, error) {
 	}
 	team, bp := e.w.Teams[c.TeamID], e.w.Blueprints[r.BlueprintID]
 	e.readPrompt(team)
-	var b strings.Builder
-	b.WriteString(chatRules + "\n" + languageRule(e.w.Language) + "\n")
-	b.WriteString(sharedRules(e.runGlobalPrompt(), team.Prompt))
-	if role := agentRole(bp); role != "" {
-		fmt.Fprintf(&b, "\n# Your role\n%s\n", role)
+	spec.prompt = promptParts{
+		rules:  chatRules + "\n" + languageRule(e.w.Language) + "\n" + chatPriorityRule + "\n",
+		shared: sharedRules(e.runGlobalPrompt(), team.Prompt),
+		role:   rolePart(bp),
+		memory: memorySection(r),
 	}
-	b.WriteString(memorySection(r))
-	spec.system = b.String()
 	return spec, nil
 }
 
@@ -355,6 +379,9 @@ type chatRun struct {
 	folder string
 	// said is the user's words alone: an attached file's text in the conversation names no skill
 	said string
+	// context is how much the model read last time; compact is what stands in for the conversation's start
+	context int
+	compact *model.ChatCompact
 }
 
 // launchChat starts a reply. Its run names no employee: a chat does not keep them from their tasks.
@@ -369,7 +396,7 @@ func (e *Engine) launchChat(c *model.Chat, spec agentSpec) {
 	r := &run{cancel: cancel}
 	e.runs[c.ID] = r
 	e.wg.Add(1)
-	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: team.Folder, said: c.Messages[len(c.Messages)-1].Text})
+	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: team.Folder, said: c.Messages[len(c.Messages)-1].Text, context: c.Context, compact: clone(c.Compact)})
 }
 
 // applyChat changes a chat for a run, unless the run was stopped or replaced meanwhile.
@@ -405,7 +432,7 @@ func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
 				}
 			}
 			e.applyChat(in, func(c *model.Chat) {
-				c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: a.Prompt})
+				e.chatSays(c, a.Prompt)
 				c.Question = &model.ChatQuestion{Options: options}
 			})
 			return model.ToolResult{Stop: true}
@@ -429,15 +456,16 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	}()
 	failed := func(detail string) {
 		e.applyChat(in, func(c *model.Chat) {
-			c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: i18n.T("（回覆失敗：%s）", detail)})
+			e.chatSays(c, i18n.T("（回覆失敗：%s）", detail))
 		})
 	}
+	repoRole := ""
 	if own := in.spec.own; own != nil {
 		role, err := e.ownPrompt(ctx, own)
 		if err != nil {
 			e.log.Warn().Err(err).Str("repo", own.Repo).Msg("read blueprint for chat")
 		}
-		in.spec.system += role
+		repoRole = role
 	}
 	skills, roots, _ := e.loadSkills(ctx, in.spec.packs)
 	// kept with the message from here on, so what the employee was told does not change under the conversation
@@ -468,18 +496,20 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	}
 	t := &turn{
 		provider: in.spec.provider,
-		req:      model.ModelRequest{Cwd: in.folder, Session: in.id, Model: in.spec.model, Effort: in.spec.effort, System: in.spec.system + skillsPrompt(skills), Messages: in.conv, Tools: specs},
+		req:      model.ModelRequest{Cwd: in.folder, Session: in.id, Model: in.spec.model, Effort: in.spec.effort, System: in.spec.prompt.compose(repoRole, skills), Messages: chatView(in.conv, in.compact), Tools: specs},
 		tools:    byName, cwd: in.folder,
 		onStart: func() { e.restartLive(in.id, in.r) },
 		onText:  func(text string) { e.addLive(in.id, in.r, text) },
 		onReply: func(reply model.ModelReply) bool {
 			return e.applyChat(in, func(c *model.Chat) {
 				delete(e.live, c.ID) // now it is a message
+				c.Tokens += tokensUsed(reply.Usage)
+				c.Context = reply.Usage.Input
 				e.w.Conversations[c.ID] = append(e.w.Conversations[c.ID], model.Message{Role: enum.RoleAssistant, Content: reply.Content})
 				e.dirty[c.ID] = true
 				for _, b := range reply.Content {
 					if b.Type == enum.BlockText && strings.TrimSpace(b.Text) != "" {
-						c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: b.Text})
+						e.chatSays(c, b.Text)
 					}
 				}
 			})
@@ -499,6 +529,12 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			})
 		},
 	}
+	t.compact = func(ctx context.Context) ([]model.Message, bool) { return e.compactChat(ctx, in) }
+	if in.context >= chatCompactAt {
+		if shorter, ok := t.compact(ctx); ok {
+			t.req.Messages = shorter
+		}
+	}
 	if _, err := t.run(ctx); err != nil {
 		switch {
 		case errors.Is(ctx.Err(), context.DeadlineExceeded):
@@ -514,7 +550,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	}
 }
 
-// ChatTaskDraft has the chat's model write the chat up as a task. It changes nothing: the user reads it first.
+// ChatTaskDraft has the chat's model write the chat up as a task. It makes no task, the user reads it first; the chat only counts the tokens.
 func (e *Engine) ChatTaskDraft(ctx context.Context, id string) (ChatDraft, error) {
 	e.mu.Lock()
 	c := e.w.Chats[id]
@@ -554,6 +590,12 @@ func (e *Engine) ChatTaskDraft(ctx context.Context, id string) (ChatDraft, error
 		}
 		return ChatDraft{}, model.Errorf(model.CodeUnavailable, "整理對話失敗：%s", safeText(err))
 	}
+	e.mu.Lock()
+	if c := e.w.Chats[id]; c != nil { // it may have been deleted while the model wrote
+		c.Tokens += tokensUsed(reply.Usage)
+		e.settle()
+	}
+	e.mu.Unlock()
 	var text strings.Builder
 	for _, b := range reply.Content {
 		if b.Type == enum.BlockText {

@@ -44,6 +44,8 @@ type turn struct {
 	// onTool records that a tool is about to run, and onResults its results.
 	onTool    func(model.Block)
 	onResults func(model.Message)
+	// compact, when set, shortens a long conversation and returns what to send instead; false if it could not.
+	compact func(context.Context) ([]model.Message, bool)
 }
 
 // turnResult is how a turn ended: Stopped by a tool or callback, or with the model's Text and no tool calls.
@@ -73,6 +75,13 @@ func (t *turn) complete(ctx context.Context) (model.ModelReply, error) {
 func (t *turn) run(ctx context.Context) (turnResult, error) {
 	for call := 0; call < maxModelCalls; call++ {
 		reply, err := t.complete(ctx)
+		var failure *model.Error
+		if t.compact != nil && errors.As(err, &failure) && failure.Code == model.CodeContextOverflow {
+			if shorter, ok := t.compact(ctx); ok {
+				t.req.Messages = shorter
+				reply, err = t.complete(ctx)
+			}
+		}
 		if err != nil {
 			return turnResult{}, err
 		}
@@ -120,6 +129,11 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 		msg := model.Message{Role: enum.RoleUser, Content: results}
 		t.req.Messages = append(t.req.Messages, msg)
 		t.onResults(msg)
+		if t.compact != nil && reply.Usage.Input >= chatCompactAt {
+			if shorter, ok := t.compact(ctx); ok {
+				t.req.Messages = shorter
+			}
+		}
 	}
 	return turnResult{}, model.Errorf(model.CodeUnavailable, "模型呼叫超過 %d 次仍沒有結束", maxModelCalls)
 }
@@ -141,7 +155,7 @@ type agentSpec struct {
 	price    *model.ModelPrice
 	model    string
 	effort   string
-	system   string
+	prompt   promptParts
 	allowed  []enum.Tool
 	packs    []packRoot
 	// own is the repo the blueprint's prompt is read from, when it has none written down
@@ -198,7 +212,7 @@ func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Rep
 	if node != nil {
 		team := e.w.Teams[t.TeamID]
 		e.readPrompt(team)
-		spec.system = composePrompt(t, team, node, bp, r, e.w.Language, e.runGlobalPrompt())
+		spec.prompt = taskPrompt(t, team, node, bp, r, e.w.Language, e.runGlobalPrompt())
 	}
 	spec.packs = packsOf(bp)
 	return spec, nil
@@ -437,7 +451,7 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 	}
 
 	t := e.subTurn(in, roots)
-	t.req.System += e.repoPrompt(ctx, in) + skillsPrompt(skills) + "\n" + mentionRule + "\n"
+	t.req.System = in.spec.prompt.compose(e.repoPrompt(ctx, in), skills)
 	calls := 0
 	t.onReply = e.onSubReply(in, t, &calls)
 
@@ -503,7 +517,7 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 	}
 	return &turn{
 		provider: in.spec.provider,
-		req:      model.ModelRequest{Cwd: in.dir, Session: in.subID, Model: in.spec.model, Effort: in.spec.effort, System: in.spec.system, Messages: in.conv, Tools: specs},
+		req:      model.ModelRequest{Cwd: in.dir, Session: in.subID, Model: in.spec.model, Effort: in.spec.effort, Messages: in.conv, Tools: specs},
 		tools:    byName, cwd: in.dir,
 		onStart: func() {
 			if in.talk {
@@ -575,6 +589,7 @@ func (e *Engine) onSubReply(in subRun, tr *turn, calls *int) func(model.ModelRep
 					e.logLine(s, enum.LogSay, b.Text, "", nil)
 				}
 			}
+			s.Tokens += tokensUsed(reply.Usage)
 			if in.spec.price != nil {
 				s.CostUSD += cost(reply.Usage, *in.spec.price)
 			} else if !in.spec.subscription && !s.Unpriced {
@@ -601,6 +616,11 @@ func (e *Engine) onSubReply(in subRun, tr *turn, calls *int) func(model.ModelRep
 func cost(u model.ModelUsage, p model.ModelPrice) float64 {
 	fresh := max(u.Input-u.CacheRead, 0)
 	return (float64(fresh)*p.Input + float64(u.Output)*p.Output + float64(u.CacheRead)*p.CacheRead) / 1e6
+}
+
+// tokensUsed is what a reply newly consumed: everything but what was read back from the cache.
+func tokensUsed(u model.ModelUsage) int {
+	return max(u.Input-u.CacheRead, 0) + u.Output
 }
 
 // agentTools are what every working employee has, beyond what the blueprint allows.

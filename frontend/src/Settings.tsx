@@ -21,7 +21,7 @@ import { authLabel, PROVIDER_KINDS } from './providers'
 import { Select, Switcher, Toggle } from './Controls'
 import { setLanguage } from './core/ops'
 import { TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
-import { airportTabOr, AIRPORT_TABS, AUTO_VIEWS, type AirportTab, type AutoView, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY } from './prefs'
+import { airportTabOr, AIRPORT_TABS, AUTO_VIEWS, DEFAULT_PREFS, type AirportTab, type AutoView, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY } from './prefs'
 import { request } from './core/backend'
 import { MusicSection, Volume } from './SoundPage'
 import { MOCK } from './core/mode'
@@ -331,6 +331,28 @@ export function AdvancedSection() {
   )
 }
 
+/** Everything on the settings page back to its default, language included. The global AGENTS.md is the user's writing, not a preference, and stays. */
+export function resetSettings() {
+  usePrefs.getState().set(DEFAULT_PREFS)
+  useStore.getState().act((x) => void setLanguage(x, 'zh'))
+}
+
+/** Asks first, like deleting: the first press turns it into the question, the second resets; looking away cancels. */
+export function ResetSettings() {
+  const [asking, setAsking] = useState(false)
+  const press = () => {
+    if (asking) resetSettings()
+    setAsking(!asking)
+  }
+  return (
+    <div className="fx-settings-file-acts">
+      <button type="button" className="fx-save" onClick={press} onBlur={() => setAsking(false)}>
+        {asking ? tr('確定重設回預設值') : tr('重設回預設值')}
+      </button>
+    </div>
+  )
+}
+
 export function PrefsPage() {
   const prefs = usePrefs()
   const language = useStore((s) => s.world.language)
@@ -381,6 +403,7 @@ export function PrefsPage() {
       {!MOCK && <SystemSection />}
       {!MOCK && <AdvancedSection />}
       {!MOCK && <ReloadSettings />}
+      <ResetSettings />
     </div>
   )
 }

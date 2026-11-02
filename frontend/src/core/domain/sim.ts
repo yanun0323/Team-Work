@@ -32,6 +32,9 @@ export const isLive = (s: SubTask) => !s.cancelled && !(s.status === 'complete' 
 export const taskCost = (w: World, task: Task) =>
   task.costCarry + subsOf(w, task.id).reduce((sum, s) => sum + s.costUsd, 0)
 
+export const taskTokens = (w: World, task: Task) =>
+  task.tokensCarry + subsOf(w, task.id).reduce((sum, s) => sum + s.tokens, 0)
+
 export const costLimit = (w: World, task: Task) => w.teams[task.teamId].settings.costLimitUsd + task.budgetBonus
 
 export const statusOf = (w: World, task: Task) => taskStatus(task, subsOf(w, task.id))
@@ -98,6 +101,7 @@ export function createTask(w: World, input: NewTask): Task {
     branch: `task/${number}`,
     budgetBonus: 0,
     costCarry: 0,
+    tokensCarry: 0,
     mergeConflict: input.mergeConflict ?? false,
     overrides: input.overrides,
     ownerId: null,
@@ -137,7 +141,7 @@ function spawn(
   const script = makeScript(w, roleOf(node), task, { ...task.overrides?.['*'], ...task.overrides?.[nodeId] })
   const sub: SubTask = {
     id, taskId: task.id, nodeId, parentId, upstreamIds, replicaId: null, status: 'todo', cancelled: false,
-    progress: 0, duration: script.duration ?? 24, createdAt: w.now, attempts: 0, costUsd: 0,
+    progress: 0, duration: script.duration ?? 24, createdAt: w.now, attempts: 0, costUsd: 0, tokens: 0,
     routedTo: [], routed: false, waiting, arrivedAt, log: [], script,
     ...(round ? { round } : {}),
   }
@@ -198,12 +202,11 @@ export function tick(w: World, dt: number) {
   }
 }
 
-/** Start a merge once its owner is free, and finish it when its time is up. */
+/** Start a merge, and finish it when its time is up. */
 function stepMerge(w: World, task: Task) {
   const m = task.merge!
   const target = w.teams[task.teamId]?.targetBranch ?? 'main'
   if (m.startedAt === undefined) {
-    if (m.replicaId && busyReplicas(w).has(m.replicaId)) return
     m.startedAt = w.now
     m.endsAt = w.now + MERGE_TIME + (m.conflict ? RESOLVE_TIME : 0)
     const name = m.replicaId ? w.replicas[m.replicaId]?.name : undefined
@@ -224,6 +227,7 @@ function advance(w: World, task: Task, sub: SubTask, dt: number) {
   const crossed = (p: number) => p > before && p <= sub.progress
   sub.progress = Math.min(1, before + dt / sub.duration)
   sub.costUsd += dt * (s.costRate ?? 0.015)
+  sub.tokens += Math.round(dt * 400)
 
   for (const l of s.lines) if (crossed(l.p)) log(sub, w.now, l.kind, l.text)
   if (s.memory && crossed(s.memory.p) && remember(w, sub.replicaId, s.memory.text, 'work', task.id)) {
@@ -309,7 +313,7 @@ export interface NewChat { teamId: string; replicaId: string; text: string; imag
 /** A chat exists from the user's first message on; the employee answers a few seconds later. */
 export function createChat(w: World, i: NewChat): Chat {
   const r = w.replicas[i.replicaId]
-  const chat: Chat = { id: uid(w, 'chat'), teamId: i.teamId, replicaId: i.replicaId, name: r.name, look: r.look, model: r.model, messages: [], createdAt: w.now }
+  const chat: Chat = { id: uid(w, 'chat'), teamId: i.teamId, replicaId: i.replicaId, name: r.name, look: r.look, model: r.model, tokens: 0, messages: [], createdAt: w.now }
   w.chats[chat.id] = chat
   sayInChat(w, chat.id, i.text, i.images, i.files)
   return chat
@@ -371,10 +375,15 @@ export function forkChat(w: World, id: string, index: number): Chat | undefined 
   if (!m || m.from === 'tool' || chat.replyAt !== undefined || !w.replicas[chat.replicaId]) return undefined
   const next = m.from === 'user' ? -1 : chat.messages.findIndex((x, i) => i > index && x.from === 'user')
   const keep = m.from === 'user' ? index + 1 : next < 0 ? chat.messages.length : next
-  const fork: Chat = { ...chat, id: uid(w, 'chat'), messages: chat.messages.slice(0, keep).map((x) => ({ ...x })), createdAt: w.now }
+  const fork: Chat = { ...chat, id: uid(w, 'chat'), messages: chat.messages.slice(0, keep).map((x) => ({ ...x })), tokens: 0, createdAt: w.now }
   if (keep < chat.messages.length) delete fork.question
+  delete fork.unread
   w.chats[fork.id] = fork
   return fork
+}
+
+export function readChat(w: World, id: string) {
+  if (w.chats[id]) delete w.chats[id].unread
 }
 
 export function deleteChat(w: World, id: string) {
@@ -383,6 +392,8 @@ export function deleteChat(w: World, id: string) {
 
 function answerChat(w: World, chat: Chat) {
   delete chat.replyAt
+  chat.unread = true
+  chat.tokens += 1200
   // a question gets one back, to show what an employee asking looks like
   if (/[?？]$/.test(chat.messages.at(-1)?.text ?? '')) {
     chat.messages.push({ at: w.now, from: 'agent', text: '你想先做哪一個？' })
@@ -625,8 +636,9 @@ function dispatch(w: World) {
     .sort((a, b) => a.createdAt - b.createdAt)
   for (const s of ready) {
     const node = nodeOf(w.tasks[s.taskId].workflow, s.nodeId)
-    const id = s.replicaId ?? node?.replicaIds.find((r) => w.replicas[r] && !busy.has(r)) ?? null
-    if (!id || busy.has(id) || !w.replicas[id]) continue
+    // someone free if there is, as nobody has to wait for anyone
+    const id = s.replicaId ?? node?.replicaIds.find((r) => w.replicas[r] && !busy.has(r)) ?? node?.replicaIds.find((r) => w.replicas[r]) ?? null
+    if (!id || !w.replicas[id]) continue
     s.replicaId = id
     s.status = 'progressing'
     busy.add(id)
@@ -747,6 +759,7 @@ export function changeWorkflow(w: World, taskId: string, workflowId: string) {
   const task = w.tasks[taskId]
   if (!task.paused) return
   task.costCarry = taskCost(w, task)
+  task.tokensCarry = taskTokens(w, task)
   for (const s of subsOf(w, taskId)) delete w.subTasks[s.id]
   task.workflowId = workflowId
   task.workflow = ownStaff(w, task.teamId, clone(w.workflows[workflowId]))

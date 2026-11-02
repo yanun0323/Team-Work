@@ -50,6 +50,7 @@ export const endTalk = pick('endTalk', (_w: World, id: string, end: TalkEnd) => 
 export const sayInChat = pick('sayInChat', (_w: World, id: string, text: string, images: Attachment[] = [], files: Attachment[] = []) => fire_('POST', `/chats/${id}/say`, { text, images, files }))
 export const rewindChat = pick('rewindChat', (_w: World, id: string, index: number) => fire_('POST', `/chats/${id}/rewind`, { index }))
 export const stopChat = pick('stopChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/stop`))
+export const readChat = pick('readChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/read`))
 export const deleteChat = pick('deleteChat', (_w: World, id: string) => fire_('DELETE', `/chats/${id}`))
 
 /** Starts a chat with its first message. Its sheet waits for this, to go on as that chat. */

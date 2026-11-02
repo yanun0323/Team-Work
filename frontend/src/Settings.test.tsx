@@ -4,7 +4,7 @@ import { expect, it } from 'vitest'
 import { version } from '../package.json'
 import { useStore } from './core/store'
 import { airportTabOr, DEFAULT_PREFS, ordered, type AirportTab } from './prefs'
-import { AdvancedSection, PrefsPage, QuitTool, Settings, ReloadSettings, SystemSection } from './Settings'
+import { AdvancedSection, PrefsPage, QuitTool, Settings, ReloadSettings, ResetSettings, SystemSection } from './Settings'
 
 it('is a drawer headed as the airport, its model providers listed under the first tab', () => {
   const html = renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)
@@ -43,6 +43,11 @@ it('offers a keyboard-accessible reload action with persistent announcement regi
   expect(html).toContain('<button type="button" class="fx-save">開啟設定檔資料夾</button>')
   expect(html).toContain('role="status"')
   expect(html).toContain('role="alert"')
+})
+
+it('ends the settings page with the reset button', () => {
+  expect(renderToStaticMarkup(<ResetSettings />)).toContain('<button type="button" class="fx-save">重設回預設值</button>')
+  expect(renderToStaticMarkup(<PrefsPage />)).toContain('>重設回預設值</button></div></div>')
 })
 
 it('opens a company on the chosen tab, or on 任務 where that tab does not exist', () => {

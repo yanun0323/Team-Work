@@ -7,8 +7,8 @@ import { statusOf, subsOf } from './core/domain/sim'
 import type { Chat, Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
 import { MOCK } from './core/mode'
-import { byBlueprint, chatMindOf, mindOf } from './crew'
-import { activity, teamReplicas, teamTasks } from './core/model'
+import { byBlueprint, chatMindOf, chatSign, mindOf } from './crew'
+import { activity, fmtTokens, teamReplicas, teamTasks } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { Select, Stepper, WaitBadge } from './Controls'
@@ -74,14 +74,22 @@ function Chats(p: Opens) {
           {chats.map((c) => {
             const r = w.replicas[c.replicaId]
             const name = r?.name ?? c.name
+            const sign = chatSign(c)
             return (
               <li key={c.id}><button className="fx-row fx-hit" {...opener({ kind: 'chat', id: c.id }, p)}>
                 <PixelFace look={r?.look ?? c.look} name={name} size={34} />
                 <span className="fx-row-main">
-                  <b>{name}<span className="fx-chat-model">{chatMindOf(w, c)}</span></b>
+                  <b>{name}<span className="fx-chat-model">{chatMindOf(w, c)}{c.tokens > 0 && ` · ${fmtTokens(c.tokens)} Token`}</span></b>
                   <span className="fx-chat-first">{c.messages[0]?.text || (c.messages[0]?.images?.length ? tr('圖片') : c.messages[0]?.files?.length ? tr('附件') : '')}</span>
                 </span>
-                {c.question && <WaitBadge inline />}
+                {sign === 'replying' && (
+                  <span className="fx-chat-replying">
+                    <span aria-hidden="true"><i /><i /><i /></span>
+                    <span className="fx-sr">{tr('{name} 正在回覆', { name })}</span>
+                  </span>
+                )}
+                {sign === 'question' && <WaitBadge inline />}
+                {sign === 'unread' && <span className="fx-chat-unread" title={tr('有未讀回覆')}><span className="fx-sr">{tr('有未讀回覆')}</span></span>}
               </button></li>
             )
           })}
@@ -165,7 +173,7 @@ function Crew(p: Opens) {
                 <li key={r.id}><button className="fx-row fx-hit" {...opener({ kind: 'crew', id: r.id }, p)}>
                   <PixelFace look={r.look} name={r.name} size={34} />
                   <span className="fx-row-main"><b>{r.name}</b><span>{mindOf(r)}</span></span>
-                  {doing && <span className="fx-pill fx-pill-on">{doing}</span>}
+                  {doing && <span className="fx-pill fx-pill-on">{doing}{a.more > 0 && ` +${a.more}`}</span>}
                 </button></li>
               )
             })}

@@ -229,6 +229,7 @@ var en = map[string]string{
 	"和 %s 有衝突，但沒有員工可以解":    "Conflicts with %s, but no employee can resolve them",
 	"衝突已解決":                "Conflicts resolved",
 	"無法更新 %s：目標分支可能有未 commit 的變更，或又前進了，處理後再按一次合併": "Could not update %s. The target branch may have uncommitted changes or may have moved on. Deal with that, then merge again",
+	"對話太長，超過模型能讀取的長度":                             "The chat is longer than the model can read",
 	"模型沒有回覆內容":                           "The model replied with nothing",
 	"模型的回覆太長被截斷":                         "The model's reply was too long and was cut off",
 	"模型呼叫超過 %d 次仍沒有結束":                   "Still not done after %d model calls",

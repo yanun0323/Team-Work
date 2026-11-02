@@ -9,6 +9,8 @@ const (
 	CodeConflict    = "conflict"
 	CodeUnavailable = "unavailable" // a passing failure, worth trying again
 	CodeInternal    = "internal"
+	// CodeContextOverflow means the conversation is longer than the model can read.
+	CodeContextOverflow = "context_overflow"
 )
 
 // Error is a failure with a stable code and a message that is safe to show.

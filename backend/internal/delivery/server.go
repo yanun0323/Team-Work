@@ -139,6 +139,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/chats", s.createChat)
 	api.POST("/chats/:id/say", s.sayInChat)
 	api.POST("/chats/:id/stop", s.stopChat)
+	api.POST("/chats/:id/read", s.readChat)
 	api.POST("/chats/:id/rewind", s.rewindChat)
 	api.POST("/chats/:id/fork", s.forkChat)
 	api.POST("/chats/:id/task-draft", s.chatTaskDraft)
@@ -685,6 +686,10 @@ func (s *Server) forkChat(c echo.Context) error {
 
 func (s *Server) stopChat(c echo.Context) error {
 	return done(c, s.engine.StopChat(c.Param("id")))
+}
+
+func (s *Server) readChat(c echo.Context) error {
+	return done(c, s.engine.ReadChat(c.Param("id")))
 }
 
 func (s *Server) deleteChat(c echo.Context) error {

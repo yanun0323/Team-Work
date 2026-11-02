@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { attachable, splitAttachments } from './attachments'
 import { seedWorld } from './core/data/seed'
-import { canFork, chatTaskDraft, createChat, deleteTeam, forkChat, rewindChat, sayInChat, stopChat, tick } from './core/domain/sim'
-import { teamReplicas } from './core/model'
+import { canFork, chatTaskDraft, createChat, deleteTeam, forkChat, readChat, REPLY_TIME, rewindChat, sayInChat, stopChat, tick } from './core/domain/sim'
+import { chatSign } from './crew'
+import { teamAlerts, teamReplicas } from './core/model'
 
 const setup = () => {
   const w = seedWorld()
@@ -12,6 +13,33 @@ const setup = () => {
 }
 
 describe('chats', () => {
+  it('counts unread chats and tasks waiting for a reply apart', () => {
+    const { w, teamId, chat } = setup()
+    const tasks = teamAlerts(w, teamId).waitingTasks
+    w.chats[chat.id].unread = true
+    expect(teamAlerts(w, teamId)).toEqual({ unreadChats: 1, waitingTasks: tasks })
+    const task = Object.values(w.tasks).find((x) => x.teamId === teamId && x.stage === 'running')!
+    task.stage = 'awaitMerge'
+    expect(teamAlerts(w, teamId)).toEqual({ unreadChats: 1, waitingTasks: tasks + 1 })
+  })
+
+  it('signs a reply being written, then unread until it is read', () => {
+    const { w, chat } = setup()
+    expect(chatSign(w.chats[chat.id])).toBe('replying')
+    tick(w, REPLY_TIME)
+    expect(chatSign(w.chats[chat.id])).toBe('unread')
+    readChat(w, chat.id)
+    expect(chatSign(w.chats[chat.id])).toBeUndefined()
+  })
+
+  it('signs an open question over unread, and starts a fork read', () => {
+    const { w, chat } = setup()
+    w.chats[chat.id].question = { options: [] }
+    tick(w, REPLY_TIME)
+    expect(chatSign(w.chats[chat.id])).toBe('question')
+    expect(forkChat(w, chat.id, 0)?.unread).toBeUndefined()
+  })
+
   it('begin with the first message, on the model of their employee, and get a reply', () => {
     const { w, r, chat } = setup()
     expect(chat).toMatchObject({ replicaId: r.id, name: r.name, model: r.model })

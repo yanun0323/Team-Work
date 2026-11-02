@@ -9,9 +9,9 @@ import { Prereqs, usePrereqs } from './PrereqStamps'
 import { CrewSelect } from './Pickers'
 import { chatMindOf, lastChatReplica, mindOf } from './crew'
 import { Gone, Heading, DeleteTool, type Head } from './DrawerDetail'
-import { fmtClock, teamReplicas, useStickToBottom } from './core/model'
+import { fmtClock, fmtTokens, teamReplicas, useStickToBottom } from './core/model'
 import type { Attachment, Chat } from './core/domain/types'
-import { attempt, chatTaskDraft, deleteChat, forkChat, hasUncommitted, rewindChat, sayInChat, startChat, stopChat } from './core/ops'
+import { attempt, chatTaskDraft, deleteChat, forkChat, hasUncommitted, readChat, rewindChat, sayInChat, startChat, stopChat } from './core/ops'
 import { canFork } from './core/domain/sim'
 import { useLiveText } from './core/live'
 import { useStore } from './core/store'
@@ -56,6 +56,11 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
   const writing = chat?.replyAt !== undefined
   const live = useLiveText(chat?.id)
   const log = useStickToBottom<HTMLOListElement>(`${chat?.messages.length}:${writing}:${live.length}`)
+  const readId = chat?.unread ? chat.id : undefined
+  const said = chat?.messages.length
+  useEffect(() => {
+    if (readId) act((x) => readChat(x, readId))
+  }, [act, readId, said])
 
   useEffect(() => {
     if (given) return
@@ -152,7 +157,7 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
         {chat ? (
           <div className="fx-row-main">
             <Heading {...h}>{name}</Heading>
-            <span>{chatMindOf(w, chat)}</span>
+            <span>{chatMindOf(w, chat)}{chat.tokens > 0 && ` · ${fmtTokens(chat.tokens)} Token`}</span>
           </div>
         ) : (
           <div className="fx-room-picks">

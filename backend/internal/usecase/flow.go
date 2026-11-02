@@ -40,6 +40,14 @@ func (e *Engine) taskCost(t *model.Task) float64 {
 	return sum
 }
 
+func (e *Engine) taskTokens(t *model.Task) int {
+	sum := t.TokensCarry
+	for _, s := range e.subsOf(t.ID) {
+		sum += s.Tokens
+	}
+	return sum
+}
+
 func (e *Engine) costLimit(t *model.Task) float64 {
 	return e.w.Teams[t.TeamID].Settings.CostLimitUSD + t.BudgetBonus
 }
@@ -424,14 +432,21 @@ func (e *Engine) dispatch() {
 		if s.ReplicaID != nil {
 			id = *s.ReplicaID
 		} else {
+			// someone free if there is, as nobody has to wait for anyone
 			for _, r := range nodeOf(&t.Workflow, s.NodeID).ReplicaIDs {
-				if e.w.Replicas[r] != nil && !busy[r] {
+				if e.w.Replicas[r] == nil {
+					continue
+				}
+				if id == "" {
+					id = r
+				}
+				if !busy[r] {
 					id = r
 					break
 				}
 			}
 		}
-		if id == "" || busy[id] || e.w.Replicas[id] == nil {
+		if id == "" || e.w.Replicas[id] == nil {
 			continue
 		}
 		s.ReplicaID = ptr(id)
@@ -847,6 +862,7 @@ func (e *Engine) ChangeWorkflow(id, workflowID string) error {
 			return model.Errorf(model.CodeConflict, "任務要先暫停才能更換任務流程")
 		}
 		t.CostCarry = e.taskCost(t)
+		t.TokensCarry = e.taskTokens(t)
 		e.dropSubs(t)
 		e.removeTree(t)
 		t.WorkflowID, t.Workflow = workflowID, clone(*wf)
@@ -885,7 +901,7 @@ func (e *Engine) lastReview(t *model.Task) *model.SubTask {
 	return best
 }
 
-// MergeTask has the owner (or whoever did 驗收) merge the work tree into the target branch once free.
+// MergeTask has the owner (or whoever did 驗收) merge the work tree into the target branch.
 func (e *Engine) MergeTask(id string) error {
 	return e.do(func() error {
 		t, err := e.taskOf(id)

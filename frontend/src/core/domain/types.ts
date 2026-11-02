@@ -254,10 +254,13 @@ export interface Chat {
   look: Look
   model: string
   messages: ChatMessage[]
+  tokens: number
   /** The employee is writing a reply. */
   replyAt?: number
   /** The employee waits for an answer to what they just asked; the next message is it. */
   question?: { options: string[] }
+  /** The employee said something the user has not opened the chat to see. */
+  unread?: boolean
   createdAt: number
 }
 
@@ -308,6 +311,7 @@ export interface SubTask {
   endedAt?: number
   attempts: number
   costUsd: number
+  tokens: number
   routedTo: string[]
   /** Finished and already handed off downstream (or nothing downstream). */
   routed: boolean
@@ -383,6 +387,8 @@ export interface Task {
   budgetBonus: number
   /** Cost spent on discarded runs before a workflow change. */
   costCarry: number
+  /** Tokens spent on discarded runs before a workflow change, and on resolving merge conflicts. */
+  tokensCarry: number
   /** Merging will clash with the target branch (decided up front, as the rest of the fake run is). */
   mergeConflict: boolean
   overrides?: Record<string, Partial<Script>>

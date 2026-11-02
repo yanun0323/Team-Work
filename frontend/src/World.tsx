@@ -7,7 +7,7 @@ import { MapControls } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { inTerminal, teamReplicas } from './core/model'
+import { inTerminal, teamAlerts, teamReplicas } from './core/model'
 import { useStore } from './core/store'
 import { LabelLayer, LabelProjector, type LabelSpec } from './core/voxel/labels'
 import { Airport } from './Airport'
@@ -64,6 +64,30 @@ function townKey(s: ReturnType<typeof useStore.getState>) {
     .sort((a, b) => a.createdAt - b.createdAt)
     .map((t) => `${t.id}\t${t.name}\t${Object.values(w.replicas).filter((r) => r.teamId === t.id).length}\t${doneOf(w, t.id)}\t${JSON.stringify(t.plot)}`)
     .join('\n')
+}
+
+const count = (n: number) => (n > 99 ? '99+' : n)
+
+/** On a company's tag: its unread chats and the tasks waiting for a reply, apart. */
+function TagAlerts({ unreadChats, waitingTasks }: ReturnType<typeof teamAlerts>) {
+  if (!unreadChats && !waitingTasks) return null
+  return (
+    <span className="fx-tag-alerts">
+      {unreadChats > 0 && (
+        <span className="fx-badge fx-tag-alert fx-tag-alert-chat" title={tr('{n} 則對話未讀', { n: unreadChats })}>
+          <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M1.5 2h9v6.5H5L2.5 10.8V8.5h-1z" fill="currentColor" /></svg>
+          <span aria-hidden="true">{count(unreadChats)}</span>
+          <span className="fx-sr">{tr('{n} 則對話未讀', { n: unreadChats })}</span>
+        </span>
+      )}
+      {waitingTasks > 0 && (
+        <span className="fx-badge fx-tag-alert" title={tr('{n} 個任務待回覆', { n: waitingTasks })}>
+          <span aria-hidden="true">!{count(waitingTasks)}</span>
+          <span className="fx-sr">{tr('{n} 個任務待回覆', { n: waitingTasks })}</span>
+        </span>
+      )}
+    </span>
+  )
 }
 
 export function World() {
@@ -240,6 +264,7 @@ export function World() {
   // one `id<TAB>name` line per employee of the open company
   // tasks waiting on the user, in every company: their count goes on the board button in a red badge
   const waiting = useStore((s) => Object.values(s.world.tasks).filter((t) => t.stage !== 'cancelled' && !!s.world.teams[t.teamId] && statusOf(s.world, t) === 'review').length)
+  const alerts = useStore((s) => Object.keys(s.world.teams).map((id) => { const a = teamAlerts(s.world, id); return `${id}\t${a.unreadChats}\t${a.waitingTasks}` }).join('\n'))
   const crewNames = useStore((s) => (selected ? teamReplicas(s.world, selected).map((r) => `${r.id}\t${r.name}`).join('\n') : ''))
   // the airport's tag is in words, so it changes with the language
   const language = useStore((s) => s.world.language)
@@ -263,7 +288,7 @@ export function World() {
         // the slip is an inner element: tilting the button itself would swing it round the screen corner,
         // because its tilt applies after the transform that places it. The tilt goes by the company's place
         // in town, so it doesn't change when the open company's tag leaves
-        text: <span className={i % 2 ? 'fx-tag' : 'fx-tag fx-tag-right'}>{l.name}</span>,
+        text: <span className={i % 2 ? 'fx-tag' : 'fx-tag fx-tag-right'}>{l.name}<TagAlerts {...teamAlerts(useStore.getState().world, l.id)} /></span>,
         // with a company open, another company's tag goes straight to that company
         onClick: () => (helpOpen ? close() : editing ? pickMoving(l.id) : placing ? close() : settingsOpen ? close() : setSelected(l.id)),
       }
@@ -271,7 +296,7 @@ export function World() {
     // the open company's own name is in the drawer, and its roof is cut away
     return [...(panel === 'settings' ? [] : [airport]), ...tags.filter((t) => t.id !== `fusion-${open?.id}`), ...crew]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [town, open, crewNames, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language])
+  }, [town, open, crewNames, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language, alerts])
 
   const shownLabels = useFadingLabels(labels)
   const help = useLingering(helpOpen ? 'help' : null)
