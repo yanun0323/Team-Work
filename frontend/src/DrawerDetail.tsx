@@ -21,7 +21,7 @@ import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
 import { ClaudeAccount } from './ClaudeAccount'
 import { Markdown, MarkdownLine } from './Markdown'
-import { Select, Switcher, WaitBadge } from './Controls'
+import { useAutoGrow, Select, Switcher, WaitBadge } from './Controls'
 import { FlowNotes, FlowPreview, openCard } from './FlowNotes'
 import { copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
 import { byBlueprint, DEFAULT_EFFORT, effortsOf, mindOf, modelGroups, modelsOf, randomLook } from './crew'
@@ -450,6 +450,8 @@ function Chat({ sub }: { sub: SubTask }) {
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const [text, setText] = useState('')
+  const box = useRef<HTMLTextAreaElement>(null)
+  useAutoGrow(box, text)
   const [ending, setEnding] = useState<null | 'pick' | 'back' | 'stop'>(null)
   const [reason, setReason] = useState('')
   // the employee opens a discussion, so before their first words there is no talk yet
@@ -503,7 +505,7 @@ function Chat({ sub }: { sub: SubTask }) {
       {talk.ended && <p className="fx-d-muted">{ENDED[talk.ended]}</p>}
       {open && !ending && (
         <form className="fx-chat-say" onSubmit={(e) => { e.preventDefault(); send() }}>
-          <textarea className="fx-control" rows={2} value={text} aria-label={tr('訊息')} placeholder={writing ? tr('{a} 正在回覆…', { a: r?.name ?? tr('員工') }) : tr('輸入訊息')}
+          <textarea ref={box} className="fx-control" rows={2} value={text} aria-label={tr('訊息')} placeholder={writing ? tr('{a} 正在回覆…', { a: r?.name ?? tr('員工') }) : tr('輸入訊息')}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               // Enter sends; not while a Chinese word is still being picked in the input method

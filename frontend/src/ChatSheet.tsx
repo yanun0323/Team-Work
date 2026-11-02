@@ -290,7 +290,7 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
               <input type="file" disabled={reading} multiple className="fx-sr" aria-label={tr('加入附件')}
                 onChange={(e) => { void attach([...(e.target.files ?? [])]); e.target.value = '' }} />
             </label>
-            <MentionBox box={box} value={text} teamId={teamId} replicaIds={replica ? [replica.id] : []} label={tr('訊息')} placeholder={airport ? tr('輸入訊息，可直接貼上截圖') : tr('輸入訊息，$ 選技能，@ 選檔案，可直接貼上截圖')} onChange={setText} onSend={() => void send()} />
+            <MentionBox box={box} grow value={text} teamId={teamId} replicaIds={replica ? [replica.id] : []} label={tr('訊息')} placeholder={airport ? tr('輸入訊息，可直接貼上截圖') : tr('輸入訊息，$ 選技能，@ 選檔案，可直接貼上截圖')} onChange={setText} onSend={() => void send()} />
             {writing
               ? (
                 <button type="button" className="fx-room-send" aria-label={tr('暫停')} title={tr('暫停')} onClick={() => act((x) => stopChat(x, chat!.id))}>

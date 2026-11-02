@@ -168,6 +168,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Fork</dt><dd>Press the fork icon under a message to copy the chat up to there into a new chat and open it. The original stays as it is. You can fork from your own messages or the last message of an employee's reply. The new chat waits for you to say something, and both chats work in the same project folder.</dd>
           <dt>Create task</dt><dd>When you have discussed enough, press Create task. The employee writes the chat up as a new task for you to edit and start.</dd>
           <dt>List marks</dt><dd>While an employee replies, three bouncing dots show on the list. A reply you have not seen shows a round dot until you open the chat. On the map, a company's name tag shows its unread chats in blue and its tasks waiting for review in red.</dd>
+          <dt>Message box</dt><dd>It grows with your text, then scrolls inside once it reaches its limit.</dd>
           <dt>Long chats</dt><dd>When a chat gets too long, the employee sums up the earlier part and carries on, and a line reading auto_compact appears in the chat. All messages stay on screen and can still be edited and forked, but the employee reads only the summary from then on. The tokens used for this count toward the chat.</dd>
           <dt>Delete</dt><dd>Delete a chat at the top right. Changes in the folder stay. When an employee leaves the company, their chats stay readable, but you cannot post in them.</dd>
         </dl>

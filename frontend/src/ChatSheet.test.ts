@@ -1,3 +1,7 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { Chats } from './DrawerTabs'
+import { useStore } from './core/store'
 import { describe, expect, it } from 'vitest'
 import { attachable, splitAttachments } from './attachments'
 import { seedWorld } from './core/data/seed'
@@ -195,5 +199,23 @@ describe('airport chats', () => {
     expect(prereqsOf(w, '', 'airportChats', null)).toEqual([])
     w.providers = {}
     expect(prereqsOf(w, '', 'airportChats', null).map((x) => x.id)).toEqual(['provider'])
+  })
+})
+
+describe('the chat list', () => {
+  it('puts the sign before the face', () => {
+    // rendered on the server, the store gives its first state: the chat has to go in there
+    const w = useStore.getState().world
+    const teamId = Object.keys(w.teams)[0]
+    const chat = createChat(w, { teamId, replicaId: teamReplicas(w, teamId)[0].id, text: '嗨' })
+    delete chat.replyAt
+    chat.unread = true
+    try {
+      const html = renderToStaticMarkup(createElement(Chats, { teamId, open: null, onOpen: () => {} }))
+      expect(html.indexOf('fx-chat-unread')).toBeGreaterThan(-1)
+      expect(html.indexOf('fx-chat-unread')).toBeLessThan(html.indexOf('<svg'))
+    } finally {
+      delete w.chats[chat.id]
+    }
   })
 })

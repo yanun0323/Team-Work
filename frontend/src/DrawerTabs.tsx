@@ -75,20 +75,23 @@ export function Chats(p: Opens) {
             const { name, look } = chatWho(w, c)
             const sign = chatSign(c)
             return (
-              <li key={c.id}><button className="fx-row fx-hit" {...opener({ kind: 'chat', id: c.id }, p)}>
+              <li key={c.id}><button className="fx-row fx-chat-row fx-hit" {...opener({ kind: 'chat', id: c.id }, p)}>
+                {/* the slot stays when empty, so the faces line up */}
+                <span className="fx-chat-sign">
+                  {sign === 'replying' && (
+                    <span className="fx-chat-replying">
+                      <span aria-hidden="true"><i /><i /><i /></span>
+                      <span className="fx-sr">{tr('{name} 正在回覆', { name })}</span>
+                    </span>
+                  )}
+                  {sign === 'question' && <WaitBadge inline />}
+                  {sign === 'unread' && <span className="fx-chat-unread" title={tr('有未讀回覆')}><span className="fx-sr">{tr('有未讀回覆')}</span></span>}
+                </span>
                 <PixelFace look={look} name={name} size={34} />
                 <span className="fx-row-main">
                   <b>{name}<span className="fx-chat-model">{chatMindOf(w, c)}{c.tokens > 0 && ` · ${fmtTokens(c.tokens)} Token`}</span></b>
                   <span className="fx-chat-first">{c.messages[0]?.text || (c.messages[0]?.images?.length ? tr('圖片') : c.messages[0]?.files?.length ? tr('附件') : '')}</span>
                 </span>
-                {sign === 'replying' && (
-                  <span className="fx-chat-replying">
-                    <span aria-hidden="true"><i /><i /><i /></span>
-                    <span className="fx-sr">{tr('{name} 正在回覆', { name })}</span>
-                  </span>
-                )}
-                {sign === 'question' && <WaitBadge inline />}
-                {sign === 'unread' && <span className="fx-chat-unread" title={tr('有未讀回覆')}><span className="fx-sr">{tr('有未讀回覆')}</span></span>}
               </button></li>
             )
           })}

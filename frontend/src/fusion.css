@@ -1045,10 +1045,14 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 .fx-chat-edit { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
 .fx-chat-edit:hover { color: var(--ink); }
 .fx-chat-edit:disabled { opacity: 0.35; cursor: default; }
-.fx-room-say textarea { flex: 1; min-width: 0; resize: none; }
+.fx-room-say textarea { flex: 1; min-width: 0; }
+/* a box that grows with its text, up to here, then scrolls */
+:is(.fx-room-say, .fx-chat-say) textarea { max-height: 200px; resize: none; }
 .fx-room-send { flex: none; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 3px; background: var(--ink); color: var(--clip); cursor: pointer; }
 .fx-room-send:disabled { opacity: 0.35; cursor: default; }
 /* a chat on the list: the model after the name, the opening cut to one line */
+.fx-row.fx-chat-row { grid-template-columns: 22px auto minmax(0, 1fr); gap: 10px; }
+.fx-chat-sign { display: grid; place-items: center; }
 .fx-row-main b .fx-chat-model { margin-inline-start: 8px; font-size: 12px; font-weight: 500; }
 .fx-row-main .fx-chat-first { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .fx-chat-replying > span[aria-hidden] { display: flex; gap: 3px; }

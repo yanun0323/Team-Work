@@ -208,8 +208,14 @@ export function useStickToBottom<E extends HTMLElement>(dep: unknown) {
     const el = ref.current
     if (!el) return
     const on = () => (pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24)
+    // something beside the list grew, such as the box to write in: the last line stays in view
+    const size = new ResizeObserver(() => { if (pinned.current) el.scrollTop = el.scrollHeight })
+    size.observe(el)
     el.addEventListener('scroll', on)
-    return () => el.removeEventListener('scroll', on)
+    return () => {
+      size.disconnect()
+      el.removeEventListener('scroll', on)
+    }
   }, [])
   useEffect(() => {
     const el = ref.current
