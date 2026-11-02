@@ -810,7 +810,11 @@ a.fx-save { text-decoration: none; }
 .fx-ring svg { position: absolute; inset: 0; rotate: -90deg; }
 .fx-ring circle { fill: none; stroke-width: 3; }
 .fx-ring-track { stroke: rgb(31 29 43 / 0.16); }
-.fx-ring-fill { stroke: currentColor; stroke-linecap: round; }
+.fx-ring-fill { stroke: currentColor; stroke-linecap: round; transition: stroke 300ms ease-out; }
+/* the share left: green while over half, amber down to 20%, red below */
+.fx-ring-ok { stroke: #2e8b47; }
+.fx-ring-low { stroke: #d99400; }
+.fx-ring-out { stroke: var(--red); }
 .fx-ring > span { font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 /* the dash gives way to the number with a small pop */
 @keyframes fx-quota-in { from { opacity: 0; scale: 0.6; } 60% { opacity: 1; scale: 1.15; } }

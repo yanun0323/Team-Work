@@ -104,8 +104,11 @@ function useTween(target?: number) {
 /** The share of a limit still free, 0 to 100, from the share used; undefined when unknown. */
 export const leftOf = (used?: number) => (used === undefined ? undefined : 100 - Math.min(Math.max(used, 0), 100))
 
+/** How worrying a share left is: over 50 is fine, 20 to 50 is low, under 20 is running out. */
+export const levelOf = (left: number) => (left > 50 ? 'ok' : left >= 20 ? 'low' : 'out')
+
 /**
- * A ring filled as far as the limit is still free, with the share in the middle (grey with '-' when unknown), and
+ * A ring filled as far as the limit is still free, coloured by levelOf where it ends, with the share in the middle (grey with '-' when unknown), and
  * under it the time left before the limit starts over.
  */
 export function UsageRing({ left: target, resetAt, now, label }: { left?: number; resetAt?: number; now: number; label: (text: string) => string }) {
@@ -124,7 +127,7 @@ export function UsageRing({ left: target, resetAt, now, label }: { left?: number
         <svg viewBox="0 0 30 30">
           <circle className="fx-ring-track" cx="15" cy="15" r={r} />
           {known && free > 0 && (
-            <circle className="fx-ring-fill" cx="15" cy="15" r={r} strokeDasharray={`${(length * free) / 100} ${length}`} />
+            <circle className={`fx-ring-fill fx-ring-${levelOf(target ?? free)}`} cx="15" cy="15" r={r} strokeDasharray={`${(length * free) / 100} ${length}`} />
           )}
         </svg>
         <span key={known ? 'number' : 'dash'}>{text}</span>

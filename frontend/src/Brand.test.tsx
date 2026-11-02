@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { Brand, QuotaList, UsageRing, balanceText, clockText, leftOf, resetText } from './Brand'
+import { Brand, QuotaList, UsageRing, balanceText, clockText, leftOf, levelOf, resetText } from './Brand'
 import type { ModelProvider } from './core/domain/types'
 
 it('shows the clock in place of a title, and names the app only for a screen reader', () => {
@@ -52,6 +52,13 @@ it('turns the share used into the share left, kept within 0 to 100', () => {
   expect(leftOf(25)).toBe(75)
   expect(leftOf(120)).toBe(0)
   expect(leftOf(-5)).toBe(100)
+})
+
+it('colours a ring green over half, amber from 20 to 50, red below 20', () => {
+  expect([100, 50.5, 50, 20, 19.5, 0].map(levelOf)).toEqual(['ok', 'ok', 'low', 'low', 'out', 'out'])
+  expect(renderToStaticMarkup(<UsageRing left={75} now={0} label={(a) => a} />)).toContain('fx-ring-ok')
+  expect(renderToStaticMarkup(<UsageRing left={35} now={0} label={(a) => a} />)).toContain('fx-ring-low')
+  expect(renderToStaticMarkup(<UsageRing left={10} now={0} label={(a) => a} />)).toContain('fx-ring-out')
 })
 
 it('leaves a used-up ring empty', () => {
