@@ -75,6 +75,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 - API Key 和 ChatGPT Token 只存在 `data.db`（權限 `0600`）的 `secrets` 表，不會出現在任何回應或事件裡，API Key 對外只有最後 4 碼。
 - `read_file`、`write_file` 限制在任務的 work tree 內（技能資料夾可讀），符號連結也擋。`read_file` 也能讀 PNG、JPEG、GIF、WebP 圖片（最大 3.75MB），圖片會交給模型看。
 - `run_command` **沒有沙盒**：員工能做到伺服器使用者能做的任何事。只雇用你信任其指示的藍圖，也留意任務內容與網頁可能夾帶指示。
+- **修改確認可以被 `run_command` 繞過**（已知限制）：有這個工具的員工仍可能直接改藍圖或流程的設定檔，再觸發重新載入（`POST /settings/reload`，即 `ReloadSettings`），不會出現確認卡。確認只約束 `save_blueprint`、`save_workflow` 這兩個工具。
 
 ## API
 
@@ -97,11 +98,11 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /providers`、`PATCH`/`DELETE /providers/:id` | 模型供應商；模型清單由供應商提供，`prices` 是每百萬 token 的美元價格 |
 | `POST /blueprints`、`PUT`/`DELETE /blueprints/:id`、`POST /blueprints/:id/update` | 藍圖；`update` 把 Git 來源移到最新版 |
 | `POST /replicas`、`PATCH /replicas/:id`、`DELETE /replicas/:id?heir=` | 雇用、修改（含記憶）、離職交接 |
-| `POST /tasks`、`PATCH`/`DELETE /tasks/:id` | 任務；建立時可附 `images` 和 `files`；`PATCH` 改標題、說明、人員、負責人 |
+| `POST /tasks`、`PATCH`/`DELETE /tasks/:id` | 任務；建立時可附 `images` 和 `files`；`PATCH` 改標題、說明、人員、負責人，不存在的節點 id 或把節點改成沒有人都會被拒絕。由員工或對話建立的任務有 `origin`（`kind` 為 `employee`、`chat` 或 `airport`，加 `id`、`name`、`depth`） |
 | `POST /tasks/:id/{pause,resume,cancel,merge}` | 暫停、恢復、取消（要先暫停）、合併 |
 | `POST /tasks/:id/return`、`POST /tasks/:id/workflow` | 退回（`feedback`）、更換任務流程（`workflowId`，要先暫停） |
 | `GET /subtasks/:id/file?path=` | 讀子任務交接的檔案（該次 commit 的內容，上限 1 MB，只限文字檔） |
-| `POST /subtasks/:id/review` | 回覆審核（`optionId`、`note`） |
+| `POST /subtasks/:id/review` | 回覆審核（`optionId`、`note`）；修改確認（`review.kind` 為 `change`，內容在 `review.change`）的 `optionId` 是 `approve` 或 `reject` |
 | `POST /subtasks/:id/talk`、`POST /subtasks/:id/talk/end` | 討論發言（`text`）、結束（`kind`: `continue`/`back`/`stop`，`to`、`reason`） |
 | `GET /teams/:id/uncommitted` | 公司資料夾有沒有未提交的改動 |
 | `POST /teams/:id/open-folder` | 在 Finder 打開公司資料夾 |
@@ -115,6 +116,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `GET /teams/:id/files?q=` | 公司資料夾裡符合 `q` 的檔案和資料夾（`path`、`dir`，最多 50 筆，略過 git 忽略的檔案），對話輸入框的 `@` 選單用 |
 | 對話裡的 `ask_user` | 員工可隨時用這個工具提問：`chat.question.options` 是選項（可為空），問題本身是一則員工訊息；下一則 `say` 就是回答 |
 | `POST /airport/chats` | 開始機場對話（`model`、可選的 `effort`、`text`、`images`、`files`）：對象固定是機場服務人員，回傳的 `teamId` 為空。工作資料夾是資料目錄的 `airport/`，可用讀寫檔案、網路搜尋和執行指令；指令沒有沙盒。指示只有固定規則和全域 `AGENTS.md`。`say`、`stop`、`read`、`rewind`、`fork`、刪除和公司對話共用，`task-draft` 會拒絕 |
+| `POST /chats/:id/change` | 回答對話的修改確認（`approve`、可選的 `note`；內容在 `chat.change`），員工接著回覆。等待確認時改用 `say` 發言視為拒絕 |
 | `PATCH /chats/:id/mind` | 更換機場對話下一次回覆的 `model` 和 `effort`；回覆中或公司對話會拒絕 |
 | `POST /chats/:id/read` | 標記已讀，清除對話的 `unread` |
 | `POST /chats/:id/rewind` | 收回第 `index` 則使用者訊息和它之後的所有內容，並中斷回覆；資料夾裡的改動不會還原 |
@@ -126,6 +128,29 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 上傳的檔案存於資料目錄的 `attachments/uploads/`，內容相同只留一份；目前刪除任務或對話時不會清掉附件。
 
 一般檔案另外存於資料目錄的 `attachments/<task-or-chat-id>/`，不會寫入或提交到公司專案。員工會收到檔名、絕對路徑和文字預覽（最多 50KB），可用藍圖允許的讀檔工具繼續讀取；二進位文件須使用可用的命令與解析工具，沒有內建 PDF／Office 轉換。介面支援下載、移除待送附件、複製任務附件及收回訊息後重新編輯附件。
+
+## 員工的管理工具
+
+任務中的員工、公司對話的員工和機場服務人員，可以用工具讀取任務、藍圖和任務流程，並新增或修改。能用哪些工具由藍圖勾選的工具決定，藍圖可選的工具仍是原本四個；實作在 `internal/usecase/manage.go`。
+
+| 藍圖勾選 | 可使用 |
+|---|---|
+| `read_file` | `list_tasks`、`list_blueprints`、`list_workflows`、`list_employees`、`list_companies` |
+| `write_file` 或 `run_command` | 上面的讀取工具，加上 `create_task`、`update_task`、`save_blueprint`、`save_workflow` |
+| `web_search` | 沒有額外工具 |
+
+機場服務人員四個工具都有，所以擁有全部能力。內建的 15 個藍圖都有讀寫能力。任務流程的「和員工討論」步驟只有讀取工具。沒有刪除工具。錯誤和拒絕都以工具結果回傳給模型。
+
+- **範圍**：公司的員工只能讀取、建立、修改自己公司的任務，也只列得到自己公司的員工和公司；機場服務人員可以跨公司，`create_task` 要帶 `team_id`。藍圖和任務流程由所有公司共用，修改會影響每間公司。
+- **直接生效**：新增藍圖、新增任務流程、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。
+- **要確認**：帶 `id` 的 `save_blueprint`、`save_workflow`，包括員工修改自己用的藍圖。後端先檢查內容並算出差異，然後暫停，同意前不會寫入。任務的子任務進入等待回覆（`review.kind` 為 `change`），對話則是 `chat.change`；兩者都會保存，重新啟動後還在。同意或拒絕都會回傳給模型，模型接著工作。內容沒有差異時不會暫停。同一輪在這個呼叫之後的工具不會執行，模型會收到 `interrupted`。
+- **不能修改**：`preset-` 開頭的內建項目（要新增一份自己的）、Git 來源的藍圖。修改要帶 `list_*` 回傳的 `version`，不符就拒絕；等待確認期間內容被改過或刪除時，同意也不會寫入，模型會收到原因。
+- **設定檔**：寫入藍圖和任務流程的規則和介面相同：有外部修改尚未載入時回傳 `conflict`。
+- **生效範圍**：任務建立時留一份任務流程，修改共用流程不影響進行中的任務。藍圖不同：同意後正在進行的步驟不變，但每次開始步驟都讀最新藍圖，所以同一任務之後的步驟會用新藍圖。
+- **`create_task`**：帶標題、說明、任務流程，立即建立並開始，不需要確認。內建流程的步驟沒有指定員工，有步驟沒有人時會失敗並列出這些步驟，模型應該問使用者後再用 `staff` 或 `owner_id` 重試；模型自己填人選時後端無法分辨。
+- **連鎖深度**：任務中的員工建立的任務，深度是來源任務加 1，最多 3 層（`maxTaskDepth`，暫定值），超過就拒絕並告知模型。從對話建立的任務深度是 0。同時執行的任務數量沒有限制。
+- **`save_blueprint`**：模型不能設定外觀，新藍圖取自內建藍圖之一。技能用 Git 來源時不會在儲存當下解析 commit，執行時才取 `origin/HEAD`，也不會套用 `ref`；要固定版本請呼叫 `POST /blueprints/:id/update`。
+- **`save_workflow`**：`nodes`、`edges` 是完整的新清單，已存在的節點 id 沒帶的欄位保留原值。模型不指定座標，新節點由後端排版。有迴圈等無效內容會被拒絕。
 
 ## 訂閱登入
 
@@ -189,4 +214,4 @@ OpenAI 相容（`compatible`）供應商若沒有回報等級，提供 `none / l
 - OpenAI、Google API Key 的模型清單沒有回報思考等級，所以只有 `default`；OpenAI 相容類型則使用上述備用清單。
 - 訂閱額度（5 小時、每週）不會顯示；用完時子任務會失敗並說明。
 - 藍圖的自動更新（`autoUpdate`）：目前只能手動 `POST /blueprints/:id/update`。
-- 長對話的壓縮：超過模型上限時子任務會失敗並等使用者處理。
+- 子任務的長對話壓縮：超過模型上限時子任務會失敗並等使用者處理。對話已會自動壓縮（`auto_compact`）。
