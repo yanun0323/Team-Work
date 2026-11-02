@@ -28,13 +28,9 @@ import { MOCK } from './core/mode'
 import { DEFAULT_EFFORT, effortsOf, modelGroups, modelsOf } from './crew'
 import { takeAirportTab, tutorialOf, updateTutorial } from './tutorial'
 
-// TODO: the real addresses; these are placeholders until they are given
 const LINKS = [
-  { label: 'GitHub', href: 'https://github.com/' },
-  { label: 'Discord', href: 'https://discord.com/' },
-  { label: 'X', href: 'https://x.com/' },
-  { label: 'Threads', href: 'https://www.threads.net/' },
-  { label: 'Buy Me a Coffee', href: 'https://www.buymeacoffee.com/' },
+  { label: 'GitHub', href: 'https://github.com/yanun0323/Team-Work' },
+  { label: 'Buy Me a Coffee', href: 'https://buymeacoffee.com/yanun' },
 ]
 const THANKS = [{ name: 'yanun0323', href: 'https://github.com/yanun0323' }]
 
