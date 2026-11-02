@@ -53,7 +53,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Settings → Controls</dt><dd>Set how fast the wheel zooms, and what the camera does when you open a company or the airport (Auto view).</dd>
           <dt>Settings → Music</dt><dd>Mute in background is on by default: music and effects stop when you switch to another app or page, and carry on when you return. Turn it off to keep them playing. Choose Bossa nova (default), Retro game, Soft piano or Ambient. Tracks cross-fade when changed, and your selection is saved. Both volumes default to 100%. Separate music and effects volumes; 0 mutes either channel, or tick Mute beside its slider to silence it and keep the level. Toggle or preview aircraft sounds (takeoff, landing and flyover together), interface clicks and noticeboard sounds separately. New requests for replies or merges play a four-note announcement-style chime; existing notifications are not replayed. Audio starts after your first click or key press. Preferences are shared and saved.</dd>
           <dt>About</dt><dd>Links, thanks and the version number.</dd>
-          <dt>Quit</dt><dd>In the Mac app, the power button beside the Airport title quits the app. If work is running it asks first, and open terminals end too. The web version has no such button.</dd>
+          <dt>Quit</dt><dd>In the Mac app, the power button beside the Airport title asks once, then quits the app; Quit Team Work in the menu (⌘Q) asks too. Open terminals end with the app. The web version has no such button.</dd>
         </dl>
       </>
     ),

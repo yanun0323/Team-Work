@@ -61,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: say("關於 Team Work", "About Team Work"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: say("結束 Team Work", "Quit Team Work"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: say("結束 Team Work", "Quit Team Work"), action: #selector(confirmQuit(_:)), keyEquivalent: "q").target = self
         let appItem = NSMenuItem()
         appItem.submenu = appMenu
         menu.addItem(appItem)
@@ -73,6 +73,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         editItem.submenu = edit
         menu.addItem(editItem)
         NSApp.mainMenu = menu
+    }
+
+    // ⌘Q asks first; the airport's power button asks on the page instead.
+    @objc private func confirmQuit(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = say("要結束 Team Work 嗎？", "Quit Team Work?")
+        alert.informativeText = say("進行中的工作會中斷，開著的終端機也會一起結束。", "Running work will be interrupted, and open terminals will end too.")
+        alert.addButton(withTitle: say("結束", "Quit"))
+        alert.addButton(withTitle: say("取消", "Cancel"))
+        if alert.runModal() == .alertFirstButtonReturn { NSApp.terminate(nil) }
     }
 
     private func startBackend() throws {

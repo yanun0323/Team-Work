@@ -226,6 +226,7 @@ const en = {
   '沒有名稱': 'Unnamed',
   '還有工作在進行，確定退出': 'Work is still running. Confirm quit',
   '退出': 'Quit',
+  '確定退出': 'Confirm quit',
   '工作會中斷，確定退出': 'Work will be interrupted. Confirm quit',
   '機場': 'Airport',
   '公司': 'Company',
