@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { DEFAULT_PREFS, MUSIC_STYLES, usePrefs } from './prefs'
 import { useStore } from './core/store'
 import { silenced, SoundPlayer, subscribeNoticeSound } from './sound'
-import { effectSamples, musicSamples, NOTICE_DUCK, NOTICE_ECHO, NOTICE_GAP, NOTICE_LEAD_IN, NOTICE_NOTES, NOTICE_SECONDS, TAP_SECOND_SNAP, type Stereo } from './soundSynth'
+import { effectSamples, musicSamples, NOTICE_DUCK, NOTICE_ECHO, NOTICE_GAP, NOTICE_LEAD_IN, NOTICE_NOTES, NOTICE_SECONDS, TAP_SECOND_SNAP, TUTORIAL_SECONDS, type Stereo } from './soundSynth'
 
 const param = () => ({ value: 0, setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn(), cancelScheduledValues: vi.fn(), setTargetAtTime: vi.fn() })
 class Node {
@@ -108,6 +108,16 @@ it('keeps the chime quick, with three separate rising notes and one soft echo', 
   const spread = (from: number, to: number) => Math.max(...samples[0].slice(from * rate, to * rate).map((x, i) => Math.abs(x - samples[1][Math.floor(from * rate) + i])))
   expect(spread(0, NOTICE_ECHO.delay - 0.005)).toBe(0)
   expect(spread(NOTICE_ECHO.delay, NOTICE_ECHO.delay + 0.05)).toBeGreaterThan(0.01)
+})
+
+it('keeps the tutorial cue short and softer than the noticeboard chime, fading out', () => {
+  const rate = 16000
+  const samples = effectSamples('soundTutorial', rate)
+  expect(samples[0].length).toBe(Math.floor(TUTORIAL_SECONDS * rate))
+  expect(samples.every((ch) => ch.every(Number.isFinite))).toBe(true)
+  expect(Math.max(...samples[0].map(Math.abs), ...samples[1].map(Math.abs))).toBeLessThanOrEqual(0.35)
+  expect(loudness(samples, 0, TUTORIAL_SECONDS, rate)).toBeLessThan(loudness(effectSamples('soundNotice', rate), 0, TUTORIAL_SECONDS, rate))
+  expect(loudness(samples, TUTORIAL_SECONDS - 0.02, TUTORIAL_SECONDS, rate)).toBeLessThan(0.01)
 })
 
 it('keeps interface taps short, quieter than everything else, and a double snap', () => {

@@ -1,10 +1,13 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { Brand, QuotaList, UsageRing, balanceText, clockText, resetText } from './Brand'
+import { Brand, QuotaList, UsageRing, balanceText, clockText, leftOf, resetText } from './Brand'
 import type { ModelProvider } from './core/domain/types'
 
-it('names the app', () => {
-  expect(renderToStaticMarkup(<Brand />)).toContain('<h1>Team Work</h1>')
+it('shows the clock in place of a title, and names the app only for a screen reader', () => {
+  const html = renderToStaticMarkup(<Brand />)
+  expect(html).toContain('<h1 class="fx-sr">Team Work</h1>')
+  expect(html).not.toContain('wordmark')
+  expect(html).toContain('class="fx-brand-time"')
 })
 
 it('shows the time on a 24-hour clock and the date with its weekday', () => {
@@ -21,8 +24,9 @@ it('shows a subscription as two rings and an API key as its balance, in the orde
     <QuotaList now={0} providers={[sub('a', 'Claude'), key('b', 'DeepSeek'), key('c', 'OpenAI')]} quotas={{ a: { fiveHour: 49.6, weekly: 12 }, b: { balance: 110, currency: 'CNY' } }} />,
   )
   expect(html.indexOf('Claude')).toBeLessThan(html.indexOf('DeepSeek'))
+  // what is left, not what is used: 100 - 49.6 and 100 - 12
   expect(html).toContain('<span>50</span>')
-  expect(html).toContain('<span>12</span>')
+  expect(html).toContain('<span>88</span>')
   expect(html).not.toContain('50%<')
   expect(html).toContain('>110.00 CNY<')
   expect(html).toMatch(/OpenAI<\/span><span class="fx-quota-balance fx-quota-none">-<\/span>/)
@@ -33,6 +37,20 @@ it('greys out a ring with no number', () => {
   const html = renderToStaticMarkup(<UsageRing now={0} label={(a) => a} />)
   expect(html).not.toContain('fx-ring-fill')
   expect(html).toContain('>-<')
+})
+
+it('turns the share used into the share left, kept within 0 to 100', () => {
+  expect(leftOf(undefined)).toBeUndefined()
+  expect(leftOf(0)).toBe(100)
+  expect(leftOf(25)).toBe(75)
+  expect(leftOf(120)).toBe(0)
+  expect(leftOf(-5)).toBe(100)
+})
+
+it('leaves a used-up ring empty', () => {
+  const html = renderToStaticMarkup(<UsageRing left={0} now={0} label={(a) => a} />)
+  expect(html).not.toContain('fx-ring-fill')
+  expect(html).toContain('<span>0</span>')
 })
 
 it('shows nothing without providers', () => {
@@ -48,10 +66,10 @@ it('writes a balance with its currency, or a bare dash', () => {
 it('puts the time left under each ring, and says it in words', () => {
   const now = 1_000_000
   const html = renderToStaticMarkup(
-    <QuotaList now={now} providers={[sub('a', 'Claude')]} quotas={{ a: { fiveHour: 50, fiveHourResetAt: now + 2 * 3600 + 13 * 60, weekly: 12 } }} />,
+    <QuotaList now={now} providers={[sub('a', 'Claude')]} quotas={{ a: { fiveHour: 70, fiveHourResetAt: now + 2 * 3600 + 13 * 60, weekly: 12 } }} />,
   )
   expect(html).toContain('<small aria-hidden="true">2h13m</small>')
-  expect(html).toContain('aria-label="5 小時用量 50%，2 小時 13 分鐘後重置"')
+  expect(html).toContain('aria-label="5 小時剩餘 30%，2 小時 13 分鐘後重置"')
   // no time for the weekly limit: its place stays empty, not '-'
   expect(html).toContain('<small aria-hidden="true"></small>')
 })

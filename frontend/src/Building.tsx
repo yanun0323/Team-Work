@@ -4,8 +4,8 @@
 // and an antenna, a water tank, a roof garden, a sawtooth roof, a hipped roof, a dome or a helipad.
 //
 // Each style comes in a few colourways; the company's seed picks one. The lit windows show the company at
-// work: dark while nobody is working, more of them lit as more employees work (the seed picks which), and a
-// beacon on the roof pulses meanwhile.
+// work: dark while nobody is working, more of them lit as more employees work (the seed picks which), and
+// cartoon shout strokes flicker off both sides meanwhile.
 //
 // When the company is open the building is cut away to its ground floor: the two back walls stay solid,
 // the two walls facing the camera are nearly clear, and one open-plan office floor shows inside: stone
@@ -19,7 +19,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import * as THREE from 'three'
 import { activity, teamBusy, teamReplicas } from './core/model'
 import { useStore } from './core/store'
-import { boxOnScreen } from './camera'
+import { boxOnScreen, ISO_DIR, SCREEN_RIGHT, SCREEN_UP } from './camera'
 import { CELL, FLOOR_CELLS, growth, hash, rectCenter, spotCenter, type BuildingLook, type BuildingStyle, type Lot, type Spot, type Town } from './layout'
 import { Fade } from './Fade'
 import { usePrefs } from './prefs'
@@ -525,8 +525,7 @@ function Exterior({ look, w, d, floors, busy }: { look: BuildingLook; w: number;
       <group position={[0, h + 0.18, 0]} scale={KIT}>
         <Roof style={style} w={w / KIT} d={d / KIT} pal={pal} />
       </group>
-      {/* the beacon stands in the back corner, clear of the name tag over the middle */}
-      {!!busy && <Beacon x={-w / 2 + 0.45} y={h + 0.18} z={-d / 2 + 0.45} />}
+      {!!busy && <Shout w={w} d={d} h={h} seed={seed} />}
     </>
   )
 }
@@ -1436,36 +1435,83 @@ function Mirrored({ on, x, children }: { on: boolean; x: number; children: React
 }
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-const BEACON = '#8fe3ff'
-const BEACON_DIM = '#2c5a6e'
+const SHOUT = '#ffc93a'
+/** Thickness of a shout stroke, how far its inner end stays off the building's outline, how far up the second pose sits, and its length against the first. */
+const STROKE = 0.85
+const SHOUT_GAP = 1.1
+const SHOUT_LIFT = 0.6
+const SHOUT_SHRINK = 0.65
+/** Turns a group so its x and y run along the screen, facing the camera (which never rotates). */
+const ON_SCREEN = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(SCREEN_RIGHT, SCREEN_UP, ISO_DIR))
 
-/** A mast on the roof with a lamp that pulses while the company is at work; steady with reduced motion. Kept under ROOF_TOP. */
-function Beacon({ x, y, z }: { x: number; y: number; z: number }) {
-  const lamp = useMemo(() => new THREE.MeshBasicMaterial({ color: BEACON, toneMapped: false }), [])
-  const halo = useMemo(() => new THREE.MeshBasicMaterial({ color: BEACON, transparent: true, opacity: calm ? 0.3 : 0, depthWrite: false, toneMapped: false }), [])
-  useEffect(() => () => { lamp.dispose(); halo.dispose() }, [lamp, halo])
-  const dim = useMemo(() => new THREE.Color(BEACON_DIM), [])
-  const bright = useMemo(() => new THREE.Color(BEACON), [])
+/** One shout stroke: degrees up from pointing straight out, and length in world units. */
+export interface Ray { angle: number; len: number }
+/** A fan of strokes off one side of the building as seen on screen. */
+export interface Burst {
+  /** 1 on the right of the screen, -1 on the left. */
+  side: 1 | -1
+  /** The building's outline corner on that side, at the fan's height. */
+  at: [number, number, number]
+  rays: Ray[]
+  /** Seconds between the strokes' two poses. */
+  beat: number
+}
+
+const FANS: Ray[][] = [
+  [{ angle: 30, len: 2.3 }, { angle: 3, len: 2.7 }, { angle: -25, len: 2.1 }],
+  [{ angle: 46, len: 1.7 }, { angle: 20, len: 2.4 }, { angle: -4, len: 2.1 }, { angle: -30, len: 1.8 }],
+]
+
+/**
+ * The two fans of cartoon shout strokes for a building `w` × `d` and `h` tall. The seed picks which side
+ * gets four strokes and sits low, and which gets three and sits high, so the two never mirror each other.
+ */
+export function shoutBursts(w: number, d: number, h: number, seed: number): Burst[] {
+  const four = hash(seed, 71) < 0.5 ? 1 : -1
+  return ([1, -1] as const).map((side) => {
+    const low = side === four
+    const y = h * (low ? 0.38 + 0.12 * hash(seed, 72) : 0.66 + 0.12 * hash(seed, 73))
+    // the outermost corner on that side of the screen: (+w/2, -d/2) on the right, (-w/2, +d/2) on the left
+    return { side, at: [(side * w) / 2, y, (-side * d) / 2], rays: FANS[low ? 1 : 0], beat: low ? 0.26 : 0.2 }
+  })
+}
+
+/** Cartoon shout strokes off both sides of a building while the company is at work; they jump between two poses, still with reduced motion. */
+function Shout({ w, d, h, seed }: { w: number; d: number; h: number; seed: number }) {
+  const bursts = useMemo(() => shoutBursts(w, d, h, seed), [w, d, h, seed])
+  const mat = useMemo(() => new THREE.MeshBasicMaterial({ color: SHOUT, toneMapped: false }), [])
+  useEffect(() => () => mat.dispose(), [mat])
+  const poses = useRef<(THREE.Group | null)[]>([])
   useFrame(({ clock }) => {
     if (calm) return
-    // about one pulse every 1.6 s
-    const k = (Math.sin(clock.elapsedTime * 4) + 1) / 2
-    lamp.color.lerpColors(dim, bright, k)
-    halo.opacity = 0.4 * k
+    bursts.forEach((b, i) => {
+      const far = Math.floor(clock.elapsedTime / b.beat) % 2 === 1
+      const [near, out] = [poses.current[2 * i], poses.current[2 * i + 1]]
+      if (near) near.visible = !far
+      if (out) out.visible = far
+    })
   })
-  const top = 1.35 * KIT
-  return (
-    <group position={[x, y, z]}>
-      <B p={[0, 0.06, 0]} s={[0.3, 0.12, 0.3]} c="#4a525e" />
-      <B p={[0, top / 2, 0]} s={[0.07, top, 0.07]} c="#5a636f" />
-      <mesh position={[0, top + 0.1, 0]} scale={0.22} material={lamp} raycast={() => null}>
-        <boxGeometry />
-      </mesh>
-      <mesh position={[0, top + 0.1, 0]} material={halo} layers={NO_OUTLINE_LAYER} renderOrder={3} raycast={() => null}>
-        <sphereGeometry args={[0.42, 12, 8]} />
-      </mesh>
+  return bursts.map((b, i) => (
+    <group key={i} position={b.at} quaternion={ON_SCREEN}>
+      <group scale={[b.side, 1, 1]}>
+        {/* pose 0 full length, pose 1 raised and shorter */}
+        {[0, 1].map((p) => (
+          <group key={p} ref={(g) => { poses.current[2 * i + p] = g }} position={[0, p * SHOUT_LIFT, 0]} visible={p === 0}>
+            {b.rays.map((r, k) => {
+              const len = r.len * (p ? SHOUT_SHRINK : 1)
+              return (
+                <group key={k} rotation={[0, 0, THREE.MathUtils.degToRad(r.angle)]}>
+                  <mesh position={[SHOUT_GAP + len / 2, 0, 0]} scale={[len, STROKE, 0.05]} material={mat} layers={NO_OUTLINE_LAYER} raycast={() => null}>
+                    <boxGeometry />
+                  </mesh>
+                </group>
+              )
+            })}
+          </group>
+        ))}
+      </group>
     </group>
-  )
+  ))
 }
 
 /** Height of the tallest roof item, so labels can sit above it. */

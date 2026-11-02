@@ -8,7 +8,7 @@ import { colon, listOf, tr, trRecorded } from './core/i18n'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { isFixed, nodeOf } from './core/domain/graph'
 import { blueprintUsers, gitSources, statusOf, subsOf } from './core/domain/sim'
-import { TOOLS, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
+import { TOOLS, type Attachment, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
 import { sourceState, sourceText, toolName } from './source'
 import { flowList, activity, fmtClock, fmtTokens, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
@@ -25,7 +25,7 @@ import { useAutoGrow, Select, Switcher, WaitBadge } from './Controls'
 import { changeAsk, ChangeLines } from './ChangeCard'
 import { FlowNotes, FlowPreview, openCard } from './FlowNotes'
 import { copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
-import { byBlueprint, DEFAULT_EFFORT, effortsOf, mindOf, modelGroups, modelsOf, randomLook } from './crew'
+import { byBlueprint, chatPreview, DEFAULT_EFFORT, effortsOf, mindOf, modelGroups, modelsOf, randomLook } from './crew'
 import { docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
 import { parseGithub } from './github'
@@ -42,6 +42,7 @@ import { addProvider, providerUsers, updateProvider, type ProviderLogin, DEFAULT
 import { readHandedFile, request } from './core/backend'
 import { attempt, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, endTalk, fire, hire, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
+import { learn } from './tutorial'
 import { ChatSheet, type ChatTaskSeed } from './ChatSheet'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, endOf, isMiddle, link, loose, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
 
@@ -62,7 +63,8 @@ export type Item =
   | { kind: 'staff'; node: string }
   | { kind: 'taskEdit'; id: string }
   | { kind: 'doc'; sub: string; path: string }
-  | { kind: 'image'; task: string; index: number }
+  /** A picture at full width; `key` says where it was opened from, and `task` or `chat` what it belongs to. */
+  | { kind: 'image'; key: string; image: Attachment; task?: string; chat?: string }
   | { kind: 'flowEdit'; id: string }
   | { kind: 'newFlow' }
   /** With copyOf, the sheet starts filled in from that blueprint. */
@@ -74,7 +76,7 @@ export type Item =
   | { kind: 'disband' }
 
 export const itemKey = (x: Item) =>
-  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'image' ? `image:${x.task}:${x.index}` : `${x.kind}::${x.id}`
+  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 const ASSIGN = { firstAvailable: '誰有空誰做', everyone: '每個人都做' } as const
@@ -128,9 +130,9 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               onEdit={() => onPush({ kind: 'taskEdit', id: item.id })} onGoneTask={onDone}
               copying={above?.kind === 'newTask'} onCopy={() => onPush({ kind: 'newTask', copyOf: item.id })}
               crew={above?.kind === 'crew' ? above.id : null} onCrew={(x) => onPush({ kind: 'crew', id: x })}
-              image={above?.kind === 'image' ? above.index : null} onImage={(x) => onPush({ kind: 'image', task: item.id, index: x })} />
+              image={above?.kind === 'image' ? above.key : null} onImage={(key, image) => onPush({ kind: 'image', key, image, task: item.id })} />
           )}
-          {item.kind === 'image' && <ImageDetail task={item.task} index={item.index} title={title} tid={id} />}
+          {item.kind === 'image' && <ImageDetail item={item} title={title} tid={id} />}
           {item.kind === 'taskFlow' && (
             <TaskFlow taskId={item.id} title={title} tid={id}
               crew={above?.kind === 'crew' ? above.id : null} onCrew={(x) => onPush({ kind: 'crew', id: x })} />
@@ -178,11 +180,13 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           {item.kind === 'fire' && <Fire id={item.id} title={title} tid={id} onDone={onClear} />}
           {item.kind === 'newTask' && (
             <NewTask teamId={teamId} copyOf={item.copyOf} seed={item.seed} title={title} tid={id} open={above?.kind === 'staff' ? above.node : null}
-              onOpen={(node) => onPush({ kind: 'staff', node })} onDone={onDone} />
+              onOpen={(node) => onPush({ kind: 'staff', node })} image={above?.kind === 'image' ? above.key : null}
+              onImage={(key, image) => onPush({ kind: 'image', key, image })} onDone={onDone} />
           )}
           {(item.kind === 'chat' || item.kind === 'newChat') && (
             <ChatSheet id={item.kind === 'chat' ? item.id : undefined} teamId={teamId} title={title} tid={id} creating={above?.kind === 'newTask'}
               crewOpen={above?.kind === 'crew'} onCrew={(x) => onPush({ kind: 'crew', id: x })}
+              image={above?.kind === 'image' ? above.key : null} onImage={(key, image, chat) => onPush({ kind: 'image', key, image, chat })}
               onTask={(seed) => onPush({ kind: 'newTask', seed })} onFork={(x) => onPush({ kind: 'chat', id: x })} onGoneChat={onDone} />
           )}
           {item.kind === 'disband' && <Disband teamId={teamId} title={title} tid={id} onDone={onDone} />}
@@ -247,9 +251,9 @@ function Bar({ value }: { value: number }) {
 /** A task someone asked for. The sub-tasks the employees made for it are listed here and open on their own sheet. */
 function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copying, onCopy, onGoneTask, crew, onCrew, image, onImage, ...h }: Head & {
   id: string
-  /** The picture open on the sheet above, by index, and how to open one. */
-  image: number | null
-  onImage: (index: number) => void
+  /** The picture open on the sheet above, by its key, and how to open one. */
+  image: string | null
+  onImage: (key: string, image: Attachment) => void
   /** The employee open on the sheet above, and how to open one (the task's owner). */
   crew: string | null
   onCrew: (id: string) => void
@@ -333,7 +337,7 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
       {task.images.length > 0 && (
         <div className="fx-thumbs">
           {task.images.map((im, i) => (
-            <button key={i} type="button" className="fx-thumb fx-hit" aria-expanded={image === i} onClick={() => onImage(i)}>
+            <button key={i} type="button" className="fx-thumb fx-hit" aria-expanded={image === `task:${task.id}:${i}`} onClick={() => onImage(`task:${task.id}:${i}`, im)}>
               <img src={im.url} alt={im.name} />
             </button>
           ))}
@@ -1348,6 +1352,7 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
   const hash = () => Math.random().toString(16).slice(2, 9)
   const keep = (bp: Omit<Blueprint, 'id' | 'look' | 'autoUpdate'>) => {
     act((x) => saveBlueprint(x, id, (key, prev) => blueprintOf(key, prev, look, bp)))
+    if (copyOf) learn('copyBlueprint')
     onDone()
   }
   const save = (e: React.FormEvent) => {
@@ -1696,7 +1701,7 @@ function Disband({ teamId, onDone, ...h }: Head & { teamId: string; onDone: () =
  * last task's on that flow; a step's note opens a sheet to change it. It can start once every step has
  * someone.
  */
-function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
+function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, ...h }: Head & {
   teamId: string
   /** The task to start from, if it is a copy. */
   copyOf?: string
@@ -1704,6 +1709,9 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
   seed?: ChatTaskSeed
   open: string | null
   onOpen: (nodeId: string) => void
+  /** The attached picture open on the sheet above, by its key, and how to open one. */
+  image: string | null
+  onImage: (key: string, image: Attachment) => void
   onDone: () => void
 }) {
   const w = useStore((s) => s.world)
@@ -1735,6 +1743,7 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
     if (!ready || !draft.ownerId) return
     const { title, description, workflowId, staff, ownerId, images, files } = draft
     act((x) => void createTask(x, { teamId, title: title.trim(), description: description.trim(), workflowId, staff, ownerId, images, files }))
+    if (seed) learn('chatTask')
     onDone()
   }
   // a screenshot pasted into either text box comes in as a picture
@@ -1778,7 +1787,13 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, onDone, ...h }: Head & {
           <div className="fx-thumbs">
             {images.map((im, i) => (
               <figure key={i} className={isImage(im) ? "fx-thumb" : "fx-file-wrap"}>
-                {isImage(im) ? <img src={im.url} alt={im.name} /> : <FileAttachment file={im} />}
+                {isImage(im)
+                  ? (
+                    <button type="button" className="fx-thumb-open" aria-expanded={image === `newTask:${i}`} onClick={() => onImage(`newTask:${i}`, im)}>
+                      <img src={im.url} alt={im.name} />
+                    </button>
+                  )
+                  : <FileAttachment file={im} />}
                 <button type="button" className="fx-thumb-x" aria-label={tr('移除 {name}', { name: im.name })}
                   onClick={() => editDraft(() => splitAttachments(images.filter((_, j) => j !== i)))}>×</button>
               </figure>
@@ -2016,16 +2031,17 @@ function RealDoc({ sub, path }: { sub: string; path: string }) {
   return <pre className="fx-doc-code fx-doc-raw"><code>{state.text}</code></pre>
 }
 
-/** A picture added to a task, at full width. */
-function ImageDetail({ task: taskId, index, ...h }: Head & { task: string; index: number }) {
-  const task = useStore((s) => s.world.tasks[taskId])
-  const im = task?.images[index]
-  if (!task || !im) return <Gone {...h} />
+/** A picture from a task, a chat or one about to be sent, at full width, under what it belongs to. */
+function ImageDetail({ item, ...h }: Head & { item: Extract<Item, { kind: 'image' }> }) {
+  const task = useStore((s) => (item.task ? s.world.tasks[item.task] : undefined))
+  const chat = useStore((s) => (item.chat ? s.world.chats[item.chat] : undefined))
+  const im = item.image
   return (
     <>
       <header className="fx-d-head">
         <Heading {...h}>{im.name}</Heading>
-        <p className="fx-d-meta"><span><span className="fx-task-no">#{task.number}</span>{task.title}</span></p>
+        {task && <p className="fx-d-meta"><span><span className="fx-task-no">#{task.number}</span>{task.title}</span></p>}
+        {chat && <p className="fx-d-meta"><span>{chat.title || chatPreview(chat)}</span></p>}
       </header>
       <img className="fx-d-image" src={im.url} alt={im.name} />
     </>

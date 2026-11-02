@@ -21,6 +21,31 @@ import { PixelFace } from './core/voxel/PixelFace'
 import { MentionBox } from './MentionBox'
 import { changeAsk, ChangeLines } from './ChangeCard'
 import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, splitAttachments } from './attachments'
+import { draftKey, useChatDraft } from './chatDraft'
+
+/** Copies a message's text, showing a tick for a moment after. */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), 1500)
+    return () => clearTimeout(timer)
+  }, [copied])
+  const label = copied ? tr('已複製') : tr('複製這則訊息')
+  return (
+    <button type="button" className="fx-chat-edit fx-hit" aria-label={label} title={copied ? tr('已複製') : tr('複製')}
+      onClick={() => navigator.clipboard.writeText(text).then(() => setCopied(true), () => {})}>
+      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+        {copied
+          ? <path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+          : <>
+            <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M10.5 3.5V3a1 1 0 0 0-1-1H3.5a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          </>}
+      </svg>
+    </button>
+  )
+}
 
 /** The chat's name, written in place: saved on leaving the field or Enter, put back on Escape; empty shows the first message again. */
 function ChatTitle({ chat }: { chat: Chat }) {
@@ -45,7 +70,7 @@ function ChatTitle({ chat }: { chat: Chat }) {
 
 export interface ChatTaskSeed { title: string; description: string; ownerId: string | null }
 
-export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onTask, onFork, onGoneChat, ...h }: Head & {
+export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image, onImage, onTask, onFork, onGoneChat, ...h }: Head & {
   /** The chat to open; none starts a new one. */
   id?: string
   teamId: string
@@ -54,6 +79,9 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onTas
   /** Whether the sheet above is the employee's, opened from the face or name on top. */
   crewOpen: boolean
   onCrew: (id: string) => void
+  /** The picture open on the sheet above, by its key, and how to open one. */
+  image: string | null
+  onImage: (key: string, image: Attachment, chat?: string) => void
   onTask: (seed: ChatTaskSeed) => void
   /** Opens the copy just made of this chat. */
   onFork: (id: string) => void
@@ -74,8 +102,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onTas
   // what a new chat needs may go while this is open; one under way says so when it fails
   const needs = usePrereqs(teamId, airport ? 'airportChats' : 'chats').filter((x) => !chat && x.blocks)
   const replica = w.replicas[chat?.replicaId ?? replicaId]
-  const [text, setText] = useState('')
-  const [images, setImages] = useState<Attachment[]>([])
+  const { text, setText, images, setImages } = useChatDraft(draftKey(chat?.id, teamId))
   const [reading, setReading] = useState(false)
   const [readFailed, setReadFailed] = useState(false)
   const [refused, setRefused] = useState(false)
@@ -261,6 +288,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onTas
                     <div className="fx-chat-bubble"><span className="fx-sr">{name}{colon()}</span><Markdown text={m.text} /></div>
                     <div className="fx-chat-foot">
                       <time>{fmtClock(m.at)}</time>
+                      {m.text && <CopyButton text={m.text} />}
                       {forkButton(i)}
                     </div>
                   </div>
@@ -268,12 +296,22 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onTas
                 : (
                   <div className="fx-chat-said">
                     {m.images && m.images.length > 0 && (
-                      <div className="fx-chat-images">{m.images.map((im, j) => <img key={j} src={im.url} alt={im.name} />)}</div>
+                      <div className="fx-chat-images">
+                        {m.images.map((im, j) => {
+                          const key = `chat:${chat.id}:${i}:${j}`
+                          return (
+                            <button key={j} type="button" className="fx-chat-image fx-hit" aria-expanded={image === key} onClick={() => onImage(key, im, chat.id)}>
+                              <img src={im.url} alt={im.name} />
+                            </button>
+                          )
+                        })}
+                      </div>
                     )}
                     {!!m.files?.length && <div className="fx-chat-images">{m.files.map((file, j) => <FileAttachment key={j} file={file} />)}</div>}
                     {m.text && <p className="fx-chat-bubble"><span className="fx-sr">{tr('你：')}</span>{m.text}</p>}
                     <div className="fx-chat-foot">
                     <time>{fmtClock(m.at)}</time>
+                    {m.text && <CopyButton text={m.text} />}
                     {!left && (
                       <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('編輯這則訊息')} title={tr('編輯')} disabled={sending || reading} onClick={() => edit(i)}>
                         <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
@@ -363,7 +401,13 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onTas
               <div className="fx-thumbs fx-room-say-wide">
                 {images.map((im, i) => (
                   <figure key={i} className={isImage(im) ? "fx-thumb" : "fx-file-wrap"}>
-                    {isImage(im) ? <img src={im.url} alt={im.name} /> : <FileAttachment file={im} />}
+                    {isImage(im)
+                      ? (
+                        <button type="button" className="fx-thumb-open" aria-expanded={image === `chatDraft:${i}`} onClick={() => onImage(`chatDraft:${i}`, im, chat?.id)}>
+                          <img src={im.url} alt={im.name} />
+                        </button>
+                      )
+                      : <FileAttachment file={im} />}
                     <button type="button" className="fx-thumb-x" aria-label={tr('移除 {name}', { name: im.name })}
                       onClick={() => setImages((now) => now.filter((_, j) => j !== i))}>×</button>
                   </figure>

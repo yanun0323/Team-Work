@@ -477,8 +477,26 @@ export interface ModelProvider {
   thinking?: Record<string, string[]>
 }
 
+/**
+ * How far the user has come through the tutorial, as kept in tutorial.yaml. Which steps there are and when each is
+ * met is decided here, in `tutorial.ts`; every list only grows.
+ */
+export interface TutorialState {
+  /** The steps already met when the tutorial first ran have been put down as done, without a tick. */
+  seeded: boolean
+  hidden: boolean
+  done: string[]
+  /** Steps the user has seen appear in the list. */
+  shown: string[]
+  /** Done steps whose tick has played. */
+  played: string[]
+  /** Things the user did that leave nothing in the world to show for them. */
+  actions: string[]
+}
+
 export interface World {
   preferences?: Prefs
+  tutorial?: TutorialState
   now: number
   seq: number
   /** The language of the app and of what employees write to the user. */

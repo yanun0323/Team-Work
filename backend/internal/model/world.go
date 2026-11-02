@@ -441,6 +441,7 @@ type Quota struct {
 // World is everything the backend knows. Conversations stay inside the backend, so clients never get them.
 type World struct {
 	Preferences   Preferences               `json:"preferences"`
+	Tutorial      Tutorial                  `json:"tutorial"`
 	Now           float64                   `json:"now"`
 	Seq           int                       `json:"seq"`
 	Language      string                    `json:"language"`
@@ -472,7 +473,7 @@ func IsPresetID(id string) bool { return strings.HasPrefix(id, PresetPrefix) }
 
 func NewWorld() *World {
 	return &World{
-		Language: LanguageZh, Preferences: DefaultPreferences(),
+		Language: LanguageZh, Preferences: DefaultPreferences(), Tutorial: Tutorial{Done: []string{}, Shown: []string{}, Played: []string{}, Actions: []string{}, Copies: []string{}},
 		Teams: map[string]*Team{}, Providers: map[string]*ModelProvider{}, Blueprints: map[string]*Blueprint{},
 		Replicas: map[string]*Replica{}, Workflows: map[string]*Workflow{}, Tasks: map[string]*Task{},
 		SubTasks: map[string]*SubTask{}, Chats: map[string]*Chat{}, Conversations: map[string][]Message{},

@@ -74,6 +74,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/settings/open-folder", s.openSettingsFolder)
 	api.PUT("/settings/language", s.setLanguage)
 	api.PATCH("/settings/preferences", s.updatePreferences)
+	api.PATCH("/tutorial", s.updateTutorial)
 	api.GET("/settings/global-prompt", s.globalPrompt)
 	api.PUT("/settings/global-prompt", s.setGlobalPrompt)
 	api.GET("/events", s.events)
@@ -594,7 +595,10 @@ func (s *Server) openFolder(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	return done(c, s.folders.OpenFolder(c.Request().Context(), folder))
+	if err := s.folders.OpenFolder(c.Request().Context(), folder); err != nil {
+		return err
+	}
+	return done(c, s.engine.Learn("openFolder"))
 }
 
 func (s *Server) teamHealth(c echo.Context) error {
@@ -846,4 +850,12 @@ func (s *Server) updatePreferences(c echo.Context) error {
 		return err
 	}
 	return done(c, s.engine.UpdatePreferences(in))
+}
+
+func (s *Server) updateTutorial(c echo.Context) error {
+	in, err := bind[model.TutorialPatch](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.UpdateTutorial(in))
 }

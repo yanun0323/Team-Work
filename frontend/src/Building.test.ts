@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { litShares } from './Building'
+import { litShares, shoutBursts } from './Building'
 import { seedWorld } from './core/data/seed'
 import { busyReplicas, createChat } from './core/domain/sim'
 import { teamBusy, teamReplicas } from './core/model'
@@ -33,5 +33,17 @@ describe('teamBusy', () => {
     expect(teamBusy(w, teamId)).toBe(working + 1)
     delete w.chats[chat.id].replyAt
     expect(teamBusy(w, teamId)).toBe(working)
+  })
+})
+
+describe('shoutBursts', () => {
+  it('puts one fan on each side of the screen, never mirroring each other', () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const [a, b] = shoutBursts(8, 8, 12, seed)
+      expect(a.side).toBe(-b.side)
+      expect(a.rays.length).not.toBe(b.rays.length)
+      expect(a.at[1]).not.toBe(b.at[1])
+      expect(a.beat).not.toBe(b.beat)
+    }
   })
 })

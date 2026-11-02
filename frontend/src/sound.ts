@@ -10,6 +10,7 @@ export const SOUND_EFFECTS = [
   { key: 'soundFlyover', label: '飛機飛越' },
   { key: 'soundUI', label: '介面操作' },
   { key: 'soundNotice', label: '告示牌通知' },
+  { key: 'soundTutorial', label: '教學提示' },
 ] as const
 export type SoundEffect = (typeof SOUND_EFFECTS)[number]['key']
 

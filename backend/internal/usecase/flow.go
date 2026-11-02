@@ -693,10 +693,17 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 // ResolveReview is the user's reply to a sub-task waiting on them: an option with a note; a question can
 // also be answered in words alone.
 func (e *Engine) ResolveReview(subID, optionID, note string) error {
-	if e.resolvesChange(subID, optionID) {
-		return e.doSettings(func() error { return e.resolveReview(subID, optionID, note) })
+	resolve := func() error {
+		if err := e.resolveReview(subID, optionID, note); err != nil {
+			return err
+		}
+		e.w.Tutorial.Learn("review")
+		return nil
 	}
-	return e.do(func() error { return e.resolveReview(subID, optionID, note) })
+	if e.resolvesChange(subID, optionID) {
+		return e.doSettings(resolve)
+	}
+	return e.do(resolve)
 }
 
 // resolvesChange says whether this answer writes settings, and so has to go through what guards them.
@@ -837,6 +844,7 @@ func (e *Engine) ResumeTask(id string) error {
 			return model.Errorf(model.CodeConflict, "這個任務沒有暫停")
 		}
 		t.Paused, t.PausedAt, t.PausedStatus = false, nil, ""
+		e.w.Tutorial.Learn("pause")
 		return nil
 	})
 }

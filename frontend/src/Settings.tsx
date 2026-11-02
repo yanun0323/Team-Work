@@ -26,6 +26,7 @@ import { request } from './core/backend'
 import { MusicSection, Volume } from './SoundPage'
 import { MOCK } from './core/mode'
 import { DEFAULT_EFFORT, effortsOf, modelGroups, modelsOf } from './crew'
+import { takeAirportTab, tutorialOf, updateTutorial } from './tutorial'
 
 // TODO: the real addresses; these are placeholders until they are given
 const LINKS = [
@@ -68,6 +69,8 @@ export function Settings({ leaving, onGone }: {
 }) {
   const [tab, setTab] = useState<AirportTab>(() => {
     const { openWaitingTab, defaultAirportTab } = usePrefs.getState()
+    const asked = takeAirportTab()
+    if (asked) return asked
     // the airport has no tasks, so only its chats can be waiting
     return openWaitingTab && waitingTab(useStore.getState().world, '') === 'chats' ? 'chats' : airportTabOr(defaultAirportTab)
   })
@@ -307,12 +310,12 @@ export function SystemSection() {
     <section className="fx-d-group" aria-labelledby="fx-prefs-system">
       <h4 id="fx-prefs-system">{tr('系統')}</h4>
       <div className="fx-fields">
+        <ChatTitleFields model={titleModel} effort={titleEffort} onChange={setPrefs} />
         <label className="fx-field fx-field-top">
           <span>{tr('全域 AGENTS.md')}</span>
-          <textarea className="fx-control" rows={6} value={draft} disabled={saved === null} spellCheck={false}
+          <textarea className="fx-control" rows={12} value={draft} disabled={saved === null} spellCheck={false}
             onChange={(e) => { typing.current = true; setDraft(e.target.value) }} onBlur={() => void save()} />
         </label>
-        <ChatTitleFields model={titleModel} effort={titleEffort} onChange={setPrefs} />
       </div>
       <p role="alert">{error}</p>
     </section>
@@ -386,6 +389,17 @@ export function ResetSettings() {
   )
 }
 
+/** Skipping hides the list until it is started over; starting over empties what was learned, both at once. */
+function TutorialActs() {
+  const hidden = useStore((s) => tutorialOf(s.world).hidden)
+  return (
+    <div className="fx-settings-file-acts">
+      {!hidden && <button type="button" className="fx-save" onClick={() => updateTutorial({ hidden: true })}>{tr('略過教學')}</button>}
+      <button type="button" className="fx-save" onClick={() => updateTutorial({ reset: true })}>{tr('重新開始教學')}</button>
+    </div>
+  )
+}
+
 export function PrefsPage() {
   const prefs = usePrefs()
   const language = useStore((s) => s.world.language)
@@ -407,6 +421,7 @@ export function PrefsPage() {
           {check('openWaitingTab', tr('有待處理時優先開啟該頁籤'))}
           {check('openWaitingSub', tr('點待回覆的任務時直接開啟子任務'))}
         </div>
+        <TutorialActs />
       </section>
       <section className="fx-d-group" aria-labelledby="fx-prefs-controls">
         <h4 id="fx-prefs-controls">{tr('操作')}</h4>

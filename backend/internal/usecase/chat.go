@@ -193,6 +193,7 @@ func (e *Engine) SayInChat(id, text string, images []model.Attachment, attached 
 				return err
 			}
 			c.Queue = append(c.Queue, model.QueuedMessage{ID: e.uid("queued"), At: e.w.Now, Text: text, Images: images, Files: files})
+			e.w.Tutorial.Learn("queue")
 			return nil
 		}
 		spec, err := e.chatSpec(c)
@@ -376,6 +377,7 @@ func (e *Engine) ForkChat(id string, index int) (*model.Chat, error) {
 		e.w.Chats[fork.ID] = fork
 		e.w.Conversations[fork.ID] = copied
 		e.dirty[fork.ID] = true
+		e.w.Tutorial.Learn("fork")
 		out = clone(fork)
 		return nil
 	})

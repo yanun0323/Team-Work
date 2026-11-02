@@ -10,6 +10,7 @@ import (
 type Preferences struct {
 	MusicStyle        string `json:"musicStyle"`
 	SoundNotice       bool   `json:"soundNotice"`
+	SoundTutorial     bool   `json:"soundTutorial"`
 	MusicVolume       int    `json:"musicVolume"`
 	EffectsVolume     int    `json:"effectsVolume"`
 	MusicMuted        bool   `json:"musicMuted"`
@@ -39,7 +40,7 @@ type Preferences struct {
 }
 
 func DefaultPreferences() Preferences {
-	return Preferences{MuteInBackground: true, MusicStyle: "bossa", SoundNotice: true, MusicVolume: 100, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", OpenWaitingTab: true, OpenWaitingSub: true}
+	return Preferences{MuteInBackground: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, MusicVolume: 100, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", OpenWaitingTab: true, OpenWaitingSub: true}
 }
 
 // MergePreferences accepts only known, non-null fields; omitted fields keep their values.

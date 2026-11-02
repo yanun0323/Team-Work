@@ -48,6 +48,7 @@ func (s *Server) terminal(c echo.Context) error {
 	}
 	defer conn.Close()
 	conn.SetReadLimit(terminalReadLimit)
+	_ = s.engine.Learn("terminal") // only the tutorial's record; the terminal works without it
 
 	// Closing the connection ends the read loop below.
 	output := make(chan struct{})

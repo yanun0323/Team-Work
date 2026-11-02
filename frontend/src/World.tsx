@@ -36,6 +36,8 @@ import { usePrefs } from './prefs'
 import { propBoxes, type Box } from './streetProps'
 import { useSound } from './sound'
 import { Brand } from './Brand'
+import { TutorialList } from './TutorialList'
+import { askTab, lastTeam, learn, rememberTeam, type TutorialGoal } from './tutorial'
 import { nextIntro, revealBoot, skipBoot, type Intro } from './boot'
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -313,6 +315,20 @@ export function World() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [settingsOpen, placing, editing, helpOpen, close])
 
+  // the tutorial counts opening the help and the board; the company used last is where its steps go
+  useEffect(() => { if (helpOpen) learn('help') }, [helpOpen])
+  useEffect(() => { if (panel === 'board') learn('board') }, [panel])
+  useEffect(() => { if (selected) rememberTeam(selected) }, [selected])
+  function goTutorial(goal: TutorialGoal) {
+    if (goal.kind === 'help') return setHelpOpen(true)
+    if (goal.kind === 'board') return town.lots.length > 0 && setPanel('board')
+    if (goal.kind === 'newCompany') return setPlacing(true)
+    askTab(goal)
+    if (goal.kind === 'airport') return setPanel('settings')
+    const id = lastTeam(useStore.getState().world)
+    if (id) setSelected(id)
+  }
+
   // the airport opens the settings; it can't be moved, so while editing the map it does nothing
   function selectAirport() {
     if (helpOpen || settingsOpen || placing || selected) close()
@@ -366,7 +382,12 @@ export function World() {
       <PixelPass pixel={2} />
     </Canvas>
     <LabelLayer labels={shownLabels} />
-    {!drawer.value && !settings.value && !sheet.value && !help.value && <Brand />}
+    {!drawer.value && !settings.value && !sheet.value && !help.value && (
+      <div className="fx-top-left">
+        <Brand />
+        {!placing && !editing && <TutorialList onGo={goTutorial} />}
+      </div>
+    )}
     {!drawer.value && !settings.value && !sheet.value && !help.value && (
       <>
       {(placing || editing) && (

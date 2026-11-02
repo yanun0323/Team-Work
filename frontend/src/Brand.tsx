@@ -1,4 +1,4 @@
-// The app's name with the time and date, in the corner of the main screen, and below them what is left of
+// The time and date, in the corner of the main screen, and below them what is left of
 // each model provider's allowance.
 
 import { useEffect, useState } from 'react'
@@ -66,16 +66,19 @@ function useQuotas(providers: Record<string, ModelProvider>) {
   return quotas
 }
 
+/** The share of a limit still free, 0 to 100, from the share used; undefined when unknown. */
+export const leftOf = (used?: number) => (used === undefined ? undefined : 100 - Math.min(Math.max(used, 0), 100))
+
 /**
- * A ring filled as far as the limit is used, with the share in the middle (grey with '-' when unknown), and
+ * A ring filled as far as the limit is still free, with the share in the middle (grey with '-' when unknown), and
  * under it the time left before the limit starts over.
  */
-export function UsageRing({ used, resetAt, now, label }: { used?: number; resetAt?: number; now: number; label: (text: string) => string }) {
+export function UsageRing({ left: free, resetAt, now, label }: { left?: number; resetAt?: number; now: number; label: (text: string) => string }) {
   const r = 12
   const length = 2 * Math.PI * r
-  const known = used !== undefined
+  const known = free !== undefined
   // the ring shows the bare number; the % is read out
-  const text = known ? `${Math.round(used)}` : '-'
+  const text = known ? `${Math.round(free)}` : '-'
   const left = resetWords(now, resetAt)
   const spoken = label(known ? `${text}%` : tr('無資料'))
   return (
@@ -83,8 +86,8 @@ export function UsageRing({ used, resetAt, now, label }: { used?: number; resetA
       <span className="fx-ring" aria-hidden="true">
         <svg viewBox="0 0 30 30">
           <circle className="fx-ring-track" cx="15" cy="15" r={r} />
-          {known && used > 0 && (
-            <circle className="fx-ring-fill" cx="15" cy="15" r={r} strokeDasharray={`${(length * Math.min(used, 100)) / 100} ${length}`} />
+          {known && free > 0 && (
+            <circle className="fx-ring-fill" cx="15" cy="15" r={r} strokeDasharray={`${(length * free) / 100} ${length}`} />
           )}
         </svg>
         <span>{text}</span>
@@ -106,8 +109,8 @@ export function QuotaList({ providers, quotas, now }: { providers: ModelProvider
             <span className="fx-quota-name">{p.name}</span>
             {p.auth.kind === 'subscription' ? (
               <>
-                <UsageRing used={q?.fiveHour} resetAt={q?.fiveHourResetAt} now={now} label={(a) => tr('5 小時用量 {a}', { a })} />
-                <UsageRing used={q?.weekly} resetAt={q?.weeklyResetAt} now={now} label={(a) => tr('每週用量 {a}', { a })} />
+                <UsageRing left={leftOf(q?.fiveHour)} resetAt={q?.fiveHourResetAt} now={now} label={(a) => tr('5 小時剩餘 {a}', { a })} />
+                <UsageRing left={leftOf(q?.weekly)} resetAt={q?.weeklyResetAt} now={now} label={(a) => tr('每週剩餘 {a}', { a })} />
               </>
             ) : (
               <span className={q?.balance === undefined ? 'fx-quota-balance fx-quota-none' : 'fx-quota-balance'}>{balanceText(q)}</span>
@@ -131,8 +134,12 @@ export function Brand() {
   const { time, date } = clockText(now, locale)
   return (
     <div className="fx-brand fx-tag">
-      <h1>Team Work</h1>
-      <p><time dateTime={now.toISOString()}>{time}　{date}</time></p>
+      {/* the clock stands where a title would; the name is still there for a screen reader */}
+      <h1 className="fx-sr">Team Work</h1>
+      <time dateTime={now.toISOString()}>
+        <span className="fx-brand-time">{time}</span>
+        <span className="fx-brand-date">{date}</span>
+      </time>
       <QuotaList providers={Object.values(providers)} quotas={quotas} now={Math.floor(now.getTime() / 1000)} />
     </div>
   )

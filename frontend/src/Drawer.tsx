@@ -17,6 +17,7 @@ import { TabBody, TABS, tabOr, type Tab } from './DrawerTabs'
 import { usePrefs } from './prefs'
 import type { BuildingLook } from './layout'
 import type { Team } from './core/domain/types'
+import { takeCompanyTab } from './tutorial'
 
 const Terminal = lazy(() => import('./Terminal'))
 
@@ -105,8 +106,12 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   const last = useRef(live)
   if (live) last.current = live
   const team = live ?? (last.current?.id === teamId ? last.current : undefined)
+  // the tab a tutorial step asked for, kept until the opening effect below has used it
+  const [askedTab] = useState(takeCompanyTab)
+  const asked = useRef(askedTab)
   const startTab = () => {
     const { openWaitingTab, defaultTab } = usePrefs.getState()
+    if (asked.current) return asked.current
     return tabOr((openWaitingTab && waitingTab(useStore.getState().world, teamId)) || defaultTab)
   }
   const [tab, setTab] = useState<Tab>(startTab)
@@ -122,6 +127,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
     title.current?.focus({ preventScroll: true })
     back(-1, false)
     const start = startTab()
+    asked.current = null
     setTab(start)
     if (start === 'terminal') {
       setTerminalTeam(teamId)
