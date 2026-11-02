@@ -181,6 +181,8 @@ type agentSpec struct {
 	name string
 	// subscription: paid by plan, not by token, so the cost limit has nothing to count
 	subscription bool
+	// images draws pictures for image_gen; nil when no ChatGPT subscription is set to
+	images adapter.ImageMaker
 }
 
 // packRoot is a skill pack as read at run time.
@@ -216,11 +218,32 @@ func (e *Engine) modelSpec(modelID, wanted string) (agentSpec, error) {
 	if wanted != model.ThinkingDefault && e.takesEffort(modelID, wanted) {
 		effort = wanted
 	}
-	spec := agentSpec{provider: provider, model: modelID, effort: effort, subscription: p.Auth.Kind != "apiKey"}
+	spec := agentSpec{provider: provider, model: modelID, effort: effort, subscription: p.Auth.Kind != "apiKey", images: e.imageMaker()}
 	if price, ok := p.Prices[modelID]; ok {
 		spec.price = &price
 	}
 	return spec, nil
+}
+
+// imageMaker is the subscription the preferences draw pictures with, or nil when there is none that can.
+func (e *Engine) imageMaker() adapter.ImageMaker {
+	p := e.w.Providers[e.w.Preferences.ImageProvider]
+	if p == nil {
+		return nil
+	}
+	maker, err := e.providers.Images(*p)
+	if err != nil {
+		return nil
+	}
+	return maker
+}
+
+// imageTools is image_gen, when pictures can be drawn. keep, when set, gets each saved picture.
+func imageTools(spec agentSpec, read []string, keep func(output string, data []byte)) []adapter.Tool {
+	if spec.images == nil {
+		return nil
+	}
+	return []adapter.Tool{tools.Image{Maker: spec.images, Extra: read, Keep: keep}}
 }
 
 func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Replica) (agentSpec, error) {
@@ -534,8 +557,10 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 	if in.talk { // a discussion changes nothing; it only reads
 		allowed = slices.DeleteFunc(slices.Clone(allowed), func(x enum.Tool) bool { return x == enum.ToolWriteFile || x == enum.ToolRunCommand })
 	}
-	list := tools.For(allowed, tools.Env{Read: append(roots, e.attachmentRoot(in.taskID)), Output: e.outputRoot(in.taskID), Search: e.search})
+	read := append(roots, e.attachmentRoot(in.taskID))
+	list := tools.For(allowed, tools.Env{Read: read, Output: e.outputRoot(in.taskID), Search: e.search})
 	if !in.talk {
+		list = append(list, imageTools(in.spec, read, nil)...)
 		list = append(list, e.agentTools(in)...)
 	}
 	list = append(list, e.manageTools(e.managerOfSub(in), in.spec.allowed, !in.talk)...)

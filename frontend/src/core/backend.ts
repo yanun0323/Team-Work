@@ -51,6 +51,9 @@ export function applyPatches(w: World, ev: { upserts?: Patch[]; deletes?: Patch[
 export const readHandedFile = (subId: string, path: string, signal: AbortSignal) =>
   request<{ text: string }>('GET', `/subtasks/${subId}/file?path=${encodeURIComponent(path)}`, undefined, signal).then((r) => r.text)
 
+/** Where an `<img>` loads a picture a sub-task handed over, as committed. */
+export const handedImageUrl = (subId: string, path: string) => `/api/v1/subtasks/${subId}/image?path=${encodeURIComponent(path)}`
+
 /** A world with nothing in it, until the backend's snapshot arrives. */
 export const emptyWorld = (): World => ({
   preferences: { ...DEFAULT_PREFS }, now: Date.now() / 1000, seq: 0, language: 'zh', teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},

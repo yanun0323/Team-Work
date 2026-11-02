@@ -125,6 +125,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/tasks/:id/workflow", s.changeWorkflow)
 
 	api.GET("/subtasks/:id/file", s.handedFile)
+	api.GET("/subtasks/:id/image", s.handedImage)
 	api.POST("/subtasks/:id/review", s.resolveReview)
 	api.POST("/subtasks/:id/talk", s.sayInTalk)
 	api.POST("/subtasks/:id/talk/end", s.endTalk)
@@ -566,6 +567,15 @@ func (s *Server) handedFile(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, map[string]any{"text": text})
+}
+
+func (s *Server) handedImage(c echo.Context) error {
+	data, kind, err := s.engine.HandedImage(c.Request().Context(), c.Param("id"), c.QueryParam("path"))
+	if err != nil {
+		return err
+	}
+	c.Response().Header().Set("X-Content-Type-Options", "nosniff")
+	return c.Blob(http.StatusOK, kind, data)
 }
 
 func (s *Server) sayInTalk(c echo.Context) error {

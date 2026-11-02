@@ -415,6 +415,11 @@ type ModelProvider struct {
 	Prices   map[string]ModelPrice `json:"prices,omitempty"`
 }
 
+// MakesImages says whether a provider can be the one that draws pictures: only a ChatGPT subscription can.
+func MakesImages(p ModelProvider) bool {
+	return p.Kind == enum.ProviderOpenAI && p.Auth.Kind == "subscription"
+}
+
 // ThinkingDefault leaves how hard a model thinks to its provider. Every model takes it.
 const ThinkingDefault = "default"
 

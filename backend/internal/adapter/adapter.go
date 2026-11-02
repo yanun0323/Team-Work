@@ -50,6 +50,13 @@ type Providers interface {
 	Login(ctx context.Context, p model.ModelProvider, method string) (*LoginFlow, error)
 	// Logout forgets what signing in saved.
 	Logout(ctx context.Context, p model.ModelProvider) error
+	// Images draws pictures with a signed-in ChatGPT subscription.
+	Images(p model.ModelProvider) (ImageMaker, error)
+}
+
+// ImageMaker draws a PNG from a prompt, or edits the sources (data URLs) when there are any.
+type ImageMaker interface {
+	MakeImage(ctx context.Context, prompt string, sources []string, transparent bool) ([]byte, error)
 }
 
 // ClaudeStatus is where Claude Code stands on this computer. Models are ready to be given to a provider.
@@ -108,6 +115,8 @@ type Git interface {
 	Remove(ctx context.Context, folder, dir, branch string) error
 	// ReadFile returns a text file's content as it was at commit.
 	ReadFile(ctx context.Context, folder, commit, path string) (string, error)
+	// ReadImage returns a PNG, JPEG, GIF or WebP as it was at commit, with its media type.
+	ReadImage(ctx context.Context, folder, commit, path string) ([]byte, string, error)
 	// Fetch makes a local copy of repo at commit (or at its default branch) and returns where it is.
 	Fetch(ctx context.Context, repo, commit string) (string, error)
 	// Latest reports the commit ref points at upstream.

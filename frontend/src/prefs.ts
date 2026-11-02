@@ -85,9 +85,11 @@ export interface Prefs {
   /** Names each new chat from its first message with this model; empty turns it off. */
   chatTitleModel: string
   chatTitleEffort: string
+  /** The ChatGPT subscription every employee draws pictures with; empty gives nobody image_gen. */
+  imageProvider: string
 }
 
-export const DEFAULT_PREFS: Prefs = { muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', openWaitingTab: true, chatTitleModel: '', chatTitleEffort: '' }
+export const DEFAULT_PREFS: Prefs = { muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', openWaitingTab: true, chatTitleModel: '', chatTitleEffort: '', imageProvider: '' }
 
 /** The range of `zoomSensitivity`; the backend checks the same. */
 export const ZOOM_SENSITIVITY = { min: 20, max: 300 }

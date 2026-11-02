@@ -520,6 +520,7 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 }
 .fx-settings-file-acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .fx-save:hover { background: var(--ink-2); }
+a.fx-save { text-decoration: none; }
 .fx-save:disabled { opacity: 0.4; cursor: default; }
 .fx-detail-body { flex: 1; overflow-y: auto; padding: 24px 28px 28px; display: grid; align-content: start; gap: 22px; }
 .fx-detail h2 { padding-inline-end: 36px; font-size: 22px; line-height: 1.3; font-weight: 700; overflow-wrap: anywhere; }
@@ -1103,6 +1104,7 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 .fx-room-log .fx-chat-agent .fx-chat-bubble { background: var(--note); rotate: -0.4deg; }
 .fx-room-log .fx-chat-user .fx-chat-bubble { rotate: 0.4deg; }
 .fx-room-tool { flex: none; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.fx-room-tool-images { justify-content: flex-start; margin-top: 4px; }
 .fx-room-output { flex: none; margin-top: -4px; padding-left: 10px; border-left: 2px solid var(--shade); color: var(--muted); }
 .fx-room-output pre { margin: 0; font-family: var(--font-mono); font-size: 11px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .fx-room-warn { flex: none; color: var(--accent); font-size: 13px; }

@@ -128,12 +128,29 @@ func (e *Engine) Branches(ctx context.Context, folder string) (branches []string
 
 // HandedFile reads a file a sub-task handed on, as it was at that sub-task's commit.
 func (e *Engine) HandedFile(ctx context.Context, subID, path string) (string, error) {
+	folder, commit, path, err := e.handedAt(subID, path)
+	if err != nil {
+		return "", err
+	}
+	return e.git.ReadFile(ctx, folder, commit, path)
+}
+
+// HandedImage is a picture from a sub-task's handoff commit, with its media type.
+func (e *Engine) HandedImage(ctx context.Context, subID, path string) ([]byte, string, error) {
+	folder, commit, path, err := e.handedAt(subID, path)
+	if err != nil {
+		return nil, "", err
+	}
+	return e.git.ReadImage(ctx, folder, commit, path)
+}
+
+// handedAt is where a sub-task's handed file can be read: its company's folder and handoff commit.
+func (e *Engine) handedAt(subID, path string) (folder, commit, clean string, err error) {
 	path = strings.TrimSpace(path)
 	if clean := filepath.ToSlash(filepath.Clean(path)); path == "" || filepath.IsAbs(path) || strings.HasPrefix(path, "-") || clean == ".." || strings.HasPrefix(clean, "../") {
-		return "", model.Errorf(model.CodeInvalid, "檔案路徑不正確：%s", path)
+		return "", "", "", model.Errorf(model.CodeInvalid, "檔案路徑不正確：%s", path)
 	}
 	e.mu.Lock()
-	var folder, commit string
 	if s := e.w.SubTasks[subID]; s != nil && s.Handoff != nil {
 		if t := e.w.Tasks[s.TaskID]; t != nil && e.w.Teams[t.TeamID] != nil {
 			folder, commit = e.w.Teams[t.TeamID].Folder, s.Handoff.Commit
@@ -141,12 +158,12 @@ func (e *Engine) HandedFile(ctx context.Context, subID, path string) (string, er
 	}
 	e.mu.Unlock()
 	if commit == "" {
-		return "", model.Errorf(model.CodeInvalid, "這個子任務沒有交接的檔案")
+		return "", "", "", model.Errorf(model.CodeInvalid, "這個子任務沒有交接的檔案")
 	}
 	if info, err := os.Stat(folder); err != nil || !info.IsDir() {
-		return "", model.Errorf(model.CodeInvalid, "找不到專案資料夾 %s", folder)
+		return "", "", "", model.Errorf(model.CodeInvalid, "找不到專案資料夾 %s", folder)
 	}
-	return e.git.ReadFile(ctx, folder, commit, path)
+	return folder, commit, path, nil
 }
 
 // TeamPatch changes a company; a nil field stays as it is.
@@ -383,6 +400,8 @@ type NewProvider struct {
 	BaseURL string                      `json:"baseUrl"`
 	Login   ProviderLogin               `json:"login"`
 	Prices  map[string]model.ModelPrice `json:"prices"`
+	// ImageDefault makes a ChatGPT subscription the one every employee draws pictures with.
+	ImageDefault bool `json:"imageDefault"`
 }
 
 func authOf(l ProviderLogin) model.ProviderAuth {
@@ -480,6 +499,9 @@ func (e *Engine) AddProvider(ctx context.Context, in NewProvider) (*model.ModelP
 			e.secrets[p.ID] = key
 		}
 		e.w.Providers[p.ID] = &p
+		if in.ImageDefault && model.MakesImages(p) {
+			e.w.Preferences.ImageProvider = p.ID
+		}
 		out = clone(&p)
 		return nil
 	})
@@ -492,6 +514,8 @@ type ProviderPatch struct {
 	BaseURL *string                     `json:"baseUrl"`
 	Login   *ProviderLogin              `json:"login"`
 	Prices  map[string]model.ModelPrice `json:"prices"`
+	// ImageDefault true makes it the provider that draws pictures; false, when it is that one, leaves none.
+	ImageDefault *bool `json:"imageDefault"`
 }
 
 func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch) error {
@@ -499,7 +523,17 @@ func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch
 	if err != nil {
 		return err
 	}
-	return e.doSettings(func() error { return e.writeProvider(ctx, next) })
+	return e.doSettings(func() error {
+		if err := e.writeProvider(ctx, next); err != nil {
+			return err
+		}
+		if in.ImageDefault != nil && *in.ImageDefault && model.MakesImages(next.provider) {
+			e.w.Preferences.ImageProvider = id
+		} else if in.ImageDefault != nil && !*in.ImageDefault && e.w.Preferences.ImageProvider == id {
+			e.w.Preferences.ImageProvider = ""
+		}
+		return nil
+	})
 }
 
 // providerEdit is a provider as it will be once written, and the key it will use. It is checked with its provider
@@ -584,6 +618,9 @@ func (e *Engine) writeProvider(ctx context.Context, edit providerEdit) error {
 		e.secrets[id] = edit.key
 	}
 	e.w.Providers[id] = &next
+	if e.w.Preferences.ImageProvider == id && !model.MakesImages(next) {
+		e.w.Preferences.ImageProvider = ""
+	}
 	return nil
 }
 
@@ -605,6 +642,9 @@ func (e *Engine) DeleteProvider(ctx context.Context, id string) error {
 		}
 		delete(e.secrets, id)
 		delete(e.w.Providers, id)
+		if e.w.Preferences.ImageProvider == id {
+			e.w.Preferences.ImageProvider = ""
+		}
 		return nil
 	})
 }

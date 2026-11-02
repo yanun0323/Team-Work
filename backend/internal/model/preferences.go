@@ -39,6 +39,8 @@ type Preferences struct {
 	// ChatTitleModel names each new chat from its first message; empty turns naming off.
 	ChatTitleModel  string `json:"chatTitleModel"`
 	ChatTitleEffort string `json:"chatTitleEffort"`
+	// ImageProvider is the ChatGPT subscription every employee draws pictures with; empty gives nobody image_gen.
+	ImageProvider string `json:"imageProvider"`
 }
 
 func DefaultPreferences() Preferences {

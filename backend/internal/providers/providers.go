@@ -165,6 +165,17 @@ func (f *Factory) Logout(ctx context.Context, p model.ModelProvider) error {
 	return nil
 }
 
+// Images draws with a ChatGPT subscription, whatever model the employee runs on.
+func (f *Factory) Images(p model.ModelProvider) (adapter.ImageMaker, error) {
+	if !model.MakesImages(p) {
+		return nil, model.Errorf(model.CodeInvalid, "只有 ChatGPT 訂閱可以生成圖片")
+	}
+	if !p.Auth.SignedIn {
+		return nil, model.Errorf(model.CodeInvalid, "「%s」還沒登入", p.Name)
+	}
+	return f.codexClient(p.ID), nil
+}
+
 func (f *Factory) For(p model.ModelProvider, key string) (adapter.Provider, error) {
 	if p.Auth.Kind != "apiKey" {
 		if !p.Auth.SignedIn {

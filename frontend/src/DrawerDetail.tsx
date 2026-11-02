@@ -21,7 +21,7 @@ import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
 import { ClaudeAccount } from './ClaudeAccount'
 import { Markdown, MarkdownLine } from './Markdown'
-import { useAutoGrow, Select, Switcher, WaitBadge } from './Controls'
+import { useAutoGrow, Select, Switcher, Toggle, WaitBadge } from './Controls'
 import { changeAsk, ChangeLines } from './ChangeCard'
 import { FlowNotes, FlowPreview, openCard } from './FlowNotes'
 import { copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
@@ -34,12 +34,12 @@ import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { MentionBox } from './MentionBox'
 import { newSkillRow, skillPacksOf, skillRowsOf, type SkillRow } from './blueprintForm'
-import { authLabel, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
+import { authLabel, makesImages, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
 import { talking } from './core/domain/sim'
 import { fixedSteps, isPreset } from './core/data/presets'
 import type { TalkEnd } from './core/domain/types'
 import { addProvider, providerUsers, updateProvider, type ProviderLogin, DEFAULT_MODEL, RESOLVE_TIME, costLimit, taskTokens } from './core/domain/sim'
-import { readHandedFile, request } from './core/backend'
+import { handedImageUrl, readHandedFile, request } from './core/backend'
 import { attempt, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, endTalk, fire, hire, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { learn } from './tutorial'
@@ -1012,6 +1012,8 @@ function ProviderDetail({ id, editing, onEdit, onGoneProvider, ...h }: Head & {
   const remove = () => {
     onGoneProvider()
     act((x) => void deleteProvider(x, id))
+    // the backend lets go of a deleted provider itself; the mock keeps preferences apart from the world
+    if (MOCK && usePrefs.getState().imageProvider === id) usePrefs.getState().set({ imageProvider: '' })
   }
   return (
     <>
@@ -1061,6 +1063,11 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
   const [key, setKey] = useState('')
   const [signedIn, setSignedIn] = useState(old?.auth.kind === 'subscription')
   const [loginError, setLoginError] = useState(false)
+  // checked while it is the one that draws; a new one starts checked only when none does yet
+  const [imageDefault, setImageDefault] = useState(() => {
+    const now = usePrefs.getState().imageProvider
+    return old ? now === old.id : !useStore.getState().world.providers[now]
+  })
   // what a signed-in Claude account offers; only a new provider asks, as editing one keeps its sign-in
   const [claudeModels, setClaudeModels] = useState<string[]>([])
   // ChatGPT: the backend signs in a provider it has, so one is made when the user starts, and thrown away if
@@ -1096,6 +1103,7 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
   }
   const custom = kind === 'compatible'
   const claude = !old && kind === 'anthropic' && auth === 'subscription'
+  const draws = makesImages({ kind, auth: { kind: auth } })
   // a key is asked for unless one is kept already, or the provider needs none
   const needKey = !custom && !(old?.auth.kind === 'apiKey')
   const save = (e: React.FormEvent) => {
@@ -1106,13 +1114,14 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
     const login: ProviderLogin | null = auth === 'subscription'
       ? (old?.auth.kind === 'subscription' ? null : { kind: 'subscription' })
       : { kind: 'apiKey', apiKey: key }
+    const image = draws ? { imageDefault } : {}
     if (!MOCK) {
       // the form stays open if the backend turns it down, for a key that does not work, say
       void attempt(async () => {
-        if (made) await request('PATCH', `/providers/${made}`, { name })
-        else if (old) await request('PATCH', `/providers/${old.id}`, { name, baseUrl: url, login })
+        if (made) await request('PATCH', `/providers/${made}`, { name, ...image })
+        else if (old) await request('PATCH', `/providers/${old.id}`, { name, baseUrl: url, login, ...image })
         else {
-          const p = await request<{ id: string }>('POST', '/providers', { name, kind, baseUrl: url, login: login ?? { kind: 'subscription' } })
+          const p = await request<{ id: string }>('POST', '/providers', { name, kind, baseUrl: url, login: login ?? { kind: 'subscription' }, ...image })
           // Claude Code is signed in already by now; the backend only has to see it
           if (claude) await request('POST', `/providers/${p.id}/login`, {})
         }
@@ -1122,10 +1131,15 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
       return
     }
     const models = claude ? claudeModels : PROVIDER_KINDS[kind].models
+    let saved = old?.id ?? ''
     act((x) => {
       if (old) updateProvider(x, old.id, { name, baseUrl: url, login })
-      else addProvider(x, { name, kind, baseUrl: url, login: login ?? { kind: 'subscription' }, models, thinking: mockThinking(kind, models) })
+      else saved = addProvider(x, { name, kind, baseUrl: url, login: login ?? { kind: 'subscription' }, models, thinking: mockThinking(kind, models) }).id
     })
+    // the mock keeps preferences apart from the world, so it follows the backend here
+    const prefs = usePrefs.getState()
+    if (draws && imageDefault) prefs.set({ imageProvider: saved })
+    else if (prefs.imageProvider === saved) prefs.set({ imageProvider: '' })
     onDone()
   }
   return (
@@ -1192,6 +1206,7 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
             {loginError && <p id="fx-login-error" className="fx-field-error">{tr('請先登入 {sub}', { sub })}</p>}
           </>
         )}
+        {draws && <Toggle label={tr('作為預設圖片生成供應商')} checked={imageDefault} onChange={setImageDefault} />}
       </div>
       <button type="submit" className="fx-save">{old ? tr('儲存') : tr('新增')}</button>
     </form>
@@ -2018,6 +2033,18 @@ function MockDoc({ doc }: { doc: Doc }) {
 
 /** The file as committed: a Markdown file rendered, anything else character for character, wrapped to stay on the note. */
 function RealDoc({ sub, path }: { sub: string; path: string }) {
+  return /\.(png|jpe?g|gif|webp)$/i.test(path) ? <HandedImage sub={sub} path={path} /> : <HandedText sub={sub} path={path} />
+}
+
+/** A picture as committed; the backend refuses anything that is not one. */
+function HandedImage({ sub, path }: { sub: string; path: string }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [sub, path])
+  if (failed) return <p className="fx-d-text" role="alert">{tr('{name} 讀不到，請到專案資料夾打開', { name: path.split('/').pop() ?? path })}</p>
+  return <img className="fx-d-image" src={handedImageUrl(sub, path)} alt={path} onError={() => setFailed(true)} />
+}
+
+function HandedText({ sub, path }: { sub: string; path: string }) {
   const [state, setState] = useState<{ text?: string; error?: string }>({})
   useEffect(() => {
     const stop = new AbortController()

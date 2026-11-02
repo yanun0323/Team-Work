@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 const (
 	remoteTimeout = 2 * time.Minute
 	maxReadFile   = 1 << 20
+	maxReadImage  = 25 << 20
 	// maxWalkedFiles bounds how much of a folder that is not a repo gets walked.
 	maxWalkedFiles = 20_000
 )
@@ -169,6 +171,31 @@ func (g *Git) ReadFile(ctx context.Context, folder, commit, path string) (string
 		return "", model.Errorf(model.CodeInvalid, "%s 不是文字檔，請到專案資料夾打開", path)
 	}
 	return text, nil
+}
+
+// ReadImage takes a picture from git's history the same way, with its media type; anything else is refused.
+func (g *Git) ReadImage(ctx context.Context, folder, commit, path string) ([]byte, string, error) {
+	object := commit + ":" + path
+	size, err := git(ctx, folder, "cat-file", "-s", object)
+	if err != nil {
+		return nil, "", model.Errorf(model.CodeInvalid, "這次交接的版本裡沒有 %s", path)
+	}
+	if n, err := strconv.Atoi(size); err != nil || n > maxReadImage {
+		return nil, "", model.Errorf(model.CodeInvalid, "%s 太大，請到專案資料夾打開", path)
+	}
+	// git() trims its output, which would cut a picture's bytes
+	cmd := exec.CommandContext(ctx, "git", "cat-file", "blob", object)
+	cmd.Dir = folder
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	data, err := cmd.Output()
+	if err != nil {
+		return nil, "", model.Errorf(model.CodeInvalid, "這次交接的版本裡沒有 %s", path)
+	}
+	switch kind := http.DetectContentType(data); kind {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return data, kind, nil
+	}
+	return nil, "", model.Errorf(model.CodeInvalid, "%s 不是圖片，請到專案資料夾打開", path)
 }
 
 func (g *Git) Commit(ctx context.Context, dir, author, message string) (string, error) {

@@ -215,6 +215,15 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
     setForking(false)
     if (made) onFork(made.id)
   }
+  // a picture in message i, opened at full size on a sheet of its own
+  const imageButton = (i: number, j: number, im: Attachment) => {
+    const key = `chat:${chat?.id}:${i}:${j}`
+    return (
+      <button key={j} type="button" className="fx-chat-image fx-hit" aria-expanded={image === key} onClick={() => chat && onImage(key, im, chat.id)}>
+        <img src={im.url} alt={im.name} />
+      </button>
+    )
+  }
   const forkButton = (i: number) => !left && !!chat && canFork(chat.messages, i, writing) && (
     <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('從這則訊息複製出新對話')} title="Fork" disabled={forking} onClick={() => void fork(i)}>
       <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
@@ -284,7 +293,12 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
       <div className="fx-room-scroll">
       <ol ref={log} className="fx-room-log" aria-live="polite" aria-label={tr('和 {name} 的對話', { name })}>
         {chat?.messages.map((m, i) => m.from === 'tool'
-          ? <li key={i} className="fx-room-tool"><code>{m.text}</code></li>
+          ? (
+            <li key={i} className="fx-room-tool">
+              <code>{m.text}</code>
+              {!!m.images?.length && <div className="fx-chat-images fx-room-tool-images">{m.images.map((im, j) => imageButton(i, j, im))}</div>}
+            </li>
+          )
           : (
             <li key={i} className={`fx-chat-msg fx-chat-${m.from}`}>
               {m.from === 'agent'
@@ -300,18 +314,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
                 )
                 : (
                   <div className="fx-chat-said">
-                    {m.images && m.images.length > 0 && (
-                      <div className="fx-chat-images">
-                        {m.images.map((im, j) => {
-                          const key = `chat:${chat.id}:${i}:${j}`
-                          return (
-                            <button key={j} type="button" className="fx-chat-image fx-hit" aria-expanded={image === key} onClick={() => onImage(key, im, chat.id)}>
-                              <img src={im.url} alt={im.name} />
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
+                    {m.images && m.images.length > 0 && <div className="fx-chat-images">{m.images.map((im, j) => imageButton(i, j, im))}</div>}
                     {!!m.files?.length && <div className="fx-chat-images">{m.files.map((file, j) => <FileAttachment key={j} file={file} />)}</div>}
                     {m.text && <p className="fx-chat-bubble"><span className="fx-sr">{tr('你：')}</span>{m.text}</p>}
                     <div className="fx-chat-foot">

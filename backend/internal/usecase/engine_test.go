@@ -1,8 +1,12 @@
 package usecase_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,6 +63,20 @@ func (s *script) Models(context.Context) ([]model.ModelSpec, error) {
 }
 func (s *script) For(model.ModelProvider, string) (adapter.Provider, error) {
 	return s, nil
+}
+func (s *script) Images(p model.ModelProvider) (adapter.ImageMaker, error) {
+	if !model.MakesImages(p) || !p.Auth.SignedIn {
+		return nil, model.Errorf(model.CodeInvalid, "no images")
+	}
+	return s, nil
+}
+// MakeImage draws one white pixel.
+func (s *script) MakeImage(context.Context, string, []string, bool) ([]byte, error) {
+	var out bytes.Buffer
+	pic := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	pic.Set(0, 0, color.White)
+	err := png.Encode(&out, pic)
+	return out.Bytes(), err
 }
 func (s *script) Login(context.Context, model.ModelProvider, string) (*adapter.LoginFlow, error) {
 	s.mu.Lock()

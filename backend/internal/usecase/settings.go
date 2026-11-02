@@ -297,6 +297,11 @@ func (e *Engine) UpdatePreferences(patch map[string]json.RawMessage) error {
 		if err != nil {
 			return settingsError("preferences.yaml", err)
 		}
+		if _, set := patch["imageProvider"]; set && next.ImageProvider != "" {
+			if p := e.w.Providers[next.ImageProvider]; p == nil || !model.MakesImages(*p) {
+				return model.Errorf(model.CodeInvalid, "只有 ChatGPT 訂閱可以生成圖片")
+			}
+		}
 		e.w.Preferences = next
 		for key := range patch {
 			if soundPreference(key) {

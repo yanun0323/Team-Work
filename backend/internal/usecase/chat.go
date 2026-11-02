@@ -631,6 +631,21 @@ func (e *Engine) applyChat(in chatRun, fn func(c *model.Chat)) bool {
 	return true
 }
 
+// chatKeepsImage shows each picture image_gen saves under its tool line. The copy is an upload, so the chat still
+// shows it after the file in the folder is changed or removed.
+func (e *Engine) chatKeepsImage(in chatRun) func(output string, data []byte) {
+	return func(output string, data []byte) {
+		url, err := e.SaveUpload(bytes.NewReader(data))
+		if err != nil {
+			return // the file is saved; only the thumbnail is missing
+		}
+		e.applyChat(in, func(c *model.Chat) {
+			c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "tool", Text: filepath.ToSlash(output),
+				Images: []model.Attachment{{Name: filepath.Base(output), URL: url}}})
+		})
+	}
+}
+
 // chatAskUser ends the reply with a question. The user's next message answers it.
 func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
 	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "End your reply and ask the user something; you go on with their answer. Call it alone, after the results of any other tools. " + askUserHow,
@@ -741,7 +756,9 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			}
 		}
 	}
-	list := append(tools.For(in.spec.allowed, tools.Env{Read: append(roots, e.attachmentRoot(in.id)), Output: e.outputRoot(in.id), Search: e.search}), e.chatAskUser(in))
+	read := append(roots, e.attachmentRoot(in.id))
+	list := append(tools.For(in.spec.allowed, tools.Env{Read: read, Output: e.outputRoot(in.id), Search: e.search}), e.chatAskUser(in))
+	list = append(list, imageTools(in.spec, read, e.chatKeepsImage(in))...)
 	if in.memory {
 		list = append(list, e.chatMemoryTools(in)...)
 	}

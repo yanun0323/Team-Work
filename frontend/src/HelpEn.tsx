@@ -52,7 +52,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Settings</dt><dd>Preferences and settings files for the whole app.</dd>
           <dt>Settings → Controls</dt><dd>Set how fast the wheel zooms, and what the camera does when you open a company or the airport (Auto view).</dd>
           <dt>Settings → Music</dt><dd>Mute in background is on by default: music and effects stop when you switch to another app or page, and carry on when you return. Turn it off to keep them playing. Choose Bossa nova (default), Retro game, Soft piano or Ambient. Tracks cross-fade when changed, and your selection is saved. Music defaults to 50% and effects to 100%. Separate music and effects volumes; 0 mutes either channel, or tick Mute beside its slider to silence it and keep the level. Toggle or preview aircraft sounds (takeoff, landing and flyover together), interface clicks, notifications, tutorial cues and opening buildings separately. Ocean waves, while on, keeps the sea round the island playing under the music, at the effects volume. Opening a company plays a soft whoosh; opening the airport plays Do Mi So Do rising, like the start of an announcement. Notifications play two quick bubbles, low then high, when a task newly waits for your review or merge, or when a chat turns unread as its reply ends; a chat you have open stays quiet, and existing notifications are not replayed. Audio starts after your first click or key press. Preferences are shared and saved.</dd>
-          <dt>About</dt><dd>Links, thanks and the version number.</dd>
+          <dt>About</dt><dd>Links, thanks, the version number and Report an issue.</dd>
           <dt>Quit</dt><dd>In the Mac app, the power button beside the Airport title asks once, then quits the app; Quit Team Work in the menu (⌘Q) asks too. Open terminals end with the app. The web version has no such button.</dd>
         </dl>
       </>
@@ -148,6 +148,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Game objects</dt><dd>Turn off details, shadows, people on the map, plane animation or clouds to make the screen run more smoothly.</dd>
           <dt>Global AGENTS.md</dt><dd>Edit it under System. Every employee in every company receives it. It is stored in <code>~/.team-work/AGENTS.md</code>, and edits made outside the app apply from the next run or reply.</dd>
           <dt>Auto-name chats</dt><dd>Under System, off by default. When on, pick a model and thinking level: the text of each new company or airport chat's first message is sent to that model once to name the chat, and its usage counts toward that chat's tokens. When it is off, fails or has not finished, the list shows the first message. Edit the name at the top of a chat directly; clearing it shows the first message again. A name you give is never replaced by automatic naming.</dd>
+          <dt>Image generation</dt><dd>Under System, pick a ChatGPT subscription and every employee gets the <code>image_gen</code> tool to make or edit pictures, saved as PNG files in the working folder. Chats show them as thumbnails, and pictures in a sub-task's handoff open as pictures. You can also tick Default image generation provider when adding or editing a ChatGPT subscription. Pick None to turn it off.</dd>
           <dt>Settings files</dt><dd>Interface preferences (preferences.yaml), tutorial progress (tutorial.yaml), companies, employees, your own blueprints and workflows, and providers are stored as files under <code>~/.team-work</code>. Built-in ones are not there. After editing them yourself, press Reload settings. They apply only if the whole batch passes its checks; otherwise the current settings stay. Open settings folder shows this location in Finder.</dd>
           <dt>Reset to defaults</dt><dd>At the bottom of the Settings page; press it twice to apply. Every setting on the page returns to its default, including the language and the terminal startup command. The global AGENTS.md is kept.</dd>
         </dl>
@@ -157,7 +158,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
   about: {
     label: 'About',
     alt: "The airport's About tab: links, thanks and version number",
-    body: <p>The About tab has links, thanks and the current version number. Include the version when you report a problem.</p>,
+    body: <p>The About tab has links, thanks and the current version number. Report an issue, below the version, opens a new GitHub issue with the version already filled in; paste images straight into the issue.</p>,
   },
   chat: {
     label: 'Chats',

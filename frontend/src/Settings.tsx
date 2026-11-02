@@ -17,7 +17,7 @@ import { itemKey, type Item } from './DrawerDetail'
 import { FlowNotes, openCard } from './FlowNotes'
 import { sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
-import { authLabel, PROVIDER_KINDS } from './providers'
+import { authLabel, makesImages, PROVIDER_KINDS } from './providers'
 import { Select, Switcher, Toggle, useAutoGrow } from './Controls'
 import { setLanguage } from './core/ops'
 import { Chats, TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
@@ -33,6 +33,8 @@ const LINKS = [
   { label: 'Buy Me a Coffee', href: 'https://buymeacoffee.com/yanun' },
 ]
 const THANKS = [{ name: 'yanun0323', href: 'https://github.com/yanun0323' }]
+// a new issue on GitHub, its body ending with the version so reports say which build they came from
+const ISSUE_URL = `https://github.com/yanun0323/Team-Work/issues/new?body=${encodeURIComponent(`\n\n---\nv${version}`)}`
 
 
 /**
@@ -309,6 +311,7 @@ export function SystemSection() {
       <h4 id="fx-prefs-system">{tr('系統')}</h4>
       <div className="fx-fields">
         <ChatTitleFields model={titleModel} effort={titleEffort} onChange={setPrefs} />
+        <ImageProviderField />
         <label className="fx-field fx-field-top">
           <span>{tr('全域 AGENTS.md')}</span>
           <textarea ref={box} className="fx-control fx-prefs-prompt" rows={6} value={draft} disabled={saved === null} spellCheck={false}
@@ -340,6 +343,18 @@ export function ChatTitleFields({ model, effort, onChange: set }: { model: strin
         </>
       )}
     </>
+  )
+}
+
+/** The ChatGPT subscription every employee draws pictures with, or none. */
+export function ImageProviderField() {
+  const providers = useStore((s) => s.world.providers)
+  const value = usePrefs((s) => s.imageProvider)
+  const set = usePrefs((s) => s.set)
+  const ids = Object.values(providers).filter(makesImages).map((p) => p.id)
+  return (
+    <Select label={tr('圖片生成')} value={ids.includes(value) ? value : ''} options={['', ...ids]}
+      labelOf={(id) => (id ? providers[id].name : tr('沒有'))} onChange={(imageProvider) => set({ imageProvider })} />
   )
 }
 
@@ -402,7 +417,7 @@ export function PrefsPage() {
   const prefs = usePrefs()
   const language = useStore((s) => s.world.language)
   const act = useStore((s) => s.act)
-  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView'>, label: string) => (
+  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView'>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
   return (
@@ -480,6 +495,9 @@ function About() {
         <h4 id="fx-version">{tr('版本')}</h4>
         <p><code>v{version}</code></p>
       </section>
+      <a className="fx-save" href={ISSUE_URL} target="_blank" rel="noreferrer">
+        {tr('問題回報')}<span className="fx-sr">{tr('（另開分頁）')}</span>
+      </a>
     </div>
   )
 }

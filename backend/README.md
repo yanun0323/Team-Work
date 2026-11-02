@@ -46,7 +46,7 @@ debug: false
 
 Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及地圖位置。`preferences.yaml` 在介面修改後立即儲存；手動編輯後按「重新載入設定」，不必重啟。省略的欄位使用預設值，未知欄位、`null`、錯誤型別或不存在的頁籤會被拒絕。
 
-偏好欄位的預設值：`logOrder: newestFirst`（也可用 `newestLast`）、`defaultTab: tasks`（`chats`、`tasks`、`crew`、`terminal`、`settings`）、`defaultAirportTab: providers`（`chats`、`providers`、`blueprints`、`flows`、`prefs`、`about`）、`openWaitingTab: true`、`chatTitleModel: ""`、`chatTitleEffort: ""`（有模型時，公司和機場的新對話會把第一則訊息最多約 2,000 字送給這個模型取一次名字，沒有工具，30 秒逾時、失敗不重試，用量算進該對話；空字串表示關閉，`effort` 空白或模型不支援就不指定思考等級）；`detail`、`shadows`、`crowd`、`planes`、`clouds` 預設 `true`，`autoView` 預設 `panZoom`（也可用 `pan`、`off`；舊欄位 `autoZoom` 讀取時會自動換成它），`zoomSensitivity` 預設 100（接受 20–300 的整數），`terminalCommand` 預設空字串，`keepTerminals` 預設 `false`。語言沿用 SQLite 儲存。聲音偏好 `muteInBackground`（預設 `true`）、`musicVolume`（預設 50）、`effectsVolume`（預設 100）接受 0–100 的整數，0 為靜音；`musicMuted`、`effectsMuted`（預設 `false`）直接靜音該聲道並保留音量；`soundTakeoff`、`soundLanding`、`soundFlyover`、`soundUI`、`soundNotice`、`soundOpenTeam`、`soundOpenAirport`、`soundWaves` 分別控制起飛、降落、飛越、介面、通知（待回覆任務與對話回覆）、打開公司、打開機場音效和持續循環的海浪聲，預設皆為 `true`。`musicStyle` 可選 `bossa`（預設）、`chiptune`、`piano`、`ambient`。舊偏好檔缺少的欄位會補上預設值。
+偏好欄位的預設值：`logOrder: newestFirst`（也可用 `newestLast`）、`defaultTab: tasks`（`chats`、`tasks`、`crew`、`terminal`、`settings`）、`defaultAirportTab: providers`（`chats`、`providers`、`blueprints`、`flows`、`prefs`、`about`）、`openWaitingTab: true`、`chatTitleModel: ""`、`chatTitleEffort: ""`（有模型時，公司和機場的新對話會把第一則訊息最多約 2,000 字送給這個模型取一次名字，沒有工具，30 秒逾時、失敗不重試，用量算進該對話；空字串表示關閉，`effort` 空白或模型不支援就不指定思考等級）、`imageProvider: ""`（生圖用的 ChatGPT 訂閱供應商 id，空字串表示沒有 `image_gen`，見「訂閱登入」）；`detail`、`shadows`、`crowd`、`planes`、`clouds` 預設 `true`，`autoView` 預設 `panZoom`（也可用 `pan`、`off`；舊欄位 `autoZoom` 讀取時會自動換成它），`zoomSensitivity` 預設 100（接受 20–300 的整數），`terminalCommand` 預設空字串，`keepTerminals` 預設 `false`。語言沿用 SQLite 儲存。聲音偏好 `muteInBackground`（預設 `true`）、`musicVolume`（預設 50）、`effectsVolume`（預設 100）接受 0–100 的整數，0 為靜音；`musicMuted`、`effectsMuted`（預設 `false`）直接靜音該聲道並保留音量；`soundTakeoff`、`soundLanding`、`soundFlyover`、`soundUI`、`soundNotice`、`soundOpenTeam`、`soundOpenAirport`、`soundWaves` 分別控制起飛、降落、飛越、介面、通知（待回覆任務與對話回覆）、打開公司、打開機場音效和持續循環的海浪聲，預設皆為 `true`。`musicStyle` 可選 `bossa`（預設）、`chiptune`、`piano`、`ambient`。舊偏好檔缺少的欄位會補上預設值。
 
 公司位置、建築樣式和配色種子存在 SQLite 的公司記錄，建立與移動時儲存，解散時一起移除。位置必須為整數格、兩軸各介於 -512 到 512，不可重疊公司或機場，並且整塊 16×16 用地都必須落在現有陸地格子向八個方向擴張 32 格的範圍內。搬家以搬動前的陸地計算，包含所選公司的原有陸地；機場保留兩格間距。前後端以相同的陸地格子（含連接陸地與填平的內湖）驗證。不讀取或搬移舊的網頁 `localStorage`；沒有共用位置的公司會重新配置位置與外觀。`make dev-mock` 的偏好和地圖只存在記憶體。
 
@@ -99,13 +99,14 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /teams/:id/prompt/refresh` | 重新讀專案的 `AGENTS.md`。公司的 `prompt` 就是這個檔案：`PATCH` 會寫回檔案（不會 commit），建立公司、啟動和員工開工時都會重新讀 |
 | `POST /folder-picker` | 開系統的選擇資料夾視窗（目前只有 macOS），回傳完整路徑 `path`，取消時是空字串 |
 | `POST /workflows`、`PUT`/`DELETE /workflows/:id`、`POST /workflows/:id/duplicate` | 任務流程，所有公司共用；不允許迴圈，內建的只能複製 |
-| `POST /providers`、`PATCH`/`DELETE /providers/:id` | 模型供應商；模型清單由供應商提供，`prices` 是每百萬 token 的美元價格 |
+| `POST /providers`、`PATCH`/`DELETE /providers/:id` | 模型供應商；模型清單由供應商提供，`prices` 是每百萬 token 的美元價格。ChatGPT 訂閱可帶 `imageDefault`：`true` 設成生圖供應商，`false` 且它原本是生圖供應商時清空 |
 | `POST /blueprints`、`PUT`/`DELETE /blueprints/:id`、`POST /blueprints/:id/update` | 藍圖；`update` 把 Git 來源移到最新版 |
 | `POST /replicas`、`PATCH /replicas/:id`、`DELETE /replicas/:id?heir=` | 雇用、修改（含記憶）、離職交接 |
 | `POST /tasks`、`PATCH`/`DELETE /tasks/:id` | 任務；建立時可附 `images` 和 `files`；`PATCH` 改標題、說明、人員、負責人，不存在的節點 id 或把節點改成沒有人都會被拒絕。由員工或對話建立的任務有 `origin`（`kind` 為 `employee`、`chat` 或 `airport`，加 `id`、`name`、`depth`） |
 | `POST /tasks/:id/{pause,resume,cancel,merge}` | 暫停、恢復、取消（要先暫停）、合併 |
 | `POST /tasks/:id/return`、`POST /tasks/:id/workflow` | 退回（`feedback`）、更換任務流程（`workflowId`，要先暫停） |
 | `GET /subtasks/:id/file?path=` | 讀子任務交接的檔案（該次 commit 的內容，上限 1 MB，只限文字檔） |
+| `GET /subtasks/:id/image?path=` | 讀子任務交接的圖片（該次 commit 的內容，上限 25 MB，只限 PNG、JPEG、GIF、WebP），直接回傳圖片本身 |
 | `POST /subtasks/:id/review` | 回覆審核（`optionId`、`note`）；修改確認（`review.kind` 為 `change`，內容在 `review.change`）的 `optionId` 是 `approve` 或 `reject` |
 | `POST /subtasks/:id/talk`、`POST /subtasks/:id/talk/end` | 討論發言（`text`）、結束（`kind`: `continue`/`back`/`stop`，`to`、`reason`） |
 | `GET /teams/:id/uncommitted` | 公司資料夾有沒有未提交的改動 |
@@ -176,6 +177,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 - **ChatGPT（`openai`）**：以 Codex CLI 的方式走 OAuth。`browser` 會在伺服器這台電腦打開登入頁，並用 `127.0.0.1:1455` 等它回來（這個連接埠被占用時可以貼網址）；`device` 回傳一組代碼。Token 存在 `data.db` 的 `secrets` 表，到期前自動更新。
 - **Claude（`anthropic`）**：透過本機的 Claude Code（`claude` 執行檔），登入由它自己管，這裡不保存憑證。可以用下面的 `/claude-code` 檢查、安裝和登入，或自己在終端機執行 `claude auth login`，再呼叫登入 API 確認。登出只影響這個供應商，不會登出 `claude`。可用 `MHO_CLAUDE_EXECUTABLE` 指定執行檔。設定了 `ANTHROPIC_API_KEY` 等環境變數時會拒絕執行，避免請求被轉到別的帳務。Claude 自己的工具全部關閉，只會用這裡提供的工具。
 - 訂閱的模型 id 有前綴（`openai-codex/…`、`claude-code/…`），不會和同名的 API Key 模型混淆。
+- **生圖**：偏好 `imageProvider` 指向一個已登入的 ChatGPT 訂閱時，所有員工（含 Claude 員工和機場服務人員）在任務和對話裡都多一個 `image_gen` 工具；討論步驟沒有。它呼叫 ChatGPT 後端的 `/codex/images/generations`（有來源圖時改用 `/codex/images/edits`），模型是 `gpt-image-2`。參數是 `prompt`、可選的 `images`（來源圖，1–5 張 PNG／JPEG／GIF，每張最大 5MiB）、`output_path`（工作目錄內的 `.png`，不覆蓋已有檔案；省略時存到 `generated-images/<隨機>.png`）和 `transparent_background`。每張圖最多等 5 分鐘。在對話裡，每張生成的圖會另存一份到上傳附件，附在一則 `from: tool` 的訊息（`text` 是檔案路徑，`images` 是這份副本），之後資料夾裡的檔案改掉或刪掉，對話仍看得到。設定頁只接受 ChatGPT 訂閱；該供應商被刪除或改成不能生圖時，設定會清空。
 - 訂閱不是按 token 計費，所以費用記為 0，**費用上限對它無效**；消耗的 token 數照常記錄。
 
 Claude Code 的設定：

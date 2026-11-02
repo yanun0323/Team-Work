@@ -28,6 +28,9 @@ export const providerUrl = (p: Pick<ModelProvider, 'kind' | 'baseUrl'>) => p.bas
 /** The subscription each kind can be signed in to instead of a key, if any. */
 export const SUBSCRIPTIONS: Partial<Record<ProviderKind, string>> = { anthropic: 'Claude', openai: 'ChatGPT' }
 
+/** Only a ChatGPT subscription can draw pictures; the backend checks the same. */
+export const makesImages = (p: { kind: ProviderKind; auth: { kind: string } }) => p.kind === 'openai' && p.auth.kind === 'subscription'
+
 /** How a provider is signed in to, in words. */
 export const authLabel = (p: Pick<ModelProvider, 'kind' | 'auth'>) =>
   p.auth.kind === 'subscription' ? tr('{a} 訂閱', { a: SUBSCRIPTIONS[p.kind] ?? '' }) : 'API Key'
