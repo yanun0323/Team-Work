@@ -506,7 +506,7 @@ function Chat({ sub }: { sub: SubTask }) {
             {live
               // read out when it is done, not piece by piece
               ? <div className="fx-chat-bubble" aria-hidden="true"><Markdown text={live} /></div>
-              : <p><span aria-hidden="true">···</span></p>}
+              : <p><span className="fx-chat-dots" aria-hidden="true"><span /><span /><span /></span></p>}
           </li>
         )}
       </ol>

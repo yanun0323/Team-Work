@@ -17,14 +17,13 @@ import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, islandView, ISO_D
 import { Drawer } from './Drawer'
 import { Settings } from './Settings'
 import { Help } from './Help'
-import { Board } from './Board'
 import { Fade, FADE_SECONDS } from './Fade'
 import { Island, useLand } from './Island'
 import { MapGrid } from './MapGrid'
 import { canMove, CELL, cellCenter, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, HALL_LIFT, TERMINAL, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
 import { NewCompanySheet, Placer } from './NewCompany'
 import { request } from './core/backend'
-import { createTeam, statusOf } from './core/domain/sim'
+import { createTeam } from './core/domain/sim'
 import type { Team } from './core/domain/types'
 import { MOCK } from './core/mode'
 import { attempt } from './core/ops'
@@ -34,7 +33,7 @@ import { NO_OUTLINE_LAYER, PixelPass } from './PixelPass'
 import { toonInstanced } from './toon'
 import { usePrefs } from './prefs'
 import { propBoxes, type Box } from './streetProps'
-import { useSound } from './sound'
+import { playSound, useSound } from './sound'
 import { Brand } from './Brand'
 import { TutorialList } from './TutorialList'
 import { askTab, lastTeam, learn, rememberTeam, type TutorialGoal } from './tutorial'
@@ -70,20 +69,28 @@ function townKey(s: ReturnType<typeof useStore.getState>) {
 
 const count = (n: number) => (n > 99 ? '99+' : n)
 
+/** Goes up each time `n` does, so a badge keyed by it replays its entrance; going down changes nothing. */
+function useRises(n: number) {
+  const [last, setLast] = useState({ n, rises: 0 })
+  if (n !== last.n) setLast({ n, rises: last.rises + (n > last.n ? 1 : 0) })
+  return last.rises + (n > last.n ? 1 : 0)
+}
+
 /** On a company's tag: its unread chats and the tasks waiting for a reply, apart. */
 function TagAlerts({ unreadChats, waitingTasks }: ReturnType<typeof teamAlerts>) {
+  const chatRises = useRises(unreadChats), taskRises = useRises(waitingTasks)
   if (!unreadChats && !waitingTasks) return null
   return (
     <span className="fx-tag-alerts">
       {unreadChats > 0 && (
-        <span className="fx-badge fx-tag-alert fx-tag-alert-chat" title={tr('{n} 則對話未讀', { n: unreadChats })}>
+        <span key={`chat-${chatRises}`} className="fx-badge fx-tag-alert fx-tag-alert-chat" title={tr('{n} 則對話未讀', { n: unreadChats })}>
           <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M1.5 2h9v6.5H5L2.5 10.8V8.5h-1z" fill="currentColor" /></svg>
           <span aria-hidden="true">{count(unreadChats)}</span>
           <span className="fx-sr">{tr('{n} 則對話未讀', { n: unreadChats })}</span>
         </span>
       )}
       {waitingTasks > 0 && (
-        <span className="fx-badge fx-tag-alert" title={tr('{n} 個任務待回覆', { n: waitingTasks })}>
+        <span key={`task-${taskRises}`} className="fx-badge fx-tag-alert" title={tr('{n} 個任務待回覆', { n: waitingTasks })}>
           <span aria-hidden="true">{count(waitingTasks)}</span>
           <span className="fx-sr">{tr('{n} 個任務待回覆', { n: waitingTasks })}</span>
         </span>
@@ -122,8 +129,8 @@ export function World() {
   const [editing, setEditing] = useState(false)
   const [moving, setMoving] = useState<string | null>(null)
 
-  // a drawer over the right half that belongs to no company: the settings, or the board of all tasks
-  const [panel, setPanel] = useState<'settings' | 'board' | null>(null)
+  // a drawer over the right half that belongs to no company: the settings
+  const [panel, setPanel] = useState<'settings' | null>(null)
   const settingsOpen = panel !== null
   // settings opened by clicking the airport, not the plane button: the camera goes to the airport
   const [byAirport, setByAirport] = useState(false)
@@ -142,11 +149,6 @@ export function World() {
   const settingsButton = useCallback((el: HTMLButtonElement | null) => {
     if (el && settingsClosed.current) el.focus({ preventScroll: true })
     settingsClosed.current = false
-  }, [])
-  const boardClosed = useRef(false)
-  const boardButton = useCallback((el: HTMLButtonElement | null) => {
-    if (el && boardClosed.current) el.focus({ preventScroll: true })
-    boardClosed.current = false
   }, [])
   // the same goes for the new-company button once the sheet for a picked plot goes
   const sheetClosed = useRef(false)
@@ -186,7 +188,6 @@ export function World() {
     }
     setSelected(null)
     if (panel === 'settings') settingsClosed.current = true
-    if (panel === 'board') boardClosed.current = true
     setPanel(null)
   }, [panel, spot, placing, editing, moving, helpOpen])
   useEffect(() => {
@@ -264,8 +265,6 @@ export function World() {
   }, [open, spot, town, airportShown, autoView])
 
   // one `id<TAB>name` line per employee of the open company
-  // tasks waiting on the user, in every company: their count goes on the board button in a red badge
-  const waiting = useStore((s) => Object.values(s.world.tasks).filter((t) => t.stage !== 'cancelled' && !!s.world.teams[t.teamId] && statusOf(s.world, t) === 'review').length)
   // the empty id is the airport's chats
   const alerts = useStore((s) => ['', ...Object.keys(s.world.teams)].map((id) => { const a = teamAlerts(s.world, id); return `${id}\t${a.unreadChats}\t${a.waitingTasks}` }).join('\n'))
   const crewNames = useStore((s) => (selected ? teamReplicas(s.world, selected).map((r) => `${r.id}\t${r.name}`).join('\n') : ''))
@@ -315,13 +314,14 @@ export function World() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [settingsOpen, placing, editing, helpOpen, close])
 
-  // the tutorial counts opening the help and the board; the company used last is where its steps go
+  // the tutorial counts opening the help; the company used last is where its steps go
   useEffect(() => { if (helpOpen) learn('help') }, [helpOpen])
-  useEffect(() => { if (panel === 'board') learn('board') }, [panel])
   useEffect(() => { if (selected) rememberTeam(selected) }, [selected])
+  // a company's file whooshes open, also when going straight from one company to the next; the airport announces itself
+  useEffect(() => { if (selected) playSound('soundOpenTeam') }, [selected])
+  useEffect(() => { if (panel === 'settings') playSound('soundOpenAirport') }, [panel])
   function goTutorial(goal: TutorialGoal) {
     if (goal.kind === 'help') return setHelpOpen(true)
-    if (goal.kind === 'board') return town.lots.length > 0 && setPanel('board')
     if (goal.kind === 'newCompany') return setPlacing(true)
     askTab(goal)
     if (goal.kind === 'airport') return setPanel('settings')
@@ -398,16 +398,6 @@ export function World() {
         </div>
       )}
       <div className="fx-corner">
-      {!placing && !editing && <button ref={boardButton} type="button" className="fx-settings-trigger fx-tag" aria-label={waiting ? tr('告示牌，{waiting} 個待回覆的任務', { waiting }) : tr('告示牌')}
-        disabled={town.lots.length === 0} onClick={() => setPanel('board')}>
-        {waiting > 0 && <span className="fx-badge" aria-hidden="true">{waiting > 99 ? '99+' : waiting}</span>}
-        {/* a notice board on two posts, a few lines written on it */}
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <rect x="3" y="4" width="18" height="12" rx="1.5" />
-          <path d="M7 16v5M17 16v5" />
-          <path d="M7 8h10M7 12h6" />
-        </svg>
-      </button>}
       {!editing && <button ref={newButton} type="button" className="fx-corner-text fx-tag"
         onClick={() => setPlacing(!placing)}>
         {placing ? tr('取消') : tr('＋ 新公司')}
@@ -438,9 +428,6 @@ export function World() {
     {sheet.value && <NewCompanySheet leaving={sheet.leaving} onGone={sheet.gone} onCreate={found} look={look} onReroll={() => setLook(randomLook())} />}
     {help.value && <Help leaving={help.leaving} onGone={help.gone} />}
     {settings.value === 'settings' && <Settings leaving={settings.leaving} onGone={settings.gone} />}
-    {settings.value === 'board' && (
-      <Board lookOf={(id) => town.lots.find((l) => l.id === id) ?? { style: 'tower', seed: 0 }} leaving={settings.leaving} onGone={settings.gone} />
-    )}
     {drawer.value && (
       <Drawer teamId={drawer.value} look={town.lots.find((l) => l.id === drawer.value) ?? { style: 'tower', seed: 0 }}
         leaving={drawer.leaving} onGone={drawer.gone} />

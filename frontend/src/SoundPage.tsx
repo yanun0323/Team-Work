@@ -7,8 +7,9 @@ import { playSound } from './sound'
 const SOUND_GROUPS = [
   { key: 'soundTakeoff', label: '飛機音效', keys: ['soundTakeoff', 'soundLanding', 'soundFlyover'] },
   { key: 'soundUI', label: '介面操作', keys: ['soundUI'] },
-  { key: 'soundNotice', label: '告示牌通知', keys: ['soundNotice'] },
+  { key: 'soundNotice', label: '通知', keys: ['soundNotice'] },
   { key: 'soundTutorial', label: '教學提示', keys: ['soundTutorial'] },
+  { key: 'soundOpenTeam', label: '打開建築', keys: ['soundOpenTeam', 'soundOpenAirport'] },
 ] as const
 
 export function Volume({ label, value, onChange, min = 0, max = 100, muted, onMute }: { label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; muted?: boolean; onMute?: (muted: boolean) => void }) {

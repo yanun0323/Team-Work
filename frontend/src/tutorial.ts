@@ -14,7 +14,6 @@ import type { Tab as CompanyTab } from './DrawerTabs'
 /** Where a step takes the user when they click it. */
 export type TutorialGoal =
   | { kind: 'help' }
-  | { kind: 'board' }
   | { kind: 'newCompany' }
   | { kind: 'airport'; tab: AirportTab }
   | { kind: 'company'; tab?: CompanyTab }
@@ -42,7 +41,6 @@ export const STEPS: TutorialStep[] = [
   { id: 'globalAgents', text: '到機場 > 設定填寫全域 AGENTS.md', after: ['provider'], goal: { kind: 'airport', tab: 'prefs' } },
   { id: 'sound', text: '到機場 > 設定調整音樂或音效', after: ['provider'], goal: { kind: 'airport', tab: 'prefs' } },
   { id: 'hire', text: '新增一個員工', after: ['company'], met: (w) => Object.keys(w.replicas).length > 0, goal: { kind: 'company', tab: 'crew' } },
-  { id: 'board', text: '打開告示牌', after: ['company'], goal: { kind: 'board' } },
   { id: 'openFolder', text: '從公司的資料夾按鈕打開 Finder', after: ['company'], goal: { kind: 'company' } },
   { id: 'costLimit', text: '設定公司的任務費用上限', after: ['company'], met: (w) => some(w.teams, (t) => t.settings.costLimitUsd !== DEFAULT_COST_LIMIT), goal: { kind: 'company', tab: 'settings' } },
   { id: 'chat', text: '跟員工聊天', after: ['hire'], met: (w) => some(w.chats, (c) => !!c.teamId), goal: { kind: 'company', tab: 'chats' } },

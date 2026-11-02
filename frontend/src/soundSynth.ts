@@ -4,7 +4,7 @@ import type { MusicStyle } from './prefs'
 
 export const RATE = 32000
 export type Stereo = [Float32Array<ArrayBuffer>, Float32Array<ArrayBuffer>]
-export type EffectKey = 'soundTakeoff' | 'soundLanding' | 'soundFlyover' | 'soundUI' | 'soundNotice' | 'soundTutorial'
+export type EffectKey = 'soundTakeoff' | 'soundLanding' | 'soundFlyover' | 'soundUI' | 'soundNotice' | 'soundTutorial' | 'soundOpenTeam' | 'soundOpenAirport'
 
 const TAU = Math.PI * 2
 const SINE_SIZE = 1 << 14
@@ -494,40 +494,38 @@ function tap(rate: number): Stereo {
   return levelled(out, 1, 0.22)
 }
 
-// An original three-note rising cue, not an airport recording.
-export const NOTICE_NOTES = [783.99, 1046.5, 1318.51] as const
+/** Two bubbles popping up, low then high; task requests and chat replies share it. */
+export const NOTICE_NOTES = [523.25, 783.99] as const
 export const NOTICE_LEAD_IN = 0.04
-export const NOTICE_GAP = 0.11
-export const NOTICE_ECHO = { delay: 0.09, level: 0.22 } as const
-/** Three quick notes with the last ringing longest, plus the echo. */
-export const NOTICE_SECONDS = 0.9
+export const NOTICE_GAP = 0.13
+/** How far each bubble's pitch rises above where it starts, and how fast: a bubble's sound climbs as it shrinks. */
+export const NOTICE_RISE = { by: 0.7, rate: 28 } as const
+export const NOTICE_SECONDS = 0.5
 /** What everything else drops to during the chime: quieter, but still clearly playing. */
 export const NOTICE_DUCK = 0.4
 
-/** A struck wooden bar: a bright knock over a pure tone that dies fast, so notes never smear together. */
+/** A pure tone sliding up fast and dying away, with a little second harmonic at its start for the pop. */
 function notice(rate: number): Stereo {
   const size = Math.floor(NOTICE_SECONDS * rate)
-  const bars = new Float32Array(size)
+  const out: Stereo = [new Float32Array(size), new Float32Array(size)]
+  const { by, rate: k } = NOTICE_RISE
   NOTICE_NOTES.forEach((f, n) => {
-    const first = Math.round(n * NOTICE_GAP * rate), ring = n === 2 ? 0.59 : 0.3
-    for (let i = 0; i < Math.floor(ring * rate); i++) {
+    const first = Math.round(n * NOTICE_GAP * rate), ring = size - first
+    for (let i = 0; i < ring; i++) {
       const t = i / rate
-      const shape = Math.min(1, t / 0.003) * Math.exp(-(n === 2 ? 7 : 14) * t) * Math.min(1, (ring - t) / 0.02)
-      // The tuned fourth partial gives the bar its wooden ring; the inharmonic one is the mallet.
-      bars[first + i] += (sin(f * t) + sin(f * 4 * t) * 0.3 * Math.exp(-30 * t) + sin(f * 9.2 * t) * 0.12 * Math.exp(-90 * t)) * shape
+      // the integral of f * (1 + by * (1 - e^(-kt)))
+      const phase = f * (t + by * (t - (1 - Math.exp(-k * t)) / k))
+      const shape = Math.min(1, t / 0.002) * Math.exp(-14 * t) * Math.min(1, (ring / rate - t) / 0.03)
+      const v = (sin(phase) + sin(phase * 2) * 0.25 * Math.exp(-60 * t)) * shape
+      // the first bubble leans left and the second right
+      out[0][first + i] += v * (n === 0 ? 1 : 0.75)
+      out[1][first + i] += v * (n === 0 ? 0.75 : 1)
     }
   })
-  const out: Stereo = [new Float32Array(size), new Float32Array(size)]
-  const delay = Math.round(NOTICE_ECHO.delay * rate)
-  for (let i = 0; i < size; i++) {
-    const echo = i >= delay ? bars[i - delay] * NOTICE_ECHO.level : 0
-    out[0][i] = bars[i] + echo * 0.75
-    out[1][i] = bars[i] + echo * 1.25
-  }
   return levelled(out, 1, 0.5)
 }
 
-/** A tutorial step crossed off or newly shown: two soft rising bell notes, gentler than the notice board's chime. */
+/** A tutorial step crossed off or newly shown: two soft rising bell notes, gentler than the notice chime. */
 export const TUTORIAL_NOTES = [1046.5, 1567.98] as const
 export const TUTORIAL_SECONDS = 0.7
 function tutorial(rate: number): Stereo {
@@ -547,8 +545,59 @@ function tutorial(rate: number): Stereo {
   return levelled(out, 0.6, 0.35)
 }
 
+/** A company's file slides open: a soft breath of noise sweeping up and to the right, where the drawer opens. */
+export const WHOOSH_SECONDS = 0.36
+/** Where the sweep's band starts, peaks and ends, Hz. */
+export const WHOOSH_BAND = [450, 2200, 1200] as const
+function whoosh(rate: number): Stereo {
+  const size = Math.floor(WHOOSH_SECONDS * rate)
+  const out: Stereo = [new Float32Array(size), new Float32Array(size)]
+  const [from, peak, to] = WHOOSH_BAND
+  // a state-variable band-pass with a wide band, so it breathes rather than whistles
+  let low = 0, band = 0
+  for (let i = 0; i < size; i++) {
+    const x = i / size
+    const centre = x < 0.55 ? from + (peak - from) * Math.sin(x / 0.55 * Math.PI / 2) : peak + (to - peak) * (x - 0.55) / 0.45
+    const f = 2 * Math.sin(Math.PI * centre / rate)
+    low += f * band
+    const high = NOISE[(i + 7919) & (NOISE_SIZE - 1)] - low - 0.9 * band
+    band += f * high
+    // swells to just past the middle, then falls away
+    const shape = Math.pow(Math.sin(Math.PI * Math.min(1, x / 0.55) / 2), 2) * (x < 0.55 ? 1 : Math.pow(1 - (x - 0.55) / 0.45, 1.6))
+    out[0][i] = band * shape * (1 - 0.7 * x)
+    out[1][i] = band * shape * (0.3 + 0.7 * x)
+  }
+  return levelled(out, 0.5, 0.2)
+}
+
+/** The airport opens like an announcement: Do Mi So Do rising on a soft vibraphone, the notes ringing on into a chord. */
+export const AIRPORT_NOTES = [523.25, 659.25, 783.99, 1046.5] as const
+export const AIRPORT_GAP = 0.26
+/** Silence before the first note, so the chime comes once the camera has begun to move. */
+export const AIRPORT_LEAD_IN = 0.35
+export const AIRPORT_SECONDS = AIRPORT_LEAD_IN + 2.6
+function announce(rate: number): Stereo {
+  const size = Math.floor(AIRPORT_SECONDS * rate)
+  const out: Stereo = [new Float32Array(size), new Float32Array(size)]
+  AIRPORT_NOTES.forEach((f, n) => {
+    const first = Math.round((AIRPORT_LEAD_IN + n * AIRPORT_GAP) * rate), ring = size - first, last = n === AIRPORT_NOTES.length - 1
+    for (let i = 0; i < ring; i++) {
+      const t = i / rate
+      const shape = Math.min(1, t / 0.006) * Math.exp(-(last ? 2.2 : 3) * t) * Math.min(1, (ring / rate - t) / 0.15)
+      // a slow shimmer, like a vibraphone's turning fans
+      const shimmer = 1 - 0.12 * (1 - Math.cos(TAU * 5.5 * t)) / 2
+      const v = (sin(f * t) + sin(f * 2 * t) * 0.2 * Math.exp(-8 * t) + sin(f * 3.9 * t) * 0.06 * Math.exp(-25 * t)) * shape * shimmer
+      // the notes step from left of centre to right of it
+      const right = 0.4 + 0.2 * n / (AIRPORT_NOTES.length - 1)
+      out[0][first + i] += v * (1 - right) * 2
+      out[1][first + i] += v * right * 2
+    }
+  })
+  return levelled(out, 0.6, 0.3)
+}
+
 const EFFECTS: Record<EffectKey, (rate: number) => Stereo> = {
-  soundTakeoff: takeoff, soundLanding: landing, soundFlyover: flyover, soundUI: tap, soundNotice: notice, soundTutorial: tutorial,
+  soundTakeoff: takeoff, soundLanding: landing, soundFlyover: flyover, soundUI: tap, soundNotice: notice, soundTutorial: tutorial, soundOpenTeam: whoosh, soundOpenAirport: announce,
 }
 
 export const effectSamples = (key: EffectKey, rate = RATE) => EFFECTS[key](rate)

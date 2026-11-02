@@ -22,6 +22,7 @@ import { MentionBox } from './MentionBox'
 import { changeAsk, ChangeLines } from './ChangeCard'
 import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, splitAttachments } from './attachments'
 import { draftKey, useChatDraft } from './chatDraft'
+import { watchChat } from './sound'
 
 /** Copies a message's text, showing a tick for a moment after. */
 function CopyButton({ text }: { text: string }) {
@@ -118,6 +119,8 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
   const [atBottom, toBottom] = useAtBottom(log)
   const readId = chat?.unread ? chat.id : undefined
   const said = chat?.messages.length
+  const openId = chat?.id
+  useEffect(() => (openId ? watchChat(openId) : undefined), [openId])
   useEffect(() => {
     if (readId) act((x) => readChat(x, readId))
   }, [act, readId, said])
@@ -334,7 +337,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
             {live
               // read out when it is done, not piece by piece
               ? <div className="fx-chat-bubble" aria-hidden="true"><Markdown text={live} /></div>
-              : <p className="fx-chat-bubble"><span aria-hidden="true">···</span></p>}
+              : <p className="fx-chat-bubble"><span className="fx-chat-dots" aria-hidden="true"><span /><span /><span /></span></p>}
           </li>
         )}
       </ol>

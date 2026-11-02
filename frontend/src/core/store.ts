@@ -12,7 +12,7 @@ import { MOCK } from './mode'
 import { editing, setFailureHandler } from './ops'
 
 /** Screens every design has. Each design lays them out its own way. */
-export type View = 'teams' | 'home' | 'board' | 'workflow' | 'roster' | 'blueprints' | 'settings'
+export type View = 'teams' | 'home' | 'workflow' | 'roster' | 'blueprints' | 'settings'
 
 export type Panel =
   | { kind: 'task'; id: string; subId?: string }

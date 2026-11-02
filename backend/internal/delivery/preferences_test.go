@@ -88,7 +88,7 @@ func TestSoundPreferencesEndpoint(t *testing.T) {
 	api := setup(t).URL + "/api/v1"
 	_, initial := send(t, "GET", api+"/world", "")
 	defaults := initial["preferences"].(map[string]any)
-	if defaults["musicVolume"] != float64(100) || defaults["effectsVolume"] != float64(100) {
+	if defaults["musicVolume"] != float64(50) || defaults["effectsVolume"] != float64(100) {
 		t.Fatalf("%v", defaults)
 	}
 	if code, body := send(t, "PATCH", api+"/settings/preferences", `{"musicVolume":0,"effectsVolume":100,"musicMuted":true,"soundTakeoff":false,"soundLanding":false,"soundFlyover":false,"soundUI":false,"defaultAirportTab":"sound"}`); code != http.StatusNoContent {
@@ -128,7 +128,7 @@ func TestMusicStyleAndNoticePreferences(t *testing.T) {
 	}
 	_, world := send(t, "GET", api+"/world", "")
 	prefs := world["preferences"].(map[string]any)
-	if prefs["musicStyle"] != "chiptune" || prefs["soundNotice"] != false || prefs["musicVolume"] != float64(100) {
+	if prefs["musicStyle"] != "chiptune" || prefs["soundNotice"] != false || prefs["musicVolume"] != float64(50) {
 		t.Fatalf("%v", prefs)
 	}
 }

@@ -1,8 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { DEFAULT_PREFS, MUSIC_STYLES, usePrefs } from './prefs'
 import { useStore } from './core/store'
-import { silenced, SoundPlayer, subscribeNoticeSound } from './sound'
-import { effectSamples, musicSamples, NOTICE_DUCK, NOTICE_ECHO, NOTICE_GAP, NOTICE_LEAD_IN, NOTICE_NOTES, NOTICE_SECONDS, TAP_SECOND_SNAP, TUTORIAL_SECONDS, type Stereo } from './soundSynth'
+import { silenced, SoundPlayer, subscribeChatSound, subscribeNoticeSound, watchChat } from './sound'
+import type { Chat } from './core/domain/types'
+import { AIRPORT_GAP, AIRPORT_LEAD_IN, AIRPORT_NOTES, AIRPORT_SECONDS, effectSamples, musicSamples, NOTICE_DUCK, NOTICE_GAP, NOTICE_LEAD_IN, NOTICE_NOTES, NOTICE_RISE, NOTICE_SECONDS, TAP_SECOND_SNAP, TUTORIAL_SECONDS, WHOOSH_SECONDS, type Stereo } from './soundSynth'
 
 const param = () => ({ value: 0, setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn(), cancelScheduledValues: vi.fn(), setTargetAtTime: vi.fn() })
 class Node {
@@ -30,6 +31,8 @@ function context() {
   return { audio, gains, sources, player: new SoundPlayer(audio as unknown as AudioContext) }
 }
 afterEach(() => { usePrefs.setState(DEFAULT_PREFS); vi.unstubAllGlobals() })
+/** The music channel's default level. */
+const MUSIC = DEFAULT_PREFS.musicVolume / 100
 
 /** Loudness of a slice of the mix, by second. */
 const loudness = ([left, right]: Stereo, from: number, to: number, rate: number) => {
@@ -90,27 +93,32 @@ it('shapes aircraft sounds around what the plane does on screen', () => {
   expect(sideLoudness(flyover[1], 4.5, 5.5, rate)).toBeGreaterThan(sideLoudness(flyover[0], 4.5, 5.5, rate) * 2)
 })
 
-it('keeps the chime quick, with three separate rising notes and one soft echo', () => {
+it('keeps the notice to two quick bubbles, each rising in pitch, low one first', () => {
   const rate = 16000
   const samples = effectSamples('soundNotice', rate)
   expect(NOTICE_SECONDS).toBeLessThan(1)
   expect(samples[0].length).toBe(Math.floor(NOTICE_SECONDS * rate))
-  expect(NOTICE_NOTES).toHaveLength(3)
+  expect(samples.every((ch) => ch.every(Number.isFinite))).toBe(true)
+  expect(NOTICE_NOTES).toHaveLength(2)
   expect([...NOTICE_NOTES]).toEqual([...NOTICE_NOTES].sort((a, b) => a - b))
   NOTICE_NOTES.forEach((_, i) => {
     const start = i * NOTICE_GAP
-    expect(loudness(samples, start + 0.005, start + 0.05, rate)).toBeGreaterThan(0.15)
+    expect(loudness(samples, start + 0.003, start + 0.04, rate)).toBeGreaterThan(0.15)
   })
-  expect(Math.max(...samples[0].map(Math.abs))).toBeLessThanOrEqual(0.5)
+  expect(Math.max(...samples[0].map(Math.abs), ...samples[1].map(Math.abs))).toBeCloseTo(0.5, 3)
   // Fades out by the end instead of being cut off.
-  expect(loudness(samples, NOTICE_SECONDS - 0.03, NOTICE_SECONDS, rate)).toBeLessThan(0.01)
-  // The notes are centred; only the echo, which starts after its delay, spreads the channels apart.
-  const spread = (from: number, to: number) => Math.max(...samples[0].slice(from * rate, to * rate).map((x, i) => Math.abs(x - samples[1][Math.floor(from * rate) + i])))
-  expect(spread(0, NOTICE_ECHO.delay - 0.005)).toBe(0)
-  expect(spread(NOTICE_ECHO.delay, NOTICE_ECHO.delay + 0.05)).toBeGreaterThan(0.01)
+  expect(loudness(samples, NOTICE_SECONDS - 0.02, NOTICE_SECONDS, rate)).toBeLessThan(0.01)
+  // The first bubble climbs: zero crossings come faster late in it than at its start.
+  const crossings = (from: number, to: number) => {
+    let n = 0
+    for (let i = Math.floor(from * rate) + 1; i < to * rate; i++) if ((samples[0][i - 1] < 0) !== (samples[0][i] < 0)) n++
+    return n / (to - from)
+  }
+  expect(crossings(0.08, 0.12)).toBeGreaterThan(crossings(0.002, 0.03) * 1.25)
+  expect(NOTICE_RISE.by).toBeGreaterThan(0.25)
 })
 
-it('keeps the tutorial cue short and softer than the noticeboard chime, fading out', () => {
+it('keeps the tutorial cue short and softer than the notice chime, fading out', () => {
   const rate = 16000
   const samples = effectSamples('soundTutorial', rate)
   expect(samples[0].length).toBe(Math.floor(TUTORIAL_SECONDS * rate))
@@ -118,6 +126,40 @@ it('keeps the tutorial cue short and softer than the noticeboard chime, fading o
   expect(Math.max(...samples[0].map(Math.abs), ...samples[1].map(Math.abs))).toBeLessThanOrEqual(0.35)
   expect(loudness(samples, 0, TUTORIAL_SECONDS, rate)).toBeLessThan(loudness(effectSamples('soundNotice', rate), 0, TUTORIAL_SECONDS, rate))
   expect(loudness(samples, TUTORIAL_SECONDS - 0.02, TUTORIAL_SECONDS, rate)).toBeLessThan(0.01)
+})
+
+it('opens a company with a soft whoosh that swells, moves to the right and stays below the notice', () => {
+  const rate = 32000
+  const samples = effectSamples('soundOpenTeam', rate)
+  expect(samples[0].length).toBe(Math.floor(WHOOSH_SECONDS * rate))
+  expect(samples.every((ch) => ch.every(Number.isFinite))).toBe(true)
+  expect(Math.max(...samples[0].map(Math.abs), ...samples[1].map(Math.abs))).toBeLessThanOrEqual(0.2 + 1e-6)
+  expect(loudness(samples, 0.15, 0.22, rate)).toBeGreaterThan(loudness(samples, 0, 0.03, rate) * 3)
+  expect(loudness(samples, WHOOSH_SECONDS - 0.02, WHOOSH_SECONDS, rate)).toBeLessThan(0.01)
+  const side = (channel: Float32Array, from: number, to: number) => Math.sqrt(channel.slice(from * rate, to * rate).reduce((sum, x) => sum + x * x, 0))
+  expect(side(samples[1], 0.25, 0.32)).toBeGreaterThan(side(samples[0], 0.25, 0.32) * 1.5)
+  expect(loudness(samples, 0, WHOOSH_SECONDS, rate)).toBeLessThan(loudness(effectSamples('soundNotice', rate), 0, WHOOSH_SECONDS, rate))
+})
+
+it('opens the airport with Do Mi So Do rising, quieter than the notice and fading out', () => {
+  const rate = 16000
+  const samples = effectSamples('soundOpenAirport', rate)
+  expect(samples[0].length).toBe(Math.floor(AIRPORT_SECONDS * rate))
+  expect(samples.every((ch) => ch.every(Number.isFinite))).toBe(true)
+  expect(AIRPORT_NOTES).toHaveLength(4)
+  // silent until the first note
+  expect(loudness(samples, 0, AIRPORT_LEAD_IN - 0.001, rate)).toBe(0)
+  expect(loudness(samples, AIRPORT_LEAD_IN + 0.005, AIRPORT_LEAD_IN + 0.03, rate)).toBeGreaterThan(0.05)
+  expect(AIRPORT_NOTES[3] / AIRPORT_NOTES[0]).toBeCloseTo(2, 3)
+  expect([...AIRPORT_NOTES]).toEqual([...AIRPORT_NOTES].sort((a, b) => a - b))
+  AIRPORT_NOTES.forEach((_, i) => {
+    const start = AIRPORT_LEAD_IN + i * AIRPORT_GAP
+    // each note strikes: louder just after it lands than just before
+    if (i) expect(loudness(samples, start + 0.005, start + 0.03, rate)).toBeGreaterThan(loudness(samples, start - 0.03, start - 0.005, rate))
+  })
+  expect(Math.max(...samples[0].map(Math.abs), ...samples[1].map(Math.abs))).toBeLessThanOrEqual(0.3 + 1e-6)
+  expect(Math.max(...samples[0].map(Math.abs), ...samples[1].map(Math.abs))).toBeLessThan(Math.max(...effectSamples('soundNotice', rate)[0].map(Math.abs)))
+  expect(loudness(samples, AIRPORT_SECONDS - 0.02, AIRPORT_SECONDS, rate)).toBeLessThan(0.01)
 })
 
 it('keeps interface taps short, quieter than everything else, and a double snap', () => {
@@ -264,13 +306,43 @@ it('sounds once per fresh notice batch, never for existing notices, rerenders or
 })
 
 
+it('sounds when a chat turns unread after its reply, but not for open chats, snapshots or a lost connection', () => {
+  const initial = useStore.getState()
+  const chat = (id: string, more: Partial<Chat> = {}) => ({ id, teamId: '', replicaId: '', name: '', look: {}, model: '', messages: [], tokens: 0, createdAt: 0, ...more }) as unknown as Chat
+  const chats = (...list: Chat[]) => ({ world: { ...useStore.getState().world, chats: Object.fromEntries(list.map((c) => [c.id, c])) } })
+  const notify = vi.fn()
+  useStore.setState({ loaded: true, offline: false, ...chats(chat('a', { unread: true }), chat('b')) })
+  const unsubscribe = subscribeChatSound(notify)
+  try {
+    useStore.setState({ failure: 'irrelevant' })
+    useStore.setState(chats(chat('a', { unread: true }), chat('b', { replyAt: 1 })))
+    // Still writing: the badge does not count it yet.
+    useStore.setState(chats(chat('a', { unread: true }), chat('b', { replyAt: 1, unread: true })))
+    expect(notify).not.toHaveBeenCalled()
+    useStore.setState(chats(chat('a', { unread: true }), chat('b', { unread: true })))
+    expect(notify).toHaveBeenCalledTimes(1)
+    useStore.setState(chats(chat('a', { unread: true }), chat('b', { unread: true }), chat('c')))
+    expect(notify).toHaveBeenCalledTimes(1)
+    const unwatch = watchChat('c')
+    useStore.setState(chats(chat('a', { unread: true }), chat('b', { unread: true }), chat('c', { unread: true })))
+    unwatch()
+    expect(notify).toHaveBeenCalledTimes(1)
+    useStore.setState({ offline: true })
+    useStore.setState({ offline: false, ...chats(chat('d', { unread: true })) })
+    expect(notify).toHaveBeenCalledTimes(1)
+    useStore.setState(chats(chat('d'), chat('e', { unread: true })))
+    expect(notify).toHaveBeenCalledTimes(2)
+  } finally { unsubscribe(); useStore.setState(initial) }
+})
+
+
 it('ducks music and all other effects through the chime, respecting changed preferences', () => {
   const { player, sources, gains } = context()
   for (const gain of gains.slice(1, 4)) expect(gain.gain.setTargetAtTime).toHaveBeenLastCalledWith(0.6, 10, 0.03)
   player.play('soundLanding')
   player.play('soundNotice')
   for (const gain of gains.slice(1, 4)) expect(gain.gain.setTargetAtTime).toHaveBeenLastCalledWith(0.6 * NOTICE_DUCK, 10, 0.015)
-  expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(NOTICE_DUCK, 10, 0.015)
+  expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(MUSIC * NOTICE_DUCK, 10, 0.015)
   expect(gains[4].gain.setTargetAtTime).toHaveBeenLastCalledWith(NOTICE_DUCK, 10, 0.015)
   expect(gains[5].gain.setTargetAtTime).toHaveBeenLastCalledWith(1, 10, 0.015)
   const chime = sources[sources.length - 1]
@@ -292,9 +364,9 @@ it('restores the mix after natural completion, without an older chime restoring 
   player.play('soundNotice')
   const current = sources[sources.length - 1]
   old.onended?.()
-  expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(NOTICE_DUCK, 10, 0.015)
+  expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(MUSIC * NOTICE_DUCK, 10, 0.015)
   current.onended?.()
-  expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(1, 10, 0.03)
+  expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(MUSIC, 10, 0.03)
   expect(gains[4].gain.setTargetAtTime).toHaveBeenLastCalledWith(1, 10, 0.03)
   for (const gain of gains.slice(1, 4)) expect(gain.gain.setTargetAtTime).toHaveBeenLastCalledWith(0.6, 10, 0.03)
   player.dispose()
@@ -304,12 +376,12 @@ it('cancels a chime muted during its lead-in and restores the mix', () => {
   const { player, sources, gains } = context()
   player.play('soundNotice')
   const source = sources[sources.length - 1]
-  expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(NOTICE_DUCK, 10, 0.015)
+  expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(MUSIC * NOTICE_DUCK, 10, 0.015)
   usePrefs.setState({ soundNotice: false })
   player.update(usePrefs.getState())
   expect(source.stop).toHaveBeenLastCalledWith()
   expect(source.disconnect).toHaveBeenCalled()
-  expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(1, 10, 0.03)
+  expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(MUSIC, 10, 0.03)
   player.dispose()
 })
 

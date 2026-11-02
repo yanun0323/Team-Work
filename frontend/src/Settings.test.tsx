@@ -27,7 +27,7 @@ it('is a drawer headed as the airport, its model providers listed under the firs
 })
 
 it('starts with every preference on and the newest log line first', () => {
-  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, musicVolume: 100, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', openWaitingTab: true, openWaitingSub: true, chatTitleModel: '', chatTitleEffort: '' })
+  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', openWaitingTab: true, openWaitingSub: true, chatTitleModel: '', chatTitleEffort: '' })
   expect(ordered([1, 2, 3], 'newestFirst')).toEqual([3, 2, 1])
   expect(ordered([1, 2, 3], 'newestLast')).toEqual([1, 2, 3])
 })
@@ -94,7 +94,7 @@ it('offers sound inside preferences, not as an airport tab with separate labeled
   expect(settings).not.toContain('id="fx-settings-tab-sound"')
   const html = renderToStaticMarkup(<PrefsPage />)
   expect(html.match(/type="range"/g)).toHaveLength(3)
-  for (const name of ['音樂風格', '輕快波莎', '告示牌通知', '背景音樂', '音效', '飛機音效', '介面操作']) expect(html).toContain(name)
+  for (const name of ['音樂風格', '輕快波莎', '試聽 通知', '背景音樂', '音效', '飛機音效', '介面操作']) expect(html).toContain(name)
   expect(html).toContain('aria-valuetext="100%"')
   expect(html).toContain('aria-label="試聽 飛機音效"')
   expect(html).toContain('aria-label="靜音 背景音樂"')
@@ -110,7 +110,7 @@ it('merges sound into one 音樂 group that starts with muting in the background
   const mute = html.indexOf('背景執行時靜音')
   expect(mute).toBeGreaterThan(group)
   expect(mute).toBeLessThan(html.indexOf('音樂風格'))
-  expect(html.indexOf('告示牌通知')).toBeGreaterThan(mute)
+  expect(html.indexOf('試聽 通知')).toBeGreaterThan(mute)
   expect(DEFAULT_PREFS.muteInBackground).toBe(true)
 })
 

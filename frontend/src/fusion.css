@@ -830,13 +830,6 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
   :is(.fx-settings-trigger, .fx-corner-text) { transition: scale 150ms ease-out; }
   :is(.fx-settings-trigger, .fx-corner-text):active:not(:disabled) { scale: 0.96; }
 }
-/* the board of all tasks: one block per company, its file's head over its task columns */
-.fx-board-all { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 44px; }
-.fx-board-all:focus { outline: none; }
-.fx-board-co .fx-title { margin-bottom: 22px; }
-.fx-board-co h2 { font-size: clamp(20px, 2vw, 24px); line-height: 1.15; font-weight: 700; letter-spacing: -0.02em; overflow-wrap: anywhere; }
-/* only the task columns scroll sideways; the company's head stays put */
-.fx-board-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
 /* a drawer head with no tabs under it still ends in a rule */
 .fx-head-rule { border-bottom: 1px solid var(--ink); }
 /* a drawer head with no stamp in front of the title */
@@ -1014,8 +1007,26 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-badge-merge { background: #1f7a43; padding: 0; }
 /* on a company's tag: unread chats in blue, tasks waiting for a reply in red */
 .fx-tag-alerts { position: absolute; top: -12px; inset-inline-end: -10px; display: flex; gap: 4px; }
-.fx-tag-alert { position: static; display: inline-flex; gap: 2px; rotate: none; }
-.fx-tag-alert-chat { background: #24579e; }
+.fx-tag-alert { --alert: 211 58 44; position: relative; display: inline-flex; gap: 2px; rotate: none; }
+.fx-tag-alert-chat { --alert: 36 87 158; background: #24579e; }
+/* a new alert, or one more of them, pops in, shakes and sends out a ring; then it keeps a slow glow until it is dealt with */
+@media (prefers-reduced-motion: no-preference) {
+  .fx-tag-alert {
+    animation: fx-alert-pop 420ms cubic-bezier(0.3, 1.6, 0.5, 1) both, fx-alert-shake 560ms ease-in-out 420ms, fx-alert-glow 2.4s ease-in-out 1s infinite;
+  }
+  .fx-tag-alert::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    box-shadow: 0 0 0 2px rgb(var(--alert)); opacity: 0;
+    animation: fx-alert-ring 700ms ease-out 200ms;
+  }
+}
+@keyframes fx-alert-pop { from { scale: 0; } 60% { scale: 1.3; } to { scale: 1; } }
+@keyframes fx-alert-shake { 0%, 100% { rotate: 0deg; } 20% { rotate: -14deg; } 40% { rotate: 12deg; } 60% { rotate: -8deg; } 80% { rotate: 4deg; } }
+@keyframes fx-alert-ring { from { opacity: 0.9; scale: 1; } to { opacity: 0; scale: 2.2; } }
+@keyframes fx-alert-glow {
+  0%, 100% { box-shadow: 0 0 0 2px #f4efe2, 0 2px 4px rgb(20 20 40 / 0.3), 0 0 0 2px rgb(var(--alert) / 0); }
+  50% { box-shadow: 0 0 0 2px #f4efe2, 0 2px 4px rgb(20 20 40 / 0.3), 0 0 0 6px rgb(var(--alert) / 0.35); }
+}
 .fx-badge-inline { position: static; align-self: center; rotate: none; box-shadow: none; }
 
 /* the merge row: 合併 and 退回 at its end */
@@ -1038,9 +1049,22 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 .fx-chat-user { flex-direction: row-reverse; }
 .fx-chat-user .fx-chat-bubble { background: var(--note-talk); }
 .fx-chat-msg time { flex: none; padding-bottom: 2px; font: 500 10.5px/1 var(--font-mono); color: var(--muted); }
-/* the employee writing back: three dots that pulse */
-.fx-chat-writing p span[aria-hidden] { display: inline-block; letter-spacing: 2px; animation: fx-chat-dots 1.2s ease-in-out infinite; }
-@keyframes fx-chat-dots { 50% { opacity: 0.3; } }
+/* the employee writing back: three dots that light up in turn, and hop when motion is fine */
+.fx-chat-dots { display: inline-flex; align-items: center; gap: 5px; height: 1.55em; vertical-align: top; }
+.fx-chat-dots > span {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--ink); opacity: 0.25;
+  animation: fx-chat-dot-fade 1.2s ease-in-out infinite;
+}
+.fx-chat-dots > span:nth-child(2) { animation-delay: 0.16s; }
+.fx-chat-dots > span:nth-child(3) { animation-delay: 0.32s; }
+@keyframes fx-chat-dot-fade { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
+@media (prefers-reduced-motion: no-preference) {
+  .fx-chat-dots > span { animation-name: fx-chat-dot-hop; }
+}
+@keyframes fx-chat-dot-hop {
+  0%, 60%, 100% { opacity: 0.25; transform: none; }
+  30% { opacity: 1; transform: translateY(-4px); }
+}
 .fx-chat-say, .fx-chat-end { display: grid; gap: 8px; }
 :is(.fx-chat-say, .fx-chat-end) :is(.fx-d-merge-acts, .fx-d-merge-back) { padding-inline-start: 0; }
 .fx-chat-end .fx-d-merge-acts { flex-wrap: wrap; }
@@ -1191,31 +1215,42 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 /* the clock and, beside it, the tutorial's next steps */
 .fx-top-left { position: absolute; top: 22px; inset-inline-start: 22px; z-index: 4; display: flex; align-items: flex-start; gap: 16px; pointer-events: none; }
 .fx-top-left > .fx-brand { position: relative; top: auto; inset-inline-start: auto; }
-@media (max-width: 640px) { .fx-top-left { top: 78px; flex-direction: column; } }
-/* opening up floats over the map: the slip grows down, nothing moves */
-.fx-tutorial { width: 280px; padding: 6px 6px 5px; rotate: 1deg; pointer-events: auto; }
-/* every row is there; the list's height shows 3 at rest and opens to 8 */
-.fx-tutorial ol { display: grid; max-height: calc(3 * 32px); margin: 0; padding: 0; overflow: hidden; list-style: none; transition: max-height 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
-.fx-tutorial-open ol { max-height: calc(8 * 32px); overflow-y: auto; overscroll-behavior: contain; }
-@media (prefers-reduced-motion: reduce) { .fx-tutorial ol { transition: none; } }
+@media (max-width: 640px) { .fx-top-left { top: 78px; flex-direction: column; } .fx-top-left > .fx-tutorial { margin-inline-start: 0; } }
+/* the top leaves room under the tape */
+.fx-tutorial { width: 300px; margin-inline-start: 14px; padding: 12px 6px 5px; font-size: 15px; rotate: 1deg; pointer-events: auto; }
+.fx-tutorial ol { display: grid; margin: 0; padding: 0; list-style: none; }
 .fx-tutorial li { display: grid; grid-template-rows: 1fr; }
 .fx-tutorial button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 0 8px; border: 0; border-radius: 2px; color: inherit; font: inherit; font-weight: 600; text-align: start; cursor: pointer; }
 .fx-tutorial button { background: none; }
-.fx-tutorial button:hover { box-shadow: none; background: var(--shade); }
+/* --shade belongs to the drawers, and the slip sits outside them */
+.fx-tutorial button:hover { box-shadow: none; background: rgb(31 29 43 / 0.14); }
 .fx-tutorial button:disabled { cursor: default; box-shadow: none; background: none; }
 .fx-tutorial button:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
 .fx-tutorial button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fx-tutorial-mark { flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.fx-tutorial-mark circle { opacity: 0.45; }
+.fx-tutorial-mark { flex: none; overflow: visible; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.fx-tutorial-mark circle { opacity: 0.25; }
+/* done: a green disc with a white tick */
+.fx-tutorial-done { --tutorial-green: #2f9e5b; border-radius: 2px; }
+.fx-tutorial-done .fx-tutorial-mark circle { opacity: 1; fill: var(--tutorial-green); stroke: var(--tutorial-green); }
+.fx-tutorial-done .fx-tutorial-mark path { stroke: #fff; stroke-width: 1.8; }
+.fx-tutorial-done .fx-tutorial-mark .fx-tutorial-burst { opacity: 0; fill: none; }
+.fx-tutorial-done > button { transform-origin: 0 50%; }
 @media (prefers-reduced-motion: no-preference) {
   /* the tick draws in, then the row fades and closes up */
-  .fx-tutorial-done .fx-tutorial-mark path { stroke-dasharray: 9; stroke-dashoffset: 9; animation: fx-tutorial-tick 350ms ease-out forwards; }
-  .fx-tutorial-done { animation: fx-tutorial-out 400ms ease-in 450ms forwards; }
+  /* the disc fills, the tick draws in, a ring bursts out and the row swells with a green flash; then it fades and closes up */
+  .fx-tutorial-done .fx-tutorial-mark circle { animation: fx-tutorial-fill 180ms ease-out both; }
+  .fx-tutorial-done .fx-tutorial-mark path { stroke-dasharray: 9; stroke-dashoffset: 9; animation: fx-tutorial-tick 300ms ease-out 120ms forwards; }
+  .fx-tutorial-done .fx-tutorial-mark .fx-tutorial-burst { transform-origin: 7px 7px; animation: fx-tutorial-burst 550ms ease-out 80ms both; }
+  .fx-tutorial-done > button { animation: fx-tutorial-pop 450ms cubic-bezier(0.3, 1.6, 0.5, 1) both; }
+  .fx-tutorial-done { animation: fx-tutorial-flash 500ms ease-out both, fx-tutorial-out 400ms ease-in 550ms forwards; }
   .fx-tutorial-done > button { overflow: hidden; min-height: 0; }
   .fx-tutorial-new { animation: fx-tutorial-in 400ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 }
 @media (prefers-reduced-motion: reduce) { .fx-tutorial-done { opacity: 0.5; } }
-.fx-tutorial-done .fx-tutorial-mark circle { opacity: 1; }
 @keyframes fx-tutorial-tick { to { stroke-dashoffset: 0; } }
+@keyframes fx-tutorial-fill { from { fill: transparent; stroke: currentColor; opacity: 0.25; } }
+@keyframes fx-tutorial-burst { from { opacity: 0.9; scale: 1; stroke-width: 2; } to { opacity: 0; scale: 2.4; stroke-width: 0.4; } }
+@keyframes fx-tutorial-pop { 0% { scale: 1; } 45% { scale: 1.07; } 100% { scale: 1; } }
+@keyframes fx-tutorial-flash { from { background: rgb(47 158 91 / 0.28); } to { background: rgb(47 158 91 / 0); } }
 @keyframes fx-tutorial-out { to { opacity: 0; grid-template-rows: 0fr; } }
 @keyframes fx-tutorial-in { from { opacity: 0; translate: -12px 0; } }

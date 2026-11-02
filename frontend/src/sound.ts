@@ -2,6 +2,7 @@
 import { useEffect } from 'react'
 import { usePrefs, type Prefs, type MusicStyle } from './prefs'
 import { useStore, type Toast } from './core/store'
+import type { World } from './core/domain/types'
 import { effectSamples, musicSamples, NOTICE_DUCK, NOTICE_LEAD_IN, RATE, type Stereo } from './soundSynth'
 
 export const SOUND_EFFECTS = [
@@ -9,8 +10,10 @@ export const SOUND_EFFECTS = [
   { key: 'soundLanding', label: '飛機降落' },
   { key: 'soundFlyover', label: '飛機飛越' },
   { key: 'soundUI', label: '介面操作' },
-  { key: 'soundNotice', label: '告示牌通知' },
+  { key: 'soundNotice', label: '通知' },
   { key: 'soundTutorial', label: '教學提示' },
+  { key: 'soundOpenTeam', label: '打開公司' },
+  { key: 'soundOpenAirport', label: '打開機場' },
 ] as const
 export type SoundEffect = (typeof SOUND_EFFECTS)[number]['key']
 
@@ -32,6 +35,32 @@ export function subscribeNoticeSound(notify: () => void) {
       const task = state.world.tasks[event.taskId]
       return task && task.stage !== 'cancelled' && task.stage !== 'done' && !!state.world.teams[task.teamId]
     })) notify()
+  })
+}
+
+/** Chats on screen right now; they are read at once, so they stay quiet. */
+const watched = new Map<string, number>()
+export function watchChat(id: string) {
+  watched.set(id, (watched.get(id) ?? 0) + 1)
+  return () => {
+    const n = (watched.get(id) ?? 1) - 1
+    if (n) watched.set(id, n); else watched.delete(id)
+  }
+}
+
+/**
+ * Sound when a chat turns unread, which the badge counts only once its reply has ended, and nobody has it open.
+ * The first world and the snapshot after a lost connection only set what counts as already unread.
+ */
+export function subscribeChatSound(notify: () => void) {
+  const unread = (chats: World['chats']) => new Set(Object.values(chats).filter((chat) => chat.unread && chat.replyAt === undefined).map((chat) => chat.id))
+  let seen = unread(useStore.getState().world.chats)
+  return useStore.subscribe((state, previous) => {
+    if (state.world.chats === previous.world.chats) return
+    const now = unread(state.world.chats)
+    const fresh = previous.loaded && !previous.offline && [...now].some((id) => !seen.has(id) && !watched.has(id))
+    seen = now
+    if (fresh) notify()
   })
 }
 
@@ -180,6 +209,7 @@ export function useSound() {
     }
     const follow = () => { if (silencedNow()) player?.pause(); else if (player) unlock() }
     const unsubscribeNotices = subscribeNoticeSound(() => playSound('soundNotice'))
+    const unsubscribeChats = subscribeChatSound(() => playSound('soundNotice'))
     const unsubscribe = usePrefs.subscribe((prefs, before) => {
       player?.update(prefs)
       if (prefs.muteInBackground !== before.muteInBackground) follow()
@@ -194,6 +224,7 @@ export function useSound() {
       disposed = true
       unsubscribe()
       unsubscribeNotices()
+      unsubscribeChats()
       document.removeEventListener('pointerdown', unlock)
       document.removeEventListener('keydown', key)
       document.removeEventListener('click', click)
