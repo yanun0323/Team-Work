@@ -1,10 +1,14 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { Chats } from './DrawerTabs'
+import { useStore } from './core/store'
 import { describe, expect, it } from 'vitest'
 import { attachable, splitAttachments } from './attachments'
 import { seedWorld } from './core/data/seed'
 import { canFork, chatTaskDraft, createAirportChat, createChat, deleteTeam, forkChat, readChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, stopChat, tick } from './core/domain/sim'
 import { chatMindOf, chatSign, chatWho } from './crew'
 import { prereqsOf } from './prereqs'
-import { teamAlerts, teamReplicas } from './core/model'
+import { teamAlerts, teamReplicas, waitingSub, waitingTab } from './core/model'
 
 const setup = () => {
   const w = seedWorld()
@@ -22,6 +26,35 @@ describe('chats', () => {
     const task = Object.values(w.tasks).find((x) => x.teamId === teamId && x.stage === 'running')!
     task.stage = 'awaitMerge'
     expect(teamAlerts(w, teamId)).toEqual({ unreadChats: 1, waitingTasks: tasks + 1 })
+  })
+
+  it('finds the tab with something waiting, tasks before chats', () => {
+    const { w, teamId, chat } = setup()
+    for (const t of Object.values(w.tasks)) if (t.teamId === teamId) t.stage = 'cancelled'
+    w.chats[chat.id].unread = false
+    expect(waitingTab(w, teamId)).toBeUndefined()
+    w.chats[chat.id].unread = true
+    expect(waitingTab(w, teamId)).toBe('chats')
+    // read, but still waiting on an answer
+    w.chats[chat.id].unread = false
+    w.chats[chat.id].question = { options: [] }
+    expect(waitingTab(w, teamId)).toBe('chats')
+    const task = Object.values(w.tasks).find((x) => x.teamId === teamId)!
+    task.stage = 'awaitMerge'
+    expect(waitingTab(w, teamId)).toBe('tasks')
+  })
+
+  it('finds the first sub-task a task waits at, passing over cancelled ones', () => {
+    const { w, teamId } = setup()
+    const task = Object.values(w.tasks).find((x) => x.teamId === teamId && x.stage === 'running')!
+    const subs = Object.values(w.subTasks).filter((s) => s.taskId === task.id)
+    for (const s of subs) delete s.review
+    expect(waitingSub(w, task.id)).toBeUndefined()
+    subs[0].review = { kind: 'question', from: 'progressing', prompt: '?', options: [], at: 0 }
+    subs[0].cancelled = true
+    expect(waitingSub(w, task.id)).toBeUndefined()
+    subs[0].cancelled = false
+    expect(waitingSub(w, task.id)).toBe(subs[0])
   })
 
   it('signs a reply being written, then unread until it is read', () => {
@@ -195,5 +228,23 @@ describe('airport chats', () => {
     expect(prereqsOf(w, '', 'airportChats', null)).toEqual([])
     w.providers = {}
     expect(prereqsOf(w, '', 'airportChats', null).map((x) => x.id)).toEqual(['provider'])
+  })
+})
+
+describe('the chat list', () => {
+  it('puts the sign before the face', () => {
+    // rendered on the server, the store gives its first state: the chat has to go in there
+    const w = useStore.getState().world
+    const teamId = Object.keys(w.teams)[0]
+    const chat = createChat(w, { teamId, replicaId: teamReplicas(w, teamId)[0].id, text: '嗨' })
+    delete chat.replyAt
+    chat.unread = true
+    try {
+      const html = renderToStaticMarkup(createElement(Chats, { teamId, open: null, onOpen: () => {} }))
+      expect(html.indexOf('fx-chat-unread')).toBeGreaterThan(-1)
+      expect(html.indexOf('fx-chat-unread')).toBeLessThan(html.indexOf('<svg'))
+    } finally {
+      delete w.chats[chat.id]
+    }
   })
 })

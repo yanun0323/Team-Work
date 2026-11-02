@@ -21,7 +21,7 @@ import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
 import { ClaudeAccount } from './ClaudeAccount'
 import { Markdown, MarkdownLine } from './Markdown'
-import { Select, Switcher, WaitBadge } from './Controls'
+import { useAutoGrow, Select, Switcher, WaitBadge } from './Controls'
 import { changeAsk, ChangeLines } from './ChangeCard'
 import { FlowNotes, FlowPreview, openCard } from './FlowNotes'
 import { copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
@@ -318,17 +318,6 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
           <span>Token {fmtTokens(taskTokens(w, task))}</span>
         </p>
       </header>
-      {task.description && <div className="fx-d-text-md"><Markdown text={task.description} /></div>}
-      {task.images.length > 0 && (
-        <div className="fx-thumbs">
-          {task.images.map((im, i) => (
-            <button key={i} type="button" className="fx-thumb fx-hit" aria-expanded={image === i} onClick={() => onImage(i)}>
-              <img src={im.url} alt={im.name} />
-            </button>
-          ))}
-        </div>
-      )}
-      {!!task.files?.length && <div className="fx-thumbs">{task.files.map((file, i) => <FileAttachment key={i} file={file} />)}</div>}
       {/* the drawing opens as a whole, as flows do in the company file: its title is the button */}
       <section className="fx-flow fx-flow-card fx-d-flowcard" onClick={openCard}>
         <h3><button type="button" className="fx-flow-open" aria-expanded={flowOpen} onClick={onFlow}>{flow}</button></h3>
@@ -339,6 +328,17 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
         <MergeRow taskId={task.id} />
         <dl className="fx-d-facts"><dt>Token</dt><dd>{fmtTokens(taskTokens(w, task))}</dd></dl>
       </Section>
+      {task.description && <div className="fx-doc-note"><Markdown text={task.description} /></div>}
+      {task.images.length > 0 && (
+        <div className="fx-thumbs">
+          {task.images.map((im, i) => (
+            <button key={i} type="button" className="fx-thumb fx-hit" aria-expanded={image === i} onClick={() => onImage(i)}>
+              <img src={im.url} alt={im.name} />
+            </button>
+          ))}
+        </div>
+      )}
+      {!!task.files?.length && <div className="fx-thumbs">{task.files.map((file, i) => <FileAttachment key={i} file={file} />)}</div>}
       <Section name={tr('紀錄')}><Log lines={lines} /></Section>
     </>
   )
@@ -453,6 +453,8 @@ function Chat({ sub }: { sub: SubTask }) {
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const [text, setText] = useState('')
+  const box = useRef<HTMLTextAreaElement>(null)
+  useAutoGrow(box, text)
   const [ending, setEnding] = useState<null | 'pick' | 'back' | 'stop'>(null)
   const [reason, setReason] = useState('')
   // the employee opens a discussion, so before their first words there is no talk yet
@@ -506,7 +508,7 @@ function Chat({ sub }: { sub: SubTask }) {
       {talk.ended && <p className="fx-d-muted">{ENDED[talk.ended]}</p>}
       {open && !ending && (
         <form className="fx-chat-say" onSubmit={(e) => { e.preventDefault(); send() }}>
-          <textarea className="fx-control" rows={2} value={text} aria-label={tr('訊息')} placeholder={writing ? tr('{a} 正在回覆…', { a: r?.name ?? tr('員工') }) : tr('輸入訊息')}
+          <textarea ref={box} className="fx-control" rows={2} value={text} aria-label={tr('訊息')} placeholder={writing ? tr('{a} 正在回覆…', { a: r?.name ?? tr('員工') }) : tr('輸入訊息')}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               // Enter sends; not while a Chinese word is still being picked in the input method

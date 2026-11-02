@@ -31,10 +31,12 @@ type Preferences struct {
 	TerminalCommand   string `json:"terminalCommand"`
 	DefaultTab        string `json:"defaultTab"`
 	DefaultAirportTab string `json:"defaultAirportTab"`
+	OpenWaitingTab    bool   `json:"openWaitingTab"`
+	OpenWaitingSub    bool   `json:"openWaitingSub"`
 }
 
 func DefaultPreferences() Preferences {
-	return Preferences{MuteInBackground: true, MusicStyle: "bossa", SoundNotice: true, MusicVolume: 100, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers"}
+	return Preferences{MuteInBackground: true, MusicStyle: "bossa", SoundNotice: true, MusicVolume: 100, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", OpenWaitingTab: true, OpenWaitingSub: true}
 }
 
 // MergePreferences accepts only known, non-null fields; omitted fields keep their values.

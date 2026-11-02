@@ -33,7 +33,7 @@ func TestPresets(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"專案經理", "產品負責人", "設計師", "後端工程師", "前端工程師", "測試工程師", "研究員", "程式審查員", "技術架構師", "資安工程師", "DevOps 工程師", "技術文件寫手", "資料分析師", "行銷文案", "特助"} {
+	for _, want := range []string{"專案經理", "產品負責人", "設計師", "後端工程師", "前端工程師", "全端工程師", "測試工程師", "研究員", "程式審查員", "技術架構師", "資安工程師", "DevOps 工程師", "技術文件寫手", "資料分析師", "行銷文案", "特助"} {
 		if names[want] == "" {
 			t.Fatalf("no blueprint %s: %v", want, names)
 		}
@@ -42,8 +42,10 @@ func TestPresets(t *testing.T) {
 		t.Fatal("the designer can't run commands")
 	}
 	for _, tool := range []enum.Tool{enum.ToolReadFile, enum.ToolWriteFile, enum.ToolWebSearch, enum.ToolRunCommand} {
-		if !slices.Contains(w.Blueprints[names["特助"]].Tools, tool) {
-			t.Fatalf("the assistant lacks %s", tool)
+		for _, name := range []string{"特助", "全端工程師"} {
+			if !slices.Contains(w.Blueprints[names[name]].Tools, tool) {
+				t.Fatalf("%s lacks %s", name, tool)
+			}
 		}
 	}
 	feature := presetFlowOf(t, w, "preset-feature")
@@ -257,7 +259,7 @@ func TestPresetsUseTheAgentFolders(t *testing.T) {
 			t.Fatalf("%s: %v", b.Name, paths)
 		}
 	}
-	if found != 15 {
+	if found != 16 {
 		t.Fatalf("%d presets", found)
 	}
 }

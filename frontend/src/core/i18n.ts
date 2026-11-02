@@ -255,6 +255,8 @@ const en = {
   '任務紀錄排序': 'Task log order',
   '預設機場頁籤': 'Default airport tab',
   '預設公司頁籤': 'Default company tab',
+  '有待處理時優先開啟該頁籤': 'Open the tab with something waiting first',
+  '點待回覆的任務時直接開啟子任務': 'Open the waiting sub-task when clicking a task',
   '一般': 'General',
   '其他': 'Other',
   '保留終端機': 'Keep terminals',

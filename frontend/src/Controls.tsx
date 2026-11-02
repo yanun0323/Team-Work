@@ -2,7 +2,17 @@
 // and a number field with paper − / + tabs. Both keep the keyboard behaviour of the native controls.
 
 import { tr } from './core/i18n'
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+
+/** A text box as tall as its text: never under its `rows`, and no taller than the CSS `max-height`. */
+export function useAutoGrow(box: RefObject<HTMLTextAreaElement | null>, value: string, on = true) {
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!on || !el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [box, value, on])
+}
 
 const Chevron = () => (
   <svg className="fx-chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">

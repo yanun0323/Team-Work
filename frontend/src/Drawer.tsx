@@ -8,7 +8,7 @@ import { tr } from './core/i18n'
 import { openFolder } from './core/ops'
 import { MOCK } from './core/mode'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { inTerminal } from './core/model'
+import { inTerminal, waitingTab } from './core/model'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { useStore } from './core/store'
 import { paletteOf } from './Building'
@@ -105,7 +105,11 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   const last = useRef(live)
   if (live) last.current = live
   const team = live ?? (last.current?.id === teamId ? last.current : undefined)
-  const [tab, setTab] = useState<Tab>(() => tabOr(usePrefs.getState().defaultTab))
+  const startTab = () => {
+    const { openWaitingTab, defaultTab } = usePrefs.getState()
+    return tabOr((openWaitingTab && waitingTab(useStore.getState().world, teamId)) || defaultTab)
+  }
+  const [tab, setTab] = useState<Tab>(startTab)
   // the company whose terminal has been opened: its shell then runs until the file closes or changes company
   const [terminalTeam, setTerminalTeam] = useState<string | null>(tab === 'terminal' ? teamId : null)
   const [terminalFocus, setTerminalFocus] = useState(0)
@@ -117,7 +121,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   useEffect(() => {
     title.current?.focus({ preventScroll: true })
     back(-1, false)
-    const start = tabOr(usePrefs.getState().defaultTab)
+    const start = startTab()
     setTab(start)
     if (start === 'terminal') {
       setTerminalTeam(teamId)
@@ -218,9 +222,11 @@ export function useSheets() {
     refocus.current = null
   }, [layers])
   const drop = (ls: Layer[], from: number) => (calm ? ls.slice(0, from) : ls.map((l, i) => (i >= from ? { ...l, leaving: true } : l)))
-  const open = useCallback((x: Item) => {
+  /** With `above`, a second sheet opens straight on top; closing it returns focus to the title of the one below. */
+  const open = useCallback((x: Item, above?: Item) => {
     const from = document.activeElement as HTMLElement | null
-    setLayers((ls) => (ls[0] && !ls[0].leaving && itemKey(ls[0].item) === itemKey(x) ? drop(ls, 0) : [{ item: x, leaving: false, from }]))
+    setLayers((ls) => (ls[0] && !ls[0].leaving && itemKey(ls[0].item) === itemKey(x) ? drop(ls, 0)
+      : [{ item: x, leaving: false, from }, ...(above ? [{ item: above, leaving: false, from: null }] : [])]))
   }, [])
   const push = useCallback((x: Item) => {
     const from = document.activeElement as HTMLElement | null
@@ -232,7 +238,7 @@ export function useSheets() {
   }, [])
   const back = useCallback((depth: number, restore = true) => {
     setLayers((ls) => {
-      if (restore) refocus.current = ls[depth + 1]?.from ?? null
+      if (restore) refocus.current = ls[depth + 1]?.from ?? document.getElementById(`fx-detail-title-${depth}`)
       return drop(ls, depth + 1)
     })
   }, [])

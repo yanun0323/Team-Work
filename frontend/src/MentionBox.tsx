@@ -3,12 +3,13 @@
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { FileInfo, SkillInfo } from './core/domain/types'
+import { useAutoGrow } from './Controls'
 import { tr } from './core/i18n'
 import { replicaSkills, searchFiles } from './core/ops'
 import { useStore } from './core/store'
 import { acceptMention, fileChoices, mentionAt, skillChoices, type MentionChoice } from './mentions'
 
-export function MentionBox({ box, value, teamId, replicaIds = [], label, placeholder, rows = 2, below, onChange, onSend }: {
+export function MentionBox({ box, value, teamId, replicaIds = [], label, placeholder, rows = 2, below, grow, onChange, onSend }: {
   box?: RefObject<HTMLTextAreaElement | null>
   value: string
   /** The company whose files "@" offers; with none, the box is a plain one. */
@@ -20,11 +21,14 @@ export function MentionBox({ box, value, teamId, replicaIds = [], label, placeho
   rows?: number
   /** Open the list under the box, where there is no room above it. */
   below?: boolean
+  /** Grow with the text. */
+  grow?: boolean
   onChange: (text: string) => void
   onSend?: () => void
 }) {
   const own = useRef<HTMLTextAreaElement>(null)
   const field = box ?? own
+  useAutoGrow(field, value, grow)
   const id = useId()
   const [cursor, setCursor] = useState(0)
   const [focused, setFocused] = useState(false)

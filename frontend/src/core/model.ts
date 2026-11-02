@@ -104,6 +104,15 @@ export function teamAlerts(w: World, teamId: string) {
   }
 }
 
+/** The tab that has something for the user to deal with, tasks before chats. A chat already read can still be waiting on an answer. */
+export function waitingTab(w: World, teamId: string): 'tasks' | 'chats' | undefined {
+  if (teamAlerts(w, teamId).waitingTasks) return 'tasks'
+  return Object.values(w.chats).some((c) => c.teamId === teamId && (c.unread || c.question)) ? 'chats' : undefined
+}
+
+/** The first sub-task of a task still waiting on the user; a task waiting to be merged has none. */
+export const waitingSub = (w: World, taskId: string) => subsOf(w, taskId).find((s) => s.review && !s.cancelled)
+
 export function counts(w: World, teamId: string) {
   const c: Record<Status, number> = { todo: 0, progressing: 0, review: 0, complete: 0 }
   for (const task of teamTasks(w, teamId)) if (task.stage !== 'cancelled') c[statusOf(w, task)] += 1
@@ -208,8 +217,14 @@ export function useStickToBottom<E extends HTMLElement>(dep: unknown) {
     const el = ref.current
     if (!el) return
     const on = () => (pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24)
+    // something beside the list grew, such as the box to write in: the last line stays in view
+    const size = new ResizeObserver(() => { if (pinned.current) el.scrollTop = el.scrollHeight })
+    size.observe(el)
     el.addEventListener('scroll', on)
-    return () => el.removeEventListener('scroll', on)
+    return () => {
+      size.disconnect()
+      el.removeEventListener('scroll', on)
+    }
   }, [])
   useEffect(() => {
     const el = ref.current
