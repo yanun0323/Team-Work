@@ -69,7 +69,7 @@ export const mindOf = (r: Replica) => `${r.model} · ${r.effort}`
  */
 /** What a chat on the list shows beside it; only the most pressing of these. */
 export function chatSign(c: Chat) {
-  return c.replyAt !== undefined ? 'replying' : c.question ? 'question' : c.unread ? 'unread' : undefined
+  return c.replyAt !== undefined ? 'replying' : c.question || c.change ? 'question' : c.unread ? 'unread' : undefined
 }
 
 export function chatMindOf(w: World, c: Chat) {

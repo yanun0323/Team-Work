@@ -264,32 +264,42 @@ func (e *Engine) CreateWorkflow(name string) (*model.Workflow, error) {
 
 // SaveWorkflow replaces a flow. Running tasks keep the copy they started with.
 func (e *Engine) SaveWorkflow(id string, wf model.Workflow) error {
-	return e.doSettings(func() error {
-		old := e.w.Workflows[id]
-		if old == nil {
-			return model.Errorf(model.CodeNotFound, "找不到任務流程")
-		}
-		if model.IsPresetID(id) {
-			return errPreset()
-		}
-		wf.ID = id
-		if strings.TrimSpace(wf.Name) == "" {
-			return model.Errorf(model.CodeInvalid, "任務流程要有名稱")
-		}
-		if err := checkWorkflow(&wf); err != nil {
-			return err
-		}
-		for _, n := range wf.Nodes {
-			for _, r := range n.ReplicaIDs {
-				if e.w.Replicas[r] == nil {
-					return model.Errorf(model.CodeInvalid, "節點「%s」指派了不存在的員工", n.Name)
-				}
+	return e.doSettings(func() error { return e.saveWorkflow(id, wf) })
+}
+
+// saveWorkflow does it holding the lock, inside a change.
+func (e *Engine) saveWorkflow(id string, wf model.Workflow) error {
+	if e.w.Workflows[id] == nil {
+		return model.Errorf(model.CodeNotFound, "找不到任務流程")
+	}
+	if model.IsPresetID(id) {
+		return errPreset()
+	}
+	wf.ID = id
+	if err := e.checkFlow(&wf); err != nil {
+		return err
+	}
+	localizeFlow(&wf, e.w.Language)
+	e.w.Workflows[id] = &wf
+	return nil
+}
+
+// checkFlow is everything a flow has to be before it is kept.
+func (e *Engine) checkFlow(wf *model.Workflow) error {
+	if strings.TrimSpace(wf.Name) == "" {
+		return model.Errorf(model.CodeInvalid, "任務流程要有名稱")
+	}
+	if err := checkWorkflow(wf); err != nil {
+		return err
+	}
+	for _, n := range wf.Nodes {
+		for _, r := range n.ReplicaIDs {
+			if e.w.Replicas[r] == nil {
+				return model.Errorf(model.CodeInvalid, "節點「%s」指派了不存在的員工", n.Name)
 			}
 		}
-		localizeFlow(&wf, e.w.Language)
-		e.w.Workflows[id] = &wf
-		return nil
-	})
+	}
+	return nil
 }
 
 // DuplicateWorkflow copies a flow, named after it with the first free -1, -2…; it is not the default.
@@ -790,20 +800,23 @@ func (e *Engine) CreateBlueprint(b model.Blueprint) (*model.Blueprint, error) {
 }
 
 func (e *Engine) SaveBlueprint(id string, b model.Blueprint) error {
-	return e.doSettings(func() error {
-		if e.w.Blueprints[id] == nil {
-			return model.Errorf(model.CodeNotFound, "找不到藍圖")
-		}
-		if model.IsPresetID(id) {
-			return errPreset()
-		}
-		if err := checkBlueprint(&b); err != nil {
-			return err
-		}
-		b.ID = id
-		e.w.Blueprints[id] = &b
-		return nil
-	})
+	return e.doSettings(func() error { return e.saveBlueprint(id, b) })
+}
+
+// saveBlueprint does it holding the lock, inside a change.
+func (e *Engine) saveBlueprint(id string, b model.Blueprint) error {
+	if e.w.Blueprints[id] == nil {
+		return model.Errorf(model.CodeNotFound, "找不到藍圖")
+	}
+	if model.IsPresetID(id) {
+		return errPreset()
+	}
+	if err := checkBlueprint(&b); err != nil {
+		return err
+	}
+	b.ID = id
+	e.w.Blueprints[id] = &b
+	return nil
 }
 
 func (e *Engine) DeleteBlueprint(id string) error {

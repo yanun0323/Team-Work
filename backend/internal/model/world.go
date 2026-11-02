@@ -167,6 +167,30 @@ type Review struct {
 	Reason  string          `json:"reason,omitempty"` // timeout or error
 	Options []ReviewOption  `json:"options"`
 	At      float64         `json:"at"`
+	// Change is what a ReviewChange would write.
+	Change *PendingChange `json:"change,omitempty"`
+}
+
+// PendingChange is a change to a blueprint or flow that an employee asked for, written only once the user agrees.
+// Version is what the target's version was when asked; a target that has moved on since is not overwritten.
+type PendingChange struct {
+	Kind      string       `json:"kind"` // blueprint or workflow
+	TargetID  string       `json:"targetId"`
+	Name      string       `json:"name"`
+	Version   string       `json:"version"`
+	Lines     []ChangeLine `json:"lines"`
+	Blueprint *Blueprint   `json:"blueprint,omitempty"`
+	Workflow  *Workflow    `json:"workflow,omitempty"`
+}
+
+// ChangeLine is one difference, for the user to read. Field says what changed: name, prompt, comment, tools, skills,
+// or for a flow's step (named by Node) also kind, staff, assignment, handoff, join; node and edge are a whole step or
+// connection added or removed, and condition a connection's.
+type ChangeLine struct {
+	Field  string `json:"field"`
+	Node   string `json:"node,omitempty"`
+	Before string `json:"before,omitempty"`
+	After  string `json:"after,omitempty"`
 }
 
 type LogLine struct {
@@ -210,6 +234,8 @@ type Chat struct {
 	ReplyAt *float64 `json:"replyAt,omitempty"`
 	// Question is set while the employee waits for the answer to what they asked with ask_user.
 	Question *ChatQuestion `json:"question,omitempty"`
+	// Change is set while the employee waits for the user to agree to a change to a blueprint or flow.
+	Change *PendingChange `json:"change,omitempty"`
 	// Unread is set when the employee said something the user has not opened the chat to see.
 	Unread bool `json:"unread,omitempty"`
 	// Compact stands in for the start of the conversation when asking the model. The conversation itself stays whole.
@@ -321,6 +347,17 @@ type Task struct {
 	CostCarry     float64        `json:"costCarry"`
 	TokensCarry   int            `json:"tokensCarry"`
 	MergeConflict bool           `json:"mergeConflict"`
+	// Origin is who made the task, when it was not the user. Older tasks have none.
+	Origin *TaskOrigin `json:"origin,omitempty"`
+}
+
+// TaskOrigin says who made a task with create_task. Name keeps who it was, for when they are gone.
+// Depth counts how many tasks led here through employees working on tasks: a chat's task is 0.
+type TaskOrigin struct {
+	Kind  string `json:"kind"` // employee (working on a task), chat (a company's) or airport (an airport chat)
+	ID    string `json:"id"`   // the employee's or the chat's
+	Name  string `json:"name"`
+	Depth int    `json:"depth"`
 }
 
 // ModelPrice is USD per million tokens.
@@ -466,6 +503,9 @@ type ToolResult struct {
 	Text    string
 	IsError bool
 	Stop    bool
+	// After runs once the results of the tools before it are recorded, when Stop is set. What the user can answer
+	// opens here, so that the answer cannot come ahead of those results.
+	After func()
 	// MimeType and Data carry an image for the model to see, as base64, alongside Text.
 	MimeType string
 	Data     string

@@ -104,6 +104,16 @@ const en = {
   '完成#button': 'Done',
   '討論中，等你回覆': 'In discussion, waiting for you',
   '等你回覆': 'Waiting for you',
+  '同意': 'Agree',
+  '拒絕': 'Refuse',
+  '我想修改藍圖「{name}」：': 'I would like to change the blueprint "{name}":',
+  '我想修改任務流程「{name}」：': 'I would like to change the task flow "{name}":',
+  '修改前': 'Before',
+  '修改後': 'After',
+  '（空白）': '(empty)',
+  '連線': 'Connection',
+  '條件': 'Condition',
+  '由 {name} 建立': 'Created by {name}',
   '等其他前一步完成': 'Waiting for other previous steps',
   '準備開始': 'About to start',
   '等人接手': 'Waiting for someone',
@@ -448,6 +458,8 @@ export function tr(key: Key, args?: Args): string {
 
 /** What the backend and simulator record by key: log lines and review options. */
 const RECORDED: Record<string, Record<Locale, string>> = {
+  'option.approve': { zh: '同意', en: 'Agree' },
+  'option.reject': { zh: '拒絕', en: 'Refuse' },
   'option.retry': { zh: '再試一次', en: 'Try again' },
   'option.skip': { zh: '略過這個節點', en: 'Skip this node' },
   'option.addBudget': { zh: '提高上限 50%', en: 'Raise limit by 50%' },
@@ -474,6 +486,7 @@ const RECORDED: Record<string, Record<Locale, string>> = {
   'log.review.pickRoute': { zh: '等待使用者選擇下游', en: 'Waiting for the user to pick a route' },
   'log.review.failed': { zh: '等待使用者決定是否重試', en: 'Waiting for the user to retry or skip' },
   'log.review.budget': { zh: '等待使用者處理費用上限', en: 'Waiting for the user about the cost limit' },
+  'log.review.change': { zh: '等待使用者確認修改', en: 'Waiting for the user to agree to a change' },
   'log.review.talk': { zh: '等待使用者討論', en: 'Waiting to talk it over with the user' },
   'log.empty': { zh: '還沒有紀錄', en: 'Nothing yet' },
 }

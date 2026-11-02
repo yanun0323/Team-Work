@@ -47,6 +47,8 @@ const (
 	ReviewFailed    ReviewKind = "failed"
 	ReviewBudget    ReviewKind = "budget"
 	ReviewTalk      ReviewKind = "talk"
+	// ReviewChange waits for the user to agree to a change an employee wants to make to a blueprint or flow.
+	ReviewChange ReviewKind = "change"
 )
 
 type LogKind string

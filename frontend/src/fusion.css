@@ -842,6 +842,13 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-row-main .fx-d-ask { color: var(--ink); white-space: pre-wrap; }
 .fx-d-reply { display: grid; gap: 8px; }
 .fx-d-reply .fx-d-merge-acts { padding-inline-start: 0; }
+/* a change an employee wants to make, for the user to agree to */
+.fx-d-change-card { flex: none; display: grid; gap: 8px; max-height: 45%; overflow-y: auto; padding: 10px 12px; background: var(--clip); box-shadow: var(--lift); font-size: 13px; }
+.fx-d-change { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.fx-d-change-at { display: block; margin-block-end: 2px; color: var(--muted); font-size: 12px; }
+.fx-d-change del, .fx-d-change ins { display: block; padding: 3px 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fx-d-change del { color: var(--muted); background: var(--dim); }
+.fx-d-change ins { background: var(--note-talk); color: var(--ink); text-decoration: none; }
 .fx-d-choices { display: flex; flex-wrap: wrap; gap: 6px; }
 .fx-d-choices:empty { display: none; }
 .fx-choice {

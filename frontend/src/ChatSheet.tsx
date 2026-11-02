@@ -13,12 +13,13 @@ import { chatMindOf, DEFAULT_EFFORT, effortsOf, lastAirportMind, lastChatReplica
 import { Gone, Heading, DeleteTool, type Head } from './DrawerDetail'
 import { fmtClock, fmtTokens, teamReplicas, useStickToBottom } from './core/model'
 import type { Attachment, Chat } from './core/domain/types'
-import { attempt, chatTaskDraft, deleteChat, forkChat, hasUncommitted, readChat, rewindChat, sayInChat, setChatMind, startAirportChat, startChat, stopChat } from './core/ops'
+import { attempt, chatTaskDraft, deleteChat, forkChat, hasUncommitted, readChat, resolveChatChange, rewindChat, sayInChat, setChatMind, startAirportChat, startChat, stopChat } from './core/ops'
 import { AIRPORT_STAFF_LOOK, canFork } from './core/domain/sim'
 import { useLiveText } from './core/live'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { MentionBox } from './MentionBox'
+import { changeAsk, ChangeLines } from './ChangeCard'
 import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, splitAttachments } from './attachments'
 
 export interface ChatTaskSeed { title: string; description: string; ownerId: string | null }
@@ -256,6 +257,16 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
             <button key={o} type="button" className="fx-choice" onClick={() => act((x) => sayInChat(x, chat.id, o))}>{o}</button>
           ))}
         </div>
+      )}
+      {!left && !writing && chat?.change && (
+        <section className="fx-d-change-card" aria-label={changeAsk(chat.change)}>
+          <p>{changeAsk(chat.change)}</p>
+          <ChangeLines change={chat.change} />
+          <div className="fx-d-choices">
+            <button type="button" className="fx-choice" onClick={() => act((x) => resolveChatChange(x, chat.id, true))}>{tr('同意')}</button>
+            <button type="button" className="fx-choice" onClick={() => act((x) => resolveChatChange(x, chat.id, false))}>{tr('拒絕')}</button>
+          </div>
+        </section>
       )}
       {!chat && !airport && !crew.length && <p className="fx-d-muted">{tr('這間公司還沒有員工')}</p>}
       {!chat && uncommitted && <p className="fx-room-warn" role="status">{tr('專案資料夾有未提交的改動，員工可能會改到同一份檔案')}</p>}

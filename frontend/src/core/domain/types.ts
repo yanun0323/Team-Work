@@ -202,8 +202,25 @@ export interface Handoff {
   commit: string
 }
 
-export type ReviewKind = 'question' | 'pickRoute' | 'failed' | 'budget' | 'talk'
+export type ReviewKind = 'question' | 'pickRoute' | 'failed' | 'budget' | 'talk' | 'change'
 export type FailReason = 'timeout' | 'error'
+
+/** One difference in a change waiting for the user. A `node` or `edge` line with only `after` was added, with only `before` removed. */
+export interface ChangeLine {
+  field: string
+  /** The step, or connection, the line is about. */
+  node?: string
+  before?: string
+  after?: string
+}
+
+/** A change an employee wants to make to a blueprint or flow; written only once the user agrees. */
+export interface PendingChange {
+  kind: 'blueprint' | 'workflow'
+  targetId: string
+  name: string
+  lines: ChangeLine[]
+}
 
 export interface ReviewOption {
   id: string
@@ -220,6 +237,7 @@ export interface Review {
   reason?: FailReason
   options: ReviewOption[]
   at: number
+  change?: PendingChange
 }
 
 export type LogKind = 'think' | 'tool' | 'say' | 'system' | 'human'
@@ -261,6 +279,8 @@ export interface Chat {
   replyAt?: number
   /** The employee waits for an answer to what they just asked; the next message is it. */
   question?: { options: string[] }
+  /** The employee waits for the user to agree to this. Saying something else in the chat refuses it. */
+  change?: PendingChange
   /** The employee said something the user has not opened the chat to see. */
   unread?: boolean
   createdAt: number
@@ -363,6 +383,15 @@ export interface Attachment {
   url: string
 }
 
+/** Who made a task with `create_task`; a task the user made has none. */
+export interface TaskOrigin {
+  kind: 'employee' | 'chat' | 'airport'
+  id: string
+  /** Who it was, for when they are gone. */
+  name: string
+  depth: number
+}
+
 export interface Task {
   id: string
   teamId: string
@@ -375,6 +404,7 @@ export interface Task {
   workflowId: string
   /** The employee who owns the task and works its first and last steps (整理需求 and 驗收). */
   ownerId: string | null
+  origin?: TaskOrigin
   /** Copy of the workflow taken when the task starts. Later edits only affect new tasks. */
   workflow: Workflow
   createdAt: number

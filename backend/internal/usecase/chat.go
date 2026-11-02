@@ -228,6 +228,7 @@ func (e *Engine) RewindChat(id string, index int) error {
 		e.stopRun(c.ID)
 		c.ReplyAt = nil
 		c.Question = nil
+		c.Change = nil
 		c.Messages = c.Messages[:index]
 		e.w.Conversations[c.ID] = e.w.Conversations[c.ID][:end]
 		if c.Compact != nil && end < c.Compact.Upto {
@@ -377,7 +378,11 @@ func (e *Engine) dropChat(id string) {
 // endChatsOf stops the replies of an employee who is leaving. Their chats stay to read.
 func (e *Engine) endChatsOf(replicaID string) {
 	for _, c := range e.w.Chats {
-		if c.ReplicaID == replicaID && c.ReplyAt != nil {
+		if c.ReplicaID != replicaID {
+			continue
+		}
+		c.Change = nil // nobody is left to go on with the answer
+		if c.ReplyAt != nil {
 			e.stopRun(c.ID)
 			c.ReplyAt = nil
 		}
@@ -436,7 +441,12 @@ func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Att
 		answer = "see their next message"
 		c.Question = nil
 	}
-	e.w.Conversations[c.ID] = append(answerPending(e.w.Conversations[c.ID], answer), said)
+	conv := e.w.Conversations[c.ID]
+	if c.Change != nil { // saying something else instead of agreeing is saying no
+		conv = answerChange(conv, "The user did not agree, so nothing was written; see their next message", true)
+		c.Change = nil
+	}
+	e.w.Conversations[c.ID] = append(answerPending(conv, answer), said)
 	e.dirty[c.ID] = true
 }
 
@@ -519,8 +529,12 @@ func (e *Engine) launchChat(c *model.Chat, spec agentSpec) {
 	}
 	r := &run{cancel: cancel}
 	e.runs[c.ID] = r
+	said := ""
+	if last := c.Messages[len(c.Messages)-1]; last.From == "user" { // going on from an answer on a card, no one said anything
+		said = last.Text
+	}
 	e.wg.Add(1)
-	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, said: c.Messages[len(c.Messages)-1].Text, context: c.Context, compact: clone(c.Compact)})
+	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, said: said, context: c.Context, compact: clone(c.Compact)})
 }
 
 // applyChat changes a chat for a run, unless the run was stopped or replaced meanwhile.
@@ -612,6 +626,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		}
 	}
 	list := append(tools.For(in.spec.allowed, append(roots, e.attachmentRoot(in.id))), e.chatAskUser(in))
+	list = append(list, e.manageTools(e.managerOfChat(in), in.spec.allowed, true)...)
 	specs := make([]model.ToolSpec, len(list))
 	byName := make(map[string]adapter.Tool, len(list))
 	for i, tool := range list {

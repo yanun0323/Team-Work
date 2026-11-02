@@ -212,31 +212,78 @@ func userText(text string) model.Message {
 // answerPending makes a conversation ready for the next model call. Tool calls without a result get one:
 // an open ask_user gets the user's answer, anything else was interrupted.
 func answerPending(conv []model.Message, answer string) []model.Message {
+	return closeCalls(conv, answer, func(b model.Block) (string, bool, bool) {
+		if b.Name == toolAskUser && answer != "" {
+			return "The user answered: " + answer, false, true
+		}
+		return "", false, false
+	})
+}
+
+// answerChange gives the user's verdict to the call that waits for it: the first one without a result, as the calls
+// before it all ran. The calls after it never did.
+func answerChange(conv []model.Message, text string, isError bool) []model.Message {
+	answered := false
+	return closeCalls(conv, "", func(b model.Block) (string, bool, bool) {
+		if answered || !isChangeTool(b.Name) {
+			return "", false, false
+		}
+		answered = true
+		return text, isError, true
+	})
+}
+
+// closeCalls gives every tool call of the last reply a result. Results already recorded stay; of the rest, answer
+// decides, and what it passes on was interrupted. The results go together in one message, as the model requires.
+func closeCalls(conv []model.Message, plain string, answer func(model.Block) (string, bool, bool)) []model.Message {
 	if len(conv) == 0 {
 		return conv
 	}
-	last := conv[len(conv)-1]
-	if last.Role != enum.RoleAssistant {
-		return conv
+	at := len(conv) - 1
+	have := map[string]model.Block{}
+	if m := conv[at]; m.Role != enum.RoleAssistant {
+		if at == 0 || conv[at-1].Role != enum.RoleAssistant || len(m.Content) == 0 || m.Content[0].Type != enum.BlockToolResult {
+			return conv
+		}
+		for _, b := range m.Content {
+			have[b.ID] = b
+		}
+		at--
 	}
 	var results []model.Block
-	for _, b := range last.Content {
+	missing := false
+	for _, b := range conv[at].Content {
 		if b.Type != enum.BlockToolCall {
 			continue
 		}
-		text, isErr := "interrupted before it ran; call it again if it is still needed", true
-		if b.Name == toolAskUser && answer != "" {
-			text, isErr = "The user answered: "+answer, false
+		if done, ok := have[b.ID]; ok {
+			results = append(results, done)
+			continue
+		}
+		missing = true
+		text, isErr, ok := answer(b)
+		if !ok {
+			text, isErr = interruptedText(b.Name), true
 		}
 		results = append(results, model.Block{Type: enum.BlockToolResult, ID: b.ID, Name: b.Name, Text: text, IsError: isErr})
 	}
 	if len(results) == 0 {
-		if answer != "" {
-			return append(conv, userText(answer))
+		if plain != "" {
+			return append(conv, userText(plain))
 		}
 		return conv
 	}
-	return append(conv, model.Message{Role: enum.RoleUser, Content: results})
+	if !missing {
+		return conv
+	}
+	return append(slices.Clip(conv[:at+1]), model.Message{Role: enum.RoleUser, Content: results})
+}
+
+func interruptedText(tool string) string {
+	if tool == toolCreateTask { // it may be done with no result to show for it: the task exists from the moment it is made
+		return "interrupted, and it may have taken effect; check with list_tasks before calling it again"
+	}
+	return "interrupted before it ran; call it again if it is still needed"
 }
 
 var frontmatterField = regexp.MustCompile(`(?m)^(name|description):\s*(.+?)\s*$`)

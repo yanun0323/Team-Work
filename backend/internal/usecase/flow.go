@@ -547,11 +547,36 @@ type NewTask struct {
 	OwnerID     *string             `json:"ownerId"`
 	Images      []model.Attachment  `json:"images"`
 	Files       []model.Attachment  `json:"files"`
+	// Origin is set when an employee makes the task; a request cannot claim one.
+	Origin *model.TaskOrigin `json:"-"`
 }
 
 func (e *Engine) CreateTask(in NewTask) (*model.Task, error) {
 	var out *model.Task
 	err := e.do(func() error {
+		var err error
+		out, err = e.createTask(in)
+		return err
+	})
+	return out, err
+}
+
+// staffFlow settles who works each step of a new task. Call it holding the lock.
+func (e *Engine) staffFlow(t *model.Task, staff map[string][]string, ownerID *string) {
+	for i := range t.Workflow.Nodes {
+		if picked, ok := staff[t.Workflow.Nodes[i].ID]; ok {
+			t.Workflow.Nodes[i].ReplicaIDs = slices.Clone(picked)
+		}
+	}
+	localizeFlow(&t.Workflow, e.w.Language)
+	e.keepOwnStaff(t)
+	setOwner(t, ownerID)
+}
+
+// createTask makes a task and starts it. Call it holding the lock, inside a change.
+func (e *Engine) createTask(in NewTask) (*model.Task, error) {
+	var out *model.Task
+	err := func() error {
 		if e.w.Teams[in.TeamID] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到公司")
 		}
@@ -582,16 +607,9 @@ func (e *Engine) CreateTask(in NewTask) (*model.Task, error) {
 		}
 		t := &model.Task{
 			ID: e.uid("task"), TeamID: in.TeamID, Number: number, Title: strings.TrimSpace(in.Title), Description: in.Description, Images: images, Files: in.Files,
-			WorkflowID: in.WorkflowID, Workflow: clone(*wf), CreatedAt: e.w.Now, Stage: enum.StageRunning, Branch: fmt.Sprintf("task/%d", number),
+			WorkflowID: in.WorkflowID, Workflow: clone(*wf), CreatedAt: e.w.Now, Stage: enum.StageRunning, Branch: fmt.Sprintf("task/%d", number), Origin: in.Origin,
 		}
-		for i := range t.Workflow.Nodes {
-			if staff, ok := in.Staff[t.Workflow.Nodes[i].ID]; ok {
-				t.Workflow.Nodes[i].ReplicaIDs = slices.Clone(staff)
-			}
-		}
-		localizeFlow(&t.Workflow, e.w.Language)
-		e.keepOwnStaff(t)
-		setOwner(t, in.OwnerID)
+		e.staffFlow(t, in.Staff, in.OwnerID)
 		for _, n := range t.Workflow.Nodes {
 			if !slices.ContainsFunc(n.ReplicaIDs, func(r string) bool { return e.w.Replicas[r] != nil }) {
 				return model.Errorf(model.CodeInvalid, "節點「%s」沒有指派員工", n.Name)
@@ -604,7 +622,7 @@ func (e *Engine) CreateTask(in NewTask) (*model.Task, error) {
 		e.spawn(t, taskNodeOf(&t.Workflow).ID, []string{}, nil, false, 0)
 		out = clone(t)
 		return nil
-	})
+	}()
 	return out, err
 }
 
@@ -618,132 +636,168 @@ type TaskPatch struct {
 
 // UpdateTask edits a task. A run under way keeps what it was told; later steps see the change.
 func (e *Engine) UpdateTask(id string, p TaskPatch) error {
-	return e.do(func() error {
-		t, err := e.taskOf(id)
-		if err != nil {
-			return err
+	return e.do(func() error { return e.updateTask(id, p) })
+}
+
+// updateTask refuses before changing anything, as nothing takes back a change that fails halfway. Call it holding the lock.
+func (e *Engine) updateTask(id string, p TaskPatch) error {
+	t, err := e.taskOf(id)
+	if err != nil {
+		return err
+	}
+	if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
+		return model.Errorf(model.CodeInvalid, "任務要有標題")
+	}
+	if p.OwnerID != nil {
+		if r := e.w.Replicas[*p.OwnerID]; r == nil || r.TeamID != t.TeamID {
+			return model.Errorf(model.CodeInvalid, "負責人不是這間公司的員工")
 		}
-		if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
-			return model.Errorf(model.CodeInvalid, "任務要有標題")
+	}
+	for nodeID, staff := range p.Staff {
+		if nodeOf(&t.Workflow, nodeID) == nil {
+			return model.Errorf(model.CodeInvalid, "這個任務沒有節點 %s", nodeID)
 		}
-		if p.OwnerID != nil {
-			if r := e.w.Replicas[*p.OwnerID]; r == nil || r.TeamID != t.TeamID {
-				return model.Errorf(model.CodeInvalid, "負責人不是這間公司的員工")
+		for _, r := range staff {
+			if rep := e.w.Replicas[r]; rep == nil || rep.TeamID != t.TeamID {
+				return model.Errorf(model.CodeInvalid, "指派了不是這間公司的員工")
 			}
 		}
-		for _, staff := range p.Staff {
-			for _, r := range staff {
-				if rep := e.w.Replicas[r]; rep == nil || rep.TeamID != t.TeamID {
-					return model.Errorf(model.CodeInvalid, "指派了不是這間公司的員工")
-				}
-			}
+	}
+	next := model.Task{OwnerID: t.OwnerID, Workflow: clone(t.Workflow)}
+	for i := range next.Workflow.Nodes {
+		if staff, ok := p.Staff[next.Workflow.Nodes[i].ID]; ok {
+			next.Workflow.Nodes[i].ReplicaIDs = slices.Clone(staff)
 		}
-		if p.Title != nil {
-			t.Title = strings.TrimSpace(*p.Title)
+	}
+	owner := t.OwnerID
+	if p.OwnerID != nil {
+		owner = p.OwnerID
+	}
+	setOwner(&next, owner)
+	for nodeID := range p.Staff {
+		n := nodeOf(&next.Workflow, nodeID)
+		if !slices.ContainsFunc(n.ReplicaIDs, func(r string) bool { return e.w.Replicas[r] != nil }) {
+			return model.Errorf(model.CodeInvalid, "節點「%s」沒有指派員工", n.Name)
 		}
-		if p.Description != nil {
-			t.Description = *p.Description
-		}
-		for i := range t.Workflow.Nodes {
-			if staff, ok := p.Staff[t.Workflow.Nodes[i].ID]; ok {
-				t.Workflow.Nodes[i].ReplicaIDs = slices.Clone(staff)
-			}
-		}
-		owner := t.OwnerID
-		if p.OwnerID != nil {
-			owner = p.OwnerID
-		}
-		setOwner(t, owner)
-		return nil
-	})
+	}
+	if p.Title != nil {
+		t.Title = strings.TrimSpace(*p.Title)
+	}
+	if p.Description != nil {
+		t.Description = *p.Description
+	}
+	t.OwnerID, t.Workflow = next.OwnerID, next.Workflow
+	return nil
 }
 
 // ResolveReview is the user's reply to a sub-task waiting on them: an option with a note; a question can
 // also be answered in words alone.
 func (e *Engine) ResolveReview(subID, optionID, note string) error {
-	return e.do(func() error {
-		s, t, err := e.subOf(subID)
-		if err != nil {
-			return err
+	if e.resolvesChange(subID, optionID) {
+		return e.doSettings(func() error { return e.resolveReview(subID, optionID, note) })
+	}
+	return e.do(func() error { return e.resolveReview(subID, optionID, note) })
+}
+
+// resolvesChange says whether this answer writes settings, and so has to go through what guards them.
+func (e *Engine) resolvesChange(subID, optionID string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	s := e.w.SubTasks[subID]
+	return s != nil && s.Review != nil && s.Review.Kind == enum.ReviewChange && optionID == optionApprove
+}
+
+func (e *Engine) resolveReview(subID, optionID, note string) error {
+	s, t, err := e.subOf(subID)
+	if err != nil {
+		return err
+	}
+	r := s.Review
+	if r == nil || r.Kind == enum.ReviewTalk {
+		return model.Errorf(model.CodeConflict, "這個子任務沒有在等回覆")
+	}
+	note = strings.TrimSpace(note)
+	var option *model.ReviewOption
+	for i := range r.Options {
+		if r.Options[i].ID == optionID {
+			option = &r.Options[i]
 		}
-		r := s.Review
-		if r == nil || r.Kind == enum.ReviewTalk {
-			return model.Errorf(model.CodeConflict, "這個子任務沒有在等回覆")
+	}
+	if option == nil && !(r.Kind == enum.ReviewQuestion && optionID == "" && note != "") {
+		return model.Errorf(model.CodeInvalid, "沒有這個選項")
+	}
+	label := note
+	if option != nil {
+		label = option.Label
+		if label == "" {
+			label = optionID
 		}
-		note = strings.TrimSpace(note)
-		var option *model.ReviewOption
-		for i := range r.Options {
-			if r.Options[i].ID == optionID {
-				option = &r.Options[i]
+	}
+	s.Review = nil
+	switch {
+	case r.Kind == enum.ReviewChange && optionID == optionApprove:
+		e.logLine(s, enum.LogHuman, i18n.T("同意修改"), "", nil)
+	case r.Kind == enum.ReviewChange:
+		e.logLine(s, enum.LogHuman, i18n.T("拒絕修改"), "", nil)
+	case option == nil:
+		e.logLine(s, enum.LogHuman, note, "", nil)
+	case note != "":
+		e.logLine(s, enum.LogHuman, label+"："+note, "", nil)
+	default:
+		e.logLine(s, enum.LogHuman, label, "", nil)
+	}
+	switch r.Kind {
+	case enum.ReviewQuestion:
+		s.Status = enum.StatusTodo
+		answer := label
+		if option != nil && note != "" {
+			answer += "（" + note + "）"
+		}
+		e.w.Conversations[s.ID] = answerPending(e.w.Conversations[s.ID], answer)
+		e.dirty[s.ID] = true
+	case enum.ReviewPickRoute:
+		s.Status = enum.StatusComplete
+		s.RoutedTo = []string{optionID}
+		if s.Handoff != nil {
+			reason := note
+			if reason == "" {
+				reason = "The user chose"
 			}
+			s.Handoff.Agent.Next = &model.NextStep{NodeID: optionID, Reason: reason}
 		}
-		if option == nil && !(r.Kind == enum.ReviewQuestion && optionID == "" && note != "") {
-			return model.Errorf(model.CodeInvalid, "沒有這個選項")
-		}
-		label := note
-		if option != nil {
-			label = option.Label
-			if label == "" {
-				label = optionID
-			}
-		}
-		s.Review = nil
-		switch {
-		case option == nil:
-			e.logLine(s, enum.LogHuman, note, "", nil)
-		case note != "":
-			e.logLine(s, enum.LogHuman, label+"："+note, "", nil)
-		default:
-			e.logLine(s, enum.LogHuman, label, "", nil)
-		}
-		switch r.Kind {
-		case enum.ReviewQuestion:
-			s.Status = enum.StatusTodo
-			answer := label
-			if option != nil && note != "" {
-				answer += "（" + note + "）"
-			}
-			e.w.Conversations[s.ID] = answerPending(e.w.Conversations[s.ID], answer)
-			e.dirty[s.ID] = true
-		case enum.ReviewPickRoute:
+	case enum.ReviewFailed:
+		if optionID == "skip" {
 			s.Status = enum.StatusComplete
-			s.RoutedTo = []string{optionID}
-			if s.Handoff != nil {
-				reason := note
-				if reason == "" {
-					reason = "The user chose"
-				}
-				s.Handoff.Agent.Next = &model.NextStep{NodeID: optionID, Reason: reason}
+			s.Skipped = true
+			s.EndedAt = ptr(e.w.Now)
+			s.Handoff = &model.Handoff{
+				Agent: model.AgentHandoff{Goal: t.Title, Done: []string{}, Outputs: []string{}, Decisions: []string{"The user skipped this step"}, Open: []string{"This step produced nothing"}},
+				Human: model.HumanSummary{Headline: i18n.T("此節點已略過，沒有產出。"), Did: []string{}, Outputs: []string{}},
 			}
-		case enum.ReviewFailed:
-			if optionID == "skip" {
-				s.Status = enum.StatusComplete
-				s.Skipped = true
-				s.EndedAt = ptr(e.w.Now)
-				s.Handoff = &model.Handoff{
-					Agent: model.AgentHandoff{Goal: t.Title, Done: []string{}, Outputs: []string{}, Decisions: []string{"The user skipped this step"}, Open: []string{"This step produced nothing"}},
-					Human: model.HumanSummary{Headline: i18n.T("此節點已略過，沒有產出。"), Did: []string{}, Outputs: []string{}},
-				}
-			} else {
-				s.Status = enum.StatusTodo
-				s.Attempts = 0
-			}
-		case enum.ReviewBudget:
+		} else {
 			s.Status = enum.StatusTodo
-			if optionID == "addBudget" {
-				t.BudgetBonus += e.w.Teams[t.TeamID].Settings.CostLimitUSD * 0.5
-			} else {
-				e.pause(t)
-			}
+			s.Attempts = 0
 		}
-		if t.Paused {
-			t.PausedStatus = enum.StatusProgressing
-			if e.statusOf(&model.Task{ID: t.ID, Stage: t.Stage}) == enum.StatusReview {
-				t.PausedStatus = enum.StatusReview
-			}
+	case enum.ReviewChange:
+		s.Status = enum.StatusTodo
+		text, isError := e.settleChange(r.Change, optionID == optionApprove, note)
+		e.w.Conversations[s.ID] = answerChange(e.w.Conversations[s.ID], text, isError)
+		e.dirty[s.ID] = true
+	case enum.ReviewBudget:
+		s.Status = enum.StatusTodo
+		if optionID == "addBudget" {
+			t.BudgetBonus += e.w.Teams[t.TeamID].Settings.CostLimitUSD * 0.5
+		} else {
+			e.pause(t)
 		}
-		return nil
-	})
+	}
+	if t.Paused {
+		t.PausedStatus = enum.StatusProgressing
+		if e.statusOf(&model.Task{ID: t.ID, Stage: t.Stage}) == enum.StatusReview {
+			t.PausedStatus = enum.StatusReview
+		}
+	}
+	return nil
 }
 
 func (e *Engine) pause(t *model.Task) {

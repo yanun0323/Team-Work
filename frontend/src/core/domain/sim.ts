@@ -349,7 +349,17 @@ export function sayInChat(w: World, id: string, text: string, images: Attachment
   text = text.trim()
   if (!chat || (!text && !images.length && !files.length) || chat.replyAt !== undefined || chatLeft(w, chat)) return
   delete chat.question
+  delete chat.change
   chat.messages.push({ at: w.now, from: 'user', text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) })
+  chat.replyAt = w.now + REPLY_TIME
+}
+
+/** The user's answer on a chat's card. The simulator keeps no blueprints' versions: it only moves the chat on. */
+export function resolveChatChange(w: World, id: string, approve: boolean) {
+  const chat = w.chats[id]
+  if (!chat?.change) return
+  delete chat.change
+  chat.messages.push({ at: w.now, from: 'tool', text: approve ? '同意修改' : '拒絕修改' })
   chat.replyAt = w.now + REPLY_TIME
 }
 
@@ -384,6 +394,7 @@ export function rewindChat(w: World, id: string, index: number) {
   chat.messages.length = index
   delete chat.replyAt
   delete chat.question
+  delete chat.change
 }
 
 /** Whether a chat can be forked at a message: the user's, or the employee's that ends a reply, since a reply is not split. */
@@ -402,6 +413,7 @@ export function forkChat(w: World, id: string, index: number): Chat | undefined 
   const keep = m.from === 'user' ? index + 1 : next < 0 ? chat.messages.length : next
   const fork: Chat = { ...chat, id: uid(w, 'chat'), messages: chat.messages.slice(0, keep).map((x) => ({ ...x })), tokens: 0, createdAt: w.now }
   if (keep < chat.messages.length) delete fork.question
+  delete fork.change // a copy cannot agree for the original
   delete fork.unread
   w.chats[fork.id] = fork
   return fork
@@ -705,6 +717,7 @@ export function resolveReview(w: World, subId: string, optionId: string, note = 
 
   switch (r.kind) {
     case 'question':
+    case 'change':
       sub.status = 'todo'
       break
     case 'pickRoute': {

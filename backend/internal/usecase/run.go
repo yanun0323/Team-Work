@@ -95,6 +95,7 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 		var text strings.Builder
 		var results []model.Block
 		stopped := false
+		var after func()
 		for _, b := range reply.Content {
 			if b.Type == enum.BlockText {
 				text.WriteString(b.Text)
@@ -112,12 +113,19 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 				return turnResult{}, ctx.Err()
 			}
 			if result.Stop {
-				stopped = true
+				stopped, after = true, result.After
 				continue
 			}
 			results = append(results, model.Block{Type: enum.BlockToolResult, ID: b.ID, Name: b.Name, Text: result.Text, IsError: result.IsError, MimeType: result.MimeType, Data: result.Data})
 		}
 		if stopped {
+			// what already ran stays known, or the model would be told to do it again
+			if len(results) > 0 {
+				t.onResults(model.Message{Role: enum.RoleUser, Content: results})
+			}
+			if after != nil {
+				after()
+			}
 			return turnResult{Stopped: true}, nil
 		}
 		if len(results) == 0 {
@@ -519,6 +527,7 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 	if !in.talk {
 		list = append(list, e.agentTools(in)...)
 	}
+	list = append(list, e.manageTools(e.managerOfSub(in), in.spec.allowed, !in.talk)...)
 	specs := make([]model.ToolSpec, len(list))
 	byName := make(map[string]adapter.Tool, len(list))
 	for i, tool := range list {

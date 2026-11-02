@@ -2,6 +2,17 @@ package i18n
 
 // en is the English of every text the backend tells the user, by its Chinese. Words follow CONTEXT.md.
 var en = map[string]string{
+	"同意修改":          "Change agreed",
+	"拒絕修改":          "Change refused",
+	"這次執行已經停止":      "This run has stopped",
+	"Git 來源的藍圖不能修改": "Blueprints from Git cannot be changed",
+	"版本不符，內容已經被改過，請重新讀取": "Version mismatch: it has been edited, read it again",
+	"技能要有來源":           "A skill needs a source",
+	"節點要有名稱":           "A node needs a name",
+	"節點「%s」的設定不正確":     "Node \"%s\" has invalid settings",
+	"任務流程的連線重複":        "The flow has a duplicate edge",
+	"這個任務沒有節點 %s":      "This task has no node %s",
+	"這個對話沒有在等確認":       "This chat is not waiting for a confirmation",
 	"公司位置或外觀不正確":       "Invalid company position or appearance",
 	"公司用地不能重疊":         "Company plots cannot overlap",
 	"最多附加 %d 個附件":      "At most %d attachments are allowed",

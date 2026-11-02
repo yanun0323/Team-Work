@@ -22,6 +22,7 @@ import { ordered, usePrefs, type LogOrder } from './prefs'
 import { ClaudeAccount } from './ClaudeAccount'
 import { Markdown, MarkdownLine } from './Markdown'
 import { Select, Switcher, WaitBadge } from './Controls'
+import { changeAsk, ChangeLines } from './ChangeCard'
 import { FlowNotes, FlowPreview, openCard } from './FlowNotes'
 import { copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
 import { byBlueprint, DEFAULT_EFFORT, effortsOf, mindOf, modelGroups, modelsOf, randomLook } from './crew'
@@ -313,6 +314,7 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
               </button>
             </span>
           )}
+          {task.origin && <span>{tr('由 {name} 建立', { name: task.origin.kind === 'airport' ? tr('機場服務人員') : task.origin.name })}</span>}
           <span>Token {fmtTokens(taskTokens(w, task))}</span>
         </p>
       </header>
@@ -400,6 +402,7 @@ function askText(w: World, sub: SubTask): string {
   const r = sub.review!
   const task = w.tasks[sub.taskId]
   if (r.kind === 'question') return r.prompt ?? ''
+  if (r.kind === 'change' && r.change) return changeAsk(r.change)
   if (r.kind === 'pickRoute') return tr('這一步做完了，但我不確定接下來要交給哪一步，請幫我選一個。')
   if (r.kind === 'failed') {
     const max = w.teams[task.teamId]?.settings.retries ?? 0
@@ -786,6 +789,7 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
       {sub.review && sub.review.kind !== 'talk' && (
         <Section name={tr('等你回覆')}>
           <div className="fx-d-text-md fx-d-quote"><Markdown text={askText(w, sub)} /></div>
+          {sub.review.change && <ChangeLines change={sub.review.change} />}
           <Reply key={sub.review.at} sub={sub} />
         </Section>
       )}

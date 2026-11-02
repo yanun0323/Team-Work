@@ -947,7 +947,11 @@ func TestChatCompactsOnceItReadsTooMuch(t *testing.T) {
 	if err := r.e.SayInChat(c.ID, "下一句", nil); err != nil {
 		t.Fatal(err)
 	}
-	r.wait("second reply", func(w *model.World) bool { return replies == 2 && w.Chats[c.ID].ReplyAt == nil })
+	r.wait("second reply", func(w *model.World) bool {
+		r.fake.mu.Lock()
+		defer r.fake.mu.Unlock()
+		return replies == 2 && w.Chats[c.ID].ReplyAt == nil
+	})
 	if len(last.Messages) != 3 || !strings.Contains(last.Messages[0].Content[0].Text, "摘要內容") || last.Messages[2].Content[0].Text != "下一句" {
 		t.Fatalf("%+v", last.Messages)
 	}
