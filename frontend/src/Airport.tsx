@@ -184,6 +184,28 @@ function Flight({ calm }: { calm: boolean }) {
   )
 }
 
+/** The windsock's sock, hung from the pole's top: it swings about the pole and droops a little in gusts, its white tip flapping faster. Still under reduced motion, but not with the planes off. */
+const reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+function Windsock() {
+  const calm = reducedMotion
+  const sock = useRef<THREE.Group>(null)
+  const tip = useRef<THREE.Group>(null)
+  useFrame(({ clock }) => {
+    if (!sock.current || !tip.current) return
+    const t = calm ? 0 : clock.elapsedTime
+    sock.current.rotation.set(0, 0.18 * Math.sin(t * 0.7) + 0.05 * Math.sin(t * 2.3), -0.05 + 0.05 * Math.sin(t * 1.3))
+    tip.current.rotation.set(0, 0.2 * Math.sin(t * 3.1 + 1), 0.08 * Math.sin(t * 2.6))
+  })
+  return (
+    <group ref={sock} position={[0, 2.8, 0]}>
+      <B p={[0.55, 0, 0]} s={[0.9, 0.42, 0.42]} c="#ff8a3c" />
+      <group ref={tip} position={[1, -0.02, 0]}>
+        <B p={[0.25, 0, 0]} s={[0.5, 0.32, 0.32]} c="#f4f4f0" />
+      </group>
+    </group>
+  )
+}
+
 /** A see-through grey layer over the whole airport while the pointer is on it: buildings, runway, taxiways, apron and helipad. */
 function Shade({ on }: { on: boolean }) {
   const mat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#1c1f2e', transparent: true, opacity: 0, depthWrite: false }), [])
@@ -343,8 +365,7 @@ export function Airport({ town, open, hover, still, calm, onHover, onSelect }: {
       {/* windsock at the runway's end */}
       {detail && <group position={[RUNWAY_HALF - 4, 0, RUNWAY_Z - RUNWAY_W / 2 - 2.2]}>
         <B p={[0, 1.5, 0]} s={[0.12, 3, 0.12]} c="#3a3f4a" />
-        <B p={[0.55, 2.8, 0]} s={[0.9, 0.42, 0.42]} c="#ff8a3c" />
-        <B p={[1.25, 2.78, 0]} s={[0.5, 0.32, 0.32]} c="#f4f4f0" />
+        <Windsock />
       </group>}
 
       {/* a plane at the other stand, and the one that comes and goes */}
