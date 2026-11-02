@@ -1436,6 +1436,10 @@ function Mirrored({ on, x, children }: { on: boolean; x: number; children: React
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 const SHOUT = '#ffc93a'
+/** Dark rim behind each shout stroke so it stands out on grass and pale walls alike; near the outline pass's ink. */
+const SHOUT_RIM = '#3b3350'
+/** How much wider and longer the rim is than its stroke, in world units. */
+const SHOUT_RIM_PAD = 0.5
 /**
  * Thickness of a shout stroke, how far its inner end stays off the building's outline, how far apart the strokes'
  * inner ends sit, how far up the second pose sits, and its length against the first.
@@ -1484,7 +1488,8 @@ export function shoutBursts(w: number, d: number, h: number, seed: number): Burs
 function Shout({ w, d, h, seed }: { w: number; d: number; h: number; seed: number }) {
   const bursts = useMemo(() => shoutBursts(w, d, h, seed), [w, d, h, seed])
   const mat = useMemo(() => new THREE.MeshBasicMaterial({ color: SHOUT, toneMapped: false }), [])
-  useEffect(() => () => mat.dispose(), [mat])
+  const rim = useMemo(() => new THREE.MeshBasicMaterial({ color: SHOUT_RIM, toneMapped: false }), [])
+  useEffect(() => () => { mat.dispose(); rim.dispose() }, [mat, rim])
   const poses = useRef<(THREE.Group | null)[]>([])
   useFrame(({ clock }) => {
     if (calm) return
@@ -1506,6 +1511,10 @@ function Shout({ w, d, h, seed }: { w: number; d: number; h: number; seed: numbe
               return (
                 <group key={k} position={[0, ((b.rays.length - 1) / 2 - k) * SHOUT_SPACING, 0]} rotation={[0, 0, THREE.MathUtils.degToRad(r.angle)]}>
                   <mesh position={[SHOUT_GAP + len / 2, 0, 0]} scale={[len, STROKE, 0.05]} material={mat} layers={NO_OUTLINE_LAYER} raycast={() => null}>
+                    <boxGeometry />
+                  </mesh>
+                  {/* local +z faces the camera, so the rim sits just behind the stroke */}
+                  <mesh position={[SHOUT_GAP + len / 2, 0, -0.06]} scale={[len + SHOUT_RIM_PAD, STROKE + SHOUT_RIM_PAD, 0.05]} material={rim} layers={NO_OUTLINE_LAYER} raycast={() => null}>
                     <boxGeometry />
                   </mesh>
                 </group>
