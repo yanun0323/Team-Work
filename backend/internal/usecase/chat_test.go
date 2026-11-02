@@ -241,9 +241,6 @@ func TestChatKeepsItsModelAndGoesOnAfterAStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := r.e.SayInChat(c.ID, "插話", nil); err == nil {
-		t.Fatal("spoke while the employee was writing")
-	}
 	if err := r.e.StopChat(c.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -849,7 +846,7 @@ func TestForkCopiesUpToTheMessageAndGoesOnByItself(t *testing.T) {
 	}
 }
 
-func TestForkKeepsAnOpenQuestionAndRefusesWhileReplying(t *testing.T) {
+func TestForkKeepsAnOpenQuestion(t *testing.T) {
 	release := make(chan struct{})
 	first := true
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -863,9 +860,6 @@ func TestForkKeepsAnOpenQuestionAndRefusesWhileReplying(t *testing.T) {
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "問我"})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if _, err := r.e.ForkChat(c.ID, 0); err == nil {
-		t.Fatal("forked while replying")
 	}
 	close(release)
 	r.wait("the question", chatDone(c.ID))
@@ -883,6 +877,95 @@ func TestForkKeepsAnOpenQuestionAndRefusesWhileReplying(t *testing.T) {
 	r.wait("the answer", chatDone(fork.ID))
 	if got := r.world().Chats[fork.ID].Messages; got[len(got)-1].Text != "好" {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestForkWhileReplyingLeavesTheReplyRunning(t *testing.T) {
+	release := make(chan struct{})
+	var mu sync.Mutex
+	heard := map[string][]model.Message{}
+	replies := 0
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		mu.Lock()
+		heard[req.Session] = req.Messages
+		replies++
+		n := replies
+		mu.Unlock()
+		switch n {
+		case 2: // the second reply says something, calls a tool, and is still going when the fork is made
+			reply := call("no_such_tool", map[string]any{})
+			reply.Content = append([]model.Block{{Type: enum.BlockText, Text: "寫到一半"}}, reply.Content...)
+			return reply, nil
+		case 3:
+			<-release
+			return say("原本的寫完了"), nil
+		}
+		return say("回覆"), nil
+	})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "第一句"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first", chatDone(c.ID))
+	if err := r.e.SayInChat(c.ID, "第二句", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("the tool call", func(w *model.World) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return replies == 3 && w.Chats[c.ID].ReplyAt != nil
+	})
+	msgs := r.world().Chats[c.ID].Messages
+	second := slices.IndexFunc(msgs, func(m model.ChatMessage) bool { return m.Text == "第二句" })
+	writing := slices.IndexFunc(msgs, func(m model.ChatMessage) bool { return m.Text == "寫到一半" })
+	if writing < 0 {
+		t.Fatalf("%+v", msgs)
+	}
+	// the reply being written has no end yet
+	if _, err := r.e.ForkChat(c.ID, writing); err == nil {
+		t.Fatal("forked inside the unfinished reply")
+	}
+	// the message it answers can be forked, unanswered, with nothing of the reply
+	atSaid, err := r.e.ForkChat(c.ID, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if atSaid.ReplyAt != nil || len(atSaid.Messages) != second+1 {
+		t.Fatalf("%+v", atSaid)
+	}
+	// so can the reply before it
+	atEarlier, err := r.e.ForkChat(c.ID, second-1)
+	if err != nil || len(atEarlier.Messages) != second {
+		t.Fatalf("%+v %v", atEarlier, err)
+	}
+	if r.world().Chats[c.ID].ReplyAt == nil {
+		t.Fatal("the fork stopped the original")
+	}
+	close(release)
+	r.wait("the original", chatDone(c.ID))
+	if got := r.world().Chats[c.ID].Messages; got[len(got)-1].Text != "原本的寫完了" {
+		t.Fatalf("%+v", got)
+	}
+	// the copy goes on by itself, and the model never hears the unfinished reply
+	if err := r.e.SayInChat(atEarlier.ID, "分支", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("the fork", chatDone(atEarlier.ID))
+	mu.Lock()
+	defer mu.Unlock()
+	for _, m := range heard[atEarlier.ID] {
+		for _, b := range m.Content {
+			if b.Text == "寫到一半" || b.Text == "第二句" {
+				t.Errorf("the fork heard %q", b.Text)
+			}
+		}
 	}
 }
 
@@ -1137,4 +1220,150 @@ func TestOnlyAirportChatsChangeModelBetweenReplies(t *testing.T) {
 		t.Fatal("a company's chat stays on its model")
 	}
 	close(release)
+}
+
+// userWords is what the user said in a request, in order; tool results do not count.
+func userWords(req model.ModelRequest) []string {
+	var said []string
+	for _, m := range req.Messages {
+		if m.Role == enum.RoleUser && len(m.Content) > 0 && m.Content[0].Type == enum.BlockText {
+			said = append(said, m.Content[0].Text)
+		}
+	}
+	return said
+}
+
+func TestChatQueuesWhatIsSaidWhileReplyingAndSendsItAfter(t *testing.T) {
+	release := make(chan struct{})
+	first := true
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if first {
+			first = false
+			<-release
+		}
+		return say("好"), nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "一"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"二", "三"} {
+		if err := r.e.SayInChat(c.ID, text, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := r.world().Chats[c.ID]; len(got.Queue) != 2 || got.Queue[0].Text != "二" || len(got.Messages) != 1 {
+		t.Fatalf("%+v %+v", got.Queue, got.Messages)
+	}
+	close(release)
+	w := r.wait("queue sent", func(w *model.World) bool {
+		c := w.Chats[c.ID]
+		return c.ReplyAt == nil && len(c.Queue) == 0 && len(c.Messages) == 6
+	})
+	var said []string
+	for _, m := range w.Chats[c.ID].Messages {
+		said = append(said, m.Text)
+	}
+	if !slices.Equal(said, []string{"一", "好", "二", "好", "三", "好"}) {
+		t.Fatalf("%q", said)
+	}
+	if got := userWords(r.fake.seen[len(r.fake.seen)-1]); !slices.Equal(got, []string{"一", "二", "三"}) {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestChatSteerGoesRightAfterTheToolCall(t *testing.T) {
+	release := make(chan struct{})
+	calls := 0
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		calls++
+		if calls == 1 {
+			<-release
+			return call("no_such_tool", map[string]any{}), nil
+		}
+		return say("好"), nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "開始"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"排隊", "轉向"} {
+		if err := r.e.SayInChat(c.ID, text, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	steer := r.world().Chats[c.ID].Queue[1].ID
+	if err := r.e.SteerChat(c.ID, steer); err != nil {
+		t.Fatal(err)
+	}
+	if q := r.world().Chats[c.ID].Queue; q[0].ID != steer || !q[0].Steer || q[1].Steer {
+		t.Fatalf("%+v", q)
+	}
+	close(release)
+	w := r.wait("all sent", func(w *model.World) bool {
+		c := w.Chats[c.ID]
+		return c.ReplyAt == nil && len(c.Queue) == 0 && len(c.Messages) == 6
+	})
+	var said []string
+	for _, m := range w.Chats[c.ID].Messages {
+		said = append(said, m.From+":"+m.Text)
+	}
+	if said[2] != "user:轉向" || said[3] != "agent:好" || said[4] != "user:排隊" {
+		t.Fatalf("%q", said)
+	}
+	// the steer came in the same reply, right after the tool's result
+	second := r.fake.seen[1].Messages
+	if n := len(second); n != 4 || second[2].Content[0].Type != enum.BlockToolResult || second[3].Content[0].Text != "轉向" {
+		t.Fatalf("%+v", second)
+	}
+	// and counts as the user's message, so it can be taken back
+	if err := r.e.RewindChat(c.ID, 2); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.world().Chats[c.ID].Messages; len(got) != 2 {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestChatQueueWaitsAfterAStopUntilSteeredOrTakenBack(t *testing.T) {
+	release := make(chan struct{})
+	first := true
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if first {
+			first = false
+			<-release
+		}
+		return say("好"), nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "一"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"二", "三"} {
+		if err := r.e.SayInChat(c.ID, text, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.e.StopChat(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	q := r.world().Chats[c.ID].Queue
+	if len(q) != 2 {
+		t.Fatalf("%+v", q)
+	}
+	if err := r.e.UnqueueChat(c.ID, q[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.SteerChat(c.ID, q[0].ID); err == nil {
+		t.Fatal("steered a message no longer queued")
+	}
+	// with nothing being written, a steer goes now
+	if err := r.e.SteerChat(c.ID, q[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	w := r.wait("steered", func(w *model.World) bool { c := w.Chats[c.ID]; return c.ReplyAt == nil && len(c.Messages) == 3 })
+	if got := w.Chats[c.ID]; len(got.Queue) != 0 || got.Messages[1].Text != "三" {
+		t.Fatalf("%+v %+v", got.Queue, got.Messages)
+	}
 }

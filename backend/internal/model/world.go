@@ -215,8 +215,20 @@ type Chat struct {
 	// Compact stands in for the start of the conversation when asking the model. The conversation itself stays whole.
 	Compact *ChatCompact `json:"compact,omitempty"`
 	// Context is how many tokens the model last read, to tell when to compact.
-	Context   int     `json:"context,omitempty"`
-	CreatedAt float64 `json:"createdAt"`
+	Context int `json:"context,omitempty"`
+	// Queue is what the user said while a reply was being written, in the order it goes: the steered first.
+	Queue     []QueuedMessage `json:"queue,omitempty"`
+	CreatedAt float64         `json:"createdAt"`
+}
+
+// QueuedMessage waits for the reply being written to end. A steered one goes as soon as a tool call ends instead.
+type QueuedMessage struct {
+	ID     string       `json:"id"`
+	At     float64      `json:"at"`
+	Text   string       `json:"text"`
+	Images []Attachment `json:"images,omitempty"`
+	Files  []Attachment `json:"files,omitempty"`
+	Steer  bool         `json:"steer,omitempty"`
 }
 
 // AtAirport says whether the chat is the airport's rather than a company's.

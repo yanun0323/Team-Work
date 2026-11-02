@@ -263,7 +263,19 @@ export interface Chat {
   question?: { options: string[] }
   /** The employee said something the user has not opened the chat to see. */
   unread?: boolean
+  /** What the user said while a reply was being written, in the order it goes: the steered first. */
+  queue?: QueuedMessage[]
   createdAt: number
+}
+
+/** Waits for the reply being written to end; a steered one goes as soon as a tool call ends instead. */
+export interface QueuedMessage {
+  id: string
+  at: number
+  text: string
+  images?: Attachment[]
+  files?: Attachment[]
+  steer?: boolean
 }
 
 /** How the user ended a discussion: hand on (to `to`, when the step picks one of several), send back, or stop the task. */

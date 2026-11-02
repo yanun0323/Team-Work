@@ -5,7 +5,7 @@ import { useStore } from './core/store'
 import { describe, expect, it } from 'vitest'
 import { attachable, splitAttachments } from './attachments'
 import { seedWorld } from './core/data/seed'
-import { canFork, chatTaskDraft, createAirportChat, createChat, deleteTeam, forkChat, readChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, stopChat, tick } from './core/domain/sim'
+import { canFork, chatTaskDraft, createAirportChat, createChat, deleteTeam, forkChat, readChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, steerChat, stopChat, tick, unqueueChat } from './core/domain/sim'
 import { chatMindOf, chatSign, chatWho } from './crew'
 import { prereqsOf } from './prereqs'
 import { teamAlerts, teamReplicas, waitingSub, waitingTab } from './core/model'
@@ -21,11 +21,21 @@ describe('chats', () => {
   it('counts unread chats and tasks waiting for a reply apart', () => {
     const { w, teamId, chat } = setup()
     const tasks = teamAlerts(w, teamId).waitingTasks
+    delete w.chats[chat.id].replyAt
     w.chats[chat.id].unread = true
     expect(teamAlerts(w, teamId)).toEqual({ unreadChats: 1, waitingTasks: tasks })
     const task = Object.values(w.tasks).find((x) => x.teamId === teamId && x.stage === 'running')!
     task.stage = 'awaitMerge'
     expect(teamAlerts(w, teamId)).toEqual({ unreadChats: 1, waitingTasks: tasks + 1 })
+  })
+
+  it('leaves a chat still replying out of the unread count', () => {
+    const { w, teamId, chat } = setup()
+    w.chats[chat.id].unread = true
+    w.chats[chat.id].replyAt = w.now
+    expect(teamAlerts(w, teamId).unreadChats).toBe(0)
+    delete w.chats[chat.id].replyAt
+    expect(teamAlerts(w, teamId).unreadChats).toBe(1)
   })
 
   it('finds the tab with something waiting, tasks before chats', () => {
@@ -57,6 +67,32 @@ describe('chats', () => {
     expect(waitingSub(w, task.id)).toBe(subs[0])
   })
 
+  it('queue what is said while replying, steered first, and send it when the reply ends', () => {
+    const { w, chat } = setup()
+    for (const text of ['排隊', '轉向', '收回']) sayInChat(w, chat.id, text)
+    const c = w.chats[chat.id]
+    expect(c.messages).toHaveLength(1)
+    steerChat(w, chat.id, c.queue![1].id)
+    unqueueChat(w, chat.id, c.queue![2].id)
+    expect(c.queue!.map((q) => [q.text, !!q.steer])).toEqual([['轉向', true], ['排隊', false]])
+    tick(w, REPLY_TIME)
+    expect(c.messages.at(-1)?.text).toBe('轉向')
+    tick(w, REPLY_TIME)
+    expect(c.messages.filter((m) => m.from === 'user').map((m) => m.text)).toEqual(['第一句\n第二行', '轉向', '排隊'])
+    expect(c.queue).toEqual([])
+  })
+
+  it('wait in the queue after a stop until steered, which sends it now', () => {
+    const { w, chat } = setup()
+    sayInChat(w, chat.id, '之後')
+    stopChat(w, chat.id)
+    const c = w.chats[chat.id]
+    expect(c.queue).toHaveLength(1)
+    steerChat(w, chat.id, c.queue![0].id)
+    expect(c.messages.at(-1)?.text).toBe('之後')
+    expect(c.replyAt).toBeDefined()
+  })
+
   it('signs a reply being written, then unread until it is read', () => {
     const { w, chat } = setup()
     expect(chatSign(w.chats[chat.id])).toBe('replying')
@@ -86,7 +122,10 @@ describe('chats', () => {
 
   it('fork into a copy of their own, only at the end of a reply or at the user\'s message', () => {
     const { w, chat } = setup()
-    expect(forkChat(w, chat.id, 0)).toBeUndefined() // still writing
+    // still writing: the message it answers can be forked, and the original goes on
+    const early = forkChat(w, chat.id, 0)!
+    expect(early.replyAt).toBeUndefined()
+    expect(chat.replyAt).toBeDefined()
     for (let i = 0; i < 60; i++) tick(w, 0.1)
     sayInChat(w, chat.id, '再一句')
     for (let i = 0; i < 60; i++) tick(w, 0.1)
@@ -103,6 +142,14 @@ describe('chats', () => {
     const m = (from: 'user' | 'agent' | 'tool') => ({ at: 0, from, text: '' })
     const turn = [m('user'), m('agent'), m('tool'), m('agent'), m('tool'), m('user')]
     expect(turn.map((_, i) => canFork(turn, i))).toEqual([true, false, false, true, false, true])
+    // a reply still being written has no end to fork at, but what came before does
+    expect(turn.map((_, i) => canFork(turn, i, true))).toEqual([true, false, false, true, false, true])
+    const writing = [...turn, m('agent')]
+    expect(canFork(writing, 6, true)).toBe(false)
+    expect(canFork(writing, 6)).toBe(true)
+    chat.messages.push(m('agent'))
+    chat.replyAt = 0
+    expect(forkChat(w, chat.id, chat.messages.length - 1)).toBeUndefined()
   })
 
   it('take no message while writing, and go on after a stop without the reply', () => {

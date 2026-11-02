@@ -167,7 +167,7 @@ func (e *Engine) chatLeft(c *model.Chat) bool {
 	return !c.AtAirport() && e.w.Replicas[c.ReplicaID] == nil
 }
 
-// SayInChat adds the user's message and has the employee reply. Nothing can be said while they still write.
+// SayInChat adds the user's message and has the employee reply. While they still write it is queued for when they are done.
 func (e *Engine) SayInChat(id, text string, images []model.Attachment, attached ...[]model.Attachment) error {
 	var files []model.Attachment
 	for _, batch := range attached {
@@ -182,11 +182,15 @@ func (e *Engine) SayInChat(id, text string, images []model.Attachment, attached 
 		if err := e.checkSaid(text, images, files); err != nil {
 			return err
 		}
-		if c.ReplyAt != nil {
-			return model.Errorf(model.CodeInvalid, "員工還在回覆")
-		}
 		if e.chatLeft(c) {
 			return model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
+		}
+		if c.ReplyAt != nil {
+			if err := e.saveAttachments(c.ID, files); err != nil {
+				return err
+			}
+			c.Queue = append(c.Queue, model.QueuedMessage{ID: e.uid("queued"), At: e.w.Now, Text: text, Images: images, Files: files})
+			return nil
 		}
 		spec, err := e.chatSpec(c)
 		if err != nil {
@@ -199,6 +203,69 @@ func (e *Engine) SayInChat(id, text string, images []model.Attachment, attached 
 		e.launchChat(c, spec)
 		return nil
 	})
+}
+
+// SteerChat has a queued message go as soon as the tool call being run ends, ahead of the rest of the queue.
+// With no reply being written it goes now.
+func (e *Engine) SteerChat(id, queuedID string) error {
+	return e.do(func() error {
+		c := e.w.Chats[id]
+		if c == nil {
+			return model.Errorf(model.CodeNotFound, "找不到對話")
+		}
+		at := slices.IndexFunc(c.Queue, func(q model.QueuedMessage) bool { return q.ID == queuedID })
+		if at < 0 {
+			return model.Errorf(model.CodeNotFound, "找不到排隊的訊息")
+		}
+		if e.chatLeft(c) {
+			return model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
+		}
+		q := c.Queue[at]
+		q.Steer = true
+		rest := slices.Delete(slices.Clone(c.Queue), at, at+1)
+		if c.ReplyAt == nil {
+			c.Queue = append([]model.QueuedMessage{q}, rest...)
+			return e.sendQueued(c)
+		}
+		steered := 0
+		for steered < len(rest) && rest[steered].Steer {
+			steered++
+		}
+		c.Queue = slices.Insert(rest, steered, q)
+		return nil
+	})
+}
+
+// UnqueueChat takes a message out of the queue, for the user to change it.
+func (e *Engine) UnqueueChat(id, queuedID string) error {
+	return e.do(func() error {
+		c := e.w.Chats[id]
+		if c == nil {
+			return model.Errorf(model.CodeNotFound, "找不到對話")
+		}
+		at := slices.IndexFunc(c.Queue, func(q model.QueuedMessage) bool { return q.ID == queuedID })
+		if at < 0 {
+			return model.Errorf(model.CodeNotFound, "找不到排隊的訊息")
+		}
+		c.Queue = slices.Delete(slices.Clone(c.Queue), at, at+1)
+		return nil
+	})
+}
+
+// sendQueued sends the first queued message as the user's next, when no reply is being written.
+func (e *Engine) sendQueued(c *model.Chat) error {
+	if len(c.Queue) == 0 || c.ReplyAt != nil || e.chatLeft(c) {
+		return nil
+	}
+	spec, err := e.chatSpec(c)
+	if err != nil {
+		return err
+	}
+	q := c.Queue[0]
+	c.Queue = slices.Clone(c.Queue[1:])
+	e.chatHears(c, q.Text, q.Images, q.Files)
+	e.launchChat(c, spec)
+	return nil
 }
 
 // RewindChat takes back one of the user's messages and all that came after it, stopping a reply being written.
@@ -241,7 +308,8 @@ func (e *Engine) RewindChat(id string, index int) error {
 
 // ForkChat copies a chat up to a message into a new chat that goes on by itself. From one of the user's messages it
 // ends there, unanswered; from an employee's it keeps the rest of that reply, as a reply cannot be split in the
-// conversation the model reads. Nothing runs until the user says something in the copy.
+// conversation the model reads. Nothing runs until the user says something in the copy. While a reply is being
+// written the original carries on, and only that unfinished reply cannot be forked from.
 func (e *Engine) ForkChat(id string, index int) (*model.Chat, error) {
 	var out *model.Chat
 	err := e.do(func() error {
@@ -252,7 +320,7 @@ func (e *Engine) ForkChat(id string, index int) (*model.Chat, error) {
 		if index < 0 || index >= len(c.Messages) || c.Messages[index].From == "tool" {
 			return model.Errorf(model.CodeInvalid, "只能從訊息複製對話")
 		}
-		if c.ReplyAt != nil {
+		if c.ReplyAt != nil && !slices.ContainsFunc(c.Messages[index:], func(m model.ChatMessage) bool { return m.From == "user" }) {
 			return model.Errorf(model.CodeInvalid, "員工還在回覆")
 		}
 		if e.chatLeft(c) {
@@ -566,6 +634,7 @@ func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
 func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	defer e.wg.Done()
 	defer in.r.cancel()
+	finished := false
 	defer func() {
 		e.mu.Lock()
 		defer e.mu.Unlock()
@@ -574,6 +643,12 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			delete(e.live, in.id)
 			if c := e.w.Chats[in.id]; c != nil {
 				c.ReplyAt = nil
+				// a failed or stopped reply leaves the queue for the user to send
+				if finished {
+					if err := e.sendQueued(c); err != nil {
+						e.log.Warn().Err(err).Str("chat", in.id).Msg("send queued message")
+					}
+				}
 			}
 			e.settle()
 		}
@@ -594,12 +669,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	skills, roots, _ := e.loadSkills(ctx, in.spec.packs)
 	// kept with the message from here on, so what the employee was told does not change under the conversation
 	if last := len(in.conv) - 1; last >= 0 {
-		if named := mentionedSkills(in.said, skills); len(named) > 0 {
-			said := in.conv[last]
-			said.Content = slices.Clip(said.Content)
-			for _, text := range named {
-				said.Content = append(said.Content, model.Block{Type: enum.BlockText, Text: text})
-			}
+		if said, named := withSkills(in.conv[last], in.said, skills); named {
 			in.conv[last] = said
 			kept := e.applyChat(in, func(c *model.Chat) {
 				conv := e.w.Conversations[c.ID]
@@ -654,12 +724,29 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		},
 	}
 	t.compact = func(ctx context.Context) ([]model.Message, bool) { return e.compactChat(ctx, in) }
+	t.steer = func() []model.Message {
+		var heard []model.Message
+		e.applyChat(in, func(c *model.Chat) {
+			before := len(e.w.Conversations[c.ID])
+			for len(c.Queue) > 0 && c.Queue[0].Steer {
+				q := c.Queue[0]
+				c.Queue = slices.Clone(c.Queue[1:])
+				e.chatHears(c, q.Text, q.Images, q.Files)
+				conv := e.w.Conversations[c.ID]
+				conv[len(conv)-1], _ = withSkills(conv[len(conv)-1], q.Text, skills)
+			}
+			heard = slices.Clone(e.w.Conversations[c.ID][before:])
+		})
+		return heard
+	}
 	if in.context >= chatCompactAt {
 		if shorter, ok := t.compact(ctx); ok {
 			t.req.Messages = shorter
 		}
 	}
-	if _, err := t.run(ctx); err != nil {
+	_, err := t.run(ctx)
+	finished = err == nil
+	if err != nil {
 		switch {
 		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			failed(i18n.T("執行逾時"))
@@ -672,6 +759,19 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			failed(safeText(err))
 		}
 	}
+}
+
+// withSkills adds the skills the user's words name to their message in the conversation; false if they name none.
+func withSkills(said model.Message, words string, skills []skill) (model.Message, bool) {
+	named := mentionedSkills(words, skills)
+	if len(named) == 0 {
+		return said, false
+	}
+	said.Content = slices.Clip(said.Content)
+	for _, text := range named {
+		said.Content = append(said.Content, model.Block{Type: enum.BlockText, Text: text})
+	}
+	return said, true
 }
 
 // ChatTaskDraft has the chat's model write the chat up as a task. It makes no task, the user reads it first; the chat only counts the tokens.

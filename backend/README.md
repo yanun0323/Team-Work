@@ -110,7 +110,8 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /attachments` | 上傳一個檔案（請求內容就是檔案本身，最大 25MB），回傳放進 `files` 的 `url` |
 | `GET /attachments/:hash` | 下載上傳的檔案 |
 | `POST /chats` | 開始對話（`teamId`、`replicaId`、`text`、可選的 `images` 和 `files`），用員工當下的模型，員工開始回覆 |
-| `POST /chats/:id/say`、`POST /chats/:id/stop`、`DELETE /chats/:id` | 對話發言（`text`、`images`、`files`：附件格式見下方）、中斷回覆、刪除 |
+| `POST /chats/:id/say`、`POST /chats/:id/stop`、`DELETE /chats/:id` | 對話發言（`text`、`images`、`files`：附件格式見下方）、中斷回覆、刪除。回覆中發言會排進對話的 `queue`，回覆正常結束後依序送出；中斷或失敗時留在 `queue` |
+| `POST /chats/:id/queue/:queued/steer`、`DELETE /chats/:id/queue/:queued` | Steer：把排隊的訊息標成 `steer` 並排到其他排隊訊息前面，在下一次工具呼叫結束後送出；沒有回覆進行中就立刻送出。刪除：把訊息移出 `queue` |
 | `GET /replicas/:id/skills` | 員工藍圖的技能（`name`、`description`），對話輸入框的 `$` 選單用 |
 | `GET /teams/:id/files?q=` | 公司資料夾裡符合 `q` 的檔案和資料夾（`path`、`dir`，最多 50 筆，略過 git 忽略的檔案），對話輸入框的 `@` 選單用 |
 | 對話裡的 `ask_user` | 員工可隨時用這個工具提問：`chat.question.options` 是選項（可為空），問題本身是一則員工訊息；下一則 `say` 就是回答 |

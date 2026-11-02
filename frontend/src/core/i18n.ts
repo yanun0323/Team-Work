@@ -289,6 +289,8 @@ const en = {
   '輸入訊息，可直接貼上截圖': 'Type a message, or paste a screenshot',
   '和 {name} 的對話': 'Chat with {name}',
   '編輯這則訊息': 'Edit this message',
+  '排隊的訊息': 'Queued messages',
+  '編輯排隊的訊息': 'Edit queued message',
   '這間公司還沒有員工': 'This company has no employees yet',
   '專案資料夾有未提交的改動，員工可能會改到同一份檔案': 'The project folder has uncommitted changes. The employee may change the same files',
   '{name} 已經離開公司': '{name} has left the company',

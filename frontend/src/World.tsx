@@ -82,7 +82,7 @@ function TagAlerts({ unreadChats, waitingTasks }: ReturnType<typeof teamAlerts>)
       )}
       {waitingTasks > 0 && (
         <span className="fx-badge fx-tag-alert" title={tr('{n} 個任務待回覆', { n: waitingTasks })}>
-          <span aria-hidden="true">!{count(waitingTasks)}</span>
+          <span aria-hidden="true">{count(waitingTasks)}</span>
           <span className="fx-sr">{tr('{n} 個任務待回覆', { n: waitingTasks })}</span>
         </span>
       )}
