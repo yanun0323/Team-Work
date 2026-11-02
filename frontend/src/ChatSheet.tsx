@@ -121,6 +121,8 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
   const said = chat?.messages.length
   const openId = chat?.id
   useEffect(() => (openId ? watchChat(openId) : undefined), [openId])
+  // a fresh sheet: straight to the box, to write (the sheet leaves the title alone then)
+  useEffect(() => box.current?.focus({ preventScroll: true }), [])
   useEffect(() => {
     if (readId) act((x) => readChat(x, readId))
   }, [act, readId, said])

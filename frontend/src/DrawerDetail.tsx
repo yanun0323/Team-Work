@@ -112,11 +112,14 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
   onPush: (x: Item) => void
 }) {
   const title = useRef<HTMLHeadingElement>(null)
-  // a fresh sheet (it is keyed by item): move focus to its title
-  useEffect(() => title.current?.focus({ preventScroll: true }), [])
+  const sheet = useRef<HTMLElement>(null)
+  // a fresh sheet (it is keyed by item): move focus to its title, unless what is on it took the focus already (a chat's box)
+  useEffect(() => {
+    if (!sheet.current?.contains(document.activeElement)) title.current?.focus({ preventScroll: true })
+  }, [])
   const id = `fx-detail-title-${depth}`
   return (
-    <aside id={depth === 0 ? 'fx-detail' : undefined} className={`fx-detail${leaving ? ' leaving' : ''}`}
+    <aside ref={sheet} id={depth === 0 ? 'fx-detail' : undefined} className={`fx-detail${leaving ? ' leaving' : ''}`}
       style={{ '--depth': depth, '--across': SHEET_ACROSS[depth] ?? 0 } as CSSProperties} aria-labelledby={id}
       aria-hidden={leaving || undefined} inert={leaving || undefined}
       onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>

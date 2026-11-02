@@ -63,7 +63,7 @@ it('offers a keyboard-accessible reload action with persistent announcement regi
 })
 
 it('ends the settings page with the reset button', () => {
-  expect(renderToStaticMarkup(<ResetSettings />)).toContain('<button type="button" class="fx-save">重設回預設值</button>')
+  expect(renderToStaticMarkup(<ResetSettings />)).toContain('<button type="button" class="fx-save fx-danger">重設回預設值</button>')
   expect(renderToStaticMarkup(<PrefsPage />)).toContain('>重設回預設值</button></div></div>')
 })
 

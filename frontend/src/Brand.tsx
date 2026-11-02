@@ -1,7 +1,7 @@
 // The time and date, in the corner of the main screen, and below them what is left of
 // each model provider's allowance.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from './core/store'
 import { request } from './core/backend'
 import { MOCK } from './core/mode'
@@ -66,6 +66,35 @@ function useQuotas(providers: Record<string, ModelProvider>) {
   return quotas
 }
 
+const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+const TWEEN_MS = 900
+
+/**
+ * The value to show while it runs to its target: from 0 when it first becomes known, from what was shown when it
+ * changes. A value known from the start is shown as it is, and so is every value when the user asks for less motion.
+ */
+function useTween(target?: number) {
+  const [shown, setShown] = useState(target)
+  const current = useRef(target)
+  useEffect(() => {
+    const from = current.current ?? 0
+    if (target === undefined || calm || from === target) {
+      current.current = target
+      setShown(target)
+      return
+    }
+    const start = performance.now()
+    let frame = requestAnimationFrame(function step(t) {
+      const p = Math.min((t - start) / TWEEN_MS, 1)
+      current.current = from + (target - from) * (1 - (1 - p) ** 3)
+      setShown(current.current)
+      if (p < 1) frame = requestAnimationFrame(step)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [target])
+  return shown
+}
+
 /** The share of a limit still free, 0 to 100, from the share used; undefined when unknown. */
 export const leftOf = (used?: number) => (used === undefined ? undefined : 100 - Math.min(Math.max(used, 0), 100))
 
@@ -73,14 +102,16 @@ export const leftOf = (used?: number) => (used === undefined ? undefined : 100 -
  * A ring filled as far as the limit is still free, with the share in the middle (grey with '-' when unknown), and
  * under it the time left before the limit starts over.
  */
-export function UsageRing({ left: free, resetAt, now, label }: { left?: number; resetAt?: number; now: number; label: (text: string) => string }) {
+export function UsageRing({ left: target, resetAt, now, label }: { left?: number; resetAt?: number; now: number; label: (text: string) => string }) {
   const r = 12
   const length = 2 * Math.PI * r
+  // the ring fills and the number counts up as the share comes in; the label says where they end
+  const free = useTween(target)
   const known = free !== undefined
   // the ring shows the bare number; the % is read out
   const text = known ? `${Math.round(free)}` : '-'
   const left = resetWords(now, resetAt)
-  const spoken = label(known ? `${text}%` : tr('無資料'))
+  const spoken = label(target !== undefined ? `${Math.round(target)}%` : tr('無資料'))
   return (
     <span className="fx-usage" role="img" aria-label={left ? tr('{a}，{b}後重置', { a: spoken, b: left }) : spoken}>
       <span className="fx-ring" aria-hidden="true">
@@ -90,7 +121,7 @@ export function UsageRing({ left: free, resetAt, now, label }: { left?: number; 
             <circle className="fx-ring-fill" cx="15" cy="15" r={r} strokeDasharray={`${(length * free) / 100} ${length}`} />
           )}
         </svg>
-        <span>{text}</span>
+        <span key={known ? 'number' : 'dash'}>{text}</span>
       </span>
       <small aria-hidden="true">{resetText(now, resetAt)}</small>
     </span>
@@ -113,12 +144,23 @@ export function QuotaList({ providers, quotas, now }: { providers: ModelProvider
                 <UsageRing left={leftOf(q?.weekly)} resetAt={q?.weeklyResetAt} now={now} label={(a) => tr('每週剩餘 {a}', { a })} />
               </>
             ) : (
-              <span className={q?.balance === undefined ? 'fx-quota-balance fx-quota-none' : 'fx-quota-balance'}>{balanceText(q)}</span>
+              <Balance quota={q} />
             )}
           </li>
         )
       })}
     </ul>
+  )
+}
+
+/** An API key's balance, counting up from 0 when it comes in. */
+function Balance({ quota }: { quota?: Quota }) {
+  const balance = useTween(quota?.balance)
+  const known = balance !== undefined
+  return (
+    <span key={known ? 'number' : 'dash'} className={known ? 'fx-quota-balance' : 'fx-quota-balance fx-quota-none'}>
+      {balanceText({ ...quota, balance })}
+    </span>
   )
 }
 

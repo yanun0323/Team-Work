@@ -18,7 +18,7 @@ import { FlowNotes, openCard } from './FlowNotes'
 import { sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, PROVIDER_KINDS } from './providers'
-import { Select, Switcher, Toggle } from './Controls'
+import { Select, Switcher, Toggle, useAutoGrow } from './Controls'
 import { setLanguage } from './core/ops'
 import { Chats, TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
 import { airportTabOr, AIRPORT_TABS, AUTO_VIEWS, DEFAULT_PREFS, type AirportTab, type AutoView, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY } from './prefs'
@@ -292,6 +292,8 @@ export function SystemSection() {
       window.removeEventListener('focus', load)
     }
   }, [])
+  const box = useRef<HTMLTextAreaElement>(null)
+  useAutoGrow(box, draft)
   const save = async () => {
     if (draft === saved) {
       typing.current = false
@@ -313,7 +315,7 @@ export function SystemSection() {
         <ChatTitleFields model={titleModel} effort={titleEffort} onChange={setPrefs} />
         <label className="fx-field fx-field-top">
           <span>{tr('全域 AGENTS.md')}</span>
-          <textarea className="fx-control" rows={12} value={draft} disabled={saved === null} spellCheck={false}
+          <textarea ref={box} className="fx-control fx-prefs-prompt" rows={6} value={draft} disabled={saved === null} spellCheck={false}
             onChange={(e) => { typing.current = true; setDraft(e.target.value) }} onBlur={() => void save()} />
         </label>
       </div>
@@ -382,7 +384,7 @@ export function ResetSettings() {
   }
   return (
     <div className="fx-settings-file-acts">
-      <button type="button" className="fx-save" onClick={press} onBlur={() => setAsking(false)}>
+      <button type="button" className="fx-save fx-danger" onClick={press} onBlur={() => setAsking(false)}>
         {asking ? tr('確定重設回預設值') : tr('重設回預設值')}
       </button>
     </div>
@@ -418,9 +420,12 @@ export function PrefsPage() {
             labelOf={(id) => tr(AIRPORT_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultAirportTab: v as AirportTab })} />
           <Select label={tr('預設公司頁籤')} value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.map((x) => x.id)}
             labelOf={(id) => tr(COMPANY_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultTab: v as CompanyTab })} />
-          {check('openWaitingTab', tr('有待處理時優先開啟該頁籤'))}
-          {check('openWaitingSub', tr('點待回覆的任務時直接開啟子任務'))}
+          {check('openWaitingTab', tr('待處理頁籤優先'))}
+          {check('openWaitingSub', tr('待回覆子任務優先'))}
         </div>
+      </section>
+      <section className="fx-d-group" aria-labelledby="fx-prefs-tutorial">
+        <h4 id="fx-prefs-tutorial">{tr('教學')}</h4>
         <TutorialActs />
       </section>
       <section className="fx-d-group" aria-labelledby="fx-prefs-controls">

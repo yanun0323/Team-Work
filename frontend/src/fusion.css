@@ -545,7 +545,9 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-prefs-groups { row-gap: 32px; }
 .fx-prefs-groups .fx-fields, .fx-prefs-groups .fx-sound-switches { gap: 2px; }
 .fx-prefs-groups .fx-field { min-height: 30px; }
-.fx-prefs-groups :is(.fx-control, .fx-switcher) { height: 30px; }
+.fx-prefs-groups :is(.fx-control:not(textarea), .fx-switcher) { height: 30px; }
+/* the global AGENTS.md grows with its text up to a cap, then scrolls */
+.fx-prefs-prompt { max-height: 400px; resize: none; }
 .fx-prefs-groups .fx-sound-effect .fx-tool { height: 30px; padding-block: 0; }
 .fx-d-group { display: grid; gap: 4px; }
 .fx-d-group h4 { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: 14px; font-weight: 700; color: var(--ink); }
@@ -809,6 +811,9 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-ring-track { stroke: rgb(31 29 43 / 0.16); }
 .fx-ring-fill { stroke: currentColor; stroke-linecap: round; }
 .fx-ring > span { font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+/* the dash gives way to the number with a small pop */
+@keyframes fx-quota-in { from { opacity: 0; scale: 0.6; } 60% { opacity: 1; scale: 1.15; } }
+@media (prefers-reduced-motion: no-preference) { :is(.fx-ring > span, .fx-quota-balance) { animation: fx-quota-in 320ms ease-out; } }
 .fx-settings-trigger { display: grid; place-items: center; width: 44px; padding: 0; }
 .fx-settings-trigger:disabled { background-color: #d6d4cf; color: #76747c; cursor: not-allowed; filter: grayscale(1); }
 /* what to pick on the map, across the middle of the top; narrow windows have no room beside the buttons */
@@ -1132,7 +1137,7 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 .fx-row.fx-chat-row { grid-template-columns: 22px auto minmax(0, 1fr); gap: 10px; }
 .fx-chat-sign { display: grid; place-items: center; }
 .fx-row-main b .fx-chat-model { margin-inline-start: 8px; font-size: 12px; font-weight: 500; }
-.fx-row-main .fx-chat-first { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.fx-row-main .fx-chat-first { color: var(--ink); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .fx-chat-replying > span[aria-hidden] { display: flex; gap: 3px; }
 .fx-chat-replying i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: fx-chat-replying 1.2s ease-in-out infinite; }
 .fx-chat-replying i:nth-child(2) { animation-delay: 0.15s; }
@@ -1218,7 +1223,7 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 @media (max-width: 640px) { .fx-top-left { top: 78px; flex-direction: column; } .fx-top-left > .fx-tutorial { margin-inline-start: 0; } }
 /* the top leaves room under the tape */
 .fx-tutorial { width: 300px; margin-inline-start: 14px; padding: 12px 6px 5px; font-size: 15px; rotate: 1deg; pointer-events: auto; }
-.fx-tutorial ol { display: grid; margin: 0; padding: 0; list-style: none; }
+.fx-tutorial ol { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0; padding: 0; list-style: none; }
 .fx-tutorial li { display: grid; grid-template-rows: 1fr; }
 .fx-tutorial button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 0 8px; border: 0; border-radius: 2px; color: inherit; font: inherit; font-weight: 600; text-align: start; cursor: pointer; }
 .fx-tutorial button { background: none; }
@@ -1226,7 +1231,8 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 .fx-tutorial button:hover { box-shadow: none; background: rgb(31 29 43 / 0.14); }
 .fx-tutorial button:disabled { cursor: default; box-shadow: none; background: none; }
 .fx-tutorial button:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
-.fx-tutorial button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* long steps wrap; the padding sits on the span so a done row still closes up to nothing */
+.fx-tutorial button span { min-width: 0; padding-block: 4px; line-height: 1.25; overflow-wrap: anywhere; text-wrap: pretty; }
 .fx-tutorial-mark { flex: none; overflow: visible; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .fx-tutorial-mark circle { opacity: 0.25; }
 /* done: a green disc with a white tick */

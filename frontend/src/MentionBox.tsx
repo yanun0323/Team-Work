@@ -1,5 +1,6 @@
 // A box to write in, for a chat or a task. A word starting with "@", or "$" where there are employees, opens a list: arrows move, Tab, Enter or
-// a click picks, Esc closes. With nothing to pick, Enter sends if there is onSend, else it starts a new line.
+// a click picks, Esc closes. With nothing to pick, Enter sends if there is onSend, else it starts a new line, and Tab indents the lines.
+// Shift+Tab always outdents them. Tab never moves the focus.
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { FileInfo, SkillInfo } from './core/domain/types'
@@ -8,6 +9,7 @@ import { tr } from './core/i18n'
 import { replicaSkills, searchFiles } from './core/ops'
 import { useStore } from './core/store'
 import { acceptMention, fileChoices, mentionAt, skillChoices, type MentionChoice } from './mentions'
+import { indentLines } from './indent'
 
 export function MentionBox({ box, value, teamId, replicaIds = [], label, placeholder, rows = 2, below, grow, onChange, onSend }: {
   box?: RefObject<HTMLTextAreaElement | null>
@@ -38,7 +40,8 @@ export function MentionBox({ box, value, teamId, replicaIds = [], label, placeho
   const [files, setFiles] = useState<FileInfo[]>([])
   const [active, setActive] = useState(0)
   const list = useRef<HTMLUListElement>(null)
-  const caret = useRef<number | null>(null)
+  // the selection to put back once the text set from here is in the box
+  const caret = useRef<[number, number] | null>(null)
 
   const found = focused && teamId ? mentionAt(value, cursor) : null
   const mention = found && found.start !== closedAt ? found : null
@@ -77,14 +80,14 @@ export function MentionBox({ box, value, teamId, replicaIds = [], label, placeho
 
   useLayoutEffect(() => {
     if (caret.current === null) return
-    field.current?.setSelectionRange(caret.current, caret.current)
+    field.current?.setSelectionRange(...caret.current)
     caret.current = null
   }, [value, field])
 
   const accept = (choice: MentionChoice) => {
     if (!mention) return
     const next = acceptMention(value, mention, choice)
-    caret.current = next.cursor
+    caret.current = [next.cursor, next.cursor]
     setCursor(next.cursor)
     onChange(next.text)
   }
@@ -127,7 +130,7 @@ export function MentionBox({ box, value, teamId, replicaIds = [], label, placeho
               setActive((picked + move + choices.length) % choices.length)
               return
             }
-            if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+            if ((e.key === 'Tab' || e.key === 'Enter') && !e.shiftKey) {
               e.preventDefault()
               accept(choices[picked])
               return
@@ -137,6 +140,16 @@ export function MentionBox({ box, value, teamId, replicaIds = [], label, placeho
               setClosedAt(mention?.start ?? null)
               return
             }
+          }
+          if (e.key === 'Tab' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault()
+            const box = e.currentTarget
+            const next = indentLines(value, box.selectionStart, box.selectionEnd, e.shiftKey)
+            if (next.text === value) return // nothing to outdent
+            caret.current = [next.start, next.end]
+            setCursor(next.end)
+            onChange(next.text)
+            return
           }
           if (onSend && e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
