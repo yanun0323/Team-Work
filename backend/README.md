@@ -111,7 +111,8 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /attachments` | 上傳一個檔案（請求內容就是檔案本身，最大 25MB），回傳放進 `files` 的 `url` |
 | `GET /attachments/:hash` | 下載上傳的檔案 |
 | `POST /chats` | 開始對話（`teamId`、`replicaId`、`text`、可選的 `images` 和 `files`），用員工當下的模型，員工開始回覆 |
-| `POST /chats/:id/say`、`POST /chats/:id/stop`、`DELETE /chats/:id` | 對話發言（`text`、`images`、`files`：附件格式見下方）、中斷回覆、刪除 |
+| `POST /chats/:id/say`、`POST /chats/:id/stop`、`DELETE /chats/:id` | 對話發言（`text`、`images`、`files`：附件格式見下方）、中斷回覆、刪除。回覆中發言會排進對話的 `queue`，回覆正常結束後依序送出；中斷或失敗時留在 `queue` |
+| `POST /chats/:id/queue/:queued/steer`、`DELETE /chats/:id/queue/:queued` | Steer：把排隊的訊息標成 `steer` 並排到其他排隊訊息前面，在下一次工具呼叫結束後送出；沒有回覆進行中就立刻送出。刪除：把訊息移出 `queue` |
 | `GET /replicas/:id/skills` | 員工藍圖的技能（`name`、`description`），對話輸入框的 `$` 選單用 |
 | `GET /teams/:id/files?q=` | 公司資料夾裡符合 `q` 的檔案和資料夾（`path`、`dir`，最多 50 筆，略過 git 忽略的檔案），對話輸入框的 `@` 選單用 |
 | 對話裡的 `ask_user` | 員工可隨時用這個工具提問：`chat.question.options` 是選項（可為空），問題本身是一則員工訊息；下一則 `say` 就是回答 |
@@ -162,6 +163,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /providers/:id/login/paste` | 瀏覽器回不來時，貼上它停留的網址（`value`） |
 | `DELETE /providers/:id/login` | 取消登入 |
 | `POST /providers/:id/logout` | 登出 |
+| `GET /quotas` | 各供應商的額度，以供應商 id 為鍵：訂閱回報 `fiveHour`、`weekly`（已用 %，0–100）與 `fiveHourResetAt`、`weeklyResetAt`（重置時刻，Unix 秒），來自 Claude Code 與 ChatGPT 的非公開用量端點；API Key 只有 OpenRouter（金鑰自身的額度上限）和 DeepSeek 回報 `balance` 與 `currency`。查不到的欄位或供應商不出現 |
 | `POST /providers/:id/models` | 重新取得模型清單 |
 
 - **ChatGPT（`openai`）**：以 Codex CLI 的方式走 OAuth。`browser` 會在伺服器這台電腦打開登入頁，並用 `127.0.0.1:1455` 等它回來（這個連接埠被占用時可以貼網址）；`device` 回傳一組代碼。Token 存在 `data.db` 的 `secrets` 表，到期前自動更新。

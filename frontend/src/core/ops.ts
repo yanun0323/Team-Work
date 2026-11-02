@@ -52,6 +52,8 @@ export const setChatMind = pick('setChatMind', (_w: World, id: string, model: st
 export const rewindChat = pick('rewindChat', (_w: World, id: string, index: number) => fire_('POST', `/chats/${id}/rewind`, { index }))
 export const resolveChatChange = pick('resolveChatChange', (_w: World, id: string, approve: boolean) => fire_('POST', `/chats/${id}/change`, { approve }))
 export const stopChat = pick('stopChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/stop`))
+export const steerChat = pick('steerChat', (_w: World, id: string, queued: string) => fire_('POST', `/chats/${id}/queue/${queued}/steer`))
+export const unqueueChat = pick('unqueueChat', (_w: World, id: string, queued: string) => fire_('DELETE', `/chats/${id}/queue/${queued}`))
 export const readChat = pick('readChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/read`))
 export const deleteChat = pick('deleteChat', (_w: World, id: string) => fire_('DELETE', `/chats/${id}`))
 

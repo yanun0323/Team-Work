@@ -12,8 +12,8 @@ import { CrewSelect } from './Pickers'
 import { chatMindOf, DEFAULT_EFFORT, effortsOf, lastAirportMind, lastChatReplica, mindOf, modelGroups, modelsOf } from './crew'
 import { Gone, Heading, DeleteTool, type Head } from './DrawerDetail'
 import { fmtClock, fmtTokens, teamReplicas, useStickToBottom } from './core/model'
-import type { Attachment, Chat } from './core/domain/types'
-import { attempt, chatTaskDraft, deleteChat, forkChat, hasUncommitted, readChat, resolveChatChange, rewindChat, sayInChat, setChatMind, startAirportChat, startChat, stopChat } from './core/ops'
+import type { Attachment, Chat, QueuedMessage } from './core/domain/types'
+import { attempt, chatTaskDraft, deleteChat, forkChat, hasUncommitted, readChat, resolveChatChange, rewindChat, sayInChat, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
 import { AIRPORT_STAFF_LOOK, canFork } from './core/domain/sim'
 import { useLiveText } from './core/live'
 import { useStore } from './core/store'
@@ -84,7 +84,9 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
   const levels = effortsOf(w, mindModel)
   const wantedEffort = chat ? chat.effort ?? DEFAULT_EFFORT : pickedEffort
   const mindEffort = levels.includes(wantedEffort) ? wantedEffort : DEFAULT_EFFORT
-  const ready = (!!text.trim() || images.length > 0) && !reading && !sending && !writing && !left && !!(chat || (airport ? pickedModel : replica)) && !blocked(needs)
+  const drafted = !!text.trim() || images.length > 0
+  // said while a reply is being written, it waits in the queue
+  const ready = drafted && !reading && !sending && !left && !!(chat || (airport ? pickedModel : replica)) && !blocked(needs)
   const changeMind = (model: string, effort: string) => {
     const level = effortsOf(w, model).includes(effort) ? effort : DEFAULT_EFFORT
     if (chat) act((x) => setChatMind(x, chat.id, model, level))
@@ -128,6 +130,16 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
     finally { setReading(false) }
   }
 
+  // back to the box, after whatever is being written there, and out of the queue
+  const unqueue = (q: QueuedMessage) => {
+    if (!chat) return
+    act((x) => unqueueChat(x, chat.id, q.id))
+    setText((now) => [now.trim(), q.text].filter(Boolean).join('\n'))
+    setImages((now) => [...now, ...(q.images ?? []), ...(q.files ?? [])].slice(0, MAX_ATTACHMENTS))
+    setRefused(false)
+    box.current?.focus()
+  }
+
   // back to the box, as it was when sent; what came after it is gone
   const edit = (index: number) => {
     if (!chat) return
@@ -145,8 +157,8 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
     setForking(false)
     if (made) onFork(made.id)
   }
-  const forkButton = (i: number) => !left && !!chat && canFork(chat.messages, i) && (
-    <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('從這則訊息複製出新對話')} title="Fork" disabled={writing || forking} onClick={() => void fork(i)}>
+  const forkButton = (i: number) => !left && !!chat && canFork(chat.messages, i, writing) && (
+    <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('從這則訊息複製出新對話')} title="Fork" disabled={forking} onClick={() => void fork(i)}>
       <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
         <path d="M4 5v1.5a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V5M8 8.5V11" fill="none" stroke="currentColor" strokeWidth="1.5" />
         <circle cx="4" cy="3.3" r="1.7" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -270,6 +282,25 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
       )}
       {!chat && !airport && !crew.length && <p className="fx-d-muted">{tr('這間公司還沒有員工')}</p>}
       {!chat && uncommitted && <p className="fx-room-warn" role="status">{tr('專案資料夾有未提交的改動，員工可能會改到同一份檔案')}</p>}
+      {!left && !!chat?.queue?.length && (
+        <ol className="fx-room-queue" aria-label={tr('排隊的訊息')}>
+          {chat.queue.map((q) => (
+            <li key={q.id}>
+              <span className="fx-room-queue-kind">{q.steer ? 'Steer' : 'Queue'}</span>
+              <span className="fx-room-queue-text">{q.text || [...(q.images ?? []), ...(q.files ?? [])].map((f) => f.name).join(', ')}</span>
+              {!q.steer && (
+                <button type="button" className="fx-tool fx-tool-text fx-hit" onClick={() => act((x) => steerChat(x, chat.id, q.id))}>Steer</button>
+              )}
+              <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('編輯排隊的訊息')} title={tr('編輯')} disabled={reading} onClick={() => unqueue(q)}>
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                  <path d="M2.5 13.5l.6-3L10.6 3l2.4 2.4-7.5 7.5z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                  <path d="M9 4.6l2.4 2.4" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
       {left
         ? <p className="fx-d-muted">{tr('{name} 已經離開公司', { name })}</p>
         : (
@@ -302,7 +333,7 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
                 onChange={(e) => { void attach([...(e.target.files ?? [])]); e.target.value = '' }} />
             </label>
             <MentionBox box={box} grow value={text} teamId={teamId} replicaIds={replica ? [replica.id] : []} label={tr('訊息')} placeholder={airport ? tr('輸入訊息，可直接貼上截圖') : tr('輸入訊息，$ 選技能，@ 選檔案，可直接貼上截圖')} onChange={setText} onSend={() => void send()} />
-            {writing
+            {writing && !drafted
               ? (
                 <button type="button" className="fx-room-send" aria-label={tr('暫停')} title={tr('暫停')} onClick={() => act((x) => stopChat(x, chat!.id))}>
                   <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M5 3v10M11 3v10" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" /></svg>

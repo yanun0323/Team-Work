@@ -347,7 +347,15 @@ const chatLeft = (w: World, chat: Chat) => !!chat.teamId && !w.replicas[chat.rep
 export function sayInChat(w: World, id: string, text: string, images: Attachment[] = [], files: Attachment[] = []) {
   const chat = w.chats[id]
   text = text.trim()
-  if (!chat || (!text && !images.length && !files.length) || chat.replyAt !== undefined || chatLeft(w, chat)) return
+  if (!chat || (!text && !images.length && !files.length) || chatLeft(w, chat)) return
+  if (chat.replyAt !== undefined) {
+    chat.queue = [...chat.queue ?? [], { id: uid(w, 'queued'), at: w.now, text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) }]
+    return
+  }
+  hearInChat(w, chat, text, images, files)
+}
+
+function hearInChat(w: World, chat: Chat, text: string, images: Attachment[] = [], files: Attachment[] = []) {
   delete chat.question
   delete chat.change
   chat.messages.push({ at: w.now, from: 'user', text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) })
@@ -387,6 +395,35 @@ export function stopChat(w: World, id: string) {
   if (w.chats[id]) delete w.chats[id].replyAt
 }
 
+/** A queued message goes ahead of the rest; with no reply being written it goes now. The simulator has no tool calls to wait on. */
+export function steerChat(w: World, id: string, queued: string) {
+  const chat = w.chats[id]
+  const q = chat?.queue?.find((x) => x.id === queued)
+  if (!chat || !q || chatLeft(w, chat)) return
+  const rest = chat.queue!.filter((x) => x !== q)
+  const steered = { ...q, steer: true }
+  if (chat.replyAt === undefined) {
+    chat.queue = [steered, ...rest]
+    sendQueued(w, chat)
+    return
+  }
+  const at = rest.filter((x) => x.steer).length
+  chat.queue = [...rest.slice(0, at), steered, ...rest.slice(at)]
+}
+
+/** Takes a message out of the queue, for the user to change it. */
+export function unqueueChat(w: World, id: string, queued: string) {
+  const chat = w.chats[id]
+  if (chat?.queue) chat.queue = chat.queue.filter((x) => x.id !== queued)
+}
+
+function sendQueued(w: World, chat: Chat) {
+  const [next, ...rest] = chat.queue ?? []
+  if (!next || chat.replyAt !== undefined || chatLeft(w, chat)) return
+  chat.queue = rest
+  hearInChat(w, chat, next.text, next.images, next.files)
+}
+
 /** Takes back one of the user's messages and all that came after it. */
 export function rewindChat(w: World, id: string, index: number) {
   const chat = w.chats[id]
@@ -397,10 +434,11 @@ export function rewindChat(w: World, id: string, index: number) {
   delete chat.change
 }
 
-/** Whether a chat can be forked at a message: the user's, or the employee's that ends a reply, since a reply is not split. */
-export function canFork(messages: Chat['messages'], index: number) {
+/** Whether a chat can be forked at a message: the user's, or the employee's that ends a reply, since a reply is not split; so not within a reply still being written. */
+export function canFork(messages: Chat['messages'], index: number, replying = false) {
   const m = messages[index]
   if (m?.from === 'user') return true
+  if (replying && !messages.slice(index + 1).some((x) => x.from === 'user')) return false
   return m?.from === 'agent' && messages.slice(index + 1).find((x) => x.from !== 'tool')?.from !== 'agent'
 }
 
@@ -408,13 +446,16 @@ export function canFork(messages: Chat['messages'], index: number) {
 export function forkChat(w: World, id: string, index: number): Chat | undefined {
   const chat = w.chats[id]
   const m = chat?.messages[index]
-  if (!m || m.from === 'tool' || chat.replyAt !== undefined || chatLeft(w, chat)) return undefined
+  if (!m || m.from === 'tool' || chatLeft(w, chat)) return undefined
+  if (chat.replyAt !== undefined && !chat.messages.slice(index).some((x) => x.from === 'user')) return undefined
   const next = m.from === 'user' ? -1 : chat.messages.findIndex((x, i) => i > index && x.from === 'user')
   const keep = m.from === 'user' ? index + 1 : next < 0 ? chat.messages.length : next
   const fork: Chat = { ...chat, id: uid(w, 'chat'), messages: chat.messages.slice(0, keep).map((x) => ({ ...x })), tokens: 0, createdAt: w.now }
   if (keep < chat.messages.length) delete fork.question
   delete fork.change // a copy cannot agree for the original
   delete fork.unread
+  delete fork.replyAt
+  delete fork.queue
   w.chats[fork.id] = fork
   return fork
 }
@@ -435,9 +476,8 @@ function answerChat(w: World, chat: Chat) {
   if (/[?？]$/.test(chat.messages.at(-1)?.text ?? '')) {
     chat.messages.push({ at: w.now, from: 'agent', text: '你想先做哪一個？' })
     chat.question = { options: ['先做前端', '先做後端'] }
-    return
-  }
-  chat.messages.push({ at: w.now, from: 'agent', text: '收到。這是模擬的回覆，要實際對話請接上後端。' })
+  } else chat.messages.push({ at: w.now, from: 'agent', text: '收到。這是模擬的回覆，要實際對話請接上後端。' })
+  sendQueued(w, chat)
 }
 
 /** The user's words, as a task. The real one is written by the model. */

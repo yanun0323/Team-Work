@@ -96,10 +96,11 @@ export function inbox(w: World, teamId: string | null): InboxItem[] {
   return items
 }
 
-/** What waits for the user in a company, shown over its building. The airport's chats have no company: `teamId` is empty for them. */
+/** What waits for the user in a company, shown over its building. The airport's chats have no company: `teamId` is empty for them.
+ * A chat still replying is not counted yet: it says unread once the reply ends. */
 export function teamAlerts(w: World, teamId: string) {
   return {
-    unreadChats: Object.values(w.chats).filter((c) => c.teamId === teamId && c.unread).length,
+    unreadChats: Object.values(w.chats).filter((c) => c.teamId === teamId && c.unread && c.replyAt === undefined).length,
     waitingTasks: teamTasks(w, teamId).filter((t) => t.stage !== 'cancelled' && statusOf(w, t) === 'review').length,
   }
 }

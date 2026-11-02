@@ -788,6 +788,20 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-brand h1 { margin: 0; font: inherit; font-size: 18px; line-height: 1.2; letter-spacing: -0.01em; }
 .fx-brand p { margin: 0; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (max-width: 640px) { .fx-brand { top: 78px; } }
+/* each model provider's allowance, one row each under the date */
+.fx-quotas { display: grid; gap: 4px; margin: 6px 0 1px; padding: 6px 0 0; border-top: 1px solid rgb(31 29 43 / 0.14); list-style: none; }
+.fx-quotas li { display: grid; grid-template-columns: minmax(0, 1fr) 34px 34px; align-items: start; column-gap: 4px; }
+/* lined up with the middle of the rings; the reset times hang below */
+.fx-quota-name { overflow: hidden; font-size: 12.5px; font-weight: 600; line-height: 30px; text-overflow: ellipsis; white-space: nowrap; }
+.fx-quota-balance { grid-column: 2 / span 2; justify-self: end; font-size: 12.5px; font-weight: 600; line-height: 30px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fx-usage { display: grid; justify-items: center; }
+.fx-usage small { min-height: 11px; font-size: 8.5px; font-weight: 600; line-height: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; opacity: 0.7; }
+.fx-ring { position: relative; display: grid; place-items: center; width: 30px; height: 30px; }
+.fx-ring svg { position: absolute; inset: 0; rotate: -90deg; }
+.fx-ring circle { fill: none; stroke-width: 3; }
+.fx-ring-track { stroke: rgb(31 29 43 / 0.16); }
+.fx-ring-fill { stroke: currentColor; stroke-linecap: round; }
+.fx-ring > span { font-size: 8.5px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 .fx-settings-trigger { display: grid; place-items: center; width: 44px; padding: 0; }
 .fx-settings-trigger:disabled { background-color: #d6d4cf; color: #76747c; cursor: not-allowed; filter: grayscale(1); }
 /* what to pick on the map, across the middle of the top; narrow windows have no room beside the buttons */
@@ -1038,6 +1052,12 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 .fx-room-log .fx-chat-user .fx-chat-bubble { rotate: 0.4deg; }
 .fx-room-tool { flex: none; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
 .fx-room-warn { flex: none; color: var(--accent); font-size: 13px; }
+/* what waits for the reply to end, just above the box: the steered first */
+.fx-room-queue { flex: none; display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.fx-room-queue li { display: flex; align-items: center; gap: 8px; min-height: 30px; font-size: 13px; }
+.fx-room-queue .fx-tool { height: 26px; }
+.fx-room-queue-kind { flex: none; width: 3.6em; color: var(--muted); font: 500 11px/1 var(--font-mono); }
+.fx-room-queue-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-room-say { position: relative; flex: none; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
 .fx-room-say-wide { flex: 0 0 100%; }
 .fx-room-attach { flex: none; display: grid; place-items: center; width: 32px; height: 40px; color: var(--muted); cursor: pointer; }

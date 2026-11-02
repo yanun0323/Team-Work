@@ -38,8 +38,8 @@ const THANKS = [{ name: 'yanun0323', href: 'https://github.com/yanun0323' }]
 
 
 /**
- * Ends the app. With work under way it would stop that work, so it asks first, like deleting. The app listens for
- * the message; a page in a browser has no such listener and never shows this.
+ * Ends the app. It always asks first, like deleting, and says so when work under way would stop. The app listens
+ * for the message; a page in a browser has no such listener and never shows this.
  */
 export function QuitTool() {
   const busy = useStore((s) => Object.values(s.world.subTasks).some((x) => x.status === 'progressing' && !x.cancelled)
@@ -49,9 +49,9 @@ export function QuitTool() {
   const quit = () => (window as unknown as { webkit: { messageHandlers: { quit: { postMessage: (x: null) => void } } } }).webkit.messageHandlers.quit.postMessage(null)
   return (
     <button type="button" className={asking ? 'fx-tool fx-tool-ask fx-hit' : 'fx-tool fx-hit'}
-      onClick={() => (busy && !asking ? setAsking(true) : quit())} onBlur={() => setAsking(false)}
-      aria-label={asking ? tr('還有工作在進行，確定退出') : tr('退出')} title={asking ? undefined : tr('退出')}>
-      {asking ? tr('工作會中斷，確定退出') : (
+      onClick={() => (asking ? quit() : setAsking(true))} onBlur={() => setAsking(false)}
+      aria-label={asking ? (busy ? tr('還有工作在進行，確定退出') : tr('確定退出')) : tr('退出')} title={asking ? undefined : tr('退出')}>
+      {asking ? (busy ? tr('工作會中斷，確定退出') : tr('確定退出')) : (
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
           <path d="M8 2v6M4.6 4.2a5 5 0 1 0 6.8 0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>

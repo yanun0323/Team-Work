@@ -46,6 +46,8 @@ type turn struct {
 	onResults func(model.Message)
 	// compact, when set, shortens a long conversation and returns what to send instead; false if it could not.
 	compact func(context.Context) ([]model.Message, bool)
+	// steer, when set, returns what the user said meanwhile that goes right after a round of tool results.
+	steer func() []model.Message
 }
 
 // turnResult is how a turn ended: Stopped by a tool or callback, or with the model's Text and no tool calls.
@@ -137,6 +139,9 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 		msg := model.Message{Role: enum.RoleUser, Content: results}
 		t.req.Messages = append(t.req.Messages, msg)
 		t.onResults(msg)
+		if t.steer != nil {
+			t.req.Messages = append(t.req.Messages, t.steer()...)
+		}
 		if t.compact != nil && reply.Usage.Input >= chatCompactAt {
 			if shorter, ok := t.compact(ctx); ok {
 				t.req.Messages = shorter

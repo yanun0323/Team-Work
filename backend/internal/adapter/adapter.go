@@ -38,6 +38,11 @@ type Provider interface {
 	Models(ctx context.Context) ([]model.ModelSpec, error)
 }
 
+// QuotaReader is a Provider that can tell how much of its allowance is left.
+type QuotaReader interface {
+	Quota(ctx context.Context) (model.Quota, error)
+}
+
 // Providers makes a Provider from an account and its key, and signs in to subscriptions.
 type Providers interface {
 	For(p model.ModelProvider, key string) (Provider, error)

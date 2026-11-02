@@ -241,8 +241,20 @@ type Chat struct {
 	// Compact stands in for the start of the conversation when asking the model. The conversation itself stays whole.
 	Compact *ChatCompact `json:"compact,omitempty"`
 	// Context is how many tokens the model last read, to tell when to compact.
-	Context   int     `json:"context,omitempty"`
-	CreatedAt float64 `json:"createdAt"`
+	Context int `json:"context,omitempty"`
+	// Queue is what the user said while a reply was being written, in the order it goes: the steered first.
+	Queue     []QueuedMessage `json:"queue,omitempty"`
+	CreatedAt float64         `json:"createdAt"`
+}
+
+// QueuedMessage waits for the reply being written to end. A steered one goes as soon as a tool call ends instead.
+type QueuedMessage struct {
+	ID     string       `json:"id"`
+	At     float64      `json:"at"`
+	Text   string       `json:"text"`
+	Images []Attachment `json:"images,omitempty"`
+	Files  []Attachment `json:"files,omitempty"`
+	Steer  bool         `json:"steer,omitempty"`
 }
 
 // AtAirport says whether the chat is the airport's rather than a company's.
@@ -406,6 +418,19 @@ type ModelSpec struct {
 	ID string
 	// Thinking lists the levels the model accepts, weakest first; empty when the provider doesn't say.
 	Thinking []string
+}
+
+// Quota is what a provider reports of its allowance. A field it doesn't report stays nil.
+type Quota struct {
+	// FiveHour and Weekly are how much of a subscription's 5-hour and weekly limits is used, 0 to 100.
+	FiveHour *float64 `json:"fiveHour,omitempty"`
+	Weekly   *float64 `json:"weekly,omitempty"`
+	// FiveHourResetAt and WeeklyResetAt are when those limits start over, in Unix seconds; 0 when not reported.
+	FiveHourResetAt int64 `json:"fiveHourResetAt,omitempty"`
+	WeeklyResetAt   int64 `json:"weeklyResetAt,omitempty"`
+	// Balance is the money left on an API key's account, in Currency (USD, CNY, ...).
+	Balance  *float64 `json:"balance,omitempty"`
+	Currency string   `json:"currency,omitempty"`
 }
 
 // World is everything the backend knows. Conversations stay inside the backend, so clients never get them.
