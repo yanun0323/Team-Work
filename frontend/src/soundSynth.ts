@@ -4,7 +4,7 @@ import type { MusicStyle } from './prefs'
 
 export const RATE = 32000
 export type Stereo = [Float32Array<ArrayBuffer>, Float32Array<ArrayBuffer>]
-export type EffectKey = 'soundTakeoff' | 'soundLanding' | 'soundFlyover' | 'soundUI' | 'soundNotice' | 'soundTutorial' | 'soundOpenTeam' | 'soundOpenAirport'
+export type EffectKey = 'soundTakeoff' | 'soundLanding' | 'soundFlyover' | 'soundUI' | 'soundNotice' | 'soundTutorial' | 'soundOpenTeam' | 'soundOpenAirport' | 'soundWaves'
 
 const TAU = Math.PI * 2
 const SINE_SIZE = 1 << 14
@@ -582,8 +582,45 @@ function announce(rate: number): Stereo {
   return levelled(out, 0.45, 0.225)
 }
 
+/** The sea round the island, played as a loop: a deep swell under breakers that rise, spill and wash back. */
+export const WAVES_SECONDS = 26
+/** When each breaker begins, seconds into the loop; uneven, so the loop is hard to hear. */
+export const WAVES_BREAKERS = [0.4, 5.6, 10.1, 15.9, 20.3] as const
+function waves(rate: number): Stereo {
+  const mix = new Mix(rate, WAVES_SECONDS)
+  const rng = random(31)
+  // a one-pole low-pass over the shared noise; `cutoff` may change from sample to sample
+  const noise = (offset: number) => {
+    let y = 0, i = offset
+    return (cutoff: number) => {
+      const x = NOISE[i++ & (NOISE_SIZE - 1)]
+      y += (x - y) * Math.min(1, TAU * cutoff / rate)
+      return [y, x - y] as const
+    }
+  }
+  // The swell: two half-loop rises of deep noise, crossing so its loudness never dips, even at the seam.
+  for (const n of [0, 1]) {
+    const bed = noise(n * 30011)
+    mix.voice(n * WAVES_SECONDS / 2, WAVES_SECONDS, 1.3, n ? 0.5 : -0.5, 0, (t) => bed(180)[0] * Math.sin(Math.PI * t / WAVES_SECONDS), 0.05)
+  }
+  WAVES_BREAKERS.forEach((start, n) => {
+    const water = noise(Math.floor(rng() * NOISE_SIZE))
+    const rise = 1.3 + rng() * 0.7, fall = 1.1 + rng() * 0.7, pan = (rng() - 0.5) * 1.2
+    mix.voice(start, rise + fall * 4, 0.8 + rng() * 0.4, pan, 0.35, (t) => {
+      // gathers slowly, breaks, then washes back with a fizz that lasts a little longer than the roar
+      const u = t / rise
+      const roar = u < 1 ? u * u : Math.exp(-(t - rise) / fall)
+      const fizz = u < 1 ? u ** 4 : Math.exp(-(t - rise) / (fall * 1.5))
+      const [low, high] = water(150 + 1400 * roar)
+      return low * roar * 1.6 + high * fizz * 0.12 * (n % 2 ? 1 : 0.8)
+    }, 0.4)
+  })
+  mix.reverb(1.6, 0.25)
+  return mix.finish(0.07, 0.3)
+}
+
 const EFFECTS: Record<EffectKey, (rate: number) => Stereo> = {
-  soundTakeoff: takeoff, soundLanding: landing, soundFlyover: flyover, soundUI: tap, soundNotice: notice, soundTutorial: tutorial, soundOpenTeam: whoosh, soundOpenAirport: announce,
+  soundTakeoff: takeoff, soundLanding: landing, soundFlyover: flyover, soundUI: tap, soundNotice: notice, soundTutorial: tutorial, soundOpenTeam: whoosh, soundOpenAirport: announce, soundWaves: waves,
 }
 
 export const effectSamples = (key: EffectKey, rate = RATE) => EFFECTS[key](rate)

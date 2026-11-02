@@ -113,7 +113,7 @@ func TestMusicStyleAndNoticePreferences(t *testing.T) {
 	api := setup(t).URL + "/api/v1"
 	_, initial := send(t, "GET", api+"/world", "")
 	defaults := initial["preferences"].(map[string]any)
-	if defaults["musicStyle"] != "bossa" || defaults["soundNotice"] != true {
+	if defaults["musicStyle"] != "bossa" || defaults["soundNotice"] != true || defaults["soundWaves"] != true {
 		t.Fatalf("%v", defaults)
 	}
 	for _, style := range []string{"piano", "ambient", "bossa", "chiptune"} {

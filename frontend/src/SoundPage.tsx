@@ -10,7 +10,10 @@ const SOUND_GROUPS = [
   { key: 'soundNotice', label: '通知', keys: ['soundNotice'] },
   { key: 'soundTutorial', label: '教學提示', keys: ['soundTutorial'] },
   { key: 'soundOpenTeam', label: '打開建築', keys: ['soundOpenTeam', 'soundOpenAirport'] },
+  { key: 'soundWaves', label: '海浪', keys: ['soundWaves'] },
 ] as const
+/** Sounds that keep playing while on, so there is nothing to preview. */
+const LOOPING: readonly string[] = ['soundWaves']
 
 export function Volume({ label, value, onChange, min = 0, max = 100, muted, onMute }: { label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; muted?: boolean; onMute?: (muted: boolean) => void }) {
   const id = useId()
@@ -51,8 +54,8 @@ export function MusicSection() {
       <div className="fx-sound-switches">
         {SOUND_GROUPS.map(({ key, label, keys }) => <div key={key} className="fx-sound-effect">
           <Toggle label={tr(label)} checked={keys.some((name) => prefs[name])} onChange={(value) => prefs.set(Object.fromEntries(keys.map((name) => [name, value])))} />
-          <button type="button" className="fx-tool fx-hit" aria-label={tr('試聽 {name}', { name: tr(label) })}
-            disabled={!keys.some((name) => prefs[name]) || prefs.effectsMuted || prefs.effectsVolume === 0} onClick={() => playSound(keys.find((name) => prefs[name]) ?? key, true)}>▶</button>
+          {!LOOPING.includes(key) && <button type="button" className="fx-tool fx-hit" aria-label={tr('試聽 {name}', { name: tr(label) })}
+            disabled={!keys.some((name) => prefs[name]) || prefs.effectsMuted || prefs.effectsVolume === 0} onClick={() => playSound(keys.find((name) => prefs[name]) ?? key, true)}>▶</button>}
         </div>)}
       </div>
     </div>

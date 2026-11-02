@@ -417,7 +417,6 @@ export function PrefsPage() {
           <Select label={tr('預設公司頁籤')} value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.map((x) => x.id)}
             labelOf={(id) => tr(COMPANY_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultTab: v as CompanyTab })} />
           {check('openWaitingTab', tr('待處理頁籤優先'))}
-          {check('openWaitingSub', tr('待回覆子任務優先'))}
         </div>
       </section>
       <section className="fx-d-group" aria-labelledby="fx-prefs-tutorial">

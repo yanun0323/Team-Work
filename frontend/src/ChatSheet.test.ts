@@ -8,7 +8,7 @@ import { seedWorld } from './core/data/seed'
 import { canFork, chatTaskDraft, createAirportChat, createChat, deleteTeam, forkChat, readChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, steerChat, stopChat, tick, unqueueChat } from './core/domain/sim'
 import { chatMindOf, chatSign, chatWho } from './crew'
 import { prereqsOf } from './prereqs'
-import { teamAlerts, teamReplicas, waitingSub, waitingTab } from './core/model'
+import { teamAlerts, teamReplicas, waitingTab } from './core/model'
 
 const setup = () => {
   const w = seedWorld()
@@ -52,19 +52,6 @@ describe('chats', () => {
     const task = Object.values(w.tasks).find((x) => x.teamId === teamId)!
     task.stage = 'awaitMerge'
     expect(waitingTab(w, teamId)).toBe('tasks')
-  })
-
-  it('finds the first sub-task a task waits at, passing over cancelled ones', () => {
-    const { w, teamId } = setup()
-    const task = Object.values(w.tasks).find((x) => x.teamId === teamId && x.stage === 'running')!
-    const subs = Object.values(w.subTasks).filter((s) => s.taskId === task.id)
-    for (const s of subs) delete s.review
-    expect(waitingSub(w, task.id)).toBeUndefined()
-    subs[0].review = { kind: 'question', from: 'progressing', prompt: '?', options: [], at: 0 }
-    subs[0].cancelled = true
-    expect(waitingSub(w, task.id)).toBeUndefined()
-    subs[0].cancelled = false
-    expect(waitingSub(w, task.id)).toBe(subs[0])
   })
 
   it('queue what is said while replying, steered first, and send it when the reply ends', () => {

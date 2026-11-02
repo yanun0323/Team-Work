@@ -13,6 +13,7 @@ type Preferences struct {
 	SoundTutorial     bool   `json:"soundTutorial"`
 	SoundOpenTeam     bool   `json:"soundOpenTeam"`
 	SoundOpenAirport  bool   `json:"soundOpenAirport"`
+	SoundWaves        bool   `json:"soundWaves"`
 	MusicVolume       int    `json:"musicVolume"`
 	EffectsVolume     int    `json:"effectsVolume"`
 	MusicMuted        bool   `json:"musicMuted"`
@@ -35,14 +36,13 @@ type Preferences struct {
 	DefaultTab        string `json:"defaultTab"`
 	DefaultAirportTab string `json:"defaultAirportTab"`
 	OpenWaitingTab    bool   `json:"openWaitingTab"`
-	OpenWaitingSub    bool   `json:"openWaitingSub"`
 	// ChatTitleModel names each new chat from its first message; empty turns naming off.
 	ChatTitleModel  string `json:"chatTitleModel"`
 	ChatTitleEffort string `json:"chatTitleEffort"`
 }
 
 func DefaultPreferences() Preferences {
-	return Preferences{MuteInBackground: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", OpenWaitingTab: true, OpenWaitingSub: true}
+	return Preferences{MuteInBackground: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", OpenWaitingTab: true}
 }
 
 // MergePreferences accepts only known, non-null fields; omitted fields keep their values.
@@ -93,6 +93,8 @@ func (p *Preferences) UnmarshalJSON(raw []byte) error {
 			patch["autoView"] = json.RawMessage(`"off"`)
 		}
 	}
+	// Files written while opening a waiting task could also open its sub-task.
+	delete(patch, "openWaitingSub")
 	next, err := MergePreferences(DefaultPreferences(), patch)
 	if err != nil {
 		return err

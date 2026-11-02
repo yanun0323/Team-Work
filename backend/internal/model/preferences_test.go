@@ -57,12 +57,22 @@ func TestAutoView(t *testing.T) {
 	}
 }
 
-func TestWaitingShortcutsAreOnForOldFiles(t *testing.T) {
+func TestWaitingTabIsOnForOldFiles(t *testing.T) {
 	var p Preferences
 	if err := json.Unmarshal([]byte(`{"shadows":false}`), &p); err != nil {
 		t.Fatal(err)
 	}
-	if !p.OpenWaitingTab || !p.OpenWaitingSub {
-		t.Fatalf("waiting shortcuts should default to on: %+v", p)
+	if !p.OpenWaitingTab {
+		t.Fatalf("waiting tab should default to on: %+v", p)
+	}
+}
+
+func TestRemovedWaitingSubIsIgnoredInOldFiles(t *testing.T) {
+	var p Preferences
+	if err := json.Unmarshal([]byte(`{"openWaitingSub":false}`), &p); err != nil {
+		t.Fatalf("old file rejected: %v", err)
+	}
+	if _, err := MergePreferences(DefaultPreferences(), map[string]json.RawMessage{"openWaitingSub": json.RawMessage(`true`)}); err == nil {
+		t.Fatal("removed preference accepted in a patch")
 	}
 }

@@ -118,9 +118,6 @@ export function waitingTab(w: World, teamId: string): 'tasks' | 'chats' | undefi
   return Object.values(w.chats).some((c) => c.teamId === teamId && (c.unread || c.question)) ? 'chats' : undefined
 }
 
-/** The first sub-task of a task still waiting on the user; a task waiting to be merged has none. */
-export const waitingSub = (w: World, taskId: string) => subsOf(w, taskId).find((s) => s.review && !s.cancelled)
-
 export function counts(w: World, teamId: string) {
   const c: Record<Status, number> = { todo: 0, progressing: 0, review: 0, complete: 0 }
   for (const task of teamTasks(w, teamId)) if (task.stage !== 'cancelled') c[statusOf(w, task)] += 1

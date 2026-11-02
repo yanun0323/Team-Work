@@ -1,13 +1,14 @@
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { DEFAULT_PREFS, MUSIC_STYLES, usePrefs } from './prefs'
 import { useStore } from './core/store'
 import { silenced, SoundPlayer, subscribeChatSound, subscribeNoticeSound, watchChat } from './sound'
 import type { Chat } from './core/domain/types'
-import { AIRPORT_GAP, AIRPORT_LEAD_IN, AIRPORT_NOTES, AIRPORT_SECONDS, effectSamples, musicSamples, NOTICE_DUCK, NOTICE_GAP, NOTICE_LEAD_IN, NOTICE_NOTES, NOTICE_RISE, NOTICE_SECONDS, TAP_SECOND_SNAP, TUTORIAL_SECONDS, WHOOSH_SECONDS, type Stereo } from './soundSynth'
+import { AIRPORT_GAP, AIRPORT_LEAD_IN, AIRPORT_NOTES, AIRPORT_SECONDS, effectSamples, musicSamples, NOTICE_DUCK, NOTICE_GAP, NOTICE_LEAD_IN, NOTICE_NOTES, NOTICE_RISE, NOTICE_SECONDS, TAP_SECOND_SNAP, TUTORIAL_SECONDS, WAVES_BREAKERS, WAVES_SECONDS, WHOOSH_SECONDS, type Stereo } from './soundSynth'
 
 const param = () => ({ value: 0, setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn(), cancelScheduledValues: vi.fn(), setTargetAtTime: vi.fn() })
 class Node {
   onended?: () => void
+  loop = false
   gain = param()
   frequency = param()
   playbackRate = param()
@@ -30,6 +31,9 @@ function context() {
   }
   return { audio, gains, sources, player: new SoundPlayer(audio as unknown as AudioContext) }
 }
+/** The sea loops on its own; most tests count one-off sources, so it stays off unless a test turns it on. */
+const QUIET = { ...DEFAULT_PREFS, soundWaves: false }
+beforeEach(() => usePrefs.setState(QUIET))
 afterEach(() => { usePrefs.setState(DEFAULT_PREFS); vi.unstubAllGlobals() })
 /** The music channel's default level. */
 const MUSIC = DEFAULT_PREFS.musicVolume / 100
@@ -181,7 +185,7 @@ it('routes music and effects independently and stops muted effects immediately',
   const { player, sources, gains } = context()
   player.play('soundTakeoff')
   expect(sources).toHaveLength(2)
-  const prefs = { ...DEFAULT_PREFS, musicVolume: 0, effectsVolume: 80, soundTakeoff: false }
+  const prefs = { ...QUIET, musicVolume: 0, effectsVolume: 80, soundTakeoff: false }
   usePrefs.setState(prefs)
   player.update(prefs)
   expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 10, 0.03)
@@ -203,7 +207,7 @@ it('routes music and effects independently and stops muted effects immediately',
 it('mute silences a channel at once and restores its saved level', () => {
   const { player, sources, gains } = context()
   player.play('soundTakeoff')
-  const muted = { ...DEFAULT_PREFS, musicVolume: 40, effectsVolume: 50, musicMuted: true, effectsMuted: true }
+  const muted = { ...QUIET, musicVolume: 40, effectsVolume: 50, musicMuted: true, effectsMuted: true }
   usePrefs.setState(muted)
   player.update(muted)
   expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 10, 0.03)
@@ -242,15 +246,15 @@ it('does not queue suspended effects; stops aircraft when animation is disabled 
 
 it('cross-fades music only when the style changes and cleans up outgoing tracks', () => {
   const { player, sources, gains } = context()
-  player.update({ ...DEFAULT_PREFS, musicVolume: 50 })
+  player.update({ ...QUIET, musicVolume: 50 })
   expect(sources).toHaveLength(1)
-  player.update({ ...DEFAULT_PREFS, musicStyle: 'ambient' })
+  player.update({ ...QUIET, musicStyle: 'ambient' })
   expect(sources).toHaveLength(2)
   expect(sources[0].stop).toHaveBeenCalledWith(11.2)
   expect(gains[gains.length - 1].gain.linearRampToValueAtTime).toHaveBeenCalledWith(1, 11.2)
-  player.update({ ...DEFAULT_PREFS, musicStyle: 'ambient', effectsVolume: 0 })
+  player.update({ ...QUIET, musicStyle: 'ambient', effectsVolume: 0 })
   expect(sources).toHaveLength(2)
-  player.update({ ...DEFAULT_PREFS, musicStyle: 'bossa' })
+  player.update({ ...QUIET, musicStyle: 'bossa' })
   player.dispose()
   for (const source of sources) expect(source.disconnect).toHaveBeenCalled()
 })
@@ -394,4 +398,41 @@ it('goes quiet in the background only if asked to', () => {
   expect(silenced(true, page(true, true))).toBe(true)
   expect(silenced(true, page(false, false))).toBe(true)
   expect(silenced(false, page(true, false))).toBe(false)
+})
+
+it('renders the sea as a soft, seamless loop whose breakers swell over the swell', () => {
+  const rate = 8000
+  const samples = effectSamples('soundWaves', rate)
+  expect(samples[0].length).toBe(Math.round(WAVES_SECONDS * rate))
+  expect(samples.every((ch) => ch.every(Number.isFinite))).toBe(true)
+  expect(samples.every((ch) => ch.every((x) => Math.abs(x) <= 0.3 + 1e-6))).toBe(true)
+  // A background: quieter overall than the notice chime.
+  expect(loudness(samples, 0, WAVES_SECONDS, rate)).toBeLessThan(loudness(effectSamples('soundNotice', rate), 0, NOTICE_SECONDS, rate))
+  // Never silent, and each breaker stands out from the lull just before it.
+  for (let t = 0; t < WAVES_SECONDS - 1; t++) expect(loudness(samples, t, t + 1, rate)).toBeGreaterThan(0.01)
+  for (const start of WAVES_BREAKERS.slice(1)) expect(loudness(samples, start + 1.2, start + 2.2, rate)).toBeGreaterThan(loudness(samples, start - 0.6, start, rate) * 1.5)
+  for (const channel of samples) expect(Math.abs(channel[0] - channel[channel.length - 1])).toBeLessThan(0.05)
+})
+
+it('keeps the sea looping while it is on, and stops and restarts it with the sound', async () => {
+  usePrefs.setState(DEFAULT_PREFS)
+  const { player, sources, gains } = context()
+  expect(sources).toHaveLength(2)
+  expect(sources[1].loop).toBe(true)
+  // A background: well under the other effects. Its channel follows the music's and the eight before it.
+  expect(gains[9].gain.setTargetAtTime).toHaveBeenLastCalledWith(0.2, 10, 0.03)
+  // Other settings changing do not restart it.
+  player.update({ ...DEFAULT_PREFS, musicVolume: 20 })
+  expect(sources).toHaveLength(2)
+  usePrefs.setState({ soundWaves: false })
+  player.update(usePrefs.getState())
+  expect(sources[1].stop).toHaveBeenCalled()
+  usePrefs.setState({ soundWaves: true })
+  player.update(usePrefs.getState())
+  expect(sources).toHaveLength(3)
+  player.pause()
+  expect(sources[2].stop).toHaveBeenCalled()
+  await player.resume()
+  expect(sources).toHaveLength(4)
+  player.dispose()
 })

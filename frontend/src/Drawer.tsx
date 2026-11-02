@@ -228,11 +228,10 @@ export function useSheets() {
     refocus.current = null
   }, [layers])
   const drop = (ls: Layer[], from: number) => (calm ? ls.slice(0, from) : ls.map((l, i) => (i >= from ? { ...l, leaving: true } : l)))
-  /** With `above`, a second sheet opens straight on top; closing it returns focus to the title of the one below. */
-  const open = useCallback((x: Item, above?: Item) => {
+  const open = useCallback((x: Item) => {
     const from = document.activeElement as HTMLElement | null
     setLayers((ls) => (ls[0] && !ls[0].leaving && itemKey(ls[0].item) === itemKey(x) ? drop(ls, 0)
-      : [{ item: x, leaving: false, from }, ...(above ? [{ item: above, leaving: false, from: null }] : [])]))
+      : [{ item: x, leaving: false, from }]))
   }, [])
   const push = useCallback((x: Item) => {
     const from = document.activeElement as HTMLElement | null

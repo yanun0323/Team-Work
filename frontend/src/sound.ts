@@ -14,6 +14,7 @@ export const SOUND_EFFECTS = [
   { key: 'soundTutorial', label: '教學提示' },
   { key: 'soundOpenTeam', label: '打開公司' },
   { key: 'soundOpenAirport', label: '打開機場' },
+  { key: 'soundWaves', label: '海浪' },
 ] as const
 export type SoundEffect = (typeof SOUND_EFFECTS)[number]['key']
 
@@ -21,6 +22,8 @@ export type SoundEffect = (typeof SOUND_EFFECTS)[number]['key']
 const CROSSFADE = 1.2
 
 const aircraft = (key: SoundEffect) => key === 'soundTakeoff' || key === 'soundLanding' || key === 'soundFlyover'
+/** Each effect's share of the effects volume: planes and the sea sit back in the mix. */
+const trim = (key: SoundEffect) => aircraft(key) ? 0.6 : key === 'soundWaves' ? 0.2 : 1
 
 /** Use actual notice events, not badge counts: two tasks can exchange places without changing the count. */
 export function subscribeNoticeSound(notify: () => void) {
@@ -124,7 +127,7 @@ export class SoundPlayer {
     // Notification priority lasts through the echo tail; never change saved volumes.
     level(this.music, prefs.musicMuted ? 0 : prefs.musicVolume / 100 * duck)
     for (const { key } of SOUND_EFFECTS) {
-      level(this.effects.get(key)!, prefs[key] && !prefs.effectsMuted ? prefs.effectsVolume / 100 * (aircraft(key) ? 0.6 : 1) * (key === 'soundNotice' ? 1 : duck) : 0)
+      level(this.effects.get(key)!, prefs[key] && !prefs.effectsMuted ? prefs.effectsVolume / 100 * trim(key) * (key === 'soundNotice' ? 1 : duck) : 0)
     }
   }
 
@@ -134,6 +137,12 @@ export class SoundPlayer {
       if (!prefs[key] || prefs.effectsMuted || prefs.effectsVolume === 0 || (aircraft(key) && !prefs.planes)) this.stop(key)
     }
     this.mixLevels(prefs)
+    this.surf()
+  }
+
+  /** The sea plays on while it is switched on, rather than once. */
+  private surf() {
+    if (!this.active.has('soundWaves')) this.play('soundWaves')
   }
 
   play(key: SoundEffect, preview = false) {
@@ -145,6 +154,7 @@ export class SoundPlayer {
     if (!buffer) this.sounds.set(key, buffer = this.buffer(effectSamples(key)))
     const source = this.context.createBufferSource()
     source.buffer = buffer
+    source.loop = key === 'soundWaves'
     // The same tap every time would sound like a machine.
     if (key === 'soundUI') source.playbackRate.value = 0.95 + Math.random() * 0.1
     source.connect(this.effects.get(key)!)
@@ -168,7 +178,7 @@ export class SoundPlayer {
     for (const key of this.active.keys()) this.stop(key)
     void this.context.suspend().catch(() => {})
   }
-  resume() { return this.context.resume() }
+  resume() { return this.context.resume().then(() => this.surf()) }
   dispose() {
     for (const key of this.active.keys()) this.stop(key)
     for (const { source, gain } of this.songs) { source.stop(); source.disconnect(); gain.disconnect() }
