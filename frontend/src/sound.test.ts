@@ -83,8 +83,8 @@ it('shapes aircraft sounds around what the plane does on screen', () => {
   expect(loudness(takeoff, 5, 6.2, rate)).toBeGreaterThan(loudness(takeoff, 0.5, 1.7, rate) * 1.5)
   expect(loudness(takeoff, 5, 6.2, rate)).toBeGreaterThan(loudness(takeoff, 11.5, 12.7, rate) * 3)
   const landing = effectSamples('soundLanding', rate)
-  // A tyre chirp at the touchdown (7.5s in), then the swell of reverse thrust.
-  expect(loudness(landing, 7.5, 7.6, rate)).toBeGreaterThan(loudness(landing, 7.3, 7.45, rate) * 1.2)
+  // No tyre chirp at the touchdown (7.5s in), then the swell of reverse thrust.
+  expect(loudness(landing, 7.5, 7.6, rate)).toBeLessThan(loudness(landing, 7.3, 7.45, rate) * 1.2)
   expect(loudness(landing, 8.8, 9.4, rate)).toBeGreaterThan(loudness(landing, 6.8, 7.4, rate) * 1.2)
   const flyover = effectSamples('soundFlyover', rate)
   expect(loudness(flyover, 2.5, 3.5, rate)).toBeGreaterThan(loudness(flyover, 0.2, 1.2, rate) * 2)
@@ -101,6 +101,8 @@ it('keeps the notice to two quick bubbles, each rising in pitch, low one first',
   expect(samples.every((ch) => ch.every(Number.isFinite))).toBe(true)
   expect(NOTICE_NOTES).toHaveLength(2)
   expect([...NOTICE_NOTES]).toEqual([...NOTICE_NOTES].sort((a, b) => a - b))
+  // Low and round, two octaves below the tutorial's bells.
+  expect(NOTICE_NOTES[0]).toBeLessThan(300)
   NOTICE_NOTES.forEach((_, i) => {
     const start = i * NOTICE_GAP
     expect(loudness(samples, start + 0.003, start + 0.04, rate)).toBeGreaterThan(0.15)
@@ -157,8 +159,9 @@ it('opens the airport with Do Mi So Do rising, quieter than the notice and fadin
     // each note strikes: louder just after it lands than just before
     if (i) expect(loudness(samples, start + 0.005, start + 0.03, rate)).toBeGreaterThan(loudness(samples, start - 0.03, start - 0.005, rate))
   })
-  expect(Math.max(...samples[0].map(Math.abs), ...samples[1].map(Math.abs))).toBeLessThanOrEqual(0.3 + 1e-6)
-  expect(Math.max(...samples[0].map(Math.abs), ...samples[1].map(Math.abs))).toBeLessThan(Math.max(...effectSamples('soundNotice', rate)[0].map(Math.abs)))
+  const peak = samples.reduce((m, ch) => ch.reduce((n, x) => Math.max(n, Math.abs(x)), m), 0)
+  expect(peak).toBeLessThanOrEqual(0.225 + 1e-6)
+  expect(peak).toBeLessThan(Math.max(...effectSamples('soundNotice', rate)[0].map(Math.abs)))
   expect(loudness(samples, AIRPORT_SECONDS - 0.02, AIRPORT_SECONDS, rate)).toBeLessThan(0.01)
 })
 

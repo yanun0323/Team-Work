@@ -417,17 +417,6 @@ function jet(spec: Jet, rate: number): Stereo {
   return out
 }
 
-function addChirp(out: Stereo, at: number, level: number, pan: number, seed: number, rate: number) {
-  const rng = random(seed)
-  const first = Math.floor(at * rate), count = Math.floor(0.13 * rate)
-  for (let i = 0; i < count && first + i < out[0].length; i++) {
-    const t = i / rate
-    const sample = (sin((1050 - 900 * t) * t) * 0.6 + (rng() * 2 - 1) * 0.5) * Math.min(1, t / 0.004) * Math.exp(-26 * t) * level
-    out[0][first + i] += sample * (1 - pan) / 2
-    out[1][first + i] += sample * (1 + pan) / 2
-  }
-}
-
 /** 13s from the line-up: rotation at 5.6s (Airport.tsx FLIGHT), then away over the sea. */
 function takeoff(rate: number) {
   return levelled(jet({
@@ -444,7 +433,7 @@ function takeoff(rate: number) {
 
 /** 12.5s of approach: wheels down at 7.5s (Airport.tsx FLIGHT), reverse thrust, then taxiing speed. */
 function landing(rate: number) {
-  const out = jet({
+  return levelled(jet({
     seconds: 12.5,
     seed: 23,
     level: [[0, 0], [2, 0.24], [7.2, 0.55], [8, 0.48], [9.1, 1], [10.7, 0.46], [12.3, 0.03], [12.5, 0]],
@@ -453,10 +442,7 @@ function landing(rate: number) {
     whineLevel: [[0, 0.55], [7.5, 0.75], [9.1, 0.5], [12.5, 0.2]],
     rumble: [[0, 0], [7.45, 0], [7.7, 0.75], [10.5, 0.42], [12.5, 0.05]],
     pan: [[0, -0.8], [7.5, -0.1], [12.5, 0.5]],
-  }, rate)
-  addChirp(out, 7.5, 1.5, -0.1, 3, rate)
-  addChirp(out, 7.68, 1.05, -0.1, 4, rate)
-  return levelled(out, 0.15, 0.55)
+  }, rate), 0.15, 0.55)
 }
 
 /** 6s, closest at 3s (the moment Ambient.tsx cues from): high, airy, its pitch falling as it passes. */
@@ -495,16 +481,16 @@ function tap(rate: number): Stereo {
 }
 
 /** Two bubbles popping up, low then high; task requests and chat replies share it. */
-export const NOTICE_NOTES = [523.25, 783.99] as const
+export const NOTICE_NOTES = [261.63, 392] as const
 export const NOTICE_LEAD_IN = 0.04
 export const NOTICE_GAP = 0.13
 /** How far each bubble's pitch rises above where it starts, and how fast: a bubble's sound climbs as it shrinks. */
-export const NOTICE_RISE = { by: 0.7, rate: 28 } as const
+export const NOTICE_RISE = { by: 1, rate: 22 } as const
 export const NOTICE_SECONDS = 0.5
 /** What everything else drops to during the chime: quieter, but still clearly playing. */
 export const NOTICE_DUCK = 0.4
 
-/** A pure tone sliding up fast and dying away, with a little second harmonic at its start for the pop. */
+/** A low, round tone sliding up fast and dying away like a bubble's bloop, with a little second harmonic at its start so small speakers still carry it. */
 function notice(rate: number): Stereo {
   const size = Math.floor(NOTICE_SECONDS * rate)
   const out: Stereo = [new Float32Array(size), new Float32Array(size)]
@@ -515,8 +501,8 @@ function notice(rate: number): Stereo {
       const t = i / rate
       // the integral of f * (1 + by * (1 - e^(-kt)))
       const phase = f * (t + by * (t - (1 - Math.exp(-k * t)) / k))
-      const shape = Math.min(1, t / 0.002) * Math.exp(-14 * t) * Math.min(1, (ring / rate - t) / 0.03)
-      const v = (sin(phase) + sin(phase * 2) * 0.25 * Math.exp(-60 * t)) * shape
+      const shape = Math.min(1, t / 0.003) * Math.exp(-16 * t) * Math.min(1, (ring / rate - t) / 0.03)
+      const v = (sin(phase) + sin(phase * 2) * 0.15 * Math.exp(-40 * t)) * shape
       // the first bubble leans left and the second right
       out[0][first + i] += v * (n === 0 ? 1 : 0.75)
       out[1][first + i] += v * (n === 0 ? 0.75 : 1)
@@ -572,10 +558,10 @@ function whoosh(rate: number): Stereo {
 
 /** The airport opens like an announcement: Do Mi So Do rising on a soft vibraphone, the notes ringing on into a chord. */
 export const AIRPORT_NOTES = [523.25, 659.25, 783.99, 1046.5] as const
-export const AIRPORT_GAP = 0.26
+export const AIRPORT_GAP = 0.32
 /** Silence before the first note, so the chime comes once the camera has begun to move. */
 export const AIRPORT_LEAD_IN = 0.35
-export const AIRPORT_SECONDS = AIRPORT_LEAD_IN + 2.6
+export const AIRPORT_SECONDS = AIRPORT_LEAD_IN + 3.6
 function announce(rate: number): Stereo {
   const size = Math.floor(AIRPORT_SECONDS * rate)
   const out: Stereo = [new Float32Array(size), new Float32Array(size)]
@@ -583,7 +569,7 @@ function announce(rate: number): Stereo {
     const first = Math.round((AIRPORT_LEAD_IN + n * AIRPORT_GAP) * rate), ring = size - first, last = n === AIRPORT_NOTES.length - 1
     for (let i = 0; i < ring; i++) {
       const t = i / rate
-      const shape = Math.min(1, t / 0.006) * Math.exp(-(last ? 2.2 : 3) * t) * Math.min(1, (ring / rate - t) / 0.15)
+      const shape = Math.min(1, t / 0.006) * Math.exp(-(last ? 1.6 : 2.2) * t) * Math.min(1, (ring / rate - t) / 0.25)
       // a slow shimmer, like a vibraphone's turning fans
       const shimmer = 1 - 0.12 * (1 - Math.cos(TAU * 5.5 * t)) / 2
       const v = (sin(f * t) + sin(f * 2 * t) * 0.2 * Math.exp(-8 * t) + sin(f * 3.9 * t) * 0.06 * Math.exp(-25 * t)) * shape * shimmer
@@ -593,7 +579,7 @@ function announce(rate: number): Stereo {
       out[1][first + i] += v * right * 2
     }
   })
-  return levelled(out, 0.6, 0.3)
+  return levelled(out, 0.45, 0.225)
 }
 
 const EFFECTS: Record<EffectKey, (rate: number) => Stereo> = {
