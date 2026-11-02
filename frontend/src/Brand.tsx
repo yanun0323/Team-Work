@@ -2,6 +2,7 @@
 // each model provider's allowance.
 
 import { useEffect, useRef, useState } from 'react'
+import { create } from 'zustand'
 import { useStore } from './core/store'
 import { request } from './core/backend'
 import { MOCK } from './core/mode'
@@ -51,19 +52,24 @@ const UNIT_WORDS = { d: '{a} 天', h: '{a} 小時', m: '{a} 分鐘' } as const
 /** The same, in words for a screen reader. */
 const resetWords = (now: number, at?: number) => resetParts(now, at).map(([a, u]) => tr(UNIT_WORDS[u], { a })).join(' ')
 
-/** Asks the backend for every provider's allowance now and every few minutes, and again when providers change. */
-function useQuotas(providers: Record<string, ModelProvider>) {
-  const [quotas, setQuotas] = useState<Record<string, Quota>>({})
+/** The last allowances heard, by provider id; kept while the corner is hidden so it comes back with them. */
+const useQuotas = create<{ quotas: Record<string, Quota> }>(() => ({ quotas: {} }))
+
+/**
+ * Asks the backend for every provider's allowance now and every few minutes, and again when providers change. Call it
+ * from something that stays on screen, not from the corner that hides behind panels.
+ */
+export function useQuotaPolling() {
+  const providers = useStore((s) => s.world.providers)
   const signature = Object.values(providers).map((p) => `${p.id}:${p.auth.kind}:${p.auth.kind === 'subscription' ? p.auth.signedIn : p.auth.keyHint}:${p.baseUrl}`).join('|')
   useEffect(() => {
     if (MOCK || !signature) return
     const ctrl = new AbortController()
-    const load = () => request<Record<string, Quota>>('GET', '/quotas', undefined, ctrl.signal).then(setQuotas, () => {})
+    const load = () => request<Record<string, Quota>>('GET', '/quotas', undefined, ctrl.signal).then((quotas) => useQuotas.setState({ quotas }), () => {})
     load()
     const timer = setInterval(load, QUOTA_EVERY_MS)
     return () => { ctrl.abort(); clearInterval(timer) }
   }, [signature])
-  return quotas
 }
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -171,7 +177,7 @@ function Balance({ quota }: { quota?: Quota }) {
 export function Brand() {
   const locale = useStore((s) => s.world.language)
   const providers = useStore((s) => s.world.providers)
-  const quotas = useQuotas(providers)
+  const quotas = useQuotas((s) => s.quotas)
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000)

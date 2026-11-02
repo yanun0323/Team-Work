@@ -34,7 +34,7 @@ import { toonInstanced } from './toon'
 import { usePrefs } from './prefs'
 import { propBoxes, type Box } from './streetProps'
 import { playSound, useSound } from './sound'
-import { Brand } from './Brand'
+import { Brand, useQuotaPolling } from './Brand'
 import { TutorialList } from './TutorialList'
 import { askTab, lastTeam, learn, rememberTeam, type TutorialGoal } from './tutorial'
 import { nextIntro, revealBoot, skipBoot, type Intro } from './boot'
@@ -101,6 +101,7 @@ function TagAlerts({ unreadChats, waitingTasks }: ReturnType<typeof teamAlerts>)
 
 export function World() {
   useSound()
+  useQuotaPolling()
   const { crowd, planes, clouds, autoView, zoomSensitivity } = usePrefs()
   // the simulation changes the world ten times a second; rebuild the town only when its shape changes
   const key = useStore(townKey)
