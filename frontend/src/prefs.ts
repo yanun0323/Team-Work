@@ -8,6 +8,7 @@ import type { Tab } from './DrawerTabs'
 
 /** The airport's tabs. */
 export const AIRPORT_TABS = [
+  { id: 'chats', label: '對話#tab' },
   { id: 'providers', label: '模型供應商' },
   { id: 'blueprints', label: '員工藍圖' },
   { id: 'flows', label: '任務流程#tab' },

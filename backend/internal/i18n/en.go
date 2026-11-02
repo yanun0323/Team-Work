@@ -152,6 +152,8 @@ var en = map[string]string{
 	"寫不進 %s，請檢查專案資料夾":                       "Could not write %s. Check the project folder",
 	"找不到公司或員工":                              "Company or employee not found",
 	"找不到對話":                                 "Chat not found",
+	"只有機場的對話可以更換模型":                         "Only airport chats can change model",
+	"機場的對話不能建立任務":                           "Airport chats cannot create tasks",
 	"員工還在回覆":                                "The employee is still replying",
 	"%s 已經離開公司":                             "%s has left the company",
 	"只能編輯自己的訊息":                             "You can only edit your own messages",

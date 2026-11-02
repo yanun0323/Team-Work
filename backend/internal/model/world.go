@@ -195,6 +195,7 @@ type Talk struct {
 
 // Chat is the user talking with one employee outside any task. Its employee and model never change.
 // Name and Look keep who it was, for when the employee has left.
+// A chat with no TeamID is the airport's: it is with the airport staff, and its model and Effort can change between replies.
 type Chat struct {
 	ID        string        `json:"id"`
 	TeamID    string        `json:"teamId"`
@@ -202,6 +203,7 @@ type Chat struct {
 	Name      string        `json:"name"`
 	Look      Look          `json:"look"`
 	Model     string        `json:"model"`
+	Effort    string        `json:"effort,omitempty"`
 	Messages  []ChatMessage `json:"messages"`
 	Tokens    int           `json:"tokens"`
 	// ReplyAt is set while the employee writes a reply: when they started.
@@ -216,6 +218,9 @@ type Chat struct {
 	Context   int     `json:"context,omitempty"`
 	CreatedAt float64 `json:"createdAt"`
 }
+
+// AtAirport says whether the chat is the airport's rather than a company's.
+func (c *Chat) AtAirport() bool { return c.TeamID == "" }
 
 // ChatCompact is a summary of a conversation's messages before Upto.
 type ChatCompact struct {

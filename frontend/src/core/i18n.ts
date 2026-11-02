@@ -282,6 +282,8 @@ const en = {
   '對話': 'Chat',
   '對話#tab': 'Chats',
   '新對話': 'New chat',
+  '機場服務人員': 'Airport staff',
+  '輸入訊息，可直接貼上截圖': 'Type a message, or paste a screenshot',
   '和 {name} 的對話': 'Chat with {name}',
   '編輯這則訊息': 'Edit this message',
   '這間公司還沒有員工': 'This company has no employees yet',

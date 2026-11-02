@@ -7,7 +7,7 @@ import { statusOf, subsOf } from './core/domain/sim'
 import type { Chat, Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
 import { MOCK } from './core/mode'
-import { byBlueprint, chatMindOf, chatSign, mindOf } from './crew'
+import { byBlueprint, chatMindOf, chatSign, chatWho, mindOf } from './crew'
 import { activity, fmtTokens, teamReplicas, teamTasks } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -58,12 +58,12 @@ function Empty({ children }: { children: string }) {
   return <p className="fx-empty">{children}</p>
 }
 
-/** The company's chats, the latest activity first, and a new one. */
-function Chats(p: Opens) {
+/** A company's chats or, with no company, the airport's: the latest activity first, and a new one. */
+export function Chats(p: Opens) {
   const w = useStore((s) => s.world)
   const lastAt = (c: Chat) => c.messages[c.messages.length - 1]?.at ?? c.createdAt
   const chats = Object.values(w.chats).filter((c) => c.teamId === p.teamId).sort((a, b) => lastAt(b) - lastAt(a))
-  const needs = usePrereqs(p.teamId, 'chats')
+  const needs = usePrereqs(p.teamId, p.teamId ? 'chats' : 'airportChats')
   return (
     <div className="fx-d-groups fx-crew-groups">
       <Prereqs list={needs} />
@@ -72,12 +72,11 @@ function Chats(p: Opens) {
       {chats.length > 0 && (
         <ul className="fx-list">
           {chats.map((c) => {
-            const r = w.replicas[c.replicaId]
-            const name = r?.name ?? c.name
+            const { name, look } = chatWho(w, c)
             const sign = chatSign(c)
             return (
               <li key={c.id}><button className="fx-row fx-hit" {...opener({ kind: 'chat', id: c.id }, p)}>
-                <PixelFace look={r?.look ?? c.look} name={name} size={34} />
+                <PixelFace look={look} name={name} size={34} />
                 <span className="fx-row-main">
                   <b>{name}<span className="fx-chat-model">{chatMindOf(w, c)}{c.tokens > 0 && ` · ${fmtTokens(c.tokens)} Token`}</span></b>
                   <span className="fx-chat-first">{c.messages[0]?.text || (c.messages[0]?.images?.length ? tr('圖片') : c.messages[0]?.files?.length ? tr('附件') : '')}</span>

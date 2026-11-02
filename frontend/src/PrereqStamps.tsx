@@ -12,7 +12,7 @@ function useProjectHealth(teamId: string) {
   // a target branch just picked may be the fix
   const target = useStore((s) => s.world.teams[teamId]?.targetBranch)
   useEffect(() => {
-    if (MOCK) return
+    if (MOCK || !teamId) return // the airport has no folder
     const asking = new AbortController()
     // not knowing is not a problem to report: the connection has its own message
     const ask = () => void request<ProjectHealth>('GET', `/teams/${teamId}/health`, undefined, asking.signal).then(setHealth, () => {})

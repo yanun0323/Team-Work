@@ -264,7 +264,8 @@ export function World() {
   // one `id<TAB>name` line per employee of the open company
   // tasks waiting on the user, in every company: their count goes on the board button in a red badge
   const waiting = useStore((s) => Object.values(s.world.tasks).filter((t) => t.stage !== 'cancelled' && !!s.world.teams[t.teamId] && statusOf(s.world, t) === 'review').length)
-  const alerts = useStore((s) => Object.keys(s.world.teams).map((id) => { const a = teamAlerts(s.world, id); return `${id}\t${a.unreadChats}\t${a.waitingTasks}` }).join('\n'))
+  // the empty id is the airport's chats
+  const alerts = useStore((s) => ['', ...Object.keys(s.world.teams)].map((id) => { const a = teamAlerts(s.world, id); return `${id}\t${a.unreadChats}\t${a.waitingTasks}` }).join('\n'))
   const crewNames = useStore((s) => (selected ? teamReplicas(s.world, selected).map((r) => `${r.id}\t${r.name}`).join('\n') : ''))
   // the airport's tag is in words, so it changes with the language
   const language = useStore((s) => s.world.language)
@@ -278,7 +279,7 @@ export function World() {
     const airport: LabelSpec = {
       id: 'fusion-airport', at: [ax + AIRPORT_TAG[0], AIRPORT_TAG[1], az + AIRPORT_TAG[2]],
       tone: hovered === AIRPORT_ID && !open && !settingsOpen && !placing && !editing ? 'fusion lifted' : 'fusion',
-      text: <span className="fx-tag">{tr('機場')}</span>,
+      text: <span className="fx-tag">{tr('機場')}<TagAlerts {...teamAlerts(useStore.getState().world, '')} /></span>,
       onClick: selectAirport,
     }
     const tags = town.lots.map((l, i): LabelSpec => {

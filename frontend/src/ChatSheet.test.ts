@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { attachable, splitAttachments } from './attachments'
 import { seedWorld } from './core/data/seed'
-import { canFork, chatTaskDraft, createChat, deleteTeam, forkChat, readChat, REPLY_TIME, rewindChat, sayInChat, stopChat, tick } from './core/domain/sim'
-import { chatSign } from './crew'
+import { canFork, chatTaskDraft, createAirportChat, createChat, deleteTeam, forkChat, readChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, stopChat, tick } from './core/domain/sim'
+import { chatMindOf, chatSign, chatWho } from './crew'
+import { prereqsOf } from './prereqs'
 import { teamAlerts, teamReplicas } from './core/model'
 
 const setup = () => {
@@ -143,5 +144,56 @@ describe('a question from the employee', () => {
     expect(chat.question).toBeUndefined()
     for (let i = 0; i < 60; i++) tick(w, 0.1)
     expect(chat.question).toBeUndefined()
+  })
+})
+
+describe('airport chats', () => {
+  const start = () => {
+    const w = seedWorld()
+    return { w, chat: createAirportChat(w, { model: 'm', effort: 'default', text: '你好' }) }
+  }
+
+  it('reply with no employee, and count as unread for the airport alone', () => {
+    const { w, chat } = start()
+    tick(w, REPLY_TIME)
+    expect(chatSign(w.chats[chat.id])).toBe('unread')
+    expect(teamAlerts(w, '')).toEqual({ unreadChats: 1, waitingTasks: 0 })
+    expect(teamAlerts(w, Object.keys(w.teams)[0]).unreadChats).toBe(0)
+    readChat(w, chat.id)
+    expect(teamAlerts(w, '').unreadChats).toBe(0)
+  })
+
+  it('go on and fork though no employee is behind them', () => {
+    const { w, chat } = start()
+    tick(w, REPLY_TIME)
+    sayInChat(w, chat.id, '再一句')
+    expect(w.chats[chat.id].replyAt).toBeDefined()
+    tick(w, REPLY_TIME)
+    expect(forkChat(w, chat.id, 0)?.teamId).toBe('')
+  })
+
+  it('change model between replies only', () => {
+    const { w, chat } = start()
+    setChatMind(w, chat.id, 'n', 'high')
+    expect(w.chats[chat.id].model).toBe('m')
+    tick(w, REPLY_TIME)
+    setChatMind(w, chat.id, 'n', 'high')
+    expect(chatMindOf(w, w.chats[chat.id])).toBe('n · high')
+    expect(chatWho(w, w.chats[chat.id]).name).toBe('機場服務人員')
+  })
+
+  it('leave company chats on their model', () => {
+    const { w, teamId, r, chat } = setup()
+    tick(w, REPLY_TIME)
+    setChatMind(w, chat.id, 'n', 'high')
+    expect(w.chats[chat.id].model).toBe(r.model)
+    expect(teamId).toBeTruthy()
+  })
+
+  it('need only a model provider', () => {
+    const w = seedWorld()
+    expect(prereqsOf(w, '', 'airportChats', null)).toEqual([])
+    w.providers = {}
+    expect(prereqsOf(w, '', 'airportChats', null).map((x) => x.id)).toEqual(['provider'])
   })
 })

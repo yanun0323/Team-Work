@@ -96,7 +96,7 @@ export function inbox(w: World, teamId: string | null): InboxItem[] {
   return items
 }
 
-/** What waits for the user in a company, shown over its building. */
+/** What waits for the user in a company, shown over its building. The airport's chats have no company: `teamId` is empty for them. */
 export function teamAlerts(w: World, teamId: string) {
   return {
     unreadChats: Object.values(w.chats).filter((c) => c.teamId === teamId && c.unread).length,

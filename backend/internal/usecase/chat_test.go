@@ -1024,3 +1024,117 @@ func TestChatKeepsAToolResultWithItsCall(t *testing.T) {
 		}
 	}
 }
+
+func TestAirportChatRunsWithoutACompany(t *testing.T) {
+	var got model.ModelRequest
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		got = req
+		return say("您好"), nil
+	})
+	m := r.owner.Model
+	c, err := r.e.CreateAirportChat(usecase.NewAirportChat{Model: m, Text: "你好"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := r.wait("reply", chatDone(c.ID))
+	chat := w.Chats[c.ID]
+	if !chat.AtAirport() || !chat.Unread || chat.Effort != model.ThinkingDefault || chat.Messages[1].Text != "您好" {
+		t.Fatalf("%+v", chat)
+	}
+	if info, err := os.Stat(got.Cwd); err != nil || !info.IsDir() || filepath.Base(got.Cwd) != "airport" {
+		t.Fatalf("cwd %q: %v", got.Cwd, err)
+	}
+	if !strings.Contains(got.System, "airport's service staff") || strings.Contains(got.System, "Your role") {
+		t.Fatalf("system: %s", got.System)
+	}
+	names := []string{}
+	for _, tool := range got.Tools {
+		names = append(names, tool.Name)
+	}
+	for _, want := range []string{"read_file", "write_file", "run_command", "ask_user"} {
+		if !slices.Contains(names, want) {
+			t.Fatalf("no %s in %v", want, names)
+		}
+	}
+	if _, err := r.e.ChatTaskDraft(context.Background(), c.ID); err == nil {
+		t.Fatal("an airport chat has no company to make a task in")
+	}
+	if err := r.e.ReadChat(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if r.world().Chats[c.ID].Unread {
+		t.Fatal("still unread")
+	}
+	fork, err := r.e.ForkChat(c.ID, 1)
+	if err != nil || !fork.AtAirport() || fork.Effort != chat.Effort {
+		t.Fatalf("%+v %v", fork, err)
+	}
+	if err := r.e.DeleteTeam(r.team.ID); err != nil {
+		t.Fatal(err)
+	}
+	if r.world().Chats[c.ID] == nil {
+		t.Fatal("an airport chat belongs to no company")
+	}
+}
+
+func TestAirportChatRefusesAModelNobodyOffers(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("x"), nil })
+	if _, err := r.e.CreateAirportChat(usecase.NewAirportChat{Model: "nobody", Text: "你好"}); err == nil {
+		t.Fatal("no provider offers it")
+	}
+	if _, err := r.e.CreateAirportChat(usecase.NewAirportChat{Model: r.owner.Model, Effort: "nonsense", Text: "你好"}); err == nil {
+		t.Fatal("the model has no such level")
+	}
+}
+
+func TestOnlyAirportChatsChangeModelBetweenReplies(t *testing.T) {
+	release := make(chan struct{})
+	var mu sync.Mutex
+	used := []string{}
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		<-release
+		mu.Lock()
+		defer mu.Unlock()
+		used = append(used, req.Model)
+		return say("好"), nil
+	})
+	first := r.owner.Model
+	other := "other"
+	r.fake.models = []model.ModelSpec{{ID: other}}
+	if _, err := r.e.AddProvider(context.Background(), usecase.NewProvider{Name: "q", Kind: enum.ProviderCompatible, Login: usecase.ProviderLogin{Kind: "apiKey", APIKey: "sk-secret-5678"}}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateAirportChat(usecase.NewAirportChat{Model: first, Text: "一"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.SetChatMind(c.ID, other, ""); err == nil {
+		t.Fatal("a reply is being written")
+	}
+	release <- struct{}{}
+	r.wait("first reply", chatDone(c.ID))
+	if err := r.e.SetChatMind(c.ID, other, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.SetChatMind(c.ID, "nobody", ""); err == nil {
+		t.Fatal("no provider offers it")
+	}
+	if err := r.e.SayInChat(c.ID, "二", nil); err != nil {
+		t.Fatal(err)
+	}
+	release <- struct{}{}
+	r.wait("second reply", chatDone(c.ID))
+	mu.Lock()
+	if !slices.Equal(used, []string{first, other}) {
+		t.Fatalf("%v", used)
+	}
+	mu.Unlock()
+	company, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "三"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.SetChatMind(company.ID, other, ""); err == nil {
+		t.Fatal("a company's chat stays on its model")
+	}
+	close(release)
+}

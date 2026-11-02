@@ -20,7 +20,7 @@ import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, PROVIDER_KINDS } from './providers'
 import { Select, Switcher, Toggle } from './Controls'
 import { setLanguage } from './core/ops'
-import { TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
+import { Chats, TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
 import { airportTabOr, AIRPORT_TABS, AUTO_VIEWS, DEFAULT_PREFS, type AirportTab, type AutoView, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY } from './prefs'
 import { request } from './core/backend'
 import { MusicSection, Volume } from './SoundPage'
@@ -118,6 +118,7 @@ export function Settings({ leaving, onGone }: {
         </header>
         {/* keyed, so each tab turns in like a fresh page */}
         <section key={tab} id="fx-settings-panel" className="fx-page" role="tabpanel" aria-labelledby={`fx-settings-tab-${tab}`}>
+          {tab === 'chats' && <Chats teamId="" open={open} onOpen={sheets.open} />}
           {tab === 'providers' && <Providers open={open} onOpen={sheets.open} />}
           {tab === 'blueprints' && <Blueprints open={open} onOpen={sheets.open} />}
           {tab === 'flows' && <Flows open={open} onOpen={sheets.open} />}

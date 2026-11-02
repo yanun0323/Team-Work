@@ -45,6 +45,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
         <p>The airport stays where it is, and no company can be built on it. Planes land, taxi to a stand and take off again, and now and then others pass high overhead.</p>
         <p>While the airport is open, its roof comes off to show the terminal inside: escalators, check-in, security, a duty-free shop, a café and the gates, plus the controllers in the tower. Passengers come up from underground on one escalator, check in, pass security and board at a gate; arriving passengers pass customs and leave down the other. Put it away and the roof returns.</p>
         <dl>
+          <dt>Chats</dt><dd>Talk with the airport staff, with no employee to pick and no company involved. You can change the model and thinking level in the chat, except during a reply. They can read and write files, search the web and run commands. Their working folder is airport in the data directory, but commands can reach the whole computer. Replies you have not seen show on the blue mark on the airport's name tag.</dd>
           <dt>Model providers</dt><dd>Where employees' models come from.</dd>
           <dt>Blueprints</dt><dd>Templates for making employees.</dd>
           <dt>Workflows</dt><dd>The steps a task goes through.</dd>

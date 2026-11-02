@@ -11,6 +11,7 @@ import { acceptMention, fileChoices, mentionAt, skillChoices, type MentionChoice
 export function MentionBox({ box, value, teamId, replicaIds = [], label, placeholder, rows = 2, below, onChange, onSend }: {
   box?: RefObject<HTMLTextAreaElement | null>
   value: string
+  /** The company whose files "@" offers; with none, the box is a plain one. */
   teamId: string
   /** Whose skills "$" offers; with no one, "$" offers nothing. */
   replicaIds?: string[]
@@ -35,7 +36,7 @@ export function MentionBox({ box, value, teamId, replicaIds = [], label, placeho
   const list = useRef<HTMLUListElement>(null)
   const caret = useRef<number | null>(null)
 
-  const found = focused ? mentionAt(value, cursor) : null
+  const found = focused && teamId ? mentionAt(value, cursor) : null
   const mention = found && found.start !== closedAt ? found : null
   const kind = mention?.kind
   const query = mention?.query ?? ''

@@ -1,18 +1,20 @@
 // A chat with an employee, on a detail sheet: who it is with on top, the notes in the middle, the message box below.
 // Until the first message it is only a choice of employee, whose model it runs on; after that both stay as they are.
+// With no company it is the airport's: always the airport staff, and the model and level can change between replies.
 
 import { colon, tr } from './core/i18n'
 import { Markdown } from './Markdown'
 import { useEffect, useRef, useState } from 'react'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
+import { Select } from './Controls'
 import { CrewSelect } from './Pickers'
-import { chatMindOf, lastChatReplica, mindOf } from './crew'
+import { chatMindOf, DEFAULT_EFFORT, effortsOf, lastAirportMind, lastChatReplica, mindOf, modelGroups, modelsOf } from './crew'
 import { Gone, Heading, DeleteTool, type Head } from './DrawerDetail'
 import { fmtClock, fmtTokens, teamReplicas, useStickToBottom } from './core/model'
 import type { Attachment, Chat } from './core/domain/types'
-import { attempt, chatTaskDraft, deleteChat, forkChat, hasUncommitted, readChat, rewindChat, sayInChat, startChat, stopChat } from './core/ops'
-import { canFork } from './core/domain/sim'
+import { attempt, chatTaskDraft, deleteChat, forkChat, hasUncommitted, readChat, rewindChat, sayInChat, setChatMind, startAirportChat, startChat, stopChat } from './core/ops'
+import { AIRPORT_STAFF_LOOK, canFork } from './core/domain/sim'
 import { useLiveText } from './core/live'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -38,10 +40,14 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
   const id = given ?? started?.id
   // the answer to starting it can arrive ahead of the change to the world
   const chat = id ? w.chats[id] ?? started ?? undefined : undefined
+  const airport = !teamId
   const crew = teamReplicas(w, teamId)
+  // what a new airport chat will run on; one under way keeps its own
+  const [pickedModel, setPickedModel] = useState(() => [lastAirportMind(w)?.model, ...modelsOf(w)].find((m) => m && modelsOf(w).includes(m)) ?? '')
+  const [pickedEffort, setPickedEffort] = useState(() => lastAirportMind(w)?.effort ?? DEFAULT_EFFORT)
   const [replicaId, setReplicaId] = useState(() => lastChatReplica(w, teamId) ?? crew[0]?.id ?? '')
   // what a new chat needs may go while this is open; one under way says so when it fails
-  const needs = usePrereqs(teamId, 'chats').filter((x) => !chat && x.blocks)
+  const needs = usePrereqs(teamId, airport ? 'airportChats' : 'chats').filter((x) => !chat && x.blocks)
   const replica = w.replicas[chat?.replicaId ?? replicaId]
   const [text, setText] = useState('')
   const [images, setImages] = useState<Attachment[]>([])
@@ -63,17 +69,29 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
   }, [act, readId, said])
 
   useEffect(() => {
-    if (given) return
+    if (given || airport) return
     let live = true
     void attempt(() => hasUncommitted(teamId)).then((dirty) => { if (live) setUncommitted(!!dirty) })
     return () => { live = false }
-  }, [given, teamId])
+  }, [given, airport, teamId])
 
   if (given && !chat) return <Gone {...h} />
-  const left = !!chat && !replica
-  const name = chat?.name ?? replica?.name ?? ''
-  const look = replica?.look ?? chat?.look
-  const ready = (!!text.trim() || images.length > 0) && !reading && !sending && !writing && !left && !!(chat || replica) && !blocked(needs)
+  const left = !!chat && !airport && !replica
+  const name = airport ? tr('機場服務人員') : chat?.name ?? replica?.name ?? ''
+  const look = airport ? AIRPORT_STAFF_LOOK : replica?.look ?? chat?.look
+  const mindModel = chat?.model ?? pickedModel
+  const levels = effortsOf(w, mindModel)
+  const wantedEffort = chat ? chat.effort ?? DEFAULT_EFFORT : pickedEffort
+  const mindEffort = levels.includes(wantedEffort) ? wantedEffort : DEFAULT_EFFORT
+  const ready = (!!text.trim() || images.length > 0) && !reading && !sending && !writing && !left && !!(chat || (airport ? pickedModel : replica)) && !blocked(needs)
+  const changeMind = (model: string, effort: string) => {
+    const level = effortsOf(w, model).includes(effort) ? effort : DEFAULT_EFFORT
+    if (chat) act((x) => setChatMind(x, chat.id, model, level))
+    else {
+      setPickedModel(model)
+      setPickedEffort(level)
+    }
+  }
 
   const send = async () => {
     if (!ready) return
@@ -86,7 +104,9 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
       return
     }
     setSending(true)
-    const made = await startChat(act, { teamId, replicaId, text: words, ...attachments })
+    const made = airport
+      ? await startAirportChat(act, { model: pickedModel, effort: mindEffort, text: words, ...attachments })
+      : await startChat(act, { teamId, replicaId, text: words, ...attachments })
     setSending(false)
     if (made) {
       setStarted(made)
@@ -146,15 +166,29 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
     <div className="fx-room">
       {chat && (
         <div className="fx-tools">
-          <button type="button" className="fx-tool fx-tool-text fx-hit" disabled={drafting || writing || left} aria-expanded={creating} onClick={() => void draftTask()}>
-            {drafting ? tr('整理中…') : tr('建立任務')}
-          </button>
+          {!airport && (
+            <button type="button" className="fx-tool fx-tool-text fx-hit" disabled={drafting || writing || left} aria-expanded={creating} onClick={() => void draftTask()}>
+              {drafting ? tr('整理中…') : tr('建立任務')}
+            </button>
+          )}
           <DeleteTool what={tr('對話')} onConfirm={() => { act((x) => deleteChat(x, chat.id)); onGoneChat() }} />
         </div>
       )}
       <header className="fx-room-head">
         {look ? <PixelFace look={look} name={name} size={44} /> : <span className="fx-d-noface" />}
-        {chat ? (
+        {airport ? (
+          <div className="fx-room-picks">
+            <div className="fx-row-main">
+              <Heading {...h}>{name}</Heading>
+              {!!chat?.tokens && <span>{fmtTokens(chat.tokens)} Token</span>}
+            </div>
+            <Select label={tr('模型')} value={mindModel} disabled={writing} options={modelsOf(w).includes(mindModel) || !mindModel ? modelsOf(w) : [...modelsOf(w), mindModel]}
+              groups={modelGroups(w).map((g) => ({ label: g.label, count: g.models.length }))}
+              groupOf={(m) => modelGroups(w).findIndex((g) => g.models.includes(m))}
+              onChange={(m) => changeMind(m, mindEffort)} />
+            <Select label={tr('思考等級')} value={mindEffort} disabled={writing} options={levels} onChange={(e) => changeMind(mindModel, e)} />
+          </div>
+        ) : chat ? (
           <div className="fx-row-main">
             <Heading {...h}>{name}</Heading>
             <span>{chatMindOf(w, chat)}{chat.tokens > 0 && ` · ${fmtTokens(chat.tokens)} Token`}</span>
@@ -223,7 +257,7 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
           ))}
         </div>
       )}
-      {!chat && !crew.length && <p className="fx-d-muted">{tr('這間公司還沒有員工')}</p>}
+      {!chat && !airport && !crew.length && <p className="fx-d-muted">{tr('這間公司還沒有員工')}</p>}
       {!chat && uncommitted && <p className="fx-room-warn" role="status">{tr('專案資料夾有未提交的改動，員工可能會改到同一份檔案')}</p>}
       {left
         ? <p className="fx-d-muted">{tr('{name} 已經離開公司', { name })}</p>
@@ -256,7 +290,7 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneC
               <input type="file" disabled={reading} multiple className="fx-sr" aria-label={tr('加入附件')}
                 onChange={(e) => { void attach([...(e.target.files ?? [])]); e.target.value = '' }} />
             </label>
-            <MentionBox box={box} value={text} teamId={teamId} replicaIds={replica ? [replica.id] : []} label={tr('訊息')} placeholder={tr('輸入訊息，$ 選技能，@ 選檔案，可直接貼上截圖')} onChange={setText} onSend={() => void send()} />
+            <MentionBox box={box} value={text} teamId={teamId} replicaIds={replica ? [replica.id] : []} label={tr('訊息')} placeholder={airport ? tr('輸入訊息，可直接貼上截圖') : tr('輸入訊息，$ 選技能，@ 選檔案，可直接貼上截圖')} onChange={setText} onSend={() => void send()} />
             {writing
               ? (
                 <button type="button" className="fx-room-send" aria-label={tr('暫停')} title={tr('暫停')} onClick={() => act((x) => stopChat(x, chat!.id))}>

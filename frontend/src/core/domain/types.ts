@@ -245,6 +245,7 @@ export interface ChatMessage {
 }
 
 /** The user talking with one employee outside any task. Its employee and model never change. */
+/** A chat with no `teamId` is the airport's, with the airport staff; only its `model` and `effort` can change. */
 export interface Chat {
   id: string
   teamId: string
@@ -253,6 +254,7 @@ export interface Chat {
   name: string
   look: Look
   model: string
+  effort?: Effort
   messages: ChatMessage[]
   tokens: number
   /** The employee is writing a reply. */

@@ -8,6 +8,7 @@ import { between, chance, hex, pick, uid } from './rng'
 import { taskStatus } from './rollup'
 import type {
   Chat,
+  Look,
   Attachment, Blueprint, GitSource, Locale, LogKind, MemorySource, ModelProvider, ProviderAuth, Replica, Review, Script, SubTask, TalkEnd, Task, Team, Workflow, World,
   FileInfo, SkillInfo,
 } from './types'
@@ -308,6 +309,9 @@ export function sayInTalk(w: World, subId: string, text: string) {
   log(sub, w.now, 'human', text)
 }
 
+/** The airport staff's fixed face. */
+export const AIRPORT_STAFF_LOOK: Look = { skin: '#f0c8a0', hair: '#2f3b52', shirt: '#24579e', pants: '#2f3542', extra: 'cap', style: 7 }
+
 export interface NewChat { teamId: string; replicaId: string; text: string; images?: Attachment[]; files?: Attachment[] }
 
 /** A chat exists from the user's first message on; the employee answers a few seconds later. */
@@ -319,10 +323,31 @@ export function createChat(w: World, i: NewChat): Chat {
   return chat
 }
 
+export interface NewAirportChat { model: string; effort: string; text: string; images?: Attachment[]; files?: Attachment[] }
+
+/** The airport's chat: with the airport staff, on the model picked for it. */
+export function createAirportChat(w: World, i: NewAirportChat): Chat {
+  const chat: Chat = { id: uid(w, 'chat'), teamId: '', replicaId: '', name: '', look: AIRPORT_STAFF_LOOK, model: i.model, effort: i.effort, tokens: 0, messages: [], createdAt: w.now }
+  w.chats[chat.id] = chat
+  sayInChat(w, chat.id, i.text, i.images, i.files)
+  return chat
+}
+
+/** What an airport chat's next reply runs on. */
+export function setChatMind(w: World, id: string, model: string, effort: string) {
+  const chat = w.chats[id]
+  if (!chat || chat.teamId || chat.replyAt !== undefined) return
+  chat.model = model
+  chat.effort = effort
+}
+
+/** The employee of a company's chat has left. The airport staff never do. */
+const chatLeft = (w: World, chat: Chat) => !!chat.teamId && !w.replicas[chat.replicaId]
+
 export function sayInChat(w: World, id: string, text: string, images: Attachment[] = [], files: Attachment[] = []) {
   const chat = w.chats[id]
   text = text.trim()
-  if (!chat || (!text && !images.length && !files.length) || chat.replyAt !== undefined || !w.replicas[chat.replicaId]) return
+  if (!chat || (!text && !images.length && !files.length) || chat.replyAt !== undefined || chatLeft(w, chat)) return
   delete chat.question
   chat.messages.push({ at: w.now, from: 'user', text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) })
   chat.replyAt = w.now + REPLY_TIME
@@ -372,7 +397,7 @@ export function canFork(messages: Chat['messages'], index: number) {
 export function forkChat(w: World, id: string, index: number): Chat | undefined {
   const chat = w.chats[id]
   const m = chat?.messages[index]
-  if (!m || m.from === 'tool' || chat.replyAt !== undefined || !w.replicas[chat.replicaId]) return undefined
+  if (!m || m.from === 'tool' || chat.replyAt !== undefined || chatLeft(w, chat)) return undefined
   const next = m.from === 'user' ? -1 : chat.messages.findIndex((x, i) => i > index && x.from === 'user')
   const keep = m.from === 'user' ? index + 1 : next < 0 ? chat.messages.length : next
   const fork: Chat = { ...chat, id: uid(w, 'chat'), messages: chat.messages.slice(0, keep).map((x) => ({ ...x })), tokens: 0, createdAt: w.now }

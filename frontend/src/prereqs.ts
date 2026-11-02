@@ -11,7 +11,7 @@ export interface ProjectHealth {
   targetBranch: boolean
 }
 
-export type PrereqTab = 'chats' | 'tasks' | 'crew' | 'terminal'
+export type PrereqTab = 'chats' | 'airportChats' | 'tasks' | 'crew' | 'terminal'
 
 export interface Prereq {
   id: string
@@ -61,6 +61,7 @@ export function prereqsOf(w: World, teamId: string, tab: PrereqTab, health: Proj
   const noCrew: Prereq | null = teamReplicas(w, teamId).length ? null : { id: 'crew', text: tr('沒有員工。請先新增員工'), blocks: true }
   const list = {
     chats: [provider, noCrew, models, folder(health)],
+    airportChats: [provider],
     tasks: [
       provider, noCrew,
       Object.keys(w.workflows).length ? null : { id: 'workflow', text: tr('沒有任務流程。請先到機場新增任務流程'), blocks: true },

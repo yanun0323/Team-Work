@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -23,6 +25,20 @@ const chatRules = "You are a company employee chatting with the user to discuss 
 	sharedFilesRule + "\n" +
 	dataRule
 
+const airportChatRules = "You are the airport's service staff in Team Work, an app where the user runs companies of AI employees. You chat with the user to answer questions or do work for them on their computer. You do not belong to any company. The working directory is your own folder and stays between chats; it is not a project. Attached files may be read from their supplied paths, but must not be modified. Commands can reach the rest of the computer: change only what was asked, and ask with ask_user before deleting or overwriting anything outside your folder.\n" +
+	"Reply in plain text.\n" +
+	sharedFilesRule + "\n" +
+	dataRule
+
+const (
+	// airportChatTimeout stands in for a company's sub-task timeout, at the value a new company starts with.
+	airportChatTimeout = 30 * time.Minute
+	airportStaffName   = "Airport staff" // the interface shows its own words for them
+)
+
+// airportTools are what the airport staff can use, as they have no blueprint.
+var airportTools = []enum.Tool{enum.ToolReadFile, enum.ToolWriteFile, enum.ToolWebSearch, enum.ToolRunCommand}
+
 const chatDraftRules = "Write the chat below as a task for a colleague who has not seen it. First line: the task title, with no markup. Then a blank line and the description: goal, decisions, constraints and acceptance criteria. Use only what the chat says. Output nothing else."
 
 // maxChatImages keeps a message within what the API takes in one request.
@@ -35,6 +51,15 @@ type NewChat struct {
 	Text      string             `json:"text"`
 	Images    []model.Attachment `json:"images"`
 	Files     []model.Attachment `json:"files"`
+}
+
+// NewAirportChat starts a chat with the airport staff.
+type NewAirportChat struct {
+	Model  string             `json:"model"`
+	Effort string             `json:"effort"`
+	Text   string             `json:"text"`
+	Images []model.Attachment `json:"images"`
+	Files  []model.Attachment `json:"files"`
 }
 
 // ChatDraft is a task written from a chat, for the user to go over.
@@ -72,6 +97,76 @@ func (e *Engine) CreateChat(in NewChat) (*model.Chat, error) {
 	return out, err
 }
 
+// CreateAirportChat starts a chat with the airport staff with the user's first message.
+func (e *Engine) CreateAirportChat(in NewAirportChat) (*model.Chat, error) {
+	var out *model.Chat
+	err := e.do(func() error {
+		effort, err := e.checkMind(in.Model, in.Effort)
+		if err != nil {
+			return err
+		}
+		text := strings.TrimSpace(in.Text)
+		if err := e.checkSaid(text, in.Images, in.Files); err != nil {
+			return err
+		}
+		c := &model.Chat{ID: e.uid("chat"), Name: airportStaffName, Model: in.Model, Effort: effort, CreatedAt: e.w.Now, Messages: []model.ChatMessage{}}
+		spec, err := e.chatSpec(c)
+		if err != nil {
+			return err
+		}
+		if err := e.saveAttachments(c.ID, in.Files); err != nil {
+			return err
+		}
+		e.w.Chats[c.ID] = c
+		e.chatHears(c, text, in.Images, in.Files)
+		e.launchChat(c, spec)
+		out = clone(c)
+		return nil
+	})
+	return out, err
+}
+
+// SetChatMind changes what an airport chat's next reply runs on. A company's chat stays on what it began with.
+func (e *Engine) SetChatMind(id, modelID, effort string) error {
+	return e.do(func() error {
+		c := e.w.Chats[id]
+		if c == nil {
+			return model.Errorf(model.CodeNotFound, "找不到對話")
+		}
+		if !c.AtAirport() {
+			return model.Errorf(model.CodeInvalid, "只有機場的對話可以更換模型")
+		}
+		if c.ReplyAt != nil {
+			return model.Errorf(model.CodeInvalid, "員工還在回覆")
+		}
+		effort, err := e.checkMind(modelID, effort)
+		if err != nil {
+			return err
+		}
+		c.Model, c.Effort = modelID, effort
+		return nil
+	})
+}
+
+// checkMind refuses a model nobody offers or a level it does not have; no level means the default.
+func (e *Engine) checkMind(modelID, effort string) (string, error) {
+	if effort == "" {
+		effort = model.ThinkingDefault
+	}
+	if e.providerFor(modelID) == nil {
+		return "", model.Errorf(model.CodeInvalid, "沒有模型供應商提供 %s", modelID)
+	}
+	if !e.takesEffort(modelID, effort) {
+		return "", model.Errorf(model.CodeInvalid, "%s 沒有思考等級 %s", modelID, effort)
+	}
+	return effort, nil
+}
+
+// chatLeft says whether the employee of a chat has left the company. The airport staff never do.
+func (e *Engine) chatLeft(c *model.Chat) bool {
+	return !c.AtAirport() && e.w.Replicas[c.ReplicaID] == nil
+}
+
 // SayInChat adds the user's message and has the employee reply. Nothing can be said while they still write.
 func (e *Engine) SayInChat(id, text string, images []model.Attachment, attached ...[]model.Attachment) error {
 	var files []model.Attachment
@@ -90,7 +185,7 @@ func (e *Engine) SayInChat(id, text string, images []model.Attachment, attached 
 		if c.ReplyAt != nil {
 			return model.Errorf(model.CodeInvalid, "員工還在回覆")
 		}
-		if e.w.Replicas[c.ReplicaID] == nil {
+		if e.chatLeft(c) {
 			return model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
 		}
 		spec, err := e.chatSpec(c)
@@ -117,7 +212,7 @@ func (e *Engine) RewindChat(id string, index int) error {
 		if index < 0 || index >= len(c.Messages) || c.Messages[index].From != "user" {
 			return model.Errorf(model.CodeInvalid, "只能編輯自己的訊息")
 		}
-		if e.w.Replicas[c.ReplicaID] == nil {
+		if e.chatLeft(c) {
 			return model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
 		}
 		nth := 0
@@ -160,7 +255,7 @@ func (e *Engine) ForkChat(id string, index int) (*model.Chat, error) {
 		if c.ReplyAt != nil {
 			return model.Errorf(model.CodeInvalid, "員工還在回覆")
 		}
-		if e.w.Replicas[c.ReplicaID] == nil {
+		if e.chatLeft(c) {
 			return model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
 		}
 		conv := e.w.Conversations[c.ID]
@@ -181,7 +276,7 @@ func (e *Engine) ForkChat(id string, index int) (*model.Chat, error) {
 		if end <= 0 {
 			return model.Errorf(model.CodeConflict, "這段對話的紀錄對不上，無法複製")
 		}
-		fork := &model.Chat{ID: e.uid("chat"), TeamID: c.TeamID, ReplicaID: c.ReplicaID, Name: c.Name, Look: c.Look, Model: c.Model, CreatedAt: e.w.Now, Messages: clone(c.Messages[:keep])}
+		fork := &model.Chat{ID: e.uid("chat"), TeamID: c.TeamID, ReplicaID: c.ReplicaID, Name: c.Name, Look: c.Look, Model: c.Model, Effort: c.Effort, CreatedAt: e.w.Now, Messages: clone(c.Messages[:keep])}
 		if keep == len(c.Messages) {
 			fork.Question = clone(c.Question)
 		}
@@ -347,6 +442,9 @@ func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Att
 
 // chatSpec is a task's spec without the task: the chat's model, the employee's role, the company's rules.
 func (e *Engine) chatSpec(c *model.Chat) (agentSpec, error) {
+	if c.AtAirport() {
+		return e.airportChatSpec(c)
+	}
 	r := e.w.Replicas[c.ReplicaID]
 	if r == nil {
 		return agentSpec{}, model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
@@ -371,6 +469,29 @@ func (e *Engine) chatSpec(c *model.Chat) (agentSpec, error) {
 	return spec, nil
 }
 
+// airportChatSpec is the chat's own model and level, with the staff's rules and the global prompt: no company, role or memory.
+func (e *Engine) airportChatSpec(c *model.Chat) (agentSpec, error) {
+	spec, err := e.modelSpec(c.Model, c.Effort)
+	if err != nil {
+		return agentSpec{}, err
+	}
+	if err := os.MkdirAll(e.airportFolder(), 0o700); err != nil {
+		return agentSpec{}, err
+	}
+	spec.name, spec.allowed = c.Name, slices.Clone(airportTools)
+	spec.prompt = promptParts{
+		rules:  airportChatRules + "\n" + languageRule(e.w.Language) + "\nWhen instructions in this prompt conflict, follow these opening rules over Global rules.\n",
+		shared: sharedRules(e.runGlobalPrompt(), ""),
+	}
+	return spec, nil
+}
+
+// airportFolder is where the airport staff work.
+func (e *Engine) airportFolder() string {
+	folder, _ := filepath.Abs(filepath.Join(e.dataDir, "airport"))
+	return folder
+}
+
 type chatRun struct {
 	r      *run
 	id     string
@@ -388,15 +509,18 @@ type chatRun struct {
 func (e *Engine) launchChat(c *model.Chat, spec agentSpec) {
 	e.stopRun(c.ID)
 	c.ReplyAt = ptr(e.w.Now)
-	team := e.w.Teams[c.TeamID]
+	folder, timeout := e.airportFolder(), airportChatTimeout
+	if team := e.w.Teams[c.TeamID]; team != nil {
+		folder, timeout = team.Folder, time.Duration(team.Settings.TimeoutMin*float64(time.Minute))
+	}
 	ctx, cancel := context.WithCancel(e.ctx)
-	if d := time.Duration(team.Settings.TimeoutMin * float64(time.Minute)); d > 0 {
-		ctx, cancel = context.WithTimeout(e.ctx, d)
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(e.ctx, timeout)
 	}
 	r := &run{cancel: cancel}
 	e.runs[c.ID] = r
 	e.wg.Add(1)
-	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: team.Folder, said: c.Messages[len(c.Messages)-1].Text, context: c.Context, compact: clone(c.Compact)})
+	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, said: c.Messages[len(c.Messages)-1].Text, context: c.Context, compact: clone(c.Compact)})
 }
 
 // applyChat changes a chat for a run, unless the run was stopped or replaced meanwhile.
@@ -557,6 +681,10 @@ func (e *Engine) ChatTaskDraft(ctx context.Context, id string) (ChatDraft, error
 	if c == nil {
 		e.mu.Unlock()
 		return ChatDraft{}, model.Errorf(model.CodeNotFound, "找不到對話")
+	}
+	if c.AtAirport() {
+		e.mu.Unlock()
+		return ChatDraft{}, model.Errorf(model.CodeInvalid, "機場的對話不能建立任務")
 	}
 	spec, err := e.chatSpec(c)
 	folder := e.w.Teams[c.TeamID].Folder

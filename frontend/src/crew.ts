@@ -1,6 +1,7 @@
 // Employees are always shown under their blueprint, blueprints in the order the company knows them.
 
 import { HAIRS, SKINS } from './core/domain/sim'
+import { AIRPORT_STAFF_LOOK } from './core/domain/sim'
 import type { Blueprint, Chat, Look, Replica, World } from './core/domain/types'
 import { tr } from './core/i18n'
 import { blueprintList } from './core/model'
@@ -72,10 +73,24 @@ export function chatSign(c: Chat) {
 }
 
 export function chatMindOf(w: World, c: Chat) {
+  if (!c.teamId) return `${c.model} · ${c.effort ?? DEFAULT_EFFORT}`
   const r = w.replicas[c.replicaId]
   if (!r) return c.model
   const effort = r.model === c.model && effortsOf(w, c.model).includes(r.effort) ? r.effort : DEFAULT_EFFORT
   return `${c.model} · ${effort}`
+}
+
+/** Who a chat is with: the employee as they are now, as they were if they left, or the airport staff. */
+export function chatWho(w: World, c: Chat): { name: string; look: Look } {
+  if (!c.teamId) return { name: tr('機場服務人員'), look: AIRPORT_STAFF_LOOK }
+  const r = w.replicas[c.replicaId]
+  return { name: r?.name ?? c.name, look: r?.look ?? c.look }
+}
+
+/** What the latest airport chat ran on, for a new one to start from. */
+export function lastAirportMind(w: World) {
+  return Object.values(w.chats).filter((c) => !c.teamId)
+    .reduce<Chat | undefined>((a, c) => (!a || c.createdAt >= a.createdAt ? c : a), undefined)
 }
 
 /** Who the company's latest chat was started with, if they are still there. */

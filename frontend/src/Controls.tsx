@@ -20,8 +20,9 @@ export const Check = () => (
  * A select-only combobox (WAI-ARIA pattern): a button showing the value, opening a listbox on a paper slip.
  * Arrows, Home/End and typing a letter move; Enter, Space or a click picks; Escape or Tab closes.
  */
-export function Select({ label, value, options, labelOf = (o) => o, onChange, shownAs, rowOf, groups, groupOf }: {
+export function Select({ label, value, options, labelOf = (o) => o, onChange, shownAs, rowOf, groups, groupOf, disabled }: {
   label: string
+  disabled?: boolean
   value: string
   options: string[]
   /** What to show for an option, when the value itself is an id. */
@@ -144,7 +145,7 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, sh
       <span id={`${id}-label`}>{label}</span>
       <div className="fx-select" ref={root}>
         <button
-          ref={button} type="button" role="combobox" className="fx-control"
+          ref={button} type="button" role="combobox" className="fx-control" disabled={disabled}
           aria-labelledby={`${id}-label`} aria-haspopup="listbox" aria-expanded={open} aria-controls={`${id}-list`}
           aria-activedescendant={open ? `${id}-${active}` : undefined}
           onClick={() => (open ? setOpen(false) : show())} onKeyDown={onKey}

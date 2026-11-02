@@ -183,16 +183,34 @@ func (e *Engine) providerFor(modelID string) *model.ModelProvider {
 	return found
 }
 
+// modelSpec is the part of a spec that comes from the model alone.
+func (e *Engine) modelSpec(modelID, wanted string) (agentSpec, error) {
+	p := e.providerFor(modelID)
+	if p == nil {
+		return agentSpec{}, model.Errorf(model.CodeInvalid, "沒有模型供應商提供 %s", modelID)
+	}
+	provider, err := e.providers.For(*p, e.secrets[p.ID])
+	if err != nil {
+		return agentSpec{}, err
+	}
+	// the default sends no level, and neither does one the model turned out not to take
+	effort := ""
+	if wanted != model.ThinkingDefault && e.takesEffort(modelID, wanted) {
+		effort = wanted
+	}
+	spec := agentSpec{provider: provider, model: modelID, effort: effort, subscription: p.Auth.Kind != "apiKey"}
+	if price, ok := p.Prices[modelID]; ok {
+		spec.price = &price
+	}
+	return spec, nil
+}
+
 func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Replica) (agentSpec, error) {
 	bp := e.w.Blueprints[r.BlueprintID]
 	if bp == nil {
 		return agentSpec{}, model.Errorf(model.CodeInvalid, "找不到 %s 的藍圖", r.Name)
 	}
-	p := e.providerFor(r.Model)
-	if p == nil {
-		return agentSpec{}, model.Errorf(model.CodeInvalid, "沒有模型供應商提供 %s", r.Model)
-	}
-	provider, err := e.providers.For(*p, e.secrets[p.ID])
+	spec, err := e.modelSpec(r.Model, r.Effort)
 	if err != nil {
 		return agentSpec{}, err
 	}
@@ -200,15 +218,7 @@ func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Rep
 	if bp.Source.Kind == "git" && bp.Prompt == "" {
 		own = ptr(bp.Source)
 	}
-	// the default sends no level, and neither does one the model turned out not to take
-	effort := ""
-	if r.Effort != model.ThinkingDefault && e.takesEffort(r.Model, r.Effort) {
-		effort = r.Effort
-	}
-	spec := agentSpec{own: own, provider: provider, model: r.Model, effort: effort, name: r.Name, allowed: slices.Clone(bp.Tools), subscription: p.Auth.Kind != "apiKey"}
-	if price, ok := p.Prices[r.Model]; ok {
-		spec.price = &price
-	}
+	spec.own, spec.name, spec.allowed = own, r.Name, slices.Clone(bp.Tools)
 	if node != nil {
 		team := e.w.Teams[t.TeamID]
 		e.readPrompt(team)
