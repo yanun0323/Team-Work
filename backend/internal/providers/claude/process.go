@@ -60,12 +60,13 @@ func childEnvironment() ([]string, error) {
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
 		switch key {
-		case "DISABLE_AUTO_COMPACT", "ENABLE_CLAUDEAI_MCP_SERVERS", "NODE_OPTIONS", "DEBUG":
+		case "DISABLE_AUTO_COMPACT", "ENABLE_CLAUDEAI_MCP_SERVERS", "ENABLE_TOOL_SEARCH", "NODE_OPTIONS", "DEBUG":
 			continue
 		}
 		env = append(env, entry)
 	}
-	return append(env, "DISABLE_AUTO_COMPACT=1", "ENABLE_CLAUDEAI_MCP_SERVERS=0"), nil
+	// Tool search defers Mho's tools behind Claude's own search tool, which emitCall rejects as outside Mho.
+	return append(env, "DISABLE_AUTO_COMPACT=1", "ENABLE_CLAUDEAI_MCP_SERVERS=0", "ENABLE_TOOL_SEARCH=false"), nil
 }
 
 func launchArgs(p CompleteParams, resume string) []string {

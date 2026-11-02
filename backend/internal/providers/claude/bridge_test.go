@@ -348,6 +348,20 @@ func TestDiscoveryAndLaunchIsolation(t *testing.T) {
 			t.Fatal("missing", flag)
 		}
 	}
+	t.Setenv("ENABLE_TOOL_SEARCH", "true")
+	env, err := childEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	search := []string{}
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "ENABLE_TOOL_SEARCH=") {
+			search = append(search, entry)
+		}
+	}
+	if len(search) != 1 || search[0] != "ENABLE_TOOL_SEARCH=false" {
+		t.Fatal("tool search must stay off:", search)
+	}
 	t.Setenv("ANTHROPIC_API_KEY", "secret")
 	if _, err := childEnvironment(); err == nil || strings.Contains(err.Error(), "secret") {
 		t.Fatal(err)
