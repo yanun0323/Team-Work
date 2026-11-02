@@ -27,19 +27,24 @@ const (
 	toolUpdateTask     = "update_task"
 	toolSaveBlueprint  = "save_blueprint"
 	toolSaveWorkflow   = "save_workflow"
+	toolListProviders  = "list_providers"
+	toolSaveProvider   = "save_provider"
 
 	optionApprove = "approve"
 	optionReject  = "reject"
 
 	changeBlueprint = "blueprint"
 	changeWorkflow  = "workflow"
+	changeProvider  = "provider"
 
 	// maxTaskDepth is how many tasks in a row employees working on tasks can make, each from the one before.
 	maxTaskDepth = 3
 )
 
 // isChangeTool says whether a tool can stop to have the user agree to what it writes.
-func isChangeTool(name string) bool { return name == toolSaveBlueprint || name == toolSaveWorkflow }
+func isChangeTool(name string) bool {
+	return name == toolSaveBlueprint || name == toolSaveWorkflow || name == toolSaveProvider
+}
 
 // manager is who is using the tools: an employee on a task, or in a chat.
 type manager struct {
@@ -96,7 +101,7 @@ func (e *Engine) managerOfChat(in chatRun) manager {
 	return m
 }
 
-// mayManage is what a blueprint's tools allow: read_file reads tasks, blueprints and flows, write_file and
+// mayManage is what a blueprint's tools allow: read_file reads tasks, blueprints, flows and providers, write_file and
 // run_command also change them.
 func mayManage(allowed []enum.Tool) (read, write bool) {
 	write = slices.Contains(allowed, enum.ToolWriteFile) || slices.Contains(allowed, enum.ToolRunCommand)
@@ -127,6 +132,7 @@ func (e *Engine) manageTools(m manager, allowed []enum.Tool, writing bool) []ada
 			lister(toolListWorkflows, "List all task flows with the version to pass to save_workflow. Built-in flows cannot be changed.", e.listWorkflows),
 			lister(toolListEmployees, "List the employees you can reach.", func() any { return e.listEmployees(m) }),
 			lister(toolListCompanies, "List the companies you can reach.", func() any { return e.listCompanies(m) }),
+			lister(toolListProviders, "List the model providers with the version to pass to save_provider. API keys are never shown, only their last 4 characters.", e.listProviders),
 		)
 	}
 	if write && writing {
@@ -135,6 +141,7 @@ func (e *Engine) manageTools(m manager, allowed []enum.Tool, writing bool) []ada
 			funcTool{model.ToolSpec{Name: toolUpdateTask, Description: "Change a task's title, description, who works its steps, or its owner. It takes effect at once: work under way keeps what it was told, later steps see the change.", Parameters: json.RawMessage(updateTaskSchema)}, e.updateTaskTool(m)},
 			funcTool{model.ToolSpec{Name: toolSaveBlueprint, Description: saveBlueprintDescription, Parameters: json.RawMessage(saveBlueprintSchema)}, e.saveBlueprintTool(m)},
 			funcTool{model.ToolSpec{Name: toolSaveWorkflow, Description: saveWorkflowDescription, Parameters: json.RawMessage(saveWorkflowSchema)}, e.saveWorkflowTool(m)},
+			funcTool{model.ToolSpec{Name: toolSaveProvider, Description: saveProviderDescription, Parameters: json.RawMessage(saveProviderSchema)}, e.saveProviderTool(m)},
 		)
 	}
 	return out
@@ -287,6 +294,27 @@ func (e *Engine) listCompanies(m manager) any {
 		if m.reaches(t.ID) {
 			out = append(out, row{t.ID, t.Name, t.Folder, t.TargetBranch})
 		}
+	}
+	slices.SortFunc(out, func(a, b row) int { return strings.Compare(a.ID, b.ID) })
+	return out
+}
+
+func (e *Engine) listProviders() any {
+	type row struct {
+		ID       string                      `json:"id"`
+		Version  string                      `json:"version"`
+		Name     string                      `json:"name"`
+		Kind     enum.ProviderKind           `json:"kind"`
+		Login    string                      `json:"login"`
+		KeyHint  string                      `json:"keyHint,omitempty"`
+		SignedIn bool                        `json:"signedIn,omitempty"`
+		BaseURL  string                      `json:"baseUrl"`
+		Models   []string                    `json:"models"`
+		Prices   map[string]model.ModelPrice `json:"prices,omitempty"`
+	}
+	out := []row{}
+	for _, p := range e.w.Providers {
+		out = append(out, row{p.ID, versionOf(p), p.Name, p.Kind, p.Auth.Kind, p.Auth.KeyHint, p.Auth.SignedIn, p.BaseURL, p.Models, p.Prices})
 	}
 	slices.SortFunc(out, func(a, b row) int { return strings.Compare(a.ID, b.ID) })
 	return out
@@ -637,6 +665,157 @@ func skillsText(packs []model.SkillPack) string {
 	return strings.Join(out, "\n")
 }
 
+// ---------- providers ----------
+
+const saveProviderDescription = "Without id, add a model provider; it can be used at once. With id and the version from list_providers, change one: the fields you leave out stay, " +
+	"and you stop until the user agrees or refuses, which is what this call then returns. A provider with an API key is asked for its models first, so a wrong key or base URL fails here. " +
+	"A subscription cannot be signed in from here: add it with login subscription, then ask the user to sign in on the settings page."
+
+const saveProviderSchema = `{"type":"object","properties":{"id":{"type":"string"},"version":{"type":"string"},"name":{"type":"string"},` +
+	`"kind":{"type":"string","enum":["anthropic","openai","google","compatible"],"description":"Only when adding; compatible is any OpenAI-compatible API and needs base_url"},` +
+	`"login":{"type":"string","enum":["apiKey","subscription"],"description":"Only when adding; apiKey when left out. Subscriptions are for anthropic and openai"},` +
+	`"api_key":{"type":"string","description":"Required when adding with apiKey; when changing, a new key, or leave out to keep the one there is"},` +
+	`"base_url":{"type":"string"},` +
+	`"prices":{"type":"object","description":"Model id to its price in USD per million tokens; replaces all prices","additionalProperties":{"type":"object","properties":{"input":{"type":"number"},"output":{"type":"number"},"cacheRead":{"type":"number"}}}}}}`
+
+func (e *Engine) saveProviderTool(m manager) func(context.Context, string, json.RawMessage) model.ToolResult {
+	return func(ctx context.Context, _ string, raw json.RawMessage) model.ToolResult {
+		var a struct {
+			ID      string                      `json:"id"`
+			Version string                      `json:"version"`
+			Name    *string                     `json:"name"`
+			Kind    enum.ProviderKind           `json:"kind"`
+			Login   string                      `json:"login"`
+			APIKey  *string                     `json:"api_key"`
+			BaseURL *string                     `json:"base_url"`
+			Prices  map[string]model.ModelPrice `json:"prices"`
+		}
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return toolError("invalid arguments: %v", err)
+		}
+		for id, price := range a.Prices {
+			if price.Input < 0 || price.Output < 0 || price.CacheRead < 0 {
+				return toolError("the price of %s cannot be negative", id)
+			}
+		}
+		if e.stopped(m) {
+			return toolError("this run has stopped")
+		}
+		if a.ID == "" {
+			in := NewProvider{Kind: a.Kind, Login: ProviderLogin{Kind: "apiKey"}, Prices: a.Prices}
+			if !slices.Contains([]enum.ProviderKind{enum.ProviderAnthropic, enum.ProviderOpenAI, enum.ProviderGoogle, enum.ProviderCompatible}, a.Kind) {
+				return toolError("kind must be anthropic, openai, google or compatible")
+			}
+			if a.Name != nil {
+				in.Name = *a.Name
+			}
+			if a.BaseURL != nil {
+				in.BaseURL = *a.BaseURL
+			}
+			if a.APIKey != nil {
+				in.Login.APIKey = *a.APIKey
+			}
+			switch a.Login {
+			case "", "apiKey":
+			case "subscription":
+				in.Login.Kind = "subscription"
+			default:
+				return toolError("login must be apiKey or subscription")
+			}
+			made, err := e.AddProvider(ctx, in)
+			if err != nil {
+				return toolError("%s", safeText(err))
+			}
+			text := fmt.Sprintf("added provider %s, version %s, with models: %s", made.ID, versionOf(made), strings.Join(made.Models, ", "))
+			if made.Auth.Kind == "subscription" {
+				text = fmt.Sprintf("added provider %s; it has no models until the user signs in on the settings page", made.ID)
+			}
+			return model.ToolResult{Text: text}
+		}
+		if a.Kind != "" || a.Login != "" {
+			return toolError("kind and login cannot be changed; leave them out")
+		}
+		e.mu.Lock()
+		old := e.w.Providers[a.ID]
+		var before model.ModelProvider
+		if old != nil {
+			before = *clone(old)
+		}
+		e.mu.Unlock()
+		if old == nil {
+			return toolError("no provider with id %s", a.ID)
+		}
+		if a.Version != versionOf(&before) {
+			return toolError("version does not match: it was changed since; read it again with list_providers")
+		}
+		patch := ProviderPatch{Name: a.Name, BaseURL: a.BaseURL, Prices: a.Prices}
+		newKey := a.APIKey != nil && strings.TrimSpace(*a.APIKey) != ""
+		if newKey {
+			patch.Login = &ProviderLogin{Kind: "apiKey", APIKey: *a.APIKey}
+		}
+		edit, err := e.prepareProvider(ctx, a.ID, patch)
+		if err != nil {
+			return toolError("%s", safeText(err))
+		}
+		var change *model.PendingChange
+		err = e.act(m, false, func() error {
+			if now := e.w.Providers[a.ID]; now == nil || versionOf(now) != a.Version {
+				return model.Errorf(model.CodeConflict, "版本不符，內容已經被改過，請重新讀取")
+			}
+			lines := providerDiff(&before, &edit.provider, newKey && edit.key != e.secrets[a.ID])
+			if len(lines) == 0 {
+				return nil
+			}
+			change = &model.PendingChange{Kind: changeProvider, TargetID: a.ID, Name: before.Name, Version: a.Version, Lines: lines, Provider: clone(&edit.provider)}
+			if newKey {
+				change.KeyRef = e.uid("key")
+				e.pendingKeys[change.KeyRef] = edit.key
+			}
+			return nil
+		})
+		return waitForUser(m, change, err)
+	}
+}
+
+// stopped says whether a tool's run was stopped or replaced, for a tool that has to ask something before it writes.
+func (e *Engine) stopped(m manager) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.runs[m.runID] != m.r
+}
+
+func providerDiff(before, after *model.ModelProvider, newKey bool) []model.ChangeLine {
+	var lines []model.ChangeLine
+	add := func(field, was, is string) {
+		if was != is {
+			lines = append(lines, model.ChangeLine{Field: field, Before: was, After: is})
+		}
+	}
+	hint := func(p *model.ModelProvider) string {
+		if p.Auth.Kind != "apiKey" {
+			return p.Auth.Kind
+		}
+		return "…" + p.Auth.KeyHint
+	}
+	add("name", before.Name, after.Name)
+	add("baseUrl", before.BaseURL, after.BaseURL)
+	if newKey {
+		lines = append(lines, model.ChangeLine{Field: "apiKey", Before: hint(before), After: hint(after)})
+	}
+	add("prices", pricesText(before.Prices), pricesText(after.Prices))
+	add("models", strings.Join(before.Models, ", "), strings.Join(after.Models, ", "))
+	return lines
+}
+
+func pricesText(prices map[string]model.ModelPrice) string {
+	out := make([]string, 0, len(prices))
+	for id, p := range prices {
+		out = append(out, fmt.Sprintf("%s: %g / %g / %g", id, p.Input, p.Output, p.CacheRead))
+	}
+	slices.Sort(out)
+	return strings.Join(out, "\n")
+}
+
 // ---------- flows ----------
 
 const saveWorkflowDescription = "Without id, create a task flow; it can be used at once. With id and the version from list_workflows, replace one: nodes and edges are the whole new list, " +
@@ -916,6 +1095,11 @@ func (e *Engine) settleChange(c *model.PendingChange, agreed bool, note string) 
 	if note != "" {
 		said = " They said: " + note
 	}
+	var key string
+	if c != nil && c.KeyRef != "" {
+		key = e.pendingKeys[c.KeyRef]
+		delete(e.pendingKeys, c.KeyRef)
+	}
 	if !agreed {
 		return "The user refused the change, so nothing was written." + said, true
 	}
@@ -940,6 +1124,21 @@ func (e *Engine) settleChange(c *model.PendingChange, agreed bool, note string) 
 		}
 		if err = e.saveWorkflow(c.TargetID, *clone(c.Workflow)); err == nil {
 			version = versionOf(e.w.Workflows[c.TargetID])
+		}
+	case changeProvider:
+		now := e.w.Providers[c.TargetID]
+		if now == nil || versionOf(now) != c.Version || c.Provider == nil {
+			return staleChange, true
+		}
+		if c.KeyRef != "" && key == "" {
+			return "The user agreed, but nothing was written: the new API key was lost when the app restarted. Ask for it again if the change is still needed.", true
+		}
+		edit := providerEdit{provider: *clone(c.Provider), key: key, wasKey: now.Auth.Kind == "apiKey"}
+		if c.KeyRef == "" {
+			edit.key = e.secrets[c.TargetID]
+		}
+		if err = e.writeProvider(e.ctx, edit); err == nil {
+			version = versionOf(e.w.Providers[c.TargetID])
 		}
 	default:
 		return "The change is of an unknown kind, so nothing was written.", true

@@ -122,6 +122,18 @@ func (e *Engine) attachmentRoot(id string) string {
 	return root
 }
 
+// outputRoot keeps the long command output of a task or chat, until the task ends or the chat goes.
+func (e *Engine) outputRoot(id string) string {
+	root, _ := filepath.Abs(filepath.Join(e.dataDir, "outputs", id))
+	return root
+}
+
+func (e *Engine) removeOutputs(id string) {
+	if err := os.RemoveAll(e.outputRoot(id)); err != nil {
+		e.log.Warn().Err(err).Str("id", id).Msg("remove command output")
+	}
+}
+
 func (e *Engine) attachmentPath(id string, f model.Attachment) string {
 	// Names are display data, never directory paths. A hash separates repeated names and edited files.
 	name := filepath.Base(strings.ReplaceAll(f.Name, "\\", "/"))
@@ -175,7 +187,7 @@ func (e *Engine) fileBlocks(id string, files []model.Attachment) []model.Block {
 			}
 			text += "\n<file-content>\n" + string(preview) + "\n</file-content>"
 			if len(preview) < len(raw) {
-				text += fmt.Sprintf("\n[Preview truncated; read_file offset %d to continue.]", len(preview))
+				text += fmt.Sprintf("\n[Preview truncated; read_file offset %d to continue.]", bytes.Count(preview, []byte("\n"))+1)
 			}
 		}
 		blocks = append(blocks, model.Block{Type: enum.BlockText, Text: text})

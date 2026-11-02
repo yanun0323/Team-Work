@@ -4,7 +4,7 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { applyPatches, connect, emptyWorld, type ServerEvent } from './backend'
 import { seedWorld } from './data/seed'
-import { addLive, clearAllLive, clearLive } from './live'
+import { addLive, clearAllLive, clearLive, setOutput } from './live'
 import { tick } from './domain/sim'
 import { setAppLanguage } from './i18n'
 import type { World, WorldEvent } from './domain/types'
@@ -99,6 +99,9 @@ export const useStore = create<State>()(
             break
           case 'deltaReset':
             clearLive(ev.subId)
+            break
+          case 'toolOutput':
+            setOutput(ev.subId, ev.text ?? '')
             break
           case 'language':
             s.world.language = ev.language

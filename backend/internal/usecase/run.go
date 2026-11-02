@@ -44,6 +44,8 @@ type turn struct {
 	// onTool records that a tool is about to run, and onResults its results.
 	onTool    func(model.Block)
 	onResults func(model.Message)
+	// onOutput, when set, passes on the last lines of a running command, and "" once it is done.
+	onOutput func(string)
 	// compact, when set, shortens a long conversation and returns what to send instead; false if it could not.
 	compact func(context.Context) ([]model.Message, bool)
 	// steer, when set, returns what the user said meanwhile that goes right after a round of tool results.
@@ -108,7 +110,10 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 			t.onTool(b)
 			tool := t.tools[b.Name]
 			result := model.ToolResult{Text: "unknown tool " + b.Name, IsError: true}
-			if tool != nil {
+			if streamer, ok := tool.(tools.Streamer); ok && t.onOutput != nil {
+				result = streamer.RunStream(ctx, t.cwd, b.Args, t.onOutput)
+				t.onOutput("")
+			} else if tool != nil {
 				result = tool.Run(ctx, t.cwd, b.Args)
 			}
 			if ctx.Err() != nil {
@@ -385,6 +390,7 @@ func (e *Engine) stopRun(id string) {
 			delete(e.live, id)
 			e.publish(Event{Type: "deltaReset", SubID: id})
 		}
+		e.clearOutput(id)
 	}
 }
 
@@ -528,7 +534,7 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 	if in.talk { // a discussion changes nothing; it only reads
 		allowed = slices.DeleteFunc(slices.Clone(allowed), func(x enum.Tool) bool { return x == enum.ToolWriteFile || x == enum.ToolRunCommand })
 	}
-	list := tools.For(allowed, append(roots, e.attachmentRoot(in.taskID)))
+	list := tools.For(allowed, tools.Env{Read: append(roots, e.attachmentRoot(in.taskID)), Output: e.outputRoot(in.taskID), Search: e.search})
 	if !in.talk {
 		list = append(list, e.agentTools(in)...)
 	}
@@ -587,6 +593,35 @@ func (e *Engine) addLive(id string, r *run, text string) {
 	}
 	e.live[id] += text
 	e.publish(Event{Type: "delta", SubID: id, Text: text})
+}
+
+type liveOutput struct {
+	r    *run
+	text string
+}
+
+// setOutput passes on the last lines of a running command, in place of the ones before. It is not kept.
+func (e *Engine) setOutput(id string, r *run, text string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if text == "" {
+		if e.output[id].r == r {
+			e.clearOutput(id)
+		}
+		return
+	}
+	if e.runs[id] != r {
+		return
+	}
+	e.output[id] = liveOutput{r: r, text: text}
+	e.publish(Event{Type: "toolOutput", SubID: id, Text: text})
+}
+
+func (e *Engine) clearOutput(id string) {
+	if _, ok := e.output[id]; ok {
+		delete(e.output, id)
+		e.publish(Event{Type: "toolOutput", SubID: id})
+	}
 }
 
 func clip(s string, n int) string {
@@ -658,12 +693,10 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 		`},"required":["goal","done","headline","did"]}`
 	out := []adapter.Tool{
 		funcTool{model.ToolSpec{Name: "submit_handoff", Description: "Finish this step: commit the work and hand off to the next step.", Parameters: json.RawMessage(handoffSchema)}, e.submitHandoff(in)},
-		funcTool{model.ToolSpec{Name: toolAskUser, Description: "Stop and ask the user to decide. Work resumes with their answer.",
-			Parameters: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"options":{"type":"array","items":{"type":"string"}}},"required":["prompt"]}`)}, e.askUser(in)},
-		funcTool{model.ToolSpec{Name: "remember", Description: "Keep something useful for later tasks in this company: project conventions, pitfalls, the user's preferences. Not task progress.",
-			Parameters: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`)}, e.rememberTool(in)},
-		funcTool{model.ToolSpec{Name: "forget", Description: "Remove a note from your memory by its id, because it is wrong or out of date.",
-			Parameters: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`)}, e.forgetTool(in)},
+		funcTool{model.ToolSpec{Name: toolAskUser, Description: "Stop and ask the user something. Work resumes with their answer. " + askUserHow,
+			Parameters: json.RawMessage(askUserSchema)}, e.askUser(in)},
+		funcTool{rememberSpec, e.rememberTool(in)},
+		funcTool{forgetSpec, e.forgetTool(in)},
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -673,6 +706,20 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 	}
 	return out
 }
+
+// askUserHow and askUserSchema are ask_user's, in a task step and in a chat alike.
+const (
+	askUserHow    = "Give options to have them choose, or leave options out to have them type an answer, such as a name or an API key; they can always type something else."
+	askUserSchema = `{"type":"object","properties":{"prompt":{"type":"string"},"options":{"type":"array","items":{"type":"string"},"description":"Leave out to ask for a typed answer"}},"required":["prompt"]}`
+)
+
+// rememberSpec and forgetSpec are the memory tools, in a task step and in a chat alike.
+var (
+	rememberSpec = model.ToolSpec{Name: "remember", Description: "Keep something useful for later tasks in this company: project conventions, pitfalls, the user's preferences. Not task progress.",
+		Parameters: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`)}
+	forgetSpec = model.ToolSpec{Name: "forget", Description: "Remove a note from your memory by its id, because it is wrong or out of date.",
+		Parameters: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`)}
+)
 
 func toolError(format string, args ...any) model.ToolResult {
 	return model.ToolResult{Text: fmt.Sprintf(format, args...), IsError: true}

@@ -3,7 +3,8 @@
 
 import { create } from 'zustand'
 
-export const useLive = create<{ texts: Record<string, string> }>(() => ({ texts: {} }))
+// outputs are the last lines of a command running now in a chat; each one replaces the one before
+export const useLive = create<{ texts: Record<string, string>; outputs: Record<string, string> }>(() => ({ texts: {}, outputs: {} }))
 
 // many pieces can come within a frame, and redrawing a long reply for each is wasted
 let waiting: Record<string, string> = {}
@@ -30,7 +31,15 @@ export function clearLive(id: string) {
 
 export function clearAllLive() {
   waiting = {}
-  useLive.setState({ texts: {} })
+  useLive.setState({ texts: {}, outputs: {} })
+}
+
+export function setOutput(id: string, text: string) {
+  const { [id]: _, ...outputs } = useLive.getState().outputs
+  if (text) outputs[id] = text
+  else if (_ === undefined) return
+  useLive.setState({ outputs })
 }
 
 export const useLiveText = (id: string | undefined) => useLive((s) => (id ? s.texts[id] : undefined) ?? '')
+export const useLiveOutput = (id: string | undefined) => useLive((s) => (id ? s.outputs[id] : undefined) ?? '')

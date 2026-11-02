@@ -141,11 +141,12 @@ func (e *Engine) doMerge(ctx context.Context, in mergeRun) error {
 	if err := e.git.Remove(ctx, in.folder, in.dir, in.branch); err != nil {
 		e.log.Error().Err(err).Str("task", in.taskID).Msg("remove work tree")
 	}
+	e.removeOutputs(in.taskID)
 	return nil
 }
 
 func (e *Engine) resolveConflict(ctx context.Context, in mergeRun) error {
-	list := tools.For([]enum.Tool{enum.ToolReadFile, enum.ToolWriteFile, enum.ToolRunCommand}, nil)
+	list := tools.For([]enum.Tool{enum.ToolReadFile, enum.ToolWriteFile, enum.ToolRunCommand}, tools.Env{Output: e.outputRoot(in.taskID)})
 	specs := make([]model.ToolSpec, len(list))
 	byName := make(map[string]adapter.Tool, len(list))
 	for i, tool := range list {

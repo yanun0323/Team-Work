@@ -1,9 +1,9 @@
 // Read-only helpers shared by all three designs. Nothing here renders.
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { depths, inEdges, nodeOf, outEdges, wouldCreateCycle } from './domain/graph'
 import { combine } from './domain/rollup'
-import { statusOf, subsOf, TRAVEL } from './domain/sim'
+import { busyReplicas, statusOf, subsOf, TRAVEL } from './domain/sim'
 import type { LogLine, Replica, Status, SubTask, Task, World, Workflow, WorkflowNode } from './domain/types'
 import { appLanguage, colon, trRecorded } from './i18n'
 import { presetRank } from './data/presets'
@@ -103,6 +103,13 @@ export function teamAlerts(w: World, teamId: string) {
     unreadChats: Object.values(w.chats).filter((c) => c.teamId === teamId && c.unread && c.replyAt === undefined).length,
     waitingTasks: teamTasks(w, teamId).filter((t) => t.stage !== 'cancelled' && statusOf(w, t) === 'review').length,
   }
+}
+
+/** How many of a company's employees are at work right now: on a task, merging one, or writing a chat reply. Shown on its building. */
+export function teamBusy(w: World, teamId: string): number {
+  const busy = busyReplicas(w)
+  for (const c of Object.values(w.chats)) if (c.replyAt !== undefined) busy.add(c.replicaId)
+  return [...busy].filter((id) => w.replicas[id]?.teamId === teamId).length
 }
 
 /** The tab that has something for the user to deal with, tasks before chats. A chat already read can still be waiting on an answer. */
@@ -232,6 +239,33 @@ export function useStickToBottom<E extends HTMLElement>(dep: unknown) {
     if (el && pinned.current) el.scrollTop = el.scrollHeight
   }, [dep])
   return ref
+}
+
+/** Whether a scrolled list shows its last line, and a way back there. A list too short to scroll is at the bottom. */
+export function useAtBottom(ref: RefObject<HTMLElement | null>): [boolean, () => void] {
+  const [atBottom, setAtBottom] = useState(true)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const on = () => setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 24)
+    const size = new ResizeObserver(on)
+    size.observe(el)
+    // new lines change the height without a scroll or a resize of the list itself
+    const lines = new MutationObserver(on)
+    lines.observe(el, { childList: true, subtree: true, characterData: true })
+    el.addEventListener('scroll', on)
+    return () => {
+      size.disconnect()
+      lines.disconnect()
+      el.removeEventListener('scroll', on)
+    }
+  }, [ref])
+  const toBottom = () => {
+    const el = ref.current
+    const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+    el?.scrollTo({ top: el.scrollHeight, behavior: calm ? 'auto' : 'smooth' })
+  }
+  return [atBottom, toBottom]
 }
 
 /** Whether a key went to the terminal, where it belongs to the shell and not to the screen around it. */

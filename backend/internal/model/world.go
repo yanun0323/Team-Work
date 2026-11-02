@@ -60,7 +60,7 @@ type Blueprint struct {
 type MemoryEntry struct {
 	ID     string  `json:"id"`
 	Text   string  `json:"text"`
-	Source string  `json:"source"` // work, retro, review or user
+	Source string  `json:"source"` // work, chat, retro, review or user
 	At     float64 `json:"at"`
 	TaskID string  `json:"taskId,omitempty"`
 }
@@ -171,21 +171,24 @@ type Review struct {
 	Change *PendingChange `json:"change,omitempty"`
 }
 
-// PendingChange is a change to a blueprint or flow that an employee asked for, written only once the user agrees.
-// Version is what the target's version was when asked; a target that has moved on since is not overwritten.
+// PendingChange is a change to a blueprint, flow or model provider that an employee asked for, written only once the
+// user agrees. Version is what the target's version was when asked; a target that has moved on since is not overwritten.
 type PendingChange struct {
-	Kind      string       `json:"kind"` // blueprint or workflow
-	TargetID  string       `json:"targetId"`
-	Name      string       `json:"name"`
-	Version   string       `json:"version"`
-	Lines     []ChangeLine `json:"lines"`
-	Blueprint *Blueprint   `json:"blueprint,omitempty"`
-	Workflow  *Workflow    `json:"workflow,omitempty"`
+	Kind      string         `json:"kind"` // blueprint, workflow or provider
+	TargetID  string         `json:"targetId"`
+	Name      string         `json:"name"`
+	Version   string         `json:"version"`
+	Lines     []ChangeLine   `json:"lines"`
+	Blueprint *Blueprint     `json:"blueprint,omitempty"`
+	Workflow  *Workflow      `json:"workflow,omitempty"`
+	Provider  *ModelProvider `json:"provider,omitempty"`
+	// KeyRef names a new API key for Provider. The key is held in memory only, never saved or sent to clients.
+	KeyRef string `json:"keyRef,omitempty"`
 }
 
 // ChangeLine is one difference, for the user to read. Field says what changed: name, prompt, comment, tools, skills,
 // or for a flow's step (named by Node) also kind, staff, assignment, handoff, join; node and edge are a whole step or
-// connection added or removed, and condition a connection's.
+// connection added or removed, and condition a connection's. A provider's are name, baseUrl, apiKey, prices and models.
 type ChangeLine struct {
 	Field  string `json:"field"`
 	Node   string `json:"node,omitempty"`
@@ -221,15 +224,17 @@ type Talk struct {
 // Name and Look keep who it was, for when the employee has left.
 // A chat with no TeamID is the airport's: it is with the airport staff, and its model and Effort can change between replies.
 type Chat struct {
-	ID        string        `json:"id"`
-	TeamID    string        `json:"teamId"`
-	ReplicaID string        `json:"replicaId"`
-	Name      string        `json:"name"`
-	Look      Look          `json:"look"`
-	Model     string        `json:"model"`
-	Effort    string        `json:"effort,omitempty"`
-	Messages  []ChatMessage `json:"messages"`
-	Tokens    int           `json:"tokens"`
+	ID        string `json:"id"`
+	TeamID    string `json:"teamId"`
+	ReplicaID string `json:"replicaId"`
+	Name      string `json:"name"`
+	// Title names the chat in lists; empty shows its first message. The user can rename it, or a model names it from the first message.
+	Title    string        `json:"title,omitempty"`
+	Look     Look          `json:"look"`
+	Model    string        `json:"model"`
+	Effort   string        `json:"effort,omitempty"`
+	Messages []ChatMessage `json:"messages"`
+	Tokens   int           `json:"tokens"`
 	// ReplyAt is set while the employee writes a reply: when they started.
 	ReplyAt *float64 `json:"replyAt,omitempty"`
 	// Question is set while the employee waits for the answer to what they asked with ask_user.

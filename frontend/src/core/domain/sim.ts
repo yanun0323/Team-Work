@@ -341,6 +341,15 @@ export function setChatMind(w: World, id: string, model: string, effort: string)
   chat.effort = effort
 }
 
+/** Names a chat; an empty name goes back to showing its first message. */
+export function renameChat(w: World, id: string, title: string) {
+  const chat = w.chats[id]
+  if (!chat) return
+  const name = title.split(/\s+/).filter(Boolean).join(' ').slice(0, 80)
+  if (name) chat.title = name
+  else delete chat.title
+}
+
 /** The employee of a company's chat has left. The airport staff never do. */
 const chatLeft = (w: World, chat: Chat) => !!chat.teamId && !w.replicas[chat.replicaId]
 

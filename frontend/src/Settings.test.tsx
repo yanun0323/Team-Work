@@ -5,7 +5,7 @@ import { version } from '../package.json'
 import { useStore } from './core/store'
 import { createAirportChat } from './core/domain/sim'
 import { airportTabOr, DEFAULT_PREFS, ordered, type AirportTab, usePrefs } from './prefs'
-import { AdvancedSection, PrefsPage, QuitTool, Settings, ReloadSettings, ResetSettings, SystemSection } from './Settings'
+import { AdvancedSection, ChatTitleFields, PrefsPage, QuitTool, Settings, ReloadSettings, ResetSettings, SystemSection } from './Settings'
 
 it('is a drawer headed as the airport, its model providers listed under the first tab', () => {
   const html = renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)
@@ -27,7 +27,7 @@ it('is a drawer headed as the airport, its model providers listed under the firs
 })
 
 it('starts with every preference on and the newest log line first', () => {
-  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, musicStyle: 'bossa', soundNotice: true, musicVolume: 100, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', openWaitingTab: true, openWaitingSub: true })
+  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, musicStyle: 'bossa', soundNotice: true, musicVolume: 100, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', openWaitingTab: true, openWaitingSub: true, chatTitleModel: '', chatTitleEffort: '' })
   expect(ordered([1, 2, 3], 'newestFirst')).toEqual([3, 2, 1])
   expect(ordered([1, 2, 3], 'newestLast')).toEqual([1, 2, 3])
 })
@@ -144,4 +144,15 @@ it('offers the global AGENTS.md under 系統, locked until the file has been rea
   expect(html).toContain('<span>全域 AGENTS.md</span>')
   expect(html).toMatch(/<textarea[^>]* disabled/)
   expect(html).toContain('role="alert"')
+})
+
+it('names chats only when turned on, then with a model and level of its own', () => {
+  const off = renderToStaticMarkup(<ChatTitleFields model="" effort="" onChange={() => {}} />)
+  expect(off).toContain('自動命名對話')
+  expect(off).not.toContain('思考等級')
+  const on = renderToStaticMarkup(<ChatTitleFields model="gone-model" effort="default" onChange={() => {}} />)
+  expect(on).toContain('思考等級')
+  // a model no provider offers any more still shows as chosen
+  expect(on).toContain('gone-model')
+  expect(renderToStaticMarkup(<SystemSection />)).toContain('自動命名對話')
 })

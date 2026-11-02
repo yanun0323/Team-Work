@@ -139,8 +139,8 @@ func inChat(t *testing.T, r *rig, m *moves, fn ...func(model.ModelRequest) model
 }
 
 func TestManageToolsFollowTheBlueprint(t *testing.T) {
-	reading := []string{"list_tasks", "list_blueprints", "list_workflows", "list_employees", "list_companies"}
-	writing := []string{"create_task", "update_task", "save_blueprint", "save_workflow"}
+	reading := []string{"list_tasks", "list_blueprints", "list_workflows", "list_employees", "list_companies", "list_providers"}
+	writing := []string{"create_task", "update_task", "save_blueprint", "save_workflow", "save_provider"}
 	for _, tc := range []struct {
 		name         string
 		tools        []enum.Tool
@@ -189,7 +189,7 @@ func TestAirportStaffHaveEveryManageTool(t *testing.T) {
 	}
 	r.wait("reply", chatDone(c.ID))
 	got := toolsOf(r.fake.requests()[0])
-	for _, name := range []string{"list_tasks", "list_companies", "create_task", "update_task", "save_blueprint", "save_workflow"} {
+	for _, name := range []string{"list_tasks", "list_companies", "list_providers", "create_task", "update_task", "save_blueprint", "save_workflow", "save_provider"} {
 		if !slices.Contains(got, name) {
 			t.Errorf("%s: %v", name, got)
 		}

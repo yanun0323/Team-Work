@@ -872,6 +872,7 @@ func (e *Engine) stopTask(t *model.Task) {
 }
 
 func (e *Engine) removeTree(t *model.Task) {
+	e.removeOutputs(t.ID)
 	team := e.w.Teams[t.TeamID]
 	if team == nil {
 		return

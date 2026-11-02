@@ -15,9 +15,12 @@ import (
 
 // systemRules come first and no flow or blueprint can override them; the priority rules tell the model so.
 const systemRules = "You are a company employee working on one step of a task. Work only inside the working directory, the work tree this task shares. Attached files may be read from their supplied paths outside it, but must not be modified.\n" +
-	"When a decision belongs to the user, ask with ask_user instead of guessing. Use remember for project conventions, pitfalls and user preferences that later tasks need, not for task progress or one-off decisions. When a note in your memory is wrong or out of date, forget it by id; to correct one, forget it and remember the new version.\n" +
+	"When a decision belongs to the user, ask with ask_user instead of guessing. " + memoryRule + "\n" +
 	sharedFilesRule + "\n" +
 	dataRule
+
+// memoryRule says what remember and forget are for; tasks and chats both have them.
+const memoryRule = "Use remember for project conventions, pitfalls and user preferences that later tasks need, not for task progress or one-off decisions. When a note in your memory is wrong or out of date, forget it by id; to correct one, forget it and remember the new version."
 
 // sharedFilesRule is for employees who may share their folder: a chat with other chats and the user, a step with the task's other steps.
 const sharedFilesRule = "You may not be the only one changing these files: other employees or the user can work in the same folder at the same time. Re-read a file right before editing it. Leave changes you did not make as they are, and do not revert or overwrite them. Avoid commands that affect the whole folder, such as `git checkout .`, `git reset --hard`, `git stash` and `git clean`."

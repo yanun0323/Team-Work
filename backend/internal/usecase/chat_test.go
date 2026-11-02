@@ -518,7 +518,8 @@ func TestDiscussionPassesOnItsWordsButWorkStepsStayQuiet(t *testing.T) {
 }
 
 func TestToolImageReachesTheNextModelCall(t *testing.T) {
-	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 16)...)
+	// a whole 1x1 PNG: read_file refuses images it cannot decode
+	png, _ := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
 	var image model.Block
 	done := false
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -1112,6 +1113,45 @@ func TestChatKeepsAToolResultWithItsCall(t *testing.T) {
 	}
 }
 
+func TestChatRemembersAndForgets(t *testing.T) {
+	step := 0
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		step++
+		switch step {
+		case 1:
+			return call("remember", map[string]any{"text": " 測試要加 -race "}), nil
+		case 2:
+			return call("forget", map[string]any{"id": "nope"}), nil
+		case 3:
+			return call("forget", map[string]any{"id": "old"}), nil
+		}
+		return say("記下了"), nil
+	})
+	memory := []model.MemoryEntry{{ID: "old", Text: "用 npm", Source: "work", At: 86400}}
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Memory: &memory}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "記住要加 -race，npm 那條不對了"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := r.wait("reply", chatDone(c.ID))
+	got := w.Replicas[r.owner.ID].Memory
+	if len(got) != 1 || got[0].Text != "測試要加 -race" || got[0].Source != "chat" || got[0].TaskID != "" {
+		t.Fatalf("memory = %+v", got)
+	}
+	if !strings.Contains(r.fake.seen[0].System, "Use remember") {
+		t.Fatalf("system: %s", r.fake.seen[0].System)
+	}
+	rejected := false
+	for _, b := range r.fake.seen[2].Messages[len(r.fake.seen[2].Messages)-1].Content {
+		rejected = rejected || (b.Type == enum.BlockToolResult && b.IsError)
+	}
+	if !rejected {
+		t.Fatal("forgetting an unknown note did not fail")
+	}
+}
+
 func TestAirportChatRunsWithoutACompany(t *testing.T) {
 	var got model.ModelRequest
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -1142,6 +1182,9 @@ func TestAirportChatRunsWithoutACompany(t *testing.T) {
 		if !slices.Contains(names, want) {
 			t.Fatalf("no %s in %v", want, names)
 		}
+	}
+	if slices.Contains(names, "remember") || slices.Contains(names, "forget") {
+		t.Fatalf("airport staff keep no memory: %v", names)
 	}
 	if _, err := r.e.ChatTaskDraft(context.Background(), c.ID); err == nil {
 		t.Fatal("an airport chat has no company to make a task in")

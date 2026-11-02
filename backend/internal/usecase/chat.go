@@ -22,6 +22,7 @@ import (
 const chatRules = "You are a company employee chatting with the user to discuss things or do simple work. The working directory is the project folder itself, and changes reach the user's files immediately: change only what was asked, and commit only if the user asks. Attached files may be read from their supplied paths outside the project, but must not be modified.\n" +
 	mentionRule + "\n" +
 	"Reply in plain text. If the work grows or needs several steps, suggest creating a task from this chat.\n" +
+	memoryRule + "\n" +
 	sharedFilesRule + "\n" +
 	dataRule
 
@@ -91,6 +92,7 @@ func (e *Engine) CreateChat(in NewChat) (*model.Chat, error) {
 		e.w.Chats[c.ID] = c
 		e.chatHears(c, text, in.Images, in.Files)
 		e.launchChat(c, spec)
+		e.startChatTitle(c, text, e.w.Teams[in.TeamID].Folder)
 		out = clone(c)
 		return nil
 	})
@@ -120,6 +122,7 @@ func (e *Engine) CreateAirportChat(in NewAirportChat) (*model.Chat, error) {
 		e.w.Chats[c.ID] = c
 		e.chatHears(c, text, in.Images, in.Files)
 		e.launchChat(c, spec)
+		e.startChatTitle(c, text, e.airportFolder())
 		out = clone(c)
 		return nil
 	})
@@ -354,17 +357,21 @@ func (e *Engine) ForkChat(id string, index int) (*model.Chat, error) {
 				return err
 			}
 		}
-		// the copy may read only its own attachments, so what the model was told has to point there
+		// the copy may read only its own attachments and command output, so what the model was told has to point there
 		from, to := e.attachmentRoot(c.ID), e.attachmentRoot(fork.ID)
+		fromOut, toOut := e.outputRoot(c.ID), e.outputRoot(fork.ID)
+		if err := os.CopyFS(toOut, os.DirFS(fromOut)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 		copied := clone(conv[:end])
 		for _, m := range copied {
 			for i := range m.Content {
-				m.Content[i].Text = strings.ReplaceAll(m.Content[i].Text, from, to)
-				m.Content[i].Args = bytes.ReplaceAll(m.Content[i].Args, []byte(from), []byte(to))
+				m.Content[i].Text = strings.ReplaceAll(strings.ReplaceAll(m.Content[i].Text, from, to), fromOut, toOut)
+				m.Content[i].Args = bytes.ReplaceAll(bytes.ReplaceAll(m.Content[i].Args, []byte(from), []byte(to)), []byte(fromOut), []byte(toOut))
 			}
 		}
 		if c.Compact != nil && end >= c.Compact.Upto {
-			fork.Compact = &model.ChatCompact{Upto: c.Compact.Upto, Summary: strings.ReplaceAll(c.Compact.Summary, from, to)}
+			fork.Compact = &model.ChatCompact{Upto: c.Compact.Upto, Summary: strings.ReplaceAll(strings.ReplaceAll(c.Compact.Summary, from, to), fromOut, toOut)}
 		}
 		e.w.Chats[fork.ID] = fork
 		e.w.Conversations[fork.ID] = copied
@@ -438,6 +445,7 @@ func (e *Engine) DeleteChat(id string) error {
 
 func (e *Engine) dropChat(id string) {
 	e.stopRun(id)
+	e.removeOutputs(id)
 	delete(e.w.Chats, id)
 	delete(e.w.Conversations, id)
 	delete(e.dirty, id)
@@ -581,6 +589,8 @@ type chatRun struct {
 	// context is how much the model read last time; compact is what stands in for the conversation's start
 	context int
 	compact *model.ChatCompact
+	// memory is whether the chat is with an employee, who has notes to keep
+	memory bool
 }
 
 // launchChat starts a reply. Its run names no employee: a chat does not keep them from their tasks.
@@ -602,7 +612,7 @@ func (e *Engine) launchChat(c *model.Chat, spec agentSpec) {
 		said = last.Text
 	}
 	e.wg.Add(1)
-	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, said: said, context: c.Context, compact: clone(c.Compact)})
+	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, said: said, context: c.Context, compact: clone(c.Compact), memory: !c.AtAirport()})
 }
 
 // applyChat changes a chat for a run, unless the run was stopped or replaced meanwhile.
@@ -621,8 +631,8 @@ func (e *Engine) applyChat(in chatRun, fn func(c *model.Chat)) bool {
 
 // chatAskUser ends the reply with a question. The user's next message answers it.
 func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
-	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "End your reply and ask the user to decide; you go on with their answer. Call it alone, after the results of any other tools.",
-		Parameters: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"options":{"type":"array","items":{"type":"string"}}},"required":["prompt"]}`)},
+	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "End your reply and ask the user something; you go on with their answer. Call it alone, after the results of any other tools. " + askUserHow,
+		Parameters: json.RawMessage(askUserSchema)},
 		func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
 			var a struct {
 				Prompt  string   `json:"prompt"`
@@ -645,6 +655,39 @@ func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
 		}}
 }
 
+// chatMemoryTools let the employee keep and drop notes while chatting. The chat already shows each call.
+func (e *Engine) chatMemoryTools(in chatRun) []adapter.Tool {
+	remember := func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+		var a struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Text) == "" {
+			return toolError("text is required")
+		}
+		e.applyChat(in, func(c *model.Chat) {
+			e.remember(&c.ReplicaID, strings.TrimSpace(a.Text), "chat", "")
+		})
+		return model.ToolResult{Text: "remembered"}
+	}
+	forget := func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+		var a struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &a); err != nil || a.ID == "" {
+			return toolError("id is required")
+		}
+		found := false
+		e.applyChat(in, func(c *model.Chat) {
+			_, found = e.forget(&c.ReplicaID, a.ID)
+		})
+		if !found {
+			return toolError("no note with id %s", a.ID)
+		}
+		return model.ToolResult{Text: "forgotten"}
+	}
+	return []adapter.Tool{funcTool{rememberSpec, remember}, funcTool{forgetSpec, forget}}
+}
+
 func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	defer e.wg.Done()
 	defer in.r.cancel()
@@ -655,6 +698,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		if e.runs[in.id] == in.r {
 			delete(e.runs, in.id)
 			delete(e.live, in.id)
+			e.clearOutput(in.id)
 			if c := e.w.Chats[in.id]; c != nil {
 				c.ReplyAt = nil
 				// a failed or stopped reply leaves the queue for the user to send
@@ -695,7 +739,10 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			}
 		}
 	}
-	list := append(tools.For(in.spec.allowed, append(roots, e.attachmentRoot(in.id))), e.chatAskUser(in))
+	list := append(tools.For(in.spec.allowed, tools.Env{Read: append(roots, e.attachmentRoot(in.id)), Output: e.outputRoot(in.id), Search: e.search}), e.chatAskUser(in))
+	if in.memory {
+		list = append(list, e.chatMemoryTools(in)...)
+	}
 	list = append(list, e.manageTools(e.managerOfChat(in), in.spec.allowed, true)...)
 	specs := make([]model.ToolSpec, len(list))
 	byName := make(map[string]adapter.Tool, len(list))
@@ -707,8 +754,9 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		provider: in.spec.provider,
 		req:      model.ModelRequest{Cwd: in.folder, Session: in.id, Model: in.spec.model, Effort: in.spec.effort, System: in.spec.prompt.compose(repoRole, skills), Messages: chatView(in.conv, in.compact), Tools: specs},
 		tools:    byName, cwd: in.folder,
-		onStart: func() { e.restartLive(in.id, in.r) },
-		onText:  func(text string) { e.addLive(in.id, in.r, text) },
+		onStart:  func() { e.restartLive(in.id, in.r) },
+		onText:   func(text string) { e.addLive(in.id, in.r, text) },
+		onOutput: func(text string) { e.setOutput(in.id, in.r, text) },
 		onReply: func(reply model.ModelReply) bool {
 			return e.applyChat(in, func(c *model.Chat) {
 				delete(e.live, c.ID) // now it is a message

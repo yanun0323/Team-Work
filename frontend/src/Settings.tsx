@@ -25,6 +25,7 @@ import { airportTabOr, AIRPORT_TABS, AUTO_VIEWS, DEFAULT_PREFS, type AirportTab,
 import { request } from './core/backend'
 import { MusicSection, Volume } from './SoundPage'
 import { MOCK } from './core/mode'
+import { DEFAULT_EFFORT, effortsOf, modelGroups, modelsOf } from './crew'
 
 // TODO: the real addresses; these are placeholders until they are given
 const LINKS = [
@@ -260,6 +261,9 @@ export function ReloadSettings() {
 
 /** The AGENTS.md every employee gets. It is a file that can change outside the app, so it is reread on coming back. */
 export function SystemSection() {
+  const titleModel = usePrefs((s) => s.chatTitleModel)
+  const titleEffort = usePrefs((s) => s.chatTitleEffort)
+  const setPrefs = usePrefs((s) => s.set)
   const [saved, setSaved] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
@@ -308,9 +312,33 @@ export function SystemSection() {
           <textarea className="fx-control" rows={6} value={draft} disabled={saved === null} spellCheck={false}
             onChange={(e) => { typing.current = true; setDraft(e.target.value) }} onBlur={() => void save()} />
         </label>
+        <ChatTitleFields model={titleModel} effort={titleEffort} onChange={setPrefs} />
       </div>
       <p role="alert">{error}</p>
     </section>
+  )
+}
+
+/** Naming new chats from their first message: off, or the model and level that do it. */
+export function ChatTitleFields({ model, effort, onChange: set }: { model: string; effort: string; onChange: (p: Partial<Prefs>) => void }) {
+  const w = useStore((s) => s.world)
+  const models = modelsOf(w)
+  const levels = effortsOf(w, model)
+  return (
+    <>
+      <Toggle label={tr('自動命名對話')} checked={!!model}
+        onChange={(on) => set(on ? { chatTitleModel: models[0] ?? '', chatTitleEffort: DEFAULT_EFFORT } : { chatTitleModel: '', chatTitleEffort: '' })} />
+      {model && (
+        <>
+          <Select label={tr('模型')} value={model} options={models.includes(model) ? models : [...models, model]}
+            groups={modelGroups(w).map((g) => ({ label: g.label, count: g.models.length }))}
+            groupOf={(m) => modelGroups(w).findIndex((g) => g.models.includes(m))}
+            onChange={(m) => set({ chatTitleModel: m, chatTitleEffort: effortsOf(w, m).includes(effort) ? effort : DEFAULT_EFFORT })} />
+          <Select label={tr('思考等級')} value={levels.includes(effort) ? effort : DEFAULT_EFFORT} options={levels}
+            onChange={(e) => set({ chatTitleEffort: e })} />
+        </>
+      )}
+    </>
   )
 }
 
@@ -362,7 +390,7 @@ export function PrefsPage() {
   const prefs = usePrefs()
   const language = useStore((s) => s.world.language)
   const act = useStore((s) => s.act)
-  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView'>, label: string) => (
+  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView'>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
   return (

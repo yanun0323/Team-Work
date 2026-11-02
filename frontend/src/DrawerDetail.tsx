@@ -182,6 +182,7 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           )}
           {(item.kind === 'chat' || item.kind === 'newChat') && (
             <ChatSheet id={item.kind === 'chat' ? item.id : undefined} teamId={teamId} title={title} tid={id} creating={above?.kind === 'newTask'}
+              crewOpen={above?.kind === 'crew'} onCrew={(x) => onPush({ kind: 'crew', id: x })}
               onTask={(seed) => onPush({ kind: 'newTask', seed })} onFork={(x) => onPush({ kind: 'chat', id: x })} onGoneChat={onDone} />
           )}
           {item.kind === 'disband' && <Disband teamId={teamId} title={title} tid={id} onDone={onDone} />}
@@ -428,16 +429,16 @@ function Reply({ sub }: { sub: SubTask }) {
   }
   return (
     <form className="fx-d-reply" onSubmit={send}>
-      <div className="fx-d-choices" role="group" aria-label={tr('選項')}>
+      {r.options.length > 0 && <div className="fx-d-choices" role="group" aria-label={tr('選項')}>
         {r.options.map((o) => (
           <button key={o.id} type="button" aria-pressed={choice === o.id} className="fx-choice"
             title={o.detail || undefined} onClick={() => setChoice(choice === o.id ? '' : o.id)}>
             {o.label ?? trRecorded(`option.${o.id}`)}
           </button>
         ))}
-      </div>
+      </div>}
       <textarea className="fx-control" rows={2} value={text} aria-label={tr('回覆')}
-        placeholder={question ? tr('回覆，或選上面一個') : tr('補充說明')} onChange={(e) => setText(e.target.value)} />
+        placeholder={!question ? tr('補充說明') : r.options.length ? tr('回覆，或選上面一個') : tr('回覆')} onChange={(e) => setText(e.target.value)} />
       <div className="fx-d-merge-acts"><button type="submit" className="fx-save" disabled={!ready}>{tr('確認')}</button></div>
     </form>
   )

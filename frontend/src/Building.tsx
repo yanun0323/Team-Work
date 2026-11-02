@@ -3,7 +3,9 @@
 // pixel window textures (some windows lit), a cornice and parapet, and a roof that differs by style: plant
 // and an antenna, a water tank, a roof garden, a sawtooth roof, a hipped roof, a dome or a helipad.
 //
-// Each style comes in a few colourways; the company's seed picks one, and which windows are lit.
+// Each style comes in a few colourways; the company's seed picks one. The lit windows show the company at
+// work: dark while nobody is working, more of them lit as more employees work (the seed picks which), and a
+// beacon on the roof pulses meanwhile.
 //
 // When the company is open the building is cut away to its ground floor: the two back walls stay solid,
 // the two walls facing the camera are nearly clear, and one open-plan office floor shows inside: stone
@@ -15,7 +17,7 @@
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as THREE from 'three'
-import { activity, teamReplicas } from './core/model'
+import { activity, teamBusy, teamReplicas } from './core/model'
 import { useStore } from './core/store'
 import { boxOnScreen } from './camera'
 import { CELL, FLOOR_CELLS, growth, hash, rectCenter, spotCenter, type BuildingLook, type BuildingStyle, type Lot, type Spot, type Town } from './layout'
@@ -330,22 +332,22 @@ function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D)
   return t
 }
 
-/** Facade for one side: `bays` wide, `floors` high; about one window in six is lit. */
-function facade(style: BuildingStyle, p: Palette, bays: number, floors: number, seed: number) {
+/** Facade for one side: `bays` wide, `floors` high; the share `lit` of its windows is lit. */
+function facade(style: BuildingStyle, p: Palette, bays: number, floors: number, seed: number, lit: number) {
   return canvasTexture(bays * PX, floors * PY, (g) => {
     for (let f = 0; f < floors; f++) for (let c = 0; c < bays; c++) {
-      TILES[style](g, c * PX, f * PY, p, hash(seed, c, f) < 0.17, seed + c * 13 + f * 7)
+      TILES[style](g, c * PX, f * PY, p, hash(seed, c, f) < lit, seed + c * 13 + f * 7)
     }
   })
 }
 
-/** Ground-floor shopfront: glass panes, a header and kick plate in the trim colour, warm light inside. */
-function lobby(p: Palette, bays: number, seed: number) {
+/** Ground-floor shopfront: glass panes, a header and kick plate in the trim colour, warm light inside the share `lit` of them. */
+function lobby(p: Palette, bays: number, seed: number, lit: number) {
   return canvasTexture(bays * PX, PY, (g) => {
     g.fillStyle = '#3b5670'
     g.fillRect(0, 0, bays * PX, PY)
     for (let c = 0; c < bays; c++) {
-      if (hash(seed, c, 9) < 0.6) {
+      if (hash(seed, c, 9) < lit) {
         g.fillStyle = '#f2cf86'
         g.fillRect(c * PX + 3, 10, 10, 18)
       }
@@ -387,6 +389,7 @@ export function Building({ lot, town, open, another, hover, onHover, onSelect }:
   const detail = usePrefs((s) => s.detail)
   const grounds = useMemo(() => plotBoxes(town, lot, detail), [town, lot, detail])
   const [hidden, setHidden] = useState(false)
+  const busy = useStore((s) => teamBusy(s.world, lot.id))
   const size = useThree((s) => s.size)
   const plot = useMemo(() => {
     const [px, pz] = rectCenter(town, lot.plot)
@@ -404,7 +407,7 @@ export function Building({ lot, town, open, another, hover, onHover, onSelect }:
       onPointerOver={(e) => { e.stopPropagation(); onHover(lot.id, true); document.body.style.cursor = open ? '' : 'pointer' }}
       onPointerOut={() => { onHover(lot.id, false); document.body.style.cursor = '' }}>
       {/* the whole building fades out as the cut-away fades in, and back */}
-      <Fade show={!open && !hidden}><Exterior look={lot} w={lot.building.w * CELL} d={lot.building.d * CELL} floors={lot.floors} /></Fade>
+      <Fade show={!open && !hidden}><Exterior look={lot} w={lot.building.w * CELL} d={lot.building.d * CELL} floors={lot.floors} busy={busy} /></Fade>
       {/* the paved plot and its street furniture count as the building too, for the pointer and the shade */}
       {!hidden && <PlotHit boxes={grounds} />}
       <Shade lot={lot} grounds={grounds} on={hover && !open && !hidden} />
@@ -424,23 +427,31 @@ export function BuildingPreview({ look, at }: { look: BuildingLook; at: Spot }) 
   )
 }
 
-function Exterior({ look, w, d, floors }: { look: BuildingLook; w: number; d: number; floors: number }) {
+/** Shares of lit upper windows and lobby panes for `busy` employees at work; none given is a building with no company yet. */
+export function litShares(busy?: number): { windows: number; lobby: number } {
+  if (busy === undefined) return { windows: 0.17, lobby: 0.6 }
+  if (busy <= 0) return { windows: 0, lobby: 0 }
+  return { windows: Math.min(0.12 + 0.12 * busy, 0.72), lobby: Math.min(0.4 + 0.2 * busy, 1) }
+}
+
+function Exterior({ look, w, d, floors, busy }: { look: BuildingLook; w: number; d: number; floors: number; busy?: number }) {
   const { style, seed } = look
   const pal = paletteOf(look)
   const h = floors * FLOOR
   const upper = floors - 1
+  const lit = litShares(busy)
 
   // box faces: +x, -x, +y, -y, +z, -z
   const body = useMemo(() => {
     // a single storey has no upper floors to face
     if (!upper) return []
-    const side = (len: number, k: number) => toonMap('#ffffff', facade(style, pal, len / CELL, upper, seed + k))
+    const side = (len: number, k: number) => toonMap('#ffffff', facade(style, pal, len / CELL, upper, seed + k, lit.windows))
     return [side(d, 1), side(d, 2), toon(pal.wall), toon(pal.wall), side(w, 3), side(w, 4)]
-  }, [style, pal, upper, seed, w, d])
+  }, [style, pal, upper, seed, w, d, lit.windows])
   const shop = useMemo(() => {
-    const side = (len: number, k: number) => toonMap('#ffffff', lobby(pal, len / CELL, seed + k))
+    const side = (len: number, k: number) => toonMap('#ffffff', lobby(pal, len / CELL, seed + k, lit.lobby))
     return [side(d, 5), side(d, 6), toon(pal.trim), toon(pal.trim), side(w, 7), side(w, 8)]
-  }, [pal, seed, w, d])
+  }, [pal, seed, w, d, lit.lobby])
   useEffect(() => () => {
     for (const m of [...body, ...shop]) if (m.map) {
       m.map.dispose()
@@ -514,6 +525,8 @@ function Exterior({ look, w, d, floors }: { look: BuildingLook; w: number; d: nu
       <group position={[0, h + 0.18, 0]} scale={KIT}>
         <Roof style={style} w={w / KIT} d={d / KIT} pal={pal} />
       </group>
+      {/* the beacon stands in the back corner, clear of the name tag over the middle */}
+      {!!busy && <Beacon x={-w / 2 + 0.45} y={h + 0.18} z={-d / 2 + 0.45} />}
     </>
   )
 }
@@ -1420,6 +1433,39 @@ function Office({ teamId, plan, decor, trim, seed }: { teamId: string; plan: Off
 /** Its children, drawn about x = 0, put at `x`, turned left to right when `on`. */
 function Mirrored({ on, x, children }: { on: boolean; x: number; children: ReactNode }) {
   return <group position={[x, 0, 0]} scale={[on ? -1 : 1, 1, 1]}>{children}</group>
+}
+
+const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+const BEACON = '#8fe3ff'
+const BEACON_DIM = '#2c5a6e'
+
+/** A mast on the roof with a lamp that pulses while the company is at work; steady with reduced motion. Kept under ROOF_TOP. */
+function Beacon({ x, y, z }: { x: number; y: number; z: number }) {
+  const lamp = useMemo(() => new THREE.MeshBasicMaterial({ color: BEACON, toneMapped: false }), [])
+  const halo = useMemo(() => new THREE.MeshBasicMaterial({ color: BEACON, transparent: true, opacity: calm ? 0.3 : 0, depthWrite: false, toneMapped: false }), [])
+  useEffect(() => () => { lamp.dispose(); halo.dispose() }, [lamp, halo])
+  const dim = useMemo(() => new THREE.Color(BEACON_DIM), [])
+  const bright = useMemo(() => new THREE.Color(BEACON), [])
+  useFrame(({ clock }) => {
+    if (calm) return
+    // about one pulse every 1.6 s
+    const k = (Math.sin(clock.elapsedTime * 4) + 1) / 2
+    lamp.color.lerpColors(dim, bright, k)
+    halo.opacity = 0.4 * k
+  })
+  const top = 1.35 * KIT
+  return (
+    <group position={[x, y, z]}>
+      <B p={[0, 0.06, 0]} s={[0.3, 0.12, 0.3]} c="#4a525e" />
+      <B p={[0, top / 2, 0]} s={[0.07, top, 0.07]} c="#5a636f" />
+      <mesh position={[0, top + 0.1, 0]} scale={0.22} material={lamp} raycast={() => null}>
+        <boxGeometry />
+      </mesh>
+      <mesh position={[0, top + 0.1, 0]} material={halo} layers={NO_OUTLINE_LAYER} renderOrder={3} raycast={() => null}>
+        <sphereGeometry args={[0.42, 12, 8]} />
+      </mesh>
+    </group>
+  )
 }
 
 /** Height of the tallest roof item, so labels can sit above it. */

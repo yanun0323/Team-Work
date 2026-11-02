@@ -1,10 +1,15 @@
-// What an employee wants to change in a blueprint or flow: on a task's step and in a chat alike.
+// What an employee wants to change in a blueprint, flow or model provider: on a task's step and in a chat alike.
 
 import { tr } from './core/i18n'
 import type { ChangeLine, PendingChange } from './core/domain/types'
 
-export const changeAsk = (c: PendingChange) =>
-  c.kind === 'blueprint' ? tr('我想修改藍圖「{name}」：', { name: c.name }) : tr('我想修改任務流程「{name}」：', { name: c.name })
+export function changeAsk(c: PendingChange) {
+  switch (c.kind) {
+    case 'blueprint': return tr('我想修改藍圖「{name}」：', { name: c.name })
+    case 'provider': return tr('我想修改供應商「{name}」：', { name: c.name })
+    default: return tr('我想修改任務流程「{name}」：', { name: c.name })
+  }
+}
 
 /** A field this version does not know shows as it came. */
 function fieldName(field: string) {
@@ -22,6 +27,10 @@ function fieldName(field: string) {
     case 'node': return tr('步驟')
     case 'edge': return tr('連線')
     case 'condition': return tr('條件')
+    case 'baseUrl': return 'Base URL'
+    case 'apiKey': return 'API Key'
+    case 'prices': return tr('價格')
+    case 'models': return tr('模型')
     default: return field
   }
 }

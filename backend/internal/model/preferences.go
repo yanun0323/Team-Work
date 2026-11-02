@@ -33,6 +33,9 @@ type Preferences struct {
 	DefaultAirportTab string `json:"defaultAirportTab"`
 	OpenWaitingTab    bool   `json:"openWaitingTab"`
 	OpenWaitingSub    bool   `json:"openWaitingSub"`
+	// ChatTitleModel names each new chat from its first message; empty turns naming off.
+	ChatTitleModel  string `json:"chatTitleModel"`
+	ChatTitleEffort string `json:"chatTitleEffort"`
 }
 
 func DefaultPreferences() Preferences {

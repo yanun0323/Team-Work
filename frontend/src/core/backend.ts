@@ -21,6 +21,7 @@ export type ServerEvent =
   | { type: 'patch'; upserts?: Patch[]; deletes?: Patch[] }
   | { type: 'delta'; subId: string; text: string }
   | { type: 'deltaReset'; subId: string }
+  | { type: 'toolOutput'; subId: string; text?: string }
   | { type: 'language'; language: Locale }
   | { type: 'notice'; kind: 'review' | 'awaitMerge'; taskId: string; subId?: string }
 

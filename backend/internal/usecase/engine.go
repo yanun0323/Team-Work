@@ -19,6 +19,7 @@ import (
 	"github.com/yanun0323/mho-company/internal/i18n"
 	"github.com/yanun0323/mho-company/internal/model"
 	"github.com/yanun0323/mho-company/internal/model/enum"
+	"github.com/yanun0323/mho-company/internal/usecase/tools"
 	"github.com/yanun0323/mho-company/pkg/jsonx"
 )
 
@@ -48,6 +49,7 @@ type Event struct {
 	Deletes []Patch `json:"deletes,omitempty"`
 	// delta: text an employee is writing now in a chat or discussion, whose id SubID then is; it is not kept.
 	// deltaReset: start that text over.
+	// toolOutput: the last lines of a command running now in a chat, in place of the ones before; "" when it ends.
 	SubID string `json:"subId,omitempty"`
 	Text  string `json:"text,omitempty"`
 	// language: the language picked, for clients already connected
@@ -65,11 +67,15 @@ type Engine struct {
 	secrets map[string]string
 	runs    map[string]*run
 	live    map[string]string // what is being written now in chats and discussions, by their id
+	// output is the last lines of a command running now in a chat, by its id, with the run it belongs to
+	output  map[string]liveOutput
 	prev    map[string][]byte
 	dirty   map[string]bool // conversations changed since the last save
 	subs    map[chan Event]struct{}
 	pending []Event
 	logins  map[string]*loginRun
+	// pendingKeys are API keys waiting on the user's answer to a change, by its KeyRef. They go with a restart.
+	pendingKeys map[string]string
 
 	store     adapter.Store
 	git       adapter.Git
@@ -77,6 +83,8 @@ type Engine struct {
 	dataDir   string
 	log       zerolog.Logger
 	clock     func() float64
+	// search is the one web search everyone shares, so its queue and cooldown hold across them all.
+	search *tools.Search
 
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -102,9 +110,10 @@ const (
 // NewEngine loads the world and picks up what was under way when the server last stopped.
 func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	e := &Engine{
-		w: model.NewWorld(), runs: map[string]*run{}, live: map[string]string{}, prev: map[string][]byte{}, dirty: map[string]bool{},
-		subs: map[chan Event]struct{}{}, logins: map[string]*loginRun{}, store: o.Store, git: o.Git, providers: o.Providers, dataDir: o.DataDir, log: o.Log,
-		clock: func() float64 { return float64(time.Now().UnixMilli()) / 1000 },
+		w: model.NewWorld(), runs: map[string]*run{}, live: map[string]string{}, output: map[string]liveOutput{}, prev: map[string][]byte{}, dirty: map[string]bool{},
+		subs: map[chan Event]struct{}{}, logins: map[string]*loginRun{}, pendingKeys: map[string]string{}, store: o.Store, git: o.Git, providers: o.Providers, dataDir: o.DataDir, log: o.Log,
+		clock:  func() float64 { return float64(time.Now().UnixMilli()) / 1000 },
+		search: &tools.Search{Endpoint: tools.ExaEndpoint, Log: o.Log, State: filepath.Join(o.DataDir, "search-cooldown.json")},
 	}
 	e.ctx, e.cancel = context.WithCancel(context.Background())
 	if err := e.load(ctx); err != nil {
@@ -452,6 +461,9 @@ func (e *Engine) Subscribe() (snapshot []byte, events <-chan Event, cancel func(
 	e.subs[ch] = struct{}{}
 	for id, text := range e.live { // what is being written is in no snapshot
 		ch <- Event{Type: "delta", SubID: id, Text: text}
+	}
+	for id, o := range e.output {
+		ch <- Event{Type: "toolOutput", SubID: id, Text: o.text}
 	}
 	return snapshot, ch, func() {
 		e.mu.Lock()

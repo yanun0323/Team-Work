@@ -140,6 +140,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/chats", s.createChat)
 	api.POST("/airport/chats", s.createAirportChat)
 	api.PATCH("/chats/:id/mind", s.setChatMind)
+	api.PATCH("/chats/:id/title", s.renameChat)
 	api.POST("/chats/:id/say", s.sayInChat)
 	api.POST("/chats/:id/stop", s.stopChat)
 	api.POST("/chats/:id/queue/:queued/steer", s.steerChat)
@@ -655,6 +656,16 @@ func (s *Server) setChatMind(c echo.Context) error {
 		return err
 	}
 	return done(c, s.engine.SetChatMind(c.Param("id"), in.Model, in.Effort))
+}
+
+func (s *Server) renameChat(c echo.Context) error {
+	in, err := bind[struct {
+		Title string `json:"title"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.RenameChat(c.Param("id"), in.Title))
 }
 
 func (s *Server) uploadAttachment(c echo.Context) error {

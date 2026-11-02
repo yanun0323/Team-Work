@@ -491,11 +491,29 @@ type ProviderPatch struct {
 }
 
 func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch) error {
+	next, err := e.prepareProvider(ctx, id, in)
+	if err != nil {
+		return err
+	}
+	return e.doSettings(func() error { return e.writeProvider(ctx, next) })
+}
+
+// providerEdit is a provider as it will be once written, and the key it will use. It is checked with its provider
+// already, so writing it asks nobody.
+type providerEdit struct {
+	provider model.ModelProvider
+	key      string
+	wasKey   bool
+}
+
+// prepareProvider works out what a patch makes of a provider, asking it for its models when it uses a key. It takes
+// the lock only to read; call it without.
+func (e *Engine) prepareProvider(ctx context.Context, id string, in ProviderPatch) (providerEdit, error) {
 	e.mu.Lock()
 	old := e.w.Providers[id]
 	if old == nil {
 		e.mu.Unlock()
-		return model.Errorf(model.CodeNotFound, "找不到供應商")
+		return providerEdit{}, model.Errorf(model.CodeNotFound, "找不到供應商")
 	}
 	next := *clone(old)
 	key := e.secrets[id]
@@ -504,7 +522,7 @@ func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch
 	if in.Name != nil {
 		next.Name = strings.TrimSpace(*in.Name)
 		if next.Name == "" {
-			return model.Errorf(model.CodeInvalid, "供應商要有名稱")
+			return providerEdit{}, model.Errorf(model.CodeInvalid, "供應商要有名稱")
 		}
 	}
 	if in.BaseURL != nil {
@@ -515,10 +533,10 @@ func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch
 	}
 	if l := in.Login; l != nil && !(l.Kind == "apiKey" && strings.TrimSpace(l.APIKey) == "" && next.Auth.Kind == "apiKey") {
 		if l.Kind == "apiKey" && strings.TrimSpace(l.APIKey) == "" {
-			return model.Errorf(model.CodeInvalid, "要填 API Key")
+			return providerEdit{}, model.Errorf(model.CodeInvalid, "要填 API Key")
 		}
 		if l.Kind != "apiKey" && next.Auth.Kind != "subscription" && next.Kind != enum.ProviderAnthropic && next.Kind != enum.ProviderOpenAI {
-			return model.Errorf(model.CodeInvalid, "只有 Anthropic 和 OpenAI 可以用訂閱登入")
+			return providerEdit{}, model.Errorf(model.CodeInvalid, "只有 Anthropic 和 OpenAI 可以用訂閱登入")
 		}
 		if l.Kind == "apiKey" || wasKey { // already on a subscription: stay signed in
 			next.Auth = authOf(*l)
@@ -529,35 +547,40 @@ func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch
 	if next.Auth.Kind == "apiKey" {
 		specs, err := e.discover(ctx, next, key)
 		if err != nil {
-			return err
+			return providerEdit{}, err
 		}
 		next.Models, next.Thinking = modelsOf(specs)
 	} else {
 		next.BaseURL, key = "", ""
 	}
-	return e.doSettings(func() error {
-		now := e.w.Providers[id]
-		if now == nil {
-			return model.Errorf(model.CodeNotFound, "找不到供應商")
-		}
-		if next.Auth.Kind == "subscription" {
-			if wasKey { // the tokens of a subscription are not this function's to touch
-				if err := e.store.DeleteSecret(ctx, id); err != nil {
-					return err
-				}
-				delete(e.secrets, id)
-			} else {
-				next.Auth, next.Models, next.Thinking = now.Auth, now.Models, now.Thinking // a sign-in may have ended meanwhile
-			}
-		} else {
-			if err := e.store.SetSecret(ctx, id, key); err != nil {
+	return providerEdit{provider: next, key: key, wasKey: wasKey}, nil
+}
+
+// writeProvider puts a prepared provider in the world and its key in the store. Call it holding the lock, inside a
+// change to the settings.
+func (e *Engine) writeProvider(ctx context.Context, edit providerEdit) error {
+	next, id := edit.provider, edit.provider.ID
+	now := e.w.Providers[id]
+	if now == nil {
+		return model.Errorf(model.CodeNotFound, "找不到供應商")
+	}
+	if next.Auth.Kind == "subscription" {
+		if edit.wasKey { // the tokens of a subscription are not this function's to touch
+			if err := e.store.DeleteSecret(ctx, id); err != nil {
 				return err
 			}
-			e.secrets[id] = key
+			delete(e.secrets, id)
+		} else {
+			next.Auth, next.Models, next.Thinking = now.Auth, now.Models, now.Thinking // a sign-in may have ended meanwhile
 		}
-		e.w.Providers[id] = &next
-		return nil
-	})
+	} else {
+		if err := e.store.SetSecret(ctx, id, edit.key); err != nil {
+			return err
+		}
+		e.secrets[id] = edit.key
+	}
+	e.w.Providers[id] = &next
+	return nil
 }
 
 // DeleteProvider removes a provider nobody runs on, and its key.

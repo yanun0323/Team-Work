@@ -92,7 +92,7 @@ export interface Blueprint {
   look: Look
 }
 
-export type MemorySource = 'work' | 'retro' | 'review' | 'user'
+export type MemorySource = 'work' | 'chat' | 'retro' | 'review' | 'user'
 
 export interface MemoryEntry {
   id: string
@@ -216,7 +216,7 @@ export interface ChangeLine {
 
 /** A change an employee wants to make to a blueprint or flow; written only once the user agrees. */
 export interface PendingChange {
-  kind: 'blueprint' | 'workflow'
+  kind: 'blueprint' | 'workflow' | 'provider'
   targetId: string
   name: string
   lines: ChangeLine[]
@@ -270,6 +270,8 @@ export interface Chat {
   replicaId: string
   /** Who it was, for when the employee has left. */
   name: string
+  /** What the user or a model named it; none shows the first message. */
+  title?: string
   look: Look
   model: string
   effort?: Effort

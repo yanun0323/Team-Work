@@ -80,6 +80,9 @@ export function chatMindOf(w: World, c: Chat) {
   return `${c.model} · ${effort}`
 }
 
+/** What a chat shows in lists when no one has named it. */
+export const chatPreview = (c: Chat) => c.messages[0]?.text || (c.messages[0]?.images?.length ? tr('圖片') : c.messages[0]?.files?.length ? tr('附件') : '')
+
 /** Who a chat is with: the employee as they are now, as they were if they left, or the airport staff. */
 export function chatWho(w: World, c: Chat): { name: string; look: Look } {
   if (!c.teamId) return { name: tr('機場服務人員'), look: AIRPORT_STAFF_LOOK }

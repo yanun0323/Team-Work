@@ -7,7 +7,7 @@ import { statusOf, subsOf, taskTokens } from './core/domain/sim'
 import type { Chat, Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
 import { MOCK } from './core/mode'
-import { byBlueprint, chatMindOf, chatSign, chatWho, mindOf } from './crew'
+import { byBlueprint, chatMindOf, chatPreview, chatSign, chatWho, mindOf } from './crew'
 import { activity, fmtTokens, teamReplicas, teamTasks, waitingSub } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -91,7 +91,7 @@ export function Chats(p: Opens) {
                 <PixelFace look={look} name={name} size={34} />
                 <span className="fx-row-main">
                   <b>{name}<span className="fx-chat-model">{chatMindOf(w, c)}{c.tokens > 0 && ` · ${fmtTokens(c.tokens)} Token`}</span></b>
-                  <span className="fx-chat-first">{c.messages[0]?.text || (c.messages[0]?.images?.length ? tr('圖片') : c.messages[0]?.files?.length ? tr('附件') : '')}</span>
+                  <span className="fx-chat-first">{c.title || chatPreview(c)}</span>
                 </span>
               </button></li>
             )

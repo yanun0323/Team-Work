@@ -24,6 +24,8 @@ make test-backend  # 測試
 | `provider.json` | 供應商設定，以供應商 id 為鍵；含網址、登入方式 `authKind`、模型、`thinking` 與價格，不含憑證 |
 | `data.db` | SQLite：任務、子任務、交接、流程快照、對話、用量、員工記憶、登入狀態、憑證、語言、公司位置與建築外觀，以及項目識別與建立時間 |
 | `worktrees/` | 任務工作目錄 |
+| `outputs/<task-or-chat-id>/` | `run_command` 太長的完整輸出；任務合併、取消或刪除時，以及刪除對話時一起刪掉 |
+| `search-cooldown.json` | `web_search` 被 Exa 限流時的暫停期限，重啟後沿用 |
 
 公司共同指示仍在公司專案資料夾的 `AGENTS.md`，不放進設定檔。所有員工共用的指示在資料目錄的 `AGENTS.md`（預設 `~/.team-work/AGENTS.md`），可在「機場 → 設定 → 系統」編輯，每次開工和對話回覆都會重新讀，接在公司指示之前。憑證沒有加密，靠檔案權限保護。
 
@@ -44,7 +46,7 @@ debug: false
 
 Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及地圖位置。`preferences.yaml` 在介面修改後立即儲存；手動編輯後按「重新載入設定」，不必重啟。省略的欄位使用預設值，未知欄位、`null`、錯誤型別或不存在的頁籤會被拒絕。
 
-偏好欄位的預設值：`logOrder: newestFirst`（也可用 `newestLast`）、`defaultTab: tasks`（`chats`、`tasks`、`crew`、`terminal`、`settings`）、`defaultAirportTab: providers`（`chats`、`providers`、`blueprints`、`flows`、`prefs`、`about`）、`openWaitingTab: true`、`openWaitingSub: true`；`detail`、`shadows`、`crowd`、`planes`、`clouds` 預設 `true`，`autoView` 預設 `panZoom`（也可用 `pan`、`off`；舊欄位 `autoZoom` 讀取時會自動換成它），`zoomSensitivity` 預設 100（接受 20–300 的整數），`terminalCommand` 預設空字串，`keepTerminals` 預設 `false`。語言沿用 SQLite 儲存。聲音偏好 `muteInBackground`（預設 `true`）、`musicVolume`（預設 100）、`effectsVolume`（預設 100）接受 0–100 的整數，0 為靜音；`musicMuted`、`effectsMuted`（預設 `false`）直接靜音該聲道並保留音量；`soundTakeoff`、`soundLanding`、`soundFlyover`、`soundUI`、`soundNotice` 分別控制起飛、降落、飛越、介面和告示牌通知音效，預設皆為 `true`。`musicStyle` 可選 `bossa`（預設）、`chiptune`、`piano`、`ambient`。舊偏好檔缺少的欄位會補上預設值。
+偏好欄位的預設值：`logOrder: newestFirst`（也可用 `newestLast`）、`defaultTab: tasks`（`chats`、`tasks`、`crew`、`terminal`、`settings`）、`defaultAirportTab: providers`（`chats`、`providers`、`blueprints`、`flows`、`prefs`、`about`）、`openWaitingTab: true`、`openWaitingSub: true`、`chatTitleModel: ""`、`chatTitleEffort: ""`（有模型時，公司和機場的新對話會把第一則訊息最多約 2,000 字送給這個模型取一次名字，沒有工具，30 秒逾時、失敗不重試，用量算進該對話；空字串表示關閉，`effort` 空白或模型不支援就不指定思考等級）；`detail`、`shadows`、`crowd`、`planes`、`clouds` 預設 `true`，`autoView` 預設 `panZoom`（也可用 `pan`、`off`；舊欄位 `autoZoom` 讀取時會自動換成它），`zoomSensitivity` 預設 100（接受 20–300 的整數），`terminalCommand` 預設空字串，`keepTerminals` 預設 `false`。語言沿用 SQLite 儲存。聲音偏好 `muteInBackground`（預設 `true`）、`musicVolume`（預設 100）、`effectsVolume`（預設 100）接受 0–100 的整數，0 為靜音；`musicMuted`、`effectsMuted`（預設 `false`）直接靜音該聲道並保留音量；`soundTakeoff`、`soundLanding`、`soundFlyover`、`soundUI`、`soundNotice` 分別控制起飛、降落、飛越、介面和告示牌通知音效，預設皆為 `true`。`musicStyle` 可選 `bossa`（預設）、`chiptune`、`piano`、`ambient`。舊偏好檔缺少的欄位會補上預設值。
 
 公司位置、建築樣式和配色種子存在 SQLite 的公司記錄，建立與移動時儲存，解散時一起移除。位置必須為整數格、兩軸各介於 -512 到 512，不可重疊公司或機場，並且整塊 16×16 用地都必須落在現有陸地格子向八個方向擴張 32 格的範圍內。搬家以搬動前的陸地計算，包含所選公司的原有陸地；機場保留兩格間距。前後端以相同的陸地格子（含連接陸地與填平的內湖）驗證。不讀取或搬移舊的網頁 `localStorage`；沒有共用位置的公司會重新配置位置與外觀。`make dev-mock` 的偏好和地圖只存在記憶體。
 
@@ -72,10 +74,12 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 ## 安全
 
 - API 沒有登入。所以只聽本機，並檢查 `Host` 與 `Origin`，別的網站不能透過使用者的瀏覽器連進來。
-- API Key 和 ChatGPT Token 只存在 `data.db`（權限 `0600`）的 `secrets` 表，不會出現在任何回應或事件裡，API Key 對外只有最後 4 碼。
-- `read_file`、`write_file` 限制在任務的 work tree 內（技能資料夾可讀），符號連結也擋。`read_file` 也能讀 PNG、JPEG、GIF、WebP 圖片（最大 3.75MB），圖片會交給模型看。
+- API Key 和 ChatGPT Token 只存在 `data.db`（權限 `0600`）的 `secrets` 表，不會出現在任何回應或事件裡，API Key 對外只有最後 4 碼。例外是使用者在對話裡打給員工的 Key（`ask_user` 的回答、`save_provider` 的參數），它和其他訊息一樣留在紀錄裡。
+- `read_file`、`write_file`、`edit_file` 限制在任務的 work tree 內（技能資料夾可讀），符號連結也擋。有寫入檔案權限就同時有 `edit_file`（只替換檔案中一段唯一的文字，保留 BOM 和 CRLF）。`read_file` 依行讀取（一次最多 2000 行或 50KB，用 `offset`、`limit` 續讀），也能讀 PNG、JPEG、GIF、WebP 圖片（最大 3.75MB、2000 萬像素，壞掉的圖檔會被拒絕），圖片會交給模型看。
+- `run_command` 優先用 `bash`，輸出超過 2000 行或 50KB 時只回最後一段，完整輸出存到資料目錄的 `outputs/<task-or-chat-id>/` 並附上路徑，員工可用 `read_file` 讀取。
+- `web_search` 使用 Exa 免金鑰的公開服務，有使用額度。所有員工共用一個佇列，一次只送一個請求；Exa 回報額度用完（HTTP 429 或免費額度提示）時，工具回傳 `rate_limited` 錯誤，並依 `Retry-After` 暫停，沒有給時暫停 30 秒；暫停期限存在 `search-cooldown.json`，重啟後沿用。每次嘗試、限流和被暫停擋下都會寫進伺服器 log，不記搜尋內容。有網路搜尋權限就同時有 `web_fetch`：把公開網頁轉成編號段落（一次最多 100 段，用 `offset`、`limit` 續讀），只支援 HTML 和純文字、最大 2MB，不執行 JavaScript。連線前會檢查實際 IP，擋掉內網、本機和非 80、443 的連接埠，轉址也一樣檢查。
 - `run_command` **沒有沙盒**：員工能做到伺服器使用者能做的任何事。只雇用你信任其指示的藍圖，也留意任務內容與網頁可能夾帶指示。
-- **修改確認可以被 `run_command` 繞過**（已知限制）：有這個工具的員工仍可能直接改藍圖或流程的設定檔，再觸發重新載入（`POST /settings/reload`，即 `ReloadSettings`），不會出現確認卡。確認只約束 `save_blueprint`、`save_workflow` 這兩個工具。
+- **修改確認可以被 `run_command` 繞過**（已知限制）：有這個工具的員工仍可能直接改藍圖或流程的設定檔，再觸發重新載入（`POST /settings/reload`，即 `ReloadSettings`），不會出現確認卡。確認只約束 `save_blueprint`、`save_workflow`、`save_provider` 這三個工具。
 
 ## API
 
@@ -89,7 +93,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /settings/open-folder` | 在 Finder 打開設定檔資料夾（`TEAM_WORK_HOME`） |
 | `POST /settings/reload` | 驗證並重新載入實體設定檔（不含全域 config.yaml）；成功回 204，錯誤保留現有設定 |
 | `GET /world` | 整個世界，欄位與前端 `types.ts` 相同 |
-| `GET /events` | WebSocket：先送 `snapshot`，之後送 `patch`（實體異動）、`delta`（對話或討論裡員工正在寫的文字，`subId` 是對話或子任務的 id）、`deltaReset`（重試時收回已寫的文字）、`notice`（`review`、`awaitMerge`）。斷線重連會拿到新的 snapshot，以及寫到一半的文字 |
+| `GET /events` | WebSocket：先送 `snapshot`，之後送 `patch`（實體異動）、`delta`（對話或討論裡員工正在寫的文字，`subId` 是對話或子任務的 id）、`deltaReset`（重試時收回已寫的文字）、`toolOutput`（對話裡正在跑的指令最後幾行輸出，取代上一次的內容；`text` 為空表示指令結束）、`notice`（`review`、`awaitMerge`）。斷線重連會拿到新的 snapshot，以及寫到一半的文字和正在跑的指令輸出 |
 | `POST /teams`、`PATCH`/`DELETE /teams/:id` | 公司；建立與修改可帶 `plot: {at: [x,z], style, seed}`（省略時建立自動配置）；資料夾沒有 git 時會初始化並建立 `master`。關閉公司不會刪資料夾，但會刪它的任務分支與 work tree |
 | `GET /branches?folder=` | 查資料夾的分支（只讀），`repo` 是它是不是 git repo |
 | `POST /teams/:id/prompt/refresh` | 重新讀專案的 `AGENTS.md`。公司的 `prompt` 就是這個檔案：`PATCH` 會寫回檔案（不會 commit），建立公司、啟動和員工開工時都會重新讀 |
@@ -118,6 +122,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | 對話裡的 `ask_user` | 員工可隨時用這個工具提問：`chat.question.options` 是選項（可為空），問題本身是一則員工訊息；下一則 `say` 就是回答 |
 | `POST /airport/chats` | 開始機場對話（`model`、可選的 `effort`、`text`、`images`、`files`）：對象固定是機場服務人員，回傳的 `teamId` 為空。工作資料夾是資料目錄的 `airport/`，可用讀寫檔案、網路搜尋和執行指令；指令沒有沙盒。指示只有固定規則和全域 `AGENTS.md`。`say`、`stop`、`read`、`rewind`、`fork`、刪除和公司對話共用，`task-draft` 會拒絕 |
 | `POST /chats/:id/change` | 回答對話的修改確認（`approve`、可選的 `note`；內容在 `chat.change`），員工接著回覆。等待確認時改用 `say` 發言視為拒絕 |
+| `PATCH /chats/:id/title` | 改對話名稱（`title`）：多個空白合成一個，最多 80 字，空字串清除名稱、改回顯示第一則訊息。手動取的名字不會被自動命名蓋掉 |
 | `PATCH /chats/:id/mind` | 更換機場對話下一次回覆的 `model` 和 `effort`；回覆中或公司對話會拒絕 |
 | `POST /chats/:id/read` | 標記已讀，清除對話的 `unread` |
 | `POST /chats/:id/rewind` | 收回第 `index` 則使用者訊息和它之後的所有內容，並中斷回覆；資料夾裡的改動不會還原 |
@@ -132,26 +137,28 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 
 ## 員工的管理工具
 
-任務中的員工、公司對話的員工和機場服務人員，可以用工具讀取任務、藍圖和任務流程，並新增或修改。能用哪些工具由藍圖勾選的工具決定，藍圖可選的工具仍是原本四個；實作在 `internal/usecase/manage.go`。
+任務中的員工、公司對話的員工和機場服務人員，可以用工具讀取任務、藍圖、任務流程和模型供應商，並新增或修改。能用哪些工具由藍圖勾選的工具決定，藍圖可選的工具仍是原本四個；實作在 `internal/usecase/manage.go`。
 
 | 藍圖勾選 | 可使用 |
 |---|---|
-| `read_file` | `list_tasks`、`list_blueprints`、`list_workflows`、`list_employees`、`list_companies` |
-| `write_file` 或 `run_command` | 上面的讀取工具，加上 `create_task`、`update_task`、`save_blueprint`、`save_workflow` |
+| `read_file` | `list_tasks`、`list_blueprints`、`list_workflows`、`list_employees`、`list_companies`、`list_providers` |
+| `write_file` 或 `run_command` | 上面的讀取工具，加上 `create_task`、`update_task`、`save_blueprint`、`save_workflow`、`save_provider` |
 | `web_search` | 沒有額外工具 |
 
 機場服務人員四個工具都有，所以擁有全部能力。內建的 15 個藍圖都有讀寫能力。任務流程的「和員工討論」步驟只有讀取工具。沒有刪除工具。錯誤和拒絕都以工具結果回傳給模型。
 
-- **範圍**：公司的員工只能讀取、建立、修改自己公司的任務，也只列得到自己公司的員工和公司；機場服務人員可以跨公司，`create_task` 要帶 `team_id`。藍圖和任務流程由所有公司共用，修改會影響每間公司。
-- **直接生效**：新增藍圖、新增任務流程、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。
-- **要確認**：帶 `id` 的 `save_blueprint`、`save_workflow`，包括員工修改自己用的藍圖。後端先檢查內容並算出差異，然後暫停，同意前不會寫入。任務的子任務進入等待回覆（`review.kind` 為 `change`），對話則是 `chat.change`；兩者都會保存，重新啟動後還在。同意或拒絕都會回傳給模型，模型接著工作。內容沒有差異時不會暫停。同一輪在這個呼叫之後的工具不會執行，模型會收到 `interrupted`。
+- **範圍**：公司的員工只能讀取、建立、修改自己公司的任務，也只列得到自己公司的員工和公司；機場服務人員可以跨公司，`create_task` 要帶 `team_id`。藍圖、任務流程和供應商由所有公司共用，修改會影響每間公司。
+- **直接生效**：新增藍圖、新增任務流程、新增供應商、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。
+- **要確認**：帶 `id` 的 `save_blueprint`、`save_workflow`、`save_provider`，包括員工修改自己用的藍圖。後端先檢查內容並算出差異，然後暫停，同意前不會寫入。任務的子任務進入等待回覆（`review.kind` 為 `change`），對話則是 `chat.change`；兩者都會保存，重新啟動後還在。同意或拒絕都會回傳給模型，模型接著工作。內容沒有差異時不會暫停。同一輪在這個呼叫之後的工具不會執行，模型會收到 `interrupted`。
 - **不能修改**：`preset-` 開頭的內建項目（要新增一份自己的）、Git 來源的藍圖。修改要帶 `list_*` 回傳的 `version`，不符就拒絕；等待確認期間內容被改過或刪除時，同意也不會寫入，模型會收到原因。
-- **設定檔**：寫入藍圖和任務流程的規則和介面相同：有外部修改尚未載入時回傳 `conflict`。
+- **設定檔**：寫入藍圖、任務流程和供應商的規則和介面相同：有外部修改尚未載入時回傳 `conflict`。
 - **生效範圍**：任務建立時留一份任務流程，修改共用流程不影響進行中的任務。藍圖不同：同意後正在進行的步驟不變，但每次開始步驟都讀最新藍圖，所以同一任務之後的步驟會用新藍圖。
 - **`create_task`**：帶標題、說明、任務流程，立即建立並開始，不需要確認。內建流程的步驟沒有指定員工，有步驟沒有人時會失敗並列出這些步驟，模型應該問使用者後再用 `staff` 或 `owner_id` 重試；模型自己填人選時後端無法分辨。
 - **連鎖深度**：任務中的員工建立的任務，深度是來源任務加 1，最多 3 層（`maxTaskDepth`，暫定值），超過就拒絕並告知模型。從對話建立的任務深度是 0。同時執行的任務數量沒有限制。
 - **`save_blueprint`**：模型不能設定外觀，新藍圖取自內建藍圖之一。技能用 Git 來源時不會在儲存當下解析 commit，執行時才取 `origin/HEAD`，也不會套用 `ref`；要固定版本請呼叫 `POST /blueprints/:id/update`。
 - **`save_workflow`**：`nodes`、`edges` 是完整的新清單，已存在的節點 id 沒帶的欄位保留原值。模型不指定座標，新節點由後端排版。有迴圈等無效內容會被拒絕。
+- **`save_provider`**：新增時帶 `name`、`kind`、`api_key`（`compatible` 另帶 `base_url`），和介面新增一樣先向供應商查模型清單，Key 或網址錯誤就失敗。修改可改 `name`、`base_url`、`api_key`、`prices`（`prices` 是整份取代），不能改 `kind` 和登入方式；查模型清單在送出確認卡之前做，確認卡列出名稱、網址、Key 最後 4 碼、價格和模型清單的差異。新的 Key 在等待確認期間只放在記憶體，不寫進確認卡和狀態檔，所以重新啟動後同意會失敗並告知模型。訂閱登入要開瀏覽器，工具做不到：可用 `login: subscription` 新增，再請使用者到設定頁登入。`list_providers` 只回傳 Key 最後 4 碼。
+- **`ask_user` 問答案**：不帶 `options` 就是請使用者直接輸入答案（例如名字、API Key）。輸入的內容和一般訊息一樣，會留在對話紀錄並交給模型；員工呼叫 `save_provider` 時，對話裡顯示的工具參數也包含 Key。
 
 ## 訂閱登入
 
