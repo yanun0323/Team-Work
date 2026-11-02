@@ -383,6 +383,19 @@ type ModelSpec struct {
 	Thinking []string
 }
 
+// Quota is what a provider reports of its allowance. A field it doesn't report stays nil.
+type Quota struct {
+	// FiveHour and Weekly are how much of a subscription's 5-hour and weekly limits is used, 0 to 100.
+	FiveHour *float64 `json:"fiveHour,omitempty"`
+	Weekly   *float64 `json:"weekly,omitempty"`
+	// FiveHourResetAt and WeeklyResetAt are when those limits start over, in Unix seconds; 0 when not reported.
+	FiveHourResetAt int64 `json:"fiveHourResetAt,omitempty"`
+	WeeklyResetAt   int64 `json:"weeklyResetAt,omitempty"`
+	// Balance is the money left on an API key's account, in Currency (USD, CNY, ...).
+	Balance  *float64 `json:"balance,omitempty"`
+	Currency string   `json:"currency,omitempty"`
+}
+
 // World is everything the backend knows. Conversations stay inside the backend, so clients never get them.
 type World struct {
 	Preferences   Preferences               `json:"preferences"`

@@ -59,6 +59,7 @@ type fake struct {
 	stream      string
 	status      int
 	devicePolls int
+	usage       string
 }
 
 func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +84,8 @@ func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"authorization_code":"devcode","code_verifier":"devver"}`)
 	case "/codex/models":
 		fmt.Fprint(w, `{"models":[{"slug":"gpt-a","visibility":"list","supported_reasoning_levels":[{"effort":"low"},{"effort":"xhigh"}]},{"slug":"hidden","visibility":"hide"}]}`)
+	case "/wham/usage":
+		fmt.Fprint(w, f.usage)
 	case "/codex/responses":
 		f.bodies = append(f.bodies, string(raw))
 		f.headers = append(f.headers, r.Header.Clone())

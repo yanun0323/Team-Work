@@ -98,6 +98,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/providers/:id/login/paste", s.pasteLogin)
 	api.DELETE("/providers/:id/login", s.cancelLogin)
 	api.POST("/providers/:id/logout", s.logout)
+	api.GET("/quotas", s.quotas)
 
 	api.GET("/claude-code", s.claudeStatus)
 	api.POST("/claude-code/install", s.claudeInstall)
@@ -425,6 +426,10 @@ func (s *Server) cancelLogin(c echo.Context) error {
 
 func (s *Server) logout(c echo.Context) error {
 	return done(c, s.engine.Logout(c.Request().Context(), c.Param("id")))
+}
+
+func (s *Server) quotas(c echo.Context) error {
+	return c.JSON(http.StatusOK, s.engine.Quotas(c.Request().Context()))
 }
 
 func (s *Server) claudeStatus(c echo.Context) error {

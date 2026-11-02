@@ -138,6 +138,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /providers/:id/login/paste` | 瀏覽器回不來時，貼上它停留的網址（`value`） |
 | `DELETE /providers/:id/login` | 取消登入 |
 | `POST /providers/:id/logout` | 登出 |
+| `GET /quotas` | 各供應商的額度，以供應商 id 為鍵：訂閱回報 `fiveHour`、`weekly`（已用 %，0–100）與 `fiveHourResetAt`、`weeklyResetAt`（重置時刻，Unix 秒），來自 Claude Code 與 ChatGPT 的非公開用量端點；API Key 只有 OpenRouter（金鑰自身的額度上限）和 DeepSeek 回報 `balance` 與 `currency`。查不到的欄位或供應商不出現 |
 | `POST /providers/:id/models` | 重新取得模型清單 |
 
 - **ChatGPT（`openai`）**：以 Codex CLI 的方式走 OAuth。`browser` 會在伺服器這台電腦打開登入頁，並用 `127.0.0.1:1455` 等它回來（這個連接埠被占用時可以貼網址）；`device` 回傳一組代碼。Token 存在 `data.db` 的 `secrets` 表，到期前自動更新。
