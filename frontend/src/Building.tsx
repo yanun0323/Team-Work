@@ -1436,9 +1436,13 @@ function Mirrored({ on, x, children }: { on: boolean; x: number; children: React
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 const SHOUT = '#ffc93a'
-/** Thickness of a shout stroke, how far its inner end stays off the building's outline, how far up the second pose sits, and its length against the first. */
-const STROKE = 0.85
-const SHOUT_GAP = 1.1
+/**
+ * Thickness of a shout stroke, how far its inner end stays off the building's outline, how far apart the strokes'
+ * inner ends sit, how far up the second pose sits, and its length against the first.
+ */
+const STROKE = 1.1
+const SHOUT_GAP = 2.2
+const SHOUT_SPACING = 1.6
 const SHOUT_LIFT = 0.6
 const SHOUT_SHRINK = 0.65
 /** Turns a group so its x and y run along the screen, facing the camera (which never rotates). */
@@ -1458,8 +1462,8 @@ export interface Burst {
 }
 
 const FANS: Ray[][] = [
-  [{ angle: 30, len: 2.3 }, { angle: 3, len: 2.7 }, { angle: -25, len: 2.1 }],
-  [{ angle: 46, len: 1.7 }, { angle: 20, len: 2.4 }, { angle: -4, len: 2.1 }, { angle: -30, len: 1.8 }],
+  [{ angle: 30, len: 3.2 }, { angle: 3, len: 3.8 }, { angle: -25, len: 2.9 }],
+  [{ angle: 46, len: 2.4 }, { angle: 20, len: 3.4 }, { angle: -4, len: 2.9 }, { angle: -30, len: 2.5 }],
 ]
 
 /**
@@ -1500,7 +1504,7 @@ function Shout({ w, d, h, seed }: { w: number; d: number; h: number; seed: numbe
             {b.rays.map((r, k) => {
               const len = r.len * (p ? SHOUT_SHRINK : 1)
               return (
-                <group key={k} rotation={[0, 0, THREE.MathUtils.degToRad(r.angle)]}>
+                <group key={k} position={[0, ((b.rays.length - 1) / 2 - k) * SHOUT_SPACING, 0]} rotation={[0, 0, THREE.MathUtils.degToRad(r.angle)]}>
                   <mesh position={[SHOUT_GAP + len / 2, 0, 0]} scale={[len, STROKE, 0.05]} material={mat} layers={NO_OUTLINE_LAYER} raycast={() => null}>
                     <boxGeometry />
                   </mesh>
