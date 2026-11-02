@@ -21,10 +21,12 @@ it('shows a subscription as two rings and an API key as its balance, in the orde
     <QuotaList now={0} providers={[sub('a', 'Claude'), key('b', 'DeepSeek'), key('c', 'OpenAI')]} quotas={{ a: { fiveHour: 49.6, weekly: 12 }, b: { balance: 110, currency: 'CNY' } }} />,
   )
   expect(html.indexOf('Claude')).toBeLessThan(html.indexOf('DeepSeek'))
-  expect(html).toContain('>50%<')
-  expect(html).toContain('>12%<')
+  expect(html).toContain('<span>50</span>')
+  expect(html).toContain('<span>12</span>')
+  expect(html).not.toContain('50%<')
   expect(html).toContain('>110.00 CNY<')
-  expect(html).toMatch(/OpenAI<\/span><span class="fx-quota-balance">-<\/span>/)
+  expect(html).toMatch(/OpenAI<\/span><span class="fx-quota-balance fx-quota-none">-<\/span>/)
+  expect(html).toContain('<span class="fx-quota-balance">110.00 CNY</span>')
 })
 
 it('greys out a ring with no number', () => {

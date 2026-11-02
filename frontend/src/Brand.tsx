@@ -74,9 +74,10 @@ export function UsageRing({ used, resetAt, now, label }: { used?: number; resetA
   const r = 12
   const length = 2 * Math.PI * r
   const known = used !== undefined
-  const text = known ? `${Math.round(used)}%` : '-'
+  // the ring shows the bare number; the % is read out
+  const text = known ? `${Math.round(used)}` : '-'
   const left = resetWords(now, resetAt)
-  const spoken = label(known ? text : tr('無資料'))
+  const spoken = label(known ? `${text}%` : tr('無資料'))
   return (
     <span className="fx-usage" role="img" aria-label={left ? tr('{a}，{b}後重置', { a: spoken, b: left }) : spoken}>
       <span className="fx-ring" aria-hidden="true">
@@ -109,7 +110,7 @@ export function QuotaList({ providers, quotas, now }: { providers: ModelProvider
                 <UsageRing used={q?.weekly} resetAt={q?.weeklyResetAt} now={now} label={(a) => tr('每週用量 {a}', { a })} />
               </>
             ) : (
-              <span className="fx-quota-balance">{balanceText(q)}</span>
+              <span className={q?.balance === undefined ? 'fx-quota-balance fx-quota-none' : 'fx-quota-balance'}>{balanceText(q)}</span>
             )}
           </li>
         )
