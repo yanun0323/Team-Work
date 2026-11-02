@@ -26,9 +26,9 @@ export function Board({ lookOf, leaving, onGone }: {
   useEffect(() => page.current?.focus({ preventScroll: true }), [])
   const base = sheets.layers[0]
   const open = base && !base.leaving ? itemKey(base.item) : null
-  const opener = (id: string) => (x: Item) => {
+  const opener = (id: string) => (x: Item, above?: Item) => {
     setTeamId(id)
-    sheets.open(x)
+    sheets.open(x, above)
   }
 
   return (

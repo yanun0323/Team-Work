@@ -3,18 +3,19 @@
 import { tr, type Key } from './core/i18n'
 import { useEffect } from 'react'
 import { nodeOf } from './core/domain/graph'
-import { statusOf, subsOf } from './core/domain/sim'
+import { statusOf, subsOf, taskTokens } from './core/domain/sim'
 import type { Chat, Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
 import { MOCK } from './core/mode'
 import { byBlueprint, chatMindOf, chatSign, chatWho, mindOf } from './crew'
-import { activity, fmtTokens, teamReplicas, teamTasks } from './core/model'
+import { activity, fmtTokens, teamReplicas, teamTasks, waitingSub } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { Select, Stepper, WaitBadge } from './Controls'
 import { editTeam, refreshPrompt } from './core/ops'
 import { itemKey, type Item } from './DrawerDetail'
 import { blocked } from './prereqs'
+import { usePrefs } from './prefs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 
 export type Tab = 'chats' | 'tasks' | 'crew' | 'terminal' | 'settings'
@@ -39,7 +40,7 @@ const COLUMNS: { status: Status; label: Key }[] = [
 ]
 
 /** Which item's detail sheet is open (by itemKey), and how to open one. */
-interface Opens { teamId: string; open: string | null; onOpen: (x: Item) => void }
+interface Opens { teamId: string; open: string | null; onOpen: (x: Item, above?: Item) => void }
 
 /** The terminal is not here: the company file keeps it apart, so it outlasts a change of tab. */
 export function TabBody({ tab, ...p }: Opens & { tab: Exclude<Tab, 'terminal'> }) {
@@ -123,8 +124,12 @@ export function Tasks(p: Opens) {
                 .filter((s) => !s.cancelled && s.replicaId && (s.status === 'progressing' || s.status === 'review'))
                 .map((s) => w.replicas[s.replicaId as string])
                 .filter((r, i, all) => r && all.indexOf(r) === i)
+              const tokens = taskTokens(w, task)
               return (
-                <button key={task.id} className="fx-task fx-hit" {...opener({ kind: 'task', id: task.id }, p)}>
+                <button key={task.id} className="fx-task fx-hit" {...opener({ kind: 'task', id: task.id }, p)} onClick={() => {
+                  const sub = c.status === 'review' && usePrefs.getState().openWaitingSub ? waitingSub(w, task.id) : undefined
+                  p.onOpen({ kind: 'task', id: task.id }, sub && { kind: 'sub', id: sub.id })
+                }}>
                   {/* waiting on the user: red to answer, green to merge */}
                   {c.status === 'review' && <WaitBadge merge={task.stage === 'awaitMerge'} />}
                   <span className="fx-task-title"><span className="fx-task-no">#{task.number}</span>{task.title}</span>
@@ -137,6 +142,7 @@ export function Tasks(p: Opens) {
                   {(task.paused || task.stage === 'merging') && (
                     <span className="fx-pill">{task.paused ? tr('已暫停') : tr('合併中')}</span>
                   )}
+                  {tokens > 0 && <span className="fx-task-tokens">{fmtTokens(tokens)} Token</span>}
                 </button>
               )
             })}

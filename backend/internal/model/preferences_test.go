@@ -56,3 +56,13 @@ func TestAutoView(t *testing.T) {
 		t.Fatal("unknown autoView accepted")
 	}
 }
+
+func TestWaitingShortcutsAreOnForOldFiles(t *testing.T) {
+	var p Preferences
+	if err := json.Unmarshal([]byte(`{"shadows":false}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	if !p.OpenWaitingTab || !p.OpenWaitingSub {
+		t.Fatalf("waiting shortcuts should default to on: %+v", p)
+	}
+}

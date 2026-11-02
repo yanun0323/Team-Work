@@ -11,7 +11,7 @@ import { version } from '../package.json'
 import { BlueprintIcon } from './BlueprintIcon'
 import { SheetStack, useSheets } from './Drawer'
 import { gitSources } from './core/domain/sim'
-import { blueprintList, flowList } from './core/model'
+import { blueprintList, flowList, waitingTab } from './core/model'
 import { isPreset } from './core/data/presets'
 import { itemKey, type Item } from './DrawerDetail'
 import { FlowNotes, openCard } from './FlowNotes'
@@ -65,7 +65,11 @@ export function Settings({ leaving, onGone }: {
   /** Called when the page has turned away. */
   onGone: () => void
 }) {
-  const [tab, setTab] = useState<AirportTab>(() => airportTabOr(usePrefs.getState().defaultAirportTab))
+  const [tab, setTab] = useState<AirportTab>(() => {
+    const { openWaitingTab, defaultAirportTab } = usePrefs.getState()
+    // the airport has no tasks, so only its chats can be waiting
+    return openWaitingTab && waitingTab(useStore.getState().world, '') === 'chats' ? 'chats' : airportTabOr(defaultAirportTab)
+  })
   const title = useRef<HTMLHeadingElement>(null)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const sheets = useSheets()
@@ -372,6 +376,8 @@ export function PrefsPage() {
             labelOf={(id) => tr(AIRPORT_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultAirportTab: v as AirportTab })} />
           <Select label={tr('預設公司頁籤')} value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.map((x) => x.id)}
             labelOf={(id) => tr(COMPANY_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultTab: v as CompanyTab })} />
+          {check('openWaitingTab', tr('有待處理時優先開啟該頁籤'))}
+          {check('openWaitingSub', tr('點待回覆的任務時直接開啟子任務'))}
         </div>
       </section>
       <section className="fx-d-group" aria-labelledby="fx-prefs-controls">

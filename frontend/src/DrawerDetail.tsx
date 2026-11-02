@@ -316,17 +316,6 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
           <span>Token {fmtTokens(taskTokens(w, task))}</span>
         </p>
       </header>
-      {task.description && <div className="fx-d-text-md"><Markdown text={task.description} /></div>}
-      {task.images.length > 0 && (
-        <div className="fx-thumbs">
-          {task.images.map((im, i) => (
-            <button key={i} type="button" className="fx-thumb fx-hit" aria-expanded={image === i} onClick={() => onImage(i)}>
-              <img src={im.url} alt={im.name} />
-            </button>
-          ))}
-        </div>
-      )}
-      {!!task.files?.length && <div className="fx-thumbs">{task.files.map((file, i) => <FileAttachment key={i} file={file} />)}</div>}
       {/* the drawing opens as a whole, as flows do in the company file: its title is the button */}
       <section className="fx-flow fx-flow-card fx-d-flowcard" onClick={openCard}>
         <h3><button type="button" className="fx-flow-open" aria-expanded={flowOpen} onClick={onFlow}>{flow}</button></h3>
@@ -337,6 +326,17 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
         <MergeRow taskId={task.id} />
         <dl className="fx-d-facts"><dt>Token</dt><dd>{fmtTokens(taskTokens(w, task))}</dd></dl>
       </Section>
+      {task.description && <div className="fx-doc-note"><Markdown text={task.description} /></div>}
+      {task.images.length > 0 && (
+        <div className="fx-thumbs">
+          {task.images.map((im, i) => (
+            <button key={i} type="button" className="fx-thumb fx-hit" aria-expanded={image === i} onClick={() => onImage(i)}>
+              <img src={im.url} alt={im.name} />
+            </button>
+          ))}
+        </div>
+      )}
+      {!!task.files?.length && <div className="fx-thumbs">{task.files.map((file, i) => <FileAttachment key={i} file={file} />)}</div>}
       <Section name={tr('紀錄')}><Log lines={lines} /></Section>
     </>
   )

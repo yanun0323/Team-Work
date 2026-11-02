@@ -261,6 +261,7 @@ body { margin: 0; overflow: hidden; }
 .fx-task-title { font-size: 13.5px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
 .fx-task-no { margin-inline-end: 5px; font: 500 11px/1 var(--font-mono); color: var(--muted); }
 .fx-task .fx-pill { justify-self: start; }
+.fx-task-tokens { justify-self: end; font: 500 11px/1.2 var(--font-mono); color: var(--muted); text-align: end; }
 
 /* flows: left to right, each step a sticky note; space, not rules, between flows */
 .fx-flows { display: grid; gap: 30px; }
