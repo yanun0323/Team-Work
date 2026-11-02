@@ -27,7 +27,7 @@ func TestToolResultsBecomeTheirOwnMessages(t *testing.T) {
 // the real conversion against a fake Claude Code process, for a whole call and the reply it gives back
 func TestCompleteThroughTheChild(t *testing.T) {
 	fakeClaude(t)
-	c, err := New()
+	c, err := New(nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -31,13 +32,14 @@ const (
 // Factory makes providers, and owns what subscriptions keep between calls.
 type Factory struct {
 	secrets adapter.Secrets
+	log     *slog.Logger
 	mu      sync.Mutex
 	claude  *claude.Client
 	codex   map[string]*codex.Client
 }
 
-func NewFactory(secrets adapter.Secrets) *Factory {
-	return &Factory{secrets: secrets, codex: map[string]*codex.Client{}}
+func NewFactory(secrets adapter.Secrets, log *slog.Logger) *Factory {
+	return &Factory{secrets: secrets, log: log, codex: map[string]*codex.Client{}}
 }
 
 // ClaudeCode is the setup of the program Claude subscriptions run through.
@@ -72,7 +74,7 @@ func (f *Factory) claudeClient() (*claude.Client, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.claude == nil {
-		c, err := claude.New()
+		c, err := claude.New(f.log)
 		if err != nil {
 			return nil, model.Errorf(model.CodeInvalid, "無法使用 Claude Code 的設定資料夾")
 		}

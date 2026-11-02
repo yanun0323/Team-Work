@@ -2,6 +2,7 @@ package claude
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 )
@@ -54,6 +55,14 @@ func errorCode(err error) string {
 		return p.Code
 	}
 	return "unknown"
+}
+
+// errorType says which kind of error ended a request. Its text is left out, as it can quote what it failed on.
+func errorType(err error) string {
+	if err == nil {
+		return ""
+	}
+	return fmt.Sprintf("%T", err)
 }
 
 func (c *child) recordFrame(f frame) {

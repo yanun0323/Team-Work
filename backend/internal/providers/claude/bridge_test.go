@@ -2,9 +2,11 @@ package claude
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -134,10 +136,14 @@ func TestClaudeChild(t *testing.T) {
 				continue
 			}
 			if tools && round == 1 {
+				toolArgs := `{"path":"a.go"}`
+				if value := os.Getenv("MHO_TEST_CLAUDE_TOOL_ARGS"); value != "" {
+					toolArgs = value
+				}
 				write(object{"type": "stream_event", "event": object{"type": "message_start", "message": object{"id": "tools", "usage": object{"input_tokens": 10, "cache_read_input_tokens": 20}}}})
 				for i := 0; i < 2; i++ {
 					write(object{"type": "stream_event", "event": object{"type": "content_block_start", "index": i, "content_block": object{"type": "tool_use", "id": fmt.Sprint("c", i), "name": "mcp__mho__read", "input": object{}}}})
-					write(object{"type": "stream_event", "event": object{"type": "content_block_delta", "index": i, "delta": object{"type": "input_json_delta", "partial_json": `{"path":"a.go"}`}}})
+					write(object{"type": "stream_event", "event": object{"type": "content_block_delta", "index": i, "delta": object{"type": "input_json_delta", "partial_json": toolArgs}}})
 					write(object{"type": "stream_event", "event": object{"type": "content_block_stop", "index": i}})
 				}
 				write(object{"type": "stream_event", "event": object{"type": "message_delta", "delta": object{"stop_reason": "tool_use"}, "usage": object{"output_tokens": 7}}})
@@ -274,6 +280,58 @@ func TestToolRoundTripReuseAndRebuild(t *testing.T) {
 		t.Fatal("mirror not cleaned")
 	}
 }
+
+// Remembering the history must not write into the arguments the caller holds: JSON encoding turns ">" into
+// the longer "\u003e", and the old buffer had room for it, which cut the caller's copy off mid-value.
+func TestRememberedHistoryLeavesToolArgumentsIntact(t *testing.T) {
+	fakeClaude(t)
+	args := `{"path":"2>` + strings.Repeat("a", 184-len(`{"path":"2>"}`)) + `"}`
+	t.Setenv("MHO_TEST_CLAUDE_TOOL_ARGS", args)
+	b := newBridge()
+	defer b.close()
+	p := base(t)
+	_, calls := runTurn(t, b, &p)
+	first := b.sessions[p.Session].child
+	for i, call := range calls {
+		p.Messages = append(p.Messages, ModelMessage{Role: "tool", CallID: call.ID, Content: []Block{text(fmt.Sprint("result", i))}})
+	}
+	runTurn(t, b, &p)
+	for _, call := range calls {
+		if string(call.Args) != args {
+			t.Fatalf("arguments changed to %s", call.Args)
+		}
+	}
+	p.Messages = append(p.Messages, ModelMessage{Role: "user", Content: []Block{text("again")}})
+	runTurn(t, b, &p)
+	if b.sessions[p.Session].child != first {
+		t.Fatal("history stopped matching and the child restarted")
+	}
+}
+
+// A history that cannot be rebuilt is our failure: the message must not blame the user's Claude Code setup,
+// and the log must name the step without quoting the conversation.
+func TestHistoryFailureIsReportedAsInternal(t *testing.T) {
+	fakeClaude(t)
+	var logged bytes.Buffer
+	b := newBridge()
+	b.log = slog.New(slog.NewJSONHandler(&logged, nil))
+	defer b.close()
+	p := base(t)
+	p.Messages = []ModelMessage{
+		{Role: "user", Content: []Block{text("hello")}},
+		{Role: "assistant", Content: []Block{{Type: "tool_call", ID: "c0", Name: "read", Args: json.RawMessage(`{"path":"private-path`)}}},
+		{Role: "tool", CallID: "c0", Content: []Block{text("result")}},
+	}
+	_, err := b.complete(context.Background(), p, func(any) error { return nil })
+	if err == nil || strings.Contains(err.Error(), "login") || !strings.Contains(err.Error(), "backend.log") {
+		t.Fatalf("%v", err)
+	}
+	out := logged.String()
+	if !strings.Contains(out, `"msg":"history_failed"`) || !strings.Contains(out, `"error_type":"*json.MarshalerError"`) || strings.Contains(out, "private-path") {
+		t.Fatal(out)
+	}
+}
+
 func TestDiscoveryAndLaunchIsolation(t *testing.T) {
 	fakeClaude(t)
 	ids, efforts, err := discover(context.Background())

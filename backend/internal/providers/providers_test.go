@@ -26,7 +26,7 @@ func serve(t *testing.T, kind enum.ProviderKind, status int, body string) (adapt
 		io.WriteString(w, body)
 	}))
 	t.Cleanup(srv.Close)
-	p, err := NewFactory(nil).For(model.ModelProvider{Name: "x", Kind: kind, BaseURL: srv.URL, Auth: model.ProviderAuth{Kind: "apiKey"}}, "sk-key")
+	p, err := NewFactory(nil, nil).For(model.ModelProvider{Name: "x", Kind: kind, BaseURL: srv.URL, Auth: model.ProviderAuth{Kind: "apiKey"}}, "sk-key")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestAnthropicGetsTheLevel(t *testing.T) {
 }
 
 func TestSubscriptions(t *testing.T) {
-	f := NewFactory(nil)
+	f := NewFactory(nil, nil)
 	defer f.Close()
 	if _, err := f.For(model.ModelProvider{Kind: enum.ProviderOpenAI, Auth: model.ProviderAuth{Kind: "subscription"}}, ""); err == nil {
 		t.Fatal("used without signing in")

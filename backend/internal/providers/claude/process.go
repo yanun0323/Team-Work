@@ -333,5 +333,11 @@ func safeError(err error) error {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return &Error{Code: CodeTimeout, Message: "Claude request timed out."}
 	}
-	return claudeError("")
+	return internalError()
+}
+
+// internalError is a failure on this side, before or after Claude Code ran, so it must not send the user to
+// their installation or login. The cause goes to the log as its type only.
+func internalError() error {
+	return rejected("處理這次請求時發生內部錯誤，請重試。如果持續發生，請查看 backend.log")
 }

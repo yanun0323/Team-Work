@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -57,7 +58,7 @@ func run() error {
 		return err
 	}
 	defer store.Close()
-	factory := providers.NewFactory(store)
+	factory := providers.NewFactory(store, slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 	defer factory.Close()
 	engine, err := usecase.NewEngine(ctx, usecase.Options{
 		Store: store, Git: repository.NewGit(cfg.DataDir), Providers: factory, DataDir: cfg.DataDir, Log: log.Logger,

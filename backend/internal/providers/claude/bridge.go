@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"reflect"
@@ -226,7 +227,7 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 	}
 	record(log, "request_started", "messages", len(p.Messages), "tools", len(p.Tools))
 	defer func() {
-		record(log, "request_finished", "success", err == nil, "code", errorCode(err), "duration_ms", time.Since(started).Milliseconds())
+		record(log, "request_finished", "success", err == nil, "code", errorCode(err), "error_type", errorType(err), "duration_ms", time.Since(started).Milliseconds())
 	}()
 	if err = validate(p); err != nil {
 		return CompleteResult{}, err
@@ -292,6 +293,7 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 		canonical.Cwd = cwd
 		history, e := makeMirror(canonical)
 		if e != nil {
+			record(log, "history_failed", "error_type", fmt.Sprintf("%T", e))
 			return CompleteResult{}, safeError(e)
 		}
 		processLog := b.log
@@ -380,7 +382,10 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 				return CompleteResult{}, ctx.Err()
 			}
 			// Clone request history: callers may reuse their slices for the next turn.
+			// Decode into a new slice: decoding reuses existing buffers, and the last assistant message's
+			// arguments are still shared with the caller.
 			raw, _ := json.Marshal(p.Messages)
+			s.expected = nil
 			_ = json.Unmarshal(raw, &s.expected)
 			// callers keep text and tool calls only, so reasoning must not count against reuse
 			var kept []Block

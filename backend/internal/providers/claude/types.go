@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -105,11 +106,13 @@ type Client struct {
 }
 
 // New sweeps away what a crashed server left in Claude's folder.
-func New() (*Client, error) {
+func New(log *slog.Logger) (*Client, error) {
 	if err := sweepMirrors(); err != nil {
 		return nil, err
 	}
-	return &Client{bridge: newBridge()}, nil
+	b := newBridge()
+	b.log = log
+	return &Client{bridge: b}, nil
 }
 
 // Close stops every process.
