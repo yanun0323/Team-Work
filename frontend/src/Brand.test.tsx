@@ -29,8 +29,15 @@ it('shows a subscription as two rings and an API key as its balance, in the orde
   expect(html).toContain('<span>88</span>')
   expect(html).not.toContain('50%<')
   expect(html).toContain('>110.00 CNY<')
-  expect(html).toMatch(/OpenAI<\/span><span class="fx-quota-balance fx-quota-none">-<\/span>/)
   expect(html).toContain('<span class="fx-quota-balance">110.00 CNY</span>')
+})
+
+it('leaves out an API key whose balance is unknown, but keeps a subscription without numbers', () => {
+  const html = renderToStaticMarkup(<QuotaList now={0} providers={[sub('a', 'Claude'), key('c', 'OpenAI')]} quotas={{}} />)
+  expect(html).toContain('Claude')
+  expect(html).not.toContain('OpenAI')
+  expect(html).not.toContain('fx-quota-balance')
+  expect(renderToStaticMarkup(<QuotaList now={0} providers={[key('c', 'OpenAI')]} quotas={{}} />)).toBe('')
 })
 
 it('greys out a ring with no number', () => {
