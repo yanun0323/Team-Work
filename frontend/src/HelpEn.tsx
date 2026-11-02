@@ -139,6 +139,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Zoom sensitivity</dt><dd>How fast scrolling zooms the map. 100% by default.</dd>
           <dt>Terminal startup command</dt><dd>Under Advanced, empty by default. When filled in, each new terminal runs this command as it starts.</dd>
           <dt>Game objects</dt><dd>Turn off details, shadows, people on the map, plane animation or clouds to make the screen run more smoothly.</dd>
+          <dt>Global AGENTS.md</dt><dd>Edit it under System. Every employee in every company receives it. It is stored in <code>~/.team-work/AGENTS.md</code>, and edits made outside the app apply from the next run or reply.</dd>
           <dt>Settings files</dt><dd>Interface preferences (preferences.yaml), companies, employees, your own blueprints and workflows, and providers are stored as files under <code>~/.team-work</code>. Built-in ones are not there. After editing them yourself, press Reload settings. They apply only if the whole batch passes its checks; otherwise the current settings stay. Open settings folder shows this location in Finder.</dd>
         </dl>
       </>
@@ -162,6 +163,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Questions</dt><dd>When an employee needs you to decide, they stop and ask. Pick one of the options they list, or just type your answer, and they carry on. A chat waiting for you is marked in the list.</dd>
           <dt>Attachments</dt><dd>Press the paper clip to pick images or files, or paste a screenshot. You can send attachments with no text, with images up to 3.75MB, other files up to 25MB, and 6 per message in total. PNG, JPEG, GIF and WebP show previews; other files show a name you can press to download. Employees receive a text preview for text files; PDF, Office and other formats require available tools and may not be readable.</dd>
           <dt>Edit a message</dt><dd>Press the pencil under your message: it and everything after it disappear, and its text and attachments return to the box for you to change and resend. Pressing it during a reply also stops the reply. There is no undo, and files the employee changed are not restored.</dd>
+          <dt>Fork</dt><dd>Press the fork icon under a message to copy the chat up to there into a new chat and open it. The original stays as it is. You can fork from your own messages or the last message of an employee's reply. The new chat waits for you to say something, and both chats work in the same project folder.</dd>
           <dt>Create task</dt><dd>When you have discussed enough, press Create task. The employee writes the chat up as a new task for you to edit and start.</dd>
           <dt>Delete</dt><dd>Delete a chat at the top right. Changes in the folder stay. When an employee leaves the company, their chats stay readable, but you cannot post in them.</dd>
         </dl>

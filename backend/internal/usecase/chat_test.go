@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/yanun0323/mho-company/internal/model"
@@ -694,7 +695,13 @@ func TestTaskStepsAreToldTheLanguage(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.task(r.flow.ID)
-	r.wait("first step", func(*model.World) bool { return len(r.fake.seen) > 0 })
+	r.wait("first step", func(*model.World) bool {
+		r.fake.mu.Lock()
+		defer r.fake.mu.Unlock()
+		return len(r.fake.seen) > 0
+	})
+	r.fake.mu.Lock()
+	defer r.fake.mu.Unlock()
 	if got := r.fake.seen[0].System; !strings.Contains(got, "user reads in English") || strings.Contains(got, "# 這一步") {
 		t.Fatalf("%s", got)
 	}
@@ -716,5 +723,130 @@ func TestMessagesFollowTheLanguage(t *testing.T) {
 	newEngine(t, r)
 	if err := r.e.DeleteBlueprint("preset-pm"); err == nil || !strings.Contains(err.Error(), "Built-in") {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestForkCopiesUpToTheMessageAndGoesOnByItself(t *testing.T) {
+	var mu sync.Mutex
+	heard := map[string][]model.Message{}
+	replies := 0
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		heard[req.Session] = req.Messages
+		replies++
+		if replies == 1 { // tool results also come as the user's; they must not be taken for messages
+			return call("no_such_tool", map[string]any{}), nil
+		}
+		return say("回覆"), nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "第一句",
+		Files: []model.Attachment{{Name: "a.txt", URL: "data:text/plain;base64,aGk="}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first", chatDone(c.ID))
+	if err := r.e.SayInChat(c.ID, "第二句", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("second", chatDone(c.ID))
+	msgs := r.world().Chats[c.ID].Messages
+	tool := slices.IndexFunc(msgs, func(m model.ChatMessage) bool { return m.From == "tool" })
+	second := slices.IndexFunc(msgs, func(m model.ChatMessage) bool { return m.Text == "第二句" })
+	reply := second - 1 // the employee's bubble that ends the first reply
+
+	for _, bad := range []int{-1, tool, len(msgs)} {
+		if _, err := r.e.ForkChat(c.ID, bad); err == nil {
+			t.Fatalf("forked at %d", bad)
+		}
+	}
+	// from a user's message: the copy ends there, unanswered, and nothing runs
+	atSecond, err := r.e.ForkChat(c.ID, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if atSecond.ID == c.ID || len(atSecond.Messages) != second+1 || atSecond.ReplyAt != nil {
+		t.Fatalf("%+v", atSecond)
+	}
+	// from an employee's: it ends with that reply
+	atReply, err := r.e.ForkChat(c.ID, reply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(atReply.Messages) != second {
+		t.Fatalf("%+v", atReply.Messages)
+	}
+	if err := r.e.SayInChat(atReply.ID, "分支", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("the fork", chatDone(atReply.ID))
+
+	mu.Lock()
+	var said []string
+	var attached string
+	for _, m := range heard[atReply.ID] {
+		for _, b := range m.Content {
+			if m.Role == enum.RoleUser && b.Type == enum.BlockText {
+				if strings.HasPrefix(b.Text, "Attached file") {
+					attached = b.Text
+				} else {
+					said = append(said, b.Text)
+				}
+			}
+		}
+	}
+	mu.Unlock()
+	if !slices.Equal(said, []string{"第一句", "分支"}) {
+		t.Fatalf("the model heard %q", said)
+	}
+	// the copy has its own attachment, and the model is told where
+	own := filepath.Join(r.data, "attachments", atReply.ID)
+	if !strings.Contains(attached, own) || strings.Contains(attached, c.ID) {
+		t.Fatal(attached)
+	}
+	found, _ := filepath.Glob(filepath.Join(own, "*", "a.txt"))
+	if len(found) != 1 {
+		t.Fatalf("%v", found)
+	}
+	// the original did not move
+	if got := r.world().Chats[c.ID].Messages; !slices.EqualFunc(got, msgs, func(a, b model.ChatMessage) bool { return a.Text == b.Text }) {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestForkKeepsAnOpenQuestionAndRefusesWhileReplying(t *testing.T) {
+	release := make(chan struct{})
+	first := true
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if first {
+			first = false
+			<-release
+			return call("ask_user", map[string]any{"prompt": "哪個？", "options": []string{"甲", "乙"}}), nil
+		}
+		return say("好"), nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "問我"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.ForkChat(c.ID, 0); err == nil {
+		t.Fatal("forked while replying")
+	}
+	close(release)
+	r.wait("the question", chatDone(c.ID))
+	asked := len(r.world().Chats[c.ID].Messages) - 1
+	fork, err := r.e.ForkChat(c.ID, asked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fork.Question == nil || !slices.Equal(fork.Question.Options, []string{"甲", "乙"}) {
+		t.Fatalf("%+v", fork.Question)
+	}
+	if err := r.e.SayInChat(fork.ID, "甲", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("the answer", chatDone(fork.ID))
+	if got := r.world().Chats[fork.ID].Messages; got[len(got)-1].Text != "好" {
+		t.Fatalf("%+v", got)
 	}
 }

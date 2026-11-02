@@ -62,6 +62,18 @@ export function startChat(act: (fn: (w: World) => void) => void, input: sim.NewC
   return attempt(() => request<Chat>('POST', '/chats', input))
 }
 
+/** Copies a chat up to a message. The answer can arrive ahead of the change to the world, and the copy opens at once. */
+export async function forkChat(act: (fn: (w: World) => void) => void, id: string, index: number): Promise<Chat | undefined> {
+  if (MOCK) {
+    let made: Chat | undefined
+    act((w) => { const fork = sim.forkChat(w, id, index); made = fork && JSON.parse(JSON.stringify(fork)) as Chat })
+    return made
+  }
+  const made = await attempt(() => request<Chat>('POST', `/chats/${id}/fork`, { index }))
+  if (made) act((w) => { w.chats[made.id] ??= made })
+  return made
+}
+
 /** A task written from a chat, for the new-task sheet. */
 export const chatTaskDraft = (w: World, id: string) => (MOCK
   ? Promise.resolve(sim.chatTaskDraft(w, id))

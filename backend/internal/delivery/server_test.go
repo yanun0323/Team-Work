@@ -411,6 +411,19 @@ func TestOpenSettingsFolderShowsTheDataDirectory(t *testing.T) {
 	}
 }
 
+func TestGlobalPromptEndpoints(t *testing.T) {
+	api := setup(t).URL + "/api/v1"
+	if code, body := send(t, "GET", api+"/settings/global-prompt", ""); code != http.StatusOK || body["prompt"] != "" {
+		t.Fatalf("%d %v", code, body)
+	}
+	if code, body := send(t, "PUT", api+"/settings/global-prompt", `{"prompt":"規則"}`, "Content-Type", "application/json"); code != http.StatusNoContent {
+		t.Fatalf("%d %v", code, body)
+	}
+	if code, body := send(t, "GET", api+"/settings/global-prompt", ""); code != http.StatusOK || body["prompt"] != "規則" {
+		t.Fatalf("%d %v", code, body)
+	}
+}
+
 func TestOpenFolderShowsTheCompanysFolder(t *testing.T) {
 	api := setup(t).URL + "/api/v1"
 	dir := t.TempDir()

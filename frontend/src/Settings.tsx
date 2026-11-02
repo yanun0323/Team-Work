@@ -253,6 +253,62 @@ export function ReloadSettings() {
   )
 }
 
+/** The AGENTS.md every employee gets. It is a file that can change outside the app, so it is reread on coming back. */
+export function SystemSection() {
+  const [saved, setSaved] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const [error, setError] = useState('')
+  // typing not saved yet outranks what the file says
+  const typing = useRef(false)
+  useEffect(() => {
+    let live = true
+    const load = async () => {
+      try {
+        const { prompt } = await request<{ prompt: string }>('GET', '/settings/global-prompt')
+        if (!live || typing.current) return
+        setSaved(prompt)
+        setDraft(prompt)
+        setError('')
+      } catch (e) {
+        if (live) setError((e as Error).message)
+      }
+    }
+    void load()
+    window.addEventListener('focus', load)
+    return () => {
+      live = false
+      window.removeEventListener('focus', load)
+    }
+  }, [])
+  const save = async () => {
+    if (draft === saved) {
+      typing.current = false
+      return
+    }
+    try {
+      await request('PUT', '/settings/global-prompt', { prompt: draft })
+      typing.current = false
+      setSaved(draft)
+      setError('')
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+  return (
+    <section className="fx-d-group" aria-labelledby="fx-prefs-system">
+      <h4 id="fx-prefs-system">{tr('系統')}</h4>
+      <div className="fx-fields">
+        <label className="fx-field fx-field-top">
+          <span>{tr('全域 AGENTS.md')}</span>
+          <textarea className="fx-control" rows={6} value={draft} disabled={saved === null} spellCheck={false}
+            onChange={(e) => { typing.current = true; setDraft(e.target.value) }} onBlur={() => void save()} />
+        </label>
+      </div>
+      <p role="alert">{error}</p>
+    </section>
+  )
+}
+
 export function AdvancedSection() {
   const saved = usePrefs((s) => s.terminalCommand)
   const set = usePrefs((s) => s.set)
@@ -322,6 +378,7 @@ export function PrefsPage() {
         </div>
       </section>
       <MusicSection />
+      {!MOCK && <SystemSection />}
       {!MOCK && <AdvancedSection />}
       {!MOCK && <ReloadSettings />}
     </div>

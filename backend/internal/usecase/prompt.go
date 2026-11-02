@@ -53,9 +53,21 @@ func languageRule(language string) string {
 		"Keep code, identifiers, paths and commands unchanged. Follow the project's conventions for commit messages and project files."
 }
 
+// sharedRules is what all employees are told, then what this company's are.
+func sharedRules(global, company string) string {
+	var b strings.Builder
+	if strings.TrimSpace(global) != "" {
+		fmt.Fprintf(&b, "\n# Global rules\n%s\n", global)
+	}
+	if company != "" {
+		fmt.Fprintf(&b, "\n# Company rules\n%s\n", company)
+	}
+	return b.String()
+}
+
 // composePrompt builds the system prompt, highest priority first: the fixed rules, this step, how to hand off,
-// the company's prompt, then the employee's own prompt and memory.
-func composePrompt(t *model.Task, team *model.Team, node *model.WorkflowNode, bp *model.Blueprint, r *model.Replica, language string) string {
+// the global and company prompts, then the employee's own prompt and memory.
+func composePrompt(t *model.Task, team *model.Team, node *model.WorkflowNode, bp *model.Blueprint, r *model.Replica, language, global string) string {
 	wf := agentFlow(&t.Workflow)
 	node = nodeOf(wf, node.ID)
 	var b strings.Builder
@@ -103,9 +115,7 @@ func composePrompt(t *model.Task, team *model.Team, node *model.WorkflowNode, bp
 			}
 		}
 	}
-	if team.Prompt != "" {
-		fmt.Fprintf(&b, "\n# Company rules\n%s\n", team.Prompt)
-	}
+	b.WriteString(sharedRules(global, team.Prompt))
 	if role := agentRole(bp); role != "" {
 		fmt.Fprintf(&b, "\n# Your role\n%s\n", role)
 	}

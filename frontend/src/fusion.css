@@ -1032,6 +1032,8 @@ p.fx-chat-bubble { white-space: pre-wrap; }
 .fx-room-attach:hover { color: var(--ink); }
 .fx-room-attach:focus-within { outline: 2px solid rgb(31 29 43 / 0.3); }
 .fx-chat-said { min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.fx-chat-said-agent { align-items: flex-start; max-width: 78%; }
+.fx-chat-said-agent .fx-chat-bubble { max-width: 100%; }
 .fx-chat-images { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .fx-chat-images img { display: block; max-width: 240px; max-height: 180px; padding: 3px; background: #fff; box-shadow: 0 1px 2px rgb(31 29 43 / 0.25); }
 .fx-chat-foot { display: flex; align-items: center; gap: 4px; min-height: 20px; }

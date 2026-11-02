@@ -74,6 +74,8 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/settings/open-folder", s.openSettingsFolder)
 	api.PUT("/settings/language", s.setLanguage)
 	api.PATCH("/settings/preferences", s.updatePreferences)
+	api.GET("/settings/global-prompt", s.globalPrompt)
+	api.PUT("/settings/global-prompt", s.setGlobalPrompt)
 	api.GET("/events", s.events)
 
 	api.POST("/teams", s.createTeam)
@@ -138,6 +140,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/chats/:id/say", s.sayInChat)
 	api.POST("/chats/:id/stop", s.stopChat)
 	api.POST("/chats/:id/rewind", s.rewindChat)
+	api.POST("/chats/:id/fork", s.forkChat)
 	api.POST("/chats/:id/task-draft", s.chatTaskDraft)
 	api.DELETE("/chats/:id", s.deleteChat)
 	return s
@@ -669,6 +672,17 @@ func (s *Server) rewindChat(c echo.Context) error {
 	return done(c, s.engine.RewindChat(c.Param("id"), in.Index))
 }
 
+func (s *Server) forkChat(c echo.Context) error {
+	in, err := bind[struct {
+		Index int `json:"index"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	out, err := s.engine.ForkChat(c.Param("id"), in.Index)
+	return created(c, out, err)
+}
+
 func (s *Server) stopChat(c echo.Context) error {
 	return done(c, s.engine.StopChat(c.Param("id")))
 }
@@ -741,6 +755,24 @@ func (s *Server) events(c echo.Context) error {
 			}
 		}
 	}
+}
+
+func (s *Server) globalPrompt(c echo.Context) error {
+	prompt, err := s.engine.GlobalPrompt()
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]string{"prompt": prompt})
+}
+
+func (s *Server) setGlobalPrompt(c echo.Context) error {
+	in, err := bind[struct {
+		Prompt string `json:"prompt"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.SetGlobalPrompt(in.Prompt))
 }
 
 func (s *Server) updatePreferences(c echo.Context) error {

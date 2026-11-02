@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { attachable, splitAttachments } from './attachments'
 import { seedWorld } from './core/data/seed'
-import { chatTaskDraft, createChat, deleteTeam, rewindChat, sayInChat, stopChat, tick } from './core/domain/sim'
+import { canFork, chatTaskDraft, createChat, deleteTeam, forkChat, rewindChat, sayInChat, stopChat, tick } from './core/domain/sim'
 import { teamReplicas } from './core/model'
 
 const setup = () => {
@@ -20,6 +20,27 @@ describe('chats', () => {
     for (let i = 0; i < 60; i++) tick(w, 0.1)
     expect(w.chats[chat.id].replyAt).toBeUndefined()
     expect(w.chats[chat.id].messages.at(-1)?.from).toBe('agent')
+  })
+
+  it('fork into a copy of their own, only at the end of a reply or at the user\'s message', () => {
+    const { w, chat } = setup()
+    expect(forkChat(w, chat.id, 0)).toBeUndefined() // still writing
+    for (let i = 0; i < 60; i++) tick(w, 0.1)
+    sayInChat(w, chat.id, '再一句')
+    for (let i = 0; i < 60; i++) tick(w, 0.1)
+    const fork = forkChat(w, chat.id, 1)!
+    expect(fork.id).not.toBe(chat.id)
+    expect(fork.messages.map((m) => m.from)).toEqual(['user', 'agent'])
+    expect(fork.replyAt).toBeUndefined()
+    expect(chat.messages).toHaveLength(4)
+    sayInChat(w, fork.id, '分支')
+    expect(fork.messages).toHaveLength(3)
+    expect(chat.messages).toHaveLength(4)
+    expect(forkChat(w, chat.id, 2)!.messages).toHaveLength(3)
+
+    const m = (from: 'user' | 'agent' | 'tool') => ({ at: 0, from, text: '' })
+    const turn = [m('user'), m('agent'), m('tool'), m('agent'), m('tool'), m('user')]
+    expect(turn.map((_, i) => canFork(turn, i))).toEqual([true, false, false, true, false, true])
   })
 
   it('take no message while writing, and go on after a stop without the reply', () => {

@@ -25,7 +25,7 @@ make test-backend  # 測試
 | `data.db` | SQLite：任務、子任務、交接、流程快照、對話、用量、員工記憶、登入狀態、憑證、語言、公司位置與建築外觀，以及項目識別與建立時間 |
 | `worktrees/` | 任務工作目錄 |
 
-公司共同指示仍在公司專案資料夾的 `AGENTS.md`，不放進設定檔。憑證沒有加密，靠檔案權限保護。
+公司共同指示仍在公司專案資料夾的 `AGENTS.md`，不放進設定檔。所有員工共用的指示在資料目錄的 `AGENTS.md`（預設 `~/.team-work/AGENTS.md`），可在「機場 → 設定 → 系統」編輯，每次開工和對話回覆都會重新讀，接在公司指示之前。憑證沒有加密，靠檔案權限保護。
 
 第一次啟動建立全域設定：
 
@@ -84,6 +84,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 |---|---|
 | `PUT /settings/language` | 設定 App 語言與員工回覆語言（`zh` 或 `en`），存在 SQLite；世界資料的 `language` 會更新 |
 | `PATCH /settings/preferences` | 部分更新介面偏好；讀取包含在 `/world`，更新透過事件同步 |
+| `GET`/`PUT /settings/global-prompt` | 讀寫全域 `AGENTS.md`，內容在 `prompt` 欄位 |
 | `POST /settings/open-folder` | 在 Finder 打開設定檔資料夾（`TEAM_WORK_HOME`） |
 | `POST /settings/reload` | 驗證並重新載入實體設定檔（不含全域 config.yaml）；成功回 204，錯誤保留現有設定 |
 | `GET /world` | 整個世界，欄位與前端 `types.ts` 相同 |
@@ -114,6 +115,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `GET /teams/:id/files?q=` | 公司資料夾裡符合 `q` 的檔案和資料夾（`path`、`dir`，最多 50 筆，略過 git 忽略的檔案），對話輸入框的 `@` 選單用 |
 | 對話裡的 `ask_user` | 員工可隨時用這個工具提問：`chat.question.options` 是選項（可為空），問題本身是一則員工訊息；下一則 `say` 就是回答 |
 | `POST /chats/:id/rewind` | 收回第 `index` 則使用者訊息和它之後的所有內容，並中斷回覆；資料夾裡的改動不會還原 |
+| `POST /chats/:id/fork` | 把對話複製到第 `index` 則訊息為止，回傳新對話；從員工訊息複製會保留到該段回覆結束，有回覆進行中時拒絕 |
 | `POST /chats/:id/task-draft` | 把對話整理成任務的 `title` 和 `description`，不會建立任務 |
 
 任務與對話的 `images`、`files` 都是 `{ "name": "檔名", "url": "…" }` 陣列，合計最多 6 個。`images` 接受 PNG、JPEG、GIF、WebP 的 data URL，每個最大 3.75MB。`files` 接受一般檔案，每個最大 25MB：`url` 是上傳後拿到的網址；舊資料的 data URL 仍可讀取，每個最大 3.75MB，省略 `files` 也可以。只有附件、沒有文字的對話也能發送。

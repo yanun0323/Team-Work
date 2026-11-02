@@ -11,7 +11,8 @@ import { chatMindOf, lastChatReplica, mindOf } from './crew'
 import { Gone, Heading, DeleteTool, type Head } from './DrawerDetail'
 import { fmtClock, teamReplicas, useStickToBottom } from './core/model'
 import type { Attachment, Chat } from './core/domain/types'
-import { attempt, chatTaskDraft, deleteChat, hasUncommitted, rewindChat, sayInChat, startChat, stopChat } from './core/ops'
+import { attempt, chatTaskDraft, deleteChat, forkChat, hasUncommitted, rewindChat, sayInChat, startChat, stopChat } from './core/ops'
+import { canFork } from './core/domain/sim'
 import { useLiveText } from './core/live'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -20,13 +21,15 @@ import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, 
 
 export interface ChatTaskSeed { title: string; description: string; ownerId: string | null }
 
-export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...h }: Head & {
+export function ChatSheet({ id: given, teamId, creating, onTask, onFork, onGoneChat, ...h }: Head & {
   /** The chat to open; none starts a new one. */
   id?: string
   teamId: string
   /** Whether the sheet above is the task being written from this chat. */
   creating: boolean
   onTask: (seed: ChatTaskSeed) => void
+  /** Opens the copy just made of this chat. */
+  onFork: (id: string) => void
   onGoneChat: () => void
 }) {
   const w = useStore((s) => s.world)
@@ -48,6 +51,7 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
   const box = useRef<HTMLTextAreaElement>(null)
   const [sending, setSending] = useState(false)
   const [drafting, setDrafting] = useState(false)
+  const [forking, setForking] = useState(false)
   const [uncommitted, setUncommitted] = useState(false)
   const writing = chat?.replyAt !== undefined
   const live = useLiveText(chat?.id)
@@ -108,6 +112,23 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
     setRefused(false)
     box.current?.focus()
   }
+  const fork = async (index: number) => {
+    if (!chat) return
+    setForking(true)
+    const made = await forkChat(act, chat.id, index)
+    setForking(false)
+    if (made) onFork(made.id)
+  }
+  const forkButton = (i: number) => !left && !!chat && canFork(chat.messages, i) && (
+    <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('從這則訊息複製出新對話')} title="Fork" disabled={writing || forking} onClick={() => void fork(i)}>
+      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+        <path d="M4 5v1.5a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V5M8 8.5V11" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="4" cy="3.3" r="1.7" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="12" cy="3.3" r="1.7" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="8" cy="12.7" r="1.7" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      </svg>
+    </button>
+  )
   const draftTask = async () => {
     if (!chat) return
     setDrafting(true)
@@ -148,7 +169,15 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
           : (
             <li key={i} className={`fx-chat-msg fx-chat-${m.from}`}>
               {m.from === 'agent'
-                ? <div className="fx-chat-bubble"><span className="fx-sr">{name}{colon()}</span><Markdown text={m.text} /></div>
+                ? (
+                  <div className="fx-chat-said fx-chat-said-agent">
+                    <div className="fx-chat-bubble"><span className="fx-sr">{name}{colon()}</span><Markdown text={m.text} /></div>
+                    <div className="fx-chat-foot">
+                      <time>{fmtClock(m.at)}</time>
+                      {forkButton(i)}
+                    </div>
+                  </div>
+                )
                 : (
                   <div className="fx-chat-said">
                     {m.images && m.images.length > 0 && (
@@ -166,10 +195,10 @@ export function ChatSheet({ id: given, teamId, creating, onTask, onGoneChat, ...
                         </svg>
                       </button>
                     )}
+                    {forkButton(i)}
                     </div>
                   </div>
                 )}
-              {m.from === 'agent' && <time>{fmtClock(m.at)}</time>}
             </li>
           ))}
         {writing && (

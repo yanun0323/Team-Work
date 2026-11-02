@@ -357,6 +357,26 @@ export function rewindChat(w: World, id: string, index: number) {
   delete chat.question
 }
 
+/** Whether a chat can be forked at a message: the user's, or the employee's that ends a reply, since a reply is not split. */
+export function canFork(messages: Chat['messages'], index: number) {
+  const m = messages[index]
+  if (m?.from === 'user') return true
+  return m?.from === 'agent' && messages.slice(index + 1).find((x) => x.from !== 'tool')?.from !== 'agent'
+}
+
+/** Copies a chat up to a message into a new chat. Nobody replies until the user says something in it. */
+export function forkChat(w: World, id: string, index: number): Chat | undefined {
+  const chat = w.chats[id]
+  const m = chat?.messages[index]
+  if (!m || m.from === 'tool' || chat.replyAt !== undefined || !w.replicas[chat.replicaId]) return undefined
+  const next = m.from === 'user' ? -1 : chat.messages.findIndex((x, i) => i > index && x.from === 'user')
+  const keep = m.from === 'user' ? index + 1 : next < 0 ? chat.messages.length : next
+  const fork: Chat = { ...chat, id: uid(w, 'chat'), messages: chat.messages.slice(0, keep).map((x) => ({ ...x })), createdAt: w.now }
+  if (keep < chat.messages.length) delete fork.question
+  w.chats[fork.id] = fork
+  return fork
+}
+
 export function deleteChat(w: World, id: string) {
   delete w.chats[id]
 }

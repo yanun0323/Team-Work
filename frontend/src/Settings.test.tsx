@@ -4,7 +4,7 @@ import { expect, it } from 'vitest'
 import { version } from '../package.json'
 import { useStore } from './core/store'
 import { airportTabOr, DEFAULT_PREFS, ordered, type AirportTab } from './prefs'
-import { AdvancedSection, PrefsPage, QuitTool, Settings, ReloadSettings } from './Settings'
+import { AdvancedSection, PrefsPage, QuitTool, Settings, ReloadSettings, SystemSection } from './Settings'
 
 it('is a drawer headed as the airport, its model providers listed under the first tab', () => {
   const html = renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)
@@ -114,4 +114,12 @@ it('offers the terminal startup command under 進階, empty by default', () => {
   expect(html).toContain('進階')
   expect(html).toContain('終端機預設指令')
   expect(html).toContain('value=""')
+})
+
+it('offers the global AGENTS.md under 系統, locked until the file has been read', () => {
+  const html = renderToStaticMarkup(<SystemSection />)
+  expect(html).toContain('>系統</h4>')
+  expect(html).toContain('<span>全域 AGENTS.md</span>')
+  expect(html).toMatch(/<textarea[^>]* disabled/)
+  expect(html).toContain('role="alert"')
 })

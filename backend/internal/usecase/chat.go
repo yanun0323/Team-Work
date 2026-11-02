@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -138,6 +139,70 @@ func (e *Engine) RewindChat(id string, index int) error {
 	})
 }
 
+// ForkChat copies a chat up to a message into a new chat that goes on by itself. From one of the user's messages it
+// ends there, unanswered; from an employee's it keeps the rest of that reply, as a reply cannot be split in the
+// conversation the model reads. Nothing runs until the user says something in the copy.
+func (e *Engine) ForkChat(id string, index int) (*model.Chat, error) {
+	var out *model.Chat
+	err := e.do(func() error {
+		c := e.w.Chats[id]
+		if c == nil {
+			return model.Errorf(model.CodeNotFound, "找不到對話")
+		}
+		if index < 0 || index >= len(c.Messages) || c.Messages[index].From == "tool" {
+			return model.Errorf(model.CodeInvalid, "只能從訊息複製對話")
+		}
+		if c.ReplyAt != nil {
+			return model.Errorf(model.CodeInvalid, "員工還在回覆")
+		}
+		if e.w.Replicas[c.ReplicaID] == nil {
+			return model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
+		}
+		conv := e.w.Conversations[c.ID]
+		nth := 0
+		for _, m := range c.Messages[:index] {
+			if m.From == "user" {
+				nth++
+			}
+		}
+		keep, end := index+1, 0
+		if c.Messages[index].From == "user" {
+			end = saidAt(conv, nth) + 1
+		} else if next := slices.IndexFunc(c.Messages[index:], func(m model.ChatMessage) bool { return m.From == "user" }); next < 0 {
+			keep, end = len(c.Messages), len(conv)
+		} else {
+			keep, end = index+next, saidAt(conv, nth)
+		}
+		if end <= 0 {
+			return model.Errorf(model.CodeConflict, "這段對話的紀錄對不上，無法複製")
+		}
+		fork := &model.Chat{ID: e.uid("chat"), TeamID: c.TeamID, ReplicaID: c.ReplicaID, Name: c.Name, Look: c.Look, Model: c.Model, CreatedAt: e.w.Now, Messages: clone(c.Messages[:keep])}
+		if keep == len(c.Messages) {
+			fork.Question = clone(c.Question)
+		}
+		for _, m := range fork.Messages {
+			if err := e.saveAttachments(fork.ID, m.Files); err != nil {
+				return err
+			}
+		}
+		// the copy may read only its own attachments, so what the model was told has to point there
+		from, to := e.attachmentRoot(c.ID), e.attachmentRoot(fork.ID)
+		copied := clone(conv[:end])
+		for _, m := range copied {
+			for i := range m.Content {
+				m.Content[i].Text = strings.ReplaceAll(m.Content[i].Text, from, to)
+				m.Content[i].Args = bytes.ReplaceAll(m.Content[i].Args, []byte(from), []byte(to))
+			}
+		}
+		e.w.Chats[fork.ID] = fork
+		e.w.Conversations[fork.ID] = copied
+		e.dirty[fork.ID] = true
+		out = clone(fork)
+		return nil
+	})
+	return out, err
+}
+
 // saidAt finds the user's nth message in a conversation, where tool results also come as the user's; -1 if it has none.
 func saidAt(conv []model.Message, nth int) int {
 	for i, m := range conv {
@@ -273,9 +338,7 @@ func (e *Engine) chatSpec(c *model.Chat) (agentSpec, error) {
 	e.readPrompt(team)
 	var b strings.Builder
 	b.WriteString(chatRules + "\n" + languageRule(e.w.Language) + "\n")
-	if team.Prompt != "" {
-		fmt.Fprintf(&b, "\n# Company rules\n%s\n", team.Prompt)
-	}
+	b.WriteString(sharedRules(e.runGlobalPrompt(), team.Prompt))
 	if role := agentRole(bp); role != "" {
 		fmt.Fprintf(&b, "\n# Your role\n%s\n", role)
 	}

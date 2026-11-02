@@ -181,7 +181,7 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           )}
           {(item.kind === 'chat' || item.kind === 'newChat') && (
             <ChatSheet id={item.kind === 'chat' ? item.id : undefined} teamId={teamId} title={title} tid={id} creating={above?.kind === 'newTask'}
-              onTask={(seed) => onPush({ kind: 'newTask', seed })} onGoneChat={onDone} />
+              onTask={(seed) => onPush({ kind: 'newTask', seed })} onFork={(x) => onPush({ kind: 'chat', id: x })} onGoneChat={onDone} />
           )}
           {item.kind === 'disband' && <Disband teamId={teamId} title={title} tid={id} onDone={onDone} />}
           {item.kind === 'staff' && <StaffPick node={item.node} teamId={teamId} title={title} tid={id} onDone={onDone} />}

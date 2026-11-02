@@ -198,7 +198,7 @@ func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Rep
 	if node != nil {
 		team := e.w.Teams[t.TeamID]
 		e.readPrompt(team)
-		spec.system = composePrompt(t, team, node, bp, r, e.w.Language)
+		spec.system = composePrompt(t, team, node, bp, r, e.w.Language, e.runGlobalPrompt())
 	}
 	spec.packs = packsOf(bp)
 	return spec, nil

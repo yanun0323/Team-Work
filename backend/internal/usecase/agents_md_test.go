@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -113,5 +114,74 @@ func TestEmployeeGetsTheLatestAgentsFile(t *testing.T) {
 	defer mu.Unlock()
 	if !strings.Contains(system, "剛剛才改的規則") {
 		t.Fatal(system)
+	}
+}
+
+func TestGlobalPromptReachesEveryEmployee(t *testing.T) {
+	var mu sync.Mutex
+	systems := map[string]string{}
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		systems[req.Session] = req.System
+		if len(req.Tools) > 0 && slices.ContainsFunc(req.Tools, func(s model.ToolSpec) bool { return s.Name == "submit_handoff" }) {
+			return call("submit_handoff", handoff), nil
+		}
+		return say("好"), nil
+	})
+	file := filepath.Join(r.data, "AGENTS.md")
+	if got, err := r.e.GlobalPrompt(); err != nil || got != "" {
+		t.Fatalf("%q %v", got, err)
+	}
+	// nothing to save, no file
+	if err := r.e.SetGlobalPrompt(""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("a file appeared: %v", err)
+	}
+	if err := r.e.SetGlobalPrompt("全域規則"); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(file); string(raw) != "全域規則" {
+		t.Fatalf("%q", raw)
+	}
+	writeAgents(t, r.folder, "公司規則")
+
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("the chat", chatDone(c.ID))
+	r.task(r.flow.ID)
+	r.wait("the task's employee", func(*model.World) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(systems) > 1
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	for session, system := range systems {
+		g, co := strings.Index(system, "全域規則"), strings.Index(system, "公司規則")
+		if g < 0 || co < g {
+			t.Fatalf("%s: %s", session, system)
+		}
+	}
+}
+
+func TestGlobalPromptFollowsItsFile(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	if err := os.WriteFile(filepath.Join(r.data, "AGENTS.md"), []byte("外面改的"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.e.GlobalPrompt(); err != nil || got != "外面改的" {
+		t.Fatalf("%q %v", got, err)
+	}
+	// emptying keeps the file, and an empty prompt adds no heading
+	if err := r.e.SetGlobalPrompt(""); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(r.data, "AGENTS.md")); err != nil || info.Size() != 0 {
+		t.Fatalf("%v %v", info, err)
 	}
 }
