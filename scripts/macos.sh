@@ -9,8 +9,8 @@ identity="${SIGN_IDENTITY:-Developer ID Application: Yanun Yang (Y366CJ66L6)}"
 sparkle_version=2.10.1
 sparkle_sha256=1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27
 sparkle="$PWD/.cache/sparkle/$sparkle_version"
-# Releases live on GitHub; the app reads the newest appcast from there (SUFeedURL in macos/Info.plist).
-release_url=https://github.com/yanun0323/Team-Work/releases/latest/download/
+# Releases live on GitHub, tagged v<version>; the app reads the newest appcast from there (SUFeedURL in macos/Info.plist).
+releases=https://github.com/yanun0323/Team-Work/releases
 
 fetch_sparkle() {
     [ -d "$sparkle/Sparkle.framework" ] && return
@@ -94,7 +94,9 @@ appcast)
     rm -rf "$release"
     mkdir -p "$release"
     cp "$zip" "$release/"
-    "$sparkle/bin/generate_appcast" --download-url-prefix "$release_url" "$release"
+    # Each update points at its own tag, so the ZIP always matches the signature in the appcast.
+    version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
+    "$sparkle/bin/generate_appcast" --download-url-prefix "$releases/download/v$version/" "$release"
     echo "Upload to the GitHub release: $release/$(basename "$zip") and $release/appcast.xml"
     ;;
 *) echo "Usage: $0 {build|sign|notarize|appcast}" >&2; exit 2 ;;
