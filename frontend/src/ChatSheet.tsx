@@ -13,7 +13,7 @@ import { CrewPicks, CrewRow } from './Pickers'
 import { chatMindOf, chatPeople, chatPreview, DEFAULT_EFFORT, effortsOf, lastAirportMind, lastChatReplica, mindOf, modelGroups, modelsOf, noteColors, personMindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
 import { answerMentions, mentionedPeople } from './mentions'
-import { Gone, Heading, DeleteTool, type Head } from './DrawerDetail'
+import { Gone, Heading, DeleteTool, PinTool, type Head } from './DrawerDetail'
 import { composing } from './ime'
 import { fmtClock, fmtTokens, teamReplicas, useAtBottom, useStickToBottom } from './core/model'
 import type { Attachment, Chat, QueuedMessage } from './core/domain/types'
@@ -334,6 +334,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
               {drafting ? tr('整理中…') : tr('建立任務')}
             </button>
           )}
+          <PinTool chat={chat} />
           <DeleteTool what={tr('對話')} onConfirm={() => { act((x) => deleteChat(x, chat.id)); onGoneChat() }} />
         </div>
       )}

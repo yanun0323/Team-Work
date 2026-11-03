@@ -412,6 +412,14 @@ export function renameChat(w: World, id: string, title: string) {
   else delete chat.title
 }
 
+/** Pins a chat to the top of its list, or unpins it; pinning one already pinned keeps when it was pinned. */
+export function pinChat(w: World, id: string, pinned: boolean) {
+  const chat = w.chats[id]
+  if (!chat) return
+  if (!pinned) delete chat.pinnedAt
+  else chat.pinnedAt ??= w.now
+}
+
 /** The employee of a company's chat has left. The airport staff never do. */
 const chatLeft = (w: World, chat: Chat) => !!chat.teamId && !w.replicas[chat.replicaId]
 

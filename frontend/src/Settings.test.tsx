@@ -5,7 +5,7 @@ import { version } from '../package.json'
 import { useStore } from './core/store'
 import { createAirportChat } from './core/domain/sim'
 import { airportTabOr, DEFAULT_PREFS, ordered, type AirportTab, usePrefs } from './prefs'
-import { AdvancedSection, ChatTitleFields, PrefsPage, QuitTool, Settings, ReloadSettings, ResetSettings, SystemSection } from './Settings'
+import { AdvancedSection, ChatTitleFields, PrefsPage, QuitTool, Settings, UpdateTool, ReloadSettings, ResetSettings, SystemSection } from './Settings'
 
 it('is a drawer headed as the airport, its model providers listed under the first tab', () => {
   const html = renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)
@@ -51,6 +51,21 @@ it('opens the airport on its chats while one waits, unless told not to', () => {
 it('leaves the power button to the app', () => {
   expect(renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)).not.toContain('aria-label="退出"')
   expect(renderToStaticMarkup(<QuitTool />)).toContain('aria-label="退出"')
+  expect(renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)).not.toContain('aria-label="檢查更新"')
+})
+
+it('marks the update button when the app has found an update', () => {
+  expect(renderToStaticMarkup(<UpdateTool />)).toContain('aria-label="檢查更新"')
+  expect(renderToStaticMarkup(<UpdateTool />)).not.toContain('fx-update-dot')
+  const g = globalThis as { twUpdate?: boolean }
+  g.twUpdate = true
+  try {
+    const html = renderToStaticMarkup(<UpdateTool />)
+    expect(html).toContain('aria-label="有新版本"')
+    expect(html).toContain('fx-update-dot')
+  } finally {
+    delete g.twUpdate
+  }
 })
 
 
@@ -80,10 +95,10 @@ it('opens the airport on the chosen tab, or on 模型供應商 where that tab do
 it('lists the settings groups in order, with the general ones first', () => {
   const html = renderToStaticMarkup(<PrefsPage />)
   const at = (x: string) => html.indexOf(x)
-  expect(at('語言')).toBeLessThan(at('預設機場頁籤'))
-  expect(at('預設機場頁籤')).toBeLessThan(at('預設公司頁籤'))
+  expect(at('語言')).toBeLessThan(at('預設機場頁面'))
+  expect(at('預設機場頁面')).toBeLessThan(at('預設公司頁面'))
   expect(at('>一般<')).toBeLessThan(at('語言'))
-  expect(at('預設公司頁籤')).toBeLessThan(at('>功能<'))
+  expect(at('預設公司頁面')).toBeLessThan(at('>功能<'))
   expect(at('>功能<')).toBeLessThan(at('>遊戲物件<'))
 })
 

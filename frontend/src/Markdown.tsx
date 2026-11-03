@@ -26,12 +26,52 @@ const COMPONENTS: Components = {
   },
 }
 
-/** Written text, where a line break is one. */
-const WRITTEN = [remarkGfm, remarkBreaks]
-/** A file, where lines may be wrapped by hand and only a blank line ends a paragraph. */
-const FILE = [remarkGfm]
+interface MdNode { type: string; value?: string; url?: string; children?: MdNode[]; data?: object; position?: { start: { offset?: number } } }
 
-interface MdNode { type: string; value?: string; children?: MdNode[]; data?: object }
+/** CJK characters and full-width punctuation, which GFM would take into a bare address up to the next space. */
+const WIDE = /[⺀-鿿豈-﫿︰-﹏＀-￯]/
+
+/** Drops what GFM drops from the end of a bare address: closing marks, and a ")" without its "(". */
+function trimAddress(url: string) {
+  for (;;) {
+    const c = url.at(-1)
+    if (!c || !'!"\'),.:;?_~*]'.includes(c)) return url
+    if (c === ')' && url.split('(').length >= url.split(')').length) return url
+    url = url.slice(0, -1)
+  }
+}
+
+/**
+ * Ends a bare web address at the first CJK character or full-width mark, as in "看 https://x.dev/a。", and leaves the
+ * rest as text. Addresses written as [text](url) or <url> are taken as written.
+ */
+function remarkWideEnd() {
+  const cut = (link: MdNode, source: string): MdNode[] => {
+    const text = link.children?.length === 1 && link.children[0].type === 'text' ? link.children[0].value ?? '' : ''
+    const prefix = link.url === text ? '' : link.url === `http://${text}` ? 'http://' : null
+    const at = link.position?.start.offset
+    const i = text.search(WIDE)
+    if (prefix === null || i < 0 || (at !== undefined && !source.startsWith(text, at))) return [link]
+    const kept = trimAddress(text.slice(0, i))
+    const rest = { type: 'text', value: text.slice(kept.length) }
+    if (!/^(https?:\/\/|www\.)[^/]*\.[^./]/i.test(kept)) return [{ type: 'text', value: text }]
+    return [{ ...link, url: prefix + kept, children: [{ type: 'text', value: kept }] }, rest]
+  }
+  const walk = (node: MdNode, source: string) => {
+    if (!node.children) return
+    node.children = node.children.flatMap((child) => {
+      if (child.type === 'link') return cut(child, source)
+      walk(child, source)
+      return [child]
+    })
+  }
+  return (tree: MdNode, file: { value?: unknown }) => walk(tree, String(file.value ?? ''))
+}
+
+/** Written text, where a line break is one. */
+const WRITTEN = [remarkGfm, remarkWideEnd, remarkBreaks]
+/** A file, where lines may be wrapped by hand and only a blank line ends a paragraph. */
+const FILE = [remarkGfm, remarkWideEnd]
 
 /** Marks where the text, outside code and links, mentions one of people, a file or a skill, by the signs given. */
 function remarkSaid({ people, signs }: { people: Person[]; signs: string }) {

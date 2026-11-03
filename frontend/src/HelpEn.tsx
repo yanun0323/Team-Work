@@ -41,7 +41,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: 'The airport open: the airport on the map and its file on the right',
     body: (
       <>
-        <p>The airport is the island's control center and holds what all companies share. Click the airport or its name tag on the map to open it, and the view zooms in on the terminal. The plane button at the top right opens it without moving the view. Click elsewhere on the map or press Esc to put it away. You can choose which tab opens first with Default airport tab in Settings.</p>
+        <p>The airport is the island's control center and holds what all companies share. Click the airport or its name tag on the map to open it, and the view zooms in on the terminal. The plane button at the top right opens it without moving the view. Click elsewhere on the map or press Esc to put it away. You can choose which tab opens first with Default airport page in Settings.</p>
         <p>The airport stays where it is, and no company can be built on it. Planes land, taxi to a stand and take off again, and now and then others pass high overhead.</p>
         <p>While the airport is open, its roof comes off to show the terminal inside: escalators, check-in, security, a duty-free shop, a café and the gates, plus the controllers in the tower. Passengers come up from underground on one escalator, check in, pass security and board at a gate; arriving passengers pass customs and leave down the other. Put it away and the roof returns.</p>
         <dl>
@@ -53,7 +53,8 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Settings</dt><dd>Preferences and settings files for the whole app.</dd>
           <dt>Settings → Controls</dt><dd>Set how fast the wheel zooms, and what the camera does when you open a company or the airport (Auto view).</dd>
           <dt>Settings → Music</dt><dd>Mute in background is on by default: music and effects stop when you switch to another app or page, and carry on when you return. Turn it off to keep them playing. Choose Bossa nova (default), Retro game, Soft piano or Ambient. Tracks cross-fade when changed, and your selection is saved. Music defaults to 50% and effects to 100%. Separate music and effects volumes; 0 mutes either channel, or tick Mute beside its slider to silence it and keep the level. Toggle or preview aircraft sounds (takeoff, landing and flyover together), interface clicks, notifications, tutorial cues and opening buildings separately. Ocean waves, while on, keeps the sea round the island playing under the music, at the effects volume. Opening a company plays a soft whoosh; opening the airport plays Do Mi So Do rising, like the start of an announcement. Notifications play two quick bubbles, low then high, when a task newly waits for your review or merge, or when a chat turns unread as its reply ends; a chat you have open stays quiet, and existing notifications are not replayed. Audio starts after your first click or key press. Preferences are shared and saved.</dd>
-          <dt>About</dt><dd>Links, thanks, the version number and Report an issue.</dd>
+          <dt>About</dt><dd>Links, the license, the version number and Report an issue.</dd>
+          <dt>Check for updates</dt><dd>In the Mac app, the update button sits beside the Airport title, left of the power button. It checks for a new version, and downloading and installing go on in the window that opens; Check for Updates… in the menu does the same. The app also checks on its own now and then, and a red dot on the button means a new version is out. The web version has no such button.</dd>
           <dt>Quit</dt><dd>In the Mac app, the power button beside the Airport title asks once, then quits the app; Quit Team Work in the menu (⌘Q) asks too. Open terminals end with the app. The web version has no such button.</dd>
         </dl>
       </>
@@ -66,7 +67,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
       <>
         <p>A company has one project folder and one target branch. The folder button after the project location opens it in Finder. Click the building, its plot or its name tag to open a company, and click elsewhere on the map or press Esc to put it away. While one is open, other companies keep their name tags; click one to go straight to that company. On the right is the company file. On the left you can see employees in the office: those with work sit at their desks, and the rest walk around, chat with colleagues, sit on the sofa, have coffee or daydream. Every office has a coffee machine and a sofa.</p>
         <p>The building grows with the company: more finished tasks and employees mean more floors and a bigger footprint (up to 10×10 cells and 10 floors).</p>
-        <p>The company file has Chats, Tasks, Employees, Terminal and Settings tabs. You can choose which one opens first with Default company tab in Airport → Settings.</p>
+        <p>The company file has Chats, Tasks, Employees, Terminal and Settings tabs. You can choose which one opens first with Default company page in Airport → Settings.</p>
         <p>When something is not ready, a red stamp above the tabs says what is missing, and the matching add button is disabled:</p>
         <dl>
           <dt>Model provider</dt><dd>None, or unavailable: add one, sign in or refresh its models at the airport. Affects chats, tasks and employees.</dd>
@@ -137,9 +138,9 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
         <p>Changes here apply at once. Language is kept by the backend, and the other options only on this computer.</p>
         <dl>
           <dt>Language</dt><dd>Also on the globe button at the top right of the main screen. The language of the interface and of built-in blueprints and workflows, and the one employees reply in. The interface switches at once. Employees switch from their next reply, and old messages stay as they are.</dd>
-          <dt>Default airport tab</dt><dd>Which tab the airport opens on. Model providers by default.</dd>
-          <dt>Default company tab</dt><dd>Which tab a company opens on. Tasks by default.</dd>
-          <dt>Waiting tab first</dt><dd>On by default. When you open a company or the airport, a task waiting for your reply opens Tasks, and a chat that is unread or waiting for your answer opens Chats. If both are waiting, Tasks comes first. With nothing waiting, the default tab opens. The airport only looks at chats.</dd>
+          <dt>Default airport page</dt><dd>Which tab the airport opens on. Model providers by default.</dd>
+          <dt>Default company page</dt><dd>Which tab a company opens on. Tasks by default.</dd>
+          <dt>Waiting page first</dt><dd>On by default. When you open a company or the airport, a task waiting for your reply opens Tasks, and a chat that is unread or waiting for your answer opens Chats. If both are waiting, Tasks comes first. With nothing waiting, the default tab opens. The airport only looks at chats.</dd>
           <dt>Skip tutorial, Restart tutorial</dt><dd>The tutorial is the list beside the clock on the main screen: things to try next. It shows 5 at a time; clicking one takes you where to do it. A step you finish is ticked and goes, and a new step shows once the steps before it are done. Ticks and the Tutorial cues sound wait until you are back on the main screen. On the first run, steps you have already done count as done. Skip tutorial hides the list; Restart tutorial starts over, though steps the app can see you have done still count as done. Progress is kept in tutorial.yaml.</dd>
           <dt>Task log order</dt><dd>Newest first or last, for task, sub-task and employee logs.</dd>
           <dt>Auto view</dt><dd>What the camera does when you click a company, the airport or a spot for a new company. Pan and zoom (the default) moves there and zooms in, and locks the map. Pan only moves there: you can zoom but not pan. Off leaves the camera alone, and you can pan and zoom.</dd>
@@ -158,8 +159,8 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
   },
   about: {
     label: 'About',
-    alt: "The airport's About tab: links, thanks and version number",
-    body: <p>The About tab has links, thanks and the current version number. Report an issue, below the version, opens a new GitHub issue with the version already filled in; paste images straight into the issue.</p>,
+    alt: "The airport's About tab: links, license and version number",
+    body: <p>The About tab has links, the license and the current version number. Report an issue, below the version, opens a new GitHub issue with the version already filled in; paste images straight into the issue.</p>,
   },
   chat: {
     label: 'Chats',
@@ -182,6 +183,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>List marks</dt><dd>While an employee replies, three bouncing dots show on the list. A reply you have not seen shows a round dot until you open the chat. On the map, a company's name tag shows its unread chats in blue and its tasks waiting for review in red. When a count goes up, its badge pops in and shakes, then glows softly until it is dealt with.</dd>
           <dt>Message box</dt><dd>It grows with your text, then scrolls inside once it reaches its limit.</dd>
           <dt>Long chats</dt><dd>When a chat gets too long, the employee sums up the earlier part and carries on, and a line reading auto_compact appears in the chat. All messages stay on screen and can still be edited and handed off, but the employee reads only the summary from then on. The tokens used for this count toward the chat.</dd>
+          <dt>Pin</dt><dd>Press the pin at the top right of a chat, or point at a chat on the list and press the pin at its end, to keep it at the top of the list, the latest pinned first. Press it again to unpin.</dd>
           <dt>Delete</dt><dd>Delete a chat at the top right. Changes in the folder stay. When an employee leaves the company, their chats stay readable, but you cannot post in them.</dd>
         </dl>
       </>

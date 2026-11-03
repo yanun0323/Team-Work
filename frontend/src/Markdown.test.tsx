@@ -30,6 +30,28 @@ describe('Markdown', () => {
     for (const bad of ['javascript:alert(1)', 'docs/spec.md', '/api/v1/world', '#top']) expect(html(`[a](${bad})`)).not.toContain('<a')
   })
 
+  it('ends a bare address at Chinese text or a full-width mark', () => {
+    const link = (url: string, text = url) => `<a href="${url}" target="_blank" rel="noreferrer">${text}</a>`
+    const cases: [string, string][] = [
+      ['看 https://x.dev/a。', `看 ${link('https://x.dev/a')}。`],
+      ['看 https://x.dev/a，然後', `看 ${link('https://x.dev/a')}，然後`],
+      ['看 https://x.dev。', `看 ${link('https://x.dev')}。`],
+      ['「https://x.dev/a」', `「${link('https://x.dev/a')}」`],
+      ['www.x.dev/a）', `${link('http://www.x.dev/a', 'www.x.dev/a')}）`],
+      ['https://x.dev/a中文 b', `${link('https://x.dev/a')}中文 b`],
+      ['https://x.dev/a.。', `${link('https://x.dev/a')}.。`],
+      ['https://x.dev/a_(b)。', `${link('https://x.dev/a_(b)')}。`],
+      ['https://x.dev/a.', `${link('https://x.dev/a')}.`],
+      ['(https://x.dev/a)', `(${link('https://x.dev/a')})`],
+    ]
+    for (const [text, want] of cases) expect(html(text)).toBe(`<div class="fx-md"><p>${want}</p></div>`)
+  })
+
+  it('takes an address written as a link as it is', () => {
+    expect(html('[a](https://x.dev/中文)')).toContain('href="https://x.dev/%E4%B8%AD%E6%96%87"')
+    expect(html('<https://x.dev/中文>')).toContain('>https://x.dev/中文</a>')
+  })
+
   it('never loads a picture', () => {
     expect(html('![圖](https://x.dev/a.png)')).toContain('<a href="https://x.dev/a.png" target="_blank" rel="noreferrer">圖</a>')
     expect(html('![圖](a.png)')).not.toContain('<a')

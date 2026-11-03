@@ -78,6 +78,12 @@ export function chatSortAt(c: Chat) {
   return counted[counted.length - 1]?.at ?? c.createdAt
 }
 
+/** The chat list's order: the pinned first, the latest pinned on top, then the rest by their latest activity. */
+export function chatOrder(a: Chat, b: Chat) {
+  if (a.pinnedAt !== undefined || b.pinnedAt !== undefined) return (b.pinnedAt ?? -Infinity) - (a.pinnedAt ?? -Infinity)
+  return chatSortAt(b) - chatSortAt(a)
+}
+
 export function chatMindOf(w: World, c: Chat) {
   if (!c.teamId) return `${c.model} · ${c.effort ?? DEFAULT_EFFORT}`
   const r = w.replicas[c.replicaId]

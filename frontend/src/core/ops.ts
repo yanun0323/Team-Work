@@ -51,6 +51,7 @@ export const sayInChat = pick('sayInChat', (_w: World, id: string, text: string,
 export const setChatChair = pick('setChatChair', (_w: World, id: string, replicaId: string) => fire_('PATCH', `/chats/${id}/chair`, { replicaId }))
 export const setChatMind = pick('setChatMind', (_w: World, id: string, model: string, effort: string) => fire_('PATCH', `/chats/${id}/mind`, { model, effort }))
 export const renameChat = pick('renameChat', (_w: World, id: string, title: string) => fire_('PATCH', `/chats/${id}/title`, { title }))
+export const pinChat = pick('pinChat', (_w: World, id: string, pinned: boolean) => fire_('PATCH', `/chats/${id}/pin`, { pinned }))
 export const rewindChat = pick('rewindChat', (_w: World, id: string, index: number) => fire_('POST', `/chats/${id}/rewind`, { index }))
 export const resolveChatChange = pick('resolveChatChange', (_w: World, id: string, approve: boolean) => fire_('POST', `/chats/${id}/change`, { approve }))
 export const stopChat = pick('stopChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/stop`))

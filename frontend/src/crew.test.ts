@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { seedWorld } from './core/data/seed'
 import type { Chat, World } from './core/domain/types'
-import { chatMindOf, chatSortAt, lastChatReplica, NOTE_COLORS, noteColors } from './crew'
+import { chatMindOf, chatOrder, chatSortAt, lastChatReplica, NOTE_COLORS, noteColors } from './crew'
 
 function chatOn(effort: string): { w: World; chat: Chat } {
   const w = seedWorld()
@@ -66,6 +66,14 @@ describe('where a chat sits on the list', () => {
 
   it('falls back to when it was made', () => {
     expect(chatSortAt(chat({ replyAt: 2 }))).toBe(1)
+  })
+
+  it('puts the pinned on top, the latest pinned first, whatever moved since', () => {
+    const fresh = chat({ id: 'fresh', createdAt: 50 })
+    const old = chat({ id: 'old', createdAt: 1, pinnedAt: 10 })
+    const older = chat({ id: 'older', createdAt: 0, pinnedAt: 20 })
+    const stale = chat({ id: 'stale', createdAt: 5 })
+    expect([stale, fresh, old, older].sort(chatOrder).map((c) => c.id)).toEqual(['older', 'old', 'fresh', 'stale'])
   })
 })
 

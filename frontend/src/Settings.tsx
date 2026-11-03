@@ -8,6 +8,7 @@ import { tr } from './core/i18n'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useStore } from './core/store'
 import { version } from '../package.json'
+import LICENSE from '../../LICENSE?raw'
 import { BlueprintIcon } from './BlueprintIcon'
 import { SheetStack, useSheets } from './Drawer'
 import { gitSources } from './core/domain/sim'
@@ -34,9 +35,10 @@ const LINKS = [
   { label: 'GitHub', href: 'https://github.com/yanun0323/Team-Work' },
   { label: 'Buy Me a Coffee', href: 'https://buymeacoffee.com/yanun' },
 ]
-const THANKS = [{ name: 'yanun0323', href: 'https://github.com/yanun0323' }]
+// the version, then the commit it was built from
+const VERSION = `v${version}${__COMMIT__ ? ` (${__COMMIT__})` : ''}`
 // a new issue on GitHub, its body ending with the version so reports say which build they came from
-const ISSUE_URL = `https://github.com/yanun0323/Team-Work/issues/new?body=${encodeURIComponent(`\n\n---\nv${version}`)}`
+const ISSUE_URL = `https://github.com/yanun0323/Team-Work/issues/new?body=${encodeURIComponent(`\n\n---\n${VERSION}`)}`
 
 
 /**
@@ -58,6 +60,30 @@ export function QuitTool() {
           <path d="M8 2v6M4.6 4.2a5 5 0 1 0 6.8 0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       )}
+    </button>
+  )
+}
+
+/**
+ * Asks the app's Sparkle to check for updates; it shows its own windows from there. A dot marks an update the app
+ * found on its own, kept in window.twUpdate and announced with a tw-update event.
+ */
+export function UpdateTool() {
+  const found = () => (globalThis as { twUpdate?: boolean }).twUpdate === true
+  const [ready, setReady] = useState(found)
+  useEffect(() => {
+    const sync = () => setReady(found())
+    window.addEventListener('tw-update', sync)
+    return () => window.removeEventListener('tw-update', sync)
+  }, [])
+  const check = () => (window as unknown as { webkit: { messageHandlers: { update: { postMessage: (x: null) => void } } } }).webkit.messageHandlers.update.postMessage(null)
+  const label = ready ? tr('有新版本') : tr('檢查更新')
+  return (
+    <button type="button" className="fx-tool fx-hit fx-update" onClick={check} aria-label={label} title={label}>
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path d="M8 2.5v7.5M4.8 7l3.2 3.2L11.2 7M3 13.5h10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      {ready && <span className="fx-update-dot" aria-hidden="true" />}
     </button>
   )
 }
@@ -112,7 +138,7 @@ export function Settings({ leaving, onGone }: {
               <h1 id="fx-settings-title" ref={title} tabIndex={-1}>{tr('機場')}</h1>
               <p className="fx-where">{tr('小島管理中心')}</p>
             </div>
-            {import.meta.env.MODE === 'desktop' && <QuitTool />}
+            {import.meta.env.MODE === 'desktop' && <div className="fx-head-tools"><UpdateTool /><QuitTool /></div>}
           </div>
           <div className="fx-tabs" role="tablist" aria-label={tr('設定')} onKeyDown={onTabKey}>
             {AIRPORT_TABS.map((x, i) => (
@@ -430,11 +456,11 @@ export function PrefsPage() {
         <div className="fx-fields">
           <Switcher label={tr('語言')} value={language} options={LANGUAGES} labelOf={(l) => LANGUAGE_NAMES[l]}
             onChange={(l) => act((x) => void setLanguage(x, l))} />
-          <Select label={tr('預設機場頁籤')} value={airportTabOr(prefs.defaultAirportTab)} options={AIRPORT_TABS.map((x) => x.id)}
+          <Select label={tr('預設機場頁面')} value={airportTabOr(prefs.defaultAirportTab)} options={AIRPORT_TABS.map((x) => x.id)}
             labelOf={(id) => tr(AIRPORT_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultAirportTab: v as AirportTab })} />
-          <Select label={tr('預設公司頁籤')} value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.map((x) => x.id)}
+          <Select label={tr('預設公司頁面')} value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.map((x) => x.id)}
             labelOf={(id) => tr(COMPANY_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultTab: v as CompanyTab })} />
-          {check('openWaitingTab', tr('待處理頁籤優先'))}
+          {check('openWaitingTab', tr('待處理頁面優先'))}
         </div>
       </section>
       <section className="fx-d-group" aria-labelledby="fx-prefs-tutorial">
@@ -488,15 +514,13 @@ function About() {
           </a></li>
         ))}
       </ul>
-      <section className="fx-d-group" aria-labelledby="fx-thanks">
-        <h4 id="fx-thanks">{tr('感謝名單')}</h4>
-        <ul className="fx-thanks">
-          {THANKS.map((x) => <li key={x.name}><a href={x.href} target="_blank" rel="noreferrer">{x.name}<span className="fx-sr">{tr('（另開分頁）')}</span></a></li>)}
-        </ul>
+      <section className="fx-d-group" aria-labelledby="fx-license">
+        <h4 id="fx-license">{tr('授權')}</h4>
+        <pre className="fx-license" tabIndex={0}>{LICENSE}</pre>
       </section>
       <section className="fx-d-group" aria-labelledby="fx-version">
         <h4 id="fx-version">{tr('版本')}</h4>
-        <p><code>v{version}</code></p>
+        <p><code>{VERSION}</code></p>
       </section>
       <a className="fx-save" href={ISSUE_URL} target="_blank" rel="noreferrer">
         {tr('問題回報')}<span className="fx-sr">{tr('（另開分頁）')}</span>

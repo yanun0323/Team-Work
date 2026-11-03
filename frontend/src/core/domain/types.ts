@@ -292,6 +292,8 @@ export interface Chat {
   name: string
   /** What the user or a model named it; none shows the first message. */
   title?: string
+  /** When the user pinned it to the top of its list. */
+  pinnedAt?: number
   look: Look
   model: string
   effort?: Effort

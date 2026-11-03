@@ -7,14 +7,14 @@ import { statusOf, subsOf, taskTokens } from './core/domain/sim'
 import type { Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
 import { MOCK } from './core/mode'
-import { byBlueprint, chatMindOf, chatPeople, chatPreview, chatSign, chatSortAt, chatWho, mindOf } from './crew'
+import { byBlueprint, chatMindOf, chatPeople, chatPreview, chatOrder, chatSign, chatWho, mindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
 import { activity, fmtTokens, teamReplicas, teamTasks } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { Select, Stepper, WaitBadge } from './Controls'
 import { editTeam, refreshPrompt } from './core/ops'
-import { itemKey, type Item } from './DrawerDetail'
+import { itemKey, PinTool, type Item } from './DrawerDetail'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 
@@ -59,10 +59,10 @@ function Empty({ children }: { children: string }) {
   return <p className="fx-empty">{children}</p>
 }
 
-/** A company's chats or, with no company, the airport's: the latest activity first, and a new one. */
+/** A company's chats or, with no company, the airport's: the pinned on top, then the latest activity first, and a new one. */
 export function Chats(p: Opens) {
   const w = useStore((s) => s.world)
-  const chats = Object.values(w.chats).filter((c) => c.teamId === p.teamId).sort((a, b) => chatSortAt(b) - chatSortAt(a))
+  const chats = Object.values(w.chats).filter((c) => c.teamId === p.teamId).sort(chatOrder)
   const needs = usePrereqs(p.teamId, p.teamId ? 'chats' : 'airportChats')
   return (
     <div className="fx-d-groups fx-crew-groups">
@@ -71,14 +71,17 @@ export function Chats(p: Opens) {
       {!chats.length && <Empty>{tr('還沒有對話')}</Empty>}
       {chats.length > 0 && (
         <ul className="fx-list">
-          {chats.map((c) => {
+          {chats.map((c, i) => {
+            const pinned = c.pinnedAt !== undefined
+            // a rule under the last pinned chat sets the pinned apart from the rest
+            const lastPinned = pinned && i + 1 < chats.length && chats[i + 1].pinnedAt === undefined
             const { name } = chatWho(w, c)
             const people = chatPeople(w, c)
             const meeting = people.length > 1
             const speaking = c.speaker ? people.find((x) => x.id === c.speaker)?.name ?? name : name
             const sign = chatSign(c)
             return (
-              <li key={c.id}><button className="fx-row fx-chat-row fx-hit" {...opener({ kind: 'chat', id: c.id }, p)}>
+              <li key={c.id} className={pinned ? `fx-chat-item fx-chat-pinned${lastPinned ? ' fx-chat-pinned-last' : ''}` : 'fx-chat-item'}><button className="fx-row fx-chat-row fx-hit" {...opener({ kind: 'chat', id: c.id }, p)}>
                 {/* the slot stays when empty, so the faces line up */}
                 <span className="fx-chat-sign">
                   {sign === 'replying' && (
@@ -95,7 +98,7 @@ export function Chats(p: Opens) {
                   <b>{meeting ? <span className="fx-chat-names">{listOf(people.map((x) => x.name))}</span> : <>{name}<span className="fx-chat-model">{chatMindOf(w, c)}</span></>}{c.tokens > 0 && <span className="fx-chat-tokens">{fmtTokens(c.tokens)} Token</span>}</b>
                   <span className="fx-chat-first">{c.title || chatPreview(c)}</span>
                 </span>
-              </button></li>
+              </button><PinTool chat={c} className="fx-chat-pin" /></li>
             )
           })}
         </ul>
