@@ -44,6 +44,7 @@ func (e *Engine) Quotas(ctx context.Context) map[string]model.Quota {
 			defer wg.Done()
 			q, err := reader.Quota(ctx)
 			if err != nil {
+				e.noteSignedOut(a.p.ID, err)
 				return
 			}
 			mu.Lock()

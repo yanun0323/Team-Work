@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/yanun0323/Team-Work/internal/adapter"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
 	"github.com/yanun0323/Team-Work/internal/usecase"
@@ -1183,7 +1184,7 @@ func TestAirportChatRunsWithoutACompany(t *testing.T) {
 	if info, err := os.Stat(got.Cwd); err != nil || !info.IsDir() || filepath.Base(got.Cwd) != "airport" {
 		t.Fatalf("cwd %q: %v", got.Cwd, err)
 	}
-	if !strings.Contains(got.System, "airport's service staff") || strings.Contains(got.System, "Your role") {
+	if !strings.Contains(got.System, "airport's service staff") || !strings.Contains(got.System, "# Your role\nYou are the airport staff of Team Work") {
 		t.Fatalf("system: %s", got.System)
 	}
 	names := []string{}
@@ -1480,5 +1481,64 @@ func TestHandOffChatGoesOnWithAnotherEmployee(t *testing.T) {
 	}
 	if _, err := r.e.HandOffChat(c.ID, second, bea.ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A reply that failed because the subscription was signed out says which provider to sign in to, and once
+// signed in again the same employee tries it again from the user's message, with no new message.
+func TestChatRetriesAFailedReplyAfterSigningInAgain(t *testing.T) {
+	signedOut := true
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		if signedOut {
+			return model.ModelReply{}, model.Errorf(model.CodeSignedOut, "ChatGPT 的登入已失效，請重新登入")
+		}
+		return say("好了"), nil
+	})
+	ctx := context.Background()
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "plan-model"}}
+	r.fake.login = &adapter.LoginFlow{Wait: func(context.Context) error { return nil }, Paste: func(string) error { return nil }}
+	r.fake.mu.Unlock()
+	p, err := r.e.AddProvider(ctx, usecase.NewProvider{Name: "訂閱", Kind: enum.ProviderOpenAI, Login: usecase.ProviderLogin{Kind: "subscription"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.StartLogin(ctx, p.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("signed in", func(w *model.World) bool { return w.Providers[p.ID].Auth.SignedIn })
+	worker, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bo", Model: "plan-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: worker.ID, Text: "你好"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := r.wait("failed", func(w *model.World) bool {
+		msgs := w.Chats[c.ID].Messages
+		return w.Chats[c.ID].ReplyAt == nil && len(msgs) == 2 && msgs[1].Failed
+	})
+	if got := w.Chats[c.ID].Messages[1]; got.SignedOut != p.ID || got.By != worker.ID {
+		t.Fatalf("%+v", got)
+	}
+
+	r.fake.mu.Lock()
+	signedOut = false
+	r.fake.mu.Unlock()
+	if _, err := r.e.StartLogin(ctx, p.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("signed in again", func(w *model.World) bool { return w.Providers[p.ID].Auth.SignedIn })
+	if err := r.e.RetryChat(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	w = r.wait("reply", chatDone(c.ID))
+	msgs := w.Chats[c.ID].Messages
+	if len(msgs) != 2 || msgs[0].Text != "你好" || msgs[1].Text != "好了" || msgs[1].Failed {
+		t.Fatalf("%+v", msgs)
+	}
+	if err := r.e.RetryChat(c.ID); err == nil {
+		t.Fatal("retried a reply that came")
 	}
 }

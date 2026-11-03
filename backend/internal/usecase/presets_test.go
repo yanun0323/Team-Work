@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"sync"
@@ -259,11 +260,11 @@ func TestPresetsUseTheAgentFolders(t *testing.T) {
 				t.Fatalf("%s: %+v", b.Name, p)
 			}
 		}
-		if !slices.Equal(paths, []string{"~/.agents/", "~/.mho/", "~/.codex/", "~/.claude/"}) {
+		if !slices.Equal(paths, []string{"~/.agents/", "~/.team-work/", "~/.codex/", "~/.claude/"}) {
 			t.Fatalf("%s: %v", b.Name, paths)
 		}
 	}
-	if found != 16 {
+	if found != 17 {
 		t.Fatalf("%d presets", found)
 	}
 }
@@ -353,5 +354,31 @@ func TestCompatibleFallbackLevelsValidateReloadAndRun(t *testing.T) {
 	}
 	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Effort: &max}); err == nil {
 		t.Fatal("fallback overrode reported levels")
+	}
+}
+
+func TestPresetSkillFoldersFollowPreferences(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
+	folders := func() []string {
+		var out []string
+		for _, p := range r.world().Blueprints["preset-pm"].Skills {
+			out = append(out, p.Source.Path)
+		}
+		return out
+	}
+	if got := folders(); !slices.Contains(got, "~/.codex/") || !slices.Contains(got, "~/.claude/") {
+		t.Fatalf("default folders: %v", got)
+	}
+	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codexSkills": json.RawMessage(`false`)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := folders(); slices.Contains(got, "~/.codex/") || !slices.Contains(got, "~/.claude/") {
+		t.Fatalf("without Codex: %v", got)
+	}
+	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codexSkills": json.RawMessage(`true`), "claudeSkills": json.RawMessage(`false`)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := folders(); !slices.Contains(got, "~/.codex/") || slices.Contains(got, "~/.claude/") || !slices.Contains(got, "~/.agents/") {
+		t.Fatalf("without Claude: %v", got)
 	}
 }

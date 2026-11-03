@@ -57,6 +57,20 @@ func TestAutoView(t *testing.T) {
 	}
 }
 
+func TestBusyAnimation(t *testing.T) {
+	var p Preferences
+	if err := json.Unmarshal([]byte(`{"shadows":false}`), &p); err != nil || p.BusyAnimation != "money" {
+		t.Fatalf("old file: busyAnimation %q, err %v", p.BusyAnimation, err)
+	}
+	next, err := MergePreferences(p, map[string]json.RawMessage{"busyAnimation": json.RawMessage(`"shout"`)})
+	if err != nil || next.BusyAnimation != "shout" {
+		t.Fatalf("shout: %q, err %v", next.BusyAnimation, err)
+	}
+	if _, err := MergePreferences(p, map[string]json.RawMessage{"busyAnimation": json.RawMessage(`"confetti"`)}); err == nil {
+		t.Fatal("unknown busyAnimation accepted")
+	}
+}
+
 func TestWaitingTabIsOnForOldFiles(t *testing.T) {
 	var p Preferences
 	if err := json.Unmarshal([]byte(`{"shadows":false}`), &p); err != nil {

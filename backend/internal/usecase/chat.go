@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -37,8 +38,8 @@ const (
 	airportStaffName   = "Airport staff" // the interface shows its own words for them
 )
 
-// airportTools are what the airport staff can use, as they have no blueprint.
-var airportTools = []enum.Tool{enum.ToolReadFile, enum.ToolWriteFile, enum.ToolWebSearch, enum.ToolRunCommand}
+// airportBlueprintID is the built-in blueprint the airport staff work by: their role, tools and skills.
+const airportBlueprintID = model.PresetPrefix + "airport"
 
 const chatDraftRules = "Write the chat below as a task for a colleague who has not seen it. First line: the task title, with no markup. Then a blank line and the description: goal, decisions, constraints and acceptance criteria. Use only what the chat says. Output nothing else."
 
@@ -434,6 +435,45 @@ func (e *Engine) StopChat(id string) error {
 	})
 }
 
+// RetryChat has the employee whose reply failed, the chat's last message, try it again from where it stopped.
+func (e *Engine) RetryChat(id string) error {
+	return e.do(func() error {
+		c := e.w.Chats[id]
+		if c == nil {
+			return model.Errorf(model.CodeNotFound, "找不到對話")
+		}
+		if c.ReplyAt != nil || c.Question != nil || c.Change != nil {
+			return model.Errorf(model.CodeConflict, "員工還在回覆")
+		}
+		if len(c.Messages) == 0 || !c.Messages[len(c.Messages)-1].Failed {
+			return model.Errorf(model.CodeInvalid, "沒有可以重試的回覆")
+		}
+		if e.chatLeft(c) {
+			return model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
+		}
+		speaker := cmp.Or(c.Messages[len(c.Messages)-1].By, c.ReplicaID)
+		spec, err := e.chatSpec(c, speaker)
+		if err != nil {
+			return err
+		}
+		c.Messages = c.Messages[:len(c.Messages)-1]
+		for i := range c.Handoffs {
+			c.Handoffs[i].Before = min(c.Handoffs[i].Before, len(c.Messages))
+		}
+		// a call the failed reply left without a result is closed, as the model refuses it otherwise
+		conv := e.w.Conversations[c.ID]
+		closed := answerPending(conv, "")
+		if len(closed) > len(conv) {
+			closed[len(closed)-1].By = speaker
+		}
+		e.w.Conversations[c.ID] = closed
+		e.dirty[c.ID] = true
+		c.Next = nil
+		e.launchChat(c, speaker, spec)
+		return nil
+	})
+}
+
 // ReadChat records that the user has seen what the employee said.
 func (e *Engine) ReadChat(id string) error {
 	return e.do(func() error {
@@ -629,8 +669,13 @@ func chatHandoffRule(c *model.Chat) string {
 	return "This chat was handed over to you, so not every earlier reply is yours. " + strings.Join(parts, "; ") + ". Carry on from where they left off, as yourself.\n"
 }
 
-// airportChatSpec is the chat's own model and level, with the staff's rules and the global prompt: no company, role or memory.
+// airportChatSpec is the chat's own model and level, with the staff's rules, the global prompt and their built-in
+// blueprint: no company or memory.
 func (e *Engine) airportChatSpec(c *model.Chat) (agentSpec, error) {
+	bp := e.w.Blueprints[airportBlueprintID]
+	if bp == nil {
+		return agentSpec{}, model.Errorf(model.CodeInvalid, "找不到 %s 的藍圖", c.Name)
+	}
 	spec, err := e.modelSpec(c.Model, c.Effort)
 	if err != nil {
 		return agentSpec{}, err
@@ -638,10 +683,16 @@ func (e *Engine) airportChatSpec(c *model.Chat) (agentSpec, error) {
 	if err := os.MkdirAll(e.airportFolder(), 0o700); err != nil {
 		return agentSpec{}, err
 	}
-	spec.name, spec.allowed = c.Name, slices.Clone(airportTools)
+	spec.name, spec.allowed, spec.packs = c.Name, slices.Clone(bp.Tools), packsOf(bp)
+	mention := ""
+	if home, err := os.UserHomeDir(); err == nil { // what "#" offers, so read_file can open what the user names
+		spec.read = []string{home}
+		mention = fmt.Sprintf("\nA word like #path or #\"path with spaces\" in what the user writes names a file or folder in the user's home folder, %s, relative to it.", home)
+	}
 	spec.prompt = promptParts{
-		rules:  airportChatRules + "\n" + languageRule(e.w.Language) + "\nWhen instructions in this prompt conflict, follow these opening rules over Global rules.\n",
+		rules:  airportChatRules + mention + "\n" + languageRule(e.w.Language) + "\nWhen instructions in this prompt conflict, follow the higher one in this order: these opening rules, Global rules, Your role, Skills.\n",
 		shared: sharedRules(e.runGlobalPrompt(), ""),
+		role:   rolePart(bp),
 	}
 	return spec, nil
 }
@@ -684,6 +735,7 @@ func (e *Engine) launchChat(c *model.Chat, speaker string, spec agentSpec) {
 	folder, timeout := e.airportFolder(), airportChatTimeout
 	if team := e.w.Teams[c.TeamID]; team != nil {
 		folder, timeout = team.Folder, time.Duration(team.Settings.TimeoutMin*float64(time.Minute))
+		spec.packs = append(projectPacks(team.Folder, e.w.Preferences), spec.packs...)
 	}
 	ctx, cancel := context.WithCancel(e.ctx)
 	if timeout > 0 {
@@ -819,9 +871,17 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			e.settle()
 		}
 	}()
-	failed := func(detail string) {
+	failed := func(detail string, err error) {
 		e.applyChat(in, func(c *model.Chat) {
 			e.chatSays(c, i18n.T("（回覆失敗：%s）", detail))
+			said := &c.Messages[len(c.Messages)-1]
+			said.Failed = true
+			var known *model.Error
+			if errors.As(err, &known) && known.Code == model.CodeSignedOut {
+				if p := e.providerFor(in.spec.model); p != nil {
+					said.SignedOut = p.ID
+				}
+			}
 		})
 	}
 	repoRole := ""
@@ -847,7 +907,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			}
 		}
 	}
-	read := append(roots, e.attachmentRoot(in.id))
+	read := append(append(roots, e.attachmentRoot(in.id)), in.spec.read...)
 	list := tools.For(in.spec.allowed, tools.Env{Read: read, Output: e.outputRoot(in.id), Search: e.search})
 	list = append(list, e.chatAskUser(in))
 	list = append(list, imageTools(in.spec, read, e.chatKeepsImage(in))...)
@@ -933,7 +993,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	if err != nil {
 		switch {
 		case errors.Is(ctx.Err(), context.DeadlineExceeded):
-			failed(i18n.T("執行逾時"))
+			failed(i18n.T("執行逾時"), err)
 		case ctx.Err() != nil: // stopped on purpose
 			stopped = true
 		default:
@@ -941,7 +1001,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			if !errors.As(err, &known) {
 				e.log.Error().Err(err).Str("chat", in.id).Msg("chat failed")
 			}
-			failed(safeText(err))
+			failed(safeText(err), err)
 		}
 	}
 }

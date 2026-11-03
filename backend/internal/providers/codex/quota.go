@@ -74,5 +74,5 @@ func (c *Client) Quota(ctx context.Context) (model.Quota, error) {
 		}
 		return q, nil
 	}
-	return model.Quota{}, rejected("ChatGPT 的登入已失效，請重新登入")
+	return model.Quota{}, signedOut("ChatGPT 的登入已失效，請重新登入")
 }

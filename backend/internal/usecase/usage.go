@@ -25,6 +25,7 @@ func (m meter) Complete(ctx context.Context, req model.ModelRequest, onText func
 	if u := reply.Usage; u.Input+u.Output > 0 {
 		m.e.recordUsage(model.Usage{ProviderID: m.providerID, ProviderName: m.providerName, Model: m.model}, m.price, u)
 	}
+	m.e.noteSignedOut(m.providerID, err)
 	return reply, err
 }
 

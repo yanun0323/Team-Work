@@ -303,6 +303,7 @@ func (e *Engine) UpdatePreferences(patch map[string]json.RawMessage) error {
 			}
 		}
 		e.w.Preferences = next
+		e.installPresets() // the built-in blueprints' skill folders follow the preferences
 		for key := range patch {
 			if soundPreference(key) {
 				e.w.Tutorial.Learn("sound")

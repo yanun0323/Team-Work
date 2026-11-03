@@ -3,8 +3,10 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -27,26 +29,44 @@ type FileInfo struct {
 	Dir  bool   `json:"dir"`
 }
 
-// ReplicaSkills lists the skills of an employee's blueprint.
+// ReplicaSkills lists the skills of an employee: their company's own, then their blueprint's.
 func (e *Engine) ReplicaSkills(ctx context.Context, id string) ([]SkillInfo, error) {
 	e.mu.Lock()
 	r := e.w.Replicas[id]
 	var packs []packRoot
 	if r != nil {
+		if team := e.w.Teams[r.TeamID]; team != nil {
+			packs = projectPacks(team.Folder, e.w.Preferences)
+		}
 		if bp := e.w.Blueprints[r.BlueprintID]; bp != nil {
-			packs = packsOf(bp)
+			packs = append(packs, packsOf(bp)...)
 		}
 	}
 	e.mu.Unlock()
 	if r == nil {
 		return nil, model.Errorf(model.CodeNotFound, "找不到員工")
 	}
+	return e.skillInfos(ctx, packs), nil
+}
+
+// AirportSkills lists the skills of the airport staff's blueprint.
+func (e *Engine) AirportSkills(ctx context.Context) []SkillInfo {
+	e.mu.Lock()
+	var packs []packRoot
+	if bp := e.w.Blueprints[airportBlueprintID]; bp != nil {
+		packs = packsOf(bp)
+	}
+	e.mu.Unlock()
+	return e.skillInfos(ctx, packs)
+}
+
+func (e *Engine) skillInfos(ctx context.Context, packs []packRoot) []SkillInfo {
 	found, _, _ := e.loadSkills(ctx, packs) // reading them can take a while: not under the lock
 	out := make([]SkillInfo, len(found))
 	for i, s := range found {
 		out[i] = SkillInfo{Name: s.name, Description: s.description}
 	}
-	return out, nil
+	return out
 }
 
 // BlueprintSkills names the skills each of a blueprint's packs brings, in the order of its packs; a pack that
@@ -76,8 +96,11 @@ func (e *Engine) BlueprintSkills(ctx context.Context, id string) ([][]string, er
 	return out, nil
 }
 
-// SearchFiles lists what "#" should offer from a company's folder.
+// SearchFiles lists what "#" should offer from a company's folder, or from home with no company, as at the airport.
 func (e *Engine) SearchFiles(ctx context.Context, teamID, query string) ([]FileInfo, error) {
+	if teamID == "" {
+		return e.airportFiles(query)
+	}
 	e.mu.Lock()
 	team := e.w.Teams[teamID]
 	folder := ""
@@ -92,6 +115,59 @@ func (e *Engine) SearchFiles(ctx context.Context, teamID, query string) ([]FileI
 		return []FileInfo{}, nil
 	}
 	return searchFiles(e.git.Files(ctx, folder), query, mentionLimit), nil
+}
+
+// airportFiles lists what "#" offers in an airport chat: one folder of the user's home folder at a time. "dir/pre"
+// lists inside dir what starts with pre, folders first; hidden ones only when pre starts with a dot. Only that one
+// folder is read, so nothing else under home is touched.
+func (e *Engine) airportFiles(query string) ([]FileInfo, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	return listFolder(home, query, mentionLimit), nil
+}
+
+func listFolder(root, query string, limit int) []FileInfo {
+	query = strings.TrimPrefix(query, "./")
+	dir, prefix := "", query
+	if i := strings.LastIndex(query, "/"); i >= 0 {
+		dir, prefix = path.Clean(query[:i]), query[i+1:]
+	}
+	if dir == "." {
+		dir = ""
+	}
+	if path.IsAbs(dir) || dir == ".." || strings.HasPrefix(dir, "../") {
+		return []FileInfo{}
+	}
+	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(dir)))
+	if err != nil {
+		return []FileInfo{}
+	}
+	var found []FileInfo
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.ContainsAny(name, "\r\n") || (strings.HasPrefix(name, ".") && !strings.HasPrefix(prefix, ".")) ||
+			!strings.HasPrefix(strings.ToLower(name), strings.ToLower(prefix)) {
+			continue
+		}
+		isDir := entry.IsDir()
+		if entry.Type()&fs.ModeSymlink != 0 { // a link to a folder is browsed as one
+			info, err := os.Stat(filepath.Join(root, filepath.FromSlash(dir), name))
+			isDir = err == nil && info.IsDir()
+		}
+		found = append(found, FileInfo{Path: path.Join(dir, name), Dir: isDir})
+	}
+	slices.SortStableFunc(found, func(a, b FileInfo) int {
+		if a.Dir != b.Dir {
+			if a.Dir {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(strings.ToLower(a.Path), strings.ToLower(b.Path))
+	})
+	return found[:min(limit, len(found))]
 }
 
 type scoredFile struct {

@@ -841,6 +841,38 @@ func TestSubscriptionLogin(t *testing.T) {
 	}
 }
 
+// A subscription signed out elsewhere fails its runs; the provider then shows it is signed out, so it can be signed in again.
+func TestSubscriptionSignedOutElsewhere(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		return model.ModelReply{}, model.Errorf(model.CodeSignedOut, "ChatGPT 的登入已失效，請重新登入")
+	})
+	ctx := context.Background()
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "plan-model"}}
+	r.fake.login = &adapter.LoginFlow{Wait: func(context.Context) error { return nil }, Paste: func(string) error { return nil }}
+	r.fake.mu.Unlock()
+	p, err := r.e.AddProvider(ctx, usecase.NewProvider{Name: "訂閱", Kind: enum.ProviderOpenAI, Login: usecase.ProviderLogin{Kind: "subscription"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.StartLogin(ctx, p.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("signed in", func(w *model.World) bool { return w.Providers[p.ID].Auth.SignedIn })
+	worker, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bo", Model: "plan-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: r.flow.ID, OwnerID: &worker.ID}); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("signed out", func(w *model.World) bool { return !w.Providers[p.ID].Auth.SignedIn })
+	if _, err := r.e.StartLogin(ctx, p.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("signed in again", func(w *model.World) bool { return w.Providers[p.ID].Auth.SignedIn })
+}
+
 func TestSubscriptionRunsSayNothingAboutPrices(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	ctx := context.Background()
@@ -944,6 +976,56 @@ func TestKeysStayOutOfTheDocuments(t *testing.T) {
 	for _, d := range docs {
 		if strings.Contains(string(d.Data), "sk-secret-1234") {
 			t.Fatalf("key stored in document %s", d.Kind)
+		}
+	}
+}
+
+func TestCompanyFolderSkillsComeFirstForEveryBlueprint(t *testing.T) {
+	writeSkill := func(dir, name, description string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: "+description+"\n---\n做法\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	// not committed, so only the company's folder has them, not the task's work tree
+	writeSkill(filepath.Join(r.folder, ".claude", "skills", "shared"), "shared", "專案的")
+	writeSkill(filepath.Join(r.folder, ".agents", "skills", "lint"), "lint", "專案檢查")
+	writeSkill(filepath.Join(r.folder, ".team-work", "deploy"), "deploy", "專案部署")
+	writeSkill(filepath.Join(r.folder, ".codex", "skills", "review"), "review", "專案審查")
+	mine := t.TempDir()
+	writeSkill(filepath.Join(mine, "skills", "shared"), "shared", "藍圖的")
+	bp := *r.world().Blueprints[r.owner.BlueprintID]
+	bp.Skills = []model.SkillPack{{Source: &model.BlueprintSource{Kind: "local", Path: mine}, Exclude: []string{}}}
+	if err := r.e.SaveBlueprint(bp.ID, bp); err != nil {
+		t.Fatal(err)
+	}
+
+	task := r.task(r.flow.ID)
+	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	system := r.fake.seen[0].System
+	for _, want := range []string{"專案的", "專案檢查", "專案部署", "專案審查"} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("%s missing from the task's skills:\n%s", want, system)
+		}
+	}
+	if strings.Contains(system, "藍圖的") {
+		t.Fatalf("the company's skill should win over the blueprint's by the same name:\n%s", system)
+	}
+
+	skills, err := r.e.ReplicaSkills(context.Background(), r.owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at := slices.IndexFunc(skills, func(s usecase.SkillInfo) bool { return s.Name == "shared" }); at < 0 || skills[at].Description != "專案的" {
+		t.Fatalf("$ should offer the company's skill: %+v", skills)
+	}
+	for _, name := range []string{"lint", "deploy", "review"} {
+		if !slices.ContainsFunc(skills, func(s usecase.SkillInfo) bool { return s.Name == name }) {
+			t.Fatalf("$ should offer %s: %+v", name, skills)
 		}
 	}
 }

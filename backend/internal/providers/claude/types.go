@@ -23,6 +23,7 @@ const (
 	CodeUnavailable     = model.CodeUnavailable
 	CodeBusy            = model.CodeUnavailable
 	CodeContextOverflow = model.CodeContextOverflow
+	CodeSignedOut       = model.CodeSignedOut
 	CodeTimeout         = "timeout"
 )
 
@@ -136,7 +137,7 @@ func (c *Client) Models(ctx context.Context) ([]model.ModelSpec, error) {
 }
 
 func errLoggedOut() error {
-	return rejected("Claude Code 還沒登入訂閱：請在終端機執行 claude auth login")
+	return signedOut("Claude Code 還沒登入訂閱：請在終端機執行 claude auth login")
 }
 
 func discover(ctx context.Context) ([]string, map[string][]string, error) {

@@ -806,6 +806,21 @@ func (e *Engine) Logout(ctx context.Context, id string) error {
 	})
 }
 
+// noteSignedOut marks a subscription signed out when err says its sign-in is gone, say after signing out
+// elsewhere, so the Airport offers to sign in again. A sign-in under way is left to finish.
+func (e *Engine) noteSignedOut(id string, err error) {
+	var known *model.Error
+	if !errors.As(err, &known) || known.Code != model.CodeSignedOut {
+		return
+	}
+	_ = e.do(func() error {
+		if p := e.w.Providers[id]; p != nil && p.Auth.Kind == "subscription" && e.logins[id] == nil {
+			p.Auth.SignedIn = false
+		}
+		return nil
+	})
+}
+
 // RefreshModels asks a provider again what it offers. A failure keeps the list it has.
 func (e *Engine) RefreshModels(ctx context.Context, id string) error {
 	e.mu.Lock()
@@ -818,6 +833,7 @@ func (e *Engine) RefreshModels(ctx context.Context, id string) error {
 	e.mu.Unlock()
 	models, err := e.discover(ctx, copied, key)
 	if err != nil {
+		e.noteSignedOut(id, err)
 		return err
 	}
 	return e.doSettings(func() error {

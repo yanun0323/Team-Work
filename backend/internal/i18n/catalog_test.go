@@ -19,7 +19,7 @@ var (
 )
 
 // translators take a text in Chinese and put it in the current language.
-var translators = []string{"T", "Errorf", "rejected", "unavailable", "bad"}
+var translators = []string{"T", "Errorf", "rejected", "signedOut", "unavailable", "bad"}
 
 func callName(call *ast.CallExpr) string {
 	switch f := call.Fun.(type) {

@@ -25,6 +25,11 @@ type object = map[string]any
 func rejected(message string) error {
 	return &Error{Code: CodeInvalidRequest, Message: i18n.T(message)}
 }
+
+// signedOut is a missing or expired login; signing in again is the fix.
+func signedOut(message string) error {
+	return &Error{Code: CodeSignedOut, Message: i18n.T(message)}
+}
 func unavailable(message string) error {
 	return &Error{Code: CodeUnavailable, Message: i18n.T(message)}
 }
@@ -36,7 +41,7 @@ func claudeError(text string) error {
 	case strings.Contains(s, "prompt is too long"), strings.Contains(s, "context window"), strings.Contains(s, "context length"):
 		return &Error{Code: CodeContextOverflow, Message: "The conversation is longer than Claude can read."}
 	case strings.Contains(s, "auth"), strings.Contains(s, "login"), strings.Contains(s, "credential"):
-		return &authError{rejected("Claude Code is not logged in. Run claude auth login, then /login and choose Claude Code.")}
+		return &authError{signedOut("Claude Code is not logged in. Run claude auth login, then /login and choose Claude Code.")}
 	case strings.Contains(s, "rate_limit"), strings.Contains(s, "overloaded"), strings.Contains(s, "network"), strings.Contains(s, "fetch failed"), strings.Contains(s, "429"), strings.Contains(s, "503"):
 		return unavailable("Claude is temporarily unavailable. Check your connection and try again.")
 	case modelRefused(s):

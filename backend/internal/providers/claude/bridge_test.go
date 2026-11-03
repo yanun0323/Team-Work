@@ -94,6 +94,19 @@ func TestClaudeChild(t *testing.T) {
 				write(object{"type": "control_response", "response": object{"subtype": "success", "request_id": f.RequestID, "response": object{"rate_limits_available": true, "rate_limits": object{"five_hour": object{"utilization": 25, "resets_at": "2030-01-01T00:00:00Z"}, "seven_day": object{"utilization": 40, "resets_at": "2030-01-07T00:00:00Z"}, "model_scoped": []object{}}}}})
 			}
 		case "user":
+			if raw := os.Getenv("MHO_TEST_CLAUDE_REJECTED_TOOL"); raw != "" {
+				var block object
+				if json.Unmarshal([]byte(raw), &block) != nil {
+					os.Exit(6)
+				}
+				if os.Getenv("MHO_TEST_CLAUDE_REJECTED_TOOL_STREAM") == "1" {
+					write(object{"type": "stream_event", "event": object{"type": "content_block_start", "index": 0, "content_block": block}})
+					write(object{"type": "stream_event", "event": object{"type": "content_block_stop", "index": 0}})
+				} else {
+					write(object{"type": "assistant", "uuid": "rejected", "message": object{"content": []object{block}}})
+				}
+				continue
+			}
 			switch os.Getenv("MHO_TEST_CLAUDE_FAILURE") {
 			case "assistant":
 				write(object{"type": "assistant", "error": "api_error", "message": object{"content": []object{{"type": "text", "text": "prompt is too long: private-prompt"}}}})
@@ -628,6 +641,61 @@ func TestToolDenialDoesNotRelaxToolBoundary(t *testing.T) {
 				t.Fatal("invalid tool call was accepted")
 			}
 		})
+	}
+}
+
+// Exercise the real subprocess/bridge path: diagnostics must survive both frame
+// formats without logging tool names, IDs, arguments or model text.
+func TestRejectedToolDiagnostics(t *testing.T) {
+	for _, stream := range []string{"0", "1"} {
+		for _, tc := range []struct {
+			name, id, reason, kind string
+		}{
+			{"ToolSearch", "private-call", "outside_mho", "tool_search"},
+			{"mcp__private-server__private-tool", "private-call", "outside_mho", "other_mcp"},
+			{"private-tool", "private-call", "outside_mho", "other"},
+			{"mcp__mho__read", "", "missing_call_id", "mho"},
+			{"mcp__mho__private.name", "private-call", "invalid_tool_name", "mho"},
+		} {
+			t.Run(stream+"/"+tc.reason+"/"+tc.kind, func(t *testing.T) {
+				fakeClaude(t)
+				raw, _ := json.Marshal(object{"type": "tool_use", "name": tc.name, "id": tc.id, "input": object{"path": "private-path", "token": "private-token"}, "text": "private-output"})
+				t.Setenv("MHO_TEST_CLAUDE_REJECTED_TOOL", string(raw))
+				t.Setenv("MHO_TEST_CLAUDE_REJECTED_TOOL_STREAM", stream)
+				var logged bytes.Buffer
+				b := newBridge()
+				b.log = slog.New(slog.NewJSONHandler(&logged, nil))
+				defer b.close()
+				p := base(t)
+				_, err := b.complete(context.Background(), p, func(any) error {
+					t.Fatal("rejected tool was forwarded")
+					return nil
+				})
+				if err == nil || errorCode(err) != CodeInvalidRequest {
+					t.Fatalf("expected tool rejection, got %v", err)
+				}
+				if strings.Contains(logged.String(), "private-") || strings.Contains(logged.String(), "private.name") {
+					t.Fatal("diagnostics leaked private content")
+				}
+				count := 0
+				for _, line := range strings.Split(strings.TrimSpace(logged.String()), "\n") {
+					var event map[string]any
+					if err := json.Unmarshal([]byte(line), &event); err != nil {
+						t.Fatal(err)
+					}
+					if event["msg"] != "tool_call_rejected" {
+						continue
+					}
+					count++
+					if event["reason"] != tc.reason || event["tool_kind"] != tc.kind || event["has_call_id"] != (tc.id != "") || event["session"] != p.Session || event["attempt"] == nil {
+						t.Fatalf("incorrect diagnostic: %+v", event)
+					}
+				}
+				if count != 1 {
+					t.Fatalf("expected one rejection diagnostic, got %d", count)
+				}
+			})
+		}
 	}
 }
 

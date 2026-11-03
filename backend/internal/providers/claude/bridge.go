@@ -354,6 +354,7 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 		}
 	}
 	turn := newTurn(p.Tools, chunk)
+	turn.log = log
 	for {
 		f, e := s.child.next(ctx)
 		if e != nil {
@@ -465,6 +466,7 @@ type partialBlock struct {
 	json  string
 }
 type turn struct {
+	log      *slog.Logger
 	tools    []ToolSpec
 	chunk    func(any) error
 	emitted  []Block
@@ -498,7 +500,27 @@ func (t *turn) emitCall(b claudeBlock) error {
 			known = true
 		}
 	}
-	if b.ID == "" || !strings.HasPrefix(b.Name, toolPrefix) || !toolName.MatchString(name) {
+	reason := ""
+	switch {
+	case b.ID == "":
+		reason = "missing_call_id"
+	case !strings.HasPrefix(b.Name, toolPrefix):
+		reason = "outside_mho"
+	case !toolName.MatchString(name):
+		reason = "invalid_tool_name"
+	}
+	if reason != "" {
+		// Log fixed categories only: model-provided names and IDs can contain private data.
+		kind := "other"
+		switch {
+		case strings.HasPrefix(b.Name, toolPrefix):
+			kind = "mho"
+		case strings.HasPrefix(b.Name, "mcp__"):
+			kind = "other_mcp"
+		case b.Name == "ToolSearch":
+			kind = "tool_search"
+		}
+		record(t.log, "tool_call_rejected", "reason", reason, "tool_kind", kind, "has_call_id", b.ID != "")
 		return rejected("Claude requested a tool outside Mho or omitted its call ID.")
 	}
 	if !known {

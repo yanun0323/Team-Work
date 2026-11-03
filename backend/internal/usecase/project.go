@@ -18,23 +18,26 @@ const (
 	maxProjectImage = 25 << 20
 )
 
-// projectPath is where a path a message mentions is in its company's folder, as it is now on disk. A path that leads
-// out of the folder, by "..", by being absolute or through a link, is refused.
+// mentionRoot is the folder a message's "#" paths are relative to: its company's, or the user's home folder for
+// the airport's, which has no company.
+func (e *Engine) mentionRoot(teamID string) (string, error) {
+	if teamID == "" {
+		return os.UserHomeDir()
+	}
+	return e.TeamFolder(teamID)
+}
+
+// projectPath is where a path a message mentions is in its company's folder, or at home for the airport's, as it is
+// now on disk. A path that leads out of the folder, by "..", by being absolute or through a link, is refused.
 func (e *Engine) projectPath(teamID, rel string) (string, error) {
 	rel = strings.TrimSpace(rel)
 	clean := filepath.ToSlash(filepath.Clean(rel))
 	if rel == "" || filepath.IsAbs(rel) || clean == ".." || strings.HasPrefix(clean, "../") {
 		return "", model.Errorf(model.CodeInvalid, "檔案路徑不正確：%s", rel)
 	}
-	e.mu.Lock()
-	t := e.w.Teams[teamID]
-	folder := ""
-	if t != nil {
-		folder = t.Folder
-	}
-	e.mu.Unlock()
-	if t == nil {
-		return "", model.Errorf(model.CodeNotFound, "找不到公司")
+	folder, err := e.mentionRoot(teamID)
+	if err != nil {
+		return "", err
 	}
 	root, err := filepath.EvalSymlinks(folder)
 	if err != nil {
@@ -42,7 +45,7 @@ func (e *Engine) projectPath(teamID, rel string) (string, error) {
 	}
 	at, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(clean)))
 	if err != nil {
-		return "", model.Errorf(model.CodeNotFound, "專案資料夾裡沒有 %s", rel)
+		return "", missing(teamID, rel)
 	}
 	if inside, err := filepath.Rel(root, at); err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
 		return "", model.Errorf(model.CodeInvalid, "檔案路徑不正確：%s", rel)
@@ -58,17 +61,17 @@ func (e *Engine) ProjectFile(teamID, rel string) (string, error) {
 	}
 	info, err := os.Stat(at)
 	if err != nil || info.IsDir() {
-		return "", model.Errorf(model.CodeNotFound, "專案資料夾裡沒有 %s", rel)
+		return "", missing(teamID, rel)
 	}
 	if info.Size() > maxProjectText {
-		return "", model.Errorf(model.CodeInvalid, "%s 太大，請到專案資料夾打開", rel)
+		return "", tooLarge(teamID, rel)
 	}
 	raw, err := os.ReadFile(at)
 	if err != nil {
-		return "", model.Errorf(model.CodeNotFound, "專案資料夾裡沒有 %s", rel)
+		return "", missing(teamID, rel)
 	}
 	if slices.Contains(raw, 0) || !utf8.Valid(raw) {
-		return "", model.Errorf(model.CodeInvalid, "%s 不是文字檔，請到專案資料夾打開", rel)
+		return "", notText(teamID, rel)
 	}
 	return string(raw), nil
 }
@@ -81,35 +84,66 @@ func (e *Engine) ProjectImage(teamID, rel string) ([]byte, string, error) {
 	}
 	info, err := os.Stat(at)
 	if err != nil || info.IsDir() {
-		return nil, "", model.Errorf(model.CodeNotFound, "專案資料夾裡沒有 %s", rel)
+		return nil, "", missing(teamID, rel)
 	}
 	if info.Size() > maxProjectImage {
-		return nil, "", model.Errorf(model.CodeInvalid, "%s 太大，請到專案資料夾打開", rel)
+		return nil, "", tooLarge(teamID, rel)
 	}
 	data, err := os.ReadFile(at)
 	if err != nil {
-		return nil, "", model.Errorf(model.CodeNotFound, "專案資料夾裡沒有 %s", rel)
+		return nil, "", missing(teamID, rel)
 	}
 	switch kind := http.DetectContentType(data); kind {
 	case "image/png", "image/jpeg", "image/gif", "image/webp":
 		return data, kind, nil
 	}
-	return nil, "", model.Errorf(model.CodeInvalid, "%s 不是圖片，請到專案資料夾打開", rel)
+	return nil, "", notImage(teamID, rel)
 }
 
 // ProjectFolder is a folder in a company's folder, or the company's folder itself for an empty path, to show in Finder.
+// With no company it is one at home, as the airport's "#" names.
 func (e *Engine) ProjectFolder(teamID, rel string) (string, error) {
 	if strings.Trim(rel, "/ ") == "" {
-		return e.TeamFolder(teamID)
+		return e.mentionRoot(teamID)
 	}
 	at, err := e.projectPath(teamID, rel)
 	if err != nil {
 		return "", err
 	}
 	if info, err := os.Stat(at); err != nil || !info.IsDir() {
-		return "", model.Errorf(model.CodeNotFound, "專案資料夾裡沒有 %s", rel)
+		return "", missing(teamID, rel)
 	}
 	return at, nil
+}
+
+// missing, tooLarge, notText and notImage say what is wrong with a file a message names, by where it is: a company's
+// folder, or the user's home folder for the airport's.
+func missing(teamID, rel string) error {
+	if teamID == "" {
+		return model.Errorf(model.CodeNotFound, "家目錄裡沒有 %s", rel)
+	}
+	return model.Errorf(model.CodeNotFound, "專案資料夾裡沒有 %s", rel)
+}
+
+func tooLarge(teamID, rel string) error {
+	if teamID == "" {
+		return model.Errorf(model.CodeInvalid, "%s 太大，請到 Finder 打開", rel)
+	}
+	return model.Errorf(model.CodeInvalid, "%s 太大，請到專案資料夾打開", rel)
+}
+
+func notText(teamID, rel string) error {
+	if teamID == "" {
+		return model.Errorf(model.CodeInvalid, "%s 不是文字檔，請到 Finder 打開", rel)
+	}
+	return model.Errorf(model.CodeInvalid, "%s 不是文字檔，請到專案資料夾打開", rel)
+}
+
+func notImage(teamID, rel string) error {
+	if teamID == "" {
+		return model.Errorf(model.CodeInvalid, "%s 不是圖片，請到 Finder 打開", rel)
+	}
+	return model.Errorf(model.CodeInvalid, "%s 不是圖片，請到專案資料夾打開", rel)
 }
 
 // SkillText is a skill as "$" names it in a chat: what it says it is for and its instructions.
@@ -120,12 +154,20 @@ type SkillText struct {
 	Text        string `json:"text"`
 }
 
-// ChatSkill is the skill named in a chat, from the first of its people who has one by that name, the chair first.
+// ChatSkill is the skill named in a chat: the company's own, or else from the first of its people who has one by that
+// name, the chair first.
 func (e *Engine) ChatSkill(ctx context.Context, chatID, name string) (SkillText, error) {
 	e.mu.Lock()
 	c := e.w.Chats[chatID]
 	var packs [][]packRoot
-	if c != nil {
+	if c != nil && c.AtAirport() {
+		if bp := e.w.Blueprints[airportBlueprintID]; bp != nil {
+			packs = append(packs, packsOf(bp))
+		}
+	} else if c != nil {
+		if team := e.w.Teams[c.TeamID]; team != nil {
+			packs = append(packs, projectPacks(team.Folder, e.w.Preferences))
+		}
 		ids := []string{c.ReplicaID}
 		for _, g := range c.Guests {
 			ids = append(ids, g.ReplicaID)

@@ -4,6 +4,8 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
@@ -79,9 +81,33 @@ func presetNodeID(flow string, layer, step int) string {
 	return fmt.Sprintf("%s-%d-%d", flow, layer, step)
 }
 
-func (p presetBlueprint) in(language string) *model.Blueprint {
-	skills := make([]model.SkillPack, len(presets.SkillFolders))
-	for i, path := range presets.SkillFolders {
+// presetSkillFolders are the folders the built-in blueprints read skills from; the preferences can leave out the
+// Codex and Claude ones.
+func presetSkillFolders(prefs model.Preferences) []string {
+	var out []string
+	for _, path := range presets.SkillFolders {
+		if (path == "~/.codex/" && !prefs.CodexSkills) || (path == "~/.claude/" && !prefs.ClaudeSkills) {
+			continue
+		}
+		out = append(out, path)
+	}
+	return out
+}
+
+// projectPacks are a company's own skills, in the same folders as presetSkillFolders but inside dir, the folder its
+// employees work in. Every blueprint reads them, ahead of its own packs, so a skill of the project wins over one by
+// the same name elsewhere.
+func projectPacks(dir string, prefs model.Preferences) []packRoot {
+	var out []packRoot
+	for _, path := range presetSkillFolders(prefs) {
+		out = append(out, packRoot{source: model.BlueprintSource{Kind: "local", Path: filepath.Join(dir, strings.TrimPrefix(path, "~/"))}})
+	}
+	return out
+}
+
+func (p presetBlueprint) in(language string, folders []string) *model.Blueprint {
+	skills := make([]model.SkillPack, len(folders))
+	for i, path := range folders {
 		skills[i] = model.SkillPack{Source: &model.BlueprintSource{Kind: "local", Path: path}, Exclude: []string{}}
 	}
 	return &model.Blueprint{ID: p.ID, Name: p.Name.in(language), Prompt: p.Prompt.in(language), Tools: p.Tools, Skills: skills, Look: p.Look,
@@ -166,8 +192,9 @@ func localizeFlow(wf *model.Workflow, language string) {
 // installPresets puts the built-in blueprints and flows into the world in the language picked. They live here, never in
 // the settings files, and the user's own flows follow the same language for what the app wrote in them.
 func (e *Engine) installPresets() {
+	folders := presetSkillFolders(e.w.Preferences)
 	for _, p := range presets.Blueprints {
-		e.w.Blueprints[p.ID] = p.in(e.w.Language)
+		e.w.Blueprints[p.ID] = p.in(e.w.Language, folders)
 	}
 	for _, wf := range e.w.Workflows {
 		localizeFlow(wf, e.w.Language)

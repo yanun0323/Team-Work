@@ -8,29 +8,31 @@ import (
 
 // Preferences are shared by every client of this data directory.
 type Preferences struct {
-	MusicStyle        string `json:"musicStyle"`
-	SoundNotice       bool   `json:"soundNotice"`
-	SoundTutorial     bool   `json:"soundTutorial"`
-	SoundOpenTeam     bool   `json:"soundOpenTeam"`
-	SoundOpenAirport  bool   `json:"soundOpenAirport"`
-	SoundWaves        bool   `json:"soundWaves"`
-	MusicVolume       int    `json:"musicVolume"`
-	EffectsVolume     int    `json:"effectsVolume"`
-	MusicMuted        bool   `json:"musicMuted"`
-	EffectsMuted      bool   `json:"effectsMuted"`
-	SoundTakeoff      bool   `json:"soundTakeoff"`
-	SoundLanding      bool   `json:"soundLanding"`
-	SoundFlyover      bool   `json:"soundFlyover"`
-	SoundUI           bool   `json:"soundUI"`
-	MuteInBackground  bool   `json:"muteInBackground"`
-	LogOrder          string `json:"logOrder"`
-	Detail            bool   `json:"detail"`
-	Shadows           bool   `json:"shadows"`
-	Crowd             bool   `json:"crowd"`
-	Planes            bool   `json:"planes"`
-	Clouds            bool   `json:"clouds"`
-	KeepTerminals     bool   `json:"keepTerminals"`
-	AutoView          string `json:"autoView"`
+	MusicStyle       string `json:"musicStyle"`
+	SoundNotice      bool   `json:"soundNotice"`
+	SoundTutorial    bool   `json:"soundTutorial"`
+	SoundOpenTeam    bool   `json:"soundOpenTeam"`
+	SoundOpenAirport bool   `json:"soundOpenAirport"`
+	SoundWaves       bool   `json:"soundWaves"`
+	MusicVolume      int    `json:"musicVolume"`
+	EffectsVolume    int    `json:"effectsVolume"`
+	MusicMuted       bool   `json:"musicMuted"`
+	EffectsMuted     bool   `json:"effectsMuted"`
+	SoundTakeoff     bool   `json:"soundTakeoff"`
+	SoundLanding     bool   `json:"soundLanding"`
+	SoundFlyover     bool   `json:"soundFlyover"`
+	SoundUI          bool   `json:"soundUI"`
+	MuteInBackground bool   `json:"muteInBackground"`
+	LogOrder         string `json:"logOrder"`
+	Detail           bool   `json:"detail"`
+	Shadows          bool   `json:"shadows"`
+	Crowd            bool   `json:"crowd"`
+	Planes           bool   `json:"planes"`
+	Clouds           bool   `json:"clouds"`
+	KeepTerminals    bool   `json:"keepTerminals"`
+	AutoView         string `json:"autoView"`
+	// BusyAnimation is what a company's building shows while it is at work: shout strokes or money tossed off its sides.
+	BusyAnimation     string `json:"busyAnimation"`
 	ZoomSensitivity   int    `json:"zoomSensitivity"`
 	TerminalCommand   string `json:"terminalCommand"`
 	DefaultTab        string `json:"defaultTab"`
@@ -41,10 +43,13 @@ type Preferences struct {
 	ChatTitleEffort string `json:"chatTitleEffort"`
 	// ImageProvider is the ChatGPT subscription every employee draws pictures with; empty gives nobody image_gen.
 	ImageProvider string `json:"imageProvider"`
+	// CodexSkills and ClaudeSkills let the built-in blueprints read skills from ~/.codex/ and ~/.claude/.
+	CodexSkills  bool `json:"codexSkills"`
+	ClaudeSkills bool `json:"claudeSkills"`
 }
 
 func DefaultPreferences() Preferences {
-	return Preferences{MuteInBackground: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", OpenWaitingTab: true}
+	return Preferences{MuteInBackground: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", BusyAnimation: "money", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", OpenWaitingTab: true, CodexSkills: true, ClaudeSkills: true}
 }
 
 // MergePreferences accepts only known, non-null fields; omitted fields keep their values.
@@ -72,6 +77,7 @@ func MergePreferences(current Preferences, patch map[string]json.RawMessage) (Pr
 		next.ZoomSensitivity < 20 || next.ZoomSensitivity > 300 ||
 		!slices.Contains([]string{"newestFirst", "newestLast"}, next.LogOrder) ||
 		!slices.Contains([]string{"panZoom", "pan", "off"}, next.AutoView) ||
+		!slices.Contains([]string{"shout", "money"}, next.BusyAnimation) ||
 		!slices.Contains([]string{"chats", "tasks", "crew", "terminal", "settings"}, next.DefaultTab) ||
 		!slices.Contains([]string{"chats", "providers", "blueprints", "flows", "stats", "prefs", "about"}, next.DefaultAirportTab) {
 		return current, fmt.Errorf("invalid preference value")

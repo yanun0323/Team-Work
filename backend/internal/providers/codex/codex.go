@@ -96,6 +96,11 @@ func rejected(format string, args ...any) *model.Error {
 	return model.Errorf(model.CodeInvalid, format, args...)
 }
 
+// signedOut is a sign-in that is missing or no longer accepted; signing in again is the fix.
+func signedOut(format string, args ...any) *model.Error {
+	return model.Errorf(model.CodeSignedOut, format, args...)
+}
+
 func unavailable(format string, args ...any) *model.Error {
 	return model.Errorf(model.CodeUnavailable, format, args...)
 }
@@ -371,7 +376,7 @@ func (c *Client) session(ctx context.Context, force bool) (Credentials, error) {
 		return creds, err
 	}
 	if raw == "" || json.Unmarshal([]byte(raw), &creds) != nil || creds.Access == "" || creds.Refresh == "" {
-		return creds, rejected("還沒登入 ChatGPT")
+		return creds, signedOut("還沒登入 ChatGPT")
 	}
 	if !force && time.Now().Add(refreshEarly).UnixMilli() < creds.Expires {
 		return creds, nil
@@ -380,7 +385,7 @@ func (c *Client) session(ctx context.Context, force bool) (Credentials, error) {
 	if err != nil {
 		var known *model.Error
 		if errors.As(err, &known) && known.Code == model.CodeInvalid {
-			return creds, rejected("ChatGPT 的登入已失效，請重新登入")
+			return creds, signedOut("ChatGPT 的登入已失效，請重新登入")
 		}
 		return creds, err
 	}
@@ -450,7 +455,7 @@ func (c *Client) Models(ctx context.Context) ([]model.ModelSpec, error) {
 		}
 		return out, nil
 	}
-	return nil, rejected("ChatGPT 的登入已失效，請重新登入")
+	return nil, signedOut("ChatGPT 的登入已失效，請重新登入")
 }
 
 // Logout forgets the tokens.
@@ -683,7 +688,9 @@ func statusError(res *http.Response) *model.Error {
 	switch {
 	case strings.Contains(kind, "context_length_exceeded"):
 		return overflowed()
-	case res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden:
+	case res.StatusCode == http.StatusUnauthorized:
+		return signedOut("ChatGPT 不接受這個登入，請重新登入")
+	case res.StatusCode == http.StatusForbidden:
 		return rejected("ChatGPT 不接受這個登入，請重新登入")
 	case strings.Contains(kind, "usage_limit_reached") || strings.Contains(kind, "usage_not_included"):
 		msg := i18n.T("ChatGPT 訂閱的額度用完了")

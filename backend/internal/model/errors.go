@@ -11,6 +11,8 @@ const (
 	CodeInternal    = "internal"
 	// CodeContextOverflow means the conversation is longer than the model can read.
 	CodeContextOverflow = "context_overflow"
+	// CodeSignedOut means a subscription's sign-in is gone; it works again once signed in again.
+	CodeSignedOut = "signed_out"
 )
 
 // Error is a failure with a stable code and a message that is safe to show.

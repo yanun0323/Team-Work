@@ -215,6 +215,9 @@ type ChatMessage struct {
 	By string `json:"by,omitempty"`
 	// Mentions are the employees the user's message is for, in a meeting; none is everyone.
 	Mentions []string `json:"mentions,omitempty"`
+	// Failed marks a reply that did not come, in a chat; SignedOut is the provider to sign in to again, when that is why.
+	Failed    bool   `json:"failed,omitempty"`
+	SignedOut string `json:"signedOut,omitempty"`
 }
 
 // ChatGuest is someone in a meeting besides the chair. Name and Look keep who it was, for when they have left.

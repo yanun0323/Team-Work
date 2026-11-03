@@ -148,12 +148,19 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 
 	api.POST("/chats", s.createChat)
 	api.POST("/airport/chats", s.createAirportChat)
+	api.GET("/airport/skills", s.airportSkills)
+	// the airport's chats have no company: their "#" paths are at home, and these take no id
+	api.GET("/airport/files", s.searchFiles)
+	api.POST("/airport/open-folder", s.openFolder)
+	api.GET("/airport/file", s.projectFile)
+	api.GET("/airport/image", s.projectImage)
 	api.PATCH("/chats/:id/mind", s.setChatMind)
 	api.PATCH("/chats/:id/title", s.renameChat)
 	api.PATCH("/chats/:id/pin", s.pinChat)
 	api.PATCH("/chats/:id/chair", s.setChatChair)
 	api.POST("/chats/:id/say", s.sayInChat)
 	api.POST("/chats/:id/stop", s.stopChat)
+	api.POST("/chats/:id/retry", s.retryChat)
 	api.POST("/chats/:id/queue/:queued/steer", s.steerChat)
 	api.DELETE("/chats/:id/queue/:queued", s.unqueueChat)
 	api.POST("/chats/:id/read", s.readChat)
@@ -241,7 +248,7 @@ func (s *Server) handleError(err error, c echo.Context) {
 		switch known.Code {
 		case model.CodeNotFound:
 			status = http.StatusNotFound
-		case model.CodeInvalid:
+		case model.CodeInvalid, model.CodeSignedOut:
 			status = http.StatusBadRequest
 		case model.CodeConflict:
 			status = http.StatusConflict
@@ -694,6 +701,10 @@ func (s *Server) replicaSkills(c echo.Context) error {
 	return c.JSON(http.StatusOK, skills)
 }
 
+func (s *Server) airportSkills(c echo.Context) error {
+	return c.JSON(http.StatusOK, s.engine.AirportSkills(c.Request().Context()))
+}
+
 func (s *Server) blueprintSkills(c echo.Context) error {
 	skills, err := s.engine.BlueprintSkills(c.Request().Context(), c.Param("id"))
 	if err != nil {
@@ -833,6 +844,10 @@ func (s *Server) handOffChat(c echo.Context) error {
 
 func (s *Server) stopChat(c echo.Context) error {
 	return done(c, s.engine.StopChat(c.Param("id")))
+}
+
+func (s *Server) retryChat(c echo.Context) error {
+	return done(c, s.engine.RetryChat(c.Param("id")))
 }
 
 func (s *Server) steerChat(c echo.Context) error {

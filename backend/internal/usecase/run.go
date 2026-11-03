@@ -183,6 +183,8 @@ type agentSpec struct {
 	subscription bool
 	// images draws pictures for image_gen; nil when no ChatGPT subscription is set to
 	images adapter.ImageMaker
+	// read lists folders readable besides the working directory, skills and attachments
+	read []string
 }
 
 // packRoot is a skill pack as read at run time.
@@ -401,6 +403,9 @@ func (e *Engine) launch(t *model.Task, s *model.SubTask, spec agentSpec, replica
 	}
 	r := &run{cancel: cancel, replicaID: replicaID}
 	e.runs[s.ID] = r
+	// the branch's copy first; the company's folder then brings the skills git leaves out of a work tree
+	project := append(projectPacks(e.worktreeOf(t), e.w.Preferences), projectPacks(e.w.Teams[t.TeamID].Folder, e.w.Preferences)...)
+	spec.packs = append(project, spec.packs...)
 	in := subRun{r: r, subID: s.ID, taskID: t.ID, spec: spec, conv: conv, talk: nodeOf(&t.Workflow, s.NodeID).Kind == enum.NodeTalk,
 		folder: e.w.Teams[t.TeamID].Folder, dir: e.worktreeOf(t), branch: t.Branch, target: e.w.Teams[t.TeamID].TargetBranch,
 		label: fmt.Sprintf("#%d %s", t.Number, nodeOf(&t.Workflow, s.NodeID).Name)}

@@ -321,7 +321,7 @@ func TestTokensTurnedDownAreReplacedOnce(t *testing.T) {
 	f.reject = 5
 	_, err := c.Complete(context.Background(), request, func(string) {})
 	var known *model.Error
-	if !errors.As(err, &known) || known.Code != model.CodeInvalid {
+	if !errors.As(err, &known) || known.Code != model.CodeSignedOut {
 		t.Fatal(err)
 	}
 }

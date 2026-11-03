@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
@@ -79,5 +80,178 @@ func TestChatSkillReadsTheSkillOfSomeoneInTheChat(t *testing.T) {
 	}
 	if _, err := r.e.ChatSkill(context.Background(), c.ID, "nope"); err == nil {
 		t.Fatal("a skill nobody has was found")
+	}
+}
+
+func TestCompanyChatReadsTheSkillsInTheCompanysFolder(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	dir := filepath.Join(r.folder, ".claude", "skills", "tdd")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: tdd\ndescription: 專案的測試\n---\n紅綠重構"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "用 $tdd"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	if system := r.fake.seen[0].System; !strings.Contains(system, "專案的測試") {
+		t.Fatalf("the chat was not told the company's skill:\n%s", system)
+	}
+	got, err := r.e.ChatSkill(context.Background(), c.ID, "tdd")
+	if err != nil || !strings.Contains(got.Text, "紅綠重構") {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+func TestAirportChatUsesTheSkillsOfItsBlueprint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".agents", "skills", "tdd")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: tdd\ndescription: 先寫測試\n---\n紅綠重構"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var got model.ModelRequest
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		got = req
+		return say("好"), nil
+	})
+
+	skills := r.e.AirportSkills(context.Background())
+	if len(skills) != 1 || skills[0].Name != "tdd" || skills[0].Description != "先寫測試" {
+		t.Fatalf("%+v", skills)
+	}
+	c, err := r.e.CreateAirportChat(usecase.NewAirportChat{Model: r.owner.Model, Text: "用 $tdd"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	said := ""
+	for _, b := range got.Messages[0].Content {
+		said += b.Text
+	}
+	if !strings.Contains(said, "紅綠重構") {
+		t.Fatalf("the skill did not come with the message: %s", said)
+	}
+	skill, err := r.e.ChatSkill(context.Background(), c.ID, "tdd")
+	if err != nil || !strings.Contains(skill.Text, "紅綠重構") {
+		t.Fatalf("%+v %v", skill, err)
+	}
+}
+
+func TestAirportFilesBrowseHomeOneFolderAtATime(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, f := range []string{"Documents/plan.md", "Documents/Projects/a.go", "Downloads/x.zip", "notes.txt", ".secret/key"} {
+		at := filepath.Join(home, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(at), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(at, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(home, "Documents"), filepath.Join(home, "Docs")); err != nil {
+		t.Fatal(err)
+	}
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	list := func(q string) string {
+		files, err := r.e.SearchFiles(context.Background(), "", q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, f := range files {
+			if f.Dir {
+				out = append(out, f.Path+"/")
+			} else {
+				out = append(out, f.Path)
+			}
+		}
+		return strings.Join(out, " ")
+	}
+	for q, want := range map[string]string{
+		"":             "Docs/ Documents/ Downloads/ notes.txt",
+		"do":           "Docs/ Documents/ Downloads/",
+		"Documents/":   "Documents/Projects/ Documents/plan.md",
+		"Documents/pl": "Documents/plan.md",
+		".":            ".secret/",
+		"../":          "",
+		"/etc/":        "",
+		"Nope/":        "",
+	} {
+		if got := list(q); got != want {
+			t.Errorf("%q: got %q, want %q", q, got, want)
+		}
+	}
+
+	// what a mention names opens from home too, and nothing outside it
+	if text, err := r.e.ProjectFile("", "Documents/plan.md"); err != nil || text != "x" {
+		t.Fatalf("%q %v", text, err)
+	}
+	if folder, err := r.e.ProjectFolder("", "Docs"); err != nil || filepath.Base(folder) != "Documents" {
+		t.Fatalf("%q %v", folder, err)
+	}
+	if folder, err := r.e.ProjectFolder("", ""); err != nil || folder != home {
+		t.Fatalf("%q %v", folder, err)
+	}
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("s"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(home, "out")); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"../secret.txt", filepath.Join(outside, "secret.txt"), "out/secret.txt"} {
+		if _, err := r.e.ProjectFile("", bad); err == nil {
+			t.Errorf("%s was opened", bad)
+		}
+	}
+
+	// and what is wrong says home, not the project folder the airport does not have
+	if err := os.WriteFile(filepath.Join(home, "a.bin"), []byte{0, 1}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for rel, want := range map[string]string{"nope.txt": "家目錄裡沒有 nope.txt", "a.bin": "a.bin 不是文字檔，請到 Finder 打開"} {
+		if _, err := r.e.ProjectFile("", rel); err == nil || err.Error() != want {
+			t.Errorf("%s: %v", rel, err)
+		}
+	}
+	if _, _, err := r.e.ProjectImage("", "notes.txt"); err == nil || err.Error() != "notes.txt 不是圖片，請到 Finder 打開" {
+		t.Errorf("image: %v", err)
+	}
+}
+
+func TestAirportChatCanReadWhatTheUserNamesAtHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "notes.txt"), []byte("在家裡的筆記"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var seen []model.ModelRequest
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		seen = append(seen, req)
+		if len(seen) == 1 {
+			return call("read_file", map[string]string{"path": filepath.Join(home, "notes.txt")}), nil
+		}
+		return say("好"), nil
+	})
+	c, err := r.e.CreateAirportChat(usecase.NewAirportChat{Model: r.owner.Model, Text: "看 #notes.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	if !strings.Contains(seen[0].System, "home folder, "+home) {
+		t.Fatalf("system: %s", seen[0].System)
+	}
+	last := seen[len(seen)-1].Messages
+	result := last[len(last)-1].Content[0]
+	if result.Type != enum.BlockToolResult || result.IsError || !strings.Contains(result.Text, "在家裡的筆記") {
+		t.Fatalf("%+v", result)
 	}
 }
