@@ -16,7 +16,7 @@ describe('model providers', () => {
   it('signs in to a subscription without a key or address', () => {
     const w = seedWorld()
     const p = addProvider(w, { name: 'ChatGPT 訂閱', kind: 'openai', baseUrl: 'https://x', login: { kind: 'subscription' }, models: ['gpt-5.5'] })
-    expect(p.auth).toEqual({ kind: 'subscription' })
+    expect(p.auth).toEqual({ kind: 'subscription', signedIn: true })
     expect(p.baseUrl).toBe('')
     expect(authLabel(p)).toBe('ChatGPT 訂閱')
   })

@@ -1076,6 +1076,8 @@ a.fx-save { text-decoration: none; }
 .fx-tag-alerts { position: absolute; top: -12px; inset-inline-end: -10px; display: flex; gap: 4px; }
 .fx-tag-alert { --alert: 211 58 44; position: relative; display: inline-flex; gap: 2px; rotate: none; }
 .fx-tag-alert-chat { --alert: 36 87 158; background: #24579e; }
+/* an update the app found: a small red dot with no number */
+.fx-tag-alert-update { min-width: 12px; width: 12px; height: 12px; padding: 0; align-self: center; }
 /* a new alert, or one more of them, pops in, shakes and sends out a ring; then it keeps a slow glow until it is dealt with */
 @media (prefers-reduced-motion: no-preference) {
   .fx-tag-alert {
@@ -1222,6 +1224,8 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fx-chat-edit { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
 .fx-chat-edit:hover { color: var(--ink); }
 .fx-chat-edit:disabled { opacity: 0.35; cursor: default; }
+.fx-chat-act { padding: 2px 6px; border: 0; border-radius: 4px; background: none; font: inherit; font-size: 11.5px; font-weight: 600; line-height: 1.2; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.fx-chat-act:hover { background: color-mix(in srgb, var(--ink) 10%, transparent); }
 .fx-handoff { position: relative; display: inline-flex; }
 /* floating over the page, placed from the button by HandOffMenu */
 .fx-handoff-menu {

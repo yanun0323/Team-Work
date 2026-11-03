@@ -17,7 +17,7 @@ import { Gone, Heading, DeleteTool, PinTool, type Head } from './DrawerDetail'
 import { composing } from './ime'
 import { fmtClock, fmtTokens, teamReplicas, useAtBottom, useStickToBottom } from './core/model'
 import type { Attachment, Chat, QueuedMessage } from './core/domain/types'
-import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, openFolder, readChat, renameChat, resolveChatChange, rewindChat, sayInChat, setChatChair, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
+import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, openFolder, readChat, renameChat, resolveChatChange, retryChat, rewindChat, sayInChat, setChatChair, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
 import { AIRPORT_STAFF_LOOK, canHandOff, MAX_CHAT_PEOPLE, roundActor } from './core/domain/sim'
 import { HandOffIcon, HandOffMenu } from './HandOffMenu'
 import { useLiveOutput, useLiveText } from './core/live'
@@ -77,7 +77,7 @@ function ChatTitle({ chat }: { chat: Chat }) {
 
 export interface ChatTaskSeed { title: string; description: string; ownerId: string | null }
 
-export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFile, onSkill, image, onImage, onTask, onHandOff, onGoneChat, ...h }: Head & {
+export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFile, onSkill, image, onImage, onTask, onHandOff, onProvider, onGoneChat, ...h }: Head & {
   /** The chat to open; none starts a new one. */
   id?: string
   teamId: string
@@ -95,6 +95,8 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   onTask: (seed: ChatTaskSeed) => void
   /** Opens the copy just made of this chat. */
   onHandOff: (id: string) => void
+  /** Opens a provider to sign in to it again. */
+  onProvider: (id: string) => void
   onGoneChat: () => void
 }) {
   const w = useStore((s) => s.world)
@@ -271,6 +273,16 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     }
     return takers.length > 0 && <HandOffMenu crew={takers} chairId={meeting ? chat.replicaId : undefined} end={end} disabled={handingOff} onPick={(to) => void handOff(i, to)} />
   }
+  // what can be done about the failed reply that ends the chat: sign in again first when that is why, then reply again
+  const failedActions = (i: number) => {
+    const m = chat?.messages[i]
+    if (!chat || !m?.failed || i !== chat.messages.length - 1 || writing || left) return null
+    const auth = m.signedOut ? w.providers[m.signedOut]?.auth : undefined
+    if (auth?.kind === 'subscription' && !auth.signedIn) {
+      return <button type="button" className="fx-chat-act fx-hit" onClick={() => onProvider(m.signedOut!)}>{tr('重新登入')}</button>
+    }
+    return <button type="button" className="fx-chat-act fx-hit" onClick={() => act((x) => retryChat(x, chat.id))}>{tr('重新回覆')}</button>
+  }
   // a line where one employee handed the chat to the next
   const handoffLines = (i: number) => (chat?.handoffs ?? []).flatMap((h, k, all) => (h.before === i || (i === chat?.messages.length && h.before > i))
     ? [<li key={`handoff-${k}`} className="fx-room-handoff">{tr('{from} 交給 {to}', { from: h.name, to: all[k + 1]?.name ?? chat?.name ?? '' })}</li>]
@@ -309,11 +321,11 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     if (draft) onTask({ ...draft, ownerId: w.replicas[actor] ? actor : replica?.id ?? null })
   }
 
-  // what a mention in the chat opens: those in the airport's chats belong to no company
+  // what a mention in the chat opens: in the airport's, files and folders are at home, as there is no company
   const opens: SaidActions = {
     person: onCrew,
     canPerson: (x) => !!w.replicas[x],
-    ...(!airport && chat && {
+    ...(chat && {
       file: onFile,
       folder: (path: string) => openFolder(teamId, path),
       skill: (name: string) => onSkill(chat.id, name),
@@ -408,6 +420,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
                       <time>{fmtClock(m.at)}</time>
                       {m.text && <CopyButton text={m.text} />}
                       {handOffButton(i)}
+                      {failedActions(i)}
                     </div>
                   </div>
                 )
@@ -535,7 +548,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
               <input type="file" disabled={reading} multiple className="fx-sr" aria-label={tr('加入附件')}
                 onChange={(e) => { void attach([...(e.target.files ?? [])]); e.target.value = '' }} />
             </label>
-            <MentionBox box={box} grow value={text} teamId={teamId} replicaIds={people.filter((x) => w.replicas[x.id]).map((x) => x.id)} people={mentionable} personRow={mentionRow} label={tr('訊息')} placeholder={airport ? tr('輸入訊息，可直接貼上截圖') : tr('輸入訊息，@ 找員工，$ 選技能，# 選檔案，可直接貼上截圖')} onChange={setText} onSend={() => void send()} />
+            <MentionBox box={box} grow value={text} teamId={teamId} airport={airport} replicaIds={people.filter((x) => w.replicas[x.id]).map((x) => x.id)} people={mentionable} personRow={mentionRow} label={tr('訊息')} placeholder={airport ? tr('輸入訊息，$ 選技能，# 選檔案，可直接貼上截圖') : tr('輸入訊息，@ 找員工，$ 選技能，# 選檔案，可直接貼上截圖')} onChange={setText} onSend={() => void send()} />
             {writing && !drafted
               ? (
                 <button type="button" className="fx-room-send" aria-label={tr('暫停')} title={tr('暫停')} onClick={() => act((x) => stopChat(x, chat!.id))}>

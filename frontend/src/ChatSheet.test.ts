@@ -5,7 +5,7 @@ import { useStore } from './core/store'
 import { describe, expect, it } from 'vitest'
 import { attachable, splitAttachments } from './attachments'
 import { seedWorld } from './core/data/seed'
-import { canHandOff, chatTaskDraft, createAirportChat, createChat, deleteTeam, handOffChat, readChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, steerChat, stopChat, tick, unqueueChat } from './core/domain/sim'
+import { airportSkills, canHandOff, chatSkill, chatTaskDraft, createAirportChat, createChat, deleteTeam, handOffChat, readChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, steerChat, stopChat, tick, unqueueChat } from './core/domain/sim'
 import { chatMindOf, chatSign, chatWho } from './crew'
 import { prereqsOf } from './prereqs'
 import { teamAlerts, teamReplicas, waitingTab } from './core/model'
@@ -269,6 +269,14 @@ describe('airport chats', () => {
     setChatMind(w, chat.id, 'n', 'high')
     expect(chatMindOf(w, w.chats[chat.id])).toBe('n · high')
     expect(chatWho(w, w.chats[chat.id]).name).toBe('機場服務人員')
+  })
+
+  it('offer the airport staff\'s skills and open them', () => {
+    const { w, chat } = start()
+    const names = airportSkills(w).map((s) => s.name)
+    expect(names.length).toBeGreaterThan(0)
+    expect(chatSkill(w, chat.id, names[0]).name).toBe(names[0])
+    expect(() => chatSkill(w, chat.id, 'nope')).toThrow()
   })
 
   it('leave company chats on their model', () => {

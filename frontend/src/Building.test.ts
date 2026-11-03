@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { litShares, shoutBursts } from './Building'
+import { billAt, litShares, moneyTosses, shoutBursts } from './Building'
 import { seedWorld } from './core/data/seed'
 import { busyReplicas, createChat } from './core/domain/sim'
 import { teamBusy, teamReplicas } from './core/model'
@@ -44,6 +44,24 @@ describe('shoutBursts', () => {
       expect(a.rays.length).not.toBe(b.rays.length)
       expect(a.at[1]).not.toBe(b.at[1])
       expect(a.beat).not.toBe(b.beat)
+    }
+  })
+})
+
+describe('moneyTosses', () => {
+  it('tosses one side, then the other, each bill out its own side and falling in the end', () => {
+    for (let seed = 0; seed < 20; seed++) {
+      const [a, b] = moneyTosses(8, 8, 12, seed)
+      expect(a.side).toBe(-b.side)
+      expect(a.start).toBe(0)
+      expect(b.start).toBeGreaterThan(0)
+      for (const t of [a, b]) {
+        for (const bill of t.bills) {
+          const [x, y] = billAt(bill, t.side, 1.5)
+          expect(Math.sign(x)).toBe(t.side)
+          expect(y).toBeLessThan(billAt(bill, t.side, 0.3)[1])
+        }
+      }
     }
   })
 })

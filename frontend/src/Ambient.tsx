@@ -7,7 +7,7 @@ import * as THREE from 'three'
 import { Plane } from './Airport'
 import { Fade } from './Fade'
 import { CELL, hash, type Town } from './layout'
-import { NO_OUTLINE_LAYER } from './PixelPass'
+import { MAX_FRAME, NO_OUTLINE_LAYER } from './PixelPass'
 import { fadingShadow } from './shadowFade'
 import { playSound, stopSound } from './sound'
 import { toon } from './toon'
@@ -41,8 +41,9 @@ function CloudShadows({ reach, calm }: { reach: number; calm: boolean }) {
     })),
   })), [reach])
   useLayoutEffect(() => ref.current?.traverse((o) => o.layers.set(NO_OUTLINE_LAYER)), [clouds])
-  useFrame((_, dt) => {
+  useFrame((_, rawDt) => {
     if (calm || !ref.current) return
+    const dt = Math.min(rawDt, MAX_FRAME)
     ref.current.children.forEach((g, i) => {
       g.position.x += WIND.x * clouds[i].speed * dt
       g.position.z += WIND.y * clouds[i].speed * dt
@@ -166,7 +167,7 @@ function Overflights({ ring }: { ring: number }) {
   const seen = ring + 30
   const half = seen + 40
   useFrame((_, delta) => {
-    const dt = Math.min(delta, 0.1)
+    const dt = Math.min(delta, MAX_FRAME)
     if (!pass) {
       wait.current -= dt
       if (wait.current <= 0) {

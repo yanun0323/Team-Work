@@ -12,9 +12,10 @@ import { anchors } from './core/voxel/labels'
 import { seedOf, styleOf, type Style } from './figureStyle'
 import { hash, type Town } from './layout'
 import { OFFICE_SCALE, type OfficePlan } from './office'
+import { MAX_FRAME } from './PixelPass'
 import { toon } from './toon'
 import {
-  advance, benchSeats, cellPos, crowdSize, freeCells, headingOf, isFree, officeGrid, resettle, route, seatRoute, townGrid,
+  advance, benchSeats, cellPos, crowdSize, freeCells, headingOf, inSteps, isFree, officeGrid, resettle, route, seatRoute, townGrid,
   type BenchSeat, type P, type Stroller as WalkStroller, type Walker,
 } from './walk'
 
@@ -560,11 +561,12 @@ export function OfficeCrew({ teamId, seed, plan, crew, floor, amenities = NO_AME
   const bubblesOf = (id: string) => bubbles.current.get(id) ?? (bubbles.current.set(id, { talk: null, think: null }).get(id) as { talk: null; think: null })
 
   useFrame((_, rawDt) => {
-    const dt = Math.min(rawDt, 0.1)
+    const dt = Math.min(rawDt, MAX_FRAME)
     const crewNow = latest.current
     const states = sim.states
     // with reduced motion nobody moves, but everyone still gets a place
-    tick(sim, crewNow, calm ? 0 : dt)
+    if (calm) tick(sim, crewNow, 0)
+    else inSteps(dt, (step) => tick(sim, crewNow, step))
     crewNow.forEach((c) => {
       const me = states.get(c.id)
       if (!me) return
@@ -672,54 +674,54 @@ export function Strollers({ town }: { town: Town }) {
   useEffect(() => resettle(people, grid, seats), [grid, seats, people])
 
   useFrame((_, rawDt) => {
-    const dt = Math.min(rawDt, 0.1)
+    const dt = Math.min(rawDt, MAX_FRAME)
     // benches are told apart by where they are, as the seat list is rebuilt with the grid
     const spot = (s: BenchSeat) => `${s.at}`
     const held = new Set(people.flatMap((p) => (p.seat ? [spot(p.seat)] : [])))
-    people.forEach((p, i) => {
-      let moved = 0
-      if (!calm) {
-        p.wait -= dt
-        if (p.mode === 'sitting' && p.wait <= 0) {
-          // get up, step off the bench and carry on
-          p.route = [(p.seat as BenchSeat).front]
-          p.seat = null
-          p.mode = 'walking'
-        } else if (p.mode === 'walking') {
-          moved = advance(p, SPEED * OFFICE_SCALE * dt)
-          if (!p.route.length) {
-            if (p.toSeat && p.seat) {
-              p.mode = 'sitting'
-              p.heading = p.seat.heading
-              p.wait = rand(8, 20)
-              p.toSeat = false
-            } else {
-              p.mode = 'standing'
-              p.wait = rand(1, 4)
-            }
-          }
-        } else if (p.mode === 'standing' && p.wait <= 0) {
-          const free = seats.filter((s) => !held.has(spot(s)))
-          const seat = free.length && Math.random() < 0.3 ? pick(free) : null
-          const toBench = seat ? seatRoute(grid, [p.x, p.z], seat) : []
-          if (seat && toBench.length) {
-            held.add(spot(seat))
-            p.seat = seat
-            p.toSeat = true
-            p.route = toBench
+    const moved = people.map(() => 0)
+    if (!calm) inSteps(dt, (dt) => people.forEach((p, i) => {
+      p.wait -= dt
+      if (p.mode === 'sitting' && p.wait <= 0) {
+        // get up, step off the bench and carry on
+        p.route = [(p.seat as BenchSeat).front]
+        p.seat = null
+        p.mode = 'walking'
+      } else if (p.mode === 'walking') {
+        moved[i] += advance(p, SPEED * OFFICE_SCALE * dt)
+        if (!p.route.length) {
+          if (p.toSeat && p.seat) {
+            p.mode = 'sitting'
+            p.heading = p.seat.heading
+            p.wait = rand(8, 20)
+            p.toSeat = false
           } else {
-            // mostly along the paving round the buildings, sometimes out on the grass
-            const [x, z] = Math.random() < 0.7 && paved.length ? pick(paved) : pick(cells)
-            p.route = route(grid, [p.x, p.z], cellPos(grid, x, z))
+            p.mode = 'standing'
+            p.wait = rand(1, 4)
           }
-          p.mode = 'walking'
         }
+      } else if (p.mode === 'standing' && p.wait <= 0) {
+        const free = seats.filter((s) => !held.has(spot(s)))
+        const seat = free.length && Math.random() < 0.3 ? pick(free) : null
+        const toBench = seat ? seatRoute(grid, [p.x, p.z], seat) : []
+        if (seat && toBench.length) {
+          held.add(spot(seat))
+          p.seat = seat
+          p.toSeat = true
+          p.route = toBench
+        } else {
+          // mostly along the paving round the buildings, sometimes out on the grass
+          const [x, z] = Math.random() < 0.7 && paved.length ? pick(paved) : pick(cells)
+          p.route = route(grid, [p.x, p.z], cellPos(grid, x, z))
+        }
+        p.mode = 'walking'
       }
+    }))
+    people.forEach((p, i) => {
       const sitting = p.mode === 'sitting'
       // feet on the paving, or on the grass just below it
       const [cx, cz] = [Math.round((p.x - grid.x0) / grid.step), Math.round((p.z - grid.z0) / grid.step)]
       const ground = town.ground[cz * town.cols + cx] === 'pave' ? 0.08 : 0
-      pose(rigs[i], p, sitting, moved / OFFICE_SCALE, sitting ? BENCH_TOP - CHAIR_TOP * OFFICE_SCALE : ground, dt)
+      pose(rigs[i], p, sitting, moved[i] / OFFICE_SCALE, sitting ? BENCH_TOP - CHAIR_TOP * OFFICE_SCALE : ground, dt)
     })
   })
 

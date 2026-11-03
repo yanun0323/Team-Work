@@ -10,7 +10,7 @@ import * as THREE from 'three'
 import { AirportInterior } from './AirportInterior'
 import { Fade } from './Fade'
 import { AIRPORT, CELL, rectCenter, RUNWAY_CELLS, RUNWAY_LINE, BRIDGE_DX, HALL_LIFT, STAND_Z, STANDS, TERMINAL, TOWER, type Town } from './layout'
-import { NO_OUTLINE_LAYER } from './PixelPass'
+import { MAX_FRAME, NO_OUTLINE_LAYER } from './PixelPass'
 import { usePrefs } from './prefs'
 import { playSound, stopSound } from './sound'
 import { toon } from './toon'
@@ -169,7 +169,7 @@ function Flight({ calm }: { calm: boolean }) {
   useFrame((_, dt) => {
     if (calm || !ref.current) return
     const before = clock.current
-    clock.current = (clock.current + Math.min(dt, 0.1)) % CYCLE
+    clock.current = (clock.current + Math.min(dt, MAX_FRAME)) % CYCLE
     const t = clock.current
     if (before < 3 && t >= 3) playSound('soundLanding')
     if (before < 60 && t >= 60) playSound('soundTakeoff')

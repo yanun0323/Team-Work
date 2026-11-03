@@ -14,7 +14,8 @@ import { OFFICE_SCALE } from './office'
 import { Figure, lookOf, newRig, pose, type Rig } from './People'
 import { usePrefs } from './prefs'
 import { toon } from './toon'
-import { advance, type P, type Walker } from './walk'
+import { MAX_FRAME } from './PixelPass'
+import { advance, inSteps, type P, type Walker } from './walk'
 
 type V3 = [number, number, number]
 
@@ -221,8 +222,8 @@ function Passengers() {
     ...newPassenger(i), rig: newRig() as Rig, look: lookOf(i + 40),
   })), [])
   useFrame((_, rawDt) => {
-    const dt = Math.min(rawDt, 0.1)
-    if (!calm) stepPassengers(people, dt)
+    const dt = Math.min(rawDt, MAX_FRAME)
+    if (!calm) inSteps(dt, (step) => stepPassengers(people, step))
     for (const p of people) {
       const w = p.walker
       const y = floorY(w.x, w.z)

@@ -478,11 +478,23 @@ export function projectFile(path: string): string {
   return /\.mdx?$/i.test(path) ? `# ${path}\n\n原型不讀檔案，這裡只是示意。` : `// ${path}\n`
 }
 
+/** The blueprint the airport staff work by. */
+export const AIRPORT_BLUEPRINT_ID = 'preset-airport'
+
+/** The airport staff's skills, made up as their packs are. */
+export function airportSkills(w: World): SkillInfo[] {
+  const names = blueprintSkills(w, AIRPORT_BLUEPRINT_ID).flatMap((names) => names ?? [])
+  return [...new Set(names)].map((name) => ({ name, description: '' }))
+}
+
 /** A skill of someone in the chat, made up as its pack is. */
 export function chatSkill(w: World, chatId: string, name: string): SkillText {
   const chat = w.chats[chatId]
   const ids = chat ? [chat.replicaId, ...(chat.guests ?? []).map((g) => g.replicaId)] : []
-  if (!ids.some((id) => blueprintSkills(w, w.replicas[id]?.blueprintId ?? '').some((names) => names?.includes(name)))) {
+  const has = chat && !chat.teamId
+    ? airportSkills(w).some((s) => s.name === name)
+    : ids.some((id) => blueprintSkills(w, w.replicas[id]?.blueprintId ?? '').some((names) => names?.includes(name)))
+  if (!has) {
     throw new Error(`找不到技能 ${name}`)
   }
   return { name, description: '', path: `skills/${name}/SKILL.md`, text: `# ${name}\n\n原型不讀檔案，這裡只是示意。` }
@@ -495,6 +507,17 @@ export function searchFiles(query: string): FileInfo[] {
   return MOCK_FILES.filter((f) => (query && at < 0
     ? f.path.toLowerCase().includes(q)
     : f.path.startsWith(folder) && !f.path.slice(folder.length).includes('/') && f.path.toLowerCase().startsWith(q)))
+}
+
+/** The failed reply, the chat's last message, is tried again by whoever wrote it. */
+export function retryChat(w: World, id: string) {
+  const chat = w.chats[id]
+  const last = chat?.messages.at(-1)
+  if (!chat || !last?.failed || chat.replyAt !== undefined || chatLeft(w, chat)) return
+  chat.messages.pop()
+  chat.speaker = last.by ?? chat.replicaId
+  delete chat.next
+  chat.replyAt = w.now + REPLY_TIME
 }
 
 /** Stops the reply under way, and the rest of the round. */
@@ -1037,9 +1060,9 @@ const seedOfId = (id: string) => [...id].reduce((h, c) => Math.imul(h ^ c.charCo
 /** How a provider is signed in to, as given: the whole API key, or a subscription's sign-in. */
 export type ProviderLogin = { kind: 'apiKey'; apiKey: string } | { kind: 'subscription' }
 
-/** Only the key's last four characters are kept, to tell keys apart. */
+/** Only the key's last four characters are kept, to tell keys apart. A subscription is saved once signed in. */
 const authOf = (l: ProviderLogin): ProviderAuth =>
-  l.kind === 'apiKey' ? { kind: 'apiKey', keyHint: l.apiKey.trim().slice(-4) } : { kind: 'subscription' }
+  l.kind === 'apiKey' ? { kind: 'apiKey', keyHint: l.apiKey.trim().slice(-4) } : { kind: 'subscription', signedIn: true }
 
 /** Add a model provider, with the models it lists; names are trimmed and each model kept once. */
 export function addProvider(w: World, input: Pick<ModelProvider, 'name' | 'kind' | 'baseUrl' | 'models' | 'thinking'> & { login: ProviderLogin }): ModelProvider {

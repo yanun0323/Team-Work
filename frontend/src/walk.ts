@@ -169,6 +169,14 @@ export interface Walker {
 export const headingOf = (dx: number, dz: number) => Math.atan2(-dx, -dz)
 
 /** Moves a walker `dist` along its route. Returns how far it actually went (less once it arrives). */
+/**
+ * Runs `step` over `dt` seconds in pieces of at most `piece`, so a long frame (one a second in the background)
+ * still moves people a little at a time: nobody walks through someone they should queue behind.
+ */
+export function inSteps(dt: number, step: (dt: number) => void, piece = 0.1) {
+  for (let left = dt; left > 1e-9; left -= piece) step(Math.min(piece, left))
+}
+
 export function advance(w: Walker, dist: number): number {
   let left = dist
   while (left > 0 && w.route.length) {

@@ -34,6 +34,10 @@ export const AUTO_VIEWS = { panZoom: '位移和縮放', pan: '位移', off: '關
 /** panZoom flies there, zooms in and locks the view; pan goes there at the same zoom and locks only panning; off leaves the camera alone. */
 export type AutoView = keyof typeof AUTO_VIEWS
 
+export const BUSY_ANIMATIONS = { money: '撒錢', shout: '粗線條' } as const
+/** money tosses bills off one side of a busy building, then the other; shout flickers cartoon strokes off both sides. */
+export type BusyAnimation = keyof typeof BUSY_ANIMATIONS
+
 export type LogOrder = 'newestFirst' | 'newestLast'
 
 export interface Prefs {
@@ -73,6 +77,8 @@ export interface Prefs {
   keepTerminals: boolean
   /** What the camera does on opening a company or the airport, or picking a plot. */
   autoView: AutoView
+  /** What a company's building shows while it is at work. */
+  busyAnimation: BusyAnimation
   /** How fast the wheel zooms the map, in percent of the normal speed. */
   zoomSensitivity: number
   /** Typed into each terminal as it starts; empty runs nothing. */
@@ -88,9 +94,12 @@ export interface Prefs {
   chatTitleEffort: string
   /** The ChatGPT subscription every employee draws pictures with; empty gives nobody image_gen. */
   imageProvider: string
+  /** The built-in blueprints read skills from ~/.codex/ and ~/.claude/. */
+  codexSkills: boolean
+  claudeSkills: boolean
 }
 
-export const DEFAULT_PREFS: Prefs = { muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', openWaitingTab: true, chatTitleModel: '', chatTitleEffort: '', imageProvider: '' }
+export const DEFAULT_PREFS: Prefs = { muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', openWaitingTab: true, chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true }
 
 /** The range of `zoomSensitivity`; the backend checks the same. */
 export const ZOOM_SENSITIVITY = { min: 20, max: 300 }

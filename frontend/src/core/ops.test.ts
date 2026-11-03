@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyPatches, emptyWorld, request, unreachable } from './backend'
 import { fmtClock } from './model'
-import { deleteMemory, editMemory } from './ops'
+import { deleteMemory, editMemory, projectImageUrl } from './ops'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -82,5 +82,12 @@ describe('correcting memory', () => {
     const w = world()
     deleteMemory(w, 'r', 'a')
     expect(w.replicas.r.memory.map((m) => m.id)).toEqual(['b'])
+  })
+})
+
+describe('files a message names', () => {
+  it('are in the company\'s folder, or at home for the airport\'s', () => {
+    expect(projectImageUrl('t1', 'a b.png')).toBe('/api/v1/teams/t1/image?path=a%20b.png')
+    expect(projectImageUrl('', 'Pictures/a.png')).toBe('/api/v1/airport/image?path=Pictures%2Fa.png')
   })
 })

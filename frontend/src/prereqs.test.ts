@@ -44,9 +44,9 @@ describe('what a tab of the company file needs', () => {
     expect(ids(w, teamId, 'crew')).toEqual(['providerReady'])
     w.providers = { p: provider({ auth: { kind: 'subscription', signedIn: true } }) }
     expect(ids(w, teamId, 'crew')).not.toContain('providerReady')
-    // Claude reports no state: its models are all there is to go on
+    // Claude too, once a run finds Claude Code signed out
     w.providers = { p: provider({ kind: 'anthropic', auth: { kind: 'subscription' } }) }
-    expect(ids(w, teamId, 'crew')).not.toContain('providerReady')
+    expect(ids(w, teamId, 'crew')).toEqual(['providerReady'])
   })
 
   it('warns, without blocking, about employees whose model has gone', () => {

@@ -20,12 +20,9 @@ export interface Prereq {
   blocks: boolean
 }
 
-/**
- * A provider that can be used: it lists models and, for a subscription, is signed in. Claude signs in through
- * its own command line and reports no state here, so listing models is all that can be told about it.
- */
+/** A provider that can be used: it lists models and, for a subscription, is signed in. */
 const usable = (p: ModelProvider) =>
-  p.models.length > 0 && (p.auth.kind !== 'subscription' || p.kind === 'anthropic' || !!p.auth.signedIn)
+  p.models.length > 0 && (p.auth.kind !== 'subscription' || !!p.auth.signedIn)
 
 function providers(w: World): Prereq | null {
   const all = Object.values(w.providers)

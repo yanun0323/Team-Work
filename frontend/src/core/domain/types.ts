@@ -272,6 +272,9 @@ export interface ChatMessage {
   by?: string
   /** Who the user's message is for, in a meeting; none is everyone. */
   mentions?: string[]
+  /** A reply that did not come, in a chat; signedOut is the provider to sign in to again, when that is why. */
+  failed?: boolean
+  signedOut?: string
 }
 
 /** Someone in a meeting besides the chair; `name` and `look` keep who it was, for when they have left. */

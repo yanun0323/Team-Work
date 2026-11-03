@@ -3,7 +3,7 @@ import { combine } from './rollup'
 import {
   cancelTask, fire, changeWorkflow, createTask, createTeam, DEFAULT_MODEL, deleteBlueprint, deleteTask, deleteTeam, gitSources, updateBlueprint, updateSource, deleteWorkflow, duplicateWorkflow, newWorkflow, hire, pauseTask, mergeTask, returnTask,
   MERGE_TIME, RESOLVE_TIME, resolveReview, resumeTask, setOwner, statusOf, subsOf, tick, END_PROMPT, START_PROMPT,
-  endTalk, REPLY_TIME, sayInTalk, taskTokens, createChat, handOffChat, rewindChat, sayInChat, setChatChair, MAX_CHAT_PEOPLE,
+  endTalk, REPLY_TIME, sayInTalk, taskTokens, createChat, handOffChat, rewindChat, retryChat, sayInChat, setChatChair, MAX_CHAT_PEOPLE,
 } from './sim'
 import { composePrompt, validate, wouldCreateCycle } from './graph'
 import type { GitSource, Script, World, Workflow, WorkflowNode } from './types'
@@ -381,6 +381,21 @@ describe('meetings', () => {
     sayInChat(w, chat.id, 'hi', [], [], more.map((r) => r.id))
     expect(chat.guests?.map((g) => g.replicaId)).toHaveLength(MAX_CHAT_PEOPLE - 1)
     expect(chat.next).toHaveLength(MAX_CHAT_PEOPLE - 4)
+  })
+
+  it('has whoever failed to reply try again, and only that', () => {
+    const { w, bea, chat } = meet()
+    run(w, REPLY_TIME * 3 + 1)
+    const before = chat.messages.length
+    chat.messages.push({ at: w.now, from: 'agent', text: '（回覆失敗）', by: bea.id, failed: true })
+    retryChat(w, chat.id)
+    expect(chat.messages).toHaveLength(before)
+    expect(chat.speaker).toBe(bea.id)
+    expect(chat.replyAt).toBeDefined()
+    run(w, REPLY_TIME + 1)
+    const after = chat.messages.length
+    retryChat(w, chat.id) // the last reply came
+    expect(chat.messages).toHaveLength(after)
   })
 
   it('lets only the one mentioned alone, or the chair, ask the user', () => {

@@ -54,6 +54,7 @@ export const renameChat = pick('renameChat', (_w: World, id: string, title: stri
 export const pinChat = pick('pinChat', (_w: World, id: string, pinned: boolean) => fire_('PATCH', `/chats/${id}/pin`, { pinned }))
 export const rewindChat = pick('rewindChat', (_w: World, id: string, index: number) => fire_('POST', `/chats/${id}/rewind`, { index }))
 export const resolveChatChange = pick('resolveChatChange', (_w: World, id: string, approve: boolean) => fire_('POST', `/chats/${id}/change`, { approve }))
+export const retryChat = pick('retryChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/retry`))
 export const stopChat = pick('stopChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/stop`))
 export const steerChat = pick('steerChat', (_w: World, id: string, queued: string) => fire_('POST', `/chats/${id}/queue/${queued}/steer`))
 export const unqueueChat = pick('unqueueChat', (_w: World, id: string, queued: string) => fire_('DELETE', `/chats/${id}/queue/${queued}`))
@@ -101,15 +102,23 @@ export const replicaSkills = (w: World, replicaId: string, signal?: AbortSignal)
   ? Promise.resolve(sim.replicaSkills(w, replicaId))
   : request<SkillInfo[]>('GET', `/replicas/${replicaId}/skills`, undefined, signal))
 
+/** The skills "$" offers in a chat with the airport staff. */
+export const airportSkills = (w: World, signal?: AbortSignal) => (MOCK
+  ? Promise.resolve(sim.airportSkills(w))
+  : request<SkillInfo[]>('GET', '/airport/skills', undefined, signal))
+
 /** The skills each pack of a blueprint brings, in the order of its packs; null for one that cannot be read. */
 export const blueprintSkills = (w: World, id: string, signal?: AbortSignal) => (MOCK
   ? Promise.resolve(sim.blueprintSkills(w, id))
   : request<(string[] | null)[]>('GET', `/blueprints/${id}/skills`, undefined, signal))
 
-/** The files and folders "#" offers from a company's folder. */
+/** Where "#" paths are, by the API: a company's folder, or with no company the user's home folder, as at the airport. */
+const mentionBase = (teamId: string) => (teamId ? `/teams/${teamId}` : '/airport')
+
+/** The files and folders "#" offers from a company's folder, or from home at the airport. */
 export const searchFiles = (teamId: string, query: string, signal?: AbortSignal) => (MOCK
   ? Promise.resolve(sim.searchFiles(query))
-  : request<FileInfo[]>('GET', `/teams/${teamId}/files?q=${encodeURIComponent(query)}`, undefined, signal))
+  : request<FileInfo[]>('GET', `${mentionBase(teamId)}/files?q=${encodeURIComponent(query)}`, undefined, signal))
 
 /** Whether a company's folder has changes not committed. */
 export const hasUncommitted = (teamId: string) => (MOCK
@@ -176,18 +185,18 @@ export function editTeam(w: World, id: string, patch: TeamEdit) {
   edits.set(id, { timer, patch: merged })
 }
 
-/** Shows a company's folder in Finder, or a folder in it. The prototype has no folders to show. */
+/** Shows a company's folder in Finder, or a folder in it; with no company, one at home. The prototype has no folders to show. */
 export const openFolder = (id: string, path = '') => {
-  if (!MOCK) fire_('POST', `/teams/${id}/open-folder${path ? `?path=${encodeURIComponent(path)}` : ''}`)
+  if (!MOCK) fire_('POST', `${mentionBase(id)}/open-folder${path ? `?path=${encodeURIComponent(path)}` : ''}`)
 }
 
-/** A text file in a company's folder as it is now. */
+/** A text file in a company's folder, or at home with no company, as it is now. */
 export const readProjectFile = (teamId: string, path: string, signal?: AbortSignal) => (MOCK
   ? Promise.resolve().then(() => sim.projectFile(path))
-  : request<{ text: string }>('GET', `/teams/${teamId}/file?path=${encodeURIComponent(path)}`, undefined, signal).then((r) => r.text))
+  : request<{ text: string }>('GET', `${mentionBase(teamId)}/file?path=${encodeURIComponent(path)}`, undefined, signal).then((r) => r.text))
 
-/** Where an `<img>` loads a picture in a company's folder as it is now. */
-export const projectImageUrl = (teamId: string, path: string) => `/api/v1/teams/${teamId}/image?path=${encodeURIComponent(path)}`
+/** Where an `<img>` loads a picture in a company's folder, or at home with no company, as it is now. */
+export const projectImageUrl = (teamId: string, path: string) => `/api/v1${mentionBase(teamId)}/image?path=${encodeURIComponent(path)}`
 
 /** A skill "$" names in a chat: from the first of its people who has it, the chair first. */
 export const readChatSkill = (w: World, chatId: string, name: string, signal?: AbortSignal) => (MOCK
@@ -247,6 +256,7 @@ export const deleteProvider = pick('deleteProvider', (_w: World, id: string) => 
 export const startLogin = (id: string, method?: 'browser' | 'device') => request('POST', `/providers/${id}/login`, { method })
 export const pasteLogin = (id: string, value: string) => request('POST', `/providers/${id}/login/paste`, { value })
 export const cancelLogin = (id: string) => request('DELETE', `/providers/${id}/login`)
+export const logout = (id: string) => request('POST', `/providers/${id}/logout`)
 
 // ---------- the repo of a new company ----------
 

@@ -8,6 +8,7 @@ import { FIELD_RES } from './land'
 import { SEA_D0, SEA_DSPAN, SEA_LEVEL, type SeaMap } from './Island'
 import { usePrefs } from './prefs'
 import { SEA_SIZE } from './camera'
+import { MAX_FRAME } from './PixelPass'
 
 
 const head = /* glsl */ `
@@ -102,7 +103,7 @@ export function Ocean({ map, calm }: { map: SeaMap; calm: boolean }) {
   }, [map])
 
   useFrame((_, dt) => {
-    if (!calm) material.uniforms.uTime.value += dt
+    if (!calm) material.uniforms.uTime.value += Math.min(dt, MAX_FRAME)
     material.uniforms.uDetail.value = detail ? 1 : 0
     // the plane follows the view so the sea never ends; the pattern is in world space, so it doesn't slide
     const t = controls?.target

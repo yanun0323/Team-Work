@@ -197,7 +197,8 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               crewOpen={above?.kind === 'crew'} onCrew={(x) => onPush({ kind: 'crew', id: x })}
               onFile={(path) => onPush({ kind: 'file', path })} onSkill={(chat, name) => onPush({ kind: 'skill', chat, name })}
               image={above?.kind === 'image' ? above.key : null} onImage={(key, image, chat) => onPush({ kind: 'image', key, image, chat })}
-              onTask={(seed) => onPush({ kind: 'newTask', seed })} onHandOff={(x) => onPush({ kind: 'chat', id: x })} onGoneChat={onDone} />
+              onTask={(seed) => onPush({ kind: 'newTask', seed })} onHandOff={(x) => onPush({ kind: 'chat', id: x })}
+              onProvider={(x) => onPush({ kind: 'providerEdit', id: x })} onGoneChat={onDone} />
           )}
           {item.kind === 'disband' && <Disband teamId={teamId} title={title} tid={id} onDone={onDone} />}
           {item.kind === 'staff' && <StaffPick node={item.node} teamId={teamId} title={title} tid={id} onDone={onDone} />}
@@ -2092,7 +2093,7 @@ function ProjectFileDetail({ teamId, path, ...h }: Head & { teamId: string; path
       <div className="fx-doc-note">
         {!MOCK && /\.(png|jpe?g|gif|webp)$/i.test(path)
           ? (failed
-            ? <p className="fx-d-text" role="alert">{tr('{name} 讀不到，請到專案資料夾打開', { name })}</p>
+            ? <p className="fx-d-text" role="alert">{teamId ? tr('{name} 讀不到，請到專案資料夾打開', { name }) : tr('{name} 讀不到，請到 Finder 打開', { name })}</p>
             : <img className="fx-d-image" src={projectImageUrl(teamId, path)} alt={path} onError={() => setFailed(true)} />)
           : <ReadText path={path} read={(signal) => readProjectFile(teamId, path, signal)} at={`${teamId}:${path}`} />}
       </div>

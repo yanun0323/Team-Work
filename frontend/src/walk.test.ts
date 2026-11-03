@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CELL, cellCenter, layoutTown } from './layout'
 import { officePlan } from './office'
 import {
-  advance, benchSeats, cellPos, crowdSize, findPath, freeCells, isFree, nearestFree, officeGrid, resettle, route, seatRoute, smooth, townGrid, type Grid, type P, type Stroller,
+  advance, benchSeats, inSteps, cellPos, crowdSize, findPath, freeCells, isFree, nearestFree, officeGrid, resettle, route, seatRoute, smooth, townGrid, type Grid, type P, type Stroller,
 } from './walk'
 
 /** A grid from rows of text: '.' free, '#' blocked. Cell centres are at whole numbers. */
@@ -187,5 +187,21 @@ describe('the island', () => {
     expect(seats.length).toBe(town.lots.length * 4 * 2)
     const at = (p: P): P => [Math.round((p[0] - g.x0) / g.step), Math.round((p[1] - g.z0) / g.step)]
     for (const s of seats) expect(findPath(g, at(seats[0].front), at(s.front))).not.toBeNull()
+  })
+})
+
+describe('inSteps', () => {
+  it('splits a long background frame into short steps that add up to it', () => {
+    const steps: number[] = []
+    inSteps(1.05, (dt) => steps.push(dt))
+    expect(steps).toHaveLength(11)
+    expect(Math.max(...steps)).toBeLessThanOrEqual(0.1)
+    expect(steps.reduce((a, b) => a + b, 0)).toBeCloseTo(1.05)
+  })
+
+  it('takes a short frame in one step', () => {
+    const steps: number[] = []
+    inSteps(1 / 30, (dt) => steps.push(dt))
+    expect(steps).toEqual([1 / 30])
   })
 })

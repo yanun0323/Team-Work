@@ -22,7 +22,7 @@ import { authLabel, makesImages, PROVIDER_KINDS } from './providers'
 import { Select, Switcher, Toggle, useAutoGrow } from './Controls'
 import { setLanguage } from './core/ops'
 import { Chats, TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
-import { airportTabOr, AIRPORT_TABS, AUTO_VIEWS, DEFAULT_PREFS, type AirportTab, type AutoView, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY } from './prefs'
+import { airportTabOr, AIRPORT_TABS, AUTO_VIEWS, BUSY_ANIMATIONS, DEFAULT_PREFS, type AirportTab, type AutoView, type BusyAnimation, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY } from './prefs'
 import { request } from './core/backend'
 import { MusicSection, Volume } from './SoundPage'
 import { MOCK } from './core/mode'
@@ -30,6 +30,7 @@ import { DEFAULT_EFFORT, effortsOf, modelGroups, modelsOf } from './crew'
 import { takeAirportTab, tutorialOf, updateTutorial } from './tutorial'
 import { composing } from './ime'
 import { Stats } from './Stats'
+import { useUpdateFound } from './update'
 
 const LINKS = [
   { label: 'GitHub', href: 'https://github.com/yanun0323/Team-Work' },
@@ -69,13 +70,7 @@ export function QuitTool() {
  * found on its own, kept in window.twUpdate and announced with a tw-update event.
  */
 export function UpdateTool() {
-  const found = () => (globalThis as { twUpdate?: boolean }).twUpdate === true
-  const [ready, setReady] = useState(found)
-  useEffect(() => {
-    const sync = () => setReady(found())
-    window.addEventListener('tw-update', sync)
-    return () => window.removeEventListener('tw-update', sync)
-  }, [])
+  const ready = useUpdateFound()
   const check = () => (window as unknown as { webkit: { messageHandlers: { update: { postMessage: (x: null) => void } } } }).webkit.messageHandlers.update.postMessage(null)
   const label = ready ? tr('有新版本') : tr('檢查更新')
   return (
@@ -293,6 +288,8 @@ export function ReloadSettings() {
 export function SystemSection() {
   const titleModel = usePrefs((s) => s.chatTitleModel)
   const titleEffort = usePrefs((s) => s.chatTitleEffort)
+  const codexSkills = usePrefs((s) => s.codexSkills)
+  const claudeSkills = usePrefs((s) => s.claudeSkills)
   const setPrefs = usePrefs((s) => s.set)
   const [saved, setSaved] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
@@ -341,6 +338,8 @@ export function SystemSection() {
       <div className="fx-fields">
         <ChatTitleFields model={titleModel} effort={titleEffort} onChange={setPrefs} />
         <ImageProviderField />
+        <Toggle label={tr('使用 Codex Skill')} checked={codexSkills} onChange={(v) => setPrefs({ codexSkills: v })} />
+        <Toggle label={tr('使用 Claude Skill')} checked={claudeSkills} onChange={(v) => setPrefs({ claudeSkills: v })} />
         <label className="fx-field fx-field-top">
           <span>{tr('全域 AGENTS.md')}</span>
           <textarea ref={box} className="fx-control fx-prefs-prompt" rows={6} value={draft} disabled={saved === null} spellCheck={false}
@@ -446,7 +445,7 @@ export function PrefsPage() {
   const prefs = usePrefs()
   const language = useStore((s) => s.world.language)
   const act = useStore((s) => s.act)
-  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView'>, label: string) => (
+  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView' | 'busyAnimation'>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
   return (
@@ -491,6 +490,8 @@ export function PrefsPage() {
           {check('crowd', tr('地圖民眾'))}
           {check('planes', tr('飛機動畫'))}
           {check('clouds', tr('雲朵'))}
+          <Select label={tr('建築工作動畫')} value={prefs.busyAnimation} options={Object.keys(BUSY_ANIMATIONS)} labelOf={(o) => tr(BUSY_ANIMATIONS[o as BusyAnimation])}
+            onChange={(v) => prefs.set({ busyAnimation: v as BusyAnimation })} />
         </div>
       </section>
       <MusicSection />

@@ -1,5 +1,5 @@
-// A box to write in, for a chat or a task. A word starting with "#", "$" where there are employees, or "@" where there are people
-// to mention, opens a list: arrows move, Tab, Enter or
+// A box to write in, for a chat or a task. A word starting with "#", "$" where there are employees or at the airport, or "@" where
+// there are people to mention, opens a list; at the airport "#" offers the user's home folder: arrows move, Tab, Enter or
 // a click picks, Esc closes. With nothing to pick, Enter sends if there is onSend, else it starts a new line, and Tab indents the lines.
 // Shift+Tab always outdents them. Tab never moves the focus.
 
@@ -7,17 +7,19 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, ty
 import type { FileInfo, SkillInfo } from './core/domain/types'
 import { useAutoGrow } from './Controls'
 import { tr } from './core/i18n'
-import { replicaSkills, searchFiles } from './core/ops'
+import { airportSkills, replicaSkills, searchFiles } from './core/ops'
 import { useStore } from './core/store'
 import { acceptMention, fileChoices, mentionAt, personChoices, skillChoices, type MentionChoice, type Person } from './mentions'
 import { indentLines } from './indent'
 import { composing } from './ime'
 
-export function MentionBox({ box, value, teamId, replicaIds = [], people = [], personRow, label, placeholder, rows = 2, below, grow, onChange, onSend }: {
+export function MentionBox({ box, value, teamId, airport, replicaIds = [], people = [], personRow, label, placeholder, rows = 2, below, grow, onChange, onSend }: {
   box?: RefObject<HTMLTextAreaElement | null>
   value: string
-  /** The company whose files "#" offers; with none, the box is a plain one. */
+  /** The company whose files "#" offers; with none, the box is a plain one, except at the airport. */
   teamId: string
+  /** "$" offers the airport staff's skills and "#" the user's home folder, as there is no company. */
+  airport?: boolean
   /** Whose skills "$" offers; with no one, "$" offers nothing. */
   replicaIds?: string[]
   /** Whom "@" offers; with no one, "@" offers nothing. */
@@ -49,7 +51,7 @@ export function MentionBox({ box, value, teamId, replicaIds = [], people = [], p
   // the selection to put back once the text set from here is in the box
   const caret = useRef<[number, number] | null>(null)
 
-  const found = focused && teamId ? mentionAt(value, cursor) : null
+  const found = focused && (teamId || airport) ? mentionAt(value, cursor) : null
   const mention = found && found.start !== closedAt ? found : null
   const kind = mention?.kind
   const query = mention?.query ?? ''
@@ -61,11 +63,12 @@ export function MentionBox({ box, value, teamId, replicaIds = [], people = [], p
     if (kind !== '$') return
     const ask = new AbortController()
     const world = useStore.getState().world
-    Promise.all(staff.split(' ').filter(Boolean).map((id) => replicaSkills(world, id, ask.signal)))
+    const lists = airport ? [airportSkills(world, ask.signal)] : staff.split(' ').filter(Boolean).map((id) => replicaSkills(world, id, ask.signal))
+    Promise.all(lists)
       .then((lists) => setSkills([...new Map(lists.flat().map((s) => [s.name, s])).values()]))
       .catch(() => {})
     return () => ask.abort()
-  }, [kind, staff, start])
+  }, [kind, staff, start, airport])
 
   useEffect(() => {
     if (kind !== '#') { setFiles([]); return }

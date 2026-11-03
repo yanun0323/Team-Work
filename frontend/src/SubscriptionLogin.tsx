@@ -1,6 +1,6 @@
 import { tr } from './core/i18n'
 import { useState } from 'react'
-import { attempt, cancelLogin, pasteLogin, startLogin } from './core/ops'
+import { attempt, cancelLogin, logout, pasteLogin, startLogin } from './core/ops'
 import { useStore } from './core/store'
 
 /**
@@ -19,7 +19,12 @@ export function SubscriptionLogin({ id }: { id: string }) {
     <div className="fx-field">
       <span>{tr('帳號')}</span>
       <div className="fx-claude" aria-live="polite">
-        {auth.signedIn && !login && <p className="fx-signed" role="status">{tr('✓ 已登入')}</p>}
+        {auth.signedIn && !login && (
+          <>
+            <p className="fx-signed" role="status">{tr('✓ 已登入')}</p>
+            <button type="button" className="fx-control fx-login fx-hit" onClick={() => void attempt(() => logout(id))}>{tr('登出')}</button>
+          </>
+        )}
         {login && !login.error && (
           <>
             {login.url && <p>{tr('請在瀏覽器完成登入{a}：', { a: login.userCode ? tr('，並輸入代碼') : '' })}<a href={login.url} target="_blank" rel="noreferrer">{tr('打開登入頁')}<span className="fx-sr">{tr('（另開分頁）')}</span></a></p>}

@@ -61,6 +61,13 @@ void main() {
   #include <colorspace_fragment>
 }`
 
+const BACKGROUND_FPS = 1
+/**
+ * The longest step, in seconds, any motion takes in one frame: a whole frame at BACKGROUND_FPS, so things keep their
+ * speed while another app has focus, but coming back after a long time away doesn't make them jump.
+ */
+export const MAX_FRAME = 1.1
+
 /**
  * Takes over R3F rendering. The camera is snapped to whole texels for the low-res render and the remainder is
  * applied when scaling up, so panning stays smooth and the pixels don't crawl.
@@ -70,12 +77,14 @@ export function PixelPass({ pixel = 2, fps = 30 }: { pixel?: number; fps?: numbe
 
   // The canvas runs on demand: ask for a frame at most `fps` times a second, which is plenty for the ambient
   // motion. Camera moves and prop changes ask for their own frames, so panning and flights stay at full rate.
+  // While another app has focus, one frame a second is enough to save power; a hidden window gets none anyway.
   useEffect(() => {
     let id = 0
     let last = -Infinity
     const tick = (t: number) => {
+      const rate = document.hasFocus() ? fps : BACKGROUND_FPS
       // a little slack, so a frame that lands a hair early isn't put off by a whole vsync
-      if (t - last >= 1000 / fps - 4) {
+      if (t - last >= 1000 / rate - 4) {
         last = t
         invalidate()
       }

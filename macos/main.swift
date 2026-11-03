@@ -26,6 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         updater = SPUStandardUpdaterController(startingUpdater: !smoke, updaterDelegate: self, userDriverDelegate: nil)
+        // A quiet check on every launch, so the red dot is right from the start; it shows no window.
+        if !smoke { updater.updater.checkForUpdateInformation() }
         buildMenu()
 
         let configuration = WKWebViewConfiguration()

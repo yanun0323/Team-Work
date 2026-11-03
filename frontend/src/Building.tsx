@@ -5,7 +5,7 @@
 //
 // Each style comes in a few colourways; the company's seed picks one. The lit windows show the company at
 // work: dark while nobody is working, more of them lit as more employees work (the seed picks which), and
-// cartoon shout strokes flicker off both sides meanwhile.
+// meanwhile cartoon shout strokes flicker off both sides, or bills are tossed off them (a preference).
 //
 // When the company is open the building is cut away to its ground floor: the two back walls stay solid,
 // the two walls facing the camera are nearly clear, and one open-plan office floor shows inside: stone
@@ -440,6 +440,7 @@ function Exterior({ look, w, d, floors, busy }: { look: BuildingLook; w: number;
   const h = floors * FLOOR
   const upper = floors - 1
   const lit = litShares(busy)
+  const busyAnimation = usePrefs((s) => s.busyAnimation)
 
   // box faces: +x, -x, +y, -y, +z, -z
   const body = useMemo(() => {
@@ -525,7 +526,7 @@ function Exterior({ look, w, d, floors, busy }: { look: BuildingLook; w: number;
       <group position={[0, h + 0.18, 0]} scale={KIT}>
         <Roof style={style} w={w / KIT} d={d / KIT} pal={pal} />
       </group>
-      {!!busy && <Shout w={w} d={d} h={h} seed={seed} />}
+      {!!busy && (busyAnimation === 'money' ? <MoneyToss w={w} d={d} h={h} seed={seed} /> : <Shout w={w} d={d} h={h} seed={seed} />)}
     </>
   )
 }
@@ -1470,6 +1471,9 @@ const FANS: Ray[][] = [
   [{ angle: 46, len: 2.4 }, { angle: 20, len: 3.4 }, { angle: -4, len: 2.9 }, { angle: -30, len: 2.5 }],
 ]
 
+/** How far the left side's strokes and bills start in from the building's left corner, in world units along the screen. */
+const LEFT_IN = 1.2
+
 /**
  * The two fans of cartoon shout strokes for a building `w` × `d` and `h` tall. The seed picks which side
  * gets four strokes and sits low, and which gets three and sits high, so the two never mirror each other.
@@ -1479,16 +1483,26 @@ export function shoutBursts(w: number, d: number, h: number, seed: number): Burs
   return ([1, -1] as const).map((side) => {
     const low = side === four
     const y = h * (low ? 0.38 + 0.12 * hash(seed, 72) : 0.66 + 0.12 * hash(seed, 73))
-    // the outermost corner on that side of the screen: (+w/2, -d/2) on the right, (-w/2, +d/2) on the left
-    return { side, at: [(side * w) / 2, y, (-side * d) / 2], rays: FANS[low ? 1 : 0], beat: low ? 0.26 : 0.2 }
+    // the outermost corner on that side of the screen: (+w/2, -d/2) on the right, (-w/2, +d/2) on the left;
+    // the left one moved in along the screen, as it otherwise looks further off the building than the right
+    const inward = side < 0 ? LEFT_IN : 0
+    const at: [number, number, number] = [(side * w) / 2 + SCREEN_RIGHT.x * inward, y, (-side * d) / 2 + SCREEN_RIGHT.z * inward]
+    return { side, at, rays: FANS[low ? 1 : 0], beat: low ? 0.26 : 0.2 }
   })
 }
+
+/**
+ * Drawn after everything else and over it, buildings included: the busy animations are never hidden.
+ * See-through, so three.js draws them with the see-through objects, after every solid one.
+ */
+const OVER_ALL = 100
+const overAll = (color: string) => new THREE.MeshBasicMaterial({ color, toneMapped: false, transparent: true, depthTest: false, depthWrite: false })
 
 /** Cartoon shout strokes off both sides of a building while the company is at work; they jump between two poses, still with reduced motion. */
 function Shout({ w, d, h, seed }: { w: number; d: number; h: number; seed: number }) {
   const bursts = useMemo(() => shoutBursts(w, d, h, seed), [w, d, h, seed])
-  const mat = useMemo(() => new THREE.MeshBasicMaterial({ color: SHOUT, toneMapped: false }), [])
-  const rim = useMemo(() => new THREE.MeshBasicMaterial({ color: SHOUT_RIM, toneMapped: false }), [])
+  const mat = useMemo(() => overAll(SHOUT), [])
+  const rim = useMemo(() => overAll(SHOUT_RIM), [])
   useEffect(() => () => { mat.dispose(); rim.dispose() }, [mat, rim])
   const poses = useRef<(THREE.Group | null)[]>([])
   useFrame(({ clock }) => {
@@ -1510,11 +1524,11 @@ function Shout({ w, d, h, seed }: { w: number; d: number; h: number; seed: numbe
               const len = r.len * (p ? SHOUT_SHRINK : 1)
               return (
                 <group key={k} position={[0, ((b.rays.length - 1) / 2 - k) * SHOUT_SPACING, 0]} rotation={[0, 0, THREE.MathUtils.degToRad(r.angle)]}>
-                  <mesh position={[SHOUT_GAP + len / 2, 0, 0]} scale={[len, STROKE, 0.05]} material={mat} layers={NO_OUTLINE_LAYER} raycast={() => null}>
+                  <mesh position={[SHOUT_GAP + len / 2, 0, 0]} scale={[len, STROKE, 0.05]} material={mat} renderOrder={OVER_ALL + 1} layers={NO_OUTLINE_LAYER} raycast={() => null}>
                     <boxGeometry />
                   </mesh>
-                  {/* local +z faces the camera, so the rim sits just behind the stroke */}
-                  <mesh position={[SHOUT_GAP + len / 2, 0, -0.06]} scale={[len + SHOUT_RIM_PAD, STROKE + SHOUT_RIM_PAD, 0.05]} material={rim} layers={NO_OUTLINE_LAYER} raycast={() => null}>
+                  {/* drawn first, so every stroke covers the rims */}
+                  <mesh position={[SHOUT_GAP + len / 2, 0, -0.06]} scale={[len + SHOUT_RIM_PAD, STROKE + SHOUT_RIM_PAD, 0.05]} material={rim} renderOrder={OVER_ALL} layers={NO_OUTLINE_LAYER} raycast={() => null}>
                     <boxGeometry />
                   </mesh>
                 </group>
@@ -1523,6 +1537,146 @@ function Shout({ w, d, h, seed }: { w: number; d: number; h: number; seed: numbe
           </group>
         ))}
       </group>
+    </group>
+  ))
+}
+
+const BILL = '#7ccf6a'
+const BILL_MARK = '#3f8f4f'
+/** A bill's size with its rim, in world units, and in texels of its picture (rim, bill and centre mark in one). */
+const BILL_W = 3.1
+const BILL_H = 1.8
+const BILL_TEXELS: [number, number] = [31, 18]
+
+/** One bill's picture; a single see-through quad fades evenly, where stacked parts would show through each other. */
+function billPicture() {
+  const [w, h] = BILL_TEXELS
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const g = canvas.getContext('2d')!
+  g.fillStyle = SHOUT_RIM
+  g.fillRect(0, 0, w, h)
+  g.fillStyle = BILL
+  g.fillRect(3, 3, w - 6, h - 6)
+  g.fillStyle = BILL_MARK
+  g.fillRect(w / 2 - 3, h / 2 - 3, 6, 6)
+  const map = new THREE.CanvasTexture(canvas)
+  map.magFilter = THREE.NearestFilter
+  map.minFilter = THREE.NearestFilter
+  map.colorSpace = THREE.SRGBColorSpace
+  return map
+}
+/** Bills per toss, and the seconds between one bill leaving and the next. */
+const BILLS = 9
+const BILL_STAGGER = 0.05
+/** Seconds a toss lasts, when its bills start to fade, when the second side tosses, and the whole round with the wait. */
+const TOSS_LIFE = 1.6
+const TOSS_FADE = 0.55 * TOSS_LIFE
+const TOSS_NEXT = 1
+const TOSS_ROUND = 2.9
+/** Air drag per second and gravity, both in screen units: bills rise, slow down and drift down at gravity / drag. */
+const BILL_DRAG = 2.6
+const BILL_FALL = 40
+
+/** One bill's flight: when it leaves after its toss starts, its speed out and up, and how it sways, spins and flips. */
+export interface Bill { delay: number; out: number; up: number; sway: number; spin: number; flip: number; phase: number }
+/** One side's toss: which side of the screen, where it leaves from, and when in the round it starts. */
+export interface Toss { side: 1 | -1; at: [number, number, number]; start: number; bills: Bill[] }
+
+/**
+ * The two tosses of bills for a building `w` × `d` and `h` tall, from the same corners as the shout strokes.
+ * The seed picks which side tosses first and every bill's flight; the other side follows `TOSS_NEXT` later.
+ */
+export function moneyTosses(w: number, d: number, h: number, seed: number): Toss[] {
+  const first = hash(seed, 90) < 0.5 ? -1 : 1
+  return shoutBursts(w, d, h, seed)
+    .map((b) => ({
+      side: b.side,
+      at: b.at,
+      start: b.side === first ? 0 : TOSS_NEXT,
+      bills: Array.from({ length: BILLS }, (_, i): Bill => {
+        const r = (k: number) => hash(seed, b.side, i, k)
+        return {
+          delay: i * BILL_STAGGER,
+          out: 9 + 11 * r(1),
+          up: 8 + 14 * r(2),
+          sway: 0.5 + r(3),
+          spin: (r(4) - 0.5) * 6,
+          flip: 5 + 6 * r(5),
+          phase: r(6) * Math.PI * 2,
+        }
+      }),
+    }))
+    .sort((a, b) => a.start - b.start)
+}
+
+/** Where a bill is `t` seconds after it left, in screen units off its corner, with `side` the way out. */
+export function billAt(b: Bill, side: number, t: number): [number, number] {
+  const slow = (1 - Math.exp(-BILL_DRAG * t)) / BILL_DRAG
+  const drift = BILL_FALL / BILL_DRAG
+  const x = side * b.out * slow + b.sway * Math.sin(b.flip * 0.5 * t + b.phase) * Math.min(1, 2 * t)
+  return [x, (b.up + drift) * slow - drift * t]
+}
+
+/**
+ * Bills tossed off one side of a building while the company is at work, then off the other, then a wait;
+ * they scatter, flutter down and fade. With reduced motion they hang still on both sides.
+ */
+function MoneyToss({ w, d, h, seed }: { w: number; d: number; h: number; seed: number }) {
+  const tosses = useMemo(() => moneyTosses(w, d, h, seed), [w, d, h, seed])
+  const picture = useMemo(billPicture, [])
+  // one material per side, so each toss fades on its own
+  const mats = useMemo(() => tosses.map(() => {
+    const m = overAll('#ffffff')
+    m.map = picture
+    m.side = THREE.DoubleSide
+    return m
+  }), [tosses, picture])
+  useEffect(() => () => mats.forEach((m) => m.dispose()), [mats])
+  useEffect(() => () => picture.dispose(), [picture])
+  const sides = useRef<(THREE.Group | null)[]>([])
+  const bills = useRef<(THREE.Group | null)[]>([])
+  // buildings tossing at once stay out of step
+  const offset = hash(seed, 91) * TOSS_ROUND
+  const place = (s: number, t: number) => {
+    const toss = tosses[s]
+    toss.bills.forEach((b, i) => {
+      const g = bills.current[s * BILLS + i]
+      if (!g) return
+      const bt = t - b.delay
+      g.visible = bt >= 0
+      if (bt < 0) return
+      const [x, y] = billAt(b, toss.side, bt)
+      g.position.set(x, y, 0)
+      g.rotation.z = b.spin * bt + 0.3 * Math.sin(b.flip * bt + b.phase)
+      // turning over in the air: narrower while edge on
+      g.scale.x = 0.25 + 0.75 * Math.abs(Math.cos(b.flip * bt + b.phase))
+    })
+  }
+  useFrame(({ clock }) => {
+    const round = (clock.elapsedTime + offset) % TOSS_ROUND
+    tosses.forEach((toss, s) => {
+      const t = calm ? 0.35 : round - toss.start
+      const on = t >= 0 && t < TOSS_LIFE
+      const g = sides.current[s]
+      if (g) g.visible = on
+      if (!on) return
+      const fade = t < TOSS_FADE ? 1 : 1 - (t - TOSS_FADE) / (TOSS_LIFE - TOSS_FADE)
+      mats[s].opacity = fade
+      place(s, t)
+    })
+  })
+  return tosses.map((toss, s) => (
+    <group key={s} ref={(g) => { sides.current[s] = g }} position={toss.at} quaternion={ON_SCREEN} visible={false}>
+      {toss.bills.map((_, i) => (
+        <group key={i} ref={(g) => { bills.current[s * BILLS + i] = g }} visible={false}>
+          {/* each bill over the ones tossed before it */}
+          <mesh scale={[BILL_W, BILL_H, 1]} material={mats[s]} renderOrder={OVER_ALL + 2 + i} layers={NO_OUTLINE_LAYER} raycast={() => null}>
+            <planeGeometry />
+          </mesh>
+        </group>
+      ))}
     </group>
   ))
 }
