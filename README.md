@@ -22,7 +22,7 @@ Team Work is a macOS app that runs a team of AI agents on your own projects. Eac
 - **Employees**: made from blueprints (prompt, skills and allowed tools). Each employee picks their own model and thinking level. There are 16 built-in blueprints, such as Backend Engineer, Code Reviewer and Technical Writer.
 - **Workflows**: the steps a task goes through, from Clarify requirements to Acceptance review. Steps can hand work to an employee or open a discussion with you. Six workflows are built in, including Feature development, Bug fix and Refactor.
 - **Tasks**: each task works in its own Git worktree on a `task/<number>` branch. When an employee has a question, the task waits for your reply. When the work passes review, you merge it into the target branch or send it back.
-- **Chats**: talk with an employee in the project folder. Type `$` to pick a skill and `@` to mention a file.
+- **Chats**: talk with an employee in the project folder. Type `$` to pick a skill and `#` to mention a file. Pick several employees, or `@` mention them, to hold a meeting.
 - **Model providers**: Anthropic, OpenAI, Google Gemini and any OpenAI-compatible API. You can also sign in with a Claude or ChatGPT subscription.
 - **Skills**: blueprints load skills from local folders or GitHub repos.
 - **Terminal**: each company has a zsh terminal in its project folder.
