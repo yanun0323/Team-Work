@@ -1,8 +1,12 @@
 import AppKit
+import Sparkle
 import WebKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKDownloadDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKDownloadDelegate, SPUUpdaterDelegate {
     private var window: NSWindow!
+    // Sparkle checks on its own schedule and shows its own windows; the page only gets a dot when one is found.
+    private var updater: SPUStandardUpdaterController!
+    private var updateFound = false
     private var webView: WKWebView!
     private var backend: Process?
     private let input = Pipe()
@@ -21,12 +25,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        updater = SPUStandardUpdaterController(startingUpdater: !smoke, updaterDelegate: self, userDriverDelegate: nil)
         buildMenu()
 
         let configuration = WKWebViewConfiguration()
         if smoke { configuration.websiteDataStore = .nonPersistent() }
         configuration.userContentController.add(self, name: "quit")
         configuration.userContentController.add(self, name: "language")
+        configuration.userContentController.add(self, name: "update")
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -60,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let menu = NSMenu()
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: say("關於 Team Work", "About Team Work"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: say("檢查更新…", "Check for Updates…"), action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "").target = updater
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: say("結束 Team Work", "Quit Team Work"), action: #selector(confirmQuit(_:)), keyEquivalent: "q").target = self
         let appItem = NSMenuItem()
@@ -167,16 +174,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         NSApp.terminate(nil)
     }
 
-    // The airport's power button. Navigation stays on our own origin, so only our page can send this.
+    // The airport's power and update buttons. Navigation stays on our own origin, so only our page can send these.
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        if message.name == "language" {
+        switch message.name {
+        case "language":
             if let language = message.body as? String, language != UserDefaults.standard.string(forKey: "language") {
                 UserDefaults.standard.set(language, forKey: "language")
                 buildMenu()
             }
-            return
+        case "update":
+            updater.checkForUpdates(nil)
+        default:
+            NSApp.terminate(nil)
         }
-        NSApp.terminate(nil)
+    }
+
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        updateFound = true
+        showUpdateFound()
+    }
+
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        updateFound = false
+        showUpdateFound()
+    }
+
+    // The page reads window.twUpdate when the airport opens and listens for tw-update after that.
+    private func showUpdateFound() {
+        guard ready, webView.url?.host == origin.host else { return }
+        webView.evaluateJavaScript("window.twUpdate = \(updateFound); window.dispatchEvent(new Event('tw-update'))")
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -244,6 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             bootFinished()
             return
         }
+        if updateFound { showUpdateFound() }
         guard smoke, ready, webView.url?.host == origin.host else { return }
         let js = """
         const world = await (await fetch('/api/v1/world')).json();

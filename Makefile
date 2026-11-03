@@ -34,6 +34,10 @@ sign:
 notarize:
 	@./scripts/macos.sh notarize
 
+## appcast: write dist/release/appcast.xml for the notarized ZIP, signed with the Sparkle key (uploads nothing)
+appcast:
+	@./scripts/macos.sh appcast
+
 ## test-backend: run the backend tests
 test-backend:
 	cd backend && go test -race ./...
