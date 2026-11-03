@@ -89,7 +89,7 @@ export function Chats(p: Opens) {
                 </span>
                 <PixelFace look={look} name={name} size={34} />
                 <span className="fx-row-main">
-                  <b>{name}<span className="fx-chat-model">{chatMindOf(w, c)}{c.tokens > 0 && ` · ${fmtTokens(c.tokens)} Token`}</span></b>
+                  <b>{name}<span className="fx-chat-model">{chatMindOf(w, c)}</span>{c.tokens > 0 && <span className="fx-chat-tokens">{fmtTokens(c.tokens)} Token</span>}</b>
                   <span className="fx-chat-first">{c.title || chatPreview(c)}</span>
                 </span>
               </button></li>
