@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acceptMention, fileChoices, mentionAt, mentionedPeople, personChoices, saidParts, skillChoices } from './mentions'
+import { acceptMention, answerMentions, fileChoices, mentionAt, mentionedPeople, personChoices, saidParts, skillChoices } from './mentions'
 
 const at = (text: string) => mentionAt(text, text.length)
 
@@ -98,5 +98,17 @@ describe('saidParts', () => {
       { kind: '#', id: undefined, path: 'my notes.txt', dir: false, skill: undefined },
       { kind: '$', id: undefined, path: undefined, dir: undefined, skill: 'tdd' },
     ])
+  })
+})
+
+describe('answerMentions', () => {
+  it('sends an answer with no mention to the one who asked', () => {
+    expect(answerMentions([], 'r1')).toEqual(['r1'])
+  })
+  it('keeps the mentions the user typed', () => {
+    expect(answerMentions(['r2'], 'r1')).toEqual(['r2'])
+  })
+  it('leaves a message with no question for everyone', () => {
+    expect(answerMentions([], undefined)).toEqual([])
   })
 })

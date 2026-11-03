@@ -20,9 +20,9 @@ it('puts the newest log line last when the preference says so', () => {
 it('renders what employees say as Markdown, and the user\'s own words as they are', () => {
   const html = renderToStaticMarkup(<LogList lines={[{ at: 0, kind: 'say', text: '**a**' }, { at: 0, kind: 'human', text: '**b**' }]} order="newestLast" />)
   expect(html).toContain('<strong>a</strong>')
-  expect(html).toContain('<span>**b**</span>')
+  expect(html).toContain('<span class="fx-d-log-plain">**b**</span>')
 })
 
 it('marks the user\'s own lines', () => {
-  expect(renderToStaticMarkup(<LogList lines={lines} order="newestLast" />)).toContain('<strong class="fx-d-log-user">使用者</strong><span>second</span>')
+  expect(renderToStaticMarkup(<LogList lines={lines} order="newestLast" />)).toContain('<strong class="fx-d-log-user">使用者</strong><span class="fx-d-log-plain">second</span>')
 })

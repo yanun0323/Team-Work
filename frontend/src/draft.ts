@@ -19,6 +19,8 @@ export interface TaskDraft {
   /** Pictures to go with the description; only a new task takes them. */
   images?: Attachment[]
   files?: Attachment[]
+  /** Start past 整理需求, with the description as the requirement; only a new task takes it. */
+  skipStart?: boolean
   /** Set when editing a task that exists: its own copy of the flow is the one staffed. */
   taskId?: string
 }
@@ -84,6 +86,12 @@ export const draftStaff = (w: World, d: TaskDraft, nodeId: string): string[] => 
 /** The owner alone on every step of the draft's flow. No longer the staff of an earlier task, so `from` goes too. */
 export const ownerOnEveryStep = (w: World, d: TaskDraft): Partial<TaskDraft> =>
   d.ownerId ? { staff: Object.fromEntries((draftFlow(w, d)?.nodes ?? []).map((n) => [n.id, [d.ownerId!]])), from: null } : {}
+
+/** Whether the owner also works a step between the ends, so 驗收 is no longer a check by someone else. */
+export const ownerChecksOwnWork = (w: World, d: TaskDraft) => {
+  const wf = draftFlow(w, d)
+  return !!wf && !!d.ownerId && wf.nodes.some((n) => n.kind === 'work' && !isFixed(wf, n.id) && draftStaff(w, d, n.id).includes(d.ownerId!))
+}
 
 /** The steps nobody works yet, ends included while there is no owner. A task can start only when there are none. */
 export const unstaffed = (w: World, d: TaskDraft) =>

@@ -648,6 +648,7 @@ a.fx-save { text-decoration: none; }
 .fx-d-log time { flex: none; font: 500 11px/1 var(--font-mono); color: var(--muted); }
 .fx-d-log b { flex: none; font-weight: 600; color: var(--ink-2); }
 .fx-d-log-text { flex: 1; min-width: 0; }
+.fx-d-log-plain { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .fx-d-log-think :is(span, .fx-d-log-text) { color: var(--muted); font-style: italic; }
 .fx-d-log-user { flex: none; font-weight: 700; color: #2a7330; }
 .fx-d-log-tool span { font-family: var(--font-mono); font-size: 12px; }

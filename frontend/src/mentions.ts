@@ -178,3 +178,8 @@ function mentionText(path: string, complete: boolean) {
 export function acceptMention(text: string, m: Mention, choice: MentionChoice) {
   return { text: text.slice(0, m.start) + choice.text + text.slice(m.start + m.token.length), cursor: m.start + choice.text.length }
 }
+
+/** Who a message is for: those it mentions, or else the one whose question it answers, so the rest stay quiet. */
+export function answerMentions(mentions: string[], asker: string | undefined): string[] {
+  return mentions.length || !asker ? mentions : [asker]
+}

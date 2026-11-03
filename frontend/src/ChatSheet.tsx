@@ -12,7 +12,7 @@ import { Select } from './Controls'
 import { CrewPicks, CrewRow } from './Pickers'
 import { chatMindOf, chatPeople, chatPreview, DEFAULT_EFFORT, effortsOf, lastAirportMind, lastChatReplica, mindOf, modelGroups, modelsOf, noteColors, personMindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
-import { mentionedPeople } from './mentions'
+import { answerMentions, mentionedPeople } from './mentions'
 import { Gone, Heading, DeleteTool, type Head } from './DrawerDetail'
 import { composing } from './ime'
 import { fmtClock, fmtTokens, teamReplicas, useAtBottom, useStickToBottom } from './core/model'
@@ -151,6 +151,8 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const look = airport ? AIRPORT_STAFF_LOOK : replica?.look ?? chat?.look
   const people = airport ? [] : chat ? chatPeople(w, chat) : picks.flatMap((x) => (w.replicas[x] ? [{ id: x, name: w.replicas[x].name, look: w.replicas[x].look }] : []))
   const meeting = people.length > 1
+  // in a meeting, an answer to a question goes to the one who asked unless the user mentions someone
+  const asker = meeting && chat?.question ? chat.speaker : undefined
   const nameOf = (id?: string) => people.find((x) => x.id === (id || chat?.replicaId))?.name ?? name
   const speaking = nameOf(chat?.speaker)
   // "@" offers those in the chat first, then the company, who join when mentioned, while there is room
@@ -189,7 +191,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     if (!ready) return
     const words = text.trim()
     const attachments = splitAttachments(images)
-    const mentions = mentionedPeople(words, mentionable)
+    const mentions = answerMentions(mentionedPeople(words, mentionable), asker)
     if (chat) {
       act((x) => sayInChat(x, chat.id, words, attachments.images, attachments.files, mentions))
       setText('')
@@ -455,7 +457,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
       {!left && !writing && !!chat?.question?.options.length && (
         <div className="fx-d-choices" role="group" aria-label={tr('選項')}>
           {chat.question.options.map((o) => (
-            <button key={o} type="button" className="fx-choice" onClick={() => act((x) => sayInChat(x, chat.id, o, [], [], meeting && chat.speaker ? [chat.speaker] : []))}>{o}</button>
+            <button key={o} type="button" className="fx-choice" onClick={() => act((x) => sayInChat(x, chat.id, o, [], [], answerMentions([], asker)))}>{o}</button>
           ))}
         </div>
       )}

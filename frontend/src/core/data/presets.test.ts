@@ -43,17 +43,17 @@ describe('presets', () => {
 
   it('find skills in the agent folders', () => {
     for (const b of blueprints(seedWorld())) {
-      expect(b.skills.map((p) => (p.source as LocalSkills).path)).toEqual(['~/.agents/', '~/.codex/', '~/.claude/'])
+      expect(b.skills.map((p) => (p.source as LocalSkills).path)).toEqual(['~/.agents/', '~/.mho/', '~/.codex/', '~/.claude/'])
     }
   })
 
   it('join every step up, and run side by side where drawn', () => {
     const feature = seedWorld().workflows['preset-feature']
     expect(taskNodeOf(feature)?.name).toBe('整理需求')
-    expect(feature.edges).toHaveLength(7)
+    expect(feature.edges).toHaveLength(6)
     const at = (name: string) => feature.nodes.find((n) => n.name === name)!.pos
     expect(at('後端開發').y).toBe(at('前端開發').y)
-    expect(at('驗收').y).toBeGreaterThan(at('測試').y)
+    expect(at('驗收').y).toBeGreaterThan(at('前端開發').y)
     for (const n of feature.nodes) {
       if (n.name !== '整理需求') expect(feature.edges.some((e) => e.to === n.id)).toBe(true)
       if (n.name !== '驗收') expect(feature.edges.some((e) => e.from === n.id)).toBe(true)

@@ -25,7 +25,7 @@ import { Markdown, MarkdownLine } from './Markdown'
 import { useAutoGrow, Select, Switcher, Toggle, WaitBadge } from './Controls'
 import { changeAsk, ChangeLines } from './ChangeCard'
 import { FlowNotes, FlowPreview, openCard } from './FlowNotes'
-import { copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
+import { copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, ownerChecksOwnWork, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
 import { chatPreview, DEFAULT_EFFORT, effortsOf, mindOf, modelGroups, modelsOf, randomLook } from './crew'
 import { docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
@@ -247,7 +247,7 @@ export function LogList({ lines, order }: { lines: LogLine[]; order: LogOrder })
           {/* the user's own replies, merges and send-backs */}
           {l.kind === 'human' && <strong className="fx-d-log-user">{tr('使用者')}</strong>}
           {/* what an employee says or thinks is Markdown; tool calls and the user's own words are as they are */}
-          {l.kind === 'say' || l.kind === 'think' ? <div className="fx-d-log-text"><Markdown text={l.text} /></div> : <span>{l.text}</span>}
+          {l.kind === 'say' || l.kind === 'think' ? <div className="fx-d-log-text"><Markdown text={l.text} /></div> : <span className="fx-d-log-plain">{l.text}</span>}
         </li>
       ))}
     </ol>
@@ -1768,6 +1768,8 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
     const last = lastStaff(s, teamId, workflowId)
     useDraft.setState({ draft: source ? copyDraft(s, teamId, source) : {
       workflowId, ...last, title: seed?.title ?? '', description: seed?.description ?? '', ownerId: seed?.ownerId ?? last.ownerId,
+      // a task written up from a chat already says what it needs
+      skipStart: !!seed,
     } })
     return () => { attachmentSession.current++; useDraft.setState({ draft: null }) }
   }, [teamId, copyOf, seed])
@@ -1778,8 +1780,8 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
   const start = (e: React.FormEvent) => {
     e.preventDefault()
     if (!ready || !draft.ownerId) return
-    const { title, description, workflowId, staff, ownerId, images, files } = draft
-    act((x) => void createTask(x, { teamId, title: title.trim(), description: description.trim(), workflowId, staff, ownerId, images, files }))
+    const { title, description, workflowId, staff, ownerId, images, files, skipStart } = draft
+    act((x) => void createTask(x, { teamId, title: title.trim(), description: description.trim(), workflowId, staff, ownerId, images, files, skipStart }))
     if (seed) learn('chatTask')
     onDone()
   }
@@ -1857,6 +1859,7 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
             return { workflowId: id, ...last, ownerId: d.ownerId ?? last.ownerId }
           })} />
         {wf && <OwnerField teamId={teamId} draft={draft} />}
+        <Toggle label={tr('跳過整理需求')} checked={!!draft.skipStart} onChange={(skipStart) => editDraft(() => ({ skipStart }))} />
       </div>
       {wf && (
         <Section name={tr('人員')}>
@@ -1994,8 +1997,11 @@ function OwnerField({ teamId, draft }: { teamId: string; draft: TaskDraft }) {
 
 /** What still keeps a task from starting: its owner first, then the steps nobody works. */
 function Missing({ draft, missing }: { draft: TaskDraft; missing: number }) {
+  const w = useStore((s) => s.world)
   if (!draft.ownerId) return <span className="fx-d-muted">{tr('還沒有任務負責人')}</span>
-  return missing > 0 ? <span className="fx-d-muted">{tr('還有 {missing} 步沒有人', { missing })}</span> : null
+  if (missing > 0) return <span className="fx-d-muted">{tr('還有 {missing} 步沒有人', { missing })}</span>
+  // allowed, but the one who accepts the work also did some of it
+  return ownerChecksOwnWork(w, draft) ? <span className="fx-d-muted">{tr('負責人也做了中間的步驟，驗收不是獨立檢查')}</span> : null
 }
 
 function FileIcon() {

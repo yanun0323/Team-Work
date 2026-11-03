@@ -76,6 +76,8 @@ export interface NewTask {
   ownerId?: string
   images?: Attachment[]
   files?: Attachment[]
+  /** The first step hands the description on as it is, without running. */
+  skipStart?: boolean
 }
 
 /** A flow is shared, so a task's copy of it keeps only people from the task's own company. */
@@ -111,8 +113,23 @@ export function createTask(w: World, input: NewTask): Task {
   localizeFlow(task.workflow, w.language)
   setOwner(task, input.ownerId ?? null)
   w.tasks[task.id] = task
-  spawn(w, task, taskNodeOf(task.workflow).id, [], null, w.now)
+  const first = spawn(w, task, taskNodeOf(task.workflow).id, [], null, w.now)
+  if (input.skipStart) skipStart(w, task, first)
   return task
+}
+
+/** Finish the first step at once: the description, already clear, is the requirement handed on. */
+function skipStart(w: World, task: Task, sub: SubTask) {
+  sub.status = 'complete'
+  sub.skipped = true
+  sub.progress = 1
+  sub.endedAt = w.now
+  sub.handoff = {
+    commit: '',
+    agent: { goal: task.title, done: [], outputs: [], decisions: ['使用者跳過此節點：以任務說明為需求'], open: [] },
+    human: { headline: '已跳過整理需求，以任務說明為準。', did: [], outputs: [] },
+  }
+  log(sub, w.now, 'system', '已跳過整理需求，以任務說明為準。', 'startSkipped')
 }
 
 /** What 整理需求, 驗收 and every 和員工討論 step are told to do in Chinese, for the sample tasks; no flow can change it. */

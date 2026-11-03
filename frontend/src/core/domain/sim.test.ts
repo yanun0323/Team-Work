@@ -261,6 +261,17 @@ describe('workflow run', () => {
     expect(t.stage).toBe('awaitMerge')
   })
 
+  it('skips the first step when asked, handing the description on without running it', () => {
+    const { w, team, start: first } = setup([['start', 'a']])
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '驗收：變藍', workflowId: firstFlow(w), overrides: { '*': calm }, skipStart: true })
+    const start = subsOf(w, t.id).find((s) => s.nodeId === first.id)!
+    expect(start.skipped).toBe(true)
+    expect(start.status).toBe('complete')
+    run(w, 1)
+    expect(start.replicaId).toBeNull()
+    expect(subsOf(w, t.id).some((s) => s.nodeId === 'a')).toBe(true)
+  })
+
   it('retries failures up to the team limit, then asks the user', () => {
     const { w, team } = setup([['start', 'a']])
     team.settings.retries = 1

@@ -195,7 +195,8 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
         <p>A task is a piece of work you give the company, following one workflow. Each task has a task owner, who does Clarify requirements at the start and Acceptance review at the end.</p>
         <p>Each step of the workflow becomes a sub-task for the employees assigned to it. When done, they write a handoff for the next step. Progress in the details lists each sub-task's state, and opening one shows its log and the files handed off.</p>
         <p>Each task has its own branch, shown under the title in the details. Every step commits its work to this branch.</p>
-        <p>You can attach images and files to a new task: press ＋ to pick them, or paste a screenshot in the text box. Images can be up to 3.75MB and other files up to 25MB, with 6 in total. Press Apply to all steps, to the right of Task owner, to have the task owner alone do every step, when adding or editing a task. The workflow list shows each workflow's name and drawing.</p>
+        <p>You can attach images and files to a new task: press ＋ to pick them, or paste a screenshot in the text box. Images can be up to 3.75MB and other files up to 25MB, with 6 in total. Press Apply to all steps, to the right of Task owner, to have the task owner alone do every step, when adding or editing a task. If the task owner also works a step in between, you are reminded that the review is not an independent check, but the task can still start. The workflow list shows each workflow's name and drawing.</p>
+        <p>When the description already states the requirements and acceptance criteria, tick Skip Clarify requirements: the first step does not run, and the description goes straight to the next step. A task created from a chat has it ticked by default.</p>
         <p>For similar work, press Copy at the top right of a task's details. A new task opens with the title, description, attachments, workflow and staff filled in. Change what you need and press Start.</p>
         <dl>
           <dt>Four columns</dt><dd>Todo, Progressing, Wait for Review and Complete. A note with a red exclamation mark needs your reply, and a green merge icon is waiting for you to merge.</dd>
@@ -205,7 +206,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Cost</dt><dd>Sub-tasks record their cost. When a task reaches the company's limit, it stops and asks you.</dd>
           <dt>Token</dt><dd>Tasks, sub-tasks and chats show the tokens they used, not counting cache reads. Subscriptions are counted too, and the cost limit ignores this number.</dd>
         </dl>
-        <p>If the review does not pass, the work goes back to an earlier step to redo, at most twice per task. You can edit a task (title, description, owner and each step's employees; the workflow cannot change once started), pause it and delete it.</p>
+        <p>The built-in workflows have no separate test step: the acceptance review runs the tests and build and verifies the acceptance criteria. If the review does not pass, the work goes back to an earlier step to redo, at most twice per task. You can edit a task (title, description, owner and each step's employees; the workflow cannot change once started), pause it and delete it.</p>
       </>
     ),
   },
