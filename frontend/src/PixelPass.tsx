@@ -61,10 +61,11 @@ void main() {
   #include <colorspace_fragment>
 }`
 
-const BACKGROUND_FPS = 1
+const BACKGROUND_FPS = 5
 /**
- * The longest step, in seconds, any motion takes in one frame: a whole frame at BACKGROUND_FPS, so things keep their
- * speed while another app has focus, but coming back after a long time away doesn't make them jump.
+ * The longest step, in seconds, any motion takes in one frame: well over a frame at BACKGROUND_FPS, so things keep
+ * their speed while another app has focus even if frames come late, but coming back after a long time away doesn't
+ * make them jump.
  */
 export const MAX_FRAME = 1.1
 
@@ -77,7 +78,7 @@ export function PixelPass({ pixel = 2, fps = 30 }: { pixel?: number; fps?: numbe
 
   // The canvas runs on demand: ask for a frame at most `fps` times a second, which is plenty for the ambient
   // motion. Camera moves and prop changes ask for their own frames, so panning and flights stay at full rate.
-  // While another app has focus, one frame a second is enough to save power; a hidden window gets none anyway.
+  // While another app has focus, BACKGROUND_FPS frames a second is enough to save power; a hidden window gets none anyway.
   useEffect(() => {
     let id = 0
     let last = -Infinity

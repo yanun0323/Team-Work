@@ -170,7 +170,7 @@ export const headingOf = (dx: number, dz: number) => Math.atan2(-dx, -dz)
 
 /** Moves a walker `dist` along its route. Returns how far it actually went (less once it arrives). */
 /**
- * Runs `step` over `dt` seconds in pieces of at most `piece`, so a long frame (one a second in the background)
+ * Runs `step` over `dt` seconds in pieces of at most `piece`, so a long frame (a slow background frame)
  * still moves people a little at a time: nobody walks through someone they should queue behind.
  */
 export function inSteps(dt: number, step: (dt: number) => void, piece = 0.1) {
