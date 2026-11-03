@@ -49,7 +49,7 @@ func TestPresets(t *testing.T) {
 		}
 	}
 	feature := presetFlowOf(t, w, "preset-feature")
-	if feature.Name != "功能開發" || len(feature.Edges) != 7 {
+	if feature.Name != "功能開發" || len(feature.Edges) != 6 {
 		t.Fatalf("%+v", feature)
 	}
 	small := presetFlowOf(t, w, "preset-small")
@@ -259,7 +259,7 @@ func TestPresetsUseTheAgentFolders(t *testing.T) {
 				t.Fatalf("%s: %+v", b.Name, p)
 			}
 		}
-		if !slices.Equal(paths, []string{"~/.agents/", "~/.codex/", "~/.claude/"}) {
+		if !slices.Equal(paths, []string{"~/.agents/", "~/.mho/", "~/.codex/", "~/.claude/"}) {
 			t.Fatalf("%s: %v", b.Name, paths)
 		}
 	}

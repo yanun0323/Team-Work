@@ -335,7 +335,8 @@ func createTaskSchema(m manager) json.RawMessage {
 	}
 	return json.RawMessage(`{"type":"object","properties":{` + team +
 		`"title":{"type":"string"},"description":{"type":"string"},"workflow_id":{"type":"string"},` + staffProperty + `,` +
-		`"owner_id":{"type":"string","description":"The employee who owns the task and works its first and last steps"}},"required":[` + required + `]}`)
+		`"owner_id":{"type":"string","description":"The employee who owns the task and works its first and last steps"},` +
+		`"skip_start":{"type":"boolean","description":"Skip the first step, Clarify requirements, when the description already states the requirements and acceptance criteria clearly"}},"required":[` + required + `]}`)
 }
 
 const updateTaskSchema = `{"type":"object","properties":{"task_id":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},` + staffProperty + `,"owner_id":{"type":"string"}},"required":["task_id"]}`
@@ -359,6 +360,7 @@ func (e *Engine) createTaskTool(m manager) func(context.Context, string, json.Ra
 			WorkflowID  string              `json:"workflow_id"`
 			Staff       map[string][]string `json:"staff"`
 			OwnerID     *string             `json:"owner_id"`
+			SkipStart   bool                `json:"skip_start"`
 		}
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return toolError("invalid arguments: %v", err)
@@ -384,7 +386,7 @@ func (e *Engine) createTaskTool(m manager) func(context.Context, string, json.Ra
 				return nil
 			}
 			var err error
-			made, err = e.createTask(NewTask{TeamID: teamID, Title: a.Title, Description: a.Description, WorkflowID: a.WorkflowID, Staff: a.Staff, OwnerID: a.OwnerID, Origin: &origin})
+			made, err = e.createTask(NewTask{TeamID: teamID, Title: a.Title, Description: a.Description, WorkflowID: a.WorkflowID, Staff: a.Staff, OwnerID: a.OwnerID, SkipStart: a.SkipStart, Origin: &origin})
 			return err
 		})
 		if err != nil {

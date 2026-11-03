@@ -285,6 +285,30 @@ func TestTaskRunsToMergeOnRealGit(t *testing.T) {
 	}
 }
 
+func TestSkippingClarifyHandsTheDescriptionOn(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		return call("submit_handoff", handoff), nil
+	})
+	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "加功能", Description: "驗收：按鈕變藍", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, SkipStart: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	first := subAt(w, task.ID, "整理需求")
+	if !first.Skipped || first.Handoff == nil || first.ReplicaID != nil {
+		t.Fatalf("the first step ran or handed nothing on: %+v", first)
+	}
+	for _, req := range r.fake.seen {
+		if stepOf(req) == "Clarify requirements" {
+			t.Fatal("the skipped step was run")
+		}
+	}
+	last := r.fake.seen[len(r.fake.seen)-1].Messages[0].Content[0].Text
+	if !strings.Contains(last, "驗收：按鈕變藍") || !strings.Contains(last, "the task description is the requirement") {
+		t.Fatalf("the review was not told the description is the requirement: %s", last)
+	}
+}
+
 func TestQuestionResumesWithTheAnswer(t *testing.T) {
 	asked := false
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -1001,6 +1025,32 @@ func TestHandoffKeepsWhatWasLearned(t *testing.T) {
 	got := w.Replicas[r.owner.ID].Memory
 	if len(got) != 1 || got[0].Text != "測試要加 -race" || got[0].Source != "work" || got[0].TaskID != task.ID {
 		t.Fatalf("memory = %+v", got)
+	}
+}
+
+func TestSearchMemoryFindsAnEmployeesNotes(t *testing.T) {
+	step := 0
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		step++
+		if step == 1 {
+			return call("search_memory", map[string]any{"query": "NPM"}), nil
+		}
+		return call("submit_handoff", handoff), nil
+	})
+	memory := []model.MemoryEntry{{ID: "pkg", Text: "用 npm", Source: "work", At: 86400}, {ID: "go", Text: "用 go 1.25", Source: "work", At: 86400}}
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Memory: &memory}); err != nil {
+		t.Fatal(err)
+	}
+	task := r.task(r.flow.ID)
+	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	var result string
+	for _, b := range r.fake.seen[1].Messages[len(r.fake.seen[1].Messages)-1].Content {
+		if b.Type == enum.BlockToolResult {
+			result = b.Text
+		}
+	}
+	if !strings.Contains(result, "[pkg, 1970-01-02, work] 用 npm") || strings.Contains(result, "go 1.25") {
+		t.Fatalf("search result: %q", result)
 	}
 }
 

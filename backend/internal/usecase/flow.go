@@ -85,6 +85,43 @@ func (e *Engine) forget(replicaID *string, id string) (string, bool) {
 	return text, true
 }
 
+// memorySearchLimit is how many notes one search returns at most.
+const memorySearchLimit = 20
+
+// searchMemory finds the notes holding any of the query's words, ignoring case: those holding more words first, then
+// the newest.
+func searchMemory(notes []model.MemoryEntry, query string) string {
+	words := strings.Fields(strings.ToLower(query))
+	type hit struct {
+		note  model.MemoryEntry
+		score int
+	}
+	var hits []hit
+	for _, m := range notes {
+		text, score := strings.ToLower(m.Text), 0
+		for _, w := range words {
+			if strings.Contains(text, w) {
+				score++
+			}
+		}
+		if score > 0 {
+			hits = append(hits, hit{m, score})
+		}
+	}
+	if len(hits) == 0 {
+		return "No notes match."
+	}
+	slices.SortStableFunc(hits, func(a, b hit) int { return b.score - a.score })
+	var b strings.Builder
+	for _, h := range hits[:min(len(hits), memorySearchLimit)] {
+		b.WriteString(memoryLine(h.note))
+	}
+	if len(hits) > memorySearchLimit {
+		fmt.Fprintf(&b, "%d more match; narrow the search.\n", len(hits)-memorySearchLimit)
+	}
+	return b.String()
+}
+
 func (e *Engine) busyReplicas() map[string]bool {
 	busy := map[string]bool{}
 	for _, s := range e.w.SubTasks {
@@ -547,6 +584,8 @@ type NewTask struct {
 	OwnerID     *string             `json:"ownerId"`
 	Images      []model.Attachment  `json:"images"`
 	Files       []model.Attachment  `json:"files"`
+	// SkipStart has the first step hand the description on as it is, without running it.
+	SkipStart bool `json:"skipStart"`
 	// Origin is set when an employee makes the task; a request cannot claim one.
 	Origin *model.TaskOrigin `json:"-"`
 }
@@ -619,11 +658,28 @@ func (e *Engine) createTask(in NewTask) (*model.Task, error) {
 			return err
 		}
 		e.w.Tasks[t.ID] = t
-		e.spawn(t, taskNodeOf(&t.Workflow).ID, []string{}, nil, false, 0)
+		first := e.spawn(t, taskNodeOf(&t.Workflow).ID, []string{}, nil, false, 0)
+		if in.SkipStart {
+			e.skipStart(t, first)
+		}
 		out = clone(t)
 		return nil
 	}()
 	return out, err
+}
+
+// skipStart finishes the first step at once: the description, already clear, is the requirement handed on.
+func (e *Engine) skipStart(t *model.Task, s *model.SubTask) {
+	s.Status = enum.StatusComplete
+	s.Skipped = true
+	s.Progress = 1
+	s.EndedAt = ptr(e.w.Now)
+	s.Handoff = &model.Handoff{
+		Agent: model.AgentHandoff{Goal: t.Title, Done: []string{}, Outputs: []string{},
+			Decisions: []string{"The user skipped this step: the task description is the requirement, with its acceptance criteria if it has any"}, Open: []string{}},
+		Human: model.HumanSummary{Headline: i18n.T("已跳過整理需求，以任務說明為準。"), Did: []string{}, Outputs: []string{}},
+	}
+	e.logLine(s, enum.LogSystem, i18n.T("已跳過整理需求，以任務說明為準。"), "startSkipped", nil)
 }
 
 // TaskPatch changes a task; a nil field stays. Steps left out of Staff keep who they have.

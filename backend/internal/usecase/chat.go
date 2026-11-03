@@ -789,7 +789,8 @@ func (e *Engine) chatMemoryTools(in chatRun) []adapter.Tool {
 		}
 		return model.ToolResult{Text: "forgotten"}
 	}
-	return []adapter.Tool{funcTool{rememberSpec, remember}, funcTool{forgetSpec, forget}}
+	search := e.searchMemoryTool(func() *string { return &in.speaker })
+	return []adapter.Tool{funcTool{rememberSpec, remember}, funcTool{forgetSpec, forget}, funcTool{searchMemorySpec, search}}
 }
 
 func (e *Engine) runChat(ctx context.Context, in chatRun) {

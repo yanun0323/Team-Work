@@ -1,6 +1,7 @@
 {
   "skillFolders": [
     "~/.agents/",
+    "~/.mho/",
     "~/.codex/",
     "~/.claude/"
   ],
@@ -20,8 +21,8 @@
       "en": "Acceptance review"
     },
     "prompt": {
-      "zh": "逐條檢查成果是否符合上游交接裡的驗收條件；上游沒寫就依任務說明判斷。不要只看上游的說法：讀實際的改動，能執行的就實際執行（測試、建置或功能本身）。也要檢查有沒有超出範圍的改動，以及上游標記未完成的項目。\n\n- 全部符合：呼叫 submit_handoff，寫下每一條的結果和依據，再交給使用者決定是否合併。\n- 有不符合：呼叫 send_back，理由寫清楚哪一條沒過、實際看到什麼、應該變成怎樣。不要自己修改。\n- 不符合但沒有 send_back 可用（已達退回上限）：呼叫 submit_handoff，把沒過的項目列在未完成，讓使用者決定。",
-      "en": "Check the work against each acceptance criterion in the handoffs. If there are none, judge by the task description. Do not rely on what earlier steps claim: read the actual changes, and run whatever can be run (tests, builds or the feature itself). Also check for changes outside the scope and for items marked as open.\n\n- All pass: call submit_handoff with each criterion's result and evidence. The user then decides whether to merge.\n- Any fail: call send_back. State which criterion failed, what you saw and what it should be. Do not fix it yourself.\n- Any fail but send_back is unavailable (the send-back limit is reached): call submit_handoff and list the failed items as open, so the user decides."
+      "zh": "逐條檢查成果是否符合上游交接裡的驗收條件；上游沒寫就依任務說明判斷。不要只看上游的說法：用 git 讀實際的改動，也檢查有沒有超出範圍的改動，以及上游標記未完成的項目。\n\n實際驗證由你負責，前面沒有另外的測試步驟：跑一次完整的測試和建置（專案有的話）；修 Bug 的任務照重現步驟再走一次；最關鍵的條件親自驗，需要時實際操作功能，也試邊界與錯誤情況。其他條件，上游附了指令和結果、之後程式沒有再改動的驗證可以採用；沒附結果的、驗證後程式又改過的，以及上游沒驗到的，由你實際執行。上游審查列為必須修、但還沒處理的項目，算不符合。\n\n- 全部符合：呼叫 submit_handoff，寫下每一條的結果和依據，再交給使用者決定是否合併。\n- 有不符合：呼叫 send_back，理由寫清楚哪一條沒過、實際看到什麼、應該變成怎樣。不要自己修改。\n- 不符合但沒有 send_back 可用（已達退回上限）：呼叫 submit_handoff，把沒過的項目列在未完成，讓使用者決定。",
+      "en": "Check the work against each acceptance criterion in the handoffs. If there are none, judge by the task description. Do not rely on what earlier steps claim: read the actual changes with git, and check for changes outside the scope and for items marked as open.\n\nVerifying is yours, as no separate test step comes before you: run the full tests and build once, if the project has them; for a bug fix, follow the steps to reproduce again; verify the most important criteria yourself, using the feature when needed, and try edge and error cases. For the other criteria, an earlier step's verification that comes with its commands and results, with no code change after it, may stand. Run the rest yourself: verification without results, verification the code changed after, and criteria no one verified. A must-fix item from an earlier review that is still unhandled counts as a fail.\n\n- All pass: call submit_handoff with each criterion's result and evidence. The user then decides whether to merge.\n- Any fail: call send_back. State which criterion failed, what you saw and what it should be. Do not fix it yourself.\n- Any fail but send_back is unavailable (the send-back limit is reached): call submit_handoff and list the failed items as open, so the user decides."
     }
   },
   "talk": {
@@ -454,18 +455,6 @@
               "en": "Implement the frontend from the spec and the interface defined in the previous step. Look at the existing components and styles first, reuse what you can, change only what this task needs, and leave backend files alone.\n\nHandle loading, empty data and error states. Cover every new or changed behavior with tests. Run the tests and build before you hand off and confirm they pass.\n\nIn your handoff, state what you did, how you verified it and whether the interface changed. If there is no frontend work, say why and hand off directly. Copy the acceptance criteria word for word for the next step."
             }
           }
-        ],
-        [
-          {
-            "name": {
-              "zh": "測試",
-              "en": "Test"
-            },
-            "prompt": {
-              "zh": "照驗收條件逐條實際驗證，不要只讀程式：跑測試和建置，也實際操作功能，再試邊界與錯誤情況。\n\n每一條都寫下通過或不通過，以及依據。發現問題時寫下重現步驟、預期與實際結果。這一步只驗證和補測試，不修改產品程式。\n\n交接時把每一條的結果、發現的問題和驗收條件原文帶給下一步。",
-              "en": "Verify each acceptance criterion by actually running things, not just reading code: run the tests and build, use the feature, then try edge and error cases.\n\nRecord pass or fail for each criterion with your evidence. For each problem, give the steps to reproduce and the expected and actual results. In this step, only verify and add tests. Do not change product code.\n\nIn your handoff, give each criterion's result and the problems found, and copy the acceptance criteria word for word for the next step."
-            }
-          }
         ]
       ]
     },
@@ -530,18 +519,6 @@
             "prompt": {
               "zh": "找出問題的根本原因，從原因修正，不要只處理表面症狀，也不要為了通過測試而改測試的預期。不改無關的程式，也不順手重構。\n\n修好後，上一步的測試要通過；也檢查其他地方有沒有同樣的問題。\n\n交接時寫清楚根本原因、改了什麼、為什麼這樣改、可能受影響的範圍。把驗收條件原文帶給下一步。",
               "en": "Find the root cause and fix that, not just the symptom. Do not change a test's expectations to make it pass. Leave unrelated code alone and do not refactor along the way.\n\nAfter the fix, the previous step's test must pass. Also check other places for the same problem.\n\nIn your handoff, state the root cause, what you changed, why you changed it that way and what may be affected. Copy the acceptance criteria word for word for the next step."
-            }
-          }
-        ],
-        [
-          {
-            "name": {
-              "zh": "回歸測試",
-              "en": "Regression test"
-            },
-            "prompt": {
-              "zh": "確認問題真的修好了：照重現步驟再走一次，並跑完整測試和建置。再實際檢查這次修改影響到的相關功能，確認沒有被改壞。\n\n任何失敗都要寫下重現步驟、預期與實際結果，並判斷是否和這次修改有關。這一步只驗證，不修改產品程式。\n\n交接時寫下每項檢查的結果，並把驗收條件原文帶給下一步。",
-              "en": "Confirm the problem is really fixed: follow the steps to reproduce again and run the full tests and build. Then check the related features this change affects, to confirm nothing broke.\n\nFor any failure, give the steps to reproduce and the expected and actual results, and judge whether this change caused it. In this step, only verify. Do not change product code.\n\nIn your handoff, give each check's result and copy the acceptance criteria word for word for the next step."
             }
           }
         ]
@@ -641,18 +618,6 @@
               "en": "Fix each item on the previous step's list at its root cause, without widening the scope or refactoring along the way. Do not loosen a test's expectations to make it pass. If you think an item should not be fixed, say why. Do not skip it silently.\n\nCover the fixed behavior with tests, and run the relevant tests and build.\n\nIn your handoff, state how each item was fixed, and which were not and why. Copy the acceptance criteria word for word for the next step."
             }
           }
-        ],
-        [
-          {
-            "name": {
-              "zh": "回歸測試",
-              "en": "Regression test"
-            },
-            "prompt": {
-              "zh": "逐項確認清單上的問題真的修好了，並跑完整測試和建置，再實際檢查修改影響到的相關功能。這一步只驗證，不修改產品程式。\n\n任何失敗都要寫下重現步驟、預期與實際結果，並判斷是否和這次修改有關。\n\n交接時寫下每項檢查的結果，並把驗收條件原文帶給下一步。",
-              "en": "Confirm each listed problem is really fixed, run the full tests and build, then check the related features the fixes affect. In this step, only verify. Do not change product code.\n\nFor any failure, give the steps to reproduce and the expected and actual results, and judge whether this change caused it.\n\nIn your handoff, give each check's result. Copy the acceptance criteria word for word for the next step."
-            }
-          }
         ]
       ]
     },
@@ -708,18 +673,6 @@
             "prompt": {
               "zh": "審查這次重構：外部行為有沒有真的維持不變、測試有沒有被放寬、結構有沒有真的變簡單、有沒有超出範圍的改動。用 git 看實際改動，不要只看上游的說法。這一步不修改任何檔案。\n\n每個問題都寫下檔案與行號、實際後果、建議的修法和嚴重程度。\n\n交接時列出問題清單、是否達成重構目標和理由，並把驗收條件原文帶給下一步。",
               "en": "Review this refactor: whether outside behavior really stayed the same, whether any test was loosened, whether the structure really got simpler and whether anything went outside the scope. Use git to see the actual changes. Do not rely on what earlier steps claim. Do not change any file in this step.\n\nFor each problem, give the file and line, the actual consequence, a suggested fix and the severity.\n\nIn your handoff, list the problems and say whether the refactor met its goal and why. Copy the acceptance criteria word for word for the next step."
-            }
-          }
-        ],
-        [
-          {
-            "name": {
-              "zh": "回歸測試",
-              "en": "Regression test"
-            },
-            "prompt": {
-              "zh": "確認行為沒有改變：跑完整測試和建置，再實際操作受影響的功能，和重構前要維持的行為逐項比對。這一步只驗證，不修改產品程式。\n\n任何差異都要寫下重現步驟、預期與實際結果。上一步審查列出的必須修項目也要確認狀態；還沒處理的要列在未完成。\n\n交接時寫下每項檢查的結果，並把驗收條件原文帶給下一步。",
-              "en": "Confirm behavior has not changed: run the full tests and build, then use the affected features and compare them item by item with the behaviors to keep. In this step, only verify. Do not change product code.\n\nFor any difference, give the steps to reproduce and the expected and actual results. Also check the status of must-fix items from the review, and list any unhandled ones as open.\n\nIn your handoff, give each check's result. Copy the acceptance criteria word for word for the next step."
             }
           }
         ]

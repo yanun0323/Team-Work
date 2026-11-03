@@ -725,6 +725,12 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 			Parameters: json.RawMessage(askUserSchema)}, e.askUser(in)},
 		funcTool{rememberSpec, e.rememberTool(in)},
 		funcTool{forgetSpec, e.forgetTool(in)},
+		funcTool{searchMemorySpec, e.searchMemoryTool(func() *string {
+			if s := e.w.SubTasks[in.subID]; s != nil {
+				return s.ReplicaID
+			}
+			return nil
+		})},
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -747,7 +753,28 @@ var (
 		Parameters: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`)}
 	forgetSpec = model.ToolSpec{Name: "forget", Description: "Remove a note from your memory by its id, because it is wrong or out of date.",
 		Parameters: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`)}
+	searchMemorySpec = model.ToolSpec{Name: "search_memory", Description: "Search all your notes, including older ones your prompt leaves out, for any of the query's words.",
+		Parameters: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Words to look for, separated by spaces"}},"required":["query"]}`)}
 )
+
+// searchMemoryTool searches the notes of whoever who names, read under the lock; in a task step and in a chat alike.
+func (e *Engine) searchMemoryTool(who func() *string) func(context.Context, string, json.RawMessage) model.ToolResult {
+	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+		var a struct {
+			Query string `json:"query"`
+		}
+		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Query) == "" {
+			return toolError("query is required")
+		}
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		var notes []model.MemoryEntry
+		if id := who(); id != nil && e.w.Replicas[*id] != nil {
+			notes = e.w.Replicas[*id].Memory
+		}
+		return model.ToolResult{Text: searchMemory(notes, a.Query)}
+	}
+}
 
 func toolError(format string, args ...any) model.ToolResult {
 	return model.ToolResult{Text: fmt.Sprintf(format, args...), IsError: true}

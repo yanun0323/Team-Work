@@ -228,6 +228,7 @@ var en = map[string]string{
 	"這個子任務沒有在等回覆":          "This sub-task is not waiting for a reply",
 	"沒有這個選項":               "No such option",
 	"此節點已略過，沒有產出。":         "This step was skipped and produced nothing.",
+	"已跳過整理需求，以任務說明為準。":     "Clarify requirements was skipped; the task description is the requirement.",
 	"任務已暫停，中斷工作":           "Task paused, work interrupted",
 	"這個任務現在不能暫停":           "This task cannot be paused now",
 	"這個任務沒有暫停":             "This task is not paused",
