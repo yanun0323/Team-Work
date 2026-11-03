@@ -5,7 +5,7 @@ import { useStore } from './core/store'
 import { describe, expect, it } from 'vitest'
 import { attachable, splitAttachments } from './attachments'
 import { seedWorld } from './core/data/seed'
-import { canFork, chatTaskDraft, createAirportChat, createChat, deleteTeam, forkChat, readChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, steerChat, stopChat, tick, unqueueChat } from './core/domain/sim'
+import { canHandOff, chatTaskDraft, createAirportChat, createChat, deleteTeam, handOffChat, readChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, steerChat, stopChat, tick, unqueueChat } from './core/domain/sim'
 import { chatMindOf, chatSign, chatWho } from './crew'
 import { prereqsOf } from './prereqs'
 import { teamAlerts, teamReplicas, waitingTab } from './core/model'
@@ -94,7 +94,7 @@ describe('chats', () => {
     w.chats[chat.id].question = { options: [] }
     tick(w, REPLY_TIME)
     expect(chatSign(w.chats[chat.id])).toBe('question')
-    expect(forkChat(w, chat.id, 0)?.unread).toBeUndefined()
+    expect(handOffChat(w, chat.id, 0, chat.replicaId)?.unread).toBeUndefined()
   })
 
   it('begin with the first message, on the model of their employee, and get a reply', () => {
@@ -110,13 +110,13 @@ describe('chats', () => {
   it('fork into a copy of their own, only at the end of a reply or at the user\'s message', () => {
     const { w, chat } = setup()
     // still writing: the message it answers can be forked, and the original goes on
-    const early = forkChat(w, chat.id, 0)!
+    const early = handOffChat(w, chat.id, 0, chat.replicaId)!
     expect(early.replyAt).toBeUndefined()
     expect(chat.replyAt).toBeDefined()
     for (let i = 0; i < 60; i++) tick(w, 0.1)
     sayInChat(w, chat.id, '再一句')
     for (let i = 0; i < 60; i++) tick(w, 0.1)
-    const fork = forkChat(w, chat.id, 1)!
+    const fork = handOffChat(w, chat.id, 1, chat.replicaId)!
     expect(fork.id).not.toBe(chat.id)
     expect(fork.messages.map((m) => m.from)).toEqual(['user', 'agent'])
     expect(fork.replyAt).toBeUndefined()
@@ -124,19 +124,41 @@ describe('chats', () => {
     sayInChat(w, fork.id, '分支')
     expect(fork.messages).toHaveLength(3)
     expect(chat.messages).toHaveLength(4)
-    expect(forkChat(w, chat.id, 2)!.messages).toHaveLength(3)
+    expect(handOffChat(w, chat.id, 2, chat.replicaId)!.messages).toHaveLength(3)
 
     const m = (from: 'user' | 'agent' | 'tool') => ({ at: 0, from, text: '' })
     const turn = [m('user'), m('agent'), m('tool'), m('agent'), m('tool'), m('user')]
-    expect(turn.map((_, i) => canFork(turn, i))).toEqual([true, false, false, true, false, true])
+    expect(turn.map((_, i) => canHandOff(turn, i))).toEqual([true, false, false, true, false, true])
     // a reply still being written has no end to fork at, but what came before does
-    expect(turn.map((_, i) => canFork(turn, i, true))).toEqual([true, false, false, true, false, true])
+    expect(turn.map((_, i) => canHandOff(turn, i, true))).toEqual([true, false, false, true, false, true])
     const writing = [...turn, m('agent')]
-    expect(canFork(writing, 6, true)).toBe(false)
-    expect(canFork(writing, 6)).toBe(true)
+    expect(canHandOff(writing, 6, true)).toBe(false)
+    expect(canHandOff(writing, 6)).toBe(true)
     chat.messages.push(m('agent'))
     chat.replyAt = 0
-    expect(forkChat(w, chat.id, chat.messages.length - 1)).toBeUndefined()
+    expect(handOffChat(w, chat.id, chat.messages.length - 1, chat.replicaId)).toBeUndefined()
+  })
+
+  it('hand off to another employee of the company, who takes over from there', () => {
+    const { w, teamId, r, chat } = setup()
+    const other = teamReplicas(w, teamId).find((x) => x.id !== r.id)!
+    for (let i = 0; i < 60; i++) tick(w, 0.1)
+    sayInChat(w, chat.id, '再一句')
+    for (let i = 0; i < 60; i++) tick(w, 0.1)
+    expect(handOffChat(w, chat.id, 2, 'nobody')).toBeUndefined()
+    // from the user's message: the other one answers it
+    const got = handOffChat(w, chat.id, 2, other.id)!
+    expect(got).toMatchObject({ replicaId: other.id, name: other.name, model: other.model, handoffs: [{ before: 2, replicaId: r.id, name: r.name }] })
+    expect(got.effort).toBeUndefined()
+    expect(chat.handoffs).toBeUndefined()
+    // and handed back after Bea's reply, the line goes after it
+    for (let i = 0; i < 60; i++) tick(w, 0.1)
+    sayInChat(w, got.id, '第三句')
+    for (let i = 0; i < 60; i++) tick(w, 0.1)
+    const back = handOffChat(w, got.id, got.messages.length - 1, r.id)!
+    expect(back.handoffs?.map((h) => [h.before, h.name])).toEqual([[2, r.name], [back.messages.length, other.name]])
+    rewindChat(w, back.id, 0)
+    expect(back.handoffs?.map((h) => h.before)).toEqual([0, 0])
   })
 
   it('take no message while writing, and go on after a stop without the reply', () => {
@@ -236,7 +258,7 @@ describe('airport chats', () => {
     sayInChat(w, chat.id, '再一句')
     expect(w.chats[chat.id].replyAt).toBeDefined()
     tick(w, REPLY_TIME)
-    expect(forkChat(w, chat.id, 0)?.teamId).toBe('')
+    expect(handOffChat(w, chat.id, 0, chat.replicaId)?.teamId).toBe('')
   })
 
   it('change model between replies only', () => {
@@ -277,6 +299,29 @@ describe('the chat list', () => {
       const html = renderToStaticMarkup(createElement(Chats, { teamId, open: null, onOpen: () => {} }))
       expect(html.indexOf('fx-chat-unread')).toBeGreaterThan(-1)
       expect(html.indexOf('fx-chat-unread')).toBeLessThan(html.indexOf('<svg'))
+    } finally {
+      delete w.chats[chat.id]
+    }
+  })
+})
+
+describe('a meeting on the list', () => {
+  it('stacks the faces with the chair in front and lists the names in place of the model', () => {
+    const w = useStore.getState().world
+    const teamId = Object.keys(w.teams)[0]
+    const [ada, bea, cy, dee] = teamReplicas(w, teamId)
+    const chat = createChat(w, { teamId, replicaId: ada.id, guests: [bea, cy, dee].filter(Boolean).map((r) => r.id), text: '嗨' })
+    try {
+      const html = renderToStaticMarkup(createElement(Chats, { teamId, open: null, onOpen: () => {} }))
+      const row = html.slice(html.indexOf('fx-faces-stack'))
+      const names = [ada, bea, cy, dee].filter(Boolean).map((r) => r.name)
+      expect(row).toContain(names.join('、'))
+      expect(row).not.toContain(chatMindOf(w, chat))
+      // the first three, the deepest first so the chair lies on top, and no more
+      const stack = row.slice(0, row.indexOf('fx-row-main'))
+      const faces = [...stack.matchAll(/class="pixel-face"[^>]*aria-label="([^"]*)"/g)].map((m) => m[1])
+      expect(faces).toEqual(names.slice(0, 3).reverse())
+      expect(stack).not.toMatch(/>\+\d/)
     } finally {
       delete w.chats[chat.id]
     }

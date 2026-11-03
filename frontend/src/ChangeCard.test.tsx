@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { changeAsk, ChangeLines } from './ChangeCard'
 import { chatSign } from './crew'
 import { setAppLanguage } from './core/i18n'
-import { forkChat, resolveChatChange, rewindChat, sayInChat } from './core/domain/sim'
+import { handOffChat, resolveChatChange, rewindChat, sayInChat } from './core/domain/sim'
 import type { Chat, PendingChange, World } from './core/domain/types'
 
 afterEach(() => setAppLanguage('zh'))
@@ -60,7 +60,7 @@ describe('a change card', () => {
 
   it('stays out of a copy of the chat', () => {
     const w = chatWorld()
-    expect(forkChat(w, 'c', 1)?.change).toBeUndefined()
+    expect(handOffChat(w, 'c', 1, w.chats.c.replicaId)?.change).toBeUndefined()
     expect(w.chats.c.change).toBeDefined()
   })
 })

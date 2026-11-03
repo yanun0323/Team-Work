@@ -3,7 +3,7 @@ import { combine } from './rollup'
 import {
   cancelTask, fire, changeWorkflow, createTask, createTeam, DEFAULT_MODEL, deleteBlueprint, deleteTask, deleteTeam, gitSources, updateBlueprint, updateSource, deleteWorkflow, duplicateWorkflow, newWorkflow, hire, pauseTask, mergeTask, returnTask,
   MERGE_TIME, RESOLVE_TIME, resolveReview, resumeTask, setOwner, statusOf, subsOf, tick, END_PROMPT, START_PROMPT,
-  endTalk, REPLY_TIME, sayInTalk, taskTokens, createChat, forkChat, rewindChat,
+  endTalk, REPLY_TIME, sayInTalk, taskTokens, createChat, handOffChat, rewindChat, sayInChat, setChatChair, MAX_CHAT_PEOPLE,
 } from './sim'
 import { composePrompt, validate, wouldCreateCycle } from './graph'
 import type { GitSource, Script, World, Workflow, WorkflowNode } from './types'
@@ -336,9 +336,67 @@ describe('chat tokens', () => {
     run(w, REPLY_TIME + 1)
     const used = chat.tokens
     expect(used).toBeGreaterThan(0)
-    expect(forkChat(w, chat.id, 1)?.tokens).toBe(0)
+    expect(handOffChat(w, chat.id, 1, chat.replicaId)?.tokens).toBe(0)
     rewindChat(w, chat.id, 0)
     expect(chat.tokens).toBe(used)
+  })
+})
+
+describe('meetings', () => {
+  const meet = () => {
+    const { w, team } = setup([['start', 'a']])
+    const ada = Object.values(w.replicas)[0]
+    const bea = hire(w, team.id, 'bp', 'Bea')
+    const cy = hire(w, team.id, 'bp', 'Cy')
+    const chat = createChat(w, { teamId: team.id, replicaId: ada.id, guests: [bea.id, cy.id], text: '大家怎麼看' })
+    return { w, team, ada, bea, cy, chat }
+  }
+  const saidBy = (chat: { messages: { from: string; by?: string }[] }) => chat.messages.filter((m) => m.from === 'agent').map((m) => m.by)
+
+  it('has everyone reply in turn, the chair last, and those mentioned in the order mentioned', () => {
+    const { w, ada, bea, cy, chat } = meet()
+    run(w, REPLY_TIME * 3 + 1)
+    expect(saidBy(chat)).toEqual([bea.id, cy.id, ada.id])
+    expect(chat.replyAt).toBeUndefined()
+    sayInChat(w, chat.id, '@Cy @Ada', [], [], [cy.id, ada.id])
+    run(w, REPLY_TIME * 2 + 1)
+    expect(saidBy(chat).slice(3)).toEqual([cy.id, ada.id])
+  })
+
+  it('asks in whoever is mentioned and not in it yet, up to the most it holds', () => {
+    const { w, team, chat } = meet()
+    const more = [1, 2, 3, 4].map((i) => hire(w, team.id, 'bp', `p${i}`))
+    run(w, REPLY_TIME * 3 + 1)
+    sayInChat(w, chat.id, 'hi', [], [], more.map((r) => r.id))
+    expect(chat.guests?.map((g) => g.replicaId)).toHaveLength(MAX_CHAT_PEOPLE - 1)
+    expect(chat.next).toHaveLength(MAX_CHAT_PEOPLE - 4)
+  })
+
+  it('lets only the one mentioned alone, or the chair, ask the user', () => {
+    const { w, ada, bea, chat } = meet()
+    run(w, REPLY_TIME * 3 + 1)
+    sayInChat(w, chat.id, '要先做哪個？')
+    run(w, REPLY_TIME * 3 + 1)
+    // the guests answer, the chair asks, and the round ends there
+    expect(chat.question).toBeDefined()
+    expect(chat.speaker).toBe(ada.id)
+    sayInChat(w, chat.id, '@Bea 你覺得？', [], [], [bea.id])
+    run(w, REPLY_TIME + 1)
+    expect(chat.speaker).toBe(bea.id)
+    expect(chat.question).toBeDefined()
+  })
+
+  it('changes chair, goes on with the next guest when the chair leaves, and hands off as the chair or one-on-one', () => {
+    const { w, ada, bea, cy, chat } = meet()
+    run(w, REPLY_TIME * 3 + 1)
+    setChatChair(w, chat.id, cy.id)
+    expect([chat.replicaId, chat.guests?.map((g) => g.replicaId)]).toEqual([cy.id, [bea.id, ada.id]])
+    fire(w, cy.id, ada.id)
+    expect(chat.replicaId).toBe(bea.id)
+    expect(chat.guests?.map((g) => g.name)).toEqual(['Cy', ada.name])
+    expect(handOffChat(w, chat.id, 3, bea.id)?.guests).toHaveLength(2)
+    const alone = handOffChat(w, chat.id, 3, ada.id)!
+    expect([alone.replicaId, alone.guests]).toEqual([ada.id, undefined])
   })
 })
 

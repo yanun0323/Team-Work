@@ -1,25 +1,30 @@
 // A chat with an employee, on a detail sheet: who it is with on top, the notes in the middle, the message box below.
-// Until the first message it is only a choice of employee, whose model it runs on; after that both stay as they are.
+// Until the first message it is only a choice of employees, each on their own model; after that those stay as they are.
+// With more than one it is a meeting: "@" picks who replies, or asks someone in, and each reply is headed by who wrote it.
 // With no company it is the airport's: always the airport staff, and the model and level can change between replies.
 
-import { colon, tr } from './core/i18n'
+import { colon, listOf, tr } from './core/i18n'
 import { Markdown } from './Markdown'
 import { useEffect, useRef, useState } from 'react'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { Select } from './Controls'
-import { CrewSelect } from './Pickers'
-import { chatMindOf, chatPreview, DEFAULT_EFFORT, effortsOf, lastAirportMind, lastChatReplica, mindOf, modelGroups, modelsOf } from './crew'
+import { CrewPicks, CrewRow } from './Pickers'
+import { chatMindOf, chatPeople, chatPreview, DEFAULT_EFFORT, effortsOf, lastAirportMind, lastChatReplica, mindOf, modelGroups, modelsOf, noteColors, personMindOf } from './crew'
+import { ChatFaces } from './ChatFaces'
+import { mentionedPeople } from './mentions'
 import { Gone, Heading, DeleteTool, type Head } from './DrawerDetail'
 import { composing } from './ime'
 import { fmtClock, fmtTokens, teamReplicas, useAtBottom, useStickToBottom } from './core/model'
 import type { Attachment, Chat, QueuedMessage } from './core/domain/types'
-import { attempt, chatTaskDraft, deleteChat, forkChat, hasUncommitted, readChat, renameChat, resolveChatChange, rewindChat, sayInChat, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
-import { AIRPORT_STAFF_LOOK, canFork } from './core/domain/sim'
+import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, openFolder, readChat, renameChat, resolveChatChange, rewindChat, sayInChat, setChatChair, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
+import { AIRPORT_STAFF_LOOK, canHandOff, MAX_CHAT_PEOPLE, roundActor } from './core/domain/sim'
+import { HandOffIcon, HandOffMenu } from './HandOffMenu'
 import { useLiveOutput, useLiveText } from './core/live'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { MentionBox } from './MentionBox'
+import { SaidContext, type SaidActions } from './Said'
 import { changeAsk, ChangeLines } from './ChangeCard'
 import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, splitAttachments } from './attachments'
 import { draftKey, useChatDraft } from './chatDraft'
@@ -72,7 +77,7 @@ function ChatTitle({ chat }: { chat: Chat }) {
 
 export interface ChatTaskSeed { title: string; description: string; ownerId: string | null }
 
-export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image, onImage, onTask, onFork, onGoneChat, ...h }: Head & {
+export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFile, onSkill, image, onImage, onTask, onHandOff, onGoneChat, ...h }: Head & {
   /** The chat to open; none starts a new one. */
   id?: string
   teamId: string
@@ -81,12 +86,15 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
   /** Whether the sheet above is the employee's, opened from the face or name on top. */
   crewOpen: boolean
   onCrew: (id: string) => void
+  /** Open a file in the company's folder, or a skill of someone in the chat, that a message mentions. */
+  onFile: (path: string) => void
+  onSkill: (chat: string, name: string) => void
   /** The picture open on the sheet above, by its key, and how to open one. */
   image: string | null
   onImage: (key: string, image: Attachment, chat?: string) => void
   onTask: (seed: ChatTaskSeed) => void
   /** Opens the copy just made of this chat. */
-  onFork: (id: string) => void
+  onHandOff: (id: string) => void
   onGoneChat: () => void
 }) {
   const w = useStore((s) => s.world)
@@ -100,7 +108,9 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
   // what a new airport chat will run on; one under way keeps its own
   const [pickedModel, setPickedModel] = useState(() => [lastAirportMind(w)?.model, ...modelsOf(w)].find((m) => m && modelsOf(w).includes(m)) ?? '')
   const [pickedEffort, setPickedEffort] = useState(() => lastAirportMind(w)?.effort ?? DEFAULT_EFFORT)
-  const [replicaId, setReplicaId] = useState(() => lastChatReplica(w, teamId) ?? crew[0]?.id ?? '')
+  // who a new chat is with, the first chairing
+  const [picks, setPicks] = useState(() => [lastChatReplica(w, teamId) ?? crew[0]?.id].filter((x): x is string => !!x))
+  const replicaId = picks[0] ?? ''
   // what a new chat needs may go while this is open; one under way says so when it fails
   const needs = usePrereqs(teamId, airport ? 'airportChats' : 'chats').filter((x) => !chat && x.blocks)
   const replica = w.replicas[chat?.replicaId ?? replicaId]
@@ -111,7 +121,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
   const box = useRef<HTMLTextAreaElement>(null)
   const [sending, setSending] = useState(false)
   const [drafting, setDrafting] = useState(false)
-  const [forking, setForking] = useState(false)
+  const [handingOff, setHandingOff] = useState(false)
   const [uncommitted, setUncommitted] = useState(false)
   const writing = chat?.replyAt !== undefined
   const live = useLiveText(chat?.id)
@@ -139,6 +149,26 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
   const left = !!chat && !airport && !replica
   const name = airport ? tr('機場服務人員') : chat?.name ?? replica?.name ?? ''
   const look = airport ? AIRPORT_STAFF_LOOK : replica?.look ?? chat?.look
+  const people = airport ? [] : chat ? chatPeople(w, chat) : picks.flatMap((x) => (w.replicas[x] ? [{ id: x, name: w.replicas[x].name, look: w.replicas[x].look }] : []))
+  const meeting = people.length > 1
+  const nameOf = (id?: string) => people.find((x) => x.id === (id || chat?.replicaId))?.name ?? name
+  const speaking = nameOf(chat?.speaker)
+  // "@" offers those in the chat first, then the company, who join when mentioned, while there is room
+  const full = people.length >= MAX_CHAT_PEOPLE
+  const inChat = (id: string) => people.some((x) => x.id === id)
+  const mentionable = airport ? [] : [...crew.filter((r) => inChat(r.id)), ...crew.filter((r) => !full && !inChat(r.id))].map((r) => ({ id: r.id, name: r.name }))
+  const mentionRow = (id: string) => w.replicas[id] && (
+    <CrewRow r={w.replicas[id]} on={inChat(id)} chair={meeting && id === people[0]?.id} mind={chat && inChat(id) ? personMindOf(w, chat, id) : undefined} />
+  )
+  // who "@" names, in the notes as well: anyone in the chat, with those who have left, and the company
+  const named = [...people, ...crew.filter((r) => !inChat(r.id))].map((x) => ({ id: x.id, name: x.name }))
+  const guests = chat ? people.slice(1).flatMap((x) => (w.replicas[x.id] ? [w.replicas[x.id]] : [])) : []
+  // each employee writes on their own colour; the airport staff on the plain note
+  const colors = chat && !airport ? noteColors([...people.map((x) => x.id), ...chat.messages.flatMap((m) => (m.by ? [m.by] : []))]) : {}
+  const noteOf = (id?: string) => {
+    const color = colors[id || chat?.replicaId || '']
+    return color ? { ['--note' as string]: color } : undefined
+  }
   const mindModel = chat?.model ?? pickedModel
   const levels = effortsOf(w, mindModel)
   const wantedEffort = chat ? chat.effort ?? DEFAULT_EFFORT : pickedEffort
@@ -159,8 +189,9 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
     if (!ready) return
     const words = text.trim()
     const attachments = splitAttachments(images)
+    const mentions = mentionedPeople(words, mentionable)
     if (chat) {
-      act((x) => sayInChat(x, chat.id, words, attachments.images, attachments.files))
+      act((x) => sayInChat(x, chat.id, words, attachments.images, attachments.files, mentions))
       setText('')
       setImages([])
       return
@@ -168,7 +199,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
     setSending(true)
     const made = airport
       ? await startAirportChat(act, { model: pickedModel, effort: mindEffort, text: words, ...attachments })
-      : await startChat(act, { teamId, replicaId, text: words, ...attachments })
+      : await startChat(act, { teamId, replicaId, ...(picks.length > 1 ? { guests: picks.slice(1) } : {}), ...(mentions.length ? { mentions } : {}), text: words, ...attachments })
     setSending(false)
     if (made) {
       setStarted(made)
@@ -209,12 +240,12 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
     setRefused(false)
     box.current?.focus()
   }
-  const fork = async (index: number) => {
+  const handOff = async (index: number, to: string) => {
     if (!chat) return
-    setForking(true)
-    const made = await forkChat(act, chat.id, index)
-    setForking(false)
-    if (made) onFork(made.id)
+    setHandingOff(true)
+    const made = await handOffChat(act, chat.id, index, to)
+    setHandingOff(false)
+    if (made) onHandOff(made.id)
   }
   // a picture in message i, opened at full size on a sheet of its own
   const imageButton = (i: number, j: number, im: Attachment) => {
@@ -225,28 +256,77 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
       </button>
     )
   }
-  const forkButton = (i: number) => !left && !!chat && canFork(chat.messages, i, writing) && (
-    <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('從這則訊息複製出新對話')} title="Fork" disabled={forking} onClick={() => void fork(i)}>
-      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-        <path d="M4 5v1.5a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V5M8 8.5V11" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        <circle cx="4" cy="3.3" r="1.7" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        <circle cx="12" cy="3.3" r="1.7" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        <circle cx="8" cy="12.7" r="1.7" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      </svg>
-    </button>
-  )
+  // the airport staff are the only ones an airport chat can go to; a company's, its employee first, then the rest
+  const takers = chat && !airport ? [...(replica ? [replica] : []), ...crew.filter((r) => r.id !== chat.replicaId)] : []
+  const handOffButton = (i: number, end?: boolean) => {
+    if (!chat || !canHandOff(chat.messages, i, writing)) return null
+    if (airport) {
+      return (
+        <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('從這則訊息複製出新對話')} title={tr('從這則訊息複製出新對話')} disabled={handingOff} onClick={() => void handOff(i, '')}>
+          <HandOffIcon />
+        </button>
+      )
+    }
+    return takers.length > 0 && <HandOffMenu crew={takers} chairId={meeting ? chat.replicaId : undefined} end={end} disabled={handingOff} onPick={(to) => void handOff(i, to)} />
+  }
+  // a line where one employee handed the chat to the next
+  const handoffLines = (i: number) => (chat?.handoffs ?? []).flatMap((h, k, all) => (h.before === i || (i === chat?.messages.length && h.before > i))
+    ? [<li key={`handoff-${k}`} className="fx-room-handoff">{tr('{from} 交給 {to}', { from: h.name, to: all[k + 1]?.name ?? chat?.name ?? '' })}</li>]
+    : [])
+  // in a meeting, who wrote what comes next: their face opens their sheet
+  const speakerLine = (id: string, key: string) => {
+    const who = people.find((x) => x.id === id)
+    if (!chat || !who) return null
+    return (
+      <li key={key} className="fx-room-speaker" aria-hidden="true">
+        {w.replicas[id]
+          ? <button type="button" className="fx-room-face fx-hit" tabIndex={-1} onClick={() => onCrew(id)}><PixelFace look={who.look} name={who.name} size={20} /></button>
+          : <PixelFace look={who.look} name={who.name} size={20} />}
+        <b>{who.name}</b>
+        <span>{personMindOf(w, chat, id)}</span>
+      </li>
+    )
+  }
+  const turnAt = (i: number) => {
+    const m = chat?.messages[i]
+    if (!chat || !meeting || !m || m.from === 'user') return []
+    const prev = chat.messages[i - 1]
+    const by = m.by || chat.replicaId
+    return prev && prev.from !== 'user' && (prev.by || chat.replicaId) === by ? [] : [speakerLine(by, `speaker-${i}`)]
+  }
+  const last = chat?.messages[chat.messages.length - 1]
+  const writerLine = writing && meeting && chat?.speaker && (!last || last.from === 'user' || (last.by || chat.replicaId) !== chat.speaker)
+    ? speakerLine(chat.speaker, 'speaker-writing') : null
   const draftTask = async () => {
     if (!chat) return
     setDrafting(true)
     const draft = await attempt(() => chatTaskDraft(useStore.getState().world, chat.id))
     setDrafting(false)
-    if (draft) onTask({ ...draft, ownerId: replica?.id ?? null })
+    // the one who may act this round owns it, as with a task the employees create themselves
+    const actor = roundActor(chat)
+    if (draft) onTask({ ...draft, ownerId: w.replicas[actor] ? actor : replica?.id ?? null })
+  }
+
+  // what a mention in the chat opens: those in the airport's chats belong to no company
+  const opens: SaidActions = {
+    person: onCrew,
+    canPerson: (x) => !!w.replicas[x],
+    ...(!airport && chat && {
+      file: onFile,
+      folder: (path: string) => openFolder(teamId, path),
+      skill: (name: string) => onSkill(chat.id, name),
+    }),
   }
 
   return (
+    <SaidContext.Provider value={opens}>
     <div className="fx-room">
       {chat && (
         <div className="fx-tools">
+          {meeting && guests.length > 0 && (
+            <HandOffMenu crew={guests} label={tr('更換主持人')} text end disabled={writing || !!chat.change}
+              onPick={(to) => act((y) => setChatChair(y, chat.id, to))} />
+          )}
           {!airport && (
             <button type="button" className="fx-tool fx-tool-text fx-hit" disabled={drafting || writing || left} aria-expanded={creating} onClick={() => void draftTask()}>
               {drafting ? tr('整理中…') : tr('建立任務')}
@@ -257,7 +337,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
       )}
       <header className="fx-room-head">
         {/* once under way, the face and name open the employee's sheet; the face is a second way in, for the pointer only */}
-        {chat && !airport && replica && look ? (
+        {chat && meeting ? <span className="fx-room-faces"><ChatFaces people={people} size={44} card /></span> : chat && !airport && replica && look ? (
           <button type="button" className="fx-room-face fx-hit" tabIndex={-1} aria-hidden="true" onClick={() => onCrew(replica.id)}>
             <PixelFace look={look} name={name} size={44} />
           </button>
@@ -274,6 +354,21 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
               onChange={(m) => changeMind(m, mindEffort)} />
             <Select label={tr('思考等級')} value={mindEffort} disabled={writing} options={levels} onChange={(e) => changeMind(mindModel, e)} />
           </div>
+        ) : chat && meeting ? (
+          <div className="fx-row-main">
+            <Heading {...h}>
+              <span className="fx-room-names">
+                {people.map((x, k) => (
+                  <span key={x.id} className="fx-room-person">
+                    {w.replicas[x.id] ? <button type="button" className="fx-room-name fx-hit" onClick={() => onCrew(x.id)}>{x.name}</button> : x.name}
+                    {/* 、 or ", ", as the language lists names */}
+                    {k < people.length - 1 && listOf(['', ''])}
+                  </span>
+                ))}
+              </span>
+            </Heading>
+            {chat.tokens > 0 && <span>{fmtTokens(chat.tokens)} Token</span>}
+          </div>
         ) : chat ? (
           <div className="fx-row-main">
             <Heading {...h}>
@@ -284,16 +379,16 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
         ) : (
           <div className="fx-room-picks">
             <span className="fx-sr"><Heading {...h}>{tr('新對話')}</Heading></span>
-            <CrewSelect label={tr('員工')} value={replicaId} crew={crew} onChange={setReplicaId} />
-            <p className="fx-field"><span>{tr('模型')}</span><span className="fx-room-model">{replica && mindOf(replica)}</span></p>
+            <CrewPicks label={tr('員工')} value={picks} crew={crew} max={MAX_CHAT_PEOPLE} onChange={setPicks} />
+            {!meeting && <p className="fx-field"><span>{tr('模型')}</span><span className="fx-room-model">{replica && mindOf(replica)}</span></p>}
           </div>
         )}
       </header>
       {chat && <ChatTitle chat={chat} />}
       <Prereqs list={needs} />
       <div className="fx-room-scroll">
-      <ol ref={log} className="fx-room-log" aria-live="polite" aria-label={tr('和 {name} 的對話', { name })}>
-        {chat?.messages.map((m, i) => m.from === 'tool'
+      <ol ref={log} className="fx-room-log" aria-live="polite" aria-label={tr('和 {name} 的對話', { name: meeting ? listOf(people.map((x) => x.name)) : name })}>
+        {chat?.messages.flatMap((m, i) => [...handoffLines(i), ...turnAt(i), m.from === 'tool'
           ? (
             <li key={i} className="fx-room-tool">
               <code>{m.text}</code>
@@ -301,15 +396,15 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
             </li>
           )
           : (
-            <li key={i} className={`fx-chat-msg fx-chat-${m.from}`}>
+            <li key={i} className={`fx-chat-msg fx-chat-${m.from}`} style={m.from === 'agent' ? noteOf(m.by) : undefined}>
               {m.from === 'agent'
                 ? (
                   <div className="fx-chat-said fx-chat-said-agent">
-                    <div className="fx-chat-bubble"><span className="fx-sr">{name}{colon()}</span><Markdown text={m.text} /></div>
+                    <div className="fx-chat-bubble"><span className="fx-sr">{nameOf(m.by)}{colon()}</span><Markdown text={m.text} people={named} /></div>
                     <div className="fx-chat-foot">
                       <time>{fmtClock(m.at)}</time>
                       {m.text && <CopyButton text={m.text} />}
-                      {forkButton(i)}
+                      {handOffButton(i)}
                     </div>
                   </div>
                 )
@@ -317,7 +412,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
                   <div className="fx-chat-said">
                     {m.images && m.images.length > 0 && <div className="fx-chat-images">{m.images.map((im, j) => imageButton(i, j, im))}</div>}
                     {!!m.files?.length && <div className="fx-chat-images">{m.files.map((file, j) => <FileAttachment key={j} file={file} />)}</div>}
-                    {m.text && <p className="fx-chat-bubble"><span className="fx-sr">{tr('你：')}</span>{m.text}</p>}
+                    {m.text && <div className="fx-chat-bubble"><span className="fx-sr">{tr('你：')}</span><Markdown text={m.text} people={named} signs="@#$" /></div>}
                     <div className="fx-chat-foot">
                     <time>{fmtClock(m.at)}</time>
                     {m.text && <CopyButton text={m.text} />}
@@ -329,20 +424,22 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
                         </svg>
                       </button>
                     )}
-                    {forkButton(i)}
+                    {handOffButton(i, true)}
                     </div>
                   </div>
                 )}
             </li>
-          ))}
+          )])}
+        {chat && handoffLines(chat.messages.length)}
         {/* the running command's last lines; the tool line above has already been read out */}
+        {writerLine}
         {writing && output && <li className="fx-room-output" aria-hidden="true"><pre>{output}</pre></li>}
         {writing && (
-          <li className="fx-chat-msg fx-chat-agent fx-chat-writing">
-            <span className="fx-sr">{tr('{name} 正在回覆', { name })}</span>
+          <li className="fx-chat-msg fx-chat-agent fx-chat-writing" style={noteOf(chat?.speaker)}>
+            <span className="fx-sr">{tr('{name} 正在回覆', { name: speaking })}</span>
             {live
               // read out when it is done, not piece by piece
-              ? <div className="fx-chat-bubble" aria-hidden="true"><Markdown text={live} /></div>
+              ? <div className="fx-chat-bubble" aria-hidden="true"><Markdown text={live} people={named} /></div>
               : <p className="fx-chat-bubble"><span className="fx-chat-dots" aria-hidden="true"><span /><span /><span /></span></p>}
           </li>
         )}
@@ -358,7 +455,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
       {!left && !writing && !!chat?.question?.options.length && (
         <div className="fx-d-choices" role="group" aria-label={tr('選項')}>
           {chat.question.options.map((o) => (
-            <button key={o} type="button" className="fx-choice" onClick={() => act((x) => sayInChat(x, chat.id, o))}>{o}</button>
+            <button key={o} type="button" className="fx-choice" onClick={() => act((x) => sayInChat(x, chat.id, o, [], [], meeting && chat.speaker ? [chat.speaker] : []))}>{o}</button>
           ))}
         </div>
       )}
@@ -387,6 +484,11 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
                 <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
                   <path d="M2.5 13.5l.6-3L10.6 3l2.4 2.4-7.5 7.5z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                   <path d="M9 4.6l2.4 2.4" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              </button>
+              <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('刪除排隊的訊息')} title={tr('刪除')} onClick={() => act((x) => unqueueChat(x, chat.id, q.id))}>
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                  <path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.8 9h6.4l.8-9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                 </svg>
               </button>
             </li>
@@ -430,7 +532,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
               <input type="file" disabled={reading} multiple className="fx-sr" aria-label={tr('加入附件')}
                 onChange={(e) => { void attach([...(e.target.files ?? [])]); e.target.value = '' }} />
             </label>
-            <MentionBox box={box} grow value={text} teamId={teamId} replicaIds={replica ? [replica.id] : []} label={tr('訊息')} placeholder={airport ? tr('輸入訊息，可直接貼上截圖') : tr('輸入訊息，$ 選技能，@ 選檔案，可直接貼上截圖')} onChange={setText} onSend={() => void send()} />
+            <MentionBox box={box} grow value={text} teamId={teamId} replicaIds={people.filter((x) => w.replicas[x.id]).map((x) => x.id)} people={mentionable} personRow={mentionRow} label={tr('訊息')} placeholder={airport ? tr('輸入訊息，可直接貼上截圖') : tr('輸入訊息，@ 找員工，$ 選技能，# 選檔案，可直接貼上截圖')} onChange={setText} onSend={() => void send()} />
             {writing && !drafted
               ? (
                 <button type="button" className="fx-room-send" aria-label={tr('暫停')} title={tr('暫停')} onClick={() => act((x) => stopChat(x, chat!.id))}>
@@ -444,5 +546,6 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, image
           </form>
         )}
     </div>
+    </SaidContext.Provider>
   )
 }

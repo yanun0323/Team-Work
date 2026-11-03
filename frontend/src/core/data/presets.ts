@@ -42,7 +42,8 @@ export function localizeFlow(wf: Workflow, language: Locale) {
   const steps = stepsOf(wf.id)
   for (const n of wf.nodes) {
     const s = steps.get(n.id)
-    if (s) {
+    // a task's copy from before the flow changed may hold another step at this place, so the name must match too
+    if (s && (n.name === s.name.zh || n.name === s.name.en)) {
       n.name = s.name[language]
       if (s.prompt) n.prompt = s.prompt[language]
     }

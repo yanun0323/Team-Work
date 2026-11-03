@@ -10,7 +10,7 @@ import type {
   Chat,
   Look,
   Attachment, Blueprint, GitSource, Locale, LogKind, MemorySource, ModelProvider, ProviderAuth, Replica, Review, Script, SubTask, TalkEnd, Task, Team, Workflow, World,
-  FileInfo, SkillInfo,
+  FileInfo, SkillInfo, SkillText,
 } from './types'
 
 /** Seconds a box spends on the belt between two nodes. */
@@ -312,15 +312,60 @@ export function sayInTalk(w: World, subId: string, text: string) {
 /** The airport staff's fixed face. */
 export const AIRPORT_STAFF_LOOK: Look = { skin: '#f0c8a0', hair: '#2f3b52', shirt: '#24579e', pants: '#2f3542', extra: 'cap', style: 7 }
 
-export interface NewChat { teamId: string; replicaId: string; text: string; images?: Attachment[]; files?: Attachment[] }
+/** `guests` make it a meeting, which the employee chairs. */
+export interface NewChat { teamId: string; replicaId: string; guests?: string[]; mentions?: string[]; text: string; images?: Attachment[]; files?: Attachment[] }
 
 /** A chat exists from the user's first message on; the employee answers a few seconds later. */
 export function createChat(w: World, i: NewChat): Chat {
   const r = w.replicas[i.replicaId]
   const chat: Chat = { id: uid(w, 'chat'), teamId: i.teamId, replicaId: i.replicaId, name: r.name, look: r.look, model: r.model, tokens: 0, messages: [], createdAt: w.now }
   w.chats[chat.id] = chat
-  sayInChat(w, chat.id, i.text, i.images, i.files)
+  invite(w, chat, i.guests ?? [])
+  sayInChat(w, chat.id, i.text, i.images, i.files, i.mentions)
   return chat
+}
+
+/** How many employees a meeting holds at most: each message can ask every one of them. */
+export const MAX_CHAT_PEOPLE = 6
+
+/** Whether an employee chairs a chat or is a guest of it, whether or not they have left since. */
+export const chatHas = (chat: Chat, replicaId: string) => replicaId === chat.replicaId || !!chat.guests?.some((g) => g.replicaId === replicaId)
+
+/** Brings into a chat whoever of its company is mentioned and not in it yet, up to the most it holds. */
+function invite(w: World, chat: Chat, ids: string[]) {
+  for (const id of ids) {
+    const r = w.replicas[id]
+    if (!r || r.teamId !== chat.teamId || !chat.teamId || chatHas(chat, id) || 1 + (chat.guests?.length ?? 0) >= MAX_CHAT_PEOPLE) continue
+    chat.guests = [...chat.guests ?? [], { replicaId: r.id, name: r.name, look: r.look, model: r.model }]
+  }
+}
+
+/** Who reply to a message, in turn: those it mentions, in that order, or everyone, the chair last to sum up. Those who left are skipped; the airport staff are ''. */
+export function speakersFor(w: World, chat: Chat, mentions: string[] = []): string[] {
+  if (!chat.teamId) return ['']
+  const wanted = mentions.length ? mentions : [...(chat.guests ?? []).map((g) => g.replicaId), chat.replicaId]
+  return [...new Set(wanted)].filter((id) => w.replicas[id] && chatHas(chat, id))
+}
+
+/** Who may act outside the chat on a message, create tasks or ask the user: the one it mentions alone, or the chair. */
+export const actorOf = (chat: Chat, mentions: string[] = []) => (mentions.length === 1 ? mentions[0] : chat.replicaId)
+
+/** The actor of the round under way, from the user's last message. */
+export const roundActor = (chat: Chat) => actorOf(chat, chat.messages.findLast((m) => m.from === 'user')?.mentions)
+
+/** Has a guest chair the meeting, the chair becoming a guest. */
+export function setChatChair(w: World, id: string, replicaId: string) {
+  const chat = w.chats[id]
+  const at = chat?.guests?.findIndex((g) => g.replicaId === replicaId) ?? -1
+  if (!chat || at < 0 || !w.replicas[replicaId] || chat.replyAt !== undefined || chat.change) return
+  swapChair(chat, at)
+}
+
+function swapChair(chat: Chat, at: number) {
+  const g = chat.guests![at]
+  chat.guests![at] = { replicaId: chat.replicaId, name: chat.name, look: chat.look, model: chat.model }
+  Object.assign(chat, { replicaId: g.replicaId, name: g.name, look: g.look, model: g.model })
+  delete chat.effort
 }
 
 export interface NewAirportChat { model: string; effort: string; text: string; images?: Attachment[]; files?: Attachment[] }
@@ -353,22 +398,28 @@ export function renameChat(w: World, id: string, title: string) {
 /** The employee of a company's chat has left. The airport staff never do. */
 const chatLeft = (w: World, chat: Chat) => !!chat.teamId && !w.replicas[chat.replicaId]
 
-export function sayInChat(w: World, id: string, text: string, images: Attachment[] = [], files: Attachment[] = []) {
+/** The user says something, to those mentioned, who join if they are not in the chat yet; with nobody mentioned, to everyone in it. */
+export function sayInChat(w: World, id: string, text: string, images: Attachment[] = [], files: Attachment[] = [], mentions: string[] = []) {
   const chat = w.chats[id]
   text = text.trim()
   if (!chat || (!text && !images.length && !files.length) || chatLeft(w, chat)) return
   if (chat.replyAt !== undefined) {
-    chat.queue = [...chat.queue ?? [], { id: uid(w, 'queued'), at: w.now, text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) }]
+    chat.queue = [...chat.queue ?? [], { id: uid(w, 'queued'), at: w.now, text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}), ...(mentions.length ? { mentions } : {}) }]
     return
   }
-  hearInChat(w, chat, text, images, files)
+  hearInChat(w, chat, text, images, files, mentions)
 }
 
-function hearInChat(w: World, chat: Chat, text: string, images: Attachment[] = [], files: Attachment[] = []) {
+function hearInChat(w: World, chat: Chat, text: string, images: Attachment[] = [], files: Attachment[] = [], mentions: string[] = []) {
+  invite(w, chat, mentions)
+  const [first, ...rest] = speakersFor(w, chat, mentions)
+  if (first === undefined) return
   delete chat.question
   delete chat.change
-  chat.messages.push({ at: w.now, from: 'user', text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) })
+  chat.messages.push({ at: w.now, from: 'user', text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}), ...(mentions.length ? { mentions } : {}) })
   chat.replyAt = w.now + REPLY_TIME
+  chat.speaker = first
+  chat.next = rest
 }
 
 /** The user's answer on a chat's card. The simulator keeps no blueprints' versions: it only moves the chat on. */
@@ -376,7 +427,7 @@ export function resolveChatChange(w: World, id: string, approve: boolean) {
   const chat = w.chats[id]
   if (!chat?.change) return
   delete chat.change
-  chat.messages.push({ at: w.now, from: 'tool', text: approve ? '同意修改' : '拒絕修改' })
+  chat.messages.push({ at: w.now, from: 'tool', text: approve ? '同意修改' : '拒絕修改', by: chat.speaker })
   chat.replyAt = w.now + REPLY_TIME
 }
 
@@ -386,10 +437,31 @@ export function replicaSkills(w: World, replicaId: string): SkillInfo[] {
   return [...new Set(names)].map((name) => ({ name, description: '' }))
 }
 
+/** The prototype reads no files: a pack that takes every skill brings a few made up. */
+export function blueprintSkills(w: World, id: string): (string[] | null)[] {
+  return (w.blueprints[id]?.skills ?? []).map((p) => (p.include ?? ['code-review', 'tdd', 'summarize', 'handoff']).filter((name) => !p.exclude.includes(name)))
+}
+
 const MOCK_FILES: FileInfo[] = [
   { path: 'docs', dir: true }, { path: 'src', dir: true }, { path: 'README.md', dir: false }, { path: 'my notes.txt', dir: false },
   { path: 'docs/design.md', dir: false }, { path: 'src/app.ts', dir: false }, { path: 'src/app.test.ts', dir: false },
 ]
+
+/** The prototype reads no files: one a mention opens says what it is. */
+export function projectFile(path: string): string {
+  if (!MOCK_FILES.some((f) => f.path === path && !f.dir)) throw new Error(`專案資料夾裡沒有 ${path}`)
+  return /\.mdx?$/i.test(path) ? `# ${path}\n\n原型不讀檔案，這裡只是示意。` : `// ${path}\n`
+}
+
+/** A skill of someone in the chat, made up as its pack is. */
+export function chatSkill(w: World, chatId: string, name: string): SkillText {
+  const chat = w.chats[chatId]
+  const ids = chat ? [chat.replicaId, ...(chat.guests ?? []).map((g) => g.replicaId)] : []
+  if (!ids.some((id) => blueprintSkills(w, w.replicas[id]?.blueprintId ?? '').some((names) => names?.includes(name)))) {
+    throw new Error(`找不到技能 ${name}`)
+  }
+  return { name, description: '', path: `skills/${name}/SKILL.md`, text: `# ${name}\n\n原型不讀檔案，這裡只是示意。` }
+}
 
 export function searchFiles(query: string): FileInfo[] {
   const at = query.lastIndexOf('/')
@@ -400,8 +472,11 @@ export function searchFiles(query: string): FileInfo[] {
     : f.path.startsWith(folder) && !f.path.slice(folder.length).includes('/') && f.path.toLowerCase().startsWith(q)))
 }
 
+/** Stops the reply under way, and the rest of the round. */
 export function stopChat(w: World, id: string) {
-  if (w.chats[id]) delete w.chats[id].replyAt
+  if (!w.chats[id]) return
+  delete w.chats[id].replyAt
+  delete w.chats[id].next
 }
 
 /** A queued message goes ahead of the rest; with no reply being written it goes now. The simulator has no tool calls to wait on. */
@@ -430,7 +505,7 @@ function sendQueued(w: World, chat: Chat) {
   const [next, ...rest] = chat.queue ?? []
   if (!next || chat.replyAt !== undefined || chatLeft(w, chat)) return
   chat.queue = rest
-  hearInChat(w, chat, next.text, next.images, next.files)
+  hearInChat(w, chat, next.text, next.images, next.files, next.mentions)
 }
 
 /** Takes back one of the user's messages and all that came after it. */
@@ -438,32 +513,46 @@ export function rewindChat(w: World, id: string, index: number) {
   const chat = w.chats[id]
   if (chat?.messages[index]?.from !== 'user') return
   chat.messages.length = index
+  for (const h of chat.handoffs ?? []) h.before = Math.min(h.before, index)
   delete chat.replyAt
+  delete chat.next
   delete chat.question
   delete chat.change
 }
 
-/** Whether a chat can be forked at a message: the user's, or the employee's that ends a reply, since a reply is not split; so not within a reply still being written. */
-export function canFork(messages: Chat['messages'], index: number, replying = false) {
+/** Whether a chat can be handed off at a message: the user's, or the employee's that ends a reply, since a reply is not split; so not within a reply still being written. */
+export function canHandOff(messages: Chat['messages'], index: number, replying = false) {
   const m = messages[index]
   if (m?.from === 'user') return true
   if (replying && !messages.slice(index + 1).some((x) => x.from === 'user')) return false
   return m?.from === 'agent' && messages.slice(index + 1).find((x) => x.from !== 'tool')?.from !== 'agent'
 }
 
-/** Copies a chat up to a message into a new chat. Nobody replies until the user says something in it. */
-export function forkChat(w: World, id: string, index: number): Chat | undefined {
+/** Copies a chat up to a message into a new chat, with the employee it had or another of the company who takes over. Nobody replies until the user says something in it. */
+export function handOffChat(w: World, id: string, index: number, replicaId: string): Chat | undefined {
   const chat = w.chats[id]
   const m = chat?.messages[index]
-  if (!m || m.from === 'tool' || chatLeft(w, chat)) return undefined
+  if (!m || m.from === 'tool') return undefined
+  const taker = w.replicas[replicaId]
+  if (chat.teamId ? taker?.teamId !== chat.teamId : replicaId !== '') return undefined
   if (chat.replyAt !== undefined && !chat.messages.slice(index).some((x) => x.from === 'user')) return undefined
   const next = m.from === 'user' ? -1 : chat.messages.findIndex((x, i) => i > index && x.from === 'user')
   const keep = m.from === 'user' ? index + 1 : next < 0 ? chat.messages.length : next
-  const fork: Chat = { ...chat, id: uid(w, 'chat'), messages: chat.messages.slice(0, keep).map((x) => ({ ...x })), tokens: 0, createdAt: w.now }
+  const fork: Chat = { ...chat, id: uid(w, 'chat'), messages: chat.messages.slice(0, keep).map((x) => ({ ...x })), handoffs: chat.handoffs?.map((h) => ({ ...h })), guests: chat.guests?.map((g) => ({ ...g })), tokens: 0, createdAt: w.now }
+  if (taker && replicaId !== chat.replicaId) {
+    // a meeting handed to one of its own or anyone else goes on with them alone
+    delete fork.guests
+    // they take over from the user's message, or after the reply it ends with
+    fork.handoffs = [...fork.handoffs ?? [], { before: m.from === 'user' ? index : keep, replicaId: chat.replicaId, name: chat.name }]
+    Object.assign(fork, { replicaId, name: taker.name, look: taker.look, model: taker.model })
+    delete fork.effort
+  }
+  if (!fork.handoffs) delete fork.handoffs
   if (keep < chat.messages.length) delete fork.question
   delete fork.change // a copy cannot agree for the original
   delete fork.unread
   delete fork.replyAt
+  delete fork.next
   delete fork.queue
   w.chats[fork.id] = fork
   return fork
@@ -481,11 +570,22 @@ function answerChat(w: World, chat: Chat) {
   delete chat.replyAt
   chat.unread = true
   chat.tokens += 1200
-  // a question gets one back, to show what an employee asking looks like
-  if (/[?？]$/.test(chat.messages.at(-1)?.text ?? '')) {
-    chat.messages.push({ at: w.now, from: 'agent', text: '你想先做哪一個？' })
+  const by = chat.speaker ? { by: chat.speaker } : {}
+  const asked = chat.messages.findLast((m) => m.from === 'user')?.text ?? ''
+  // a question gets one back from whoever may ask this round, to show what an employee asking looks like
+  if (/[?？]$/.test(asked) && (chat.speaker ?? '') === roundActor(chat)) {
+    chat.messages.push({ at: w.now, from: 'agent', text: '你想先做哪一個？', ...by })
     chat.question = { options: ['先做前端', '先做後端'] }
-  } else chat.messages.push({ at: w.now, from: 'agent', text: '收到。這是模擬的回覆，要實際對話請接上後端。' })
+  } else chat.messages.push({ at: w.now, from: 'agent', text: '收到。這是模擬的回覆，要實際對話請接上後端。', ...by })
+  // the next one in the round replies, unless the chat now waits on the user
+  const next = (chat.next ?? []).filter((id) => w.replicas[id])
+  if (next.length && !chat.question) {
+    chat.speaker = next[0]
+    chat.next = next.slice(1)
+    chat.replyAt = w.now + REPLY_TIME
+    return
+  }
+  delete chat.next
   sendQueued(w, chat)
 }
 
@@ -1008,7 +1108,22 @@ export function fire(w: World, id: string, heirId: string) {
     if (s.status === 'progressing') s.status = 'todo'
     log(s, w.now, 'system', `${r.name} 離職，交給 ${heir}`, 'handover', { from: r.name, to: heir })
   }
+  endChatsOf(w, id)
   delete w.replicas[id]
+}
+
+/** An employee leaves their chats: a reply of theirs stops, and a meeting they chaired goes on with the first guest still there. */
+function endChatsOf(w: World, id: string) {
+  for (const chat of Object.values(w.chats)) {
+    if (chat.next) chat.next = chat.next.filter((x) => x !== id)
+    if (chat.speaker === id || (chat.replicaId === id && !chat.speaker)) delete chat.change
+    if ((chat.speaker === id || chat.replicaId === id) && chat.replyAt !== undefined) {
+      delete chat.replyAt
+      delete chat.next
+    }
+    const heir = chat.replicaId === id ? chat.guests?.findIndex((g) => g.replicaId !== id && w.replicas[g.replicaId]) ?? -1 : -1
+    if (heir >= 0) swapChair(chat, heir)
+  }
 }
 
 /** Employees made from a blueprint, in every company. */

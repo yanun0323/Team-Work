@@ -4,10 +4,11 @@
 const NAME = /^[\w.-]+$/
 
 /**
- * `owner/repo` and the version named in the address (empty when there is none), or null when it is not a
- * GitHub repo. Branches with slashes in them are kept whole: `/tree/feature/login` is `feature/login`.
+ * `owner/repo`, the version named in the address and the folder in it (each empty when there is none), or null
+ * when it is not a GitHub repo. A `/tree/` address can't tell a branch with slashes from a folder, so the first
+ * part is the version and the rest the folder: `/tree/main/pstack` is `main` and `pstack`.
  */
-export function parseGithub(input: string): { repo: string; ref: string; ssh: boolean } | null {
+export function parseGithub(input: string): { repo: string; ref: string; path: string; ssh: boolean } | null {
   let s = input.trim()
   const ssh = s.match(/^git@github\.com:(.+)$/)
   if (ssh) s = ssh[1]
@@ -18,13 +19,23 @@ export function parseGithub(input: string): { repo: string; ref: string; ssh: bo
   const repo = rawRepo?.replace(/\.git$/, '')
   if (!owner || !repo || !NAME.test(owner) || !NAME.test(repo)) return null
   let ref = ''
-  if (kind === 'tree' || kind === 'commit') ref = rest.join('/')
+  let path = ''
+  if (kind === 'tree' || kind === 'commit') {
+    ref = rest[0] ?? ''
+    path = rest.slice(1).join('/')
+  }
   // a file: the version is the first part of its path (a branch with slashes can't be told apart here)
   else if (kind === 'blob') ref = rest[0] ?? ''
   else if (kind === 'releases' && rest[0] === 'tag') ref = rest.slice(1).join('/')
   else if (kind !== undefined) return null
-  return { repo: `${owner}/${repo}`, ref: decodeURIComponent(ref), ssh: !!ssh }
+  return { repo: `${owner}/${repo}`, ref: decodeURIComponent(ref), path: decodeURIComponent(path), ssh: !!ssh }
 }
+
+/** The version and folder of an address read as one version, for a place that has no folder. */
+export const wholeRef = (g: { ref: string; path: string }) => [g.ref, g.path].filter(Boolean).join('/')
+
+/** A folder in a repo as kept: no slashes around it, empty for the whole repo. */
+export const repoPath = (text: string) => text.trim().replace(/^\/+|\/+$/g, '')
 
 const HTTPS = 'https://github.com/'
 

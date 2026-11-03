@@ -16,7 +16,7 @@ import { useLiveText } from './core/live'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { BlueprintIcon, pinLook } from './BlueprintIcon'
-import { BlueprintSelect, CrewSelect, mineAndBuiltIn, ToolNotes } from './Pickers'
+import { BlueprintSelect, crewOrder, CrewRow, CrewSelect, mineAndBuiltIn } from './Pickers'
 import { seedOf } from './People'
 import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
@@ -26,10 +26,10 @@ import { useAutoGrow, Select, Switcher, Toggle, WaitBadge } from './Controls'
 import { changeAsk, ChangeLines } from './ChangeCard'
 import { FlowNotes, FlowPreview, openCard } from './FlowNotes'
 import { copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
-import { byBlueprint, chatPreview, DEFAULT_EFFORT, effortsOf, mindOf, modelGroups, modelsOf, randomLook } from './crew'
+import { chatPreview, DEFAULT_EFFORT, effortsOf, mindOf, modelGroups, modelsOf, randomLook } from './crew'
 import { docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
-import { githubAddress, parseGithub, shortRepo } from './github'
+import { githubAddress, parseGithub, shortRepo, wholeRef } from './github'
 import { blueprintToYaml } from './blueprintYaml'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
@@ -38,10 +38,10 @@ import { newSkillRow, skillPacksOf, skillRowsOf, type SkillRow } from './bluepri
 import { authLabel, makesImages, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
 import { talking } from './core/domain/sim'
 import { fixedSteps, isPreset } from './core/data/presets'
-import type { TalkEnd } from './core/domain/types'
+import type { SkillText, TalkEnd } from './core/domain/types'
 import { addProvider, providerUsers, updateProvider, type ProviderLogin, DEFAULT_MODEL, RESOLVE_TIME, costLimit, taskTokens } from './core/domain/sim'
 import { handedImageUrl, readHandedFile, request } from './core/backend'
-import { attempt, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, endTalk, fire, hire, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
+import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, endTalk, fire, hire, projectImageUrl, readChatSkill, readProjectFile, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { learn } from './tutorial'
 import { ChatSheet, type ChatTaskSeed } from './ChatSheet'
@@ -64,6 +64,9 @@ export type Item =
   | { kind: 'staff'; node: string }
   | { kind: 'taskEdit'; id: string }
   | { kind: 'doc'; sub: string; path: string }
+  /** A file in the company's folder as it is now, and a skill of someone in a chat, that a message mentions. */
+  | { kind: 'file'; path: string }
+  | { kind: 'skill'; chat: string; name: string }
   /** A picture at full width; `key` says where it was opened from, and `task` or `chat` what it belongs to. */
   | { kind: 'image'; key: string; image: Attachment; task?: string; chat?: string }
   | { kind: 'flowEdit'; id: string }
@@ -77,7 +80,7 @@ export type Item =
   | { kind: 'disband' }
 
 export const itemKey = (x: Item) =>
-  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
+  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' ? `file:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 const ASSIGN = { firstAvailable: '誰有空誰做', everyone: '每個人都做' } as const
@@ -147,6 +150,8 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               crew={above?.kind === 'crew' ? above.id : null} onCrew={(x) => onPush({ kind: 'crew', id: x })} />
           )}
           {item.kind === 'doc' && <DocDetail sub={item.sub} path={item.path} title={title} tid={id} />}
+          {item.kind === 'file' && <ProjectFileDetail teamId={teamId} path={item.path} title={title} tid={id} />}
+          {item.kind === 'skill' && <SkillDetail chat={item.chat} name={item.name} title={title} tid={id} />}
           {item.kind === 'taskEdit' && (
             <TaskEdit id={item.id} teamId={teamId} title={title} tid={id} open={above?.kind === 'staff' ? above.node : null}
               onOpen={(node) => onPush({ kind: 'staff', node })} onDone={onDone} />
@@ -190,8 +195,9 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           {(item.kind === 'chat' || item.kind === 'newChat') && (
             <ChatSheet id={item.kind === 'chat' ? item.id : undefined} teamId={teamId} title={title} tid={id} creating={above?.kind === 'newTask'}
               crewOpen={above?.kind === 'crew'} onCrew={(x) => onPush({ kind: 'crew', id: x })}
+              onFile={(path) => onPush({ kind: 'file', path })} onSkill={(chat, name) => onPush({ kind: 'skill', chat, name })}
               image={above?.kind === 'image' ? above.key : null} onImage={(key, image, chat) => onPush({ kind: 'image', key, image, chat })}
-              onTask={(seed) => onPush({ kind: 'newTask', seed })} onFork={(x) => onPush({ kind: 'chat', id: x })} onGoneChat={onDone} />
+              onTask={(seed) => onPush({ kind: 'newTask', seed })} onHandOff={(x) => onPush({ kind: 'chat', id: x })} onGoneChat={onDone} />
           )}
           {item.kind === 'disband' && <Disband teamId={teamId} title={title} tid={id} onDone={onDone} />}
           {item.kind === 'staff' && <StaffPick node={item.node} teamId={teamId} title={title} tid={id} onDone={onDone} />}
@@ -1227,6 +1233,17 @@ function BlueprintDetail({ id, teamId, editing, copying, onEdit, onCopy, onGoneB
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const bp = w.blueprints[id]
+  // what each pack that takes every skill turns out to bring; read again whenever the packs change
+  const packs = JSON.stringify(bp?.skills ?? [])
+  const [found, setFound] = useState<(string[] | null)[]>([])
+  useEffect(() => {
+    setFound([])
+    if (!bp?.skills.some((p) => !p.include)) return
+    const ask = new AbortController()
+    blueprintSkills(useStore.getState().world, id, ask.signal).then(setFound, () => {})
+    return () => ask.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, packs])
   if (!bp) return <Gone {...h} />
   // from the settings: everyone made from it, in every company
   const crew = (teamId ? teamReplicas(w, teamId) : Object.values(w.replicas)).filter((r) => r.blueprintId === bp.id)
@@ -1258,7 +1275,9 @@ function BlueprintDetail({ id, teamId, editing, copying, onEdit, onCopy, onGoneB
             {bp.skills.map((p, i) => (
               <SourceRow key={i} source={p.source} now={w.now}>
                 <p className="fx-d-chips">
-                  {p.include ? p.include.map((x) => <span key={x}>{x}</span>) : <span className="fx-chip-all">{tr('全部')}</span>}
+                  {/* every skill: what was read, or 全部 until then or when it cannot be read */}
+                  {(p.include ?? found[i])?.map((x) => <span key={x}>{x}</span>) ?? <span className="fx-chip-all">{tr('全部')}</span>}
+                  {found[i]?.length === 0 && !p.include && <span className="fx-chip-all">{tr('沒有')}</span>}
                   {p.exclude.map((x) => <span key={x} className="fx-chip-out"><span className="fx-sr">{tr('排除 ')}</span>{x}</span>)}
                 </p>
               </SourceRow>
@@ -1303,9 +1322,9 @@ function SourceRow({ source, now, children }: { source: BlueprintSource | LocalS
   )
 }
 
-/** Same repo at the same version: the one already known keeps what is known about its upstream. */
+/** Same repo at the same version and folder: the one already known keeps what is known about its upstream. */
 const keepSource = (old: Blueprint | undefined, next: GitSource) =>
-  (old ? gitSources(old) : []).find((s) => s.repo === next.repo && s.ref === next.ref) ?? next
+  (old ? gitSources(old) : []).find((s) => s.repo === next.repo && s.ref === next.ref && (s.path ?? '') === (next.path ?? '')) ?? next
 
 /**
  * A blueprint as saved: what was read or kept, with the look picked on the form, which wins over the one it
@@ -1363,7 +1382,8 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
     const g = parseGithub(text)
     if (!g) return false
     setRepo(shortRepo(githubAddress(g)))
-    if (g.ref) setRef(g.ref)
+    // a blueprint is read from the top of its repo, so a folder in the address is part of the version
+    if (g.ref) setRef(wholeRef(g))
     setRepoError(false)
     follow(g.repo)
     return true
@@ -1396,7 +1416,7 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
       repoField.current?.focus()
       return
     }
-    const version = (g.ref || ref).trim()
+    const version = (wholeRef(g) || ref).trim()
     // the simulator makes up a version; the backend finds the real one once the blueprint is saved
     const commit = MOCK ? hash() : ''
     const source = keepSource(old, {
@@ -1446,18 +1466,18 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
             <label className="fx-field">
               <span>{tr('版本')}</span>
               <input className="fx-control" value={ref} onChange={(e) => setRef(e.target.value)} spellCheck={false} autoComplete="off"
-                placeholder="master / main" />
+                placeholder={tr('留空為預設分支')} />
             </label>
           </>
         ) : (
           <>
             <label className="fx-field fx-field-top">
               <span>Prompt</span>
-              <textarea className="fx-control" rows={8} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+              <textarea className="fx-control" rows={8} value={prompt} placeholder={tr('可留空')} onChange={(e) => setPrompt(e.target.value)} />
             </label>
             <label className="fx-field fx-field-top">
               <span>{tr('備註')}</span>
-              <textarea className="fx-control" rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
+              <textarea className="fx-control" rows={2} value={comment} placeholder={tr('可留空')} onChange={(e) => setComment(e.target.value)} />
             </label>
           </>
         )}
@@ -1474,7 +1494,7 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
                     <li key={row.key} className="fx-skill-row">
                       <Select label={tr('位置')} value={row.kind} options={['local', 'git']} labelOf={(x) => (x === 'local' ? tr('本機資料夾') : 'GitHub')}
                         onChange={(x) => {
-                          if (x !== row.kind) change({ kind: x as SkillRow['kind'], where: '', ref: '' })
+                          if (x !== row.kind) change({ kind: x as SkillRow['kind'], where: '', ref: '', path: '' })
                           setBadRow(null)
                         }} />
                       <label className="fx-field">
@@ -1484,28 +1504,35 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
                           placeholder={row.kind === 'local' ? '~/.agents/' : 'owner/repo'} aria-invalid={bad || undefined}
                           aria-describedby={bad ? `fx-skill-error-${row.key}` : undefined}
                           onChange={(e) => { change({ where: e.target.value }); setBadRow(null) }}
-                          // an address becomes owner/repo, and the version in it goes to the version field
+                          // an address becomes owner/repo, and the version and folder in it go to their fields
                           onBlur={() => {
                             const g = row.kind === 'git' ? parseGithub(row.where) : null
-                            if (g) change({ where: shortRepo(githubAddress(g)), ref: g.ref || row.ref })
+                            if (g) change({ where: shortRepo(githubAddress(g)), ref: g.ref || row.ref, path: g.path || row.path })
                           }} />
                       </label>
                       {bad && <p id={`fx-skill-error-${row.key}`} className="fx-field-error">{tr('請輸入 owner/repo 或 GitHub 網址')}</p>}
                       {row.kind === 'git' && (
                         <label className="fx-field">
                           <span>{tr('版本')}</span>
-                          <input className="fx-control" value={row.ref} spellCheck={false} autoComplete="off" placeholder="master / main"
+                          <input className="fx-control" value={row.ref} spellCheck={false} autoComplete="off" placeholder={tr('留空為預設分支')}
                             onChange={(e) => change({ ref: e.target.value })} />
+                        </label>
+                      )}
+                      {row.kind === 'git' && (
+                        <label className="fx-field">
+                          <span>{tr('子資料夾')}</span>
+                          <input className="fx-control" value={row.path} spellCheck={false} autoComplete="off" placeholder={tr('留空為整個 repo')}
+                            onChange={(e) => change({ path: e.target.value })} />
                         </label>
                       )}
                       <label className="fx-field">
                         <span>{tr('只載入')}</span>
-                        <input className="fx-control" value={row.include} spellCheck={false} autoComplete="off" placeholder={tr('全部（以逗號分隔）')}
+                        <input className="fx-control" value={row.include} spellCheck={false} autoComplete="off" placeholder={tr('留空為全部，以逗號分隔')}
                           onChange={(e) => change({ include: e.target.value })} />
                       </label>
                       <label className="fx-field">
                         <span>{tr('排除')}</span>
-                        <input className="fx-control" value={row.exclude} spellCheck={false} autoComplete="off" placeholder={tr('無（以逗號分隔）')}
+                        <input className="fx-control" value={row.exclude} spellCheck={false} autoComplete="off" placeholder={tr('留空為不排除，以逗號分隔')}
                           onChange={(e) => change({ exclude: e.target.value })} />
                       </label>
                       <button type="button" className="fx-tool fx-hit fx-skill-remove" aria-label={tr('刪除第 {a} 個技能來源', { a: i + 1 })} title={tr('刪除')}
@@ -1657,24 +1684,15 @@ function Fire({ id, onDone, ...h }: Head & { id: string; onDone: () => void }) {
         )}
       </Section>
       <Section name={tr('交接給')}>
-        <div className="fx-d-groups">
-          {byBlueprint(w, others).map(({ bp, list }) => (
-            <section key={bp.id} className="fx-d-group" aria-label={bp.name}>
-              <h4>{bp.name}<span className="fx-count">{list.length}</span></h4>
-              <ul className="fx-list">
-                {list.map((x) => (
-                  <li key={x.id}>
-                    <button type="button" className="fx-row fx-hit" aria-pressed={heir === x.id} onClick={() => setHeir(x.id)}>
-                      <PixelFace look={x.look} name={x.name} size={26} />
-                      <span className="fx-row-main"><b>{x.name}</b><span>{mindOf(x)}</span></span>
-                      <span className="fx-check" aria-hidden="true">{heir === x.id ? '✓' : ''}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
+        <ul className="fx-list">
+          {crewOrder(w, others).map((x) => (
+            <li key={x}>
+              <button type="button" className="fx-row fx-hit" aria-pressed={heir === x} onClick={() => setHeir(x)}>
+                <CrewRow r={w.replicas[x]} on={heir === x} />
+              </button>
+            </li>
           ))}
-        </div>
+        </ul>
       </Section>
       <button type="submit" className="fx-save" disabled={!heir}>{tr('交接並解僱')}</button>
     </form>
@@ -1797,7 +1815,7 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
         <label className="fx-field fx-field-top">
           <span>{tr('說明#task')}</span>
           <div className="fx-mention-wrap">
-            <MentionBox value={draft.description} teamId={teamId} label={tr('說明#task')} placeholder={tr('@ 選檔案，可直接貼上截圖')}
+            <MentionBox value={draft.description} teamId={teamId} label={tr('說明#task')} placeholder={tr('# 選檔案，可直接貼上截圖')}
               rows={3} below onChange={(description) => editDraft(() => ({ description }))} />
           </div>
         </label>
@@ -1884,28 +1902,15 @@ function StaffPick({ node, teamId, onDone, ...h }: Head & { node: string; teamId
         </p>
       </header>
       {n.prompt && <p className="fx-d-text fx-d-quote">{n.prompt}</p>}
-      <div className="fx-d-groups">
-        {byBlueprint(w, crew).map(({ bp, list }) => (
-          <section key={bp.id} className="fx-d-group" aria-label={bp.name}>
-            <h4>{bp.name}<span className="fx-count">{list.length}</span></h4>
-            <ul className="fx-list">
-              {list.map((r) => {
-                const on = picked.includes(r.id)
-                return (
-                  <li key={r.id}>
-                    <button type="button" className="fx-row fx-hit" aria-pressed={on} onClick={() => toggle(r.id)}>
-                      <PixelFace look={r.look} name={r.name} size={26} />
-                      <span className="fx-row-main"><b>{r.name}</b><span>{mindOf(r)}</span></span>
-                      <span className="fx-check" aria-hidden="true">{on ? '✓' : ''}</span>
-                      <ToolNotes bp={bp} />
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
+      <ul className="fx-list">
+        {crewOrder(w, crew).map((id) => (
+          <li key={id}>
+            <button type="button" className="fx-row fx-hit" aria-pressed={picked.includes(id)} onClick={() => toggle(id)}>
+              <CrewRow r={w.replicas[id]} on={picked.includes(id)} />
+            </button>
+          </li>
         ))}
-      </div>
+      </ul>
       <button type="submit" className="fx-save" disabled={picked.length === 0}>{tr('確定')}</button>
     </form>
   )
@@ -1953,7 +1958,7 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
         <label className="fx-field fx-field-top">
           <span>{tr('說明#task')}</span>
           <div className="fx-mention-wrap">
-            <MentionBox value={draft.description} teamId={task.teamId} label={tr('說明#task')} placeholder={tr('@ 選檔案')}
+            <MentionBox value={draft.description} teamId={task.teamId} label={tr('說明#task')} placeholder={tr('# 選檔案')}
               rows={3} below onChange={(description) => editDraft(() => ({ description }))} />
           </div>
         </label>
@@ -2046,20 +2051,76 @@ function HandedImage({ sub, path }: { sub: string; path: string }) {
 }
 
 function HandedText({ sub, path }: { sub: string; path: string }) {
+  return <ReadText path={path} read={(signal) => readHandedFile(sub, path, signal)} at={`${sub}:${path}`} />
+}
+
+/** A text file read from wherever `read` takes it, read again when `at` changes: Markdown rendered, anything else as it is. */
+function ReadText({ path, read, at }: { path: string; read: (signal: AbortSignal) => Promise<string>; at: string }) {
   const [state, setState] = useState<{ text?: string; error?: string }>({})
   useEffect(() => {
     const stop = new AbortController()
     setState({})
-    readHandedFile(sub, path, stop.signal).then(
+    read(stop.signal).then(
       (text) => setState({ text }),
       (e: Error) => { if (e.name !== 'AbortError') setState({ error: e.message }) },
     )
     return () => stop.abort()
-  }, [sub, path])
+  }, [at])
   if (state.error) return <p className="fx-d-text" role="alert">{state.error}</p>
   if (state.text === undefined) return <p className="fx-d-text">{tr('讀取中…')}</p>
   if (/\.mdx?$/i.test(path)) return <Markdown text={state.text} file />
   return <pre className="fx-doc-code fx-doc-raw"><code>{state.text}</code></pre>
+}
+
+/** A file in the company's folder that a message mentions, as it is on disk now. */
+function ProjectFileDetail({ teamId, path, ...h }: Head & { teamId: string; path: string }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [teamId, path])
+  const name = path.split('/').pop() ?? path
+  return (
+    <>
+      <header className="fx-d-head">
+        <Heading {...h}>{name}</Heading>
+        <p className="fx-d-meta"><code>{path}</code></p>
+      </header>
+      <div className="fx-doc-note">
+        {!MOCK && /\.(png|jpe?g|gif|webp)$/i.test(path)
+          ? (failed
+            ? <p className="fx-d-text" role="alert">{tr('{name} 讀不到，請到專案資料夾打開', { name })}</p>
+            : <img className="fx-d-image" src={projectImageUrl(teamId, path)} alt={path} onError={() => setFailed(true)} />)
+          : <ReadText path={path} read={(signal) => readProjectFile(teamId, path, signal)} at={`${teamId}:${path}`} />}
+      </div>
+    </>
+  )
+}
+
+/** A skill a message names: what it is for, where it is, and its instructions. */
+function SkillDetail({ chat, name, ...h }: Head & { chat: string; name: string }) {
+  const [skill, setSkill] = useState<{ found?: SkillText; error?: string }>({})
+  useEffect(() => {
+    const stop = new AbortController()
+    setSkill({})
+    readChatSkill(useStore.getState().world, chat, name, stop.signal).then(
+      (found) => setSkill({ found }),
+      (e: Error) => { if (e.name !== 'AbortError') setSkill({ error: e.message }) },
+    )
+    return () => stop.abort()
+  }, [chat, name])
+  const found = skill.found
+  return (
+    <>
+      <header className="fx-d-head">
+        <Heading {...h}>{`$${name}`}</Heading>
+        {found && <p className="fx-d-meta"><code>{found.path}</code></p>}
+        {found?.description && <p className="fx-d-text">{found.description}</p>}
+      </header>
+      <div className="fx-doc-note">
+        {skill.error ? <p className="fx-d-text" role="alert">{skill.error}</p>
+          : found ? <Markdown text={found.text.replace(/^---\n[^]*?\n---\n?/, '')} file />
+          : <p className="fx-d-text">{tr('讀取中…')}</p>}
+      </div>
+    </>
+  )
 }
 
 /** A picture from a task, a chat or one about to be sent, at full width, under what it belongs to. */

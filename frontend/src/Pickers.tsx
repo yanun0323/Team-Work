@@ -8,6 +8,8 @@ import { TOOLS, type Blueprint, type Replica } from './core/domain/types'
 import { blueprintList } from './core/model'
 import { useStore } from './core/store'
 import { byBlueprint, mindOf } from './crew'
+import { ChatFaces } from './ChatFaces'
+import { listOf } from './core/i18n'
 import { PixelFace } from './core/voxel/PixelFace'
 import { sourceText, toolName } from './source'
 
@@ -25,6 +27,37 @@ const Tick = ({ on }: { on: boolean }) => <span className="fx-check" aria-hidden
 /** Who it is, for the closed list and its rows; the names are read out beside the pictures already. */
 const Picture = ({ children }: { children: React.ReactNode }) => <span className="fx-pick-picture" aria-hidden="true">{children}</span>
 
+/**
+ * Where employees are picked, they come in one plain list, not headed by blueprint: each row says its own, and those
+ * of a blueprint still sit together.
+ */
+export const crewOrder = (w: Parameters<typeof byBlueprint>[0], crew: Replica[]) => byBlueprint(w, crew).flatMap((g) => g.list.map((r) => r.id))
+
+/**
+ * One employee as every pick of employees shows them: face, name and blueprint, what they run on and what they can
+ * use. `on` ticks them, as picked or already in the chat; `chair` stamps them; `mind` is what they run on where it is
+ * not their own setting.
+ */
+export function CrewRow({ r, on = false, chair, mind }: { r: Replica; on?: boolean; chair?: boolean; mind?: string }) {
+  const w = useStore((s) => s.world)
+  const bp = w.blueprints[r.blueprintId]
+  return (
+    <>
+      <Picture><PixelFace look={r.look} name={r.name} size={26} /></Picture>
+      <span className="fx-row-main">
+        <b className="fx-crew-head">
+          <span className="fx-crew-name">{r.name}</span>
+          {bp && <span className="fx-crew-bp">{bp.name}</span>}
+          {chair && <span className="fx-pill fx-chair">{tr('主持人')}</span>}
+        </b>
+        <span>{mind ?? mindOf(r)}</span>
+      </span>
+      <Tick on={on} />
+      <ToolNotes bp={w.blueprints[r.blueprintId]} />
+    </>
+  )
+}
+
 /** Picks one of `crew`. With nobody picked yet, `value` is empty and the list shows `placeholder`. */
 export function CrewSelect({ label, value, crew, placeholder, onChange }: {
   label: string
@@ -34,31 +67,52 @@ export function CrewSelect({ label, value, crew, placeholder, onChange }: {
   onChange: (id: string) => void
 }) {
   const w = useStore((s) => s.world)
-  const groups = byBlueprint(w, crew)
   const of = (id: string) => crew.find((r) => r.id === id)
   const name = (id: string) => of(id)?.name ?? placeholder ?? ''
   return (
     <Select
-      label={label} value={value} options={groups.flatMap((g) => g.list.map((r) => r.id))} labelOf={name} onChange={onChange}
-      groups={groups.map((g) => ({ label: g.bp.name, count: g.list.length }))}
-      groupOf={(id) => groups.findIndex((g) => g.list.some((r) => r.id === id))}
+      label={label} value={value} options={crewOrder(w, crew)} labelOf={name} onChange={onChange}
       shownAs={(id) => {
         const r = of(id)
         return r
           ? <span className="fx-pick-value"><Picture><PixelFace look={r.look} name={r.name} size={18} /></Picture>{r.name}</span>
           : <span className="fx-d-muted">{placeholder}</span>
       }}
-      rowOf={(id, on) => {
-        const r = of(id) as Replica
-        return (
-          <>
-            <Picture><PixelFace look={r.look} name={r.name} size={26} /></Picture>
-            <span className="fx-row-main"><b>{r.name}</b><span>{mindOf(r)}</span></span>
-            <Tick on={on} />
-            <ToolNotes bp={w.blueprints[r.blueprintId]} />
-          </>
-        )
-      }}
+      rowOf={(id, on) => <CrewRow r={of(id) as Replica} on={on} />}
+    />
+  )
+}
+
+/**
+ * Picks up to `max` of `crew`, in the order they are picked: the first chairs. Picking one already picked lets them go,
+ * though never the last one.
+ */
+export function CrewPicks({ label, value, crew, max, onChange }: {
+  label: string
+  value: string[]
+  crew: Replica[]
+  max: number
+  onChange: (ids: string[]) => void
+}) {
+  const w = useStore((s) => s.world)
+  const options = crewOrder(w, crew)
+  const of = (id: string) => crew.find((r) => r.id === id)
+  const picked = value.map(of).filter((r): r is Replica => !!r)
+  const toggle = (id: string) => {
+    if (value.includes(id)) { if (value.length > 1) onChange(value.filter((x) => x !== id)) }
+    else if (value.length < max) onChange([...value, id])
+  }
+  return (
+    <Select
+      label={label} value={value[0] ?? ''} options={options} labelOf={(id) => of(id)?.name ?? ''}
+      picked={(id) => value.includes(id)} onChange={toggle}
+      shownAs={() => (
+        <span className="fx-pick-value">
+          <Picture><ChatFaces people={picked} size={18} /></Picture>
+          <span className="fx-pick-names">{listOf(picked.map((r) => r.name))}</span>
+        </span>
+      )}
+      rowOf={(id, on) => <CrewRow r={of(id) as Replica} on={on} chair={on && value.length > 1 && id === value[0]} />}
     />
   )
 }

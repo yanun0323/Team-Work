@@ -65,8 +65,25 @@ void main() {
  * Takes over R3F rendering. The camera is snapped to whole texels for the low-res render and the remainder is
  * applied when scaling up, so panning stays smooth and the pixels don't crawl.
  */
-export function PixelPass({ pixel = 2 }: { pixel?: number }) {
-  const { gl, scene, camera, size } = useThree()
+export function PixelPass({ pixel = 2, fps = 30 }: { pixel?: number; fps?: number }) {
+  const { gl, scene, camera, size, invalidate } = useThree()
+
+  // The canvas runs on demand: ask for a frame at most `fps` times a second, which is plenty for the ambient
+  // motion. Camera moves and prop changes ask for their own frames, so panning and flights stay at full rate.
+  useEffect(() => {
+    let id = 0
+    let last = -Infinity
+    const tick = (t: number) => {
+      // a little slack, so a frame that lands a hair early isn't put off by a whole vsync
+      if (t - last >= 1000 / fps - 4) {
+        last = t
+        invalidate()
+      }
+      id = requestAnimationFrame(tick)
+    }
+    id = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(id)
+  }, [fps, invalidate])
 
   const res = useMemo(() => {
     const opts = { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, type: THREE.HalfFloatType }

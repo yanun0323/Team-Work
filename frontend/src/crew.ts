@@ -43,7 +43,7 @@ export function effortsOf(w: World, model: string): string[] {
     ? levels : ['none', 'low', 'medium', 'high', 'xhigh', 'max'])]
 }
 
-const SHIRTS = [
+export const SHIRTS = [
   '#3f7fbf', '#d9644a', '#4f9a6a', '#8a5bb8', '#e0b13a', '#2f3b52', '#c94f7c', '#5fa8a0', '#eae4d6',
   '#f08a5d', '#6c8ebf', '#b5c96a', '#4a4a52', '#e86f8a',
 ]
@@ -72,6 +72,12 @@ export function chatSign(c: Chat) {
   return c.replyAt !== undefined ? 'replying' : c.question || c.change ? 'question' : c.unread ? 'unread' : undefined
 }
 
+/** When a chat last moved up the list: a reply under way waits to finish, so only the user's own message counts. */
+export function chatSortAt(c: Chat) {
+  const counted = c.replyAt === undefined ? c.messages : c.messages.filter((m) => m.from === 'user')
+  return counted[counted.length - 1]?.at ?? c.createdAt
+}
+
 export function chatMindOf(w: World, c: Chat) {
   if (!c.teamId) return `${c.model} · ${c.effort ?? DEFAULT_EFFORT}`
   const r = w.replicas[c.replicaId]
@@ -90,6 +96,26 @@ export function chatWho(w: World, c: Chat): { name: string; look: Look } {
   return { name: r?.name ?? c.name, look: r?.look ?? c.look }
 }
 
+/** Everyone in a chat as they are now, or were if they left: its chair first, then the guests in the order they joined. */
+export function chatPeople(w: World, c: Chat): { id: string; name: string; look: Look }[] {
+  const chair = { id: c.replicaId, ...chatWho(w, c) }
+  return [chair, ...(c.guests ?? []).map((g) => {
+    const r = w.replicas[g.replicaId]
+    return { id: g.replicaId, name: r?.name ?? g.name, look: r?.look ?? g.look }
+  })]
+}
+
+/** What one employee in a chat runs on: the chair as chatMindOf says, a guest on the model they joined with, at their level when they still run on it. */
+export function personMindOf(w: World, c: Chat, id: string) {
+  if (id === c.replicaId) return chatMindOf(w, c)
+  const g = c.guests?.find((x) => x.replicaId === id)
+  if (!g) return ''
+  const r = w.replicas[id]
+  if (!r) return g.model
+  const effort = r.model === g.model && effortsOf(w, g.model).includes(r.effort) ? r.effort : DEFAULT_EFFORT
+  return `${g.model} · ${effort}`
+}
+
 /** What the latest airport chat ran on, for a new one to start from. */
 export function lastAirportMind(w: World) {
   return Object.values(w.chats).filter((c) => !c.teamId)
@@ -101,4 +127,23 @@ export function lastChatReplica(w: World, teamId: string): string | undefined {
   const chats = Object.values(w.chats).filter((c) => c.teamId === teamId)
   const last = chats.reduce<Chat | undefined>((a, c) => (!a || c.createdAt >= a.createdAt ? c : a), undefined)
   return last && w.replicas[last.replicaId] ? last.replicaId : undefined
+}
+
+/** The notes employees write on in a chat; the user's are green, so none of these is. */
+export const NOTE_COLORS = ['#fbeeb8', '#ffd3dc', '#cfe0ff', '#ffd9b0', '#e3d6f6', '#bfe9e4']
+
+/**
+ * Each employee's note colour: their own wherever they are, unless someone else in the chat has it already, then the
+ * next one free. Who takes what goes by id, so it holds whoever chairs or speaks first.
+ */
+export function noteColors(ids: string[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  const used = new Set<number>()
+  for (const id of [...new Set(ids)].sort()) {
+    let at = [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % NOTE_COLORS.length
+    for (let k = 0; k < NOTE_COLORS.length && used.has(at); k++) at = (at + 1) % NOTE_COLORS.length
+    used.add(at)
+    out[id] = NOTE_COLORS[at]
+  }
+  return out
 }

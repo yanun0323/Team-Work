@@ -6,14 +6,14 @@ import { shortRepo } from './github'
 import type { BlueprintSource, GitSource, LocalSkills, Tool } from './core/domain/types'
 
 /**
- * Where something comes from, as one line: `owner/repo @ version` (no version: the default branch), a
+ * Where something comes from, as one line: `owner/repo @ version` (`owner/repo/folder` for a folder in it) (no version: the default branch), a
  * folder on this computer, or YAML.
  */
 export function sourceText(s: BlueprintSource | LocalSkills) {
   if (s.kind === 'yaml') return tr('本地')
   if (s.kind === 'preset') return tr('內建')
   if (s.kind === 'local') return s.path
-  const repo = shortRepo(s.repo)
+  const repo = shortRepo(s.repo) + (s.path ? `/${s.path}` : '')
   return s.ref ? `${repo} @ ${s.ref}` : repo
 }
 

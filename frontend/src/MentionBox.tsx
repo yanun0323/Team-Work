@@ -1,24 +1,29 @@
-// A box to write in, for a chat or a task. A word starting with "@", or "$" where there are employees, opens a list: arrows move, Tab, Enter or
+// A box to write in, for a chat or a task. A word starting with "#", "$" where there are employees, or "@" where there are people
+// to mention, opens a list: arrows move, Tab, Enter or
 // a click picks, Esc closes. With nothing to pick, Enter sends if there is onSend, else it starts a new line, and Tab indents the lines.
 // Shift+Tab always outdents them. Tab never moves the focus.
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { FileInfo, SkillInfo } from './core/domain/types'
 import { useAutoGrow } from './Controls'
 import { tr } from './core/i18n'
 import { replicaSkills, searchFiles } from './core/ops'
 import { useStore } from './core/store'
-import { acceptMention, fileChoices, mentionAt, skillChoices, type MentionChoice } from './mentions'
+import { acceptMention, fileChoices, mentionAt, personChoices, skillChoices, type MentionChoice, type Person } from './mentions'
 import { indentLines } from './indent'
 import { composing } from './ime'
 
-export function MentionBox({ box, value, teamId, replicaIds = [], label, placeholder, rows = 2, below, grow, onChange, onSend }: {
+export function MentionBox({ box, value, teamId, replicaIds = [], people = [], personRow, label, placeholder, rows = 2, below, grow, onChange, onSend }: {
   box?: RefObject<HTMLTextAreaElement | null>
   value: string
-  /** The company whose files "@" offers; with none, the box is a plain one. */
+  /** The company whose files "#" offers; with none, the box is a plain one. */
   teamId: string
   /** Whose skills "$" offers; with no one, "$" offers nothing. */
   replicaIds?: string[]
+  /** Whom "@" offers; with no one, "@" offers nothing. */
+  people?: Person[]
+  /** How "@" shows each one, by id, in place of the name alone. */
+  personRow?: (id: string) => ReactNode
   label: string
   placeholder?: string
   rows?: number
@@ -63,7 +68,7 @@ export function MentionBox({ box, value, teamId, replicaIds = [], label, placeho
   }, [kind, staff, start])
 
   useEffect(() => {
-    if (kind !== '@') { setFiles([]); return }
+    if (kind !== '#') { setFiles([]); return }
     const ask = new AbortController()
     searchFiles(teamId, query, ask.signal).then(setFiles).catch(() => {})
     return () => ask.abort()
@@ -71,7 +76,7 @@ export function MentionBox({ box, value, teamId, replicaIds = [], label, placeho
 
   useEffect(() => { setActive(0) }, [kind, query])
 
-  const choices: MentionChoice[] = kind === '$' ? skillChoices(query, skills) : kind === '@' ? fileChoices(files) : []
+  const choices: MentionChoice[] = kind === '$' ? skillChoices(query, skills) : kind === '#' ? fileChoices(files) : kind === '@' ? personChoices(query, people) : []
   const open = choices.length > 0
   const picked = Math.min(active, choices.length - 1)
 
@@ -96,15 +101,15 @@ export function MentionBox({ box, value, teamId, replicaIds = [], label, placeho
   return (
     <>
       {open && (
-        <ul ref={list} id={`${id}-list`} role="listbox" aria-label={kind === '$' ? tr('技能') : tr('檔案和資料夾')} className={`fx-slip ${below ? 'fx-mention-below' : 'fx-mention'}`}>
+        <ul ref={list} id={`${id}-list`} role="listbox" aria-label={kind === '$' ? tr('技能') : kind === '@' ? tr('員工') : tr('檔案和資料夾')} className={`fx-slip ${below ? 'fx-mention-below' : 'fx-mention'}`}>
           {choices.map((c, i) => (
-            <li key={c.key} id={`${id}-${i}`} role="option" aria-selected={i === picked} className={`fx-mention-row${i === picked ? ' active' : ''}`}
+            <li key={c.key} id={`${id}-${i}`} role="option" aria-selected={i === picked}
+              className={['fx-mention-row', kind === '@' && personRow && 'fx-slip-row', i === picked && 'active'].filter(Boolean).join(' ')}
               // only a mouse really moving: a list opening under a resting one must not change the pick
               onMouseMove={(e) => { if (e.movementX || e.movementY) setActive(i) }}
               onMouseDown={(e) => e.preventDefault()} // the box keeps the focus
               onClick={() => accept(c)}>
-              <b>{c.name}</b>
-              {c.hint && <span>{c.hint}</span>}
+              {kind === '@' && personRow ? personRow(c.key) : <><b>{c.name}</b>{c.hint && <span>{c.hint}</span>}</>}
             </li>
           ))}
         </ul>

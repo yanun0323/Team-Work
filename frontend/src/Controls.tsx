@@ -30,7 +30,7 @@ export const Check = () => (
  * A select-only combobox (WAI-ARIA pattern): a button showing the value, opening a listbox on a paper slip.
  * Arrows, Home/End and typing a letter move; Enter, Space or a click picks; Escape or Tab closes.
  */
-export function Select({ label, value, options, labelOf = (o) => o, onChange, shownAs, rowOf, groups, groupOf, disabled }: {
+export function Select({ label, value, options, labelOf = (o) => o, onChange, shownAs, rowOf, groups, groupOf, disabled, picked: isPicked }: {
   label: string
   disabled?: boolean
   value: string
@@ -45,8 +45,12 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, sh
   /** Headings to list the options under; each group's options must follow each other in `options`. */
   groups?: { label: string; count: number }[]
   groupOf?: (o: string) => number
+  /** Makes it a list to pick several from: which are picked; picking one turns it on or off and leaves the list open. */
+  picked?: (o: string) => boolean
 }) {
   const id = useId()
+  const several = !!isPicked
+  const on = (o: string) => (isPicked ? isPicked(o) : o === value)
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
   const root = useRef<HTMLDivElement>(null)
@@ -58,6 +62,10 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, sh
     setOpen(true)
   }
   const pick = (i: number) => {
+    if (several) {
+      if (options[i] !== undefined) onChange(options[i])
+      return
+    }
     if (options[i] !== undefined && options[i] !== value) onChange(options[i])
     setOpen(false)
     button.current?.focus()
@@ -116,7 +124,9 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, sh
         setOpen(false)
         break
       case 'Tab':
-        if (open) pick(active)
+        // a list of several closes as it is; a pick of one takes the active option
+        if (open && several) setOpen(false)
+        else if (open) pick(active)
         return
       default: {
         if (e.key.length !== 1) return
@@ -134,15 +144,15 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, sh
     const i = options.indexOf(o)
     return (
       <li
-        key={o} id={`${id}-${i}`} role="option" aria-selected={o === value}
+        key={o} id={`${id}-${i}`} role="option" aria-selected={on(o)}
         className={[i === active && 'active', rowOf && 'fx-slip-row'].filter(Boolean).join(' ') || undefined}
         // keep focus on the button so the keyboard keeps working
         onPointerDown={(e) => e.preventDefault()}
         onPointerEnter={() => setActive(i)} onClick={() => pick(i)}
       >
-        {rowOf ? rowOf(o, o === value) : (
+        {rowOf ? rowOf(o, on(o)) : (
           <>
-            <span className="fx-slip-check">{o === value && <Check />}</span>
+            <span className="fx-slip-check">{on(o) && <Check />}</span>
             {labelOf(o)}
           </>
         )}
@@ -164,7 +174,7 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, sh
           <Chevron />
         </button>
         {open && (
-          <ul ref={list} id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} className={`fx-slip${rowOf ? ' fx-slip-rows' : ''}`}>
+          <ul ref={list} id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} aria-multiselectable={several || undefined} className={`fx-slip${rowOf ? ' fx-slip-rows' : ''}`}>
             {groups && groupOf
               ? groups.map((g, at) => (
                 <li key={at} role="group" aria-label={g.label} className="fx-slip-group">

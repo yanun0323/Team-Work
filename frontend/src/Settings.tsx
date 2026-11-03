@@ -28,6 +28,7 @@ import { MOCK } from './core/mode'
 import { DEFAULT_EFFORT, effortsOf, modelGroups, modelsOf } from './crew'
 import { takeAirportTab, tutorialOf, updateTutorial } from './tutorial'
 import { composing } from './ime'
+import { Stats } from './Stats'
 
 const LINKS = [
   { label: 'GitHub', href: 'https://github.com/yanun0323/Team-Work' },
@@ -130,6 +131,7 @@ export function Settings({ leaving, onGone }: {
           {tab === 'blueprints' && <Blueprints open={open} onOpen={sheets.open} />}
           {tab === 'flows' && <Flows open={open} onOpen={sheets.open} />}
           {tab === 'prefs' && <PrefsPage />}
+          {tab === 'stats' && <Stats />}
           {tab === 'about' && <About />}
         </section>
       </div>

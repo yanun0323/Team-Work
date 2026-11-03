@@ -4,7 +4,7 @@
 
 import { request } from './backend'
 import * as sim from './domain/sim'
-import type { Attachment, Blueprint, Chat, Effort, FileInfo, Locale, Look, MemoryEntry, Replica, SkillInfo, TalkEnd, Team, Workflow, World } from './domain/types'
+import type { Attachment, Blueprint, Chat, Effort, FileInfo, Locale, Look, MemoryEntry, Replica, SkillInfo, SkillText, TalkEnd, Team, Workflow, World } from './domain/types'
 import { MOCK } from './mode'
 
 /** Reports a request that failed; the store shows it. Set once at start. */
@@ -47,7 +47,8 @@ export const endTalk = pick('endTalk', (_w: World, id: string, end: TalkEnd) => 
 
 // ---------- chats ----------
 
-export const sayInChat = pick('sayInChat', (_w: World, id: string, text: string, images: Attachment[] = [], files: Attachment[] = []) => fire_('POST', `/chats/${id}/say`, { text, images, files }))
+export const sayInChat = pick('sayInChat', (_w: World, id: string, text: string, images: Attachment[] = [], files: Attachment[] = [], mentions: string[] = []) => fire_('POST', `/chats/${id}/say`, { text, images, files, mentions }))
+export const setChatChair = pick('setChatChair', (_w: World, id: string, replicaId: string) => fire_('PATCH', `/chats/${id}/chair`, { replicaId }))
 export const setChatMind = pick('setChatMind', (_w: World, id: string, model: string, effort: string) => fire_('PATCH', `/chats/${id}/mind`, { model, effort }))
 export const renameChat = pick('renameChat', (_w: World, id: string, title: string) => fire_('PATCH', `/chats/${id}/title`, { title }))
 export const rewindChat = pick('rewindChat', (_w: World, id: string, index: number) => fire_('POST', `/chats/${id}/rewind`, { index }))
@@ -77,14 +78,14 @@ export function startAirportChat(act: (fn: (w: World) => void) => void, input: s
   return attempt(() => request<Chat>('POST', '/airport/chats', input))
 }
 
-/** Copies a chat up to a message. The answer can arrive ahead of the change to the world, and the copy opens at once. */
-export async function forkChat(act: (fn: (w: World) => void) => void, id: string, index: number): Promise<Chat | undefined> {
+/** Copies a chat up to a message, for an employee of the company to go on with. The answer can arrive ahead of the change to the world, and the copy opens at once. */
+export async function handOffChat(act: (fn: (w: World) => void) => void, id: string, index: number, replicaId: string): Promise<Chat | undefined> {
   if (MOCK) {
     let made: Chat | undefined
-    act((w) => { const fork = sim.forkChat(w, id, index); made = fork && JSON.parse(JSON.stringify(fork)) as Chat })
+    act((w) => { const fork = sim.handOffChat(w, id, index, replicaId); made = fork && JSON.parse(JSON.stringify(fork)) as Chat })
     return made
   }
-  const made = await attempt(() => request<Chat>('POST', `/chats/${id}/fork`, { index }))
+  const made = await attempt(() => request<Chat>('POST', `/chats/${id}/handoff`, { index, replicaId }))
   if (made) act((w) => { w.chats[made.id] ??= made })
   return made
 }
@@ -99,7 +100,12 @@ export const replicaSkills = (w: World, replicaId: string, signal?: AbortSignal)
   ? Promise.resolve(sim.replicaSkills(w, replicaId))
   : request<SkillInfo[]>('GET', `/replicas/${replicaId}/skills`, undefined, signal))
 
-/** The files and folders "@" offers from a company's folder. */
+/** The skills each pack of a blueprint brings, in the order of its packs; null for one that cannot be read. */
+export const blueprintSkills = (w: World, id: string, signal?: AbortSignal) => (MOCK
+  ? Promise.resolve(sim.blueprintSkills(w, id))
+  : request<(string[] | null)[]>('GET', `/blueprints/${id}/skills`, undefined, signal))
+
+/** The files and folders "#" offers from a company's folder. */
 export const searchFiles = (teamId: string, query: string, signal?: AbortSignal) => (MOCK
   ? Promise.resolve(sim.searchFiles(query))
   : request<FileInfo[]>('GET', `/teams/${teamId}/files?q=${encodeURIComponent(query)}`, undefined, signal))
@@ -169,8 +175,23 @@ export function editTeam(w: World, id: string, patch: TeamEdit) {
   edits.set(id, { timer, patch: merged })
 }
 
-/** Shows a company's folder in Finder. */
-export const openFolder = (id: string) => fire_('POST', `/teams/${id}/open-folder`)
+/** Shows a company's folder in Finder, or a folder in it. The prototype has no folders to show. */
+export const openFolder = (id: string, path = '') => {
+  if (!MOCK) fire_('POST', `/teams/${id}/open-folder${path ? `?path=${encodeURIComponent(path)}` : ''}`)
+}
+
+/** A text file in a company's folder as it is now. */
+export const readProjectFile = (teamId: string, path: string, signal?: AbortSignal) => (MOCK
+  ? Promise.resolve().then(() => sim.projectFile(path))
+  : request<{ text: string }>('GET', `/teams/${teamId}/file?path=${encodeURIComponent(path)}`, undefined, signal).then((r) => r.text))
+
+/** Where an `<img>` loads a picture in a company's folder as it is now. */
+export const projectImageUrl = (teamId: string, path: string) => `/api/v1/teams/${teamId}/image?path=${encodeURIComponent(path)}`
+
+/** A skill "$" names in a chat: from the first of its people who has it, the chair first. */
+export const readChatSkill = (w: World, chatId: string, name: string, signal?: AbortSignal) => (MOCK
+  ? Promise.resolve().then(() => sim.chatSkill(w, chatId, name))
+  : request<SkillText>('GET', `/chats/${chatId}/skill?name=${encodeURIComponent(name)}`, undefined, signal))
 
 export const deleteTeam = pick('deleteTeam', (_w: World, id: string) => fire_('DELETE', `/teams/${id}`))
 

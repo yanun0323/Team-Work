@@ -1,7 +1,7 @@
 // Voxel primitives drawn from code. Every prop, building and character is made of boxes.
 
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
-import { forwardRef, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
+import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import * as THREE from 'three'
 
 export type V3 = [number, number, number]
@@ -46,6 +46,7 @@ export const Vox = forwardRef<THREE.Mesh, { p: V3; s: V3; c: string; e?: string;
 export function VoxBatch({ boxes, glow, shadow = true }: { boxes: Box[]; glow?: boolean; shadow?: boolean }) {
   const ref = useRef<THREE.InstancedMesh>(null)
   const material = useMemo(() => (glow ? new THREE.MeshBasicMaterial({ toneMapped: false }) : new THREE.MeshLambertMaterial()), [glow])
+  useEffect(() => () => material.dispose(), [material])
   useLayoutEffect(() => {
     const mesh = ref.current
     if (!mesh) return

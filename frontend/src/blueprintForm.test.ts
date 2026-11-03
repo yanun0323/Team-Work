@@ -32,6 +32,13 @@ describe('the skill rows of a blueprint', () => {
     expect(read([git({ where: 'https://github.com/c/d/tree/v2', ref: 'old' })])).toMatchObject({ skills: [{ source: { repo: 'https://github.com/c/d', ref: 'v2' } }] })
   })
 
+  it('take the folder out of a pasted address, or the folder typed', () => {
+    expect(read([git({ where: 'https://github.com/cursor/plugins/tree/main/pstack' })])).toMatchObject({ skills: [{ source: { repo: 'https://github.com/cursor/plugins', ref: 'main', path: 'pstack' } }] })
+    expect(read([git({ where: 'c/d', path: ' /pstack/ ' })])).toMatchObject({ skills: [{ source: { path: 'pstack' } }] })
+    const pack: SkillPack = { source: { kind: 'git', repo: 'https://github.com/c/d', ref: '', path: 'x', commit: 'a', latestRef: '', latest: 'a', private: false, upstream: true }, include: null, exclude: [] }
+    expect(skillRowsOf([pack])).toMatchObject([{ where: 'c/d', path: 'x' }])
+  })
+
   it('read a repo over HTTPS unless an SSH address was typed', () => {
     expect(read([git({ where: 'c/d' })])).toMatchObject({ skills: [{ source: { repo: 'https://github.com/c/d' } }] })
     expect(read([git({ where: 'git@github.com:c/d' })])).toMatchObject({ skills: [{ source: { repo: 'git@github.com:c/d' } }] })

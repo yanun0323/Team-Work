@@ -1,6 +1,6 @@
 // Tab and Shift+Tab in a text box: indent or outdent every line the selection touches.
 
-export const INDENT = '  '
+export const INDENT = '    '
 
 export type Edit = { text: string; start: number; end: number }
 
@@ -18,7 +18,7 @@ export function indentLines(text: string, start: number, end: number, outdent = 
   let old = from
   let now = from
   const out = lines.map((line) => {
-    const cut = outdent ? (line.startsWith('\t') ? 1 : line.length - line.replace(/^ {1,2}/, '').length) : 0
+    const cut = outdent ? (line.startsWith('\t') ? 1 : line.length - line.replace(new RegExp(`^ {1,${INDENT.length}}`), '').length) : 0
     const next = outdent ? line.slice(cut) : INDENT + line
     moves.push({ old, now, shift: outdent ? -cut : INDENT.length })
     old += line.length + 1

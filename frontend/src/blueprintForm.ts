@@ -1,7 +1,7 @@
 // The skills of a blueprint made here, as rows on its form: reading them in, and reading the rows back. Pure, no React.
 
 import type { GitSource, SkillPack } from './core/domain/types'
-import { githubAddress, parseGithub, shortRepo } from './github'
+import { githubAddress, parseGithub, repoPath, shortRepo } from './github'
 
 export interface SkillRow {
   /** Stays with the row while rows around it come and go. */
@@ -11,6 +11,8 @@ export interface SkillRow {
   where: string
   /** The repo's branch, tag or commit; empty is its default branch. */
   ref: string
+  /** The folder in the repo; empty is the whole repo. */
+  path: string
   /** Names as typed, separated by commas or spaces. Empty `include` takes every skill. */
   include: string
   exclude: string
@@ -18,7 +20,7 @@ export interface SkillRow {
 
 let lastKey = 0
 
-export const newSkillRow = (): SkillRow => ({ key: ++lastKey, kind: 'local', where: '~/.agents/', ref: '', include: '', exclude: '' })
+export const newSkillRow = (): SkillRow => ({ key: ++lastKey, kind: 'local', where: '~/.agents/', ref: '', path: '', include: '', exclude: '' })
 
 const repoOf = (s: GitSource) => shortRepo(s.repo)
 
@@ -28,8 +30,8 @@ export function skillRowsOf(skills: SkillPack[]): SkillRow[] {
     if (!p.source) return []
     const row = { key: ++lastKey, include: (p.include ?? []).join(', '), exclude: p.exclude.join(', ') }
     return p.source.kind === 'local'
-      ? [{ ...row, kind: 'local', where: p.source.path, ref: '' }]
-      : [{ ...row, kind: 'git', where: repoOf(p.source), ref: p.source.ref }]
+      ? [{ ...row, kind: 'local', where: p.source.path, ref: '', path: '' }]
+      : [{ ...row, kind: 'git', where: repoOf(p.source), ref: p.source.ref, path: p.source.path ?? '' }]
   })
 }
 
@@ -49,10 +51,11 @@ export function skillPacksOf(rows: SkillRow[], now: number, commit: () => string
     const g = parseGithub(row.where)
     if (!g) return { ok: false, row: i }
     const version = g.ref || row.ref.trim()
+    const path = repoPath(g.path || row.path)
     const at = commit()
     skills.push({
       source: {
-        kind: 'git', repo: githubAddress(g), ref: version, commit: at, latestRef: version, latest: at,
+        kind: 'git', repo: githubAddress(g), ref: version, ...(path && { path }), commit: at, latestRef: version, latest: at,
         private: false, upstream: true, update: { at: now, ok: true },
       },
       ...picks,

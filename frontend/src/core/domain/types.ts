@@ -29,6 +29,8 @@ export interface GitSource {
   repo: string
   /** Version asked for: a branch, tag or commit; empty for the default branch. */
   ref: string
+  /** The folder in the repo skills are read from (skill packs only); none for the whole repo. */
+  path?: string
   /** Commit in use. */
   commit: string
   /** Newest version upstream, as last seen. Equal to `ref` / `commit` when up to date. */
@@ -108,7 +110,13 @@ export interface SkillInfo {
   description: string
 }
 
-/** A file or folder "@" can name, relative to the company's folder. */
+/** A skill as it reads: where it is, and its instructions. */
+export interface SkillText extends SkillInfo {
+  path: string
+  text: string
+}
+
+/** A file or folder "#" can name, relative to the company's folder. */
 export interface FileInfo {
   path: string
   dir: boolean
@@ -260,9 +268,21 @@ export interface ChatMessage {
   /** What the user attached, in a chat. */
   images?: Attachment[]
   files?: Attachment[]
+  /** Who said or ran it, in a chat; none in older chats, where it is the one the chat was with. */
+  by?: string
+  /** Who the user's message is for, in a meeting; none is everyone. */
+  mentions?: string[]
 }
 
-/** The user talking with one employee outside any task. Its employee and model never change. */
+/** Someone in a meeting besides the chair; `name` and `look` keep who it was, for when they have left. */
+export interface ChatGuest {
+  replicaId: string
+  name: string
+  look: Look
+  model: string
+}
+
+/** The user talking with an employee outside any task; with guests it is a meeting, which the employee chairs. Each one's model never changes. */
 /** A chat with no `teamId` is the airport's, with the airport staff; only its `model` and `effort` can change. */
 export interface Chat {
   id: string
@@ -287,7 +307,21 @@ export interface Chat {
   unread?: boolean
   /** What the user said while a reply was being written, in the order it goes: the steered first. */
   queue?: QueuedMessage[]
+  /** Where other employees handed the chat on, oldest first. */
+  handoffs?: ChatHandoff[]
+  /** The others in a meeting, in the order they joined. */
+  guests?: ChatGuest[]
+  /** Who replies, or last replied, to the user's last message; `next` are who reply after them. */
+  speaker?: string
+  next?: string[]
   createdAt: number
+}
+
+/** Where an employee handed a chat to whoever comes next: the messages before `before` were theirs, back to the handoff before it. */
+export interface ChatHandoff {
+  before: number
+  replicaId: string
+  name: string
 }
 
 /** Waits for the reply being written to end; a steered one goes as soon as a tool call ends instead. */
@@ -298,6 +332,7 @@ export interface QueuedMessage {
   images?: Attachment[]
   files?: Attachment[]
   steer?: boolean
+  mentions?: string[]
 }
 
 /** How the user ended a discussion: hand on (to `to`, when the step picks one of several), send back, or stop the task. */

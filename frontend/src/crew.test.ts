@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { seedWorld } from './core/data/seed'
 import type { Chat, World } from './core/domain/types'
-import { chatMindOf, lastChatReplica } from './crew'
+import { chatMindOf, chatSortAt, lastChatReplica, NOTE_COLORS, noteColors } from './crew'
 
 function chatOn(effort: string): { w: World; chat: Chat } {
   const w = seedWorld()
@@ -52,5 +52,29 @@ describe('lastChatReplica', () => {
   it('is nobody in a company without chats, or when they have left', () => {
     expect(lastChatReplica(world([]), 't')).toBeUndefined()
     expect(lastChatReplica(world([chat('1', 't', 'gone', 1)]), 't')).toBeUndefined()
+  })
+})
+
+describe('where a chat sits on the list', () => {
+  const chat = (over: Partial<Chat>): Chat => ({ id: 'c', teamId: 't', replicaId: 'r', name: 'R', look: chatOn('high').chat.look, model: 'm', tokens: 0, messages: [], createdAt: 1, ...over })
+
+  it('moves up only once a reply is done', () => {
+    const messages: Chat['messages'] = [{ at: 5, from: 'user', text: 'hi' }, { at: 9, from: 'agent', text: 'working' }]
+    expect(chatSortAt(chat({ messages, replyAt: 5 }))).toBe(5)
+    expect(chatSortAt(chat({ messages, unread: true }))).toBe(9)
+  })
+
+  it('falls back to when it was made', () => {
+    expect(chatSortAt(chat({ replyAt: 2 }))).toBe(1)
+  })
+})
+
+describe('noteColors', () => {
+  it('gives everyone in a chat their own colour, the same whatever the order', () => {
+    const ids = ['a', 'b', 'c', 'd', 'e', 'f']
+    const got = noteColors(ids)
+    expect(new Set(Object.values(got)).size).toBe(6)
+    expect(noteColors([...ids].reverse())).toEqual(got)
+    expect(Object.values(got).every((c) => NOTE_COLORS.includes(c))).toBe(true)
   })
 })

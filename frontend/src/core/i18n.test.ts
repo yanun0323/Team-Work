@@ -10,6 +10,8 @@ describe('tr', () => {
     expect(tr('取消')).toBe('取消')
     expect(tr('編輯 {name}', { name: 'Ada' })).toBe('編輯 Ada')
     expect(tr('完成#button')).toBe('完成')
+    expect(tr('編輯 #{number}', { number: 7 })).toBe('編輯 #7')
+    expect(tr('# 選檔案')).toBe('# 選檔案')
     setAppLanguage('en')
     expect(tr('取消')).toBe('Cancel')
     expect(tr('編輯 {name}', { name: 'Ada' })).toBe('Edit Ada')

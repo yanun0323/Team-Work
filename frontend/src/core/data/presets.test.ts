@@ -80,7 +80,7 @@ describe('own first', () => {
     const ids = blueprintList(w).map((b) => b.id)
     expect(ids.findIndex(isPreset)).toBe(ids.length - 16)
     expect(ids.slice(-16)[0]).toBe('preset-pm')
-    expect(flowList(w).at(-5)!.id).toBe('preset-feature')
+    expect(flowList(w).slice(-6).map((f) => f.id)).toEqual(['preset-feature', 'preset-small', 'preset-bugfix', 'preset-planning', 'preset-review', 'preset-refactor'])
   })
 })
 
