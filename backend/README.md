@@ -133,6 +133,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /airport/chats` | 開始機場對話（`model`、可選的 `effort`、`text`、`images`、`files`）：對象固定是機場服務人員，回傳的 `teamId` 為空。工作資料夾是資料目錄的 `airport/`，可用讀寫檔案、網路搜尋和執行指令；指令沒有沙盒。指示只有固定規則和全域 `AGENTS.md`。`say`、`stop`、`read`、`rewind`、`handoff`、刪除和公司對話共用，`task-draft` 會拒絕 |
 | `POST /chats/:id/change` | 回答對話的修改確認（`approve`、可選的 `note`；內容在 `chat.change`），員工接著回覆。等待確認時改用 `say` 發言視為拒絕 |
 | `PATCH /chats/:id/title` | 改對話名稱（`title`）：多個空白合成一個，最多 80 字，空字串清除名稱、改回顯示第一則訊息。手動取的名字不會被自動命名蓋掉 |
+| `PATCH /chats/:id/pin` | 釘選或取消釘選對話（`pinned`）：釘選的對話記下 `pinnedAt`，在列表排最上面；已經釘選的再釘一次不改時間 |
 | `PATCH /chats/:id/mind` | 更換機場對話下一次回覆的 `model` 和 `effort`；回覆中或公司對話會拒絕 |
 | `POST /chats/:id/read` | 標記已讀，清除對話的 `unread` |
 | `POST /chats/:id/rewind` | 收回第 `index` 則使用者訊息和它之後的所有內容，並中斷回覆；資料夾裡的改動不會還原 |

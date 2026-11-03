@@ -249,7 +249,9 @@ type Chat struct {
 	ReplicaID string `json:"replicaId"`
 	Name      string `json:"name"`
 	// Title names the chat in lists; empty shows its first message. The user can rename it, or a model names it from the first message.
-	Title    string        `json:"title,omitempty"`
+	Title string `json:"title,omitempty"`
+	// PinnedAt is when the user pinned the chat to the top of its list; nil when it is not pinned.
+	PinnedAt *float64      `json:"pinnedAt,omitempty"`
 	Look     Look          `json:"look"`
 	Model    string        `json:"model"`
 	Effort   string        `json:"effort,omitempty"`

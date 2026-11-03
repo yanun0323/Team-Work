@@ -98,3 +98,21 @@ func (e *Engine) RenameChat(id, title string) error {
 		return nil
 	})
 }
+
+// PinChat pins a chat to the top of its list, or unpins it. Pinning one already pinned keeps when it was pinned.
+func (e *Engine) PinChat(id string, pinned bool) error {
+	return e.do(func() error {
+		c := e.w.Chats[id]
+		if c == nil {
+			return model.Errorf(model.CodeNotFound, "找不到對話")
+		}
+		switch {
+		case !pinned:
+			c.PinnedAt = nil
+		case c.PinnedAt == nil:
+			at := e.w.Now
+			c.PinnedAt = &at
+		}
+		return nil
+	})
+}

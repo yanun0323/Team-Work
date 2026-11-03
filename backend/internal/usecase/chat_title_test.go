@@ -160,3 +160,30 @@ func TestRenameChatRefusesALongName(t *testing.T) {
 		t.Fatalf("clearing the name: %v", err)
 	}
 }
+
+func TestPinChat(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.PinChat(c.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	at := r.world().Chats[c.ID].PinnedAt
+	if at == nil {
+		t.Fatal("not pinned")
+	}
+	if err := r.e.PinChat(c.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if again := r.world().Chats[c.ID].PinnedAt; again == nil || *again != *at {
+		t.Fatalf("pinning again moved it: %v, then %v", *at, again)
+	}
+	if err := r.e.PinChat(c.ID, false); err != nil || r.world().Chats[c.ID].PinnedAt != nil {
+		t.Fatalf("unpinning: %v", err)
+	}
+	if err := r.e.PinChat("nobody", true); err == nil {
+		t.Fatal("pinned a chat that is not there")
+	}
+}
