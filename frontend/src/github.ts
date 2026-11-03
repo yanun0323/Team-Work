@@ -7,7 +7,7 @@ const NAME = /^[\w.-]+$/
  * `owner/repo` and the version named in the address (empty when there is none), or null when it is not a
  * GitHub repo. Branches with slashes in them are kept whole: `/tree/feature/login` is `feature/login`.
  */
-export function parseGithub(input: string): { repo: string; ref: string } | null {
+export function parseGithub(input: string): { repo: string; ref: string; ssh: boolean } | null {
   let s = input.trim()
   const ssh = s.match(/^git@github\.com:(.+)$/)
   if (ssh) s = ssh[1]
@@ -23,5 +23,13 @@ export function parseGithub(input: string): { repo: string; ref: string } | null
   else if (kind === 'blob') ref = rest[0] ?? ''
   else if (kind === 'releases' && rest[0] === 'tag') ref = rest.slice(1).join('/')
   else if (kind !== undefined) return null
-  return { repo: `${owner}/${repo}`, ref: decodeURIComponent(ref) }
+  return { repo: `${owner}/${repo}`, ref: decodeURIComponent(ref), ssh: !!ssh }
 }
+
+const HTTPS = 'https://github.com/'
+
+/** The address Git reads: SSH only when an SSH address was pasted, HTTPS otherwise. */
+export const githubAddress = (g: { repo: string; ssh: boolean }) => (g.ssh ? `git@github.com:${g.repo}` : `${HTTPS}${g.repo}`)
+
+/** How an address is shown and typed: `owner/repo` for HTTPS, an SSH address in full so it stays SSH. */
+export const shortRepo = (address: string) => (address.startsWith(HTTPS) ? address.slice(HTTPS.length) : address)

@@ -2,6 +2,7 @@
 // whether its upstream was found and how the last update went. Pure, no React.
 
 import { tr } from './core/i18n'
+import { shortRepo } from './github'
 import type { BlueprintSource, GitSource, LocalSkills, Tool } from './core/domain/types'
 
 /**
@@ -12,7 +13,7 @@ export function sourceText(s: BlueprintSource | LocalSkills) {
   if (s.kind === 'yaml') return tr('本地')
   if (s.kind === 'preset') return tr('內建')
   if (s.kind === 'local') return s.path
-  const repo = s.repo.replace('git@github.com:', '')
+  const repo = shortRepo(s.repo)
   return s.ref ? `${repo} @ ${s.ref}` : repo
 }
 

@@ -29,7 +29,7 @@ import { copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, own
 import { byBlueprint, chatPreview, DEFAULT_EFFORT, effortsOf, mindOf, modelGroups, modelsOf, randomLook } from './crew'
 import { docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
-import { parseGithub } from './github'
+import { githubAddress, parseGithub, shortRepo } from './github'
 import { blueprintToYaml } from './blueprintYaml'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
@@ -1331,7 +1331,7 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
   const was = from?.source
   // new ones are filled in here; one already from GitHub stays tied to its repo
   const kind = was?.kind === 'git' ? 'git' : 'local'
-  const [repo, setRepo] = useState(was?.kind === 'git' ? was.repo.replace('git@github.com:', '') : '')
+  const [repo, setRepo] = useState(was?.kind === 'git' ? shortRepo(was.repo) : '')
   const [ref, setRef] = useState(was?.kind === 'git' ? was.ref : '')
   const [prompt, setPrompt] = useState(from?.prompt ?? '')
   const [comment, setComment] = useState(from?.comment ?? '')
@@ -1362,7 +1362,7 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
   const takeRepo = (text: string) => {
     const g = parseGithub(text)
     if (!g) return false
-    setRepo(g.repo)
+    setRepo(shortRepo(githubAddress(g)))
     if (g.ref) setRef(g.ref)
     setRepoError(false)
     follow(g.repo)
@@ -1400,7 +1400,7 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
     // the simulator makes up a version; the backend finds the real one once the blueprint is saved
     const commit = MOCK ? hash() : ''
     const source = keepSource(old, {
-      kind: 'git', repo: `git@github.com:${g.repo}`, ref: version, commit, latestRef: version, latest: commit, private: false,
+      kind: 'git', repo: githubAddress(g), ref: version, commit, latestRef: version, latest: commit, private: false,
       upstream: true, update: { at: now, ok: true },
     })
     // the same repo and version: what it was read as stands
@@ -1487,7 +1487,7 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
                           // an address becomes owner/repo, and the version in it goes to the version field
                           onBlur={() => {
                             const g = row.kind === 'git' ? parseGithub(row.where) : null
-                            if (g) change({ where: g.repo, ref: g.ref || row.ref })
+                            if (g) change({ where: shortRepo(githubAddress(g)), ref: g.ref || row.ref })
                           }} />
                       </label>
                       {bad && <p id={`fx-skill-error-${row.key}`} className="fx-field-error">{tr('請輸入 owner/repo 或 GitHub 網址')}</p>}

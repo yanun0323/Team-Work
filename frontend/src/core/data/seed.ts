@@ -14,7 +14,7 @@ const look = (shirt: string, pants: string, extra: Look['extra']): Look => ({
 
 /** A public GitHub repo at a version, reached and up to date unless `extra` says otherwise. */
 const git = (repo: string, ref: string, commit: string, extra: Partial<GitSource> = {}): GitSource => ({
-  kind: 'git', repo: `git@github.com:${repo}`, ref, commit, latestRef: ref, latest: commit, private: false,
+  kind: 'git', repo: `https://github.com/${repo}`, ref, commit, latestRef: ref, latest: commit, private: false,
   upstream: true, ...extra,
 })
 

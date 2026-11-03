@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -512,7 +513,7 @@ func (a blueprintArgs) applyTo(b *model.Blueprint) error {
 				if strings.TrimSpace(p.Source.Repo) == "" {
 					return model.Errorf(model.CodeInvalid, "技能要有來源")
 				}
-				source = model.BlueprintSource{Kind: "git", Repo: strings.TrimSpace(p.Source.Repo), Ref: strings.TrimSpace(p.Source.Ref)}
+				source = model.BlueprintSource{Kind: "git", Repo: githubAddress(p.Source.Repo), Ref: strings.TrimSpace(p.Source.Ref)}
 			default:
 				return model.Errorf(model.CodeInvalid, "技能要有來源")
 			}
@@ -525,6 +526,20 @@ func (a blueprintArgs) applyTo(b *model.Blueprint) error {
 	}
 	b.Source = model.BlueprintSource{Kind: "yaml", Text: blueprintYAML(b)}
 	return checkBlueprint(b)
+}
+
+const githubHTTPS = "https://github.com/"
+
+var githubShort = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
+
+// githubAddress is the Git address for what was given: a bare owner/repo means GitHub over HTTPS, and any
+// full address, SSH included, stays as written.
+func githubAddress(repo string) string {
+	repo = strings.TrimSpace(repo)
+	if githubShort.MatchString(repo) {
+		return githubHTTPS + strings.TrimSuffix(repo, ".git")
+	}
+	return repo
 }
 
 var toolYAMLNames = map[enum.Tool]string{enum.ToolReadFile: "read_file", enum.ToolWriteFile: "write_file", enum.ToolWebSearch: "web_search", enum.ToolRunCommand: "run_command"}
@@ -547,7 +562,7 @@ func blueprintYAML(b *model.Blueprint) string {
 	}{Name: b.Name, Prompt: b.Prompt, Comment: b.Comment, Skills: []pack{}, Tools: []string{}}
 	for _, p := range b.Skills {
 		if p.Source != nil {
-			doc.Skills = append(doc.Skills, pack{p.Source.Path, strings.TrimPrefix(p.Source.Repo, "git@github.com:"), p.Source.Ref, p.Include, p.Exclude})
+			doc.Skills = append(doc.Skills, pack{p.Source.Path, strings.TrimPrefix(p.Source.Repo, githubHTTPS), p.Source.Ref, p.Include, p.Exclude})
 		}
 	}
 	for _, t := range b.Tools {

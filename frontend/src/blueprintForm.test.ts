@@ -29,7 +29,12 @@ describe('the skill rows of a blueprint', () => {
   })
 
   it('take the version out of a pasted address', () => {
-    expect(read([git({ where: 'https://github.com/c/d/tree/v2', ref: 'old' })])).toMatchObject({ skills: [{ source: { repo: 'git@github.com:c/d', ref: 'v2' } }] })
+    expect(read([git({ where: 'https://github.com/c/d/tree/v2', ref: 'old' })])).toMatchObject({ skills: [{ source: { repo: 'https://github.com/c/d', ref: 'v2' } }] })
+  })
+
+  it('read a repo over HTTPS unless an SSH address was typed', () => {
+    expect(read([git({ where: 'c/d' })])).toMatchObject({ skills: [{ source: { repo: 'https://github.com/c/d' } }] })
+    expect(read([git({ where: 'git@github.com:c/d' })])).toMatchObject({ skills: [{ source: { repo: 'git@github.com:c/d' } }] })
   })
 
   it('name the row whose repo is not one', () => {

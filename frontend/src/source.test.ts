@@ -3,7 +3,7 @@ import type { GitSource } from './core/domain/types'
 import { sourceState, sourceText } from './source'
 
 const git = (extra: Partial<GitSource> = {}): GitSource => ({
-  kind: 'git', repo: 'git@github.com:acme/skills', ref: 'v1.0.0', commit: 'aaa', latestRef: 'v1.0.0', latest: 'aaa',
+  kind: 'git', repo: 'https://github.com/acme/skills', ref: 'v1.0.0', commit: 'aaa', latestRef: 'v1.0.0', latest: 'aaa',
   private: false, upstream: true, ...extra,
 })
 
@@ -11,6 +11,7 @@ describe('blueprint and skill sources', () => {
   it('names a repo with its version, or a folder', () => {
     expect(sourceText(git())).toBe('acme/skills @ v1.0.0')
     expect(sourceText(git({ ref: '' }))).toBe('acme/skills')
+    expect(sourceText(git({ repo: 'git@github.com:acme/skills' }))).toBe('git@github.com:acme/skills @ v1.0.0')
     expect(sourceText({ kind: 'yaml', text: 'name: x' })).toBe('本地')
   })
 

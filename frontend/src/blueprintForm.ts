@@ -1,7 +1,7 @@
 // The skills of a blueprint made here, as rows on its form: reading them in, and reading the rows back. Pure, no React.
 
 import type { GitSource, SkillPack } from './core/domain/types'
-import { parseGithub } from './github'
+import { githubAddress, parseGithub, shortRepo } from './github'
 
 export interface SkillRow {
   /** Stays with the row while rows around it come and go. */
@@ -20,7 +20,7 @@ let lastKey = 0
 
 export const newSkillRow = (): SkillRow => ({ key: ++lastKey, kind: 'local', where: '~/.agents/', ref: '', include: '', exclude: '' })
 
-const repoOf = (s: GitSource) => s.repo.replace('git@github.com:', '')
+const repoOf = (s: GitSource) => shortRepo(s.repo)
 
 /** The rows for what a blueprint has. A pack of the blueprint's own repo has no row: only a Git blueprint has one. */
 export function skillRowsOf(skills: SkillPack[]): SkillRow[] {
@@ -52,7 +52,7 @@ export function skillPacksOf(rows: SkillRow[], now: number, commit: () => string
     const at = commit()
     skills.push({
       source: {
-        kind: 'git', repo: `git@github.com:${g.repo}`, ref: version, commit: at, latestRef: version, latest: at,
+        kind: 'git', repo: githubAddress(g), ref: version, commit: at, latestRef: version, latest: at,
         private: false, upstream: true, update: { at: now, ok: true },
       },
       ...picks,
