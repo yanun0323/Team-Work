@@ -924,7 +924,7 @@ func (e *Engine) UpdateBlueprint(ctx context.Context, id string) error {
 		s.Update = &model.SourceUpdate{At: e.clock(), OK: err == nil}
 		if err != nil {
 			e.log.Warn().Err(err).Str("repo", s.Repo).Msg("check source")
-			s.Update.Error = i18n.T("找不到上游，或沒有讀取權限")
+			s.Update.Error = sourceProblem(err)
 			return
 		}
 		s.Latest, s.Commit = latest, latest
@@ -940,6 +940,28 @@ func (e *Engine) UpdateBlueprint(ctx context.Context, id string) error {
 		e.w.Blueprints[id] = &next
 		return nil
 	})
+}
+
+// sourceProblem says why a Git source could not be read, in words the user can act on, from what git printed.
+func sourceProblem(err error) string {
+	var known *model.Error
+	if errors.As(err, &known) {
+		return known.Message
+	}
+	text := err.Error()
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return i18n.T("連線逾時，請稍後再試")
+	case strings.Contains(text, "Host key verification failed"):
+		return i18n.T("這台電腦還不信任這個 SSH 主機：請在終端機連線一次並確認信任，或改用 HTTPS 網址")
+	case strings.Contains(text, "Permission denied (publickey"):
+		return i18n.T("SSH 金鑰沒有讀取權限：請確認金鑰已加到 GitHub，或改用 HTTPS 網址")
+	case strings.Contains(text, "Could not resolve host"), strings.Contains(text, "Could not resolve hostname"):
+		return i18n.T("連不上主機，請檢查網路")
+	case strings.Contains(text, "Repository not found"), strings.Contains(text, "could not read Username"):
+		return i18n.T("找不到這個 repo，或它是私人 repo 而這台電腦沒有讀取權限")
+	}
+	return i18n.T("找不到上游，或沒有讀取權限")
 }
 
 // ---------- employees ----------

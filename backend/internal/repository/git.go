@@ -62,6 +62,9 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("git %s: %w", args[0], ctx.Err())
+		}
 		return "", fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(errOut.String()))
 	}
 	return strings.TrimSpace(out.String()), nil
