@@ -82,6 +82,7 @@ func (s *session) control(ctx context.Context, f frame) error {
 	case "ping":
 		return s.mcpReply(ctx, call, object{})
 	case "tools/list":
+		record(s.child.log, "tools_list_requested", "tools", len(s.tools))
 		tools := []object{}
 		for _, t := range s.tools {
 			tools = append(tools, object{"name": t.Name, "description": t.Description, "inputSchema": t.Parameters})
@@ -494,10 +495,13 @@ func (t *turn) send(b Block) error {
 }
 func (t *turn) emitCall(b claudeBlock) error {
 	name := strings.TrimPrefix(b.Name, toolPrefix)
-	known := false
+	known, unprefixed := false, false
 	for _, tool := range t.tools {
 		if b.Name == toolPrefix+tool.Name {
 			known = true
+		}
+		if b.Name == tool.Name {
+			unprefixed = true
 		}
 	}
 	reason := ""
@@ -511,6 +515,11 @@ func (t *turn) emitCall(b claudeBlock) error {
 	}
 	if reason != "" {
 		// Log fixed categories only: model-provided names and IDs can contain private data.
+		builtin := ""
+		switch b.Name {
+		case "Read", "Write", "Edit", "MultiEdit", "Bash", "Grep", "Glob", "LS", "ToolSearch", "Task", "Agent", "TodoWrite", "WebFetch", "WebSearch", "Skill", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "NotebookEdit":
+			builtin = b.Name
+		}
 		kind := "other"
 		switch {
 		case strings.HasPrefix(b.Name, toolPrefix):
@@ -519,8 +528,11 @@ func (t *turn) emitCall(b claudeBlock) error {
 			kind = "other_mcp"
 		case b.Name == "ToolSearch":
 			kind = "tool_search"
+		case builtin != "":
+			kind = "builtin"
 		}
-		record(t.log, "tool_call_rejected", "reason", reason, "tool_kind", kind, "has_call_id", b.ID != "")
+		record(t.log, "tool_call_rejected", "reason", reason, "tool_kind", kind, "has_call_id", b.ID != "",
+			"builtin_tool", builtin, "name_empty", b.Name == "", "unprefixed_match", unprefixed)
 		return rejected("Claude requested a tool outside Mho or omitted its call ID.")
 	}
 	if !known {

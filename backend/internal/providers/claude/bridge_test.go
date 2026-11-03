@@ -95,6 +95,7 @@ func TestClaudeChild(t *testing.T) {
 			}
 		case "user":
 			if raw := os.Getenv("MHO_TEST_CLAUDE_REJECTED_TOOL"); raw != "" {
+				write(object{"type": "control_request", "request_id": "list", "request": object{"subtype": "mcp_message", "server_name": "mho", "message": object{"jsonrpc": "2.0", "id": 8, "method": "tools/list"}}})
 				var block object
 				if json.Unmarshal([]byte(raw), &block) != nil {
 					os.Exit(6)
@@ -649,13 +650,18 @@ func TestToolDenialDoesNotRelaxToolBoundary(t *testing.T) {
 func TestRejectedToolDiagnostics(t *testing.T) {
 	for _, stream := range []string{"0", "1"} {
 		for _, tc := range []struct {
-			name, id, reason, kind string
+			name, id, reason, kind, builtin string
+			unprefixed                      bool
 		}{
-			{"ToolSearch", "private-call", "outside_mho", "tool_search"},
-			{"mcp__private-server__private-tool", "private-call", "outside_mho", "other_mcp"},
-			{"private-tool", "private-call", "outside_mho", "other"},
-			{"mcp__mho__read", "", "missing_call_id", "mho"},
-			{"mcp__mho__private.name", "private-call", "invalid_tool_name", "mho"},
+			{"ToolSearch", "private-call", "outside_mho", "tool_search", "ToolSearch", false},
+			{"Bash", "private-call", "outside_mho", "builtin", "Bash", false},
+			{"Read", "private-call", "outside_mho", "builtin", "Read", false},
+			{"", "private-call", "outside_mho", "other", "", false},
+			{"read", "private-call", "outside_mho", "other", "", true},
+			{"mcp__private-server__private-tool", "private-call", "outside_mho", "other_mcp", "", false},
+			{"private-tool", "private-call", "outside_mho", "other", "", false},
+			{"mcp__mho__read", "", "missing_call_id", "mho", "", false},
+			{"mcp__mho__private.name", "private-call", "invalid_tool_name", "mho", "", false},
 		} {
 			t.Run(stream+"/"+tc.reason+"/"+tc.kind, func(t *testing.T) {
 				fakeClaude(t)
@@ -677,22 +683,28 @@ func TestRejectedToolDiagnostics(t *testing.T) {
 				if strings.Contains(logged.String(), "private-") || strings.Contains(logged.String(), "private.name") {
 					t.Fatal("diagnostics leaked private content")
 				}
-				count := 0
+				count, listed := 0, false
 				for _, line := range strings.Split(strings.TrimSpace(logged.String()), "\n") {
 					var event map[string]any
 					if err := json.Unmarshal([]byte(line), &event); err != nil {
 						t.Fatal(err)
 					}
+					if event["msg"] == "tools_list_requested" {
+						listed = event["tools"] == float64(len(p.Tools)) && event["session"] == p.Session
+					}
 					if event["msg"] != "tool_call_rejected" {
 						continue
+					}
+					if event["name_empty"] != (tc.name == "") || event["unprefixed_match"] != tc.unprefixed || event["builtin_tool"] != tc.builtin {
+						t.Fatalf("incorrect tool classification: %+v", event)
 					}
 					count++
 					if event["reason"] != tc.reason || event["tool_kind"] != tc.kind || event["has_call_id"] != (tc.id != "") || event["session"] != p.Session || event["attempt"] == nil {
 						t.Fatalf("incorrect diagnostic: %+v", event)
 					}
 				}
-				if count != 1 {
-					t.Fatalf("expected one rejection diagnostic, got %d", count)
+				if count != 1 || !listed {
+					t.Fatalf("expected one rejection and tool listing diagnostic, got %d, %v", count, listed)
 				}
 			})
 		}
