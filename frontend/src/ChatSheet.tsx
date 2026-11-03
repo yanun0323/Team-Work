@@ -11,6 +11,7 @@ import { Select } from './Controls'
 import { CrewSelect } from './Pickers'
 import { chatMindOf, chatPreview, DEFAULT_EFFORT, effortsOf, lastAirportMind, lastChatReplica, mindOf, modelGroups, modelsOf } from './crew'
 import { Gone, Heading, DeleteTool, type Head } from './DrawerDetail'
+import { composing } from './ime'
 import { fmtClock, fmtTokens, teamReplicas, useAtBottom, useStickToBottom } from './core/model'
 import type { Attachment, Chat, QueuedMessage } from './core/domain/types'
 import { attempt, chatTaskDraft, deleteChat, forkChat, hasUncommitted, readChat, renameChat, resolveChatChange, rewindChat, sayInChat, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
@@ -63,7 +64,7 @@ function ChatTitle({ chat }: { chat: Chat }) {
     <input className="fx-control fx-room-title" aria-label={tr('對話名稱')} value={draft} placeholder={chatPreview(chat)} maxLength={80}
       spellCheck={false} autoComplete="off" onChange={(e) => setDraft(e.target.value)} onBlur={save}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.currentTarget.blur()
+        if (e.key === 'Enter' && !composing(e.nativeEvent)) e.currentTarget.blur()
         if (e.key === 'Escape') { setDraft(saved); e.currentTarget.blur() }
       }} />
   )

@@ -10,6 +10,7 @@ import { isFixed, nodeOf } from './core/domain/graph'
 import { blueprintUsers, gitSources, statusOf, subsOf } from './core/domain/sim'
 import { TOOLS, type Attachment, type Blueprint, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
 import { sourceState, sourceText, toolName } from './source'
+import { composing } from './ime'
 import { flowList, activity, fmtClock, fmtTokens, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
 import { useStore } from './core/store'
@@ -520,7 +521,7 @@ function Chat({ sub }: { sub: SubTask }) {
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               // Enter sends; not while a Chinese word is still being picked in the input method
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              if (e.key === 'Enter' && !e.shiftKey && !composing(e.nativeEvent)) {
                 e.preventDefault()
                 send()
               }

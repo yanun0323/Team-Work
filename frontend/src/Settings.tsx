@@ -27,6 +27,7 @@ import { MusicSection, Volume } from './SoundPage'
 import { MOCK } from './core/mode'
 import { DEFAULT_EFFORT, effortsOf, modelGroups, modelsOf } from './crew'
 import { takeAirportTab, tutorialOf, updateTutorial } from './tutorial'
+import { composing } from './ime'
 
 const LINKS = [
   { label: 'GitHub', href: 'https://github.com/yanun0323/Team-Work' },
@@ -373,7 +374,7 @@ export function AdvancedSection() {
           <span>{tr('終端機預設指令')}</span>
           <input className="fx-control" value={draft} spellCheck={false} autoComplete="off" autoCapitalize="off"
             onChange={(e) => setDraft(e.target.value)} onBlur={save}
-            onKeyDown={(e) => { if (e.key === 'Enter') save() }} />
+            onKeyDown={(e) => { if (e.key === 'Enter' && !composing(e.nativeEvent)) save() }} />
         </label>
       </div>
     </section>

@@ -10,6 +10,7 @@ import { replicaSkills, searchFiles } from './core/ops'
 import { useStore } from './core/store'
 import { acceptMention, fileChoices, mentionAt, skillChoices, type MentionChoice } from './mentions'
 import { indentLines } from './indent'
+import { composing } from './ime'
 
 export function MentionBox({ box, value, teamId, replicaIds = [], label, placeholder, rows = 2, below, grow, onChange, onSend }: {
   box?: RefObject<HTMLTextAreaElement | null>
@@ -122,7 +123,7 @@ export function MentionBox({ box, value, teamId, replicaIds = [], label, placeho
         }}
         onKeyDown={(e) => {
           // not while a Chinese word is still being picked in the input method
-          if (e.nativeEvent.isComposing) return
+          if (composing(e.nativeEvent)) return
           if (open) {
             const move = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0
             if (move) {
