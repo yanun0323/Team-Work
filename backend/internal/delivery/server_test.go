@@ -111,6 +111,27 @@ func send(t *testing.T, method, url, body string, headers ...string) (int, map[s
 	return res.StatusCode, out
 }
 
+func TestAirportFilesEmptyResultsAreArrays(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	srv := setup(t)
+	for _, query := range []string{"", ".", "。", "no-match", "missing/", "../", "/etc/"} {
+		t.Run(query, func(t *testing.T) {
+			res, err := http.Get(srv.URL + "/api/v1/airport/files?q=" + url.QueryEscape(query))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.StatusCode != http.StatusOK || strings.TrimSpace(string(body)) != "[]" {
+				t.Fatalf("got HTTP %d %s, want HTTP 200 []", res.StatusCode, body)
+			}
+		})
+	}
+}
+
 func TestCreateTeam(t *testing.T) {
 	srv := setup(t)
 	api := srv.URL + "/api/v1"

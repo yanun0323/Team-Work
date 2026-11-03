@@ -144,7 +144,7 @@ func listFolder(root, query string, limit int) []FileInfo {
 	if err != nil {
 		return []FileInfo{}
 	}
-	var found []FileInfo
+	found := []FileInfo{}
 	for _, entry := range entries {
 		name := entry.Name()
 		if strings.ContainsAny(name, "\r\n") || (strings.HasPrefix(name, ".") && !strings.HasPrefix(prefix, ".")) ||
