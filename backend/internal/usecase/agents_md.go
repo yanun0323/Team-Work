@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model"
 )
 
 // agentsFile is where a company's prompt lives: the project's own instructions, shared with other tools.

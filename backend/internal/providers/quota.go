@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yanun0323/mho-company/internal/adapter"
-	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/model"
 )
 
 // Quota passes on what the subscription's client reports of its limits.

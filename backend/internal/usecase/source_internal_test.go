@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model"
 )
 
 func TestGithubAddressDefaultsToHTTPS(t *testing.T) {

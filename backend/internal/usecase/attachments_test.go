@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yanun0323/mho-company/internal/model"
-	"github.com/yanun0323/mho-company/internal/model/enum"
-	"github.com/yanun0323/mho-company/internal/usecase"
+	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
 func textFile(name, text string) model.Attachment {

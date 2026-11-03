@@ -11,8 +11,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/yanun0323/mho-company/internal/i18n"
-	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/Team-Work/internal/i18n"
+	"github.com/yanun0323/Team-Work/internal/model"
 )
 
 // FolderPicker asks the system's file browser for a folder. A web page is never told where a picked folder is, so

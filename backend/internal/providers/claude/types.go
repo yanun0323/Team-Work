@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yanun0323/mho-company/internal/i18n"
-	"github.com/yanun0323/mho-company/internal/model"
-	"github.com/yanun0323/mho-company/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/i18n"
+	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
 
 // Error codes. A busy conversation passes, so it is retried like other passing failures.

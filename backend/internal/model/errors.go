@@ -1,6 +1,6 @@
 package model
 
-import "github.com/yanun0323/mho-company/internal/i18n"
+import "github.com/yanun0323/Team-Work/internal/i18n"
 
 // Machine codes returned to clients.
 const (

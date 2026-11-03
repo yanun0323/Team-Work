@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"io"
 
-	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model"
 )
 
 // Store keeps entities as documents, and provider keys apart from them.

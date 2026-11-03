@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/yanun0323/mho-company/internal/adapter"
-	"github.com/yanun0323/mho-company/internal/i18n"
-	"github.com/yanun0323/mho-company/internal/model"
-	"github.com/yanun0323/mho-company/internal/model/enum"
-	"github.com/yanun0323/mho-company/internal/usecase/tools"
+	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/i18n"
+	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/usecase/tools"
 )
 
 const mergeSystem = "You are a company employee merging a task branch into the target branch. The working directory has merge conflicts. Read the conflicting files, resolve them keeping the intent of both sides, " +

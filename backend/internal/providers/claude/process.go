@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yanun0323/mho-company/internal/i18n"
+	"github.com/yanun0323/Team-Work/internal/i18n"
 )
 
 // maxFrame fits a message with six images at the largest size, 5MB of base64 each.

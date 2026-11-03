@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model"
 )
 
 func providerNamed(w *model.World, name string) *model.ModelProvider {

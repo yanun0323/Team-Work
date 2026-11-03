@@ -23,10 +23,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yanun0323/mho-company/internal/adapter"
-	"github.com/yanun0323/mho-company/internal/i18n"
-	"github.com/yanun0323/mho-company/internal/model"
-	"github.com/yanun0323/mho-company/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/i18n"
+	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
 
 // These are the values the Codex CLI itself logs in with; the ChatGPT backend accepts no others.

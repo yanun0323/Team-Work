@@ -16,11 +16,11 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/yanun0323/mho-company/config"
-	"github.com/yanun0323/mho-company/internal/delivery"
-	"github.com/yanun0323/mho-company/internal/providers"
-	"github.com/yanun0323/mho-company/internal/repository"
-	"github.com/yanun0323/mho-company/internal/usecase"
+	"github.com/yanun0323/Team-Work/config"
+	"github.com/yanun0323/Team-Work/internal/delivery"
+	"github.com/yanun0323/Team-Work/internal/providers"
+	"github.com/yanun0323/Team-Work/internal/repository"
+	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
 func main() {

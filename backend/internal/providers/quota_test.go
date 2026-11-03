@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/yanun0323/mho-company/internal/adapter"
-	"github.com/yanun0323/mho-company/internal/model"
-	"github.com/yanun0323/mho-company/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
 
 func balanceServer(t *testing.T, path, body string) (openAI, string) {

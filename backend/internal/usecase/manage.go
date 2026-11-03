@@ -12,10 +12,10 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/yanun0323/mho-company/internal/adapter"
-	"github.com/yanun0323/mho-company/internal/i18n"
-	"github.com/yanun0323/mho-company/internal/model"
-	"github.com/yanun0323/mho-company/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/i18n"
+	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model"
 )
 
 // Window lengths the usage endpoint reports, in seconds. Which window is primary depends on the plan.

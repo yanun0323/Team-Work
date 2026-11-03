@@ -19,8 +19,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/yanun0323/mho-company/internal/model"
-	"github.com/yanun0323/mho-company/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
 
 func args(v any) json.RawMessage { raw, _ := json.Marshal(v); return raw }

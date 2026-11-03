@@ -16,10 +16,10 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 
-	"github.com/yanun0323/mho-company/internal/adapter"
-	"github.com/yanun0323/mho-company/internal/model"
-	"github.com/yanun0323/mho-company/internal/repository"
-	"github.com/yanun0323/mho-company/internal/usecase"
+	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/repository"
+	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
 type noModels struct{}

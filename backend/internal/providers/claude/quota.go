@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model"
 )
 
 // Quota asks Claude Code how much of the 5-hour and weekly limits is used, as its /usage does. Claude Code

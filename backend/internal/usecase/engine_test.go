@@ -18,11 +18,11 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/yanun0323/mho-company/internal/adapter"
-	"github.com/yanun0323/mho-company/internal/model"
-	"github.com/yanun0323/mho-company/internal/model/enum"
-	"github.com/yanun0323/mho-company/internal/repository"
-	"github.com/yanun0323/mho-company/internal/usecase"
+	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/repository"
+	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
 // script is a fake model: each call takes the next reply, given what the model was just told.
@@ -70,6 +70,7 @@ func (s *script) Images(p model.ModelProvider) (adapter.ImageMaker, error) {
 	}
 	return s, nil
 }
+
 // MakeImage draws one white pixel.
 func (s *script) MakeImage(context.Context, string, []string, bool) ([]byte, error) {
 	var out bytes.Buffer

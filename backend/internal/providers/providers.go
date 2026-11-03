@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yanun0323/mho-company/internal/adapter"
-	"github.com/yanun0323/mho-company/internal/model"
-	"github.com/yanun0323/mho-company/internal/model/enum"
-	"github.com/yanun0323/mho-company/internal/providers/claude"
-	"github.com/yanun0323/mho-company/internal/providers/codex"
+	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/providers/claude"
+	"github.com/yanun0323/Team-Work/internal/providers/codex"
 )
 
 const maxEvent = 8 << 20

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yanun0323/mho-company/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
 
 type pageTransport func(*http.Request) (*http.Response, error)

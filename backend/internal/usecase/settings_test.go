@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
-	"github.com/yanun0323/mho-company/internal/model"
-	"github.com/yanun0323/mho-company/internal/repository"
-	"github.com/yanun0323/mho-company/internal/usecase"
+	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/repository"
+	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
 func readSettings(t *testing.T, r *rig) model.Settings {

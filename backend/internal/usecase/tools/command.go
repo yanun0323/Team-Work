@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model"
 )
 
 const killGrace = 2 * time.Second
@@ -104,8 +104,8 @@ type tail struct {
 	output func(string)
 	shown  time.Time
 	buf    []byte
-	total int
-	file  *os.File
+	total  int
+	file   *os.File
 	// fileErr is why the full output could not be kept, if it could not.
 	fileErr error
 }

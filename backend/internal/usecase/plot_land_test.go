@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/yanun0323/mho-company/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model"
 )
 
 // The same fixtures run against layoutTown/canPlace in the frontend tests.

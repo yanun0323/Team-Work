@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/yanun0323/mho-company/internal/model"
-	"github.com/yanun0323/mho-company/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
 
 // openAI speaks Chat Completions: OpenAI's, Google's compatible endpoint and anything compatible.

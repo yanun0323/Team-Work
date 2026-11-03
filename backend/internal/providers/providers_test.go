@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yanun0323/mho-company/internal/adapter"
-	"github.com/yanun0323/mho-company/internal/model"
-	"github.com/yanun0323/mho-company/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
 
 func serve(t *testing.T, kind enum.ProviderKind, status int, body string) (adapter.Provider, *http.Request, *[]byte) {
