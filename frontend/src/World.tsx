@@ -496,6 +496,15 @@ function useFadingLabels(labels: LabelSpec[]): LabelSpec[] {
   }, [labels, leaving])
 }
 
+/** Side of the sun's shadow map, in texels. */
+const SHADOW_MAP = 2048
+
+/**
+ * The sun's normal bias: about one shadow-map texel, so a surface doesn't shadow itself (shadow acne). The shadow box
+ * grows with the town, and so do its texels, so a fixed bias lets the acne back in once the town is big enough.
+ */
+export const sunNormalBias = (half: number) => Math.max(0.06, (half * 2) / SHADOW_MAP)
+
 /** The sun's shadow box covers the town and the clouds passing over it. */
 function Sun({ reach }: { reach: number }) {
   const half = shadowHalf(reach)
@@ -503,7 +512,7 @@ function Sun({ reach }: { reach: number }) {
   const shadows = usePrefs((s) => s.shadows)
   return (
     <directionalLight position={SUN.toArray()} intensity={2.2} color="#fff6e6" castShadow={shadows}
-      shadow-mapSize={[2048, 2048]} shadow-bias={-0.0007} shadow-normalBias={0.06}
+      shadow-mapSize={[SHADOW_MAP, SHADOW_MAP]} shadow-bias={-0.0007} shadow-normalBias={sunNormalBias(half)}
       shadow-camera-left={-half} shadow-camera-right={half} shadow-camera-top={half} shadow-camera-bottom={-half}
       shadow-camera-near={1} shadow-camera-far={140} />
   )
