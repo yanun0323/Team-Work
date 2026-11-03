@@ -26,9 +26,9 @@ func settingsError(field string, err error) error {
 	if len(parts) >= 2 {
 		switch parts[0] {
 		case "teams":
-			field = "teams/" + parts[1] + "/config.yaml"
+			field = "company/" + parts[1] + "/config.yaml"
 		case "replicas":
-			field = "teams/<team_id>/replicas/" + parts[1] + ".json"
+			field = "company/<company_id>/employee/" + parts[1] + ".json"
 		case "blueprints", "workflows":
 			field = parts[0] + "/" + parts[1] + ".yaml"
 		case "providers":

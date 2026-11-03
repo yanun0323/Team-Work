@@ -293,12 +293,17 @@ var frontmatterField = regexp.MustCompile(`(?m)^(name|description):\s*(.+?)\s*$`
 
 type skill struct{ name, description, path string }
 
-// skillsIn lists the skills under root: root/skills/*/SKILL.md, or root/*/SKILL.md.
+// skillDepth bounds how far below its base a skill folder may sit, so a large folder cannot make the search endless.
+const skillDepth = 4
+
+// skillsIn lists the skills under root/skills, or under root when that has none. A skill is a folder with a
+// SKILL.md, at any depth up to skillDepth, as packs may sort skills into categories (skills/engineering/tdd).
+// The search stops at a skill's folder, follows links, and skips hidden folders and node_modules.
 func skillsIn(root string, include, exclude []string) []skill {
 	var out []skill
-	matches, _ := filepath.Glob(filepath.Join(root, "skills", "*", "SKILL.md"))
+	matches := skillFiles(filepath.Join(root, "skills"), skillDepth)
 	if len(matches) == 0 {
-		matches, _ = filepath.Glob(filepath.Join(root, "*", "SKILL.md"))
+		matches = skillFiles(root, skillDepth)
 	}
 	for _, path := range matches {
 		raw, err := os.ReadFile(path)
@@ -316,6 +321,34 @@ func skillsIn(root string, include, exclude []string) []skill {
 		if (include == nil || slices.Contains(include, s.name)) && !slices.Contains(exclude, s.name) {
 			out = append(out, s)
 		}
+	}
+	return out
+}
+
+// skillFiles finds the SKILL.md in the folders below dir, depth levels down at most.
+func skillFiles(dir string, depth int) []string {
+	if depth == 0 {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") || name == "node_modules" {
+			continue
+		}
+		sub := filepath.Join(dir, name)
+		if info, err := os.Stat(sub); err != nil || !info.IsDir() { // Stat follows links
+			continue
+		}
+		if info, err := os.Stat(filepath.Join(sub, "SKILL.md")); err == nil && !info.IsDir() {
+			out = append(out, filepath.Join(sub, "SKILL.md"))
+			continue
+		}
+		out = append(out, skillFiles(sub, depth-1)...)
 	}
 	return out
 }

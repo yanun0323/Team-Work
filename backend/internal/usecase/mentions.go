@@ -13,7 +13,7 @@ import (
 
 const mentionLimit = 50
 
-const mentionRule = "A word like @path or @\"path with spaces\" in what the user writes names a file or folder in the project."
+const mentionRule = "A word like #path or #\"path with spaces\" in what the user writes names a file or folder in the project; older messages wrote @path for the same."
 
 // SkillInfo is a skill an employee can be asked to use with "$name".
 type SkillInfo struct {
@@ -21,7 +21,7 @@ type SkillInfo struct {
 	Description string `json:"description"`
 }
 
-// FileInfo is a file or folder that "@" can name, relative to the company's folder.
+// FileInfo is a file or folder that "#" can name, relative to the company's folder.
 type FileInfo struct {
 	Path string `json:"path"`
 	Dir  bool   `json:"dir"`
@@ -49,7 +49,34 @@ func (e *Engine) ReplicaSkills(ctx context.Context, id string) ([]SkillInfo, err
 	return out, nil
 }
 
-// SearchFiles lists what "@" should offer from a company's folder.
+// BlueprintSkills names the skills each of a blueprint's packs brings, in the order of its packs; a pack that
+// cannot be read is null.
+func (e *Engine) BlueprintSkills(ctx context.Context, id string) ([][]string, error) {
+	e.mu.Lock()
+	var packs []packRoot
+	bp := e.w.Blueprints[id]
+	if bp != nil {
+		packs = packsOf(bp)
+	}
+	e.mu.Unlock()
+	if bp == nil {
+		return nil, model.Errorf(model.CodeNotFound, "找不到藍圖")
+	}
+	out := make([][]string, len(packs))
+	for i, p := range packs {
+		found, _, problems := e.loadSkills(ctx, []packRoot{p}) // reading them can take a while: not under the lock
+		if len(problems) > 0 {
+			continue
+		}
+		out[i] = []string{}
+		for _, s := range found {
+			out[i] = append(out[i], s.name)
+		}
+	}
+	return out, nil
+}
+
+// SearchFiles lists what "#" should offer from a company's folder.
 func (e *Engine) SearchFiles(ctx context.Context, teamID, query string) ([]FileInfo, error) {
 	e.mu.Lock()
 	team := e.w.Teams[teamID]

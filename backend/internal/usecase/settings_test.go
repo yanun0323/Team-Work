@@ -32,10 +32,10 @@ func writeSettings(t *testing.T, r *rig, s model.Settings) {
 	t.Helper()
 	files := map[string]any{"provider.json": s.Providers, "preferences.yaml": s.Preferences}
 	for id, v := range s.Teams {
-		files["teams/"+id+"/config.yaml"] = v
+		files["company/"+id+"/config.yaml"] = v
 	}
 	for id, v := range s.Replicas {
-		files["teams/"+v.TeamID+"/replicas/"+id+".json"] = v
+		files["company/"+v.TeamID+"/employee/"+id+".json"] = v
 	}
 	for id, v := range s.Blueprints {
 		files["blueprints/"+id+".yaml"] = v
@@ -178,7 +178,7 @@ func TestSettingsValidationIsAtomic(t *testing.T) {
 		edit        func(*model.Settings)
 	}{
 		{"reference", "blueprintId", func(s *model.Settings) { r := s.Replicas[r.owner.ID]; r.BlueprintID = "missing"; s.Replicas[r.ID] = r }},
-		{"delete company", "teams", func(s *model.Settings) { delete(s.Teams, r.team.ID) }},
+		{"delete company", "company/", func(s *model.Settings) { delete(s.Teams, r.team.ID) }},
 		{"cycle", "workflows", func(s *model.Settings) {
 			w := s.Workflows[r.flow.ID]
 			w.Edges = append(w.Edges, model.WorkflowEdge{ID: "cycle", From: w.Nodes[1].ID, To: w.Nodes[0].ID})
@@ -302,10 +302,10 @@ func TestImportYAMLAndKeepEditsAcrossRestart(t *testing.T) {
 	if got := r.world().Blueprints[b.ID]; got == nil || got.Prompt != "custom prompt" {
 		t.Fatal("restart changed import")
 	}
-	if _, err := os.Stat(filepath.Join(r.data, "teams", r.team.ID, "config.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(r.data, "company", r.team.ID, "config.yaml")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(r.data, "teams", r.team.ID, "replicas", r.owner.ID+".json")); err != nil {
+	if _, err := os.Stat(filepath.Join(r.data, "company", r.team.ID, "employee", r.owner.ID+".json")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(r.data, "config", "settings.json")); !os.IsNotExist(err) {

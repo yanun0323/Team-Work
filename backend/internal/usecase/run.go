@@ -222,6 +222,7 @@ func (e *Engine) modelSpec(modelID, wanted string) (agentSpec, error) {
 	if price, ok := p.Prices[modelID]; ok {
 		spec.price = &price
 	}
+	spec.provider = meter{Provider: provider, e: e, providerID: p.ID, providerName: p.Name, model: modelID, price: spec.price}
 	return spec, nil
 }
 
@@ -293,11 +294,13 @@ func (e *Engine) loadSkills(ctx context.Context, packs []packRoot) (found []skil
 			root = expandHome(p.source.Path)
 		case "git":
 			dir, err := e.git.Fetch(ctx, p.source.Repo, p.source.Commit)
-			if err != nil {
+			// the folder in the repo, which must stay inside it
+			sub := filepath.Clean(strings.Trim(p.source.Path, "/"))
+			if err != nil || !filepath.IsLocal(sub) {
 				problems = append(problems, i18n.T("技能來源 %s 讀取失敗", p.source.Repo))
 				continue
 			}
-			root = dir
+			root = filepath.Join(dir, sub)
 		default:
 			continue
 		}

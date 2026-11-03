@@ -114,7 +114,7 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 		w: model.NewWorld(), runs: map[string]*run{}, live: map[string]string{}, output: map[string]liveOutput{}, prev: map[string][]byte{}, dirty: map[string]bool{},
 		subs: map[chan Event]struct{}{}, logins: map[string]*loginRun{}, pendingKeys: map[string]string{}, store: o.Store, git: o.Git, providers: o.Providers, dataDir: o.DataDir, log: o.Log,
 		clock:  func() float64 { return float64(time.Now().UnixMilli()) / 1000 },
-		search: &tools.Search{Endpoint: tools.ExaEndpoint, Log: o.Log, State: filepath.Join(o.DataDir, "search-cooldown.json")},
+		search: &tools.Search{Endpoint: tools.ExaEndpoint, Log: o.Log, State: filepath.Join(o.DataDir, "cache", "search-cooldown.json")},
 	}
 	e.ctx, e.cancel = context.WithCancel(context.Background())
 	if err := e.load(ctx); err != nil {
@@ -501,7 +501,7 @@ func (e *Engine) uid(prefix string) string {
 }
 
 func (e *Engine) worktreeOf(t *model.Task) string {
-	return filepath.Join(e.dataDir, "worktrees", t.TeamID, t.ID)
+	return filepath.Join(e.dataDir, "cache", "worktrees", t.TeamID, t.ID)
 }
 
 func clone[T any](v T) T {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -143,11 +144,11 @@ func TestAttachedFileNamesNoSkill(t *testing.T) {
 	}
 }
 
-func TestTaskStepKnowsWhatAtMeans(t *testing.T) {
+func TestTaskStepKnowsWhatHashMeans(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	task := r.task(r.flow.ID)
 	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
-	if got := r.fake.seen[0].System; !strings.Contains(got, "@path") {
+	if got := r.fake.seen[0].System; !strings.Contains(got, "#path") {
 		t.Fatalf("%s", got)
 	}
 }
@@ -200,9 +201,9 @@ func TestChatAskUserWaitsForTheNextMessage(t *testing.T) {
 	}
 }
 
-func TestSearchFilesLeavesOutWhatGitIgnores(t *testing.T) {
+func TestSearchFilesTakesInWhatGitIgnores(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
-	for name, body := range map[string]string{".gitignore": "secret.txt\n", "secret.txt": "x", "notes/plan.md": "x"} {
+	for name, body := range map[string]string{".gitignore": "secret.txt\nbuild/\n", "secret.txt": "x", "build/out.bin": "x", "notes/plan.md": "x"} {
 		path := filepath.Join(r.folder, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -215,8 +216,19 @@ func TestSearchFilesLeavesOutWhatGitIgnores(t *testing.T) {
 	if err != nil || len(found) != 1 || found[0].Path != "notes/plan.md" {
 		t.Fatalf("%+v %v", found, err)
 	}
-	if found, _ := r.e.SearchFiles(context.Background(), r.team.ID, "secret"); len(found) != 0 {
+	// what git ignores can still be mentioned, but .git itself is not offered
+	for query, want := range map[string]string{"secret": "secret.txt", "build/": "build/out.bin"} {
+		if found, _ := r.e.SearchFiles(context.Background(), r.team.ID, query); len(found) != 1 || found[0].Path != want {
+			t.Fatalf("%q: %+v", query, found)
+		}
+	}
+	if found, _ := r.e.SearchFiles(context.Background(), r.team.ID, ".git/"); len(found) != 0 {
 		t.Fatalf("%+v", found)
+	}
+	// and the repo's own listing still keeps to its ignore rules
+	out, err := exec.Command("git", "-C", r.folder, "status", "--porcelain", "--untracked-files=all").Output()
+	if err != nil || strings.Contains(string(out), "secret.txt") || strings.Contains(string(out), "build/") {
+		t.Fatalf("%s %v", out, err)
 	}
 }
 
@@ -356,7 +368,7 @@ func TestChatCountsTokensWithoutCacheReads(t *testing.T) {
 	if got := r.world().Chats[c.ID].Tokens; got != 900 {
 		t.Fatalf("tokens after the draft = %d", got)
 	}
-	fork, err := r.e.ForkChat(c.ID, 1)
+	fork, err := r.e.HandOffChat(c.ID, 1, c.ReplicaID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -789,12 +801,12 @@ func TestForkCopiesUpToTheMessageAndGoesOnByItself(t *testing.T) {
 	reply := second - 1 // the employee's bubble that ends the first reply
 
 	for _, bad := range []int{-1, tool, len(msgs)} {
-		if _, err := r.e.ForkChat(c.ID, bad); err == nil {
+		if _, err := r.e.HandOffChat(c.ID, bad, c.ReplicaID); err == nil {
 			t.Fatalf("forked at %d", bad)
 		}
 	}
 	// from a user's message: the copy ends there, unanswered, and nothing runs
-	atSecond, err := r.e.ForkChat(c.ID, second)
+	atSecond, err := r.e.HandOffChat(c.ID, second, c.ReplicaID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -802,7 +814,7 @@ func TestForkCopiesUpToTheMessageAndGoesOnByItself(t *testing.T) {
 		t.Fatalf("%+v", atSecond)
 	}
 	// from an employee's: it ends with that reply
-	atReply, err := r.e.ForkChat(c.ID, reply)
+	atReply, err := r.e.HandOffChat(c.ID, reply, c.ReplicaID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -833,7 +845,7 @@ func TestForkCopiesUpToTheMessageAndGoesOnByItself(t *testing.T) {
 		t.Fatalf("the model heard %q", said)
 	}
 	// the copy has its own attachment, and the model is told where
-	own := filepath.Join(r.data, "attachments", atReply.ID)
+	own := filepath.Join(r.data, "cache", "attachments", atReply.ID)
 	if !strings.Contains(attached, own) || strings.Contains(attached, c.ID) {
 		t.Fatal(attached)
 	}
@@ -865,7 +877,7 @@ func TestForkKeepsAnOpenQuestion(t *testing.T) {
 	close(release)
 	r.wait("the question", chatDone(c.ID))
 	asked := len(r.world().Chats[c.ID].Messages) - 1
-	fork, err := r.e.ForkChat(c.ID, asked)
+	fork, err := r.e.HandOffChat(c.ID, asked, c.ReplicaID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -930,11 +942,11 @@ func TestForkWhileReplyingLeavesTheReplyRunning(t *testing.T) {
 		t.Fatalf("%+v", msgs)
 	}
 	// the reply being written has no end yet
-	if _, err := r.e.ForkChat(c.ID, writing); err == nil {
+	if _, err := r.e.HandOffChat(c.ID, writing, c.ReplicaID); err == nil {
 		t.Fatal("forked inside the unfinished reply")
 	}
 	// the message it answers can be forked, unanswered, with nothing of the reply
-	atSaid, err := r.e.ForkChat(c.ID, second)
+	atSaid, err := r.e.HandOffChat(c.ID, second, c.ReplicaID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -942,7 +954,7 @@ func TestForkWhileReplyingLeavesTheReplyRunning(t *testing.T) {
 		t.Fatalf("%+v", atSaid)
 	}
 	// so can the reply before it
-	atEarlier, err := r.e.ForkChat(c.ID, second-1)
+	atEarlier, err := r.e.HandOffChat(c.ID, second-1, c.ReplicaID)
 	if err != nil || len(atEarlier.Messages) != second {
 		t.Fatalf("%+v %v", atEarlier, err)
 	}
@@ -1195,7 +1207,7 @@ func TestAirportChatRunsWithoutACompany(t *testing.T) {
 	if r.world().Chats[c.ID].Unread {
 		t.Fatal("still unread")
 	}
-	fork, err := r.e.ForkChat(c.ID, 1)
+	fork, err := r.e.HandOffChat(c.ID, 1, c.ReplicaID)
 	if err != nil || !fork.AtAirport() || fork.Effort != chat.Effort {
 		t.Fatalf("%+v %v", fork, err)
 	}
@@ -1412,5 +1424,61 @@ func TestChatQueueWaitsAfterAStopUntilSteeredOrTakenBack(t *testing.T) {
 	w := r.wait("steered", func(w *model.World) bool { c := w.Chats[c.ID]; return c.ReplyAt == nil && len(c.Messages) == 3 })
 	if got := w.Chats[c.ID]; len(got.Queue) != 0 || got.Messages[1].Text != "三" {
 		t.Fatalf("%+v %+v", got.Queue, got.Messages)
+	}
+}
+
+func TestHandOffChatGoesOnWithAnotherEmployee(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	bea, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bea", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "第一句"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first", chatDone(c.ID))
+	if err := r.e.SayInChat(c.ID, "第二句", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("second", chatDone(c.ID))
+	second := slices.IndexFunc(r.world().Chats[c.ID].Messages, func(m model.ChatMessage) bool { return m.Text == "第二句" })
+
+	if _, err := r.e.HandOffChat(c.ID, second, "nobody"); err == nil {
+		t.Fatal("handed to nobody")
+	}
+	// from the user's message: Bea answers it, taking over before it
+	got, err := r.e.HandOffChat(c.ID, second, bea.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []model.ChatHandoff{{Before: second, ReplicaID: r.owner.ID, Name: "Ada"}}
+	if got.ReplicaID != bea.ID || got.Name != "Bea" || !slices.Equal(got.Handoffs, want) || got.ReplyAt != nil {
+		t.Fatalf("%+v", got)
+	}
+	if err := r.e.SayInChat(got.ID, "第三句", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("Bea", chatDone(got.ID))
+	if system := r.fake.seen[len(r.fake.seen)-1].System; !strings.Contains(system, "The replies to the user's message 1 came from Ada.") {
+		t.Fatalf("%s", system)
+	}
+	// taking back everything Ada said leaves the chat Bea's from the start
+	if err := r.e.RewindChat(got.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if h := r.world().Chats[got.ID].Handoffs; len(h) != 1 || h[0].Before != 0 {
+		t.Fatalf("%+v", h)
+	}
+
+	// once Ada has left, her chat can still go to someone else, but not to her
+	if err := r.e.Fire(r.owner.ID, bea.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.HandOffChat(c.ID, second, r.owner.ID); err == nil {
+		t.Fatal("handed to someone who left")
+	}
+	if _, err := r.e.HandOffChat(c.ID, second, bea.ID); err != nil {
+		t.Fatal(err)
 	}
 }

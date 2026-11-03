@@ -127,6 +127,26 @@ func TestMessagesStream(t *testing.T) {
 	if !strings.Contains(string(*body), `"tool_use_id":"c0"`) {
 		t.Fatalf("%s", *body)
 	}
+	// the system and the last message are marked for the cache, nothing else
+	var sent struct {
+		System   []map[string]any `json:"system"`
+		Messages []struct {
+			Content []map[string]any `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(*body, &sent); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent.System) != 1 || sent.System[0]["cache_control"] == nil {
+		t.Fatalf("%s", *body)
+	}
+	if n := strings.Count(string(*body), `"cache_control"`); n != 2 {
+		t.Fatalf("%d marks: %s", n, *body)
+	}
+	last := sent.Messages[len(sent.Messages)-1].Content
+	if last[len(last)-1]["cache_control"] == nil {
+		t.Fatalf("%s", *body)
+	}
 }
 
 func TestTruncatedRepliesRunNoTools(t *testing.T) {

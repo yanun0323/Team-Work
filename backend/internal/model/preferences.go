@@ -73,7 +73,7 @@ func MergePreferences(current Preferences, patch map[string]json.RawMessage) (Pr
 		!slices.Contains([]string{"newestFirst", "newestLast"}, next.LogOrder) ||
 		!slices.Contains([]string{"panZoom", "pan", "off"}, next.AutoView) ||
 		!slices.Contains([]string{"chats", "tasks", "crew", "terminal", "settings"}, next.DefaultTab) ||
-		!slices.Contains([]string{"chats", "providers", "blueprints", "flows", "prefs", "about"}, next.DefaultAirportTab) {
+		!slices.Contains([]string{"chats", "providers", "blueprints", "flows", "stats", "prefs", "about"}, next.DefaultAirportTab) {
 		return current, fmt.Errorf("invalid preference value")
 	}
 	return Preferences(next), nil

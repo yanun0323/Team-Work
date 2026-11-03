@@ -143,7 +143,8 @@ func localizeFlow(wf *model.Workflow, language string) {
 	}
 	for i := range wf.Nodes {
 		n := &wf.Nodes[i]
-		if s, ok := steps[n.ID]; ok {
+		// a task's copy from before the flow changed may hold another step at this place, so the name must match too
+		if s, ok := steps[n.ID]; ok && (n.Name == s.Name.Zh || n.Name == s.Name.En) {
 			n.Name, n.Prompt = s.Name.in(language), s.Prompt.in(language)
 		}
 		switch {

@@ -68,16 +68,20 @@ func compactCut(conv []model.Message, from int) int {
 	return cut
 }
 
-func compactTranscript(conv []model.Message, compact *model.ChatCompact) string {
+func compactTranscript(conv []model.Message, compact *model.ChatCompact, names map[string]string) string {
 	var out strings.Builder
 	if compact != nil {
 		fmt.Fprintf(&out, "Summary so far:\n%s\n\n", compact.Summary)
 	}
 	for _, m := range conv {
+		who := string(m.Role)
+		if name := names[m.By]; name != "" && m.Role == enum.RoleAssistant {
+			who = name
+		}
 		for _, b := range m.Content {
 			switch b.Type {
 			case enum.BlockText:
-				fmt.Fprintf(&out, "%s: %s\n\n", m.Role, clip(b.Text, compactBlockRunes))
+				fmt.Fprintf(&out, "%s: %s\n\n", who, clip(b.Text, compactBlockRunes))
 			case enum.BlockToolCall:
 				fmt.Fprintf(&out, "Tool call %s: %s\n\n", b.Name, clip(string(b.Args), compactBlockRunes))
 			case enum.BlockToolResult:
@@ -112,7 +116,7 @@ func (e *Engine) compactChat(ctx context.Context, in chatRun) ([]model.Message, 
 		return nil, false
 	}
 	reply, err := in.spec.provider.Complete(ctx, model.ModelRequest{Cwd: in.folder, Session: fmt.Sprintf("%s-compact-%v", in.id, e.clock()), Model: in.spec.model, Effort: in.spec.effort,
-		System: rules, Messages: []model.Message{userText(compactTranscript(conv[from:cut], prior))}}, func(string) {})
+		System: rules, Messages: []model.Message{userText(compactTranscript(conv[from:cut], prior, in.names))}}, func(string) {})
 	if err != nil {
 		if ctx.Err() == nil {
 			e.log.Warn().Err(err).Str("chat", in.id).Msg("compact chat")
@@ -135,7 +139,7 @@ func (e *Engine) compactChat(ctx context.Context, in chatRun) ([]model.Message, 
 		c.Compact = &model.ChatCompact{Upto: cut, Summary: text}
 		c.Context = 0
 		c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "tool", Text: "auto_compact"})
-		view = slices.Clone(chatView(e.w.Conversations[c.ID], c.Compact))
+		view = in.sees(slices.Clone(chatView(e.w.Conversations[c.ID], c.Compact)))
 	})
 	return view, kept && view != nil
 }

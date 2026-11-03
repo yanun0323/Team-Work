@@ -211,6 +211,26 @@ type ChatMessage struct {
 	// Images are what the user attached, in a chat.
 	Images []Attachment `json:"images,omitempty"`
 	Files  []Attachment `json:"files,omitempty"`
+	// By is the employee who said or ran it, in a chat; empty in older chats, where it is the one the chat was with.
+	By string `json:"by,omitempty"`
+	// Mentions are the employees the user's message is for, in a meeting; none is everyone.
+	Mentions []string `json:"mentions,omitempty"`
+}
+
+// ChatGuest is someone in a meeting besides the chair. Name and Look keep who it was, for when they have left.
+type ChatGuest struct {
+	ReplicaID string `json:"replicaId"`
+	Name      string `json:"name"`
+	Look      Look   `json:"look"`
+	Model     string `json:"model"`
+}
+
+// ChatHandoff is where an employee handed the chat to whoever comes next: the messages before Before were theirs
+// to answer, back to the handoff before it.
+type ChatHandoff struct {
+	Before    int    `json:"before"`
+	ReplicaID string `json:"replicaId"`
+	Name      string `json:"name"`
 }
 
 type Talk struct {
@@ -220,8 +240,8 @@ type Talk struct {
 	Ended   string   `json:"ended,omitempty"`
 }
 
-// Chat is the user talking with one employee outside any task. Its employee and model never change.
-// Name and Look keep who it was, for when the employee has left.
+// Chat is the user talking with an employee outside any task. With guests it is a meeting, which the employee chairs.
+// Each one's model never changes. Name and Look keep who it was, for when the employee has left.
 // A chat with no TeamID is the airport's: it is with the airport staff, and its model and Effort can change between replies.
 type Chat struct {
 	ID        string `json:"id"`
@@ -245,6 +265,13 @@ type Chat struct {
 	Unread bool `json:"unread,omitempty"`
 	// Compact stands in for the start of the conversation when asking the model. The conversation itself stays whole.
 	Compact *ChatCompact `json:"compact,omitempty"`
+	// Handoffs are where other employees handed the chat on, oldest first.
+	Handoffs []ChatHandoff `json:"handoffs,omitempty"`
+	// Guests are the others in a meeting, in the order they joined.
+	Guests []ChatGuest `json:"guests,omitempty"`
+	// Speaker is who replies, or last replied, to the user's last message; Next are who reply after them.
+	Speaker string   `json:"speaker,omitempty"`
+	Next    []string `json:"next,omitempty"`
 	// Context is how many tokens the model last read, to tell when to compact.
 	Context int `json:"context,omitempty"`
 	// Queue is what the user said while a reply was being written, in the order it goes: the steered first.
@@ -260,6 +287,8 @@ type QueuedMessage struct {
 	Images []Attachment `json:"images,omitempty"`
 	Files  []Attachment `json:"files,omitempty"`
 	Steer  bool         `json:"steer,omitempty"`
+	// Mentions are who it is for, as with a message.
+	Mentions []string `json:"mentions,omitempty"`
 }
 
 // AtAirport says whether the chat is the airport's rather than a company's.
@@ -500,6 +529,8 @@ type Block struct {
 type Message struct {
 	Role    enum.Role `json:"role"`
 	Content []Block   `json:"content"`
+	// By is the employee who wrote it, in a chat, so a meeting shows each one the others' words as said to them.
+	By string `json:"by,omitempty"`
 }
 
 type ToolSpec struct {

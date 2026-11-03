@@ -118,13 +118,13 @@ func (e *Engine) checkFiles(images, files []model.Attachment) error {
 }
 
 func (e *Engine) attachmentRoot(id string) string {
-	root, _ := filepath.Abs(filepath.Join(e.dataDir, "attachments", id))
+	root, _ := filepath.Abs(filepath.Join(e.dataDir, "cache", "attachments", id))
 	return root
 }
 
 // outputRoot keeps the long command output of a task or chat, until the task ends or the chat goes.
 func (e *Engine) outputRoot(id string) string {
-	root, _ := filepath.Abs(filepath.Join(e.dataDir, "outputs", id))
+	root, _ := filepath.Abs(filepath.Join(e.dataDir, "cache", "outputs", id))
 	return root
 }
 

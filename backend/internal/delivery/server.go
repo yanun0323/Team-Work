@@ -2,6 +2,7 @@
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -100,6 +102,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.DELETE("/providers/:id/login", s.cancelLogin)
 	api.POST("/providers/:id/logout", s.logout)
 	api.GET("/quotas", s.quotas)
+	api.GET("/usage", s.usage)
 
 	api.GET("/claude-code", s.claudeStatus)
 	api.POST("/claude-code/install", s.claudeInstall)
@@ -109,6 +112,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.PUT("/blueprints/:id", s.saveBlueprint)
 	api.DELETE("/blueprints/:id", s.deleteBlueprint)
 	api.POST("/blueprints/:id/update", s.updateBlueprint)
+	api.GET("/blueprints/:id/skills", s.blueprintSkills)
 
 	api.POST("/replicas", s.hire)
 	api.PATCH("/replicas/:id", s.updateReplica)
@@ -134,6 +138,9 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.GET("/teams/:id/files", s.searchFiles)
 	api.GET("/replicas/:id/skills", s.replicaSkills)
 	api.POST("/teams/:id/open-folder", s.openFolder)
+	api.GET("/teams/:id/file", s.projectFile)
+	api.GET("/teams/:id/image", s.projectImage)
+	api.GET("/chats/:id/skill", s.chatSkill)
 	api.GET("/teams/:id/terminal", s.terminal)
 	api.GET("/teams/:id/health", s.teamHealth)
 	api.POST("/attachments", s.uploadAttachment)
@@ -143,13 +150,14 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/airport/chats", s.createAirportChat)
 	api.PATCH("/chats/:id/mind", s.setChatMind)
 	api.PATCH("/chats/:id/title", s.renameChat)
+	api.PATCH("/chats/:id/chair", s.setChatChair)
 	api.POST("/chats/:id/say", s.sayInChat)
 	api.POST("/chats/:id/stop", s.stopChat)
 	api.POST("/chats/:id/queue/:queued/steer", s.steerChat)
 	api.DELETE("/chats/:id/queue/:queued", s.unqueueChat)
 	api.POST("/chats/:id/read", s.readChat)
 	api.POST("/chats/:id/rewind", s.rewindChat)
-	api.POST("/chats/:id/fork", s.forkChat)
+	api.POST("/chats/:id/handoff", s.handOffChat)
 	api.POST("/chats/:id/change", s.resolveChatChange)
 	api.POST("/chats/:id/task-draft", s.chatTaskDraft)
 	api.DELETE("/chats/:id", s.deleteChat)
@@ -436,6 +444,23 @@ func (s *Server) quotas(c echo.Context) error {
 	return c.JSON(http.StatusOK, s.engine.Quotas(c.Request().Context()))
 }
 
+// usage takes since (Unix seconds; 0 for all) and offset (the time zone, minutes east of UTC).
+func (s *Server) usage(c echo.Context) error {
+	since, err := strconv.ParseFloat(cmp.Or(c.QueryParam("since"), "0"), 64)
+	if err != nil {
+		return model.Errorf(model.CodeInvalid, "since 格式錯誤")
+	}
+	offset, err := strconv.Atoi(cmp.Or(c.QueryParam("offset"), "0"))
+	if err != nil || offset < -14*60 || offset > 14*60 {
+		return model.Errorf(model.CodeInvalid, "offset 格式錯誤")
+	}
+	stats, err := s.engine.Usage(c.Request().Context(), since, offset)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, stats)
+}
+
 func (s *Server) claudeStatus(c echo.Context) error {
 	status, err := s.claude.Status(c.Request().Context())
 	if err != nil {
@@ -601,7 +626,7 @@ func (s *Server) openSettingsFolder(c echo.Context) error {
 }
 
 func (s *Server) openFolder(c echo.Context) error {
-	folder, err := s.engine.TeamFolder(c.Param("id"))
+	folder, err := s.engine.ProjectFolder(c.Param("id"), c.QueryParam("path"))
 	if err != nil {
 		return err
 	}
@@ -609,6 +634,31 @@ func (s *Server) openFolder(c echo.Context) error {
 		return err
 	}
 	return done(c, s.engine.Learn("openFolder"))
+}
+
+func (s *Server) projectFile(c echo.Context) error {
+	text, err := s.engine.ProjectFile(c.Param("id"), c.QueryParam("path"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]any{"text": text})
+}
+
+func (s *Server) projectImage(c echo.Context) error {
+	data, kind, err := s.engine.ProjectImage(c.Param("id"), c.QueryParam("path"))
+	if err != nil {
+		return err
+	}
+	c.Response().Header().Set("X-Content-Type-Options", "nosniff")
+	return c.Blob(http.StatusOK, kind, data)
+}
+
+func (s *Server) chatSkill(c echo.Context) error {
+	skill, err := s.engine.ChatSkill(c.Request().Context(), c.Param("id"), c.QueryParam("name"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, skill)
 }
 
 func (s *Server) teamHealth(c echo.Context) error {
@@ -637,6 +687,14 @@ func (s *Server) searchFiles(c echo.Context) error {
 
 func (s *Server) replicaSkills(c echo.Context) error {
 	skills, err := s.engine.ReplicaSkills(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, skills)
+}
+
+func (s *Server) blueprintSkills(c echo.Context) error {
+	skills, err := s.engine.BlueprintSkills(c.Request().Context(), c.Param("id"))
 	if err != nil {
 		return err
 	}
@@ -708,14 +766,25 @@ func (s *Server) downloadAttachment(c echo.Context) error {
 
 func (s *Server) sayInChat(c echo.Context) error {
 	in, err := bind[struct {
-		Text   string             `json:"text"`
-		Images []model.Attachment `json:"images"`
-		Files  []model.Attachment `json:"files"`
+		Text     string             `json:"text"`
+		Images   []model.Attachment `json:"images"`
+		Files    []model.Attachment `json:"files"`
+		Mentions []string           `json:"mentions"`
 	}](c)
 	if err != nil {
 		return err
 	}
-	return done(c, s.engine.SayInChat(c.Param("id"), in.Text, in.Images, in.Files))
+	return done(c, s.engine.SayInChatTo(c.Param("id"), in.Text, in.Images, in.Files, in.Mentions))
+}
+
+func (s *Server) setChatChair(c echo.Context) error {
+	in, err := bind[struct {
+		ReplicaID string `json:"replicaId"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.SetChatChair(c.Param("id"), in.ReplicaID))
 }
 
 func (s *Server) rewindChat(c echo.Context) error {
@@ -739,14 +808,15 @@ func (s *Server) resolveChatChange(c echo.Context) error {
 	return done(c, s.engine.ResolveChatChange(c.Param("id"), in.Approve, in.Note))
 }
 
-func (s *Server) forkChat(c echo.Context) error {
+func (s *Server) handOffChat(c echo.Context) error {
 	in, err := bind[struct {
-		Index int `json:"index"`
+		Index     int    `json:"index"`
+		ReplicaID string `json:"replicaId"`
 	}](c)
 	if err != nil {
 		return err
 	}
-	out, err := s.engine.ForkChat(c.Param("id"), in.Index)
+	out, err := s.engine.HandOffChat(c.Param("id"), in.Index, in.ReplicaID)
 	return created(c, out, err)
 }
 

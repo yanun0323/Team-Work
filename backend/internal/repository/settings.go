@@ -45,10 +45,10 @@ func settingPath(path string) bool {
 	if len(p) == 2 && (p[0] == "blueprints" || p[0] == "workflows") {
 		return strings.HasSuffix(p[1], ".yaml") && validID(strings.TrimSuffix(p[1], ".yaml"))
 	}
-	if len(p) == 3 && p[0] == "teams" && validID(p[1]) && p[2] == "config.yaml" {
+	if len(p) == 3 && p[0] == "company" && validID(p[1]) && p[2] == "config.yaml" {
 		return true
 	}
-	return len(p) == 4 && p[0] == "teams" && validID(p[1]) && p[2] == "replicas" && strings.HasSuffix(p[3], ".json") && validID(strings.TrimSuffix(p[3], ".json"))
+	return len(p) == 4 && p[0] == "company" && validID(p[1]) && p[2] == "employee" && strings.HasSuffix(p[3], ".json") && validID(strings.TrimSuffix(p[3], ".json"))
 }
 
 func fileError(path string, err error) error {
@@ -118,7 +118,7 @@ func (s *Store) readFiles() (map[string][]byte, error) {
 			files[path] = raw
 		}
 	}
-	for _, dir := range []string{"teams", "blueprints", "workflows"} {
+	for _, dir := range []string{"company", "blueprints", "workflows"} {
 		root := filepath.Join(s.dataDir, dir)
 		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 			if errors.Is(err, os.ErrNotExist) && path == root {
@@ -241,18 +241,14 @@ func assemble(files map[string][]byte) ([]byte, error) {
 			if err := decodeFile(path, raw, &v); err != nil {
 				return nil, err
 			}
-			if v.ID != p[1] {
-				return nil, fileError(path, i18n.Errorf("id 必須和公司資料夾一致"))
-			}
+			v.ID = p[1] // the folder name is the id
 			c.Teams[v.ID] = v
 		case len(p) == 4:
 			var v model.ReplicaConfig
 			if err := decodeFile(path, raw, &v); err != nil {
 				return nil, err
 			}
-			if v.TeamID != p[1] || v.ID != strings.TrimSuffix(p[3], ".json") {
-				return nil, fileError(path, i18n.Errorf("id 或 teamId 與路徑不符"))
-			}
+			v.TeamID, v.ID = p[1], strings.TrimSuffix(p[3], ".json") // the path names both
 			if _, exists := c.Replicas[v.ID]; exists {
 				return nil, fileError(path, i18n.Errorf("員工 id 重複"))
 			}
@@ -276,15 +272,30 @@ func splitSettings(raw []byte) (map[string][]byte, error) {
 		if err != nil {
 			return err
 		}
-		if strings.HasSuffix(path, ".yaml") {
+		// The path names these ids, so the file does not repeat them.
+		var implied []string
+		switch p := strings.Split(path, "/"); {
+		case p[0] == "blueprints" || p[0] == "workflows" || len(p) == 3:
+			implied = []string{"id"}
+		case len(p) == 4:
+			implied = []string{"id", "teamId"}
+		}
+		if strings.HasSuffix(path, ".yaml") || implied != nil {
 			var v any
 			if err := json.Unmarshal(raw, &v); err != nil {
 				return err
 			}
-			if named, ok := v.(map[string]any); ok && (strings.HasPrefix(path, "blueprints/") || strings.HasPrefix(path, "workflows/")) {
-				delete(named, "id") // the file name is the id
+			if named, ok := v.(map[string]any); ok {
+				for _, key := range implied {
+					delete(named, key)
+				}
 			}
-			raw, err = yaml.Marshal(v)
+			if strings.HasSuffix(path, ".yaml") {
+				raw, err = yaml.Marshal(v)
+			} else {
+				raw, err = json.MarshalIndent(v, "", "  ")
+				raw = append(raw, '\n')
+			}
 			if err != nil {
 				return err
 			}
@@ -308,12 +319,12 @@ func splitSettings(raw []byte) (map[string][]byte, error) {
 		return nil, err
 	}
 	for id, v := range c.Teams {
-		if err := put("teams/"+id+"/config.yaml", v); err != nil {
+		if err := put("company/"+id+"/config.yaml", v); err != nil {
 			return nil, err
 		}
 	}
 	for id, v := range c.Replicas {
-		if err := put("teams/"+v.TeamID+"/replicas/"+id+".json", v); err != nil {
+		if err := put("company/"+v.TeamID+"/employee/"+id+".json", v); err != nil {
 			return nil, err
 		}
 	}

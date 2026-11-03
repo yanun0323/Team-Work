@@ -18,6 +18,9 @@ type Store interface {
 	LoadSettings(ctx context.Context) (model.SettingsSnapshot, error)
 	CheckSettings(expected model.SettingsSnapshot) error
 	LoadSecrets(ctx context.Context) (map[string]string, error)
+	// AddUsage records one model call; LoadUsage returns those made at or after since, oldest first.
+	AddUsage(ctx context.Context, u model.Usage) error
+	LoadUsage(ctx context.Context, since float64) ([]model.Usage, error)
 	Secrets
 }
 
@@ -99,7 +102,8 @@ type Git interface {
 	Branches(ctx context.Context, folder string) (branches []string, repo bool, err error)
 	// Uncommitted says whether a folder has changes not committed; a folder that is no repo has none.
 	Uncommitted(ctx context.Context, folder string) (bool, error)
-	// Files lists the files under a folder, relative to it with "/" separators: in a repo those git does not ignore.
+	// Files lists the files under a folder for "#" mentions, relative to it with "/" separators: ignored ones too, but
+	// not .git.
 	Files(ctx context.Context, folder string) []string
 	// Worktree makes, or finds, the task's work tree at dir on a new branch off target.
 	Worktree(ctx context.Context, folder, dir, branch, target string) error

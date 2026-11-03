@@ -17,15 +17,20 @@ make test-backend  # 測試
 |---|---|
 | `config.yaml` | 全域啟動設定 |
 | `preferences.yaml` | 介面偏好：預設頁籤、紀錄排序、保留終端機、細節、陰影、民眾、飛機與雲朵 |
-| `teams/<team_id>/config.yaml` | 公司名稱、專案位置、目標分支、逾時與費用限制 |
-| `teams/<team_id>/replicas/<replica_id>.json` | 每位員工的名稱、藍圖、外觀、模型、思考等級 |
+| `company/<team_id>/config.yaml` | 公司名稱、專案位置、目標分支、逾時與費用限制 |
+| `company/<team_id>/employee/<replica_id>.json` | 每位員工的名稱、藍圖、外觀、模型、思考等級 |
 | `blueprints/<blueprint_id>.yaml` | 每份員工藍圖 |
 | `workflows/<workflow_id>.yaml` | 每條任務流程 |
 | `provider.json` | 供應商設定，以供應商 id 為鍵；含網址、登入方式 `authKind`、模型、`thinking` 與價格，不含憑證 |
 | `data.db` | SQLite：任務、子任務、交接、流程快照、對話、用量、員工記憶、登入狀態、憑證、語言、公司位置與建築外觀，以及項目識別與建立時間 |
-| `worktrees/` | 任務工作目錄 |
-| `outputs/<task-or-chat-id>/` | `run_command` 太長的完整輸出；任務合併、取消或刪除時，以及刪除對話時一起刪掉 |
-| `search-cooldown.json` | `web_search` 被 Exa 限流時的暫停期限，重啟後沿用 |
+| `cache/worktrees/` | 任務工作目錄 |
+| `cache/sources/` | Git 技能來源的快取 |
+| `cache/attachments/` | 上傳的檔案，與交給員工的附件副本 |
+| `cache/outputs/<task-or-chat-id>/` | `run_command` 太長的完整輸出；任務合併、取消或刪除時，以及刪除對話時一起刪掉 |
+| `cache/airport/` | 機場服務人員的工作目錄 |
+| `cache/search-cooldown.json` | `web_search` 被 Exa 限流時的暫停期限，重啟後沿用 |
+
+設定檔不重複寫路徑已表達的 id：藍圖、流程與公司檔沒有 `id`，員工檔沒有 `id` 與 `teamId`。舊檔裡留著的這些欄位會被忽略，以路徑為準。啟動時會把舊版的 `teams/<team_id>/replicas/` 搬到 `company/<team_id>/employee/`；兩個資料夾同時存在時拒絕啟動，請手動合併。
 
 公司共同指示仍在公司專案資料夾的 `AGENTS.md`，不放進設定檔。所有員工共用的指示在資料目錄的 `AGENTS.md`（預設 `~/.team-work/AGENTS.md`），可在「機場 → 設定 → 系統」編輯，每次開工和對話回覆都會重新讀，接在公司指示之前。憑證沒有加密，靠檔案權限保護。
 
@@ -110,25 +115,31 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /subtasks/:id/review` | 回覆審核（`optionId`、`note`）；修改確認（`review.kind` 為 `change`，內容在 `review.change`）的 `optionId` 是 `approve` 或 `reject` |
 | `POST /subtasks/:id/talk`、`POST /subtasks/:id/talk/end` | 討論發言（`text`）、結束（`kind`: `continue`/`back`/`stop`，`to`、`reason`） |
 | `GET /teams/:id/uncommitted` | 公司資料夾有沒有未提交的改動 |
-| `POST /teams/:id/open-folder` | 在 Finder 打開公司資料夾 |
+| `POST /teams/:id/open-folder?path=` | 在 Finder 打開公司資料夾，有 `path` 時打開其中的子資料夾 |
+| `GET /teams/:id/file?path=` | 讀公司資料夾裡現在的檔案（訊息提及的 `#檔案`，上限 1 MB，只限文字檔；不能經由 `..` 或連結跑出資料夾） |
+| `GET /teams/:id/image?path=` | 同上，讀圖片（PNG、JPEG、GIF、WebP，上限 25 MB） |
+| `GET /chats/:id/skill?name=` | 讀對話裡提及的技能：從主持人開始，第一位有這個技能的人的 `SKILL.md` |
 | `GET /teams/:id/health` | 公司資料夾現在的狀態：`folder` 存在、`repo` 是 git repo、`targetBranch` 目標分支還在 |
 | `GET /teams/:id/terminal?cols=&rows=` | WebSocket：在公司資料夾開一個載入 `~/.zshrc` 的 zsh。二進位訊息是輸入與畫面輸出，文字訊息 `{"cols","rows"}` 調整大小；斷線時結束 shell 和它的工作 |
 | `POST /attachments` | 上傳一個檔案（請求內容就是檔案本身，最大 25MB），回傳放進 `files` 的 `url` |
 | `GET /attachments/:hash` | 下載上傳的檔案 |
-| `POST /chats` | 開始對話（`teamId`、`replicaId`、`text`、可選的 `images` 和 `files`），用員工當下的模型，員工開始回覆 |
-| `POST /chats/:id/say`、`POST /chats/:id/stop`、`DELETE /chats/:id` | 對話發言（`text`、`images`、`files`：附件格式見下方）、中斷回覆、刪除。回覆中發言會排進對話的 `queue`，回覆正常結束後依序送出；中斷或失敗時留在 `queue` |
+| `POST /chats` | 開始對話（`teamId`、`replicaId`、`text`、可選的 `images` 和 `files`），用員工當下的模型，員工開始回覆。加上 `guests`（同公司員工的 id）就是會議，`replicaId` 是主持人；`mentions` 同 `say` |
+| `POST /chats/:id/say`、`POST /chats/:id/stop`、`DELETE /chats/:id` | 對話發言（`text`、`images`、`files`：附件格式見下方；`mentions` 見會議）、中斷回覆、刪除。回覆中發言會排進對話的 `queue`，回覆正常結束後依序送出；中斷或失敗時留在 `queue` |
 | `POST /chats/:id/queue/:queued/steer`、`DELETE /chats/:id/queue/:queued` | Steer：把排隊的訊息標成 `steer` 並排到其他排隊訊息前面，在下一次工具呼叫結束後送出；沒有回覆進行中就立刻送出。刪除：把訊息移出 `queue` |
 | `GET /replicas/:id/skills` | 員工藍圖的技能（`name`、`description`），對話輸入框的 `$` 選單用 |
-| `GET /teams/:id/files?q=` | 公司資料夾裡符合 `q` 的檔案和資料夾（`path`、`dir`，最多 50 筆，略過 git 忽略的檔案），對話輸入框的 `@` 選單用 |
+| `GET /blueprints/:id/skills` | 藍圖每個技能來源實際讀到的技能名稱，依來源順序；讀不到的來源是 `null`。藍圖詳情用 |
+| `GET /teams/:id/files?q=` | 公司資料夾裡符合 `q` 的檔案和資料夾（`path`、`dir`，最多 50 筆，git 忽略的也列，只略過 `.git`），對話輸入框和任務說明的 `#` 選單用 |
 | 對話裡的 `ask_user` | 員工可隨時用這個工具提問：`chat.question.options` 是選項（可為空），問題本身是一則員工訊息；下一則 `say` 就是回答 |
-| `POST /airport/chats` | 開始機場對話（`model`、可選的 `effort`、`text`、`images`、`files`）：對象固定是機場服務人員，回傳的 `teamId` 為空。工作資料夾是資料目錄的 `airport/`，可用讀寫檔案、網路搜尋和執行指令；指令沒有沙盒。指示只有固定規則和全域 `AGENTS.md`。`say`、`stop`、`read`、`rewind`、`fork`、刪除和公司對話共用，`task-draft` 會拒絕 |
+| `POST /airport/chats` | 開始機場對話（`model`、可選的 `effort`、`text`、`images`、`files`）：對象固定是機場服務人員，回傳的 `teamId` 為空。工作資料夾是資料目錄的 `airport/`，可用讀寫檔案、網路搜尋和執行指令；指令沒有沙盒。指示只有固定規則和全域 `AGENTS.md`。`say`、`stop`、`read`、`rewind`、`handoff`、刪除和公司對話共用，`task-draft` 會拒絕 |
 | `POST /chats/:id/change` | 回答對話的修改確認（`approve`、可選的 `note`；內容在 `chat.change`），員工接著回覆。等待確認時改用 `say` 發言視為拒絕 |
 | `PATCH /chats/:id/title` | 改對話名稱（`title`）：多個空白合成一個，最多 80 字，空字串清除名稱、改回顯示第一則訊息。手動取的名字不會被自動命名蓋掉 |
 | `PATCH /chats/:id/mind` | 更換機場對話下一次回覆的 `model` 和 `effort`；回覆中或公司對話會拒絕 |
 | `POST /chats/:id/read` | 標記已讀，清除對話的 `unread` |
 | `POST /chats/:id/rewind` | 收回第 `index` 則使用者訊息和它之後的所有內容，並中斷回覆；資料夾裡的改動不會還原 |
-| `POST /chats/:id/fork` | 把對話複製到第 `index` 則訊息為止，回傳新對話；從員工訊息複製會保留到該段回覆結束，有回覆進行中時拒絕 |
-| `POST /chats/:id/task-draft` | 把對話整理成任務的 `title` 和 `description`，不會建立任務 |
+| `POST /chats/:id/handoff` | 把對話複製到第 `index` 則訊息為止，交給同公司的員工 `replicaId`（原本的員工就是單純複製；機場對話傳空字串），回傳新對話；從員工訊息複製會保留到該段回覆結束，只有正在寫的那段回覆不能複製。交給別人時新對話的 `handoffs` 記下從哪則訊息起換人（`before`、`replicaId`、`name`），接手的員工會被告知前面哪些回覆不是自己寫的；員工離開公司後，對話仍可交給別人 |
+| `POST /chats/:id/task-draft` | 把對話整理成任務的 `title` 和 `description`，不會建立任務；會議由這一輪能對外動作的人整理 |
+| 會議 | 對話有 `guests` 就是會議，最多 6 位員工。`say` 的 `mentions` 是這則訊息要給誰（員工 id，依序回覆），不在對話裡的人會被邀請加入；沒有 `mentions` 時所有人依序回覆，主持人最後。每人用自己加入時的模型，看得到前面的人說了什麼，但看不到別人用的工具。對外動作（建立或修改任務、藍圖、流程、`ask_user`）每輪只給一人：單獨被提及的人，否則是主持人。訊息的 `by` 是誰說的，`chat.speaker` 是這一輪正在或最後回覆的人，`chat.next` 是還沒輪到的人。`stop` 會停掉整輪；某人失敗時下一位照常回覆。從會議交給主持人是複製整場會議，交給其他人就變成和那個人的一對一對話 |
+| `PATCH /chats/:id/chair` | 把會議的主持人換成來賓 `replicaId`，原主持人變成來賓；回覆中會拒絕 |
 
 任務與對話的 `images`、`files` 都是 `{ "name": "檔名", "url": "…" }` 陣列，合計最多 6 個。`images` 接受 PNG、JPEG、GIF、WebP 的 data URL，每個最大 3.75MB。`files` 接受一般檔案，每個最大 25MB：`url` 是上傳後拿到的網址；舊資料的 data URL 仍可讀取，每個最大 3.75MB，省略 `files` 也可以。只有附件、沒有文字的對話也能發送。
 
@@ -173,6 +184,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /providers/:id/logout` | 登出 |
 | `GET /quotas` | 各供應商的額度，以供應商 id 為鍵：訂閱回報 `fiveHour`、`weekly`（已用 %，0–100）與 `fiveHourResetAt`、`weeklyResetAt`（重置時刻，Unix 秒），來自 Claude Code 與 ChatGPT 的非公開用量端點；API Key 只有 OpenRouter（金鑰自身的額度上限）和 DeepSeek 回報 `balance` 與 `currency`。查不到的欄位或供應商不出現 |
 | `POST /providers/:id/models` | 重新取得模型清單 |
+| `GET /usage?since=&offset=` | 模型用量統計：`since` 是起始時刻（Unix 秒，0 為全部），`offset` 是時區（比 UTC 快幾分鐘）。回傳總計 `total`、依供應商再依模型的 `providers`（Token 多的在前）和逐日的 `days`（含沒有用量的日子；每天的 `parts` 是各 `providerId` 與 `model` 的 `tokens`）；每筆都有 `calls`、`input`（含快取）、`output`、`cacheRead`、`tokens`（不含快取讀取）、`costUsd` 和 `unpriced`（沒有價格的呼叫數）。每次呼叫模型時記在 `data.db` 的 `usage` 表，費用照當時的價格算；上線前的用量沒有記錄 |
 
 - **ChatGPT（`openai`）**：以 Codex CLI 的方式走 OAuth。`browser` 會在伺服器這台電腦打開登入頁，並用 `127.0.0.1:1455` 等它回來（這個連接埠被占用時可以貼網址）；`device` 回傳一組代碼。Token 存在 `data.db` 的 `secrets` 表，到期前自動更新。
 - **Claude（`anthropic`）**：透過本機的 Claude Code（`claude` 執行檔），登入由它自己管，這裡不保存憑證。可以用下面的 `/claude-code` 檢查、安裝和登入，或自己在終端機執行 `claude auth login`，再呼叫登入 API 確認。登出只影響這個供應商，不會登出 `claude`。可用 `MHO_CLAUDE_EXECUTABLE` 指定執行檔。設定了 `ANTHROPIC_API_KEY` 等環境變數時會拒絕執行，避免請求被轉到別的帳務。Claude 自己的工具全部關閉，只會用這裡提供的工具。
@@ -203,6 +215,8 @@ Claude Code 的設定：
 ## 藍圖來源
 
 從 Git 來的藍圖如果沒有寫 `prompt`，執行時會讀那個 repo 的 `AGENTS.md`；技能來自它的 `skills/`。
+
+技能來源（Git 或本機資料夾）裡，有 `SKILL.md` 的資料夾就是一個技能。Git 來源可以用 `path` 指定 repo 裡的子資料夾，就從那裡開始找；貼上 `/tree/main/pstack` 這種網址時，第一段是版本，其餘是子資料夾。先找 `skills/` 底下，找不到才找來源根目錄；可以分類放（如 `skills/engineering/tdd/SKILL.md`），最多往下四層，會跟著符號連結，略過 `.` 開頭的資料夾和 `node_modules`，技能資料夾裡面不再往下找。
 
 ## 執行方式
 

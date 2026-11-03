@@ -47,11 +47,15 @@ const maxChatImages = 6
 
 // NewChat starts a chat: it exists from the user's first message on.
 type NewChat struct {
-	TeamID    string             `json:"teamId"`
-	ReplicaID string             `json:"replicaId"`
-	Text      string             `json:"text"`
-	Images    []model.Attachment `json:"images"`
-	Files     []model.Attachment `json:"files"`
+	TeamID    string `json:"teamId"`
+	ReplicaID string `json:"replicaId"`
+	// Guests make it a meeting, which the employee chairs.
+	Guests []string `json:"guests"`
+	// Mentions are who the first message is for, as in SayInChatTo.
+	Mentions []string           `json:"mentions"`
+	Text     string             `json:"text"`
+	Images   []model.Attachment `json:"images"`
+	Files    []model.Attachment `json:"files"`
 }
 
 // NewAirportChat starts a chat with the airport staff.
@@ -82,16 +86,15 @@ func (e *Engine) CreateChat(in NewChat) (*model.Chat, error) {
 			return err
 		}
 		c := &model.Chat{ID: e.uid("chat"), TeamID: in.TeamID, ReplicaID: r.ID, Name: r.Name, Look: r.Look, Model: r.Model, CreatedAt: e.w.Now, Messages: []model.ChatMessage{}}
-		spec, err := e.chatSpec(c)
-		if err != nil {
+		if err := e.checkInvite(c, in.Guests); err != nil {
 			return err
 		}
-		if err := e.saveAttachments(c.ID, in.Files); err != nil {
-			return err
-		}
+		e.invite(c, in.Guests)
 		e.w.Chats[c.ID] = c
-		e.chatHears(c, text, in.Images, in.Files)
-		e.launchChat(c, spec)
+		if err := e.beginRound(c, text, in.Images, in.Files, in.Mentions); err != nil {
+			delete(e.w.Chats, c.ID)
+			return err
+		}
 		e.startChatTitle(c, text, e.w.Teams[in.TeamID].Folder)
 		out = clone(c)
 		return nil
@@ -112,16 +115,11 @@ func (e *Engine) CreateAirportChat(in NewAirportChat) (*model.Chat, error) {
 			return err
 		}
 		c := &model.Chat{ID: e.uid("chat"), Name: airportStaffName, Model: in.Model, Effort: effort, CreatedAt: e.w.Now, Messages: []model.ChatMessage{}}
-		spec, err := e.chatSpec(c)
-		if err != nil {
-			return err
-		}
-		if err := e.saveAttachments(c.ID, in.Files); err != nil {
-			return err
-		}
 		e.w.Chats[c.ID] = c
-		e.chatHears(c, text, in.Images, in.Files)
-		e.launchChat(c, spec)
+		if err := e.beginRound(c, text, in.Images, in.Files, nil); err != nil {
+			delete(e.w.Chats, c.ID)
+			return err
+		}
 		e.startChatTitle(c, text, e.airportFolder())
 		out = clone(c)
 		return nil
@@ -176,6 +174,12 @@ func (e *Engine) SayInChat(id, text string, images []model.Attachment, attached 
 	for _, batch := range attached {
 		files = append(files, batch...)
 	}
+	return e.SayInChatTo(id, text, images, files, nil)
+}
+
+// SayInChatTo is SayInChat for the employees mentioned, in that order, who join the chat if they are not in it yet.
+// With none mentioned, everyone in it replies.
+func (e *Engine) SayInChatTo(id, text string, images, files []model.Attachment, mentions []string) error {
 	return e.do(func() error {
 		c := e.w.Chats[id]
 		if c == nil {
@@ -189,23 +193,17 @@ func (e *Engine) SayInChat(id, text string, images []model.Attachment, attached 
 			return model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
 		}
 		if c.ReplyAt != nil {
+			if err := e.checkInvite(c, mentions); err != nil {
+				return err
+			}
 			if err := e.saveAttachments(c.ID, files); err != nil {
 				return err
 			}
-			c.Queue = append(c.Queue, model.QueuedMessage{ID: e.uid("queued"), At: e.w.Now, Text: text, Images: images, Files: files})
+			c.Queue = append(c.Queue, model.QueuedMessage{ID: e.uid("queued"), At: e.w.Now, Text: text, Images: images, Files: files, Mentions: mentions})
 			e.w.Tutorial.Learn("queue")
 			return nil
 		}
-		spec, err := e.chatSpec(c)
-		if err != nil {
-			return err
-		}
-		if err := e.saveAttachments(c.ID, files); err != nil {
-			return err
-		}
-		e.chatHears(c, text, images, files)
-		e.launchChat(c, spec)
-		return nil
+		return e.beginRound(c, text, images, files, mentions)
 	})
 }
 
@@ -261,15 +259,9 @@ func (e *Engine) sendQueued(c *model.Chat) error {
 	if len(c.Queue) == 0 || c.ReplyAt != nil || e.chatLeft(c) {
 		return nil
 	}
-	spec, err := e.chatSpec(c)
-	if err != nil {
-		return err
-	}
 	q := c.Queue[0]
 	c.Queue = slices.Clone(c.Queue[1:])
-	e.chatHears(c, q.Text, q.Images, q.Files)
-	e.launchChat(c, spec)
-	return nil
+	return e.beginRound(c, q.Text, q.Images, q.Files, q.Mentions)
 }
 
 // RewindChat takes back one of the user's messages and all that came after it, stopping a reply being written.
@@ -297,10 +289,13 @@ func (e *Engine) RewindChat(id string, index int) error {
 			return model.Errorf(model.CodeConflict, "這段對話的紀錄對不上，無法編輯")
 		}
 		e.stopRun(c.ID)
-		c.ReplyAt = nil
+		c.ReplyAt, c.Next = nil, nil
 		c.Question = nil
 		c.Change = nil
 		c.Messages = c.Messages[:index]
+		for i := range c.Handoffs {
+			c.Handoffs[i].Before = min(c.Handoffs[i].Before, index)
+		}
 		e.w.Conversations[c.ID] = e.w.Conversations[c.ID][:end]
 		if c.Compact != nil && end < c.Compact.Upto {
 			c.Compact = nil // it summed up what was just taken back
@@ -311,11 +306,12 @@ func (e *Engine) RewindChat(id string, index int) error {
 	})
 }
 
-// ForkChat copies a chat up to a message into a new chat that goes on by itself. From one of the user's messages it
-// ends there, unanswered; from an employee's it keeps the rest of that reply, as a reply cannot be split in the
-// conversation the model reads. Nothing runs until the user says something in the copy. While a reply is being
-// written the original carries on, and only that unfinished reply cannot be forked from.
-func (e *Engine) ForkChat(id string, index int) (*model.Chat, error) {
+// HandOffChat copies a chat up to a message into a new chat that goes on by itself, with an employee of the same
+// company: the one it had, or another who takes over from there. From one of the user's messages it ends there,
+// unanswered; from an employee's it keeps the rest of that reply, as a reply cannot be split in the conversation the
+// model reads. Nothing runs until the user says something in the copy. While a reply is being written the original
+// carries on, and only that unfinished reply cannot be handed off from. An airport chat stays with the airport staff.
+func (e *Engine) HandOffChat(id string, index int, replicaID string) (*model.Chat, error) {
 	var out *model.Chat
 	err := e.do(func() error {
 		c := e.w.Chats[id]
@@ -328,8 +324,14 @@ func (e *Engine) ForkChat(id string, index int) (*model.Chat, error) {
 		if c.ReplyAt != nil && !slices.ContainsFunc(c.Messages[index:], func(m model.ChatMessage) bool { return m.From == "user" }) {
 			return model.Errorf(model.CodeInvalid, "員工還在回覆")
 		}
-		if e.chatLeft(c) {
+		taker := e.w.Replicas[replicaID]
+		switch {
+		case c.AtAirport() && replicaID != "", !c.AtAirport() && replicaID == "":
+			return model.Errorf(model.CodeInvalid, "找不到公司或員工")
+		case replicaID == c.ReplicaID && e.chatLeft(c):
 			return model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
+		case !c.AtAirport() && (taker == nil || taker.TeamID != c.TeamID):
+			return model.Errorf(model.CodeNotFound, "找不到公司或員工")
 		}
 		conv := e.w.Conversations[c.ID]
 		nth := 0
@@ -349,7 +351,17 @@ func (e *Engine) ForkChat(id string, index int) (*model.Chat, error) {
 		if end <= 0 {
 			return model.Errorf(model.CodeConflict, "這段對話的紀錄對不上，無法複製")
 		}
-		fork := &model.Chat{ID: e.uid("chat"), TeamID: c.TeamID, ReplicaID: c.ReplicaID, Name: c.Name, Look: c.Look, Model: c.Model, Effort: c.Effort, CreatedAt: e.w.Now, Messages: clone(c.Messages[:keep])}
+		fork := &model.Chat{ID: e.uid("chat"), TeamID: c.TeamID, ReplicaID: c.ReplicaID, Name: c.Name, Look: c.Look, Model: c.Model, Effort: c.Effort, CreatedAt: e.w.Now, Messages: clone(c.Messages[:keep]), Handoffs: clone(c.Handoffs), Guests: clone(c.Guests)}
+		if replicaID != c.ReplicaID { // a meeting handed to one of its own or anyone else goes on with them alone
+			fork.Guests = nil
+			// they take over from the user's message, or after the reply it ends with
+			before := keep
+			if c.Messages[index].From == "user" {
+				before = index
+			}
+			fork.Handoffs = append(fork.Handoffs, model.ChatHandoff{Before: before, ReplicaID: c.ReplicaID, Name: c.Name})
+			fork.ReplicaID, fork.Name, fork.Look, fork.Model, fork.Effort = taker.ID, taker.Name, taker.Look, taker.Model, ""
+		}
 		if keep == len(c.Messages) {
 			fork.Question = clone(c.Question)
 		}
@@ -377,7 +389,7 @@ func (e *Engine) ForkChat(id string, index int) (*model.Chat, error) {
 		e.w.Chats[fork.ID] = fork
 		e.w.Conversations[fork.ID] = copied
 		e.dirty[fork.ID] = true
-		e.w.Tutorial.Learn("fork")
+		e.w.Tutorial.Learn("fork") // the id it was learned under before it was called handing off
 		out = clone(fork)
 		return nil
 	})
@@ -417,7 +429,7 @@ func (e *Engine) StopChat(id string) error {
 			return model.Errorf(model.CodeNotFound, "找不到對話")
 		}
 		e.stopRun(c.ID)
-		c.ReplyAt = nil
+		c.ReplyAt, c.Next = nil, nil
 		return nil
 	})
 }
@@ -453,16 +465,28 @@ func (e *Engine) dropChat(id string) {
 	delete(e.dirty, id)
 }
 
-// endChatsOf stops the replies of an employee who is leaving. Their chats stay to read.
+// endChatsOf stops the replies of an employee who is leaving. Their chats stay to read; a meeting goes on without them.
 func (e *Engine) endChatsOf(replicaID string) {
 	for _, c := range e.w.Chats {
-		if c.ReplicaID != replicaID {
+		c.Next = slices.DeleteFunc(c.Next, func(id string) bool { return id == replicaID })
+		if c.ReplicaID != replicaID && c.Speaker != replicaID {
 			continue
 		}
-		c.Change = nil // nobody is left to go on with the answer
+		if c.Speaker == replicaID || c.ReplicaID == replicaID && c.Speaker == "" {
+			c.Change = nil // nobody is left to go on with the answer
+		}
 		if c.ReplyAt != nil {
 			e.stopRun(c.ID)
-			c.ReplyAt = nil
+			c.ReplyAt, c.Next = nil, nil
+		}
+		// a meeting goes on, chaired by the first guest still here; the one who left stays a guest, so their name does
+		if c.ReplicaID == replicaID {
+			at := slices.IndexFunc(c.Guests, func(g model.ChatGuest) bool { return g.ReplicaID != replicaID && e.w.Replicas[g.ReplicaID] != nil })
+			if at >= 0 {
+				g := c.Guests[at]
+				c.Guests[at] = model.ChatGuest{ReplicaID: c.ReplicaID, Name: c.Name, Look: c.Look, Model: c.Model}
+				c.ReplicaID, c.Name, c.Look, c.Model, c.Effort = g.ReplicaID, g.Name, g.Look, g.Model, ""
+			}
 		}
 	}
 }
@@ -472,7 +496,7 @@ func (e *Engine) endChatsOf(replicaID string) {
 func (e *Engine) interruptChats() {
 	for _, c := range e.w.Chats {
 		if c.ReplyAt != nil {
-			c.ReplyAt = nil
+			c.ReplyAt, c.Next = nil, nil
 			e.chatSays(c, i18n.T("（伺服器重新啟動，這次回覆中斷了）"))
 		}
 	}
@@ -493,16 +517,16 @@ func (e *Engine) Uncommitted(ctx context.Context, teamID string) (bool, error) {
 	return e.git.Uncommitted(ctx, folder)
 }
 
-// chatSays adds what the employee said, for the user to read.
+// chatSays adds what the one replying said, for the user to read.
 func (e *Engine) chatSays(c *model.Chat, text string) {
-	c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: text})
+	c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: text, By: c.Speaker})
 	c.Unread = true
 }
 
 // chatHears puts the user's message into the chat and the conversation. Calls left without a result by an
 // interrupted reply are closed first, as the model refuses them otherwise.
-func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Attachment) {
-	c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "user", Text: text, Images: images, Files: files})
+func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Attachment, mentions []string) {
+	c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "user", Text: text, Images: images, Files: files, Mentions: mentions})
 	said := model.Message{Role: enum.RoleUser}
 	if text != "" { // a model refuses an empty text block
 		said.Content = append(said.Content, model.Block{Type: enum.BlockText, Text: text})
@@ -528,19 +552,28 @@ func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Att
 	e.dirty[c.ID] = true
 }
 
-// chatSpec is a task's spec without the task: the chat's model, the employee's role, the company's rules.
-func (e *Engine) chatSpec(c *model.Chat) (agentSpec, error) {
+// chatSpec is a task's spec without the task, for one in the chat: the model they joined on, their role, the
+// company's rules, and in a meeting how its rounds go.
+func (e *Engine) chatSpec(c *model.Chat, speaker string) (agentSpec, error) {
 	if c.AtAirport() {
 		return e.airportChatSpec(c)
 	}
-	r := e.w.Replicas[c.ReplicaID]
-	if r == nil {
-		return agentSpec{}, model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
+	r := e.w.Replicas[speaker]
+	name, joined := c.Name, c.Model
+	if speaker != c.ReplicaID {
+		at := slices.IndexFunc(c.Guests, func(g model.ChatGuest) bool { return g.ReplicaID == speaker })
+		if at < 0 {
+			return agentSpec{}, model.Errorf(model.CodeNotFound, "找不到公司或員工")
+		}
+		name, joined = c.Guests[at].Name, c.Guests[at].Model
 	}
-	// the chat stays on the model it began with; if the employee has moved on, their thinking level no longer applies
+	if r == nil {
+		return agentSpec{}, model.Errorf(model.CodeInvalid, "%s 已經離開公司", name)
+	}
+	// each stays on the model they joined on; if the employee has moved on, their thinking level no longer applies
 	picked := *r
-	if picked.Model != c.Model {
-		picked.Model, picked.Effort = c.Model, model.ThinkingDefault
+	if picked.Model != joined {
+		picked.Model, picked.Effort = joined, model.ThinkingDefault
 	}
 	spec, err := e.buildSpec(nil, nil, &picked)
 	if err != nil {
@@ -549,12 +582,51 @@ func (e *Engine) chatSpec(c *model.Chat) (agentSpec, error) {
 	team, bp := e.w.Teams[c.TeamID], e.w.Blueprints[r.BlueprintID]
 	e.readPrompt(team)
 	spec.prompt = promptParts{
-		rules:  chatRules + "\n" + languageRule(e.w.Language) + "\n" + chatPriorityRule + "\n",
+		rules:  chatRules + "\n" + languageRule(e.w.Language) + "\n" + chatPriorityRule + "\n" + chatHandoffRule(c) + meetingRule(c, speaker),
 		shared: sharedRules(e.runGlobalPrompt(), team.Prompt),
 		role:   rolePart(bp),
 		memory: memorySection(r),
 	}
 	return spec, nil
+}
+
+// chatHandoffRule tells an employee a chat came to them from others, and whose the replies before were. They are counted
+// by the user's messages, which the model can count too.
+func chatHandoffRule(c *model.Chat) string {
+	if len(c.Handoffs) == 0 {
+		return ""
+	}
+	var parts []string
+	from := 0
+	for _, h := range c.Handoffs {
+		upto := 0
+		for _, m := range c.Messages[:min(h.Before, len(c.Messages))] {
+			if m.From == "user" {
+				upto++
+			}
+		}
+		if upto <= from {
+			continue
+		}
+		who := h.Name
+		if h.ReplicaID == c.ReplicaID {
+			who = "you"
+		}
+		which := fmt.Sprintf("messages %d to %d", from+1, upto)
+		if upto == from+1 {
+			which = fmt.Sprintf("message %d", upto)
+		}
+		if len(parts) == 0 {
+			parts = append(parts, fmt.Sprintf("The replies to the user's %s came from %s", which, who))
+		} else {
+			parts = append(parts, fmt.Sprintf("to %s, from %s", which, who))
+		}
+		from = upto
+	}
+	if len(parts) == 0 {
+		return "This chat was handed over to you before you replied in it. Carry on from here as yourself.\n"
+	}
+	return "This chat was handed over to you, so not every earlier reply is yours. " + strings.Join(parts, "; ") + ". Carry on from where they left off, as yourself.\n"
 }
 
 // airportChatSpec is the chat's own model and level, with the staff's rules and the global prompt: no company, role or memory.
@@ -576,7 +648,7 @@ func (e *Engine) airportChatSpec(c *model.Chat) (agentSpec, error) {
 
 // airportFolder is where the airport staff work.
 func (e *Engine) airportFolder() string {
-	folder, _ := filepath.Abs(filepath.Join(e.dataDir, "airport"))
+	folder, _ := filepath.Abs(filepath.Join(e.dataDir, "cache", "airport"))
 	return folder
 }
 
@@ -593,12 +665,22 @@ type chatRun struct {
 	compact *model.ChatCompact
 	// memory is whether the chat is with an employee, who has notes to keep
 	memory bool
+	// speaker is who replies, "" for the airport staff; actor is whether they may act outside the chat this round
+	speaker string
+	actor   bool
+	// actorName is who may act this round, for a refusal to name
+	actorName string
+	// note is what changes from round to round in a meeting, put at the end of the user's latest words
+	note    string
+	session string
+	names   map[string]string
 }
 
-// launchChat starts a reply. Its run names no employee: a chat does not keep them from their tasks.
-func (e *Engine) launchChat(c *model.Chat, spec agentSpec) {
+// launchChat starts a reply by one in the chat. Its run names no employee: a chat does not keep them from their tasks.
+func (e *Engine) launchChat(c *model.Chat, speaker string, spec agentSpec) {
 	e.stopRun(c.ID)
 	c.ReplyAt = ptr(e.w.Now)
+	c.Speaker = speaker
 	folder, timeout := e.airportFolder(), airportChatTimeout
 	if team := e.w.Teams[c.TeamID]; team != nil {
 		folder, timeout = team.Folder, time.Duration(team.Settings.TimeoutMin*float64(time.Minute))
@@ -614,7 +696,12 @@ func (e *Engine) launchChat(c *model.Chat, spec agentSpec) {
 		said = last.Text
 	}
 	e.wg.Add(1)
-	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, said: said, context: c.Context, compact: clone(c.Compact), memory: !c.AtAirport()})
+	session := c.ID
+	if len(c.Guests) > 0 { // each keeps their own, whoever chairs, so their provider's cache stays theirs
+		session = c.ID + "-" + speaker
+	}
+	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, said: said, context: c.Context, compact: clone(c.Compact), memory: !c.AtAirport(),
+		speaker: speaker, actor: speaker == roundActor(c), actorName: chatNames(c)[roundActor(c)], note: e.roundNote(c, speaker), session: session, names: chatNames(c)})
 }
 
 // applyChat changes a chat for a run, unless the run was stopped or replaced meanwhile.
@@ -641,7 +728,7 @@ func (e *Engine) chatKeepsImage(in chatRun) func(output string, data []byte) {
 		}
 		e.applyChat(in, func(c *model.Chat) {
 			c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "tool", Text: filepath.ToSlash(output),
-				Images: []model.Attachment{{Name: filepath.Base(output), URL: url}}})
+				Images: []model.Attachment{{Name: filepath.Base(output), URL: url}}, By: c.Speaker})
 		})
 	}
 }
@@ -682,7 +769,7 @@ func (e *Engine) chatMemoryTools(in chatRun) []adapter.Tool {
 			return toolError("text is required")
 		}
 		e.applyChat(in, func(c *model.Chat) {
-			e.remember(&c.ReplicaID, strings.TrimSpace(a.Text), "chat", "")
+			e.remember(&in.speaker, strings.TrimSpace(a.Text), "chat", "")
 		})
 		return model.ToolResult{Text: "remembered"}
 	}
@@ -695,7 +782,7 @@ func (e *Engine) chatMemoryTools(in chatRun) []adapter.Tool {
 		}
 		found := false
 		e.applyChat(in, func(c *model.Chat) {
-			_, found = e.forget(&c.ReplicaID, a.ID)
+			_, found = e.forget(&in.speaker, a.ID)
 		})
 		if !found {
 			return toolError("no note with id %s", a.ID)
@@ -708,7 +795,7 @@ func (e *Engine) chatMemoryTools(in chatRun) []adapter.Tool {
 func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	defer e.wg.Done()
 	defer in.r.cancel()
-	finished := false
+	finished, stopped := false, false
 	defer func() {
 		e.mu.Lock()
 		defer e.mu.Unlock()
@@ -718,8 +805,11 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			e.clearOutput(in.id)
 			if c := e.w.Chats[in.id]; c != nil {
 				c.ReplyAt = nil
-				// a failed or stopped reply leaves the queue for the user to send
-				if finished {
+				// in a meeting the next one replies even if this one failed; a stopped reply stops the round.
+				// A failed one leaves the queue for the user to send
+				if !stopped && e.nextSpeaker(c) {
+					// it goes on
+				} else if finished {
 					if err := e.sendQueued(c); err != nil {
 						e.log.Warn().Err(err).Str("chat", in.id).Msg("send queued message")
 					}
@@ -757,12 +847,22 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		}
 	}
 	read := append(roots, e.attachmentRoot(in.id))
-	list := append(tools.For(in.spec.allowed, tools.Env{Read: read, Output: e.outputRoot(in.id), Search: e.search}), e.chatAskUser(in))
+	list := tools.For(in.spec.allowed, tools.Env{Read: read, Output: e.outputRoot(in.id), Search: e.search})
+	list = append(list, e.chatAskUser(in))
 	list = append(list, imageTools(in.spec, read, e.chatKeepsImage(in))...)
 	if in.memory {
 		list = append(list, e.chatMemoryTools(in)...)
 	}
 	list = append(list, e.manageTools(e.managerOfChat(in), in.spec.allowed, true)...)
+	// in a meeting everyone has the same tools every round, so their provider's cache of the request's start holds;
+	// the one who may not act this round is refused at the call instead
+	if !in.actor {
+		for i, tool := range list {
+			if actsOutside(tool.Spec().Name) {
+				list[i] = refusedTool{tool.Spec(), in.actorName}
+			}
+		}
+	}
 	specs := make([]model.ToolSpec, len(list))
 	byName := make(map[string]adapter.Tool, len(list))
 	for i, tool := range list {
@@ -771,7 +871,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	}
 	t := &turn{
 		provider: in.spec.provider,
-		req:      model.ModelRequest{Cwd: in.folder, Session: in.id, Model: in.spec.model, Effort: in.spec.effort, System: in.spec.prompt.compose(repoRole, skills), Messages: chatView(in.conv, in.compact), Tools: specs},
+		req:      model.ModelRequest{Cwd: in.folder, Session: in.session, Model: in.spec.model, Effort: in.spec.effort, System: in.spec.prompt.compose(repoRole, skills), Messages: in.sees(chatView(in.conv, in.compact)), Tools: specs},
 		tools:    byName, cwd: in.folder,
 		onStart:  func() { e.restartLive(in.id, in.r) },
 		onText:   func(text string) { e.addLive(in.id, in.r, text) },
@@ -781,7 +881,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 				delete(e.live, c.ID) // now it is a message
 				c.Tokens += tokensUsed(reply.Usage)
 				c.Context = reply.Usage.Input
-				e.w.Conversations[c.ID] = append(e.w.Conversations[c.ID], model.Message{Role: enum.RoleAssistant, Content: reply.Content})
+				e.w.Conversations[c.ID] = append(e.w.Conversations[c.ID], model.Message{Role: enum.RoleAssistant, Content: reply.Content, By: in.speaker})
 				e.dirty[c.ID] = true
 				for _, b := range reply.Content {
 					if b.Type == enum.BlockText && strings.TrimSpace(b.Text) != "" {
@@ -795,10 +895,11 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 				return // it shows as the question itself
 			}
 			e.applyChat(in, func(c *model.Chat) {
-				c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "tool", Text: call.Name + " " + clip(string(call.Args), 200)})
+				c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "tool", Text: call.Name + " " + clip(string(call.Args), 200), By: in.speaker})
 			})
 		},
 		onResults: func(msg model.Message) {
+			msg.By = in.speaker
 			e.applyChat(in, func(c *model.Chat) {
 				e.w.Conversations[c.ID] = append(e.w.Conversations[c.ID], msg)
 				e.dirty[c.ID] = true
@@ -813,7 +914,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			for len(c.Queue) > 0 && c.Queue[0].Steer {
 				q := c.Queue[0]
 				c.Queue = slices.Clone(c.Queue[1:])
-				e.chatHears(c, q.Text, q.Images, q.Files)
+				e.chatHears(c, q.Text, q.Images, q.Files, q.Mentions)
 				conv := e.w.Conversations[c.ID]
 				conv[len(conv)-1], _ = withSkills(conv[len(conv)-1], q.Text, skills)
 			}
@@ -833,6 +934,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			failed(i18n.T("執行逾時"))
 		case ctx.Err() != nil: // stopped on purpose
+			stopped = true
 		default:
 			var known *model.Error
 			if !errors.As(err, &known) {
@@ -868,8 +970,13 @@ func (e *Engine) ChatTaskDraft(ctx context.Context, id string) (ChatDraft, error
 		e.mu.Unlock()
 		return ChatDraft{}, model.Errorf(model.CodeInvalid, "機場的對話不能建立任務")
 	}
-	spec, err := e.chatSpec(c)
+	actor := roundActor(c) // the one who may create the task writes it
+	if e.w.Replicas[actor] == nil {
+		actor = c.ReplicaID
+	}
+	spec, err := e.chatSpec(c, actor)
 	folder := e.w.Teams[c.TeamID].Folder
+	names := chatNames(c)
 	draftRules := chatDraftRules + "\n" + languageRule(e.w.Language)
 	var transcript strings.Builder
 	for _, m := range c.Messages {
@@ -884,7 +991,11 @@ func (e *Engine) ChatTaskDraft(ctx context.Context, id string) (ChatDraft, error
 			}
 			transcript.WriteString("\n\n")
 		case "agent":
-			fmt.Fprintf(&transcript, "Employee: %s\n\n", m.Text)
+			who := "Employee"
+			if len(c.Guests) > 0 && names[m.By] != "" {
+				who = names[m.By]
+			}
+			fmt.Fprintf(&transcript, "%s: %s\n\n", who, m.Text)
 		}
 	}
 	e.mu.Unlock()

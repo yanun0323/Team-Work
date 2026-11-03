@@ -57,12 +57,15 @@ func NewStore(dataDir string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-	for _, table := range []any{&docRow{}, &secretRow{}, &settingsJournal{}} {
+	for _, table := range []any{&docRow{}, &secretRow{}, &settingsJournal{}, &usageRow{}} {
 		if !db.Migrator().HasTable(table) {
 			if err := db.Migrator().CreateTable(table); err != nil {
 				return nil, fmt.Errorf("create database table: %w", err)
 			}
 		}
+	}
+	if err := migrateCompanyFolders(dataDir, db); err != nil {
+		return nil, fmt.Errorf("move company settings: %w", err)
 	}
 	return &Store{db: db, dataDir: dataDir}, nil
 }

@@ -108,7 +108,7 @@ func TestSettingsRejectSymlinksAndPaths(t *testing.T) {
 	if _, err := s.LoadSettings(context.Background()); err == nil {
 		t.Fatal("followed symlink")
 	}
-	for _, path := range []string{"../x", "blueprints/../x.yaml", "teams/x/replicas/../../x.json"} {
+	for _, path := range []string{"../x", "blueprints/../x.yaml", "company/x/employee/../../x.json"} {
 		if _, err := s.safePath(path); err == nil {
 			t.Fatalf("accepted %s", path)
 		}
@@ -183,5 +183,105 @@ func TestFileNameIsTheIDOfBlueprintsAndWorkflows(t *testing.T) {
 	}
 	if got.Blueprints["bp-a"].ID != "bp-a" || got.Workflows["wf-a"].ID != "wf-a" || got.Blueprints["copy"].ID != "copy" || got.Blueprints["copy"].Name != "copy" {
 		t.Fatalf("ids not from file names: %s", out)
+	}
+}
+
+func TestPathIsTheIDOfCompaniesAndEmployees(t *testing.T) {
+	c := model.Settings{Version: 1, Preferences: model.DefaultPreferences(), Providers: map[string]model.ProviderConfig{},
+		Teams:    map[string]model.TeamConfig{"team-a": {ID: "team-a", Name: "a"}},
+		Replicas: map[string]model.ReplicaConfig{"rep-a": {ID: "rep-a", TeamID: "team-a", Name: "a"}}}
+	raw, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := splitSettings(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	company, employee := files["company/team-a/config.yaml"], files["company/team-a/employee/rep-a.json"]
+	if company == nil || employee == nil {
+		t.Fatalf("missing files: %v", files)
+	}
+	if bytes.HasPrefix(company, []byte("id:")) || bytes.Contains(company, []byte("\nid:")) {
+		t.Fatalf("company file still has an id:\n%s", company)
+	}
+	if bytes.Contains(employee, []byte(`"id"`)) || bytes.Contains(employee, []byte(`"teamId"`)) {
+		t.Fatalf("employee file still has its ids:\n%s", employee)
+	}
+	// Files written before this change still carry stale ids; the path wins.
+	files["company/team-a/employee/rep-old.json"] = []byte(`{"id":"rep-x","teamId":"team-x","name":"old"}`)
+	files["company/team-b/config.yaml"] = []byte("id: team-x\nname: b\n")
+	out, err := assemble(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got model.Settings
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Teams["team-a"].ID != "team-a" || got.Teams["team-b"].ID != "team-b" || got.Replicas["rep-a"].TeamID != "team-a" ||
+		got.Replicas["rep-old"].ID != "rep-old" || got.Replicas["rep-old"].TeamID != "team-a" {
+		t.Fatalf("ids not from paths: %s", out)
+	}
+}
+
+func TestMigrateTeamsToCompany(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rel, content string) {
+		path := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("provider.json", "{}\n")
+	write("teams/team-a/config.yaml", "id: team-a\nname: a\n")
+	write("teams/team-a/replicas/rep-a.json", `{"id":"rep-a","teamId":"team-a","name":"a"}`)
+	// An earlier run stopped after renaming one replicas folder.
+	write("teams/team-b/config.yaml", "name: b\n")
+	write("teams/team-b/employee/rep-b.json", `{"name":"b"}`)
+	s, err := NewStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A batch left unfinished under the old paths still recovers.
+	j, _ := json.Marshal(map[string][]byte{"teams/team-a/replicas/rep-a.json": []byte(`{"id":"rep-a","teamId":"team-a","name":"a"}`)})
+	ja, _ := json.Marshal(map[string][]byte{"teams/team-a/replicas/rep-a.json": []byte(`{"name":"renamed"}`)})
+	if err := s.db.Create(&settingsJournal{ID: 1, Before: j, After: ja}).Error; err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if s, err = NewStore(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := os.Stat(filepath.Join(dir, "teams")); !os.IsNotExist(err) {
+		t.Fatal("teams still exists")
+	}
+	snapshot, err := s.LoadSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got model.Settings
+	if err := json.Unmarshal(snapshot.Data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Teams["team-a"].Name != "a" || got.Teams["team-b"].Name != "b" || got.Replicas["rep-a"].Name != "renamed" || got.Replicas["rep-b"].TeamID != "team-b" {
+		t.Fatalf("not migrated: %s", snapshot.Data)
+	}
+}
+
+func TestMigrateRefusesWhenBothFoldersExist(t *testing.T) {
+	dir := t.TempDir()
+	for _, sub := range []string{"teams/team-a", "company/team-a"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if s, err := NewStore(dir); err == nil {
+		s.Close()
+		t.Fatal("accepted both teams and company")
 	}
 }

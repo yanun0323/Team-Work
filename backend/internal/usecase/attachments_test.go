@@ -93,7 +93,7 @@ func TestFileAttachmentsReachChatsAndTasks(t *testing.T) {
 				t.Fatalf("paths: %v", paths)
 			}
 			for i, path := range paths[:3] {
-				rel, err := filepath.Rel(filepath.Join(r.data, "attachments", id), path)
+				rel, err := filepath.Rel(filepath.Join(r.data, "cache", "attachments", id), path)
 				if err != nil || strings.HasPrefix(rel, "..") {
 					t.Fatalf("unsafe path %s", path)
 				}
@@ -179,7 +179,7 @@ func TestUploadedFilesReachChatsAndTasksByReference(t *testing.T) {
 	if err != nil || string(raw) != content || filepath.Base(path) != "notes.txt" {
 		t.Fatalf("attached copy at %s: %d bytes, %v", path, len(raw), err)
 	}
-	if !strings.HasPrefix(path, filepath.Join(r.data, "attachments", c.ID)) {
+	if !strings.HasPrefix(path, filepath.Join(r.data, "cache", "attachments", c.ID)) {
 		t.Fatalf("outside the chat's root: %s", path)
 	}
 	if got := r.world().Chats[c.ID].Messages[0].Files; !slices.Equal(got, files) {

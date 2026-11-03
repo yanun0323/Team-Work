@@ -55,10 +55,27 @@ func anthropicMessages(msgs []model.Message) []map[string]any {
 	return out
 }
 
+var anthropicCache = map[string]string{"type": "ephemeral"}
+
+// anthropicCached marks the last block of the messages for the API to cache everything up to it.
+func anthropicCached(msgs []map[string]any) []map[string]any {
+	if len(msgs) == 0 {
+		return msgs
+	}
+	content := msgs[len(msgs)-1]["content"].([]map[string]any)
+	content[len(content)-1]["cache_control"] = anthropicCache
+	return msgs
+}
+
 func (a anthropic) Complete(ctx context.Context, req model.ModelRequest, onText func(string)) (model.ModelReply, error) {
 	body := map[string]any{
 		"model": req.Model, "max_tokens": anthropicMaxTokens, "stream": true,
-		"system": req.System, "messages": anthropicMessages(req.Messages),
+		"messages": anthropicCached(anthropicMessages(req.Messages)),
+	}
+	// the API caches only up to a marked block: one after the tools and system, which rarely change, and one at
+	// the end of the messages, so the next call of the turn or chat reads all before it from the cache
+	if req.System != "" {
+		body["system"] = []map[string]any{{"type": "text", "text": req.System, "cache_control": anthropicCache}}
 	}
 	if len(req.Tools) > 0 {
 		tools := make([]map[string]any, len(req.Tools))

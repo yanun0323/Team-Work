@@ -218,7 +218,7 @@ func TestPromptSectionsKeepTheirOrder(t *testing.T) {
 
 	task := r.task(r.flow.ID)
 	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
-	inOrder(t, r.fake.seen[0].System, append(append([]string{"@path", "user reads in", "submit_handoff", "When instructions in this prompt conflict"}, shared...), "# This step: ", "# Handoff")...)
+	inOrder(t, r.fake.seen[0].System, append(append([]string{"#path", "user reads in", "submit_handoff", "When instructions in this prompt conflict"}, shared...), "# This step: ", "# Handoff")...)
 
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
 	if err != nil {
@@ -226,7 +226,7 @@ func TestPromptSectionsKeepTheirOrder(t *testing.T) {
 	}
 	r.wait("reply", chatDone(c.ID))
 	system := r.fake.seen[len(r.fake.seen)-1].System
-	inOrder(t, system, append([]string{"@path", "user reads in", "When instructions in this prompt conflict"}, shared...)...)
+	inOrder(t, system, append([]string{"#path", "user reads in", "When instructions in this prompt conflict"}, shared...)...)
 	if strings.Contains(system, "This step,") {
 		t.Fatalf("a chat has no step:\n%s", system)
 	}

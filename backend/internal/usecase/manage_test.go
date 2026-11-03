@@ -520,7 +520,7 @@ func TestSayingSomethingElseRefusesAndCopiesAndRewindsDropTheCard(t *testing.T) 
 	c := inChat(t, r, m, doing("save_blueprint", args))
 	r.wait("card", func(w *model.World) bool { return w.Chats[c.ID].Change != nil })
 	// a copy cannot agree for the original
-	fork, err := r.e.ForkChat(c.ID, 0)
+	fork, err := r.e.HandOffChat(c.ID, 0, c.ReplicaID)
 	if err != nil {
 		t.Fatal(err)
 	}

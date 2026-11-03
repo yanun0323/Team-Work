@@ -469,7 +469,7 @@ const saveBlueprintDescription = "Without id, create a blueprint; it can be used
 
 const saveBlueprintSchema = `{"type":"object","properties":{"id":{"type":"string"},"version":{"type":"string"},"name":{"type":"string"},"prompt":{"type":"string"},"comment":{"type":"string"},` +
 	`"tools":{"type":"array","items":{"type":"string","enum":["readFile","writeFile","webSearch","runCommand"]}},` +
-	`"skills":{"type":"array","items":{"type":"object","properties":{"source":{"type":"object","description":"A folder on this computer, or a Git repo","properties":{"kind":{"type":"string","enum":["local","git"]},"path":{"type":"string"},"repo":{"type":"string"},"ref":{"type":"string"}},"required":["kind"]},` +
+	`"skills":{"type":"array","items":{"type":"object","properties":{"source":{"type":"object","description":"A folder on this computer, or a Git repo","properties":{"kind":{"type":"string","enum":["local","git"]},"path":{"type":"string","description":"local: the folder; git: a folder in the repo, or leave out for the whole repo"},"repo":{"type":"string"},"ref":{"type":"string"}},"required":["kind"]},` +
 	`"include":{"type":"array","items":{"type":"string"}},"exclude":{"type":"array","items":{"type":"string"}}},"required":["source"]}}}}`
 
 type blueprintArgs struct {
@@ -513,7 +513,7 @@ func (a blueprintArgs) applyTo(b *model.Blueprint) error {
 				if strings.TrimSpace(p.Source.Repo) == "" {
 					return model.Errorf(model.CodeInvalid, "技能要有來源")
 				}
-				source = model.BlueprintSource{Kind: "git", Repo: githubAddress(p.Source.Repo), Ref: strings.TrimSpace(p.Source.Ref)}
+				source = model.BlueprintSource{Kind: "git", Repo: githubAddress(p.Source.Repo), Ref: strings.TrimSpace(p.Source.Ref), Path: strings.Trim(strings.TrimSpace(p.Source.Path), "/")}
 			default:
 				return model.Errorf(model.CodeInvalid, "技能要有來源")
 			}
@@ -668,6 +668,9 @@ func skillsText(packs []model.SkillPack) string {
 		where := ""
 		if p.Source != nil {
 			where = p.Source.Path + p.Source.Repo
+			if p.Source.Kind == "git" && p.Source.Path != "" {
+				where = p.Source.Repo + "/" + p.Source.Path
+			}
 		}
 		if p.Include != nil {
 			where += " +" + strings.Join(p.Include, ",")
@@ -1194,12 +1197,16 @@ func (e *Engine) ResolveChatChange(id string, agreed bool, note string) error {
 		c.Change = nil
 		e.w.Conversations[c.ID] = answerChange(e.w.Conversations[c.ID], text, isError)
 		e.dirty[c.ID] = true
-		spec, err := e.chatSpec(c)
+		speaker := c.Speaker // the one who asked goes on, then the rest of the round
+		if speaker == "" {
+			speaker = c.ReplicaID
+		}
+		spec, err := e.chatSpec(c, speaker)
 		if err != nil {
 			e.chatSays(c, i18n.T("（回覆失敗：%s）", safeText(err)))
 			return nil
 		}
-		e.launchChat(c, spec)
+		e.launchChat(c, speaker, spec)
 		return nil
 	})
 }

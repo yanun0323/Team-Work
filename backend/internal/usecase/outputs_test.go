@@ -34,11 +34,11 @@ func TestLongCommandOutputGoesWithItsChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.wait("reply", chatDone(c.ID))
-	own := filepath.Join(r.data, "outputs", c.ID)
+	own := filepath.Join(r.data, "cache", "outputs", c.ID)
 	if outputFiles(t, own) != 1 {
 		t.Fatal("the long output was not kept with the chat")
 	}
-	fork, err := r.e.ForkChat(c.ID, len(r.world().Chats[c.ID].Messages)-1)
+	fork, err := r.e.HandOffChat(c.ID, len(r.world().Chats[c.ID].Messages)-1, c.ReplicaID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestLongCommandOutputGoesWithItsChat(t *testing.T) {
 	if outputFiles(t, own) != 0 {
 		t.Fatal("the output outlived its chat")
 	}
-	if outputFiles(t, filepath.Join(r.data, "outputs", fork.ID)) != 1 {
+	if outputFiles(t, filepath.Join(r.data, "cache", "outputs", fork.ID)) != 1 {
 		t.Fatal("the fork lost the output its conversation points to")
 	}
 }
@@ -56,7 +56,7 @@ func TestLongCommandOutputGoesWithItsChat(t *testing.T) {
 func TestCommandOutputGoesWithItsTask(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	task := r.task(r.flow.ID)
-	dir := filepath.Join(r.data, "outputs", task.ID)
+	dir := filepath.Join(r.data, "cache", "outputs", task.ID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

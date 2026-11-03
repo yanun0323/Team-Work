@@ -39,7 +39,7 @@ type Git struct {
 }
 
 func NewGit(dataDir string) *Git {
-	return &Git{cacheDir: filepath.Join(dataDir, "sources"), locks: map[string]*sync.Mutex{}}
+	return &Git{cacheDir: filepath.Join(dataDir, "cache", "sources"), locks: map[string]*sync.Mutex{}}
 }
 
 func (g *Git) lock(key string) func() {
@@ -118,8 +118,10 @@ func (g *Git) Uncommitted(ctx context.Context, folder string) (bool, error) {
 	return out != "", err
 }
 
+// Files lists every file under folder for "#" mentions, ignored ones too: someone may well want to point at a .env
+// or a build output. Only .git is left out. Nothing else lists files this way, so git's ignore rules hold elsewhere.
 func (g *Git) Files(ctx context.Context, folder string) []string {
-	if out, err := exec.CommandContext(ctx, "git", "-C", folder, "ls-files", "--cached", "--others", "--exclude-standard", "-z").Output(); err == nil {
+	if out, err := exec.CommandContext(ctx, "git", "-C", folder, "ls-files", "--cached", "--others", "-z").Output(); err == nil {
 		return strings.FieldsFunc(string(out), func(r rune) bool { return r == 0 })
 	}
 	var files []string

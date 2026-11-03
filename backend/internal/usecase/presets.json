@@ -470,6 +470,39 @@
       ]
     },
     {
+      "id": "preset-small",
+      "name": {
+        "zh": "小功能",
+        "en": "Small feature"
+      },
+      "layers": [
+        [
+          {
+            "name": {
+              "zh": "實作",
+              "en": "Implement"
+            },
+            "prompt": {
+              "zh": "照上一步整理的需求和驗收條件實作。先讀現有架構、元件和樣式，沿用專案的慣例，能重用就不新寫，只改這次需要的部分，不動無關的檔案。\n\n有畫面的改動要處理載入中、空資料和錯誤狀態。新增或修改的行為都要有測試；交接前跑過測試和建置，確認通過。\n\n交接時寫清楚做了什麼、改了哪些檔案、怎麼驗證，並把驗收條件原文帶給下一步。",
+              "en": "Implement the requirements and acceptance criteria from the previous step. Read the existing architecture, components and styles first, follow the project's conventions, reuse what you can, change only what this task needs, and leave unrelated files alone.\n\nFor changes with a UI, handle loading, empty data and error states. Cover every new or changed behavior with tests. Run the tests and build before you hand off and confirm they pass.\n\nIn your handoff, state what you did, which files you changed and how you verified it, and copy the acceptance criteria word for word for the next step."
+            }
+          }
+        ],
+        [
+          {
+            "name": {
+              "zh": "更新文件",
+              "en": "Update docs"
+            },
+            "prompt": {
+              "zh": "拿這次的改動對照現有文件（README、docs/、應用程式內的說明），更新因此變得不正確的內容；新增的使用者可見功能沒寫進文件的，就補上。只改和這次改動有關的部分，不另寫文件描述做了什麼，也不修改產品程式。\n\n沒有文件需要更新就說明原因，直接交接。\n\n交接時列出改了哪些文件，並把驗收條件原文帶給下一步。",
+              "en": "Compare this change with the existing documentation (README, docs/, in-app help) and update whatever it made inaccurate. If a new user-facing feature is undocumented, document it. Change only what relates to this change, do not write documents that describe the work done, and do not change product code.\n\nIf no documentation needs updating, say why and hand off directly.\n\nIn your handoff, list the documents you changed and copy the acceptance criteria word for word for the next step."
+            }
+          }
+        ]
+      ]
+    },
+    {
       "id": "preset-bugfix",
       "name": {
         "zh": "修 Bug",
@@ -524,8 +557,20 @@
         [
           {
             "name": {
-              "zh": "討論需求",
-              "en": "Discuss requirements"
+              "zh": "撰寫規格",
+              "en": "Write spec"
+            },
+            "prompt": {
+              "zh": "根據上一步的整理，把需求寫成規格，放進 docs/，不要加入上一步沒有整理出來的需求。\n\n規格要包含：要解決的問題和對象、範圍、不做的事、主要流程、邊界與錯誤情況，以及可以逐條驗證的驗收條件。只寫要達成什麼，不談實作細節。需要使用者決定的地方，列為待確認。\n\n交接時列出規格檔案的路徑和待確認事項，並把驗收條件原文帶給下一步。",
+              "en": "Using the previous step's summary, write the requirements as a spec in docs/. Add no requirement the summary does not contain.\n\nThe spec includes: the problem and who has it, the scope, what is excluded, the main flows, edge and error cases, and acceptance criteria that can be verified one by one. Say what to achieve, not how to implement it. List anything the user must decide as open.\n\nIn your handoff, list the spec's file path and open items, and copy the acceptance criteria word for word for the next step."
+            }
+          }
+        ],
+        [
+          {
+            "name": {
+              "zh": "規格討論",
+              "en": "Spec discussion"
             },
             "talk": true
           }
@@ -533,24 +578,12 @@
         [
           {
             "name": {
-              "zh": "撰寫規格",
-              "en": "Write spec"
+              "zh": "修改規格",
+              "en": "Revise spec"
             },
             "prompt": {
-              "zh": "把上一步討論的結論寫成規格，放進 docs/，不要加入討論中沒有談定的需求；沒談到但必須決定的地方，列為待確認。\n\n規格要包含：要解決的問題和對象、範圍、不做的事、主要流程、邊界與錯誤情況，以及可以逐條驗證的驗收條件。\n\n交接時列出規格檔案的路徑和待確認事項，並把驗收條件原文帶給下一步。",
-              "en": "Write the previous step's conclusions as a spec in docs/. Add no requirement the discussion did not settle. List anything undiscussed that must be decided as open.\n\nThe spec includes: the problem and who has it, the scope, what is excluded, the main flows, edge and error cases, and acceptance criteria that can be verified one by one.\n\nIn your handoff, list the spec's file path and open items, and copy the acceptance criteria word for word for the next step."
-            }
-          }
-        ],
-        [
-          {
-            "name": {
-              "zh": "拆解工作",
-              "en": "Break down work"
-            },
-            "prompt": {
-              "zh": "把規格拆成可以各自完成、各自驗證的工作，寫進 docs/。\n\n每項工作要寫：要做什麼、做到什麼程度算完成、依賴哪些工作。再排好先後順序，標出哪些可以同時進行，並列出風險和因應方式。這一步只做規劃，不寫產品程式。\n\n交接時列出文件路徑和最需要使用者決定的事，並把驗收條件原文帶給下一步。",
-              "en": "Split the spec into items that can each be finished and verified on their own, and write them in docs/.\n\nFor each item, state what to do, what counts as done and which items it depends on. Then order them, mark what can run in parallel, and list risks and responses. Only plan in this step. Do not write product code.\n\nIn your handoff, list the document path and what most needs the user's decision, and copy the acceptance criteria word for word for the next step."
+              "zh": "照上一步和使用者討論的結論修改規格檔案，不要加入討論中沒有談定的需求；仍未談定的地方，留在待確認。\n\n改完後重讀整份規格，確認前後一致，驗收條件也跟著討論結果更新，每一條都能逐條驗證。\n\n交接時列出規格檔案的路徑、改了哪些地方、仍待確認的事項，並把更新後的驗收條件原文帶給下一步。",
+              "en": "Revise the spec file by the conclusions of the previous step's discussion with the user. Add no requirement the discussion did not settle. Keep anything still unsettled as open.\n\nAfterwards, reread the whole spec and confirm it is consistent, and that the acceptance criteria reflect the discussion and can each be verified.\n\nIn your handoff, list the spec's file path, what you changed and the items still open, and copy the updated acceptance criteria word for word for the next step."
             }
           }
         ]

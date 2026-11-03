@@ -52,7 +52,11 @@ func TestPresets(t *testing.T) {
 	if feature.Name != "功能開發" || len(feature.Edges) != 7 {
 		t.Fatalf("%+v", feature)
 	}
-	for _, id := range []string{"preset-feature", "preset-bugfix", "preset-planning", "preset-review", "preset-refactor"} {
+	small := presetFlowOf(t, w, "preset-small")
+	if small.Name != "小功能" || len(small.Nodes) != 4 || len(small.Edges) != 3 {
+		t.Fatalf("%+v", small)
+	}
+	for _, id := range []string{"preset-feature", "preset-small", "preset-bugfix", "preset-planning", "preset-review", "preset-refactor"} {
 		// a copy goes through the same checks as a flow drawn by hand
 		c, err := r.e.DuplicateWorkflow(id)
 		if err != nil {
