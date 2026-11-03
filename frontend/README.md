@@ -5,7 +5,7 @@
 - `make dev`：同時啟動前端和真正的[後端](../backend/README.md)，按 Ctrl+C 會一起關掉，其中一個停了另一個也會停；一開始沒有任何公司。後端連不上時畫面下方會提示，並自動重連。
 - `make dev-mock`：用瀏覽器內的模擬器和假資料，不需要後端，任務會自己跑。
 
-Mac App 使用 `make build` 建置，輸出為 `dist/Team Work.app`（未簽署，支援 Apple Silicon 與 Intel）。圖示來源是 `macos/AppIcon.iconset`，包含 16–512 pt 的 1×／2× PNG；建置時會轉成 `AppIcon.icns` 並放入 App。`macos/AppIcon.icns` 是可直接使用的獨立圖示檔，更新 iconset 後可用 `iconutil -c icns macos/AppIcon.iconset -o macos/AppIcon.icns` 同步。
+Mac App 使用 `make build` 建置，輸出為 `dist/Team Work.app`（未簽署，支援 Apple Silicon 與 Intel）。圖示來源是 `macos/AppIcon.iconset`，包含 16–512 pt 的 1×／2× PNG；建置時會轉成 `AppIcon.icns` 並放入 App。
 
 接後端時，地圖上的位置和大樓外觀存在後端 SQLite，介面偏好存在 `preferences.yaml`；兩者都位於 `TEAM_WORK_HOME`（預設 `~/.team-work`），不匯入舊的瀏覽器設定；解散公司不會刪資料夾，所以沒有「同時刪除本地檔案」；ChatGPT 訂閱是真的登入。以下功能說明寫的是畫面，兩種跑法相同。
 
