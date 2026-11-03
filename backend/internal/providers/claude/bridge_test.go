@@ -150,13 +150,20 @@ func TestClaudeChild(t *testing.T) {
 				continue
 			}
 			if tools && round == 1 {
+				tool := "mcp__mho__read"
+				if os.Getenv("MHO_TEST_CLAUDE_UNPREFIXED") == "1" {
+					tool = "read"
+				}
 				toolArgs := `{"path":"a.go"}`
 				if value := os.Getenv("MHO_TEST_CLAUDE_TOOL_ARGS"); value != "" {
 					toolArgs = value
 				}
 				write(object{"type": "stream_event", "event": object{"type": "message_start", "message": object{"id": "tools", "usage": object{"input_tokens": 10, "cache_read_input_tokens": 20}}}})
 				for i := 0; i < 2; i++ {
-					write(object{"type": "stream_event", "event": object{"type": "content_block_start", "index": i, "content_block": object{"type": "tool_use", "id": fmt.Sprint("c", i), "name": "mcp__mho__read", "input": object{}}}})
+					if os.Getenv("MHO_TEST_CLAUDE_ASSISTANT_TOOLS") == "1" {
+						continue
+					}
+					write(object{"type": "stream_event", "event": object{"type": "content_block_start", "index": i, "content_block": object{"type": "tool_use", "id": fmt.Sprint("c", i), "name": tool, "input": object{}}}})
 					write(object{"type": "stream_event", "event": object{"type": "content_block_delta", "index": i, "delta": object{"type": "input_json_delta", "partial_json": toolArgs}}})
 					write(object{"type": "stream_event", "event": object{"type": "content_block_stop", "index": i}})
 				}
@@ -164,7 +171,10 @@ func TestClaudeChild(t *testing.T) {
 				// One call before message_stop; the second deliberately arrives after it.
 				write(mcpCall("r0", 0, "c0"))
 				write(object{"type": "stream_event", "event": object{"type": "message_stop"}})
-				write(object{"type": "assistant", "uuid": "old", "message": object{"id": "tools", "content": []object{{"type": "tool_use", "id": "c0", "name": "mcp__mho__read", "input": object{}}}}})
+				write(object{"type": "assistant", "uuid": "old", "message": object{"id": "tools", "stop_reason": "tool_use", "content": []object{
+					{"type": "tool_use", "id": "c0", "name": tool, "input": json.RawMessage(toolArgs)},
+					{"type": "tool_use", "id": "c1", "name": "mcp__mho__read", "input": json.RawMessage(toolArgs)},
+				}}})
 				write(mcpCall("r1", 1, "c1"))
 				write(object{"type": "tool_progress", "parent_tool_use_id": "c1", "tool_use_id": "c1", "heartbeat": true})
 			} else {
@@ -292,6 +302,41 @@ func TestToolRoundTripReuseAndRebuild(t *testing.T) {
 	b.close()
 	if _, err := os.Stat(mirror.path); !os.IsNotExist(err) {
 		t.Fatal("mirror not cleaned")
+	}
+}
+
+// Both frame formats must normalize bare names, pair early/late MCP results by
+// call ID, and continue on the same child without executing duplicate calls.
+func TestUnprefixedToolRoundTrip(t *testing.T) {
+	for _, assistantOnly := range []string{"0", "1"} {
+		t.Run(assistantOnly, func(t *testing.T) {
+			fakeClaude(t)
+			t.Setenv("MHO_TEST_CLAUDE_UNPREFIXED", "1")
+			t.Setenv("MHO_TEST_CLAUDE_ASSISTANT_TOOLS", assistantOnly)
+			var logged bytes.Buffer
+			b := newBridge()
+			b.log = slog.New(slog.NewJSONHandler(&logged, nil))
+			defer b.close()
+			p := base(t)
+			result, calls := runTurn(t, b, &p)
+			if result.StopReason != "tool_use" || len(calls) != 2 {
+				t.Fatalf("unexpected calls: %+v %+v", result, calls)
+			}
+			first := b.sessions[p.Session].child
+			for i := 1; i >= 0; i-- {
+				if calls[i].Name != "read" || calls[i].ID != fmt.Sprint("c", i) || string(calls[i].Args) != `{"path":"a.go"}` {
+					t.Fatalf("call not preserved: %+v", calls[i])
+				}
+				p.Messages = append(p.Messages, ModelMessage{Role: "tool", CallID: calls[i].ID, Content: []Block{text(fmt.Sprint("result", i))}})
+			}
+			result, reply := runTurn(t, b, &p)
+			if result.StopReason != "end_turn" || len(reply) != 1 || reply[0].Text != "ok" || b.sessions[p.Session].child != first {
+				t.Fatalf("results did not resume the same child: %+v %+v", result, reply)
+			}
+			if !strings.Contains(logged.String(), `"msg":"tool_call_normalized"`) || strings.Contains(logged.String(), "a.go") {
+				t.Fatal("missing or unsafe normalization diagnostic")
+			}
+		})
 	}
 }
 
@@ -628,13 +673,16 @@ func TestToolDenialDoesNotRelaxToolBoundary(t *testing.T) {
 		id   string
 	}{
 		{"Bash", "call"},
+		{"write", "call"},
+		{"read", ""},
+		{"mcp__other__read", "call"},
 		{"mcp__other__write", "call"},
 		{"mcp__mho__write", ""},
 		{"mcp__mho__", "call"},
 		{"mcp__mho__bad.name", "call"},
 	} {
 		t.Run(tc.name+tc.id, func(t *testing.T) {
-			turn := newTurn(nil, func(any) error {
+			turn := newTurn([]ToolSpec{{Name: "read"}}, func(any) error {
 				t.Fatal("invalid tool was forwarded to the core")
 				return nil
 			})
@@ -657,7 +705,7 @@ func TestRejectedToolDiagnostics(t *testing.T) {
 			{"Bash", "private-call", "outside_mho", "builtin", "Bash", false},
 			{"Read", "private-call", "outside_mho", "builtin", "Read", false},
 			{"", "private-call", "outside_mho", "other", "", false},
-			{"read", "private-call", "outside_mho", "other", "", true},
+			{"read", "", "missing_call_id", "other", "", true},
 			{"mcp__private-server__private-tool", "private-call", "outside_mho", "other_mcp", "", false},
 			{"private-tool", "private-call", "outside_mho", "other", "", false},
 			{"mcp__mho__read", "", "missing_call_id", "mho", "", false},

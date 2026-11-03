@@ -500,15 +500,17 @@ func (t *turn) emitCall(b claudeBlock) error {
 		if b.Name == toolPrefix+tool.Name {
 			known = true
 		}
-		if b.Name == tool.Name {
-			unprefixed = true
+		// Accept a bare name only when it exactly matches this turn's tools.
+		// Never treat another MCP server's qualified name as a bare alias.
+		if b.Name == tool.Name && !strings.HasPrefix(b.Name, "mcp__") {
+			known, unprefixed = true, true
 		}
 	}
 	reason := ""
 	switch {
 	case b.ID == "":
 		reason = "missing_call_id"
-	case !strings.HasPrefix(b.Name, toolPrefix):
+	case !strings.HasPrefix(b.Name, toolPrefix) && !unprefixed:
 		reason = "outside_mho"
 	case !toolName.MatchString(name):
 		reason = "invalid_tool_name"
@@ -548,6 +550,10 @@ func (t *turn) emitCall(b claudeBlock) error {
 		var value map[string]any
 		if json.Unmarshal(args, &value) != nil || value == nil {
 			return rejected("Claude sent invalid tool arguments.")
+		}
+		if unprefixed {
+			// Keep diagnostics without recording model-supplied names or arguments.
+			record(t.log, "tool_call_normalized", "reason", "missing_mho_prefix")
 		}
 		if err := t.send(Block{Type: "tool_call", ID: b.ID, Name: name, Args: args}); err != nil {
 			return err
