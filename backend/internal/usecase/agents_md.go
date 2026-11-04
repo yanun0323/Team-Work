@@ -16,7 +16,7 @@ const agentsFile = "AGENTS.md"
 // readPrompt brings a company's prompt up to date with its file; no file means no prompt. While the file can't be
 // read, or the folder is gone, the last known prompt stays. Call it holding the lock.
 func (e *Engine) readPrompt(t *model.Team) {
-	raw, err := os.ReadFile(filepath.Join(t.Folder, agentsFile))
+	raw, err := readInside(t.Folder, agentsFile)
 	if errors.Is(err, fs.ErrNotExist) {
 		if _, statErr := os.Stat(t.Folder); statErr == nil {
 			t.Prompt = ""
@@ -34,11 +34,42 @@ func (e *Engine) readPrompt(t *model.Team) {
 // and a company with neither gets no file.
 func (e *Engine) writePrompt(t *model.Team, prompt string) error {
 	path := filepath.Join(t.Folder, agentsFile)
-	if err := saveAgentsFile(path, prompt); err != nil {
+	if err := saveInside(t.Folder, agentsFile, prompt); err != nil {
 		e.log.Error().Err(err).Str("folder", t.Folder).Msg("write AGENTS.md")
 		return model.Errorf(model.CodeUnavailable, "寫不進 %s，請檢查專案資料夾", path)
 	}
 	return nil
+}
+
+// readInside reads a file of a project, refusing a link that leads out of the project's folder: a project brought
+// in from elsewhere must not get the app to read or write other files.
+func readInside(folder, name string) ([]byte, error) {
+	root, err := os.OpenRoot(folder)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return root.ReadFile(name)
+}
+
+// saveInside writes a file of a project as saveAgentsFile does, refusing a link that leads out of the folder.
+func saveInside(folder, name, text string) error {
+	root, err := os.OpenRoot(folder)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	raw, err := root.ReadFile(name)
+	if (err == nil && string(raw) == text) || (errors.Is(err, fs.ErrNotExist) && text == "") {
+		return nil
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		return err
+	}
+	return root.WriteFile(name, []byte(text), 0o644)
 }
 
 // saveAgentsFile writes a prompt unless the file already says it, or there is neither a file nor a prompt.

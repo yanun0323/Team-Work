@@ -327,12 +327,16 @@ const skillDepth = 4
 
 // skillsIn lists the skills under root/skills, or under root when that has none. A skill is a folder with a
 // SKILL.md, at any depth up to skillDepth, as packs may sort skills into categories (skills/engineering/tdd).
-// The search stops at a skill's folder, follows links, and skips hidden folders and node_modules.
-func skillsIn(root string, include, exclude []string) []skill {
+// The search stops at a skill's folder, follows links, and skips hidden folders and node_modules. A non-empty inside
+// is a folder links must not lead out of, as with a repo fetched from Git: what leads out of it is left out.
+func skillsIn(root, inside string, include, exclude []string) []skill {
 	var out []skill
-	matches := skillFiles(filepath.Join(root, "skills"), skillDepth)
+	if inside != "" && !insideDir(inside, root) {
+		return nil
+	}
+	matches := skillFiles(filepath.Join(root, "skills"), inside, skillDepth)
 	if len(matches) == 0 {
-		matches = skillFiles(root, skillDepth)
+		matches = skillFiles(root, inside, skillDepth)
 	}
 	for _, path := range matches {
 		raw, err := os.ReadFile(path)
@@ -354,8 +358,23 @@ func skillsIn(root string, include, exclude []string) []skill {
 	return out
 }
 
-// skillFiles finds the SKILL.md in the folders below dir, depth levels down at most.
-func skillFiles(dir string, depth int) []string {
+// insideDir says whether path, links followed, is base or below it.
+func insideDir(base, path string) bool {
+	b, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		return false
+	}
+	p, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(b, p)
+	return err == nil && filepath.IsLocal(rel)
+}
+
+// skillFiles finds the SKILL.md in the folders below dir, depth levels down at most, leaving out what leads out of
+// inside when it is not empty.
+func skillFiles(dir, inside string, depth int) []string {
 	if depth == 0 {
 		return nil
 	}
@@ -373,11 +392,17 @@ func skillFiles(dir string, depth int) []string {
 		if info, err := os.Stat(sub); err != nil || !info.IsDir() { // Stat follows links
 			continue
 		}
-		if info, err := os.Stat(filepath.Join(sub, "SKILL.md")); err == nil && !info.IsDir() {
-			out = append(out, filepath.Join(sub, "SKILL.md"))
+		if inside != "" && !insideDir(inside, sub) {
 			continue
 		}
-		out = append(out, skillFiles(sub, depth-1)...)
+		file := filepath.Join(sub, "SKILL.md")
+		if info, err := os.Stat(file); err == nil && !info.IsDir() {
+			if inside == "" || insideDir(inside, file) {
+				out = append(out, file)
+			}
+			continue
+		}
+		out = append(out, skillFiles(sub, inside, depth-1)...)
 	}
 	return out
 }

@@ -155,6 +155,14 @@ func RuntimeDoc(d Doc) (Doc, error) {
 }
 
 // SettingsChange compares the exact bytes last loaded before replacing the file.
+// SecretChange is a provider's key written, or removed when Delete, in the same transaction as the documents and
+// settings it goes with, so a failed change leaves the key as it was.
+type SecretChange struct {
+	ID     string
+	Value  string
+	Delete bool
+}
+
 type SettingsChange struct {
 	Before  SettingsSnapshot
 	After   []byte

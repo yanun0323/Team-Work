@@ -354,3 +354,45 @@ func TestOlderFlowKeepsFirstOnAWorkStep(t *testing.T) {
 		t.Fatalf("%+v", n)
 	}
 }
+
+// What the API keeps has to load again: a flow the settings file would refuse is refused when it is saved.
+func TestASavedFlowLoadsAgain(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	good := *r.flow
+	cases := map[string]func(wf *model.Workflow){
+		"empty edge id": func(wf *model.Workflow) { wf.Edges[0].ID = "" },
+		"same edge id": func(wf *model.Workflow) {
+			wf.Edges = append(wf.Edges, model.WorkflowEdge{ID: wf.Edges[0].ID, From: "start", To: "end"})
+		},
+		"same ends": func(wf *model.Workflow) {
+			wf.Edges = append(wf.Edges, model.WorkflowEdge{ID: "e2", From: "start", To: "end"})
+		},
+		"unknown kind":      func(wf *model.Workflow) { wf.Nodes[0].Kind = "robot" },
+		"unknown handoff":   func(wf *model.Workflow) { wf.Nodes[0].Handoff = "" },
+		"unknown join mode": func(wf *model.Workflow) { wf.Nodes[1].Join = "some" },
+	}
+	for name, change := range cases {
+		wf := *clonedFlow(&good)
+		change(&wf)
+		if err := r.e.SaveWorkflow(wf.ID, wf); err == nil {
+			t.Errorf("%s: saved", name)
+		}
+	}
+	wf := *clonedFlow(&good)
+	wf.Name = "改過"
+	if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
+		t.Fatal(err)
+	}
+	r.e.Close()
+	newEngine(t, r)
+	if got := r.world().Workflows[wf.ID]; got == nil || got.Name != "改過" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func clonedFlow(wf *model.Workflow) *model.Workflow {
+	raw, _ := json.Marshal(wf)
+	out := &model.Workflow{}
+	json.Unmarshal(raw, out)
+	return out
+}

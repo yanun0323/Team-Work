@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -171,7 +170,7 @@ func (e *Engine) resolveConflict(ctx context.Context, in mergeRun) error {
 		},
 		onTool: func(call model.Block) {
 			e.applyMerge(in, func(t *model.Task) {
-				t.Merge.Log = append(t.Merge.Log, model.LogLine{At: e.w.Now, Kind: enum.LogTool, Text: call.Name + " " + clip(string(json.RawMessage(call.Args)), 200)})
+				t.Merge.Log = append(t.Merge.Log, model.LogLine{At: e.w.Now, Kind: enum.LogTool, Text: toolLine(call)})
 			})
 		},
 		onResults: func(model.Message) {},

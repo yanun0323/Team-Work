@@ -33,7 +33,7 @@ func TestSkillsInFindsSkillsSortedIntoCategories(t *testing.T) {
 	write("skills/a/b/c/d/e/SKILL.md", "---\nname: too-deep\n---\n")
 
 	var names []string
-	for _, s := range skillsIn(root, nil, []string{}) {
+	for _, s := range skillsIn(root, "", nil, []string{}) {
 		names = append(names, s.name)
 	}
 	if want := []string{"tdd", "handoff"}; !slices.Equal(names, want) {
@@ -49,7 +49,7 @@ func TestSkillsInFallsBackToTheRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "group", "review", "SKILL.md"), []byte("---\nname: review\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := skillsIn(root, nil, nil); len(got) != 1 || got[0].name != "review" {
+	if got := skillsIn(root, "", nil, nil); len(got) != 1 || got[0].name != "review" {
 		t.Fatalf("skills = %+v, want review", got)
 	}
 }
@@ -83,6 +83,54 @@ func TestLoadSkillsReadsAFolderInTheRepo(t *testing.T) {
 	}
 	if found, _, problems := e.loadSkills(context.Background(), pack("../outside")); len(found) > 0 || len(problems) != 1 {
 		t.Fatalf("a folder outside the repo gave skills = %+v, problems = %v", found, problems)
+	}
+}
+
+func TestARepoCannotLinkOutOfItself(t *testing.T) {
+	outside, repo := t.TempDir(), t.TempDir()
+	writeSkill(t, outside, "private")
+	writeSkill(t, outside, "loose")
+	os.WriteFile(filepath.Join(outside, "role.md"), []byte("secret role"), 0o644)
+	writeSkill(t, repo, "skills/kept")
+	os.Symlink(filepath.Join(outside, "private"), filepath.Join(repo, "skills", "private")) // a skill folder
+	os.MkdirAll(filepath.Join(repo, "skills", "file"), 0o755)
+	os.Symlink(filepath.Join(outside, "loose", "SKILL.md"), filepath.Join(repo, "skills", "file", "SKILL.md")) // a skill file
+	os.Symlink("kept", filepath.Join(repo, "skills", "alias"))                                                 // inside: fine
+	os.Symlink(outside, filepath.Join(repo, "out"))                                                            // a pack folder
+	os.Symlink(filepath.Join(outside, "role.md"), filepath.Join(repo, "AGENTS.md"))
+
+	e := &Engine{git: fetchedRepo{dir: repo}}
+	pack := func(kind, path string) []packRoot {
+		return []packRoot{{source: model.BlueprintSource{Kind: kind, Repo: "https://github.com/a/b", Path: path}}}
+	}
+	found, roots, _ := e.loadSkills(context.Background(), pack("git", ""))
+	var names []string
+	for _, s := range found {
+		names = append(names, s.name)
+	}
+	slices.Sort(names)
+	if !slices.Equal(names, []string{"kept"}) { // alias is kept again, under the same name
+		t.Fatalf("skills = %v", names)
+	}
+	for _, r := range roots {
+		if !insideDir(repo, r) {
+			t.Fatalf("a folder outside the repo became readable: %s", r)
+		}
+	}
+	if found, _, problems := e.loadSkills(context.Background(), pack("git", "out")); len(found) > 0 || len(problems) != 1 {
+		t.Fatalf("a pack folder linked out gave skills = %+v, problems = %v", found, problems)
+	}
+	if items := itemsAt(model.Source{Kind: "git"}, repo); len(items) != 2 {
+		t.Fatalf("items = %+v", items)
+	}
+	if got, _ := e.ownPrompt(context.Background(), &model.BlueprintSource{Kind: "git", Repo: "https://github.com/a/b"}); got != "" {
+		t.Fatalf("the role came from outside the repo: %q", got)
+	}
+
+	// a folder the user picked keeps its links
+	local := []packRoot{{source: model.BlueprintSource{Kind: "local", Path: repo}}}
+	if found, _, _ := e.loadSkills(context.Background(), local); len(found) != 3 {
+		t.Fatalf("a local folder's links were dropped: %+v", found)
 	}
 }
 

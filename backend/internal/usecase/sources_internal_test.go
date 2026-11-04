@@ -140,7 +140,7 @@ func TestItemsAtNamesEachSkillsFolder(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, root, "pstack/skills/ship")
 	writeSkill(t, root, "top")
-	got := itemsAt(root)
+	got := itemsAt(model.Source{Kind: "git"}, root)
 	if len(got) != 2 || got[0].Path != "pstack/skills/ship" || got[0].Category != "pstack/skills" || got[1].Path != "top" || got[1].Category != "" {
 		t.Fatalf("items = %+v", got)
 	}

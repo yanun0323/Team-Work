@@ -12,9 +12,9 @@ import (
 // Store keeps entities as documents, and provider keys apart from them.
 type Store interface {
 	LoadDocs(ctx context.Context) ([]model.Doc, error)
-	// Apply writes runtime documents transactionally. A settings change is journaled
+	// Apply writes runtime documents and provider keys transactionally. A settings change is journaled
 	// in the same transaction and recovered before the next load after interruption.
-	Apply(ctx context.Context, upserts, deletes []model.Doc, settings ...model.SettingsChange) error
+	Apply(ctx context.Context, upserts, deletes []model.Doc, secrets []model.SecretChange, settings ...model.SettingsChange) error
 	LoadSettings(ctx context.Context) (model.SettingsSnapshot, error)
 	CheckSettings(expected model.SettingsSnapshot) error
 	LoadSecrets(ctx context.Context) (map[string]string, error)

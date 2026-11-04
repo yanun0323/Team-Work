@@ -22,7 +22,7 @@ func TestSettingsBatchRecoveryAndConflict(t *testing.T) {
 	c := model.SettingsOf(model.NewWorld())
 	c.Blueprints["bp-test"] = &model.Blueprint{ID: "bp-test", Name: "before"}
 	raw, _ := json.Marshal(c)
-	if err := s.Apply(ctx, nil, nil, model.SettingsChange{After: raw}); err != nil {
+	if err := s.Apply(ctx, nil, nil, nil, model.SettingsChange{After: raw}); err != nil {
 		t.Fatal(err)
 	}
 	before, err := s.LoadSettings(ctx)
@@ -72,7 +72,7 @@ func TestSettingsBatchRecoveryAndConflict(t *testing.T) {
 	if err := os.WriteFile(path, []byte("name: external\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err = s.Apply(ctx, []model.Doc{{Kind: "task", ID: "never", Data: []byte(`{}`)}}, nil, model.SettingsChange{Before: after, After: raw})
+	err = s.Apply(ctx, []model.Doc{{Kind: "task", ID: "never", Data: []byte(`{}`)}}, nil, nil, model.SettingsChange{Before: after, After: raw})
 	if err == nil || !strings.Contains(err.Error(), "外部修改") {
 		t.Fatalf("expected conflict: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestSettingsPreserveUnchangedYAMLComments(t *testing.T) {
 	c := model.SettingsOf(model.NewWorld())
 	c.Blueprints["b"] = &model.Blueprint{ID: "b", Name: "B"}
 	raw, _ := json.Marshal(c)
-	if err := s.Apply(context.Background(), nil, nil, model.SettingsChange{After: raw}); err != nil {
+	if err := s.Apply(context.Background(), nil, nil, nil, model.SettingsChange{After: raw}); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(s.dataDir, "blueprints", "b.yaml")
@@ -139,7 +139,7 @@ func TestSettingsPreserveUnchangedYAMLComments(t *testing.T) {
 	}
 	c.Workflows["w"] = &model.Workflow{ID: "w", Name: "W"}
 	raw, _ = json.Marshal(c)
-	if err := s.Apply(context.Background(), nil, nil, model.SettingsChange{Before: before, After: raw}); err != nil {
+	if err := s.Apply(context.Background(), nil, nil, nil, model.SettingsChange{Before: before, After: raw}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(path)

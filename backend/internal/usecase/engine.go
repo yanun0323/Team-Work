@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -66,8 +67,10 @@ type Engine struct {
 	mu      sync.Mutex
 	w       *model.World
 	secrets map[string]string
-	runs    map[string]*run
-	live    map[string]string // what is being written now in chats and discussions, by their id
+	// secretOps are the key changes made since the last save, written with it.
+	secretOps []model.SecretChange
+	runs      map[string]*run
+	live      map[string]string // what is being written now in chats and discussions, by their id
 	// output is the last lines of a command running now in a chat, by its id, with the run it belongs to
 	output  map[string]liveOutput
 	prev    map[string][]byte
@@ -204,7 +207,8 @@ func (e *Engine) Close() {
 	}
 }
 
-// do changes the world under the lock: when fn accepts, the flow moves on and the change is saved and sent.
+// do changes the world under the lock: when fn accepts, the change is saved, and only then does the flow move on and
+// the change go out. A change that cannot be saved is undone and fails, and what it started is stopped.
 func (e *Engine) do(fn func() error) error { return e.change(false, fn) }
 
 func (e *Engine) doSettings(fn func() error) error { return e.change(true, fn) }
@@ -215,13 +219,21 @@ func (e *Engine) change(config bool, fn func() error) error {
 	if e.closed {
 		return model.Errorf(model.CodeUnavailable, "伺服器已停止，請重新啟動")
 	}
-	var before *model.World
 	if config {
 		if err := e.store.CheckSettings(e.settingsRaw); err != nil {
 			return err
 		}
-		before = clone(e.w)
-		before.Conversations = e.w.Conversations
+	}
+	before := clone(e.w)
+	before.Conversations = maps.Clone(e.w.Conversations)
+	secrets, runs := maps.Clone(e.secrets), maps.Clone(e.runs)
+	undo := func() {
+		e.w, e.secrets, e.secretOps = before, secrets, nil
+		for id, r := range e.runs {
+			if runs[id] != r {
+				e.stopRun(id)
+			}
+		}
 	}
 	e.w.Now = e.clock()
 	if err := fn(); err != nil {
@@ -231,16 +243,16 @@ func (e *Engine) change(config bool, fn func() error) error {
 		e.adoptSources() // a place written into a pack becomes a source kept apart
 		for _, b := range e.w.Blueprints {
 			if err := checkPacks(b, e.w.Sources); err != nil {
-				e.w = before
+				undo()
 				return err
 			}
 		}
-		if err := e.sync(); err != nil {
-			if !e.closed {
-				e.w = before
-			}
-			return err
+	}
+	if err := e.sync(); err != nil {
+		if !e.closed { // closed: the database has it, and a restart finishes writing the settings
+			undo()
 		}
+		return err
 	}
 	e.settle()
 	return nil
@@ -394,7 +406,7 @@ func (e *Engine) sync() error {
 			deletes = append(deletes, docOf(key, nil))
 		}
 	}
-	if len(upserts)+len(deletes)+len(changes) == 0 {
+	if len(upserts)+len(deletes)+len(changes)+len(e.secretOps) == 0 {
 		e.flushPending()
 		return nil
 	}
@@ -409,7 +421,7 @@ func (e *Engine) sync() error {
 		}
 		runtime = append(runtime, row)
 	}
-	if err := e.store.Apply(context.Background(), runtime, deletes, changes...); err != nil {
+	if err := e.store.Apply(context.Background(), runtime, deletes, e.secretOps, changes...); err != nil {
 		var pending *model.SettingsPending
 		if errors.As(err, &pending) {
 			e.closed, e.saveFailed = true, true
@@ -418,6 +430,7 @@ func (e *Engine) sync() error {
 		}
 		return err
 	}
+	e.secretOps = nil
 	if len(changes) > 0 {
 		e.settingsRaw, e.settingsEncoded = written, encoded
 	}

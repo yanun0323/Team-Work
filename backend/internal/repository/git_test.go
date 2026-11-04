@@ -21,6 +21,46 @@ func run(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// Removing a task's tree deletes its branch only when the task made that tree on it; a branch of the same name the
+// user already had, or one a tree failed to be made on, stays.
+func TestRemoveKeepsABranchTheTaskDidNotMake(t *testing.T) {
+	folder := t.TempDir()
+	run(t, folder, "init", "-q", "-b", "main")
+	run(t, folder, "commit", "-q", "--allow-empty", "-m", "one")
+	run(t, folder, "branch", "task/1") // the user's own
+	g := NewGit(t.TempDir())
+	ctx := context.Background()
+	trees := t.TempDir()
+
+	// a task never started, and one whose tree could not be made on the taken name
+	if err := g.Remove(ctx, folder, filepath.Join(trees, "never"), "task/1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Worktree(ctx, folder, filepath.Join(trees, "clash"), "task/1", "main"); err == nil {
+		t.Fatal("a tree was made on a branch that was already there")
+	}
+	if err := g.Remove(ctx, folder, filepath.Join(trees, "clash"), "task/1"); err != nil {
+		t.Fatal(err)
+	}
+	run(t, folder, "rev-parse", "--verify", "refs/heads/task/1")
+
+	// a task's own tree and branch both go
+	dir := filepath.Join(trees, "own")
+	if err := g.Worktree(ctx, folder, dir, "task/2", "main"); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Remove(ctx, folder, dir, "task/2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the tree is still there: %v", err)
+	}
+	if out := run(t, folder, "branch", "--list", "task/2"); out != "" {
+		t.Fatalf("the task's branch stayed: %q", out)
+	}
+	run(t, folder, "rev-parse", "--verify", "refs/heads/task/1")
+}
+
 // A repo is cloned once; each version read has a folder of its own that a later version leaves as it was, and a
 // version already here is read with the repo gone.
 func TestFetchClonesOnceAndKeepsEachVersion(t *testing.T) {

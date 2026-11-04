@@ -33,6 +33,9 @@ type script struct {
 	login     *adapter.LoginFlow
 	loggedOut bool
 	models    []model.ModelSpec
+	// asked is each address a provider was made for, with the key it was given.
+	asked   []string
+	askedMu sync.Mutex // apart from mu, which tests hold to keep a reply waiting
 	// midway runs after a reply's text went out, before the reply is done.
 	midway func()
 }
@@ -61,8 +64,23 @@ func (s *script) Models(context.Context) ([]model.ModelSpec, error) {
 	}
 	return []model.ModelSpec{{ID: "fake", Thinking: []string{"low", "high"}}}, nil
 }
-func (s *script) For(model.ModelProvider, string) (adapter.Provider, error) {
+func (s *script) For(p model.ModelProvider, key string) (adapter.Provider, error) {
+	s.askedMu.Lock()
+	defer s.askedMu.Unlock()
+	s.asked = append(s.asked, p.BaseURL+" "+key)
 	return s, nil
+}
+
+func (s *script) askedWith(key string) []string {
+	s.askedMu.Lock()
+	defer s.askedMu.Unlock()
+	var out []string
+	for _, a := range s.asked {
+		if strings.HasSuffix(a, " "+key) {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 func (s *script) Images(p model.ModelProvider) (adapter.ImageMaker, error) {
 	if !model.MakesImages(p) || !p.Auth.SignedIn {

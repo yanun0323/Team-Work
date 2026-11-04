@@ -67,6 +67,28 @@ func TestFilesStayInsideTheWorkingDirectory(t *testing.T) {
 	}
 }
 
+func TestALinkToAMissingFileOutsideIsRefused(t *testing.T) {
+	dir, outside := t.TempDir(), t.TempDir()
+	os.Symlink(filepath.Join(outside, "new.txt"), filepath.Join(dir, "dangling"))
+	os.Symlink("../"+filepath.Base(outside)+"/sub", filepath.Join(dir, "rel"))
+	os.Symlink("inside.txt", filepath.Join(dir, "ok"))
+	ctx := context.Background()
+	for _, path := range []string{"dangling", "rel/x.txt"} {
+		if r := (Write{}).Run(ctx, dir, args(map[string]string{"path": path, "content": "x"})); !r.IsError {
+			t.Errorf("write %s was allowed", path)
+		}
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) > 0 {
+		t.Fatalf("a file was made outside: %v", entries)
+	}
+	if r := (Write{}).Run(ctx, dir, args(map[string]string{"path": "ok", "content": "in"})); r.IsError {
+		t.Fatal(r.Text)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "inside.txt")); string(b) != "in" {
+		t.Fatalf("a link inside was not written through: %q", b)
+	}
+}
+
 func TestWriteNeedsContent(t *testing.T) {
 	dir := t.TempDir()
 	if r := (Write{}).Run(context.Background(), dir, args(map[string]string{"path": "a.txt"})); !r.IsError {

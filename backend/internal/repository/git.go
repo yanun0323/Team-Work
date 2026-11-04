@@ -270,12 +270,19 @@ func (g *Git) Land(ctx context.Context, folder, branch, target string) error {
 	return err
 }
 
+// Remove takes away a task's work tree, and its branch only when that work tree was made on it: a branch of the same
+// name the task never made, as one the user already had, or another company's on the same repo, stays.
 func (g *Git) Remove(ctx context.Context, folder, dir, branch string) error {
 	defer g.lock(folder)()
-	if _, err := os.Stat(dir); err == nil {
-		if _, err := git(ctx, folder, "worktree", "remove", "--force", dir); err != nil {
-			return err
-		}
+	if _, err := os.Stat(dir); err != nil {
+		return nil
+	}
+	current, _ := git(ctx, dir, "branch", "--show-current")
+	if _, err := git(ctx, folder, "worktree", "remove", "--force", dir); err != nil {
+		return err
+	}
+	if current != branch {
+		return nil
 	}
 	if _, err := git(ctx, folder, "rev-parse", "-q", "--verify", "refs/heads/"+branch); err != nil {
 		return nil

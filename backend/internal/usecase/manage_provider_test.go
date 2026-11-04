@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
 func providerNamed(w *model.World, name string) *model.ModelProvider {
@@ -71,6 +74,9 @@ func TestChangingAProviderWaitsForTheUser(t *testing.T) {
 	if raw, _ := json.Marshal(card); strings.Contains(string(raw), "sk-changed-4321") {
 		t.Fatal("the card holds the new key")
 	}
+	if raw, _ := r.e.Snapshot(); strings.Contains(string(raw), "sk-changed") || !strings.Contains(string(raw), `\"api_key\":\"…4321\"`) {
+		t.Fatalf("the tool log shows the key: %+v", w.Chats[c.ID].Messages)
+	}
 	fields := []string{}
 	for _, l := range card.Lines {
 		fields = append(fields, l.Field)
@@ -109,6 +115,49 @@ func TestChangingAProviderWaitsForTheUser(t *testing.T) {
 	}
 }
 
+func TestANewAddressGetsTheStoredKeyOnlyOnceAgreed(t *testing.T) {
+	r, m := manageRig(t)
+	p := providerNamed(r.world(), "p")
+	version := versionFrom(t, r, m, "list_providers", p.ID)
+	args := map[string]any{"id": p.ID, "version": version, "base_url": "https://evil.test/v1"}
+	sentTo := func() []string {
+		var out []string
+		for _, a := range r.fake.askedWith("sk-secret-1234") {
+			if strings.HasPrefix(a, "https://evil.test") {
+				out = append(out, a)
+			}
+		}
+		return out
+	}
+
+	c := inChat(t, r, m, doing("save_provider", args))
+	r.wait("card", func(w *model.World) bool { return w.Chats[c.ID].Change != nil })
+	if got := sentTo(); len(got) > 0 {
+		t.Fatalf("the key went to the new address before the user agreed: %v", got)
+	}
+	if err := r.e.ResolveChatChange(c.ID, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply after no", func(w *model.World) bool { return w.Chats[c.ID].ReplyAt == nil && w.Chats[c.ID].Change == nil })
+	if got := sentTo(); len(got) > 0 || r.world().Providers[p.ID].BaseURL != "" {
+		t.Fatalf("refused, yet %v", got)
+	}
+
+	c = inChat(t, r, m, doing("save_provider", args))
+	r.wait("card", func(w *model.World) bool { return w.Chats[c.ID].Change != nil })
+	if err := r.e.ResolveChatChange(c.ID, true, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("written", func(w *model.World) bool { return w.Providers[p.ID].BaseURL == "https://evil.test/v1" })
+	deadline := time.Now().Add(5 * time.Second)
+	for len(sentTo()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(sentTo()) == 0 {
+		t.Fatal("the models were not read again after the user agreed")
+	}
+}
+
 func TestAskingForATypedAnswerInAChat(t *testing.T) {
 	r, m := manageRig(t)
 	c := inChat(t, r, m, doing("ask_user", map[string]any{"prompt": "API Key 是什麼？"}))
@@ -120,5 +169,51 @@ func TestAskingForATypedAnswerInAChat(t *testing.T) {
 		if s.Name == "ask_user" && !strings.Contains(s.Description, "type an answer") {
 			t.Fatalf("%s", s.Description)
 		}
+	}
+}
+
+// A provider the settings file would refuse is refused before it is asked for its models, so what is saved loads
+// again.
+func TestAProviderIsCheckedBeforeItIsAsked(t *testing.T) {
+	r, _ := manageRig(t)
+	ctx := context.Background()
+	key := "sk-check-0000"
+	add := func(base string, prices map[string]model.ModelPrice, login string) error {
+		_, err := r.e.AddProvider(ctx, usecase.NewProvider{Name: "x", Kind: enum.ProviderCompatible, BaseURL: base, Prices: prices,
+			Login: usecase.ProviderLogin{Kind: login, APIKey: key}})
+		return err
+	}
+	for name, err := range map[string]error{
+		"userinfo":       add("https://u:p@x.test/v1", nil, "apiKey"),
+		"query":          add("https://x.test/v1?k=1", nil, "apiKey"),
+		"fragment":       add("https://x.test/v1#a", nil, "apiKey"),
+		"not http":       add("ftp://x.test", nil, "apiKey"),
+		"negative price": add("https://x.test/v1", map[string]model.ModelPrice{"fake": {Input: -1}}, "apiKey"),
+		"unknown login":  add("https://x.test/v1", nil, "token"),
+	} {
+		if err == nil {
+			t.Errorf("%s: added", name)
+		}
+	}
+	if got := r.fake.askedWith(key); len(got) > 0 {
+		t.Fatalf("asked before the check: %v", got)
+	}
+
+	p := providerNamed(r.world(), "p")
+	bad := "https://u:p@x.test/v1"
+	if err := r.e.UpdateProvider(ctx, p.ID, usecase.ProviderPatch{BaseURL: &bad}); err == nil {
+		t.Fatal("a base url with a password was kept")
+	}
+	if err := r.e.UpdateProvider(ctx, p.ID, usecase.ProviderPatch{Prices: map[string]model.ModelPrice{"fake": {Output: -2}}}); err == nil {
+		t.Fatal("a negative price was kept")
+	}
+	local := "http://127.0.0.1:11434/v1"
+	if err := r.e.UpdateProvider(ctx, p.ID, usecase.ProviderPatch{BaseURL: &local}); err != nil {
+		t.Fatalf("a local address was refused: %v", err)
+	}
+	r.e.Close()
+	newEngine(t, r)
+	if got := providerNamed(r.world(), "p"); got == nil || got.BaseURL != local {
+		t.Fatalf("%+v", got)
 	}
 }

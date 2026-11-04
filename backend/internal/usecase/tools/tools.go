@@ -110,17 +110,32 @@ func cutUTF8(s string, n int) string {
 	return s
 }
 
-// real follows every symlink in path, including through parents that do not exist yet.
+// real follows every symlink in path, including through parents that do not exist yet and links whose target does
+// not exist yet: writing through those creates the target.
 func real(path string) (string, error) {
 	path = filepath.Clean(path)
 	var missing []string
-	for {
+	for hops := 0; ; {
 		resolved, err := filepath.EvalSymlinks(path)
 		if err == nil {
 			return filepath.Join(append([]string{resolved}, missing...)...), nil
 		}
 		if !errors.Is(err, os.ErrNotExist) {
 			return "", err
+		}
+		if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			if hops++; hops > 40 {
+				return "", fmt.Errorf("%s: too many links", path)
+			}
+			target, err := os.Readlink(path)
+			if err != nil {
+				return "", err
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(path), target)
+			}
+			path = filepath.Clean(target)
+			continue
 		}
 		parent := filepath.Dir(path)
 		if parent == path {

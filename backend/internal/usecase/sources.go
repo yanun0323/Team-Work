@@ -277,7 +277,7 @@ func (e *Engine) PreviewSource(ctx context.Context, in NewSource) (SourcePreview
 	if err != nil {
 		return SourcePreview{}, model.Errorf(model.CodeInvalid, "%s", sourceProblem(err))
 	}
-	return SourcePreview{Commit: commit, Items: itemsAt(root)}, nil
+	return SourcePreview{Commit: commit, Items: itemsAt(src, root)}, nil
 }
 
 // pinSource reads the newest version of a repo source that has none yet; it is the version used from then on.
@@ -442,10 +442,15 @@ func (e *Engine) sourceRoot(ctx context.Context, s model.Source, commit string) 
 	return e.git.Fetch(ctx, s.Repo, commit)
 }
 
-// itemsAt lists the skills in a source's folder root, as a pack of the whole source finds them.
-func itemsAt(root string) []SourceItem {
+// itemsAt lists the skills in a source's folder root, as a pack of the whole source finds them; a repo's are only those
+// that stay inside it.
+func itemsAt(s model.Source, root string) []SourceItem {
+	inside := ""
+	if s.Kind != "local" {
+		inside = root
+	}
 	out := []SourceItem{}
-	for _, sk := range skillsIn(root, nil, nil) {
+	for _, sk := range skillsIn(root, inside, nil, nil) {
 		rel, err := filepath.Rel(root, filepath.Dir(sk.path))
 		if err != nil {
 			continue
@@ -477,7 +482,7 @@ func (e *Engine) SourceItems(ctx context.Context, id string) ([]SourceItem, erro
 	if err != nil {
 		return nil, model.Errorf(model.CodeInvalid, "%s", sourceProblem(err))
 	}
-	return itemsAt(root), nil
+	return itemsAt(src, root), nil
 }
 
 // covers says whether a pack takes the skill it at path; the pack's folder holds it and its picks keep it.
@@ -513,7 +518,7 @@ func (e *Engine) SourceUpdateChanges(ctx context.Context, id string) (SourceChan
 	if err != nil {
 		return out, model.Errorf(model.CodeInvalid, "%s", sourceProblem(err))
 	}
-	before, after := itemsAt(was), itemsAt(is)
+	before, after := itemsAt(src, was), itemsAt(src, is)
 	has := func(list []SourceItem, it SourceItem) bool {
 		return slices.ContainsFunc(list, func(x SourceItem) bool { return x.Path == it.Path && x.Name == it.Name })
 	}

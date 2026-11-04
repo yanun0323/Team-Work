@@ -780,7 +780,10 @@ func (e *Engine) saveProviderTool(m manager) func(context.Context, string, json.
 		if newKey {
 			patch.Login = &ProviderLogin{Kind: "apiKey", APIKey: *a.APIKey}
 		}
-		edit, err := e.prepareProvider(ctx, a.ID, patch)
+		// The stored key goes to a new address only once the user agrees: before that, the model's address is asked
+		// nothing, and the models are read again after the change is written.
+		moved := a.BaseURL != nil && strings.TrimSpace(*a.BaseURL) != before.BaseURL && !newKey
+		edit, err := e.prepareProvider(ctx, a.ID, patch, !moved)
 		if err != nil {
 			return toolError("%s", safeText(err))
 		}
@@ -1173,8 +1176,12 @@ func (e *Engine) settleChange(c *model.PendingChange, agreed bool, note string) 
 		if c.KeyRef == "" {
 			edit.key = e.secrets[c.TargetID]
 		}
+		moved := c.KeyRef == "" && edit.wasKey && edit.provider.Auth.Kind == "apiKey" && now.BaseURL != edit.provider.BaseURL
 		if err = e.writeProvider(e.ctx, edit); err == nil {
 			version = versionOf(e.w.Providers[c.TargetID])
+			if moved {
+				e.refreshLater(c.TargetID)
+			}
 		}
 	default:
 		return "The change is of an unknown kind, so nothing was written.", true

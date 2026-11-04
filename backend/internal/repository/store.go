@@ -90,7 +90,7 @@ func (s *Store) LoadDocs(ctx context.Context) ([]model.Doc, error) {
 	return out, nil
 }
 
-func (s *Store) Apply(ctx context.Context, upserts, deletes []model.Doc, settings ...model.SettingsChange) error {
+func (s *Store) Apply(ctx context.Context, upserts, deletes []model.Doc, secrets []model.SecretChange, settings ...model.SettingsChange) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.recoverSettings(ctx); err != nil {
@@ -105,7 +105,7 @@ func (s *Store) Apply(ctx context.Context, upserts, deletes []model.Doc, setting
 			return err
 		}
 	}
-	if len(upserts)+len(deletes)+len(settings) == 0 {
+	if len(upserts)+len(deletes)+len(secrets)+len(settings) == 0 {
 		return nil
 	}
 	var written model.SettingsSnapshot
@@ -118,6 +118,17 @@ func (s *Store) Apply(ctx context.Context, upserts, deletes []model.Doc, setting
 		}
 		for _, d := range deletes {
 			if err := tx.Delete(&docRow{}, "kind = ? AND id = ?", d.Kind, d.ID).Error; err != nil {
+				return err
+			}
+		}
+		for _, c := range secrets {
+			var err error
+			if c.Delete {
+				err = tx.Delete(&secretRow{}, "id = ?", c.ID).Error
+			} else {
+				err = tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&secretRow{ID: c.ID, Value: c.Value}).Error
+			}
+			if err != nil {
 				return err
 			}
 		}

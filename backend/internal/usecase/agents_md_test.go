@@ -95,6 +95,53 @@ func TestFailedPromptWriteChangesNothing(t *testing.T) {
 	}
 }
 
+func TestCompanyFilesStayInsideTheProject(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("外面的檔案"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// a project brought in with links to files outside it
+	folder := t.TempDir()
+	os.Symlink(secret, filepath.Join(folder, "AGENTS.md"))
+	os.Symlink(outside, filepath.Join(folder, ".team-work"))
+	team, err := r.e.CreateTeam(context.Background(), usecase.NewTeam{Name: "連結", Folder: folder})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if team.Prompt != "" {
+		t.Fatalf("read through the link: %q", team.Prompt)
+	}
+	text := "蓋掉"
+	if err := r.e.UpdateTeam(team.ID, usecase.TeamPatch{Prompt: &text}); err == nil {
+		t.Fatal("wrote through the link")
+	}
+	if _, err := r.e.Notes(team.ID); err == nil {
+		t.Fatal("read notes through the link")
+	}
+	if err := r.e.SetNotes(team.ID, text); err == nil {
+		t.Fatal("wrote notes through the link")
+	}
+	if raw, _ := os.ReadFile(secret); string(raw) != "外面的檔案" {
+		t.Fatalf("the file outside changed: %q", raw)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "NOTES.md")); !os.IsNotExist(err) {
+		t.Fatalf("notes were made outside: %v", err)
+	}
+
+	// a link that stays inside still works
+	os.Mkdir(filepath.Join(r.folder, "docs"), 0o755)
+	os.WriteFile(filepath.Join(r.folder, "docs", "rules.md"), []byte("裡面"), 0o644)
+	os.Symlink("docs/rules.md", filepath.Join(r.folder, "AGENTS.md"))
+	if err := r.e.RefreshPrompt(r.team.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.world().Teams[r.team.ID].Prompt; got != "裡面" {
+		t.Fatalf("%q", got)
+	}
+}
+
 func TestEmployeeGetsTheLatestAgentsFile(t *testing.T) {
 	var mu sync.Mutex
 	var system string

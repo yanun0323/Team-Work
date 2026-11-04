@@ -3,7 +3,6 @@ package usecase
 import (
 	"errors"
 	"io/fs"
-	"os"
 	"path/filepath"
 
 	"github.com/yanun0323/Team-Work/internal/model"
@@ -12,24 +11,25 @@ import (
 // notesFile is where a company's notes live: in its folder, so they go wherever the project goes.
 const notesFile = ".team-work/NOTES.md"
 
-// notesPath is the notes file of a company.
-func (e *Engine) notesPath(id string) (string, error) {
+// notesFolder is the folder of a company, where its notes file is.
+func (e *Engine) notesFolder(id string) (string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	t := e.w.Teams[id]
 	if t == nil {
 		return "", model.Errorf(model.CodeNotFound, "找不到公司")
 	}
-	return filepath.Join(t.Folder, notesFile), nil
+	return t.Folder, nil
 }
 
 // Notes reads a company's notes as they are now; no file means none.
 func (e *Engine) Notes(id string) (string, error) {
-	path, err := e.notesPath(id)
+	folder, err := e.notesFolder(id)
 	if err != nil {
 		return "", err
 	}
-	raw, err := os.ReadFile(path)
+	path := filepath.Join(folder, notesFile)
+	raw, err := readInside(folder, notesFile)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
@@ -42,19 +42,12 @@ func (e *Engine) Notes(id string) (string, error) {
 
 // SetNotes saves a company's notes. As with AGENTS.md, emptying them empties the file, and no notes make no file.
 func (e *Engine) SetNotes(id, text string) error {
-	path, err := e.notesPath(id)
+	folder, err := e.notesFolder(id)
 	if err != nil {
 		return err
 	}
-	raw, err := os.ReadFile(path)
-	if (err == nil && string(raw) == text) || (errors.Is(err, fs.ErrNotExist) && text == "") {
-		return nil
-	}
-	err = os.MkdirAll(filepath.Dir(path), 0o755)
-	if err == nil {
-		err = os.WriteFile(path, []byte(text), 0o644)
-	}
-	if err != nil {
+	path := filepath.Join(folder, notesFile)
+	if err := saveInside(folder, notesFile, text); err != nil {
 		e.log.Error().Err(err).Str("path", path).Msg("write notes")
 		return model.Errorf(model.CodeUnavailable, "寫不進 %s，請檢查專案資料夾", path)
 	}

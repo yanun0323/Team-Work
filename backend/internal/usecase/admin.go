@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -324,11 +325,31 @@ func (e *Engine) checkFlow(wf *model.Workflow) error {
 		return err
 	}
 	for _, n := range wf.Nodes {
+		// the same as the settings file takes, so what is saved here loads again
+		if !slices.Contains([]enum.NodeKind{enum.NodeTask, enum.NodeWork, enum.NodeTalk}, n.Kind) {
+			return model.Errorf(model.CodeInvalid, "節點「%s」的種類不認識", n.Name)
+		}
+		if !slices.Contains([]enum.HandoffMode{enum.HandoffAll, enum.HandoffPickOne}, n.Handoff) {
+			return model.Errorf(model.CodeInvalid, "節點「%s」的交接模式不認識", n.Name)
+		}
+		if !slices.Contains([]enum.JoinMode{enum.JoinAll, enum.JoinAny}, n.Join) {
+			return model.Errorf(model.CodeInvalid, "節點「%s」的匯合模式不認識", n.Name)
+		}
 		for _, r := range n.ReplicaIDs {
 			if e.w.Replicas[r] == nil {
 				return model.Errorf(model.CodeInvalid, "節點「%s」指派了不存在的員工", n.Name)
 			}
 		}
+	}
+	ids, ends := map[string]bool{}, map[string]bool{}
+	for _, edge := range wf.Edges {
+		if edge.ID == "" || ids[edge.ID] {
+			return model.Errorf(model.CodeInvalid, "任務藍圖的連線 id 不能空白或重複")
+		}
+		if ends[edge.From+"\x00"+edge.To] {
+			return model.Errorf(model.CodeInvalid, "任務藍圖的連線重複")
+		}
+		ids[edge.ID], ends[edge.From+"\x00"+edge.To] = true, true
 	}
 	return nil
 }
@@ -423,6 +444,26 @@ func authOf(l ProviderLogin) model.ProviderAuth {
 	return model.ProviderAuth{Kind: "apiKey", KeyHint: key[max(len(key)-4, 0):]}
 }
 
+// checkProvider is what the settings file takes of a provider, checked before anyone is asked, so what is saved
+// loads again.
+func checkProvider(p model.ModelProvider) error {
+	if !slices.Contains([]enum.ProviderKind{enum.ProviderAnthropic, enum.ProviderOpenAI, enum.ProviderGoogle, enum.ProviderCompatible}, p.Kind) {
+		return model.Errorf(model.CodeInvalid, "不認識的供應商種類 %s", p.Kind)
+	}
+	if p.BaseURL != "" {
+		u, err := url.Parse(p.BaseURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return model.Errorf(model.CodeInvalid, "API 位址要是不含帳密、查詢參數或 # 的 HTTP(S) 網址")
+		}
+	}
+	for m, price := range p.Prices {
+		if price.Input < 0 || price.Output < 0 || price.CacheRead < 0 {
+			return model.Errorf(model.CodeInvalid, "「%s」的價格不能是負數", m)
+		}
+	}
+	return nil
+}
+
 func (e *Engine) discover(ctx context.Context, p model.ModelProvider, key string) ([]model.ModelSpec, error) {
 	provider, err := e.providers.For(p, key)
 	if err != nil {
@@ -487,27 +528,31 @@ func (e *Engine) AddProvider(ctx context.Context, in NewProvider) (*model.ModelP
 	if in.Login.Kind == "apiKey" && key == "" {
 		return nil, model.Errorf(model.CodeInvalid, "要填 API Key")
 	}
+	if in.Login.Kind != "apiKey" && in.Login.Kind != "subscription" {
+		return nil, model.Errorf(model.CodeInvalid, "不認識的登入方式 %s", in.Login.Kind)
+	}
 	if in.Login.Kind != "apiKey" && in.Kind != enum.ProviderAnthropic && in.Kind != enum.ProviderOpenAI {
 		return nil, model.Errorf(model.CodeInvalid, "只有 Anthropic 和 OpenAI 可以用訂閱登入")
 	}
 	p := model.ModelProvider{Name: in.Name, Kind: in.Kind, Auth: authOf(in.Login), BaseURL: strings.TrimSpace(in.BaseURL), Models: []string{}, Prices: in.Prices}
+	if p.Auth.Kind != "apiKey" {
+		p.BaseURL = ""
+	}
+	if err := checkProvider(p); err != nil {
+		return nil, err
+	}
 	if p.Auth.Kind == "apiKey" {
 		specs, err := e.discover(ctx, p, key)
 		if err != nil {
 			return nil, err
 		}
 		p.Models, p.Thinking = modelsOf(specs)
-	} else {
-		p.BaseURL = ""
 	}
 	var out *model.ModelProvider
 	err := e.doSettings(func() error {
 		p.ID = e.uid("mp")
 		if p.Auth.Kind == "apiKey" {
-			if err := e.store.SetSecret(ctx, p.ID, key); err != nil {
-				return err
-			}
-			e.secrets[p.ID] = key
+			e.setSecret(p.ID, key)
 		}
 		e.w.Providers[p.ID] = &p
 		if in.ImageDefault && model.MakesImages(p) {
@@ -530,7 +575,7 @@ type ProviderPatch struct {
 }
 
 func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch) error {
-	next, err := e.prepareProvider(ctx, id, in)
+	next, err := e.prepareProvider(ctx, id, in, true)
 	if err != nil {
 		return err
 	}
@@ -555,9 +600,9 @@ type providerEdit struct {
 	wasKey   bool
 }
 
-// prepareProvider works out what a patch makes of a provider, asking it for its models when it uses a key. It takes
-// the lock only to read; call it without.
-func (e *Engine) prepareProvider(ctx context.Context, id string, in ProviderPatch) (providerEdit, error) {
+// prepareProvider works out what a patch makes of a provider, asking it for its models when it uses a key and ask
+// is true; otherwise the models stay as they are. It takes the lock only to read; call it without.
+func (e *Engine) prepareProvider(ctx context.Context, id string, in ProviderPatch, ask bool) (providerEdit, error) {
 	e.mu.Lock()
 	old := e.w.Providers[id]
 	if old == nil {
@@ -581,6 +626,9 @@ func (e *Engine) prepareProvider(ctx context.Context, id string, in ProviderPatc
 		next.Prices = in.Prices
 	}
 	if l := in.Login; l != nil && !(l.Kind == "apiKey" && strings.TrimSpace(l.APIKey) == "" && next.Auth.Kind == "apiKey") {
+		if l.Kind != "apiKey" && l.Kind != "subscription" {
+			return providerEdit{}, model.Errorf(model.CodeInvalid, "不認識的登入方式 %s", l.Kind)
+		}
 		if l.Kind == "apiKey" && strings.TrimSpace(l.APIKey) == "" {
 			return providerEdit{}, model.Errorf(model.CodeInvalid, "要填 API Key")
 		}
@@ -593,14 +641,18 @@ func (e *Engine) prepareProvider(ctx context.Context, id string, in ProviderPatc
 		}
 		key = strings.TrimSpace(l.APIKey)
 	}
-	if next.Auth.Kind == "apiKey" {
+	if next.Auth.Kind != "apiKey" {
+		next.BaseURL, key = "", ""
+	}
+	if err := checkProvider(next); err != nil {
+		return providerEdit{}, err
+	}
+	if next.Auth.Kind == "apiKey" && ask {
 		specs, err := e.discover(ctx, next, key)
 		if err != nil {
 			return providerEdit{}, err
 		}
 		next.Models, next.Thinking = modelsOf(specs)
-	} else {
-		next.BaseURL, key = "", ""
 	}
 	return providerEdit{provider: next, key: key, wasKey: wasKey}, nil
 }
@@ -615,24 +667,30 @@ func (e *Engine) writeProvider(ctx context.Context, edit providerEdit) error {
 	}
 	if next.Auth.Kind == "subscription" {
 		if edit.wasKey { // the tokens of a subscription are not this function's to touch
-			if err := e.store.DeleteSecret(ctx, id); err != nil {
-				return err
-			}
-			delete(e.secrets, id)
+			e.deleteSecret(id)
 		} else {
 			next.Auth, next.Models, next.Thinking = now.Auth, now.Models, now.Thinking // a sign-in may have ended meanwhile
 		}
 	} else {
-		if err := e.store.SetSecret(ctx, id, edit.key); err != nil {
-			return err
-		}
-		e.secrets[id] = edit.key
+		e.setSecret(id, edit.key)
 	}
 	e.w.Providers[id] = &next
 	if e.w.Preferences.ImageProvider == id && !model.MakesImages(next) {
 		e.w.Preferences.ImageProvider = ""
 	}
 	return nil
+}
+
+// setSecret and deleteSecret change a provider's key with the change under way: it is written with the change, and
+// undone with it. Call them holding the lock.
+func (e *Engine) setSecret(id, key string) {
+	e.secrets[id] = key
+	e.secretOps = append(e.secretOps, model.SecretChange{ID: id, Value: key})
+}
+
+func (e *Engine) deleteSecret(id string) {
+	delete(e.secrets, id)
+	e.secretOps = append(e.secretOps, model.SecretChange{ID: id, Delete: true})
 }
 
 // DeleteProvider removes a provider nobody runs on, and its key.
@@ -648,10 +706,7 @@ func (e *Engine) DeleteProvider(ctx context.Context, id string) error {
 			}
 		}
 		e.stopLogin(id)
-		if err := e.store.DeleteSecret(ctx, id); err != nil {
-			return err
-		}
-		delete(e.secrets, id)
+		e.deleteSecret(id)
 		delete(e.w.Providers, id)
 		if e.w.Preferences.ImageProvider == id {
 			e.w.Preferences.ImageProvider = ""
@@ -853,6 +908,17 @@ func (e *Engine) RefreshModels(ctx context.Context, id string) error {
 		}
 		return nil
 	})
+}
+
+// refreshLater reads a provider's models again once the change under way is written. Call it holding the lock.
+func (e *Engine) refreshLater(id string) {
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		if err := e.RefreshModels(e.ctx, id); err != nil && e.ctx.Err() == nil {
+			e.log.Warn().Err(err).Str("provider", id).Msg("read models after a new address")
+		}
+	}()
 }
 
 // ---------- blueprints ----------

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -278,7 +277,7 @@ func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Rep
 func (e *Engine) loadSkills(ctx context.Context, packs []packRoot) (found []skill, roots []string, problems []string) {
 	seen := map[string]bool{}
 	for _, p := range packs {
-		root := ""
+		root, inside := "", ""
 		switch p.source.Kind {
 		case "local":
 			root = expandHome(p.source.Path)
@@ -290,7 +289,11 @@ func (e *Engine) loadSkills(ctx context.Context, packs []packRoot) (found []skil
 				problems = append(problems, i18n.T("技能來源 %s 讀取失敗", p.source.Repo))
 				continue
 			}
-			root = filepath.Join(dir, sub)
+			root, inside = filepath.Join(dir, sub), dir
+			if !insideDir(dir, root) {
+				problems = append(problems, i18n.T("技能來源 %s 讀取失敗", p.source.Repo))
+				continue
+			}
 		case "missing":
 			problems = append(problems, missingSource())
 			continue
@@ -298,7 +301,7 @@ func (e *Engine) loadSkills(ctx context.Context, packs []packRoot) (found []skil
 			continue
 		}
 		roots = append(roots, root)
-		for _, s := range skillsIn(root, p.include, p.exclude) {
+		for _, s := range skillsIn(root, inside, p.include, p.exclude) {
 			if !seen[s.name] {
 				seen[s.name] = true
 				found = append(found, s)
@@ -330,7 +333,7 @@ func (e *Engine) ownPrompt(ctx context.Context, own *model.BlueprintSource) (str
 	if err != nil {
 		return "", err
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	raw, err := readInside(dir, "AGENTS.md") // a link out of the repo is not its role
 	if err != nil {
 		return "", nil
 	}
@@ -691,7 +694,7 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 		},
 		onTool: func(call model.Block) {
 			e.apply(in, func(_ *model.Task, s *model.SubTask) {
-				e.logLine(s, enum.LogTool, call.Name+" "+clip(string(call.Args), 200), "", nil)
+				e.logLine(s, enum.LogTool, toolLine(call), "", nil)
 			})
 		},
 		onResults: func(msg model.Message) {
@@ -752,6 +755,52 @@ func (e *Engine) clearOutput(id string) {
 		delete(e.output, id)
 		e.publish(Event{Type: "toolOutput", SubID: id})
 	}
+}
+
+// toolLine is how a tool call shows in a log: its name and arguments, cut short, with secrets down to their last 4
+// characters first.
+func toolLine(call model.Block) string {
+	return call.Name + " " + clip(maskSecrets(call.Args), 200)
+}
+
+func maskSecrets(raw []byte) string {
+	var args map[string]any
+	if json.Unmarshal(raw, &args) != nil {
+		return string(raw)
+	}
+	masked := false
+	for k, v := range args {
+		if s, ok := v.(string); ok && secretField(k) {
+			args[k] = hideSecret(s)
+			masked = true
+		}
+	}
+	if !masked {
+		return string(raw)
+	}
+	out, err := json.Marshal(args)
+	if err != nil {
+		return "{}"
+	}
+	return string(out)
+}
+
+func secretField(name string) bool {
+	name = strings.ToLower(strings.NewReplacer("_", "", "-", "").Replace(name))
+	for _, s := range []string{"apikey", "token", "secret", "password"} {
+		if strings.Contains(name, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func hideSecret(s string) string {
+	r := []rune(strings.TrimSpace(s))
+	if len(r) <= 4 {
+		return "…"
+	}
+	return "…" + string(r[len(r)-4:])
 }
 
 func clip(s string, n int) string {

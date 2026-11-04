@@ -980,7 +980,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 				return // it shows as the question itself
 			}
 			e.applyChat(in, func(c *model.Chat) {
-				c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "tool", Text: call.Name + " " + clip(string(call.Args), 200), By: in.speaker})
+				c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "tool", Text: toolLine(call), By: in.speaker})
 			})
 		},
 		onResults: func(msg model.Message) {
