@@ -155,6 +155,15 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 			}
 		}
 	}
+	for id, src := range s.Sources {
+		field := "sources." + id
+		if src.Kind != "git" && src.Kind != "local" {
+			return bad(field+".kind", "必須是 git 或 local")
+		}
+		if (src.Kind == "git" && strings.TrimSpace(src.Repo) == "") || (src.Kind == "local" && strings.TrimSpace(src.Path) == "") {
+			return bad(field, "技能要有來源")
+		}
+	}
 	for id, b := range s.Blueprints {
 		field := "blueprints." + id
 		if b == nil || b.ID != id {
@@ -165,6 +174,9 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 		}
 		if err := checkBlueprint(b); err != nil {
 			return s, settingsError(field, err)
+		}
+		if err := checkPacks(b, s.Sources); err != nil {
+			return s, settingsError(field+".skills", err)
 		}
 	}
 	// Use the same provider selection and effort validation as the execution path.
@@ -266,6 +278,7 @@ func (e *Engine) ReloadSettings(ctx context.Context) error {
 	oldRaw, oldEncoded := e.settingsRaw, e.settingsEncoded
 	s.Install(e.w)
 	e.installPresets()
+	e.adoptSources()
 	e.settingsRaw, e.settingsEncoded = raw, settingsBytes(e.w)
 	// Broadcast the changed entities without advancing the task graph.
 	if err := e.sync(); err != nil {

@@ -24,7 +24,7 @@ make test-backend  # 測試
 | `provider.json` | 供應商設定，以供應商 id 為鍵；含網址、登入方式 `authKind`、模型、`thinking` 與價格，不含憑證 |
 | `data.db` | SQLite：任務、子任務、交接、流程快照、對話、用量、員工記憶、登入狀態、憑證、語言、公司位置與建築外觀，以及項目識別與建立時間 |
 | `cache/worktrees/` | 任務工作目錄 |
-| `cache/sources/` | Git 技能來源的快取 |
+| `cache/repos/` | Git 來源的快取：每個 repo 一份 mirror，每個 commit 一個資料夾 |
 | `cache/attachments/` | 上傳的檔案，與交給員工的附件副本 |
 | `cache/outputs/<task-or-chat-id>/` | `run_command` 太長的完整輸出；任務合併、取消或刪除時，以及刪除對話時一起刪掉 |
 | `cache/airport/` | 機場服務人員的工作目錄 |
@@ -242,5 +242,5 @@ OpenAI 相容（`compatible`）供應商若沒有回報等級，提供 `none / l
 
 - OpenAI、Google API Key 的模型清單沒有回報思考等級，所以只有 `default`；OpenAI 相容類型則使用上述備用清單。
 - 訂閱額度（5 小時、每週）不會顯示；用完時子任務會失敗並說明。
-- 藍圖的自動更新（`autoUpdate`）：目前只能手動 `POST /blueprints/:id/update`。
+- 藍圖本身是 Git repo 時不會自動更新，只能手動 `POST /blueprints/:id/update`；技能來源的自動套用設在來源上。
 - 子任務的長對話壓縮：超過模型上限時子任務會失敗並等使用者處理。對話已會自動壓縮（`auto_compact`）。

@@ -218,7 +218,7 @@ func (e *Engine) listBlueprints() any {
 		if b.Owner != "" {
 			continue
 		}
-		out = append(out, row{b.ID, versionOf(b), b.Name, b.Source.Kind, !model.IsPresetID(b.ID) && b.Source.Kind != "git", b.Prompt, b.Comment, b.Tools, b.Skills})
+		out = append(out, row{b.ID, versionOf(b), b.Name, b.Source.Kind, !model.IsPresetID(b.ID) && b.Source.Kind != "git", b.Prompt, b.Comment, b.Tools, e.writtenPacks(b.Skills)})
 	}
 	slices.SortFunc(out, func(a, b row) int { return strings.Compare(a.ID, b.ID) })
 	return out
@@ -492,7 +492,7 @@ type blueprintArgs struct {
 }
 
 // applyTo puts what the model gave over a blueprint. It sets neither id, source kind nor look.
-func (a blueprintArgs) applyTo(b *model.Blueprint) error {
+func (a blueprintArgs) applyTo(e *Engine, b *model.Blueprint) error {
 	if a.Name != nil {
 		b.Name = *a.Name
 	}
@@ -533,7 +533,7 @@ func (a blueprintArgs) applyTo(b *model.Blueprint) error {
 		}
 		b.Skills = packs
 	}
-	b.Source = model.BlueprintSource{Kind: "yaml", Text: blueprintYAML(b)}
+	b.Source = model.BlueprintSource{Kind: "yaml", Text: blueprintYAML(b, e.writtenPacks(b.Skills))}
 	return checkBlueprint(b)
 }
 
@@ -554,7 +554,7 @@ func githubAddress(repo string) string {
 var toolYAMLNames = map[enum.Tool]string{enum.ToolReadFile: "read_file", enum.ToolWriteFile: "write_file", enum.ToolWebSearch: "web_search", enum.ToolRunCommand: "run_command"}
 
 // blueprintYAML is what a blueprint is kept as, in the form the frontend's blueprintToYaml writes it.
-func blueprintYAML(b *model.Blueprint) string {
+func blueprintYAML(b *model.Blueprint, packs []model.SkillPack) string {
 	type pack struct {
 		Path    string   `yaml:"path,omitempty"`
 		Repo    string   `yaml:"repo,omitempty"`
@@ -569,7 +569,7 @@ func blueprintYAML(b *model.Blueprint) string {
 		Skills  []pack   `yaml:"skills"`
 		Tools   []string `yaml:"tools"`
 	}{Name: b.Name, Prompt: b.Prompt, Comment: b.Comment, Skills: []pack{}, Tools: []string{}}
-	for _, p := range b.Skills {
+	for _, p := range packs {
 		if p.Source != nil {
 			doc.Skills = append(doc.Skills, pack{p.Source.Path, strings.TrimPrefix(p.Source.Repo, githubHTTPS), p.Source.Ref, p.Include, p.Exclude})
 		}
@@ -594,7 +594,7 @@ func (e *Engine) saveBlueprintTool(m manager) func(context.Context, string, json
 			var made *model.Blueprint
 			err := e.act(m, true, func() error {
 				b := &model.Blueprint{Look: presets.Blueprints[e.w.Seq%len(presets.Blueprints)].Look}
-				if err := a.applyTo(b); err != nil {
+				if err := a.applyTo(e, b); err != nil {
 					return err
 				}
 				b.ID = e.uid("bp")
@@ -623,10 +623,10 @@ func (e *Engine) saveBlueprintTool(m manager) func(context.Context, string, json
 				return model.Errorf(model.CodeConflict, "版本不符，內容已經被改過，請重新讀取")
 			}
 			next := clone(old)
-			if err := a.applyTo(next); err != nil {
+			if err := a.applyTo(e, next); err != nil {
 				return err
 			}
-			if lines := blueprintDiff(old, next); len(lines) > 0 {
+			if lines := e.blueprintDiff(old, next); len(lines) > 0 {
 				change = &model.PendingChange{Kind: changeBlueprint, TargetID: a.ID, Name: old.Name, Version: a.Version, Lines: lines, Blueprint: next}
 			}
 			return nil
@@ -647,7 +647,7 @@ func waitForUser(m manager, change *model.PendingChange, err error) model.ToolRe
 	return model.ToolResult{Stop: true, After: func() { m.pause(*change) }}
 }
 
-func blueprintDiff(before, after *model.Blueprint) []model.ChangeLine {
+func (e *Engine) blueprintDiff(before, after *model.Blueprint) []model.ChangeLine {
 	var lines []model.ChangeLine
 	add := func(field, was, is string) {
 		if was != is {
@@ -658,7 +658,7 @@ func blueprintDiff(before, after *model.Blueprint) []model.ChangeLine {
 	add("prompt", before.Prompt, after.Prompt)
 	add("comment", before.Comment, after.Comment)
 	add("tools", toolNames(before.Tools), toolNames(after.Tools))
-	add("skills", skillsText(before.Skills), skillsText(after.Skills))
+	add("skills", skillsText(e.writtenPacks(before.Skills)), skillsText(e.writtenPacks(after.Skills)))
 	return lines
 }
 

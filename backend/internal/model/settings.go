@@ -17,6 +17,7 @@ type Settings struct {
 	Replicas    map[string]ReplicaConfig  `json:"replicas"`
 	Providers   map[string]ProviderConfig `json:"providers"`
 	Blueprints  map[string]*Blueprint     `json:"blueprints"`
+	Sources     map[string]*Source        `json:"sources"`
 	Workflows   map[string]*Workflow      `json:"workflows"`
 }
 
@@ -60,7 +61,10 @@ func WithoutPresets[T any](all map[string]T) map[string]T {
 }
 
 func SettingsOf(w *World) Settings {
-	s := Settings{Version: 1, Preferences: w.Preferences, Tutorial: w.Tutorial, Teams: map[string]TeamConfig{}, Replicas: map[string]ReplicaConfig{}, Providers: map[string]ProviderConfig{}, Blueprints: WithoutPresets(w.Blueprints), Workflows: WithoutPresets(w.Workflows)}
+	s := Settings{Version: 1, Preferences: w.Preferences, Tutorial: w.Tutorial, Teams: map[string]TeamConfig{}, Replicas: map[string]ReplicaConfig{}, Providers: map[string]ProviderConfig{}, Blueprints: WithoutPresets(w.Blueprints), Sources: map[string]*Source{}, Workflows: WithoutPresets(w.Workflows)}
+	for id, src := range w.Sources {
+		s.Sources[id] = src
+	}
 	for id, t := range w.Teams {
 		s.Teams[id] = TeamConfig{t.ID, t.Name, t.Folder, t.TargetBranch, t.Settings}
 	}
@@ -92,6 +96,10 @@ func (s Settings) Install(w *World) {
 		p.Models, p.Thinking, p.Prices = c.Models, c.Thinking, c.Prices
 	}
 	w.Blueprints, w.Workflows = s.Blueprints, s.Workflows
+	w.Sources = s.Sources
+	if w.Sources == nil {
+		w.Sources = map[string]*Source{}
+	}
 }
 
 // RuntimeDoc removes editable fields from a world document. Identity records remain so
@@ -134,7 +142,7 @@ func RuntimeDoc(d Doc) (Doc, error) {
 			Kind enum.ProviderKind `json:"kind"`
 			Auth ProviderAuth      `json:"auth"`
 		}{p.ID, p.Kind, p.Auth}
-	case "blueprint", "workflow":
+	case "blueprint", "workflow", "source":
 		v = struct {
 			ID string `json:"id"`
 		}{d.ID}

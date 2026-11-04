@@ -684,7 +684,7 @@ func (e *Engine) airportChatSpec(c *model.Chat) (agentSpec, error) {
 	if err := os.MkdirAll(e.airportFolder(), 0o700); err != nil {
 		return agentSpec{}, err
 	}
-	spec.name, spec.allowed, spec.packs = c.Name, slices.Clone(bp.Tools), packsOf(bp)
+	spec.name, spec.allowed, spec.packs = c.Name, slices.Clone(bp.Tools), e.packsOf(bp)
 	mention := ""
 	if home, err := os.UserHomeDir(); err == nil { // what "#" offers, so read_file can open what the user names
 		spec.read = []string{home}

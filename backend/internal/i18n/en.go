@@ -316,4 +316,10 @@ var en = map[string]string{
 	"員工不存在":                              "The employee does not exist",
 	"連線 id 不能空白或重複":                      "Arrow ids cannot be blank or repeated",
 	"供應商正在登入，請完成或取消後再重新載入設定":             "A provider is signing in. Finish or cancel it, then reload settings",
+	"技能來源已不存在":                           "The skill source no longer exists",
+	"技能來源的資料夾不正確":                        "Invalid folder in the skill source",
+	"必須是 git 或 local":                    "Must be git or local",
+	"找不到來源":                              "Source not found",
+	"這個來源沒有技能":                           "This source has no skills",
+	"還有藍圖或員工使用這個來源":                      "Blueprints or employees still use this source",
 }

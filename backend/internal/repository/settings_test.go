@@ -186,6 +186,34 @@ func TestFileNameIsTheIDOfBlueprintsAndWorkflows(t *testing.T) {
 	}
 }
 
+func TestSourcesAreKeptInOneFileByID(t *testing.T) {
+	c := model.Settings{Version: 1, Preferences: model.DefaultPreferences(), Providers: map[string]model.ProviderConfig{},
+		Blueprints: map[string]*model.Blueprint{}, Workflows: map[string]*model.Workflow{},
+		Sources: map[string]*model.Source{"src-1": {ID: "src-1", Kind: "git", Repo: "https://github.com/a/b", Ref: "main", Commit: "c1", AutoApply: true}}}
+	raw, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := splitSettings(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files["sources.yaml"] == nil || bytes.Contains(files["sources.yaml"], []byte("id: src-1")) {
+		t.Fatalf("sources.yaml:\n%s", files["sources.yaml"])
+	}
+	out, err := assemble(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got model.Settings
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if s := got.Sources["src-1"]; s == nil || *s != *c.Sources["src-1"] {
+		t.Fatalf("sources = %+v", got.Sources)
+	}
+}
+
 func TestPathIsTheIDOfCompaniesAndEmployees(t *testing.T) {
 	c := model.Settings{Version: 1, Preferences: model.DefaultPreferences(), Providers: map[string]model.ProviderConfig{},
 		Teams:    map[string]model.TeamConfig{"team-a": {ID: "team-a", Name: "a"}},

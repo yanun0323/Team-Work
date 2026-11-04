@@ -924,7 +924,7 @@ func (e *Engine) hireableBlueprint(id, rid string) *model.Blueprint {
 // ownBlueprint gives r settings of their own, b, in place of the ones they had; their own already are rewritten.
 // They are named after r and never update themselves, so a copy keeps the versions it was made with.
 func (e *Engine) ownBlueprint(r *model.Replica, b model.Blueprint) error {
-	b.Name, b.Look, b.Owner, b.AutoUpdate = r.Name, r.Look, r.ID, false
+	b.Name, b.Look, b.Owner = r.Name, r.Look, r.ID
 	if err := checkBlueprint(&b); err != nil {
 		return err
 	}
@@ -938,28 +938,8 @@ func (e *Engine) ownBlueprint(r *model.Replica, b model.Blueprint) error {
 	return nil
 }
 
-// PinOwnSources finds the version of each Git source an employee's own settings name without one, as the app does
-// once a blueprint is saved.
-func (e *Engine) PinOwnSources(ctx context.Context, rid string) error {
-	e.mu.Lock()
-	id := ""
-	if r := e.w.Replicas[rid]; r != nil {
-		if b := e.w.Blueprints[r.BlueprintID]; b != nil && b.Owner == rid {
-			unpinned := b.Source.Kind == "git" && b.Source.Commit == ""
-			for _, p := range b.Skills {
-				unpinned = unpinned || p.Source != nil && p.Source.Kind == "git" && p.Source.Commit == ""
-			}
-			if unpinned {
-				id = b.ID
-			}
-		}
-	}
-	e.mu.Unlock()
-	if id == "" {
-		return nil
-	}
-	return e.UpdateBlueprint(ctx, id)
-}
+// PinOwnSources finds the version of each Git source without one, as the app does once a blueprint is saved.
+func (e *Engine) PinOwnSources(ctx context.Context, _ string) error { return e.PinSources(ctx) }
 
 // dropOwnBlueprint removes r's own settings, which go with them.
 func (e *Engine) dropOwnBlueprint(r *model.Replica) {
@@ -986,8 +966,8 @@ func (e *Engine) DeleteBlueprint(id string) error {
 	})
 }
 
-// UpdateBlueprint moves every Git source of a blueprint to its newest version. A source that cannot be
-// reached keeps the version in use; each attempt is recorded on the source.
+// UpdateBlueprint moves a blueprint from Git to its repo's newest version, and finds a version for each source its
+// packs read that has none yet. A repo that cannot be reached keeps the version in use; each attempt is recorded.
 func (e *Engine) UpdateBlueprint(ctx context.Context, id string) error {
 	e.mu.Lock()
 	b := e.w.Blueprints[id]
@@ -995,33 +975,31 @@ func (e *Engine) UpdateBlueprint(ctx context.Context, id string) error {
 		e.mu.Unlock()
 		return model.Errorf(model.CodeNotFound, "找不到藍圖")
 	}
-	next := *clone(b)
+	own := b.Source
 	e.mu.Unlock()
-	check := func(s *model.BlueprintSource) {
-		if s == nil || s.Kind != "git" {
-			return
-		}
-		latest, err := e.git.Latest(ctx, s.Repo, s.Ref)
-		s.Upstream = err == nil
-		s.Update = &model.SourceUpdate{At: e.clock(), OK: err == nil}
+	if own.Kind == "git" {
+		latest, err := e.git.Latest(ctx, own.Repo, own.Ref)
+		own.Upstream = err == nil
+		own.Update = &model.SourceUpdate{At: e.clock(), OK: err == nil}
 		if err != nil {
-			e.log.Warn().Err(err).Str("repo", s.Repo).Msg("check source")
-			s.Update.Error = sourceProblem(err)
-			return
+			e.log.Warn().Err(err).Str("repo", own.Repo).Msg("check source")
+			own.Update.Error = sourceProblem(err)
+		} else {
+			own.Latest, own.Commit = latest, latest
 		}
-		s.Latest, s.Commit = latest, latest
-	}
-	check(&next.Source)
-	for i := range next.Skills {
-		check(next.Skills[i].Source)
-	}
-	return e.doSettings(func() error {
-		if e.w.Blueprints[id] == nil {
-			return model.Errorf(model.CodeNotFound, "找不到藍圖")
+		err = e.doSettings(func() error {
+			b := e.w.Blueprints[id]
+			if b == nil {
+				return model.Errorf(model.CodeNotFound, "找不到藍圖")
+			}
+			b.Source = own
+			return nil
+		})
+		if err != nil {
+			return err
 		}
-		e.w.Blueprints[id] = &next
-		return nil
-	})
+	}
+	return e.PinSources(ctx)
 }
 
 // sourceProblem says why a Git source could not be read, in words the user can act on, from what git printed.

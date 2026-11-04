@@ -137,6 +137,7 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	e.w.Now = e.clock()
 	i18n.Set(e.w.Language)
 	e.installPresets()
+	e.adoptSources()
 	for _, t := range e.w.Tasks {
 		settleStaff(&t.Workflow)
 	}
@@ -181,6 +182,7 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	}
 	e.interruptChats()
 	e.settle()
+	e.checkSources()
 	return e, nil
 }
 
@@ -223,6 +225,13 @@ func (e *Engine) change(config bool, fn func() error) error {
 		return err
 	}
 	if config {
+		e.adoptSources() // a place written into a pack becomes a source kept apart
+		for _, b := range e.w.Blueprints {
+			if err := checkPacks(b, e.w.Sources); err != nil {
+				e.w = before
+				return err
+			}
+		}
 		if err := e.sync(); err != nil {
 			if !e.closed {
 				e.w = before
@@ -339,6 +348,7 @@ func (e *Engine) documents() map[string][]byte {
 	encodeAll(now, "team", e.w.Teams)
 	encodeAll(now, "provider", e.w.Providers)
 	encodeAll(now, "blueprint", e.w.Blueprints)
+	encodeAll(now, "source", e.w.Sources)
 	encodeAll(now, "replica", e.w.Replicas)
 	encodeAll(now, "workflow", e.w.Workflows)
 	encodeAll(now, "task", e.w.Tasks)

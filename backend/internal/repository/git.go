@@ -39,7 +39,8 @@ type Git struct {
 }
 
 func NewGit(dataDir string) *Git {
-	return &Git{cacheDir: filepath.Join(dataDir, "cache", "sources"), locks: map[string]*sync.Mutex{}}
+	// cache/sources held a clone checked out in place, before each version had a folder of its own
+	return &Git{cacheDir: filepath.Join(dataDir, "cache", "repos"), locks: map[string]*sync.Mutex{}}
 }
 
 func (g *Git) lock(key string) func() {
@@ -290,29 +291,53 @@ func checkRepo(repo string) error {
 	return nil
 }
 
+var fullCommit = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
+
+// Fetch gives a folder holding repo at commit, or at its default branch's newest when commit is empty. Each repo is
+// cloned once, and each version read gets a folder of its own that never changes afterwards, so work under way keeps
+// the version it started with when a newer one is put in place. A version already here is read without the network.
 func (g *Git) Fetch(ctx context.Context, repo, commit string) (string, error) {
 	if err := checkRepo(repo); err != nil {
 		return "", err
 	}
+	sum := sha256.Sum256([]byte(repo))
+	base := filepath.Join(g.cacheDir, hex.EncodeToString(sum[:8]))
+	if fullCommit.MatchString(commit) {
+		if _, err := os.Stat(filepath.Join(base, commit, ".git")); err == nil {
+			return filepath.Join(base, commit), nil
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, remoteTimeout)
 	defer cancel()
-	sum := sha256.Sum256([]byte(repo))
-	dir := filepath.Join(g.cacheDir, hex.EncodeToString(sum[:8]))
-	defer g.lock(dir)()
-	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
-		if err := os.MkdirAll(g.cacheDir, 0o700); err != nil {
+	defer g.lock(base)()
+	clone := filepath.Join(base, "repo.git")
+	if _, err := os.Stat(filepath.Join(clone, "HEAD")); err != nil {
+		if err := os.MkdirAll(base, 0o700); err != nil {
 			return "", err
 		}
-		if _, err := git(ctx, g.cacheDir, "clone", "--", repo, dir); err != nil {
+		_ = os.RemoveAll(clone) // what a clone cut short left
+		if _, err := git(ctx, base, "clone", "--mirror", "--", repo, clone); err != nil {
 			return "", err
 		}
-	} else if _, err := git(ctx, dir, "fetch", "--tags", "origin"); err != nil {
-		return "", err
+	} else if _, err := git(ctx, clone, "cat-file", "-e", "--end-of-options", commit+"^{commit}"); commit == "" || err != nil {
+		if _, err := git(ctx, clone, "fetch", "--prune", "origin"); err != nil {
+			return "", err
+		}
 	}
 	if commit == "" {
-		commit = "origin/HEAD"
+		commit = "HEAD"
 	}
-	if _, err := git(ctx, dir, "checkout", "--detach", commit, "--"); err != nil {
+	sha, err := git(ctx, clone, "rev-parse", "--verify", "--end-of-options", commit+"^{commit}")
+	if err != nil {
+		return "", model.Errorf(model.CodeNotFound, "找不到版本 %s", commit)
+	}
+	dir := filepath.Join(base, sha)
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		return dir, nil
+	}
+	_ = os.RemoveAll(dir)
+	_, _ = git(ctx, clone, "worktree", "prune")
+	if _, err := git(ctx, clone, "worktree", "add", "--detach", dir, sha); err != nil {
 		return "", err
 	}
 	return dir, nil

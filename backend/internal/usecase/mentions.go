@@ -39,7 +39,7 @@ func (e *Engine) ReplicaSkills(ctx context.Context, id string) ([]SkillInfo, err
 			packs = projectPacks(team.Folder, e.w.Preferences)
 		}
 		if bp := e.w.Blueprints[r.BlueprintID]; bp != nil {
-			packs = append(packs, packsOf(bp)...)
+			packs = append(packs, e.packsOf(bp)...)
 		}
 	}
 	e.mu.Unlock()
@@ -54,7 +54,7 @@ func (e *Engine) AirportSkills(ctx context.Context) []SkillInfo {
 	e.mu.Lock()
 	var packs []packRoot
 	if bp := e.w.Blueprints[airportBlueprintID]; bp != nil {
-		packs = packsOf(bp)
+		packs = e.packsOf(bp)
 	}
 	e.mu.Unlock()
 	return e.skillInfos(ctx, packs)
@@ -76,7 +76,7 @@ func (e *Engine) BlueprintSkills(ctx context.Context, id string) ([][]string, er
 	var packs []packRoot
 	bp := e.w.Blueprints[id]
 	if bp != nil {
-		packs = packsOf(bp)
+		packs = e.packsOf(bp)
 	}
 	e.mu.Unlock()
 	if bp == nil {

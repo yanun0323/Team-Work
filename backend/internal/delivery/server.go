@@ -116,6 +116,16 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/blueprints/:id/update", s.updateBlueprint)
 	api.GET("/blueprints/:id/skills", s.blueprintSkills)
 
+	api.POST("/sources", s.addSource)
+	api.POST("/sources/preview", s.previewSource)
+	api.DELETE("/sources/:id", s.deleteSource)
+	api.GET("/sources/:id/items", s.sourceItems)
+	api.POST("/sources/:id/check", s.checkSource)
+	api.GET("/sources/:id/changes", s.sourceChanges)
+	api.POST("/sources/:id/apply", s.applySource)
+	api.PUT("/sources/:id/auto-apply", s.sourceAutoApply)
+	api.POST("/sources/:id/seen", s.seeSource)
+
 	api.POST("/replicas", s.hire)
 	api.PATCH("/replicas/:id", s.updateReplica)
 	api.DELETE("/replicas/:id", s.fire)
@@ -739,6 +749,69 @@ func (s *Server) blueprintSkills(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, skills)
+}
+
+func (s *Server) addSource(c echo.Context) error {
+	in, err := bind[usecase.NewSource](c)
+	if err != nil {
+		return err
+	}
+	out, err := s.engine.AddSource(c.Request().Context(), in)
+	return created(c, out, err)
+}
+
+func (s *Server) previewSource(c echo.Context) error {
+	in, err := bind[usecase.NewSource](c)
+	if err != nil {
+		return err
+	}
+	out, err := s.engine.PreviewSource(c.Request().Context(), in)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, out)
+}
+
+func (s *Server) deleteSource(c echo.Context) error {
+	return done(c, s.engine.DeleteSource(c.Param("id")))
+}
+
+func (s *Server) sourceItems(c echo.Context) error {
+	items, err := s.engine.SourceItems(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, items)
+}
+
+func (s *Server) checkSource(c echo.Context) error {
+	return done(c, s.engine.CheckSource(c.Request().Context(), c.Param("id")))
+}
+
+func (s *Server) sourceChanges(c echo.Context) error {
+	out, err := s.engine.SourceUpdateChanges(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, out)
+}
+
+func (s *Server) applySource(c echo.Context) error {
+	return done(c, s.engine.ApplySource(c.Param("id")))
+}
+
+func (s *Server) seeSource(c echo.Context) error {
+	return done(c, s.engine.SeeSource(c.Param("id")))
+}
+
+func (s *Server) sourceAutoApply(c echo.Context) error {
+	in, err := bind[struct {
+		On bool `json:"on"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.SetSourceAutoApply(c.Param("id"), in.On))
 }
 
 func (s *Server) createChat(c echo.Context) error {

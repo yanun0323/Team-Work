@@ -39,7 +39,7 @@ func validID(id string) bool {
 
 func settingPath(path string) bool {
 	p := strings.Split(filepath.ToSlash(path), "/")
-	if path == "provider.json" || path == "preferences.yaml" || path == "tutorial.yaml" {
+	if path == "provider.json" || path == "preferences.yaml" || path == "tutorial.yaml" || path == "sources.yaml" {
 		return true
 	}
 	if len(p) == 2 && (p[0] == "blueprints" || p[0] == "workflows") {
@@ -109,7 +109,7 @@ func (s *Store) readFile(rel string) ([]byte, error) {
 
 func (s *Store) readFiles() (map[string][]byte, error) {
 	files := map[string][]byte{}
-	for _, path := range []string{"provider.json", "preferences.yaml", "tutorial.yaml"} {
+	for _, path := range []string{"provider.json", "preferences.yaml", "tutorial.yaml", "sources.yaml"} {
 		raw, err := s.readFile(path)
 		if err != nil {
 			return nil, err
@@ -196,7 +196,7 @@ func assemble(files map[string][]byte) ([]byte, error) {
 	if len(files) == 0 {
 		return nil, nil
 	}
-	c := model.Settings{Version: 1, Preferences: model.DefaultPreferences(), Tutorial: model.NewWorld().Tutorial, Teams: map[string]model.TeamConfig{}, Replicas: map[string]model.ReplicaConfig{}, Providers: map[string]model.ProviderConfig{}, Blueprints: map[string]*model.Blueprint{}, Workflows: map[string]*model.Workflow{}}
+	c := model.Settings{Version: 1, Preferences: model.DefaultPreferences(), Tutorial: model.NewWorld().Tutorial, Teams: map[string]model.TeamConfig{}, Replicas: map[string]model.ReplicaConfig{}, Providers: map[string]model.ProviderConfig{}, Blueprints: map[string]*model.Blueprint{}, Sources: map[string]*model.Source{}, Workflows: map[string]*model.Workflow{}}
 	if files["provider.json"] == nil {
 		return nil, fileError("provider.json", i18n.Errorf("設定檔遺失"))
 	}
@@ -219,6 +219,16 @@ func assemble(files map[string][]byte) ([]byte, error) {
 				if !validID(id) || id != provider.ID {
 					return nil, fileError(path, i18n.Errorf("供應商 id 不正確"))
 				}
+			}
+		case path == "sources.yaml":
+			if err := decodeFile(path, raw, &c.Sources); err != nil {
+				return nil, err
+			}
+			for id, src := range c.Sources {
+				if src == nil {
+					return nil, fileError(path, i18n.Errorf("不能為 null"))
+				}
+				src.ID = id // the key is the id
 			}
 		case p[0] == "blueprints":
 			var v model.Blueprint
@@ -317,6 +327,24 @@ func splitSettings(raw []byte) (map[string][]byte, error) {
 	}
 	if err := put("provider.json", c.Providers); err != nil {
 		return nil, err
+	}
+	if len(c.Sources) > 0 {
+		sources := map[string]map[string]any{}
+		for id, v := range c.Sources {
+			raw, err := json.Marshal(v)
+			if err != nil {
+				return nil, err
+			}
+			var named map[string]any
+			if err := json.Unmarshal(raw, &named); err != nil {
+				return nil, err
+			}
+			delete(named, "id") // the key names it
+			sources[id] = named
+		}
+		if err := put("sources.yaml", sources); err != nil {
+			return nil, err
+		}
 	}
 	for id, v := range c.Teams {
 		if err := put("company/"+id+"/config.yaml", v); err != nil {

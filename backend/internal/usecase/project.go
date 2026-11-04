@@ -162,7 +162,7 @@ func (e *Engine) ChatSkill(ctx context.Context, chatID, name string) (SkillText,
 	var packs [][]packRoot
 	if c != nil && c.AtAirport() {
 		if bp := e.w.Blueprints[airportBlueprintID]; bp != nil {
-			packs = append(packs, packsOf(bp))
+			packs = append(packs, e.packsOf(bp))
 		}
 	} else if c != nil {
 		if team := e.w.Teams[c.TeamID]; team != nil {
@@ -175,7 +175,7 @@ func (e *Engine) ChatSkill(ctx context.Context, chatID, name string) (SkillText,
 		for _, id := range ids {
 			if r := e.w.Replicas[id]; r != nil {
 				if bp := e.w.Blueprints[r.BlueprintID]; bp != nil {
-					packs = append(packs, packsOf(bp))
+					packs = append(packs, e.packsOf(bp))
 				}
 			}
 		}

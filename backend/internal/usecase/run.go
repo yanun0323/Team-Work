@@ -268,20 +268,8 @@ func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Rep
 		e.readPrompt(team)
 		spec.prompt = taskPrompt(t, team, node, bp, r, e.w.Language, e.runGlobalPrompt())
 	}
-	spec.packs = packsOf(bp)
+	spec.packs = e.packsOf(bp)
 	return spec, nil
-}
-
-func packsOf(bp *model.Blueprint) []packRoot {
-	var packs []packRoot
-	for _, pack := range bp.Skills {
-		source := bp.Source
-		if pack.Source != nil {
-			source = *pack.Source
-		}
-		packs = append(packs, packRoot{source: source, include: pack.Include, exclude: pack.Exclude})
-	}
-	return packs
 }
 
 // loadSkills finds the skills of a blueprint's packs; one that cannot be read is reported and left out. The same
@@ -303,6 +291,9 @@ func (e *Engine) loadSkills(ctx context.Context, packs []packRoot) (found []skil
 				continue
 			}
 			root = filepath.Join(dir, sub)
+		case "missing":
+			problems = append(problems, missingSource())
+			continue
 		default:
 			continue
 		}

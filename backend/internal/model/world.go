@@ -38,18 +38,39 @@ type SourceUpdate struct {
 	Error string  `json:"error,omitempty"`
 }
 
-// SkillPack is skills read from one place; a nil Source means the blueprint's own repo, a nil Include all of them.
+// Source is a place items are read from, kept once for everything that uses it: a Git repo at a branch, or a folder
+// on this computer. All of its users read the version in Commit; Latest is the newest one found upstream, and moving
+// Commit to it is the user's call, or the source's own when AutoApply is set.
+type Source struct {
+	ID        string        `json:"id"`
+	Kind      string        `json:"kind"` // git or local
+	Repo      string        `json:"repo,omitempty"`
+	Ref       string        `json:"ref,omitempty"`
+	Path      string        `json:"path,omitempty"` // local: the folder
+	Commit    string        `json:"commit,omitempty"`
+	Latest    string        `json:"latest,omitempty"`
+	Upstream  bool          `json:"upstream"`
+	Update    *SourceUpdate `json:"update,omitempty"`
+	AutoApply bool          `json:"autoApply"`
+	// Unseen is set when an update was applied by itself, until the user opens the source.
+	Unseen bool `json:"unseen,omitempty"`
+}
+
+// SkillPack is skills a blueprint takes from one place: the folder Path of the source SourceID ("" the whole source), a
+// nil Include every skill there, so ones added later come too. Source is a place written into the pack itself, as
+// built-in blueprints and those from before sources were kept apart have; with neither, it is the blueprint's own repo.
 type SkillPack struct {
-	Source  *BlueprintSource `json:"source"`
-	Include []string         `json:"include"`
-	Exclude []string         `json:"exclude"`
+	SourceID string           `json:"sourceId,omitempty"`
+	Path     string           `json:"path,omitempty"`
+	Source   *BlueprintSource `json:"source,omitempty"`
+	Include  []string         `json:"include"`
+	Exclude  []string         `json:"exclude"`
 }
 
 type Blueprint struct {
 	ID         string          `json:"id"`
 	Name       string          `json:"name"`
 	Source     BlueprintSource `json:"source"`
-	AutoUpdate bool            `json:"autoUpdate"`
 	Prompt     string          `json:"prompt"`
 	Comment    string          `json:"comment"`
 	Skills     []SkillPack     `json:"skills"`
@@ -510,6 +531,7 @@ type World struct {
 	Teams         map[string]*Team          `json:"teams"`
 	Providers     map[string]*ModelProvider `json:"providers"`
 	Blueprints    map[string]*Blueprint     `json:"blueprints"`
+	Sources       map[string]*Source        `json:"sources"`
 	Replicas      map[string]*Replica       `json:"replicas"`
 	Workflows     map[string]*Workflow      `json:"workflows"`
 	Tasks         map[string]*Task          `json:"tasks"`
@@ -536,7 +558,7 @@ func IsPresetID(id string) bool { return strings.HasPrefix(id, PresetPrefix) }
 func NewWorld() *World {
 	return &World{
 		Language: LanguageZh, Preferences: DefaultPreferences(), Tutorial: Tutorial{Done: []string{}, Shown: []string{}, Played: []string{}, Actions: []string{}, Copies: []string{}},
-		Teams: map[string]*Team{}, Providers: map[string]*ModelProvider{}, Blueprints: map[string]*Blueprint{},
+		Teams: map[string]*Team{}, Providers: map[string]*ModelProvider{}, Blueprints: map[string]*Blueprint{}, Sources: map[string]*Source{},
 		Replicas: map[string]*Replica{}, Workflows: map[string]*Workflow{}, Tasks: map[string]*Task{},
 		SubTasks: map[string]*SubTask{}, Chats: map[string]*Chat{}, Conversations: map[string][]Message{},
 	}
