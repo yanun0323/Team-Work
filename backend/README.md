@@ -100,6 +100,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `GET /world` | 整個世界，欄位與前端 `types.ts` 相同 |
 | `GET /events` | WebSocket：先送 `snapshot`，之後送 `patch`（實體異動）、`delta`（對話或討論裡員工正在寫的文字，`subId` 是對話或子任務的 id）、`deltaReset`（重試時收回已寫的文字）、`toolOutput`（對話裡正在跑的指令最後幾行輸出，取代上一次的內容；`text` 為空表示指令結束）、`notice`（`review`、`awaitMerge`）。斷線重連會拿到新的 snapshot，以及寫到一半的文字和正在跑的指令輸出 |
 | `POST /teams`、`PATCH`/`DELETE /teams/:id` | 公司；建立與修改可帶 `plot: {at: [x,z], style, seed}`（省略時建立自動配置）；資料夾沒有 git 時會初始化並建立 `master`。關閉公司不會刪資料夾，但會刪它的任務分支與 work tree |
+| `GET`/`PUT /teams/:id/notes` | 讀寫公司筆記（專案資料夾的 `.team-work/NOTES.md`），內容在 `text` 欄位；沒有檔案就是空的 |
 | `GET /branches?folder=` | 查資料夾的分支（只讀），`repo` 是它是不是 git repo |
 | `POST /teams/:id/prompt/refresh` | 重新讀專案的 `AGENTS.md`。公司的 `prompt` 就是這個檔案：`PATCH` 會寫回檔案（不會 commit），建立公司、啟動和員工開工時都會重新讀 |
 | `POST /folder-picker` | 開系統的選擇資料夾視窗（目前只有 macOS），回傳完整路徑 `path`，取消時是空字串 |

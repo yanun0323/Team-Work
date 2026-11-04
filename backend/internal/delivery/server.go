@@ -84,6 +84,8 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/teams", s.createTeam)
 	api.PATCH("/teams/:id", s.updateTeam)
 	api.POST("/teams/:id/prompt/refresh", s.refreshPrompt)
+	api.GET("/teams/:id/notes", s.notes)
+	api.PUT("/teams/:id/notes", s.setNotes)
 	api.DELETE("/teams/:id", s.deleteTeam)
 	api.POST("/workflows", s.createWorkflow)
 
@@ -333,6 +335,24 @@ func (s *Server) setLanguage(c echo.Context) error {
 
 func (s *Server) refreshPrompt(c echo.Context) error {
 	return done(c, s.engine.RefreshPrompt(c.Param("id")))
+}
+
+func (s *Server) notes(c echo.Context) error {
+	text, err := s.engine.Notes(c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]string{"text": text})
+}
+
+func (s *Server) setNotes(c echo.Context) error {
+	in, err := bind[struct {
+		Text string `json:"text"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.SetNotes(c.Param("id"), in.Text))
 }
 
 func (s *Server) deleteTeam(c echo.Context) error {

@@ -448,6 +448,25 @@ func TestGlobalPromptEndpoints(t *testing.T) {
 	}
 }
 
+func TestNotesEndpoints(t *testing.T) {
+	api := setup(t).URL + "/api/v1"
+	folder, _ := json.Marshal(t.TempDir())
+	_, team := send(t, "POST", api+"/teams", `{"name":"c","folder":`+string(folder)+`}`)
+	notes := api + "/teams/" + team["id"].(string) + "/notes"
+	if code, body := send(t, "GET", notes, ""); code != http.StatusOK || body["text"] != "" {
+		t.Fatalf("%d %v", code, body)
+	}
+	if code, body := send(t, "PUT", notes, `{"text":"筆記"}`, "Content-Type", "application/json"); code != http.StatusNoContent {
+		t.Fatalf("%d %v", code, body)
+	}
+	if code, body := send(t, "GET", notes, ""); code != http.StatusOK || body["text"] != "筆記" {
+		t.Fatalf("%d %v", code, body)
+	}
+	if code, _ := send(t, "GET", api+"/teams/nope/notes", ""); code != http.StatusNotFound {
+		t.Fatal(code)
+	}
+}
+
 func TestOpenFolderShowsTheCompanysFolder(t *testing.T) {
 	api := setup(t).URL + "/api/v1"
 	dir := t.TempDir()
