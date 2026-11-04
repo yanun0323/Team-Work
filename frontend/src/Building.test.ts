@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { billAt, litShares, moneyTosses, shoutBursts } from './Building'
+import { SCREEN_RIGHT } from './camera'
+import { CELL, RING_CELLS } from './layout'
 import { seedWorld } from './core/data/seed'
 import { busyReplicas, createChat } from './core/domain/sim'
 import { teamBusy, teamReplicas } from './core/model'
@@ -44,6 +46,28 @@ describe('shoutBursts', () => {
       expect(a.rays.length).not.toBe(b.rays.length)
       expect(a.at[1]).not.toBe(b.at[1])
       expect(a.beat).not.toBe(b.beat)
+    }
+  })
+
+  it('stays behind a neighbouring building in front, so it never covers another company', () => {
+    // plots may touch, leaving two paved rings between buildings; the neighbour in front of the right corner
+    // stands along +x, the one in front of the left corner along +z, and anything nearer the camera than their
+    // facing wall covers what is behind it there
+    const ring = 2 * RING_CELLS * CELL
+    for (const size of [8, 20]) {
+      for (let seed = 0; seed < 20; seed++) {
+        for (const b of shoutBursts(size, size, 12, seed)) {
+          // stroke tips: gap off the corner, the longest stroke, half its rim
+          const strokes = 2.2 + Math.max(...b.rays.map((r) => r.len)) + 0.25
+          const toss = moneyTosses(size, size, 12, seed).find((t) => t.side === b.side)!
+          // bill edges over a toss's life, half a bill wide past each centre
+          const bills = Math.max(...toss.bills.flatMap((bill) =>
+            Array.from({ length: 17 }, (_, k) => Math.abs(billAt(bill, b.side, k * 0.1)[0]) + 1.55)))
+          const reach = Math.max(strokes, bills)
+          if (b.side > 0) expect(b.at[0] + reach * SCREEN_RIGHT.x).toBeLessThan(size / 2 + ring)
+          else expect(b.at[2] - reach * SCREEN_RIGHT.z).toBeLessThan(size / 2 + ring)
+        }
+      }
     }
   })
 })

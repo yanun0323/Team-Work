@@ -1505,6 +1505,12 @@ const FANS: Ray[][] = [
 
 /** How far the left side's strokes and bills start in from the building's left corner, in world units along the screen. */
 const LEFT_IN = 1.2
+/**
+ * How far the strokes and bills sit towards the camera from their corner, in world units. The camera is orthographic,
+ * so this leaves them where they were on screen: far enough that the building's own eaves and hedges stay behind them,
+ * near enough that a neighbouring building in front, at least two paved rings away, still covers them.
+ */
+export const BUSY_AHEAD = 8
 
 /**
  * The two fans of cartoon shout strokes for a building `w` × `d` and `h` tall. The seed picks which side
@@ -1518,17 +1524,22 @@ export function shoutBursts(w: number, d: number, h: number, seed: number): Burs
     // the outermost corner on that side of the screen: (+w/2, -d/2) on the right, (-w/2, +d/2) on the left;
     // the left one moved in along the screen, as it otherwise looks further off the building than the right
     const inward = side < 0 ? LEFT_IN : 0
-    const at: [number, number, number] = [(side * w) / 2 + SCREEN_RIGHT.x * inward, y, (-side * d) / 2 + SCREEN_RIGHT.z * inward]
+    const at: [number, number, number] = [
+      (side * w) / 2 + SCREEN_RIGHT.x * inward + ISO_DIR.x * BUSY_AHEAD,
+      y + ISO_DIR.y * BUSY_AHEAD,
+      (-side * d) / 2 + SCREEN_RIGHT.z * inward + ISO_DIR.z * BUSY_AHEAD,
+    ]
     return { side, at, rays: FANS[low ? 1 : 0], beat: low ? 0.26 : 0.2 }
   })
 }
 
 /**
- * Drawn after everything else and over it, buildings included: the busy animations are never hidden.
+ * Drawn after everything else, so they cover one another in a fixed order; depth tested, so a building in front
+ * still covers them (`BUSY_AHEAD` keeps their own building behind them).
  * See-through, so three.js draws them with the see-through objects, after every solid one.
  */
 const OVER_ALL = 100
-const overAll = (color: string) => new THREE.MeshBasicMaterial({ color, toneMapped: false, transparent: true, depthTest: false, depthWrite: false })
+const overAll = (color: string) => new THREE.MeshBasicMaterial({ color, toneMapped: false, transparent: true, depthWrite: false })
 
 /** Cartoon shout strokes off both sides of a building while the company is at work; they jump between two poses, still with reduced motion. */
 function Shout({ w, d, h, seed }: { w: number; d: number; h: number; seed: number }) {
