@@ -3,7 +3,7 @@
 
 import { makeHandoff, makeScript, roleOf } from './content'
 import { fixedSteps, installPresets, localizeFlow } from '../data/presets'
-import { canReach, isFixed, feedsOnly, inEdges, nodeOf, outEdges, taskNodeOf } from './graph'
+import { canReach, canSendBack, feedsOnly, inEdges, nodeOf, outEdges, startsOf } from './graph'
 import { between, chance, hex, pick, uid } from './rng'
 import { taskStatus } from './rollup'
 import type {
@@ -72,12 +72,10 @@ export interface NewTask {
   mergeConflict?: boolean
   /** Who works each step of this task, by node id. Steps left out keep the flow's own list. */
   staff?: Record<string, string[]>
-  /** The task's owner, who works 整理需求 and 驗收 whatever `staff` says. */
+  /** The task's owner, who answers for it; who works each step is up to `staff`. */
   ownerId?: string
   images?: Attachment[]
   files?: Attachment[]
-  /** The first step hands the description on as it is, without running. */
-  skipStart?: boolean
 }
 
 /** A flow is shared, so a task's copy of it keeps only people from the task's own company. */
@@ -86,6 +84,7 @@ function ownStaff(w: World, teamId: string, wf: Workflow): Workflow {
   return wf
 }
 
+/** A new task waits in 待辦 until the user starts it with resumeTask: paused, with no pausedAt. */
 export function createTask(w: World, input: NewTask): Task {
   const number = Object.values(w.tasks).filter((t) => t.teamId === input.teamId).length + 1
   const task: Task = {
@@ -100,55 +99,31 @@ export function createTask(w: World, input: NewTask): Task {
     workflow: ownStaff(w, input.teamId, clone(w.workflows[input.workflowId])),
     createdAt: w.now,
     stage: 'running',
-    paused: false,
+    paused: true,
+    pausedStatus: 'todo',
     branch: `task/${number}`,
     budgetBonus: 0,
     costCarry: 0,
     tokensCarry: 0,
     mergeConflict: input.mergeConflict ?? false,
     overrides: input.overrides,
-    ownerId: null,
+    ownerId: input.ownerId ?? null,
   }
   for (const n of task.workflow.nodes) if (input.staff?.[n.id]) n.replicaIds = [...input.staff[n.id]]
+  settleStaff(task.workflow)
   localizeFlow(task.workflow, w.language)
-  setOwner(task, input.ownerId ?? null)
   w.tasks[task.id] = task
-  const first = spawn(w, task, taskNodeOf(task.workflow).id, [], null, w.now)
-  if (input.skipStart) skipStart(w, task, first)
+  start(w, task)
   return task
 }
 
-/** Finish the first step at once: the description, already clear, is the requirement handed on. */
-function skipStart(w: World, task: Task, sub: SubTask) {
-  sub.status = 'complete'
-  sub.skipped = true
-  sub.progress = 1
-  sub.endedAt = w.now
-  sub.handoff = {
-    commit: '',
-    agent: { goal: task.title, done: [], outputs: [], decisions: ['使用者跳過此節點：以任務說明為需求'], open: [] },
-    human: { headline: '已跳過整理需求，以任務說明為準。', did: [], outputs: [] },
-  }
-  log(sub, w.now, 'system', '已跳過整理需求，以任務說明為準。', 'startSkipped')
+/** Start every step a task's flow starts with, each from the task's description. */
+function start(w: World, task: Task) {
+  for (const n of startsOf(task.workflow)) spawn(w, task, n.id, [], null, w.now)
 }
 
-/** What 整理需求, 驗收 and every 和員工討論 step are told to do in Chinese, for the sample tasks; no flow can change it. */
+/** The 整理需求 and 驗收 templates and what every 和員工討論 step is told, in Chinese, for the sample tasks. */
 export const { startPrompt: START_PROMPT, endPrompt: END_PROMPT, talkPrompt: TALK_PROMPT } = fixedSteps('zh')
-
-/**
- * Make `ownerId` the task's owner: they work its two fixed steps, 整理需求 and 驗收, With no owner (a task made where none is picked), the flow's staff stays on them.
- */
-export function setOwner(task: Task, ownerId: string | null) {
-  task.ownerId = ownerId
-  const wf = task.workflow
-  for (const n of wf.nodes) {
-    if (!isFixed(wf, n.id)) continue
-    if (ownerId) {
-      n.replicaIds = [ownerId]
-      n.assignment = 'firstAvailable'
-    }
-  }
-}
 
 function spawn(
   w: World, task: Task, nodeId: string, upstreamIds: string[], parentId: string | null, arrivedAt: number, waiting = false,
@@ -169,27 +144,19 @@ function spawn(
   return sub
 }
 
-/** Pick who works on a sub-task according to the node's assignment mode. */
-function release(w: World, task: Task, sub: SubTask) {
+/** Queues a sub-task. */
+function release(w: World, _task: Task, sub: SubTask) {
   sub.waiting = false
-  const node = nodeOf(task.workflow, sub.nodeId)!
-  const ids = node.replicaIds.filter((r) => w.replicas[r])
-  if (node.assignment === 'everyone' && node.kind !== 'talk' && ids.length) {
-    // a discussion is held once, with one employee; everyone else on a talk step only stands by
-    sub.replicaId = ids[0]
-    if (ids.length > 1) {
-      sub.group = sub.id
-      for (const r of ids.slice(1)) {
-        const mate: SubTask = {
-          ...clone(sub), id: uid(w, 'sub'), replicaId: r,
-          script: makeScript(w, roleOf(node), task, { ...task.overrides?.['*'], ...task.overrides?.[node.id] }),
-        }
-        mate.duration = mate.script.duration ?? 24
-        w.subTasks[mate.id] = mate
-      }
-    }
-  }
   log(sub, w.now, 'system', '已排入佇列', 'queued')
+}
+
+/** Keeps the first employee of a work step, as from before a work step had one; a discussion keeps them all, who hold it as a meeting. */
+export function settleStaff(wf: Workflow) {
+  for (const n of wf.nodes) {
+    delete (n as { assignment?: string }).assignment
+    if (n.kind !== 'talk' && n.replicaIds.length > 1) n.replicaIds = n.replicaIds.slice(0, 1)
+  }
+  return wf
 }
 
 // ---------- tick ----------
@@ -291,37 +258,58 @@ function advance(w: World, task: Task, sub: SubTask, dt: number) {
 /** Seconds the employee takes to write back in a discussion. */
 export const REPLY_TIME = 4
 
-/** A discussion step is ready: the employee opens it with their questions, and it waits on the user. */
+/** A discussion step is ready: the employee, or the chair of several, opens it with their questions, and it waits on the user. */
 function openTalk(w: World, task: Task, sub: SubTask) {
   sub.progress = 1
-  sub.talk = { messages: [] }
+  sub.talk = { messages: [], speaker: sub.replicaId ?? undefined }
   say(w, sub, sub.script.talk?.opening ?? `關於「${task.title}」，有幾件事想和你討論。`)
   openReview(w, task, sub, { kind: 'talk', options: [] })
 }
 
 function say(w: World, sub: SubTask, text: string) {
-  sub.talk!.messages.push({ at: w.now, from: 'agent', text })
+  sub.talk!.messages.push({ at: w.now, from: 'agent', text, by: sub.talk!.speaker })
   log(sub, w.now, 'say', text)
 }
 
-/** The employee's reply to the user's last message, in turn from the script, and then plain acknowledgements. */
+/** Who hold a discussion: the one who opened it, who chairs, then the rest of its step's employees still here. Several make it a meeting. */
+export function talkPeople(w: World, sub: SubTask): string[] {
+  const node = nodeOf(w.tasks[sub.taskId].workflow, sub.nodeId)
+  return [...new Set([sub.replicaId ?? '', ...node?.replicaIds ?? []])].filter((id) => w.replicas[id])
+}
+
+/** The reply to the user's last message, in turn from the script, and then plain acknowledgements; then the next in the round replies. */
 function answer(w: World, sub: SubTask) {
   const talk = sub.talk!
   talk.replyAt = undefined
   const n = talk.messages.filter((m) => m.from === 'agent').length - 1
   const replies = sub.script.talk?.replies ?? []
   say(w, sub, replies[n] ?? '好的，記下來了。')
+  const next = talk.next?.find((id) => w.replicas[id])
+  talk.next = next ? talk.next!.slice(talk.next!.indexOf(next) + 1) : undefined
+  if (next) {
+    talk.speaker = next
+    talk.replyAt = w.now + REPLY_TIME
+  }
 }
 
 /** Whether a discussion is open: the user may write in it, and end it. */
 export const talking = (s: SubTask) => s.review?.kind === 'talk' && !s.talk?.ended
 
-/** The user writes in an open discussion; the employee answers a few seconds later. Nothing while they still write. */
-export function sayInTalk(w: World, subId: string, text: string) {
+/**
+ * The user writes in an open discussion. Those it mentions answer in turn, a few seconds apart; with none, the chair
+ * alone. "@All" comes as everyone mentioned, the chair last. Nothing while someone still writes.
+ */
+export function sayInTalk(w: World, subId: string, text: string, mentions: string[] = []) {
   const sub = w.subTasks[subId]
   text = text.trim()
   if (!sub || !talking(sub) || !text || sub.talk!.replyAt !== undefined) return
-  sub.talk!.messages.push({ at: w.now, from: 'user', text })
+  const people = talkPeople(w, sub)
+  const speakers = [...new Set(mentions)].filter((id) => people.includes(id))
+  if (!speakers.length) speakers.push(people[0])
+  if (!speakers[0]) return
+  sub.talk!.messages.push({ at: w.now, from: 'user', text, ...mentions.length ? { mentions } : {} })
+  sub.talk!.speaker = speakers[0]
+  sub.talk!.next = speakers.length > 1 ? speakers.slice(1) : undefined
   sub.talk!.replyAt = w.now + REPLY_TIME
   log(sub, w.now, 'human', text)
 }
@@ -671,6 +659,7 @@ export function endTalk(w: World, subId: string, end: TalkEnd) {
   if (end.kind === 'back' && (!end.reason.trim() || !sub.upstreamIds.length)) return
   sub.talk!.ended = end.kind
   sub.talk!.replyAt = undefined
+  sub.talk!.next = undefined
   sub.review = undefined
 
   if (end.kind === 'stop') {
@@ -755,16 +744,17 @@ function route(w: World, task: Task, sub: SubTask) {
 }
 
 /**
- * Whether a finished run sends the work back instead of handing it on. Only the flow's last step (a review
- * that does not pass) and a step that was itself sent back may, never the first step, and a task at most
- * `MAX_SEND_BACKS` times; each send-back halves the odds of the next.
+ * Whether a finished run sends the work back instead of handing it on. A step whose send-back switch is on may,
+ * when canSendBack allows it; with the switch unset, a last step (a review that does not pass) and a step that was
+ * itself sent back may. Never a starting step, and a task at most `MAX_SEND_BACKS` times; each send-back halves the
+ * odds of the next.
  */
 function sendsBack(w: World, task: Task, sub: SubTask) {
   const wf = task.workflow
   const node = nodeOf(wf, sub.nodeId)
-  if (!node || node.kind === 'task' || node.kind === 'talk' || sub.sentBack || sub.skipped || !sub.upstreamIds.length) return false
+  if (!node || node.kind !== 'work' || sub.sentBack || sub.skipped || !sub.upstreamIds.length) return false
   const last = outEdges(wf, node.id).length === 0
-  if (!last && !sub.rework) return false
+  if (node.sendBack !== undefined ? !node.sendBack || !canSendBack(wf, node.id) : !last && !sub.rework) return false
   const rounds = subsOf(w, task.id).filter((s) => s.sentBack && (!s.group || s.group === s.id)).length
   if (rounds >= MAX_SEND_BACKS) return false
   return (sub.script.sendBack?.roll ?? 1) < (last ? 0.3 : 0.25) / 2 ** rounds
@@ -794,15 +784,11 @@ function sendBack(w: World, task: Task, sub: SubTask, members: SubTask[], reason
   const from = nodeOf(wf, sub.nodeId)?.name ?? ''
   for (const u of before.values()) {
     const redo = spawn(w, task, u.nodeId, [...u.upstreamIds], sub.id, w.now, false, round)
-    const node = nodeOf(wf, u.nodeId)
-    if (u.replicaId && w.replicas[u.replicaId] && node?.assignment !== 'everyone') redo.replicaId = u.replicaId
-    // the whole group, when everyone on the step works it
-    for (const r of redo.group ? subsOf(w, task.id).filter((x) => x.group === redo.group) : [redo]) {
-      r.rework = { from: sub.id, reason }
-      // hand on the way it did the first time, without asking again
-      r.routedTo = [...u.routedTo]
-      log(r, w.now, 'system', `${from} 退回重做：${reason}`, 'reworkFrom', { node: from, reason })
-    }
+    if (u.replicaId && w.replicas[u.replicaId]) redo.replicaId = u.replicaId
+    redo.rework = { from: sub.id, reason }
+    // hand on the way it did the first time, without asking again
+    redo.routedTo = [...u.routedTo]
+    log(redo, w.now, 'system', `${from} 退回重做：${reason}`, 'reworkFrom', { node: from, reason })
   }
 }
 
@@ -872,7 +858,6 @@ function cancelSub(w: World, sub: SubTask, text: string, key: string) {
 }
 
 function dispatch(w: World) {
-  const busy = busyReplicas(w)
   const ready = Object.values(w.subTasks)
     .filter((s) => {
       const t = w.tasks[s.taskId]
@@ -882,16 +867,15 @@ function dispatch(w: World) {
     .sort((a, b) => a.createdAt - b.createdAt)
   for (const s of ready) {
     const node = nodeOf(w.tasks[s.taskId].workflow, s.nodeId)
-    // someone free if there is, as nobody has to wait for anyone
-    const id = s.replicaId ?? node?.replicaIds.find((r) => w.replicas[r] && !busy.has(r)) ?? node?.replicaIds.find((r) => w.replicas[r]) ?? null
+    // the step's employee; on a discussion held by several, the first, who chairs it
+    const id = s.replicaId ?? node?.replicaIds.find((r) => w.replicas[r]) ?? null
     if (!id || !w.replicas[id]) continue
     s.replicaId = id
     s.status = 'progressing'
-    busy.add(id)
     log(s, w.now, 'system', `${w.replicas[id].name} 開始工作`, 'start', { name: w.replicas[id].name })
     const task = w.tasks[s.taskId]
-    // 整理需求, the first time: the owner makes the work tree every later step commits to
-    if (s.startedAt === undefined && node?.kind === 'task' && !s.round) {
+    // the task's first run makes the work tree every later step commits to
+    if (s.startedAt === undefined && !subsOf(w, task.id).some((o) => o.startedAt !== undefined)) {
       log(s, w.now, 'system', `建立 work tree，分支 ${task.branch}（從 ${w.teams[task.teamId]?.targetBranch ?? 'main'}）`)
     }
     s.startedAt ??= w.now
@@ -974,6 +958,11 @@ export function pauseTask(w: World, taskId: string) {
   }
 }
 
+/** A task made and not yet started: paused with no pausedAt. It shows as 待辦, not 已暫停. */
+export function notStarted(task: Task): boolean {
+  return task.paused && task.pausedAt == null
+}
+
 export function resumeTask(w: World, taskId: string) {
   const task = w.tasks[taskId]
   if (!task.paused) return
@@ -1011,11 +1000,10 @@ export function changeWorkflow(w: World, taskId: string, workflowId: string) {
   task.workflowId = workflowId
   task.workflow = ownStaff(w, task.teamId, clone(w.workflows[workflowId]))
   localizeFlow(task.workflow, w.language)
-  setOwner(task, task.ownerId)
   task.paused = false
   task.pausedAt = undefined
   task.pausedStatus = undefined
-  spawn(w, task, taskNodeOf(task.workflow).id, [], null, w.now)
+  start(w, task)
 }
 
 /** Remove a task for good, with its sub-tasks and anything still waiting on it. */
@@ -1026,15 +1014,18 @@ export function deleteTask(w: World, taskId: string) {
   w.events = w.events.filter((e) => !('taskId' in e) || e.taskId !== taskId)
 }
 
-/** The run of the flow's last step (驗收) the task ended on: the newest, the lead of a group. */
+/**
+ * The run a task ended on: of the runs of its last steps, the newest, the lead of a group. A last step something fed
+ * goes before one that started the task, which has nothing to send back to.
+ */
 export function lastReview(w: World, task: Task): SubTask | undefined {
   return subsOf(w, task.id)
     .filter((s) => !s.cancelled && (!s.group || s.group === s.id) && s.status === 'complete' && !outEdges(task.workflow, s.nodeId).length)
-    .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))[0]
+    .sort((a, b) => Number(!!b.upstreamIds.length) - Number(!!a.upstreamIds.length) || (b.endedAt ?? 0) - (a.endedAt ?? 0))[0]
 }
 
 /**
- * The user merges a task that waits for it: the owner (or, with none, whoever did 驗收) merges the work
+ * The user merges a task that waits for it: the owner (or, with none, whoever did the last step) merges the work
  * tree into the target branch, resolving any conflict first, as soon as they are free.
  */
 export function mergeTask(w: World, taskId: string) {
@@ -1046,8 +1037,8 @@ export function mergeTask(w: World, taskId: string) {
 }
 
 /**
- * The user sends a task that waits to be merged back, with `feedback`: the steps before 驗收 run again on
- * it, by the same people, and hand on to a new 驗收 as before.
+ * The user sends a task that waits to be merged back, with `feedback`: the steps before the last step it ended
+ * on (lastReview) run again on it, by the same people, and hand on to a new run of that step as before.
  */
 export function returnTask(w: World, taskId: string, feedback: string) {
   const task = w.tasks[taskId]
@@ -1118,11 +1109,37 @@ export function deleteProvider(w: World, id: string): boolean {
 /** What a new employee runs on unless another model is picked; blueprints leave the model to the employee. */
 export const DEFAULT_MODEL = 'claude-sonnet-5'
 
+/** An employee's own settings, as their sheet fills them in: what they work by in place of a blueprint. */
+export type OwnSettings = Pick<Blueprint, 'source' | 'prompt' | 'comment' | 'skills' | 'tools' | 'from'>
+
+/** Give r settings of their own, or rewrite theirs; they go by r's name and look and never update themselves. */
+function ownBlueprint(w: World, r: Replica, own: OwnSettings) {
+  const old = w.blueprints[r.blueprintId]
+  const id = old?.owner === r.id ? old.id : uid(w, 'bp')
+  w.blueprints[id] = { ...own, id, name: r.name, look: r.look, autoUpdate: false, owner: r.id }
+  r.blueprintId = id
+}
+
+/** r's own settings go with them. */
+function dropOwnBlueprint(w: World, r: Replica) {
+  if (w.blueprints[r.blueprintId]?.owner === r.id) delete w.blueprints[r.blueprintId]
+}
+
+/** Change an employee; `own` gives them settings of their own, and a new `blueprintId` instead lets theirs go. */
+export function updateReplica(w: World, id: string, p: Pick<Replica, 'name' | 'blueprintId' | 'model' | 'effort' | 'look'>, own?: OwnSettings) {
+  const r = w.replicas[id]
+  if (!r) return
+  if (!own && p.blueprintId !== r.blueprintId) dropOwnBlueprint(w, r)
+  Object.assign(r, own ? { ...p, blueprintId: r.blueprintId } : p)
+  const mine = w.blueprints[r.blueprintId]
+  if (own) ownBlueprint(w, r, own)
+  else if (mine?.owner === r.id) Object.assign(mine, { name: r.name, look: r.look })
+}
+
 export function hire(
   w: World, teamId: string, blueprintId: string, name: string, look?: Replica['look'],
-  mind: Partial<Pick<Replica, 'model' | 'effort'>> = {},
+  mind: Partial<Pick<Replica, 'model' | 'effort'>> = {}, own?: OwnSettings,
 ): Replica {
-  const bp = w.blueprints[blueprintId]
   const id = uid(w, 'rep')
   const r: Replica = {
     id,
@@ -1130,13 +1147,14 @@ export function hire(
     blueprintId,
     name,
     // their own cut and clothes, from their id: the blueprint's style draws the blueprint's icon, not them
-    look: look ?? { ...bp.look, skin: pick(w, SKINS), hair: pick(w, HAIRS), style: seedOfId(id) },
+    look: look ?? { ...(w.blueprints[blueprintId]?.look ?? AIRPORT_STAFF_LOOK), skin: pick(w, SKINS), hair: pick(w, HAIRS), style: seedOfId(id) },
     model: mind.model ?? DEFAULT_MODEL,
     effort: mind.effort ?? 'default',
     memory: [],
     hiredAt: w.now,
   }
   w.replicas[r.id] = r
+  if (own) ownBlueprint(w, r, own)
   return r
 }
 
@@ -1169,6 +1187,7 @@ export function fire(w: World, id: string, heirId: string) {
     log(s, w.now, 'system', `${r.name} 離職，交給 ${heir}`, 'handover', { from: r.name, to: heir })
   }
   endChatsOf(w, id)
+  dropOwnBlueprint(w, r)
   delete w.replicas[id]
 }
 
@@ -1244,28 +1263,16 @@ function drift(w: World) {
   w.events.push({ kind: 'blueprintUpdated', blueprintId: bp.id, commit: s.latest, auto: bp.autoUpdate })
 }
 
-/** What every flow starts as: sorting out what the task asks, then a review. `id` names each node and edge. */
-export function flowEnds(id: (prefix: string) => string, language: Locale = 'zh'): Pick<Workflow, 'nodes' | 'edges'> {
-  const text = fixedSteps(language)
-  const start = id('n')
-  const end = id('n')
+/** What every flow starts as: one blank step, named `name`. `id` names the node. */
+export function blankSteps(id: (prefix: string) => string, name: string): Pick<Workflow, 'nodes' | 'edges'> {
   return {
-    nodes: [
-      {
-        id: start, kind: 'task', name: text.startName, prompt: text.startPrompt,
-        replicaIds: [], assignment: 'firstAvailable', handoff: 'all', join: 'all', pos: { x: 0, y: 0 },
-      },
-      {
-        id: end, kind: 'work', name: text.endName, prompt: text.endPrompt,
-        replicaIds: [], assignment: 'firstAvailable', handoff: 'all', join: 'all', pos: { x: 0, y: 200 },
-      },
-    ],
-    edges: [{ id: id('e'), from: start, to: end, condition: '' }],
+    nodes: [{ id: id('n'), kind: 'work', name, prompt: '', replicaIds: [], handoff: 'all', join: 'all', pos: { x: 0, y: 0 } }],
+    edges: [],
   }
 }
 
 export function newWorkflow(w: World, name: string): Workflow {
-  const wf: Workflow = { id: uid(w, 'wf'), name, ...flowEnds((p) => uid(w, p), w.language) }
+  const wf: Workflow = { id: uid(w, 'wf'), name, ...blankSteps((p) => uid(w, p), w.language === 'en' ? 'New step 1' : '新步驟1') }
   w.workflows[wf.id] = wf
   return wf
 }
@@ -1308,7 +1315,11 @@ export function deleteTeam(w: World, teamId: string, _opts: { removeFiles: boole
   const tasks = new Set(Object.values(w.tasks).filter((t) => t.teamId === teamId).map((t) => t.id))
   for (const s of Object.values(w.subTasks)) if (tasks.has(s.taskId)) delete w.subTasks[s.id]
   for (const id of tasks) delete w.tasks[id]
-  for (const r of Object.values(w.replicas)) if (r.teamId === teamId) delete w.replicas[r.id]
+  for (const r of Object.values(w.replicas)) {
+    if (r.teamId !== teamId) continue
+    dropOwnBlueprint(w, r)
+    delete w.replicas[r.id]
+  }
   for (const c of Object.values(w.chats)) if (c.teamId === teamId) delete w.chats[c.id]
   w.events = w.events.filter((e) => !('taskId' in e) || !tasks.has(e.taskId))
   delete w.teams[teamId]

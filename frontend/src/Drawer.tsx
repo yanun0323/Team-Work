@@ -110,9 +110,9 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   const [askedTab] = useState(takeCompanyTab)
   const asked = useRef(askedTab)
   const startTab = () => {
-    const { openWaitingTab, defaultTab } = usePrefs.getState()
+    const { autoTab, defaultTab } = usePrefs.getState()
     if (asked.current) return asked.current
-    return tabOr((openWaitingTab && waitingTab(useStore.getState().world, teamId)) || defaultTab)
+    return tabOr((autoTab !== 'off' && waitingTab(useStore.getState().world, teamId, autoTab)) || defaultTab)
   }
   const [tab, setTab] = useState<Tab>(startTab)
   // the company whose terminal has been opened: its shell then runs until the file closes or changes company

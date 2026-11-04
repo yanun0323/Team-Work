@@ -17,10 +17,11 @@ describe('seed world', () => {
     for (const wf of Object.values(w.workflows)) expect(validate(wf).filter((i) => i.kind !== 'noReplica')).toEqual([])
   })
 
-  it('opens with a discussion under way: the employee answered the user once', () => {
+  it('opens with a meeting under way: the chair opened it, and both answered the user once, the chair last', () => {
     const w = seedWorld()
     const talk = Object.values(w.subTasks).find((s) => s.review?.kind === 'talk')
-    expect(talk?.talk?.messages.map((m) => m.from)).toEqual(['agent', 'user', 'agent'])
+    const name = (id?: string) => (id ? w.replicas[id]?.name : 'user')
+    expect(talk?.talk?.messages.map((m) => name(m.by))).toEqual(['Ada', 'user', 'Leo', 'Ada'])
   })
 
   it('keeps running for ten simulated minutes without throwing', () => {

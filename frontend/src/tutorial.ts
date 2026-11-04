@@ -56,8 +56,8 @@ export const STEPS: TutorialStep[] = [
   { id: 'pause', text: '暫停一個任務再恢復', after: ['task'], goal: { kind: 'company', tab: 'tasks' } },
   { id: 'terminal', text: '打開公司的終端機', after: ['task'], goal: { kind: 'company', tab: 'terminal' } },
   { id: 'merge', text: '合併一個任務', after: ['task'], met: (w) => some(w.tasks, (t) => t.stage === 'done'), goal: { kind: 'company', tab: 'tasks' } },
-  { id: 'copyFlow', text: '複製一個任務流程並且修改', after: ['task'], goal: { kind: 'airport', tab: 'flows' } },
-  { id: 'ownFlowTask', text: '用自己的任務流程建立任務', after: ['copyFlow'], met: (w) => some(w.tasks, (t) => !isPreset(t.workflowId)), goal: { kind: 'company', tab: 'tasks' } },
+  { id: 'copyFlow', text: '複製一個任務藍圖並且修改', after: ['task'], goal: { kind: 'airport', tab: 'flows' } },
+  { id: 'ownFlowTask', text: '用自己的任務藍圖建立任務', after: ['copyFlow'], met: (w) => some(w.tasks, (t) => !isPreset(t.workflowId)), goal: { kind: 'company', tab: 'tasks' } },
 ]
 
 export const EMPTY_TUTORIAL: TutorialState = { seeded: false, hidden: false, done: [], shown: [], played: [], actions: [] }

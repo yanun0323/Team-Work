@@ -33,7 +33,7 @@ describe('a change card', () => {
 
   it('names what it is about, in either language', () => {
     expect(changeAsk(change)).toContain('藍圖「Dev」')
-    expect(changeAsk({ ...change, kind: 'workflow' })).toContain('任務流程「Dev」')
+    expect(changeAsk({ ...change, kind: 'workflow' })).toContain('任務藍圖「Dev」')
     expect(changeAsk({ ...change, kind: 'provider' })).toContain('供應商「Dev」')
     expect(renderToStaticMarkup(<ChangeLines change={{ ...change, kind: 'provider', lines: [{ field: 'apiKey', before: '…1234', after: '…5678' }, { field: 'prices', before: '', after: 'm: 1 / 2 / 0' }] }} />)).toMatch(/API Key.*價格/)
     setAppLanguage('en')

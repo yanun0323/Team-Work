@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { taskNodeOf } from '../domain/graph'
+import { canSendBack } from '../domain/graph'
 import { effortsOf } from '../../crew'
 import { blueprintList, flowList } from '../model'
 import type { LocalSkills, World } from '../domain/types'
@@ -47,16 +47,17 @@ describe('presets', () => {
     }
   })
 
-  it('join every step up, and run side by side where drawn', () => {
+  it('start where they do the work, join every step up, and run side by side where drawn', () => {
     const feature = seedWorld().workflows['preset-feature']
-    expect(taskNodeOf(feature)?.name).toBe('整理需求')
-    expect(feature.edges).toHaveLength(6)
+    expect(feature.nodes.some((n) => n.name === '整理需求' || n.name === '驗收')).toBe(false)
+    const starts = feature.nodes.filter((n) => !feature.edges.some((e) => e.to === n.id))
+    expect(starts.map((n) => n.name)).toEqual(['撰寫規格'])
     const at = (name: string) => feature.nodes.find((n) => n.name === name)!.pos
     expect(at('後端開發').y).toBe(at('前端開發').y)
-    expect(at('驗收').y).toBeGreaterThan(at('前端開發').y)
     for (const n of feature.nodes) {
-      if (n.name !== '整理需求') expect(feature.edges.some((e) => e.to === n.id)).toBe(true)
-      if (n.name !== '驗收') expect(feature.edges.some((e) => e.from === n.id)).toBe(true)
+      const last = !feature.edges.some((e) => e.from === n.id)
+      if (starts.includes(n) || n.kind === 'talk') expect(n.sendBack).toBeUndefined()
+      else expect(n.sendBack).toBe(last && canSendBack(feature, n.id))
     }
   })
 
@@ -69,8 +70,15 @@ describe('presets', () => {
     const shown = w.workflows[copy.id]
     expect(shown.name).toBe('功能開發-1')
     expect(shown.nodes.map((n) => n.name)).toContain('撰寫規格')
-    expect(shown.nodes[0].name).toBe('Clarify requirements')
-    expect(shown.nodes[0].prompt).toContain('next step can act')
+  })
+
+  it('put a step still named and told as the start template, or an old flow\'s first step, into the language', () => {
+    const w = seedWorld()
+    const wf = w.workflows['wf-bugfix']
+    setLanguage(w, 'en')
+    expect(wf.nodes.find((n) => n.id === 'b-start')!.name).toBe('Clarify requirements')
+    expect(wf.nodes.find((n) => n.id === 'b-start')!.prompt).toContain('next step can act')
+    expect(wf.nodes.find((n) => n.id === 'b-fix')!.name).toBe('修正')
   })
 })
 

@@ -16,7 +16,7 @@ import { ALL, answerMentions, mentionedPeople, withAll } from './mentions'
 import { Gone, Heading, DeleteTool, PinTool, type Head } from './DrawerDetail'
 import { composing } from './ime'
 import { fmtClock, fmtTokens, teamReplicas, useAtBottom, useStickToBottom } from './core/model'
-import type { Attachment, Chat, QueuedMessage } from './core/domain/types'
+import type { Attachment, Chat, Look, QueuedMessage } from './core/domain/types'
 import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, inviteToChat, openFolder, readChat, renameChat, resolveChatChange, retryChat, rewindChat, sayInChat, setChatChair, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
 import { AIRPORT_STAFF_LOOK, canHandOff, MAX_CHAT_PEOPLE, roundActor } from './core/domain/sim'
 import { HandOffIcon, HandOffMenu } from './HandOffMenu'
@@ -55,6 +55,18 @@ function CopyButton({ text }: { text: string }) {
 }
 
 /** The chat's name, written in place: saved on leaving the field or Enter, put back on Escape; empty shows the first message again. */
+/** 送給, then the face and name of each one a message is for. */
+function SentTo({ people, className, live }: { people: { id: string; name: string; look: Look }[]; className?: string; live?: boolean }) {
+  return (
+    <p className={['fx-room-to', className].filter(Boolean).join(' ')} aria-live={live ? 'polite' : undefined}>
+      {tr('送給')}
+      {people.map((r, i) => (
+        <span key={r.id} className="fx-room-to-one">{i > 0 && listOf(['', ''])}<span aria-hidden="true"><PixelFace look={r.look} name={r.name} size={18} /></span>{r.name}</span>
+      ))}
+    </p>
+  )
+}
+
 function ChatTitle({ chat }: { chat: Chat }) {
   const act = useStore((s) => s.act)
   const saved = chat.title ?? ''
@@ -181,6 +193,13 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const chair = people[0]?.id ?? replicaId
   const mentionsIn = (words: string) => answerMentions(withAll(mentionedPeople(words, mentionable), people.slice(1).map((x) => x.id), chair), asker)
   // who the message goes to as it is typed: those it mentions, or else the chair
+  // who a sent message was for: those it mentions, or else who took it up, the chair of the time
+  const sentTo = (i: number) => {
+    const m = chat!.messages[i].mentions ?? []
+    const took = chat!.messages.slice(i + 1).find((x) => x.from !== 'tool')
+    const ids = m.length ? m : [took?.from === 'agent' && took.by ? took.by : chat!.replicaId]
+    return ids.flatMap((id) => people.filter((x) => x.id === id))
+  }
   const sendTo = meeting ? (() => { const m = mentionsIn(text); return m.length ? m : [chair] })().flatMap((id) => (w.replicas[id] ? [w.replicas[id]] : [])) : []
   // whom the company has to invite, in the order of its pick-lists
   const outsiders = crewOrder(w, crew.filter((r) => !inChat(r.id))).flatMap((id) => (w.replicas[id] ? [w.replicas[id]] : []))
@@ -463,6 +482,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
                     {m.images && m.images.length > 0 && <div className="fx-chat-images">{m.images.map((im, j) => imageButton(i, j, im))}</div>}
                     {!!m.files?.length && <div className="fx-chat-images">{m.files.map((file, j) => <FileAttachment key={j} file={file} />)}</div>}
                     {m.text && <div className="fx-chat-bubble"><span className="fx-sr">{tr('你：')}</span><Markdown text={m.text} people={named} signs="@#$" /></div>}
+                    {meeting && sentTo(i).length > 0 && <SentTo people={sentTo(i)} className="fx-chat-to" />}
                     <div className="fx-chat-foot">
                     <time>{fmtClock(m.at)}</time>
                     {m.text && <CopyButton text={m.text} />}
@@ -579,14 +599,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
                 ))}
               </div>
             )}
-            {drafted && sendTo.length > 0 && (
-              <p className="fx-room-to fx-room-say-wide" aria-live="polite">
-                {tr('送給')}
-                {sendTo.map((r, i) => (
-                  <span key={r.id} className="fx-room-to-one">{i > 0 && listOf(['', ''])}<span aria-hidden="true"><PixelFace look={r.look} name={r.name} size={18} /></span>{r.name}</span>
-                ))}
-              </p>
-            )}
+            {drafted && sendTo.length > 0 && <SentTo people={sendTo} className="fx-room-say-wide" live />}
             <label className="fx-room-attach fx-hit" title={tr('加入附件')}>
               <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
                 <path d="M13 7.5 8 12.5a3 3 0 0 1-4.3-4.2l5.4-5.4a2 2 0 0 1 2.9 2.8l-5.4 5.4a1 1 0 0 1-1.4-1.4L10 5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />

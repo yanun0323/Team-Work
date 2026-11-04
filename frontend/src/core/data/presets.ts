@@ -2,7 +2,7 @@
 // the same way: the world holds them in the language picked, and they cannot be changed, only copied.
 
 import data from '../../../../backend/internal/usecase/presets.json'
-import { autoLayout, isFixed } from '../domain/graph'
+import { autoLayout, canSendBack } from '../domain/graph'
 import type { Blueprint, Locale, Look, Tool, Workflow, WorkflowNode, World } from '../domain/types'
 
 type Text = { zh: string; en: string }
@@ -11,7 +11,7 @@ type Step = { name: Text; prompt?: Text; talk?: boolean }
 /** Built-in blueprints and flows have ids of this form; a copy gets an id of its own. */
 export const isPreset = (id: string) => id.startsWith('preset-')
 
-/** What the two ends of every flow and every discussion are called and told. */
+/** The templates for a step that sorts out the task and one that reviews it, and what every discussion is told. */
 export const fixedSteps = (language: Locale) => ({
   startName: data.start.name[language],
   startPrompt: data.start.prompt[language],
@@ -33,8 +33,9 @@ const stepsOf = (flowId: string) => {
 }
 
 /**
- * Puts what the app itself wrote in a flow into a language: all of a built-in flow, and in any flow the instructions of the
- * fixed steps and discussions, and the two ends' names unless renamed by hand. What a user wrote stays as written.
+ * Puts what the app itself wrote in a flow into a language: all of a built-in flow, and in any flow the instructions of
+ * discussions, and a step's name and instructions while they are still the start or end template's. What a user wrote
+ * stays as written.
  */
 export function localizeFlow(wf: Workflow, language: Locale) {
   const flow = data.flows.find((f) => f.id === wf.id)
@@ -47,40 +48,41 @@ export function localizeFlow(wf: Workflow, language: Locale) {
       n.name = s.name[language]
       if (s.prompt) n.prompt = s.prompt[language]
     }
-    if (n.kind === 'talk') n.prompt = data.talk[language]
-    else if (isFixed(wf, n.id)) {
-      const fixed = n.kind === 'task' ? data.start : data.end
-      n.prompt = fixed.prompt[language]
+    if (n.kind === 'talk') {
+      n.prompt = data.talk[language]
+      continue
+    }
+    if (n.kind === 'task') n.prompt = data.start.prompt[language]
+    for (const fixed of [data.start, data.end]) {
+      if (n.prompt === fixed.prompt.zh || n.prompt === fixed.prompt.en) n.prompt = fixed.prompt[language]
       if (n.name === fixed.name.zh || n.name === fixed.name.en) n.name = fixed.name[language]
     }
   }
 }
 
 const node = (id: string, kind: WorkflowNode['kind'], name: string, prompt: string): WorkflowNode => ({
-  id, kind, name, prompt, replicaIds: [], assignment: 'firstAvailable', handoff: 'all', join: 'all', pos: { x: 0, y: 0 },
+  id, kind, name, prompt, replicaIds: [], handoff: 'all', join: 'all', pos: { x: 0, y: 0 },
 })
 
 function presetFlow(f: (typeof data.flows)[number], language: Locale): Workflow {
-  const start = `${f.id}-start`
-  const end = `${f.id}-end`
-  const wf: Workflow = {
-    id: f.id, name: f.name[language], edges: [],
-    nodes: [node(start, 'task', data.start.name[language], data.start.prompt[language]), node(end, 'work', data.end.name[language], data.end.prompt[language])],
-  }
+  const wf: Workflow = { id: f.id, name: f.name[language], edges: [], nodes: [] }
   const link = (from: string[], to: string[]) => {
     for (const a of from) for (const b of to) wf.edges.push({ id: `${f.id}-e${wf.edges.length + 1}`, from: a, to: b, condition: '' })
   }
-  let prev = [start]
+  let prev: string[] = []
   ;(f.layers as Step[][]).forEach((layer, i) => {
     const ids = layer.map((s, j) => {
       const id = nodeIdOf(f.id, i, j)
-      wf.nodes.push(node(id, s.talk ? 'talk' : 'work', s.name[language], (s.talk ? data.talk : s.prompt!)[language]))
+      const n = node(id, s.talk ? 'talk' : 'work', s.name[language], (s.talk ? data.talk : s.prompt!)[language])
+      if (i > 0 && !s.talk) n.sendBack = false
+      wf.nodes.push(n)
       return id
     })
     link(prev, ids)
     prev = ids
   })
-  link(prev, [end])
+  // a last step may send work back, as a new flow's would
+  for (const n of wf.nodes) if (n.sendBack !== undefined && prev.includes(n.id)) n.sendBack = canSendBack(wf, n.id)
   autoLayout(wf)
   return wf
 }

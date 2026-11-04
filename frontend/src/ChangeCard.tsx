@@ -7,7 +7,7 @@ export function changeAsk(c: PendingChange) {
   switch (c.kind) {
     case 'blueprint': return tr('我想修改藍圖「{name}」：', { name: c.name })
     case 'provider': return tr('我想修改供應商「{name}」：', { name: c.name })
-    default: return tr('我想修改任務流程「{name}」：', { name: c.name })
+    default: return tr('我想修改任務藍圖「{name}」：', { name: c.name })
   }
 }
 
@@ -21,7 +21,6 @@ function fieldName(field: string) {
     case 'skills': return tr('技能')
     case 'kind': return tr('種類')
     case 'staff': return tr('員工')
-    case 'assignment': return tr('任務分派')
     case 'handoff': return tr('交接')
     case 'join': return tr('開始條件')
     case 'node': return tr('步驟')

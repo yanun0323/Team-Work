@@ -29,6 +29,7 @@ import { headingOf } from './walk'
 import { NO_OUTLINE_LAYER } from './PixelPass'
 import { propBoxes } from './streetProps'
 import { toon, toonMap } from './toon'
+import { glowing, light } from './daylight'
 
 // Sizes are given in cells (CELL world units each), the same unit as the ground grid: a person is about one
 // cell tall, a floor is two cells high, a window bay is one cell wide.
@@ -135,6 +136,8 @@ export function paletteOf({ style, seed }: BuildingLook): Palette {
 }
 
 const LIT = ['#ffe08a', '#ffd06a']
+/** Warm light inside a lobby pane. */
+const LOBBY_LIT = '#f2cf86'
 
 type Paint = (g: CanvasRenderingContext2D, x: number, y: number, p: Palette, lit: boolean, seed: number) => void
 
@@ -348,7 +351,7 @@ function lobby(p: Palette, bays: number, seed: number, lit: number) {
     g.fillRect(0, 0, bays * PX, PY)
     for (let c = 0; c < bays; c++) {
       if (hash(seed, c, 9) < lit) {
-        g.fillStyle = '#f2cf86'
+        g.fillStyle = LOBBY_LIT
         g.fillRect(c * PX + 3, 10, 10, 18)
       }
       g.fillStyle = p.trim
@@ -358,6 +361,29 @@ function lobby(p: Palette, bays: number, seed: number, lit: number) {
     g.fillRect(0, 0, bays * PX, 4)
     g.fillRect(0, PY - 3, bays * PX, 3)
   })
+}
+
+/** The colours of lit windows and lobby panes, as 0xRRGGBB. */
+const GLOWS = new Set([...LIT, LOBBY_LIT].map((c) => parseInt(c.slice(1), 16)))
+
+/**
+ * Makes the lit windows on a facade material shine in the dark: its glow map keeps only their pixels, and the
+ * time of day sets how brightly (see `glowing`).
+ */
+function glowingWindows(m: THREE.MeshToonMaterial) {
+  const canvas = m.map?.image as HTMLCanvasElement | undefined
+  const g = canvas?.getContext('2d')
+  if (!canvas || !g) return m
+  const img = g.getImageData(0, 0, canvas.width, canvas.height)
+  const d = img.data
+  for (let i = 0; i < d.length; i += 4) {
+    if (!GLOWS.has((d[i] << 16) | (d[i + 1] << 8) | d[i + 2])) d[i] = d[i + 1] = d[i + 2] = 0
+  }
+  m.emissiveMap = canvasTexture(canvas.width, canvas.height, (out) => out.putImageData(img, 0, 0))
+  m.emissive.set('#ffffff')
+  m.emissiveIntensity = light.glow
+  glowing.add(m)
+  return m
 }
 
 type V3 = [number, number, number]
@@ -446,16 +472,18 @@ function Exterior({ look, w, d, floors, busy }: { look: BuildingLook; w: number;
   const body = useMemo(() => {
     // a single storey has no upper floors to face
     if (!upper) return []
-    const side = (len: number, k: number) => toonMap('#ffffff', facade(style, pal, len / CELL, upper, seed + k, lit.windows))
+    const side = (len: number, k: number) => glowingWindows(toonMap('#ffffff', facade(style, pal, len / CELL, upper, seed + k, lit.windows)))
     return [side(d, 1), side(d, 2), toon(pal.wall), toon(pal.wall), side(w, 3), side(w, 4)]
   }, [style, pal, upper, seed, w, d, lit.windows])
   const shop = useMemo(() => {
-    const side = (len: number, k: number) => toonMap('#ffffff', lobby(pal, len / CELL, seed + k, lit.lobby))
+    const side = (len: number, k: number) => glowingWindows(toonMap('#ffffff', lobby(pal, len / CELL, seed + k, lit.lobby)))
     return [side(d, 5), side(d, 6), toon(pal.trim), toon(pal.trim), side(w, 7), side(w, 8)]
   }, [pal, seed, w, d, lit.lobby])
   useEffect(() => () => {
     for (const m of [...body, ...shop]) if (m.map) {
       m.map.dispose()
+      m.emissiveMap?.dispose()
+      glowing.delete(m)
       m.dispose()
     }
   }, [body, shop])
@@ -1541,8 +1569,21 @@ function Shout({ w, d, h, seed }: { w: number; d: number; h: number; seed: numbe
   ))
 }
 
-const BILL = '#7ccf6a'
-const BILL_MARK = '#3f8f4f'
+const BILL = '#e4d9a0'
+const BILL_MARK = '#6f7a45'
+/** The dollar sign drawn in the bill's centre, one texel per character. */
+const BILL_SIGN = [
+  '...##...',
+  '.#######',
+  '##.##...',
+  '##.##...',
+  '.######.',
+  '.######.',
+  '...##.##',
+  '...##.##',
+  '#######.',
+  '...##...',
+]
 /** A bill's size with its rim, in world units, and in texels of its picture (rim, bill and centre mark in one). */
 const BILL_W = 3.1
 const BILL_H = 1.8
@@ -1560,7 +1601,9 @@ function billPicture() {
   g.fillStyle = BILL
   g.fillRect(3, 3, w - 6, h - 6)
   g.fillStyle = BILL_MARK
-  g.fillRect(w / 2 - 3, h / 2 - 3, 6, 6)
+  const x0 = Math.floor((w - BILL_SIGN[0].length) / 2)
+  const y0 = Math.floor((h - BILL_SIGN.length) / 2)
+  BILL_SIGN.forEach((row, y) => [...row].forEach((c, x) => c === '#' && g.fillRect(x0 + x, y0 + y, 1, 1)))
   const map = new THREE.CanvasTexture(canvas)
   map.magFilter = THREE.NearestFilter
   map.minFilter = THREE.NearestFilter

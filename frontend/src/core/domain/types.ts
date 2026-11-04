@@ -5,7 +5,6 @@ import type { BuildingLook, Spot } from '../../layout'
 export type Locale = 'zh' | 'en'
 
 export type Status = 'todo' | 'progressing' | 'review' | 'complete'
-export type AssignmentMode = 'firstAvailable' | 'everyone'
 export type HandoffMode = 'pickOne' | 'all'
 export type JoinMode = 'any' | 'all'
 
@@ -92,6 +91,10 @@ export interface Blueprint {
   /** Which of the `TOOLS` it is allowed. */
   tools: Tool[]
   look: Look
+  /** The employee whose own settings these are, made on their sheet; none for a blueprint anyone is hired from. */
+  owner?: string
+  /** The blueprint these settings were copied from, if any. */
+  from?: string
 }
 
 export type MemorySource = 'work' | 'chat' | 'retro' | 'review' | 'user'
@@ -136,8 +139,9 @@ export interface Replica {
 }
 
 /**
- * `task` is the step every flow starts with (整理需求); `work` is a step an employee works on their own;
- * `talk` (使用者討論) is one the employee and the user talk through together until the user ends it.
+ * `work` is a step an employee works on their own; `talk` (使用者討論) is one the employee and the user talk
+ * through together until the user ends it. `task` is only read from flows saved before a flow could start
+ * anywhere, where it marked the 整理需求 start; it works as `work`.
  */
 export type NodeKind = 'task' | 'work' | 'talk'
 
@@ -147,9 +151,13 @@ export interface WorkflowNode {
   name: string
   prompt: string
   replicaIds: string[]
-  assignment: AssignmentMode
   handoff: HandoffMode
   join: JoinMode
+  /**
+   * Whether this step may send work back to the one before it, when canSendBack allows it. Unset keeps the old
+   * rule: a last step, or one whose work is being redone, may send back.
+   */
+  sendBack?: boolean
   pos: { x: number; y: number }
 }
 
@@ -270,7 +278,7 @@ export interface ChatMessage {
   files?: Attachment[]
   /** Who said or ran it, in a chat; none in older chats, where it is the one the chat was with. */
   by?: string
-  /** Who the user's message is for, in a meeting; none is everyone. */
+  /** Who the user's message is for, in a meeting; none is the chair alone. */
   mentions?: string[]
   /** A reply that did not come, in a chat; signedOut is the provider to sign in to again, when that is why. */
   failed?: boolean
@@ -357,6 +365,9 @@ export interface Talk {
   messages: ChatMessage[]
   /** The employee is writing a reply, which comes in at this time. */
   replyAt?: number
+  /** Who replies, or last replied; `next` reply after them, in a discussion held by several. */
+  speaker?: string
+  next?: string[]
   ended?: TalkEnd['kind']
 }
 
@@ -465,7 +476,7 @@ export interface Task {
   images: Attachment[]
   files?: Attachment[]
   workflowId: string
-  /** The employee who owns the task and works its first and last steps (整理需求 and 驗收). */
+  /** The employee who owns the task and answers for it; who works each step is up to the task's staff. */
   ownerId: string | null
   origin?: TaskOrigin
   /** Copy of the workflow taken when the task starts. Later edits only affect new tasks. */
@@ -477,7 +488,7 @@ export interface Task {
   paused: boolean
   pausedAt?: number
   pausedStatus?: Status
-  /** The task's work tree branch: the owner makes it at 整理需求, every step commits to it. */
+  /** The task's work tree branch: made when the task's first step starts, every step commits to it. */
   branch: string
   budgetBonus: number
   /** Cost spent on discarded runs before a workflow change. */

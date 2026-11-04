@@ -11,6 +11,7 @@ import { MAX_FRAME, NO_OUTLINE_LAYER } from './PixelPass'
 import { fadingShadow } from './shadowFade'
 import { playSound, stopSound } from './sound'
 import { toon } from './toon'
+import { MIN_SUN_ELEVATION } from './daylight'
 
 /** Which way the wind blows the clouds (x, z). */
 const WIND = new THREE.Vector2(0.8, -0.6).normalize()
@@ -22,7 +23,7 @@ const hidden = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: fals
 
 /** Half the side of the sun's shadow box for a town of this size; shadows exist only inside it. */
 export const shadowHalf = (span: number) => span * 0.9 + 6
-/** Cloud height; their shadows land this far downwind of them, along the sunlight. */
+/** Cloud height; their shadows land downwind of them along the sunlight, the further the lower the sun. */
 const CLOUD_Y = 26
 
 /**
@@ -205,7 +206,7 @@ export function Ambient({ town, calm, clouds, planes }: { town: Town; calm: bool
   return (
     <>
       {/* box corners, plus the shadow's offset from its cloud, plus the cloud's own size */}
-      {clouds && <CloudShadows reach={shadowHalf(town.span) * Math.SQRT2 + CLOUD_Y + 8} calm={calm} />}
+      {clouds && <CloudShadows reach={shadowHalf(town.span) * Math.SQRT2 + CLOUD_Y / Math.tan(THREE.MathUtils.degToRad(MIN_SUN_ELEVATION)) + 8} calm={calm} />}
       {clouds && <LowClouds ring={ring} calm={calm} />}
       {!calm && planes && <Overflights ring={ring} />}
     </>

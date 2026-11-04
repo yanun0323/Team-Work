@@ -22,7 +22,7 @@ import { authLabel, makesImages, PROVIDER_KINDS } from './providers'
 import { Select, Switcher, Toggle, useAutoGrow } from './Controls'
 import { setLanguage } from './core/ops'
 import { Chats, TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
-import { airportTabOr, AIRPORT_TABS, AUTO_VIEWS, BUSY_ANIMATIONS, DEFAULT_PREFS, type AirportTab, type AutoView, type BusyAnimation, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY } from './prefs'
+import { airportTabOr, AIRPORT_TABS, AUTO_TABS, AUTO_VIEWS, BUSY_ANIMATIONS, DAYLIGHTS, DEFAULT_PREFS, type AirportTab, type AutoTab, type AutoView, type BusyAnimation, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY } from './prefs'
 import { request } from './core/backend'
 import { MusicSection, Volume } from './SoundPage'
 import { MOCK } from './core/mode'
@@ -31,6 +31,7 @@ import { takeAirportTab, tutorialOf, updateTutorial } from './tutorial'
 import { composing } from './ime'
 import { Stats } from './Stats'
 import { useUpdateFound } from './update'
+import type { Daylight } from './daylight'
 
 const LINKS = [
   { label: 'GitHub', href: 'https://github.com/yanun0323/Team-Work' },
@@ -89,11 +90,11 @@ export function Settings({ leaving, onGone }: {
   onGone: () => void
 }) {
   const [tab, setTab] = useState<AirportTab>(() => {
-    const { openWaitingTab, defaultAirportTab } = usePrefs.getState()
+    const { autoTab, defaultAirportTab } = usePrefs.getState()
     const asked = takeAirportTab()
     if (asked) return asked
     // the airport has no tasks, so only its chats can be waiting
-    return openWaitingTab && waitingTab(useStore.getState().world, '') === 'chats' ? 'chats' : airportTabOr(defaultAirportTab)
+    return autoTab !== 'off' && waitingTab(useStore.getState().world, '') === 'chats' ? 'chats' : airportTabOr(defaultAirportTab)
   })
   const title = useRef<HTMLHeadingElement>(null)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
@@ -226,10 +227,10 @@ function Flows({ open, onOpen }: { open: string | null; onOpen: (x: Item) => voi
   const opener = (x: Item) => ({ type: 'button' as const, 'aria-expanded': open === itemKey(x), 'aria-controls': 'fx-detail', onClick: () => onOpen(x) })
   return (
     <div className="fx-flows">
-      <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newFlow' })}>{tr('＋ 新增任務流程')}</button>
+      <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newFlow' })}>{tr('＋ 新增任務藍圖')}</button>
       {/* each flow opens as a whole; its title is the button, stretched over the flow */}
       <MineAndBuiltIn items={flowList(w)} render={(list) => list.map((wf) => (
-        <section key={wf.id} className="fx-flow fx-flow-card" onClick={openCard}>
+        <section key={wf.id} className="fx-flow fx-flow-card fx-blueprint" onClick={openCard}>
           <h3>
             <button className="fx-flow-open" {...opener({ kind: 'flow', id: wf.id })}>{wf.name}</button>
           </h3>
@@ -445,7 +446,7 @@ export function PrefsPage() {
   const prefs = usePrefs()
   const language = useStore((s) => s.world.language)
   const act = useStore((s) => s.act)
-  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView' | 'busyAnimation'>, label: string) => (
+  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView' | 'busyAnimation' | 'autoTab' | 'daylight'>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
   return (
@@ -459,7 +460,8 @@ export function PrefsPage() {
             labelOf={(id) => tr(AIRPORT_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultAirportTab: v as AirportTab })} />
           <Select label={tr('預設公司頁面')} value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.map((x) => x.id)}
             labelOf={(id) => tr(COMPANY_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultTab: v as CompanyTab })} />
-          {check('openWaitingTab', tr('待處理頁面優先'))}
+          <Select label={tr('自動切換預設頁面')} value={prefs.autoTab} options={Object.keys(AUTO_TABS)} labelOf={(o) => tr(AUTO_TABS[o as AutoTab])}
+            onChange={(v) => prefs.set({ autoTab: v as AutoTab })} />
         </div>
       </section>
       <section className="fx-d-group" aria-labelledby="fx-prefs-tutorial">
@@ -490,6 +492,8 @@ export function PrefsPage() {
           {check('crowd', tr('地圖民眾'))}
           {check('planes', tr('飛機動畫'))}
           {check('clouds', tr('雲朵'))}
+          <Select label={tr('時間')} value={prefs.daylight} options={Object.keys(DAYLIGHTS)} labelOf={(o) => tr(DAYLIGHTS[o as Daylight])}
+            onChange={(v) => prefs.set({ daylight: v as Daylight })} />
           <Select label={tr('建築工作動畫')} value={prefs.busyAnimation} options={Object.keys(BUSY_ANIMATIONS)} labelOf={(o) => tr(BUSY_ANIMATIONS[o as BusyAnimation])}
             onChange={(v) => prefs.set({ busyAnimation: v as BusyAnimation })} />
         </div>

@@ -42,7 +42,7 @@ export const mergeTask = pick('mergeTask', (_w: World, id: string) => fire_('POS
 export const returnTask = pick('returnTask', (_w: World, id: string, feedback: string) => fire_('POST', `/tasks/${id}/return`, { feedback }))
 export const resolveReview = pick('resolveReview', (_w: World, id: string, optionId: string, note = '') =>
   fire_('POST', `/subtasks/${id}/review`, { optionId, note }))
-export const sayInTalk = pick('sayInTalk', (_w: World, id: string, text: string) => fire_('POST', `/subtasks/${id}/talk`, { text }))
+export const sayInTalk = pick('sayInTalk', (_w: World, id: string, text: string, mentions: string[] = []) => fire_('POST', `/subtasks/${id}/talk`, { text, mentions }))
 export const endTalk = pick('endTalk', (_w: World, id: string, end: TalkEnd) => fire_('POST', `/subtasks/${id}/talk/end`, end))
 
 // ---------- chats ----------
@@ -134,7 +134,7 @@ export function updateTask(w: World, id: string, p: { title: string; description
   t.title = p.title
   t.description = p.description
   for (const n of t.workflow.nodes) if (p.staff[n.id]) n.replicaIds = [...p.staff[n.id]]
-  sim.setOwner(t, p.ownerId)
+  t.ownerId = p.ownerId
 }
 
 // ---------- flows ----------
@@ -208,13 +208,14 @@ export const deleteTeam = pick('deleteTeam', (_w: World, id: string) => fire_('D
 
 // ---------- employees ----------
 
-export const hire = pick('hire', (_w: World, teamId: string, blueprintId: string, name: string, look: Look | undefined, mind: { model?: string; effort?: Effort } = {}) =>
-  fire_('POST', '/replicas', { teamId, blueprintId, name, look, ...mind }))
+export const hire = pick('hire', (_w: World, teamId: string, blueprintId: string, name: string, look: Look | undefined, mind: { model?: string; effort?: Effort } = {},
+  custom?: sim.OwnSettings) => fire_('POST', '/replicas', { teamId, blueprintId, name, look, ...mind, custom }))
 export const fire = pick('fire', (_w: World, id: string, heir: string) => fire_('DELETE', `/replicas/${id}?heir=${encodeURIComponent(heir)}`))
 
-export function updateReplica(w: World, id: string, p: Pick<Replica, 'name' | 'blueprintId' | 'model' | 'effort' | 'look'>) {
-  if (!MOCK) return fire_('PATCH', `/replicas/${id}`, p)
-  if (w.replicas[id]) Object.assign(w.replicas[id], p)
+/** Change an employee; `custom` gives them settings of their own, and without it `blueprintId` is what they work by. */
+export function updateReplica(w: World, id: string, p: Pick<Replica, 'name' | 'blueprintId' | 'model' | 'effort' | 'look'>, custom?: sim.OwnSettings) {
+  if (!MOCK) return fire_('PATCH', `/replicas/${id}`, { ...p, custom })
+  sim.updateReplica(w, id, p, custom)
 }
 
 function saveMemory(w: World, id: string, memory: MemoryEntry[]) {

@@ -5,13 +5,14 @@ import { MOCK } from './core/mode'
 import { request } from './core/backend'
 import { attempt } from './core/ops'
 import type { Tab } from './DrawerTabs'
+import type { Daylight } from './daylight'
 
 /** The airport's tabs. */
 export const AIRPORT_TABS = [
   { id: 'chats', label: '對話#tab' },
   { id: 'providers', label: '模型供應商' },
   { id: 'blueprints', label: '員工藍圖' },
-  { id: 'flows', label: '任務流程#tab' },
+  { id: 'flows', label: '任務藍圖#tab' },
   { id: 'stats', label: '統計' },
   { id: 'prefs', label: '設定' },
   { id: 'about', label: '關於' },
@@ -34,9 +35,15 @@ export const AUTO_VIEWS = { panZoom: '位移和縮放', pan: '位移', off: '關
 /** panZoom flies there, zooms in and locks the view; pan goes there at the same zoom and locks only panning; off leaves the camera alone. */
 export type AutoView = keyof typeof AUTO_VIEWS
 
+export const AUTO_TABS = { off: '關#switch', chats: '開：未讀對話優先', tasks: '開：待處理任務優先' } as const
+/** Opens a company or the airport on a tab with something waiting, the one named first when both are; off always opens the default tab. */
+export type AutoTab = keyof typeof AUTO_TABS
+
 export const BUSY_ANIMATIONS = { money: '撒錢', shout: '粗線條' } as const
 /** money tosses bills off one side of a busy building, then the other; shout flickers cartoon strokes off both sides. */
 export type BusyAnimation = keyof typeof BUSY_ANIMATIONS
+
+export const DAYLIGHTS = { real: '跟隨真實時間', minecraft: 'Minecraft', day: '永遠白天', night: '永遠夜晚' } as const satisfies Record<Daylight, string>
 
 export type LogOrder = 'newestFirst' | 'newestLast'
 
@@ -73,6 +80,8 @@ export interface Prefs {
   planes: boolean
   /** Low clouds and the shadows of the high ones. */
   clouds: boolean
+  /** The time of day the town shows: the computer's clock, a 20-minute Minecraft day, or always day or night. */
+  daylight: Daylight
   /** A company's terminal runs on when the company closes, until the app does. */
   keepTerminals: boolean
   /** What the camera does on opening a company or the airport, or picking a plot. */
@@ -88,7 +97,7 @@ export interface Prefs {
   /** The tab the airport opens on. */
   defaultAirportTab: AirportTab
   /** On opening, a tab with something waiting comes before the default tab. */
-  openWaitingTab: boolean
+  autoTab: AutoTab
   /** Names each new chat from its first message with this model; empty turns it off. */
   chatTitleModel: string
   chatTitleEffort: string
@@ -99,13 +108,15 @@ export interface Prefs {
   claudeSkills: boolean
 }
 
-export const DEFAULT_PREFS: Prefs = { muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', openWaitingTab: true, chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true }
+export const DEFAULT_PREFS: Prefs = { muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true }
 
 /** The range of `zoomSensitivity`; the backend checks the same. */
 export const ZOOM_SENSITIVITY = { min: 20, max: 300 }
 
 export const usePrefs = create<Prefs & { set: (p: Partial<Prefs>) => void }>()((set) => ({
   ...DEFAULT_PREFS,
+  // `make dev-mock` starts silent; unmute from the settings.
+  ...(import.meta.env.MODE === 'mock' && { musicMuted: true, effectsMuted: true }),
   set: (patch) => {
     if (MOCK) set(patch)
     else void attempt(() => request('PATCH', '/settings/preferences', patch))

@@ -10,14 +10,13 @@
 // may not reach fade while it is drawn. The dragged arrow and the would-be note are drawn on a layer over
 // the whole block, not in the drawing, so they reach its empty edges. The dot in the middle of an arrow
 // opens, under the pointer or focus, into ＋ (put a new step into the arrow) and × (take the arrow away);
-// a note's top right corner shows a bin to remove it, all but the two ends. The step list under the drawing
+// a note's top right corner shows a bin to remove it, while the flow has more than one step. The step list under the drawing
 // offers the same by keyboard.
 
 import { tr } from './core/i18n'
 import { useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import type { Workflow, WorkflowEdge } from './core/domain/types'
 import { FlowView } from './core/FlowView'
-import { endOf } from './flowDraft'
 import { layers } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -27,8 +26,6 @@ const PAD = 8
 const MIN_ARROW = 30
 
 export interface FlowEdits {
-  /** The step the flow ends with: nothing leaves it. */
-  end: string
   canLink: (from: string, to: string) => boolean
   link: (from: string, to: string) => void
   unlink: (edgeId: string) => void
@@ -36,7 +33,7 @@ export interface FlowEdits {
   branch: (from: string) => void
   /** A new step put into an arrow. */
   insert: (edgeId: string) => void
-  /** Remove a step (never the start or the end). */
+  /** Remove a step (never the only one). */
   remove: (nodeId: string) => void
 }
 
@@ -103,13 +100,11 @@ export function FlowNotes({ wf, staff, done, open, onOpen, canOpen, edit }: {
   const room = count > 1 ? (width - count * NOTE - PAD * 2) / (count - 1) : 0
   const arrow = Math.max(MIN_ARROW, Math.floor(room))
   const nameOf = (id: string) => wf.nodes.find((n) => n.id === id)?.name ?? ''
-  // the review every flow ends with: a draft says which it is, since cutting arrows can leave others last
-  const end = edit?.end ?? endOf(wf)?.id
 
   // press on a note; once the pointer has moved a little, an arrow follows it from the note's right edge
   // until it is let go: on a note it may reach, on empty space in the drawing, or anywhere else (nothing)
   const draw = (from: string) => (e: ReactPointerEvent) => {
-    if (!edit || e.button !== 0 || from === edit.end) return
+    if (!edit || e.button !== 0) return
     const note = e.currentTarget.getBoundingClientRect()
     if (!box.current) return
     const area = box.current
@@ -186,8 +181,7 @@ export function FlowNotes({ wf, staff, done, open, onOpen, canOpen, edit }: {
           )
           // while an arrow is drawn: the notes it may reach, the one under the pointer, the rest faded
           const reach = drag && n.id !== drag.from ? (edit?.canLink(drag.from, n.id) ? (drag.over === n.id ? ' fx-node-over' : ' fx-node-can') : ' fx-node-cant') : ''
-          const fixed = n.kind === 'task' || n.id === end
-          const cls = `fx-node fx-node-${n.kind}${fixed ? ' fx-node-fixed' : ''}${crew?.length === 0 ? ' fx-node-empty' : ''}${done?.(n.id) ? ' fx-node-done' : ''}${reach}`
+          const cls = `fx-node fx-node-${n.kind === 'talk' ? 'talk' : 'work'}${crew?.length === 0 ? ' fx-node-empty' : ''}${done?.(n.id) ? ' fx-node-done' : ''}${reach}`
           const press = edit ? { onPointerDown: draw(n.id) } : {}
           const note = onOpen && (canOpen?.(n.id) ?? true)
             ? (
@@ -198,7 +192,7 @@ export function FlowNotes({ wf, staff, done, open, onOpen, canOpen, edit }: {
           // beside the note, not in it: a button may not hold another
           // looking away (focus or pointer leaving it) takes the question back
           const ask = asking === n.id
-          const bin = edit && n.kind !== 'task' && n.id !== edit.end && (
+          const bin = edit && wf.nodes.length > 1 && (
             <button type="button" className={ask ? 'fx-node-del fx-node-del-ask' : 'fx-node-del'}
               onClick={() => { if (ask) { setAsking(null); edit.remove(n.id) } else setAsking(n.id) }}
               onBlur={() => setAsking(null)} onPointerLeave={() => setAsking(null)}

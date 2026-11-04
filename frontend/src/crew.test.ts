@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { seedWorld } from './core/data/seed'
 import type { Chat, World } from './core/domain/types'
-import { chatMindOf, chatOrder, chatSortAt, lastChatReplica, NOTE_COLORS, noteColors } from './crew'
+import { blueprintLabel, byBlueprint, chatMindOf, chatOrder, chatSortAt, lastChatReplica, NOTE_COLORS, noteColors } from './crew'
 
 function chatOn(effort: string): { w: World; chat: Chat } {
   const w = seedWorld()
@@ -84,5 +84,20 @@ describe('noteColors', () => {
     expect(new Set(Object.values(got)).size).toBe(6)
     expect(noteColors([...ids].reverse())).toEqual(got)
     expect(Object.values(got).every((c) => NOTE_COLORS.includes(c))).toBe(true)
+  })
+})
+
+describe('byBlueprint', () => {
+  it('puts those with settings of their own first, under no blueprint, and keeps their settings off the list', () => {
+    const w = seedWorld()
+    const [a, b] = Object.values(w.replicas)
+    const bp = w.blueprints[a.blueprintId]
+    w.blueprints.own = { ...bp, id: 'own', name: b.name, owner: b.id }
+    b.blueprintId = 'own'
+    const groups = byBlueprint(w, [a, b])
+    expect(groups[0]).toEqual({ bp: null, list: [b] })
+    expect(groups.some((g) => g.bp?.id === 'own')).toBe(false)
+    expect(blueprintLabel(w, b)).toBe('自訂')
+    expect(blueprintLabel(w, a)).toBe(bp.name)
   })
 })

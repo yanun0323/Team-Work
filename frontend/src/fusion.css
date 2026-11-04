@@ -82,8 +82,12 @@ body { margin: 0; overflow: hidden; }
   --note: #fbeeb8;
   /* the same colour as the theme in Terminal.tsx */
   --terminal-note: #18181b;
-  /* the two steps every flow has, 整理需求 and 審查, which cannot be renamed or removed */
+  /* a white note: the merge at the end of a task, and the stats chart's label */
   --note-fixed: #fff;
+  /* a step an employee works, on a flow drawing and the notes under it */
+  --note-work: #fff;
+  /* the blueprint ink, as BlueprintIcon's INK */
+  --blueprint: #407bcf;
   /* 使用者討論: a step the user talks through with an employee */
   --note-talk: #cfe8b5;
   --ink: #1f1d2b;
@@ -299,11 +303,9 @@ body { margin: 0; overflow: hidden; }
 .fx-flow .flow-node { position: absolute; }
 .fx-node {
   position: relative; box-sizing: border-box; width: 100%; height: 100%; display: grid; place-items: center; padding: 3px 5px;
-  background: var(--note); box-shadow: var(--lift), inset 0 0 0 100vmax var(--unshade); rotate: -1.2deg;
+  background: var(--note-work); box-shadow: var(--lift), inset 0 0 0 100vmax var(--unshade); rotate: -1.2deg;
 }
 .fx-flow .flow-node:nth-child(even) .fx-node { rotate: 1deg; }
-/* the two fixed steps (the task itself and the review at the end), a white pad of notes */
-.fx-node-fixed { background: var(--note-fixed); }
 .fx-node-talk { background: var(--note-talk); }
 .fx-node b {
   font-size: 13px; font-weight: 600; line-height: 1.3; text-align: center; overflow-wrap: anywhere;
@@ -377,6 +379,21 @@ body { margin: 0; overflow: hidden; }
 .fx-node { transition: opacity 140ms ease, box-shadow 140ms ease; }
 .fx-node-cant { opacity: 0.35; }
 .fx-node-over { box-shadow: var(--lift), inset 0 0 0 100vmax var(--shade); }
+/* a flow drawn as a blueprint, in the airport's list of flows and while writing one: work a white note dashed in
+   blue, talk a solid blue one written in white, blue lines; elsewhere a flow keeps its white and green notes */
+.fx-blueprint .fx-node {
+  background: #fff; color: var(--blueprint); box-shadow: none;
+  outline: 1.5px dashed var(--blueprint); outline-offset: -1.5px;
+}
+.fx-blueprint .fx-node-talk { background: var(--blueprint); color: #fff; outline: none; }
+.fx-blueprint .flow-edges .flow-edge { stroke: var(--blueprint); }
+.fx-blueprint .flow-edges .flow-arrow { fill: var(--blueprint); }
+.fx-blueprint .fx-mid { box-shadow: inset 0 0 0 1.2px var(--blueprint); }
+.fx-blueprint .fx-mid-btn { color: var(--blueprint); }
+.fx-blueprint .fx-mid-btn:is(:hover, :focus-visible) { background: rgb(64 123 207 / 0.12); }
+.fx-blueprint .fx-mid-cut:is(:hover, :focus-visible) { color: var(--accent); }
+.fx-blueprint .fx-drag-edge { stroke: var(--blueprint); }
+.fx-blueprint .fx-drag-ghost { fill: rgb(64 123 207 / 0.1); stroke: var(--blueprint); }
 
 /* employees and blueprints: a column of small portraits */
 .fx-list { margin: 0; padding: 0; list-style: none; }
@@ -502,6 +519,8 @@ body { margin: 0; overflow: hidden; }
 .fx-d-form { display: grid; align-content: start; gap: 22px; }
 .fx-field.fx-field-top { align-items: start; }
 .fx-field-top > span { padding-top: 7px; }
+/* a field set by another choice, such as an agent's own skills folder */
+input.fx-control[readonly] { color: var(--muted); background: none; }
 textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-d-actions { display: flex; align-items: center; gap: 14px; }
 /* a picked employee stays shaded, with a tick */
@@ -524,6 +543,8 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 /* a quiet text button under a block, to add to it */
 .fx-add { justify-self: start; margin-top: 8px; padding: 6px 10px; border-radius: 3px; background: none; color: var(--muted); font-size: 13.5px; }
 .fx-add:hover { color: var(--ink); }
+/* a blueprint's settings on the employee form: read only, inside a dashed box */
+.fx-bp-facts { display: grid; gap: 22px; padding: 14px 16px; border-radius: 3px; outline: 1.5px dashed var(--rule); outline-offset: -1px; }
 .fx-d-toggle:disabled { cursor: default; box-shadow: none; }
 .fx-save {
   justify-self: start; padding: 7px 18px; border: 0; border-radius: 3px; background: var(--ink); color: var(--paper);
@@ -548,7 +569,7 @@ a.fx-save { text-decoration: none; }
 .fx-d-muted { color: var(--muted); font-size: 13px; }
 .fx-d-text { font-size: 14px; color: var(--ink-2); white-space: pre-wrap; }
 /* quoted instructions: a typed slip pasted in */
-.fx-d-quote { padding: 10px 12px; background: var(--clip); box-shadow: var(--lift); rotate: -0.4deg; }
+.fx-d-quote { padding: 10px 12px; background: var(--clip); box-shadow: var(--lift); transform: skewY(-0.4deg); }
 .fx-d-people, .fx-d-memory, .fx-d-log { margin: 0; padding: 0; list-style: none; }
 .fx-d-run { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .fx-d-hand > .fx-d-noface { width: 32px; height: 32px; }
@@ -575,24 +596,46 @@ a.fx-save { text-decoration: none; }
 .fx-bp-head svg { display: block; background: #fff; box-shadow: var(--lift); }
 /* the steps under a flow drawing, in the order it runs: space between steps, a finished one greyed */
 .fx-d-steps { display: grid; gap: 22px; margin: 0; padding: 0; list-style: none; }
-/* each step a whole sticky note, coloured as on the drawing: yellow work, green talk, white the fixed two, grey
-   once finished */
+/* each step a whole sticky note, coloured as on the drawing: white work, green talk, grey once finished */
 .fx-d-steps > li.fx-step-note {
-  padding: 14px 16px 16px; background: var(--note); box-shadow: var(--lift); rotate: -0.35deg;
+  padding: 14px 16px 16px; background: var(--note-work); box-shadow: var(--lift); transform: skewY(-0.35deg);
   /* the paper's grey is too light on a coloured note; the darker one keeps small text readable */
   --muted: var(--ink-2);
 }
-.fx-d-steps > li.fx-step-note:nth-child(even) { rotate: 0.3deg; }
-.fx-d-steps > li.fx-node-fixed { background: var(--note-fixed); }
+.fx-d-steps > li.fx-step-note:nth-child(even) { transform: skewY(0.3deg); }
+/* each tilted note stacks on its own, so the next one would cover a list opened on this one: lift it while open */
+.fx-d-steps > li.fx-step-note:has([aria-expanded="true"]) { position: relative; z-index: 1; }
 .fx-d-steps > li.fx-node-talk { background: var(--note-talk); }
 .fx-d-steps > li.fx-node-done { background: #e6e3dc; }
 .fx-d-steps > li.fx-node-done > h4 { color: var(--muted); }
+/* writing a flow drawn as a blueprint: each step's form on its note, written in blue, a discussion's in white on
+   blue; a list it opens is still a paper slip in the usual ink */
+.fx-blueprint .fx-d-steps > li.fx-step-note {
+  background: #fff; color: var(--ink); outline: 1.5px dashed var(--blueprint); outline-offset: -1.5px;
+  --ink: var(--blueprint); --ink-2: var(--blueprint); --muted: rgb(64 123 207 / 0.75);
+}
+.fx-blueprint .fx-d-steps > li.fx-node-talk {
+  background: var(--blueprint); outline: none;
+  --ink: #fff; --ink-2: #fff; --muted: rgb(255 255 255 / 0.8);
+}
+.fx-blueprint li.fx-node-talk .fx-control { --wash: rgb(255 255 255 / 0.16); }
+.fx-blueprint li.fx-node-talk .fx-control:is(:hover, :focus, [aria-expanded="true"]) { --wash: rgb(255 255 255 / 0.26); }
+.fx-blueprint li.fx-node-talk .fx-d-picks button { background: rgb(255 255 255 / 0.16); }
+.fx-blueprint li.fx-node-talk .fx-switcher { background: rgb(255 255 255 / 0.16); }
+.fx-blueprint li.fx-node-talk .fx-switcher-option:has(input:checked) { color: var(--blueprint); }
+.fx-blueprint li.fx-node-talk .fx-switcher-option:has(input:focus-visible) { outline-color: rgb(255 255 255 / 0.6); }
+.fx-blueprint li.fx-node-talk .fx-d-picks button[aria-pressed="true"] { color: var(--blueprint); background: var(--clip); }
+.fx-blueprint .fx-d-facts dt { color: var(--muted); }
+.fx-blueprint .fx-d-steps > li > :is(h4, .fx-d-text, .fx-d-facts) { color: inherit; }
+/* a wrapper that only scopes its children, leaving the layout as if it were not there */
+.fx-contents { display: contents; }
+.fx-blueprint .fx-slip { --ink: #1f1d2b; --ink-2: #4a4656; --muted: #847d8c; color: var(--ink); }
 .fx-d-steps li { display: grid; gap: 8px; scroll-margin-top: 16px; }
 .fx-d-steps h4 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 14px; font-weight: 700; color: var(--ink); }
 /* each step's name on a sticky note, as in the drawing above */
 .fx-d-stepname {
   padding: 7px 12px; font-size: 13px; font-weight: 600; line-height: 1.3;
-  background: var(--note); box-shadow: var(--lift); rotate: -1deg;
+  background: var(--note-work); box-shadow: var(--lift); rotate: -1deg;
 }
 .fx-d-steps li:nth-child(even) .fx-d-stepname { rotate: 0.8deg; }
 .fx-d-stepname.fx-node-fixed { background: var(--note-fixed); }
@@ -1203,8 +1246,10 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
   background: var(--clip); color: var(--ink-2); box-shadow: var(--lift); cursor: pointer;
 }
 .fx-room-latest:hover { color: var(--ink); box-shadow: var(--lift), inset 0 0 0 100vmax var(--shade); }
-.fx-room-log .fx-chat-agent .fx-chat-bubble { background: var(--note); rotate: -0.4deg; }
-.fx-room-log .fx-chat-user .fx-chat-bubble { rotate: 0.4deg; }
+/* tilted by skewing, not rotating: a rotated slip drifts sideways in proportion to its height, so a long one
+   ran out of the log and was clipped; a skewed one only moves up and down */
+.fx-room-log .fx-chat-agent .fx-chat-bubble { background: var(--note); transform: skewY(-0.4deg); }
+.fx-room-log .fx-chat-user .fx-chat-bubble { transform: skewY(0.4deg); }
 .fx-room-tool { flex: none; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
 .fx-room-tool-images { justify-content: flex-start; margin-top: 4px; }
 .fx-room-output { flex: none; margin-top: -4px; padding-left: 10px; border-left: 2px solid var(--shade); color: var(--muted); }
@@ -1221,6 +1266,8 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fx-room-to { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; font-size: 12.5px; color: var(--muted); }
 .fx-room-to-one { display: inline-flex; align-items: center; gap: 4px; color: var(--ink); }
 .fx-room-to-one svg { display: block; }
+/* under a sent message; two classes, to win over the sheet's margin-less p */
+.fx-chat-said .fx-chat-to { margin-top: 4px; }
 /* a question's options with who asked, to answer them by typing instead: dashed, as a choice left open */
 .fx-room-answer { display: grid; gap: 8px; padding: 10px; border: 1.5px dashed var(--rule); border-radius: 4px; }
 .fx-room-attach { flex: none; display: grid; place-items: center; width: 32px; height: 40px; color: var(--muted); cursor: pointer; }

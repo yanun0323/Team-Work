@@ -33,6 +33,7 @@ import { Strollers } from './People'
 import { NO_OUTLINE_LAYER, PixelPass } from './PixelPass'
 import { toonInstanced } from './toon'
 import { usePrefs } from './prefs'
+import { glowing, light, lightAt, MIN_SUN_ELEVATION, phaseOf } from './daylight'
 import { propBoxes, type Box } from './streetProps'
 import { playSound, useSound } from './sound'
 import { Brand, useQuotaPolling } from './Brand'
@@ -52,8 +53,6 @@ const PAN_KEYS: Record<string, [number, number]> = {
 /** A press that moved further than this, in pixels, was a pan, not a click. */
 const CLICK_SLOP = 5
 
-/** Where the sun sits, relative to what it lights. From the back left, so shadows fall towards the viewer's right. */
-const SUN = new THREE.Vector3(-26, 48, 18)
 
 /** Finished tasks per company. */
 const doneOf = (w: ReturnType<typeof useStore.getState>['world'], teamId: string) =>
@@ -365,8 +364,6 @@ export function World() {
         // the open building's see-through shell is on this layer and should still take clicks
         raycaster.layers.enable(NO_OUTLINE_LAYER)
       }}>
-      <color attach="background" args={['#3b86c6']} />
-      <hemisphereLight args={['#fff4e0', '#7fb6d6', 1.5]} />
       <Sun reach={span} />
       <Ocean map={land.sea} calm={calm} />
       <Island town={town} land={land} />
@@ -505,16 +502,46 @@ const SHADOW_MAP = 2048
  */
 export const sunNormalBias = (half: number) => Math.max(0.06, (half * 2) / SHADOW_MAP)
 
-/** The sun's shadow box covers the town and the clouds passing over it. */
+/**
+ * The sky, the light from it and the sun (the moon by night), at the time of day the preferences follow. The sun's
+ * shadow box covers the town and the clouds passing over it, from wherever the sun stands.
+ */
 function Sun({ reach }: { reach: number }) {
   const half = shadowHalf(reach)
   // off in the preferences: no shadow map is drawn at all
   const shadows = usePrefs((s) => s.shadows)
+  const daylight = usePrefs((s) => s.daylight)
+  const sun = useRef<THREE.DirectionalLight>(null)
+  const sky = useRef<THREE.HemisphereLight>(null)
+  const background = useRef<THREE.Color>(null)
+  // how deep the town and its clouds reach along the sunlight, even with the sun at its lowest
+  const depth = half * Math.SQRT2 * Math.cos(THREE.MathUtils.degToRad(MIN_SUN_ELEVATION)) + 12
+  const distance = depth + 30
+  // the frames run all the time anyway (PixelPass), so this costs no extra ones
+  useFrame(() => {
+    lightAt(phaseOf(daylight, new Date()), light)
+    background.current?.copy(light.sky)
+    if (sky.current) {
+      sky.current.color.copy(light.above)
+      sky.current.groundColor.copy(light.below)
+      sky.current.intensity = light.fill
+    }
+    if (sun.current) {
+      sun.current.color.copy(light.sun)
+      sun.current.intensity = light.strength
+      sun.current.position.copy(light.toSun).multiplyScalar(distance)
+    }
+    for (const m of glowing) m.emissiveIntensity = light.glow
+  })
   return (
-    <directionalLight position={SUN.toArray()} intensity={2.2} color="#fff6e6" castShadow={shadows}
-      shadow-mapSize={[SHADOW_MAP, SHADOW_MAP]} shadow-bias={-0.0007} shadow-normalBias={sunNormalBias(half)}
-      shadow-camera-left={-half} shadow-camera-right={half} shadow-camera-top={half} shadow-camera-bottom={-half}
-      shadow-camera-near={1} shadow-camera-far={140} />
+    <>
+      <color ref={background} attach="background" args={[light.sky]} />
+      <hemisphereLight ref={sky} args={[light.above, light.below, light.fill]} />
+      <directionalLight ref={sun} position={light.toSun.clone().multiplyScalar(distance).toArray()} intensity={light.strength} color={light.sun} castShadow={shadows}
+        shadow-mapSize={[SHADOW_MAP, SHADOW_MAP]} shadow-bias={-0.0007} shadow-normalBias={sunNormalBias(half)}
+        shadow-camera-left={-half} shadow-camera-right={half} shadow-camera-top={half} shadow-camera-bottom={-half}
+        shadow-camera-near={1} shadow-camera-far={distance + depth} />
+    </>
   )
 }
 

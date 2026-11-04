@@ -3,7 +3,7 @@
 import { listOf, tr, type Key } from './core/i18n'
 import { useEffect } from 'react'
 import { nodeOf } from './core/domain/graph'
-import { statusOf, subsOf, taskTokens } from './core/domain/sim'
+import { notStarted, statusOf, subsOf, taskTokens } from './core/domain/sim'
 import type { Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
 import { MOCK } from './core/mode'
@@ -141,8 +141,8 @@ export function Tasks(p: Opens) {
                     </span>
                   )}
                   {/* only what the column doesn't already say */}
-                  {(task.paused || task.stage === 'merging') && (
-                    <span className="fx-pill">{task.paused ? tr('已暫停') : tr('合併中')}</span>
+                  {((task.paused && !notStarted(task)) || task.stage === 'merging') && (
+                    <span className="fx-pill">{task.stage === 'merging' ? tr('合併中') : tr('已暫停')}</span>
                   )}
                   {tokens > 0 && <span className="fx-task-tokens">{fmtTokens(tokens)} Token</span>}
                 </button>
@@ -167,11 +167,13 @@ function Crew(p: Opens) {
       <button className="fx-task fx-task-new fx-flow-new fx-hit" disabled={blocked(needs)} {...opener({ kind: 'newCrew' }, p)}>{tr('＋ 新增員工')}</button>
       {!crew.length && <Empty>{tr('還沒有員工')}</Empty>}
       {byBlueprint(w, crew).map(({ bp, list }) => (
-        <section key={bp.id} className="fx-d-group" aria-label={bp.name}>
-          {/* the group's title is its blueprint, which opens on a sheet of its own */}
-          <h4><button className="fx-bp-head fx-hit" {...opener({ kind: 'blueprint', id: bp.id }, p)}>
-            <span aria-hidden="true"><BlueprintIcon look={bp.look} name={bp.name} size={24} /></span>{bp.name}<span className="fx-count">{list.length}</span>
-          </button></h4>
+        <section key={bp?.id ?? ''} className="fx-d-group" aria-label={bp?.name ?? tr('自訂')}>
+          {/* the group's title is its blueprint, which opens on a sheet of its own; their own settings open with each of them */}
+          {bp ? (
+            <h4><button className="fx-bp-head fx-hit" {...opener({ kind: 'blueprint', id: bp.id }, p)}>
+              <span aria-hidden="true"><BlueprintIcon look={bp.look} name={bp.name} size={24} /></span>{bp.name}<span className="fx-count">{list.length}</span>
+            </button></h4>
+          ) : <h4>{tr('自訂')}<span className="fx-count">{list.length}</span></h4>}
           <ul className="fx-list">
             {list.map((r) => {
               const a = activity(w, r)

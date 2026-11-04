@@ -3,14 +3,10 @@ import type { Workflow, WorkflowNode } from './types'
 export const outEdges = (wf: Workflow, id: string) => wf.edges.filter((e) => e.from === id)
 export const inEdges = (wf: Workflow, id: string) => wf.edges.filter((e) => e.to === id)
 export const nodeOf = (wf: Workflow, id: string) => wf.nodes.find((n) => n.id === id)
-export const taskNodeOf = (wf: Workflow) => wf.nodes.find((n) => n.kind === 'task') as WorkflowNode
-/** The step a flow ends with (驗收): the last work step that hands on to nothing. */
-export const endNodeOf = (wf: Workflow) => wf.nodes.filter((n) => n.kind === 'work' && outEdges(wf, n.id).length === 0).at(-1)
-/**
- * 整理需求 and 驗收, which every flow starts and ends with: the task's owner works them, on instructions of
- * their own, so a flow names nobody for them and cannot change what they do.
- */
-export const isFixed = (wf: Workflow, id: string) => nodeOf(wf, id)?.kind === 'task' || endNodeOf(wf)?.id === id
+/** The steps a flow starts with: those nothing hands on to. A task starts them all at once. */
+export const startsOf = (wf: Workflow) => wf.nodes.filter((n) => inEdges(wf, n.id).length === 0)
+/** The steps a flow ends with: those that hand on to nothing. */
+export const endsOf = (wf: Workflow) => wf.nodes.filter((n) => outEdges(wf, n.id).length === 0)
 
 /** True when `to` can be reached from `from` (a node reaches itself). */
 export function canReach(wf: Workflow, from: string, to: string): boolean {
@@ -42,6 +38,15 @@ export function feedsOnly(wf: Workflow, id: string, target: string): boolean {
     for (const e of outs) if (e.to !== target) stack.push(e.to)
   }
   return true
+}
+
+/**
+ * Whether a step may be let send work back: a work step with one step before it, whose work goes only to this
+ * one, so redoing it holds up nothing else.
+ */
+export function canSendBack(wf: Workflow, id: string): boolean {
+  const ins = inEdges(wf, id)
+  return nodeOf(wf, id)?.kind === 'work' && ins.length === 1 && feedsOnly(wf, ins[0].from, id)
 }
 
 /** Longest distance from any source node. Used to place nodes in columns. */
@@ -80,14 +85,11 @@ export function autoLayout(wf: Workflow) {
 export type Issue =
   | { kind: 'noReplica'; nodeId: string }
   | { kind: 'noCondition'; edgeId: string }
-  | { kind: 'unreachable'; nodeId: string }
 
 export function validate(wf: Workflow): Issue[] {
   const issues: Issue[] = []
-  const start = taskNodeOf(wf)
   for (const n of wf.nodes) {
-    if (n.replicaIds.length === 0 && !isFixed(wf, n.id)) issues.push({ kind: 'noReplica', nodeId: n.id })
-    if (start && !canReach(wf, start.id, n.id)) issues.push({ kind: 'unreachable', nodeId: n.id })
+    if (n.replicaIds.length === 0) issues.push({ kind: 'noReplica', nodeId: n.id })
     const outs = outEdges(wf, n.id)
     if (n.handoff === 'pickOne' && outs.length > 1) {
       for (const e of outs) if (!e.condition.trim()) issues.push({ kind: 'noCondition', edgeId: e.id })
@@ -110,7 +112,7 @@ export function composePrompt(wf: Workflow, nodeId: string, replicaPrompt: strin
   if (!node) return []
   const outs = outEdges(wf, nodeId)
   const handoff = outs.length === 0
-    ? '這是流水線的最後一個節點。完成後寫交接，等待使用者合併。'
+    ? '這一步之後沒有其他步驟。任務的每條支線都完成後，由使用者決定是否合併。'
     : [
         node.handoff === 'pickOne' && outs.length > 1
           ? '交接模式：多選一。依下方條件只選一個下游，並寫明理由。'

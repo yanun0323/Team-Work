@@ -15,7 +15,7 @@ const KEYWORDS: [Role, RegExp][] = [
 ]
 
 export function roleOf(node: WorkflowNode): Role {
-  if (node.kind === 'task') return 'intake'
+  if (node.kind === 'task' || /整理需求|clarify requirements/i.test(node.name)) return 'intake'
   if (node.kind === 'talk') return 'talk'
   return KEYWORDS.find(([, re]) => re.test(node.name))?.[0] ?? 'generic'
 }

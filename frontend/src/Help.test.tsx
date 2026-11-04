@@ -10,7 +10,7 @@ it('lists the main topics first, then the airport and the company', () => {
   const words = [...nav.matchAll(/<(button|h2)[^>]*>([^<]+)</g)].map((m) => m[2])
   expect(words).toEqual([
     '快速開始', '地圖', '機場', '公司',
-    '機場', '模型供應商', '員工藍圖', '任務流程', '設定', '關於',
+    '機場', '模型供應商', '員工藍圖', '任務藍圖', '設定', '關於',
     '公司', '對話', '任務', '回覆與討論', '員工', '終端機', '設定',
   ])
 })

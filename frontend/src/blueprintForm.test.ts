@@ -76,4 +76,11 @@ describe('a blueprint made on the form, as YAML', () => {
     const text = blueprintToYaml({ name: 'A', prompt: '', comment: '', skills: made.skills, tools: [] })
     expect(parse(text).skills).toEqual([{ repo: 'a/b', ref: 'v1' }])
   })
+
+  it('names an agent\'s own folder by the agent and always reads it from there', () => {
+    const rows = skillRowsOf([{ source: { kind: 'local', path: '~/.codex' }, include: null, exclude: [] }])
+    expect(rows).toMatchObject([{ kind: 'codex' }])
+    expect(read([{ ...rows[0], where: 'typed' }, { ...newSkillRow(), kind: 'claude' }]))
+      .toMatchObject({ skills: [{ source: { kind: 'local', path: '~/.codex/' } }, { source: { kind: 'local', path: '~/.claude/' } }] })
+  })
 })

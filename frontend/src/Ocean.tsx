@@ -9,6 +9,7 @@ import { SEA_D0, SEA_DSPAN, SEA_LEVEL, type SeaMap } from './Island'
 import { usePrefs } from './prefs'
 import { SEA_SIZE } from './camera'
 import { MAX_FRAME } from './PixelPass'
+import { light } from './daylight'
 
 
 const head = /* glsl */ `
@@ -85,9 +86,10 @@ export function Ocean({ map, calm }: { map: SeaMap; calm: boolean }) {
       uDist: { value: map.texture },
       uOrigin: { value: map.origin },
       uN: { value: map.n },
-      uShallow: { value: new THREE.Color('#86dcd6') },
-      uMid: { value: new THREE.Color('#4fb2dc') },
-      uDeep: { value: new THREE.Color('#3b86c6') },
+      // the time of day's colours, the very objects the sun updates
+      uShallow: { value: light.shallow },
+      uMid: { value: light.mid },
+      uDeep: { value: light.deep },
     }
     m.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, uniforms)

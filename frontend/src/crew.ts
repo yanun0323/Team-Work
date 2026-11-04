@@ -1,4 +1,5 @@
-// Employees are always shown under their blueprint, blueprints in the order the company knows them.
+// Employees are always shown under their blueprint, blueprints in the order the company knows them; those with settings
+// of their own come first, together.
 
 import { HAIRS, SKINS } from './core/domain/sim'
 import { AIRPORT_STAFF_LOOK } from './core/domain/sim'
@@ -6,10 +7,19 @@ import type { Blueprint, Chat, Look, Replica, World } from './core/domain/types'
 import { tr } from './core/i18n'
 import { blueprintList } from './core/model'
 
-export function byBlueprint(w: World, crew: Replica[]): { bp: Blueprint; list: Replica[] }[] {
-  return blueprintList(w)
-    .map((bp) => ({ bp, list: crew.filter((r) => r.blueprintId === bp.id) }))
+/** The groups, `bp` null for those with settings of their own. */
+export function byBlueprint(w: World, crew: Replica[]): { bp: Blueprint | null; list: Replica[] }[] {
+  const custom = { bp: null, list: crew.filter((r) => isCustom(w, r)) }
+  return [custom, ...blueprintList(w).map((bp) => ({ bp, list: crew.filter((r) => r.blueprintId === bp.id) }))]
     .filter((g) => g.list.length > 0)
+}
+
+/** Whether an employee works by settings of their own rather than a blueprint. */
+export const isCustom = (w: World, r: Replica) => w.blueprints[r.blueprintId]?.owner === r.id
+
+/** What an employee works by, as shown beside their name: their blueprint, or 自訂. */
+export function blueprintLabel(w: World, r: Replica): string | undefined {
+  return isCustom(w, r) ? tr('自訂') : w.blueprints[r.blueprintId]?.name
 }
 
 /**

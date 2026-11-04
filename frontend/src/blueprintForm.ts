@@ -6,7 +6,8 @@ import { githubAddress, parseGithub, repoPath, shortRepo } from './github'
 export interface SkillRow {
   /** Stays with the row while rows around it come and go. */
   key: number
-  kind: 'local' | 'git'
+  /** A folder of this computer, one of the agents' own folders there, or a GitHub repo. */
+  kind: 'local' | keyof typeof AGENT_FOLDERS | 'git'
   /** A folder on this computer, or a GitHub repo. */
   where: string
   /** The repo's branch, tag or commit; empty is its default branch. */
@@ -20,6 +21,13 @@ export interface SkillRow {
 
 let lastKey = 0
 
+/** Agents' own folders on this computer, picked by name: their folder is set and cannot be typed. */
+export const AGENT_FOLDERS = { codex: '~/.codex/', claude: '~/.claude/' } as const
+
+/** The agent whose own folder this is, if it is one. */
+const agentOf = (path: string) =>
+  (Object.keys(AGENT_FOLDERS) as (keyof typeof AGENT_FOLDERS)[]).find((k) => AGENT_FOLDERS[k] === `${path.trim().replace(/\/+$/, '')}/`)
+
 export const newSkillRow = (): SkillRow => ({ key: ++lastKey, kind: 'local', where: '~/.agents/', ref: '', path: '', include: '', exclude: '' })
 
 const repoOf = (s: GitSource) => shortRepo(s.repo)
@@ -30,7 +38,7 @@ export function skillRowsOf(skills: SkillPack[]): SkillRow[] {
     if (!p.source) return []
     const row = { key: ++lastKey, include: (p.include ?? []).join(', '), exclude: p.exclude.join(', ') }
     return p.source.kind === 'local'
-      ? [{ ...row, kind: 'local', where: p.source.path, ref: '', path: '' }]
+      ? [{ ...row, kind: agentOf(p.source.path) ?? 'local', where: p.source.path, ref: '', path: '' }]
       : [{ ...row, kind: 'git', where: repoOf(p.source), ref: p.source.ref, path: p.source.path ?? '' }]
   })
 }
@@ -44,8 +52,8 @@ export function skillPacksOf(rows: SkillRow[], now: number, commit: () => string
   for (const [i, row] of rows.entries()) {
     const include = skillNames(row.include)
     const picks = { include: include.length ? include : null, exclude: skillNames(row.exclude) }
-    if (row.kind === 'local') {
-      skills.push({ source: { kind: 'local', path: row.where.trim() }, ...picks })
+    if (row.kind !== 'git') {
+      skills.push({ source: { kind: 'local', path: row.kind === 'local' ? row.where.trim() : AGENT_FOLDERS[row.kind] }, ...picks })
       continue
     }
     const g = parseGithub(row.where)

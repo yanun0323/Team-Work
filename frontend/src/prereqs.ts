@@ -61,7 +61,7 @@ export function prereqsOf(w: World, teamId: string, tab: PrereqTab, health: Proj
     airportChats: [provider],
     tasks: [
       provider, noCrew,
-      Object.keys(w.workflows).length ? null : { id: 'workflow', text: tr('沒有任務流程。請先到機場新增任務流程'), blocks: true },
+      Object.keys(w.workflows).length ? null : { id: 'workflow', text: tr('沒有任務藍圖。請先到機場新增任務藍圖'), blocks: true },
       models, folder(health), repo(w, teamId, health),
     ],
     crew: [

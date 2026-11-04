@@ -27,7 +27,7 @@ it('is a drawer headed as the airport, its model providers listed under the firs
 })
 
 it('starts with every preference on and the newest log line first', () => {
-  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, keepTerminals: false, autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', openWaitingTab: true, chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true })
+  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true })
   expect(ordered([1, 2, 3], 'newestFirst')).toEqual([3, 2, 1])
   expect(ordered([1, 2, 3], 'newestLast')).toEqual([1, 2, 3])
 })
@@ -40,10 +40,10 @@ it('opens the airport on its chats while one waits, unless told not to', () => {
   c.unread = true
   try {
     expect(html()).toContain(onChats)
-    usePrefs.setState({ openWaitingTab: false })
+    usePrefs.setState({ autoTab: 'off' })
     expect(html()).not.toContain(onChats)
   } finally {
-    usePrefs.setState({ openWaitingTab: true })
+    usePrefs.setState({ autoTab: 'chats' })
     delete world.chats[c.id]
   }
 })

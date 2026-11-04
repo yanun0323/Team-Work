@@ -7,7 +7,7 @@ import { isPreset } from './core/data/presets'
 import { TOOLS, type Blueprint, type Replica } from './core/domain/types'
 import { blueprintList } from './core/model'
 import { useStore } from './core/store'
-import { byBlueprint, mindOf } from './crew'
+import { blueprintLabel, byBlueprint, mindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
 import { listOf } from './core/i18n'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -40,14 +40,14 @@ export const crewOrder = (w: Parameters<typeof byBlueprint>[0], crew: Replica[])
  */
 export function CrewRow({ r, on = false, chair, mind }: { r: Replica; on?: boolean; chair?: boolean; mind?: string }) {
   const w = useStore((s) => s.world)
-  const bp = w.blueprints[r.blueprintId]
+  const bp = blueprintLabel(w, r)
   return (
     <>
       <Picture><PixelFace look={r.look} name={r.name} size={26} /></Picture>
       <span className="fx-row-main">
         <b className="fx-crew-head">
           <span className="fx-crew-name">{r.name}</span>
-          {bp && <span className="fx-crew-bp">{bp.name}</span>}
+          {bp && <span className="fx-crew-bp">{bp}</span>}
           {chair && <span className="fx-pill fx-chair">{tr('主持人')}</span>}
         </b>
         <span>{mind ?? mindOf(r)}</span>
@@ -127,7 +127,7 @@ export function mineAndBuiltIn(ids: string[]) {
 }
 
 /** Picks one of the island's blueprints, in the same rows as employees. */
-export function BlueprintSelect({ label, value, onChange }: { label: string; value: string; onChange: (id: string) => void }) {
+export function BlueprintSelect({ label, value, placeholder, onChange }: { label: string; value: string; placeholder?: string; onChange: (id: string) => void }) {
   const w = useStore((s) => s.world)
   const blueprints = w.blueprints
   const ids = blueprintList(w).map((b) => b.id)
@@ -136,7 +136,9 @@ export function BlueprintSelect({ label, value, onChange }: { label: string; val
       label={label} value={value} options={ids} labelOf={(id) => blueprints[id]?.name ?? id} onChange={onChange} {...mineAndBuiltIn(ids)}
       shownAs={(id) => {
         const bp = blueprints[id]
-        return bp && <span className="fx-pick-value"><Picture><BlueprintIcon look={bp.look} name={bp.name} size={18} /></Picture>{bp.name}</span>
+        return bp
+          ? <span className="fx-pick-value"><Picture><BlueprintIcon look={bp.look} name={bp.name} size={18} /></Picture>{bp.name}</span>
+          : placeholder && <span className="fx-d-muted">{placeholder}</span>
       }}
       rowOf={(id, on) => {
         const bp = blueprints[id]

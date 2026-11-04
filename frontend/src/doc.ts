@@ -23,7 +23,7 @@ export function docOf(task: Task, step: string, sub: SubTask, path: string): Doc
     h?.human.did.length ? `## 做了什麼\n${list(h.human.did)}` : '',
     h?.agent.decisions.length ? `## 決定\n${list(h.agent.decisions)}` : '',
     h?.agent.open.length ? `## 還沒確定\n${list(h.agent.open)}` : '',
-    `## 交給下一步\n${h?.agent.next?.reason ?? '照任務流程交給下一步。'}`,
+    `## 交給下一步\n${h?.agent.next?.reason ?? '照任務藍圖交給下一步。'}`,
   ]
   return { lang: 'md', text: parts.filter(Boolean).join('\n\n') }
 }

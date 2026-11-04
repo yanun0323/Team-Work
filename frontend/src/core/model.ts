@@ -74,8 +74,8 @@ const ownFirst = <T extends { id: string }>(all: Record<string, T>) => Object.va
 /** Flows in the order they were made. Ids end in a running number; as text, wf-12 would come before wf-9. */
 export const flowList = (w: World) => ownFirst(w.workflows)
 
-/** Blueprints the same way. */
-export const blueprintList = (w: World) => ownFirst(w.blueprints)
+/** Blueprints the same way: those anyone can be hired from, not an employee's own settings. */
+export const blueprintList = (w: World) => ownFirst(w.blueprints).filter((bp) => !bp.owner)
 
 export type InboxItem = { task: Task; sub?: SubTask; kind: string; name: string }
 
@@ -112,10 +112,12 @@ export function teamBusy(w: World, teamId: string): number {
   return [...busy].filter((id) => w.replicas[id]?.teamId === teamId).length
 }
 
-/** The tab that has something for the user to deal with, tasks before chats. A chat already read can still be waiting on an answer. */
-export function waitingTab(w: World, teamId: string): 'tasks' | 'chats' | undefined {
-  if (teamAlerts(w, teamId).waitingTasks) return 'tasks'
-  return Object.values(w.chats).some((c) => c.teamId === teamId && (c.unread || c.question)) ? 'chats' : undefined
+/** The tab that has something for the user to deal with, `first` when both do. A chat already read can still be waiting on an answer. */
+export function waitingTab(w: World, teamId: string, first: 'tasks' | 'chats' = 'tasks'): 'tasks' | 'chats' | undefined {
+  const tasks = teamAlerts(w, teamId).waitingTasks > 0
+  const chats = Object.values(w.chats).some((c) => c.teamId === teamId && (c.unread || c.question))
+  if (tasks && chats) return first
+  return tasks ? 'tasks' : chats ? 'chats' : undefined
 }
 
 export function counts(w: World, teamId: string) {
@@ -182,7 +184,7 @@ export function addNext(w: World, wfId: string, parentId: string, name: string):
   const siblings = outEdges(g, parentId).map((e) => nodeOf(g, e.to)).filter(Boolean) as WorkflowNode[]
   const id = `n${++w.seq}`
   g.nodes.push({
-    id, kind: 'work', name, prompt: '', replicaIds: [], assignment: 'firstAvailable', handoff: 'all', join: 'all',
+    id, kind: 'work', name, prompt: '', replicaIds: [], handoff: 'all', join: 'all',
     pos: { x: siblings.length ? Math.max(...siblings.map((k) => k.pos.x)) + 240 : parent.pos.x, y: parent.pos.y + 200 },
   })
   g.edges.push({ id: `e${++w.seq}`, from: parentId, to: id, condition: '' })
@@ -192,7 +194,7 @@ export function addNext(w: World, wfId: string, parentId: string, name: string):
 /** Nodes this node may still connect to without a loop or a duplicate. */
 export function connectable(wf: Workflow, from: string) {
   return wf.nodes.filter((n) =>
-    n.id !== from && n.kind !== 'task' && !wf.edges.some((e) => e.from === from && e.to === n.id) && !wouldCreateCycle(wf, from, n.id))
+    n.id !== from && !wf.edges.some((e) => e.from === from && e.to === n.id) && !wouldCreateCycle(wf, from, n.id))
 }
 
 export function connect(w: World, wfId: string, from: string, to: string) {

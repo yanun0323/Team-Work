@@ -4,7 +4,7 @@ import { autoLayout } from '../domain/graph'
 import { mockThinking } from '../../providers'
 import { installPresets } from './presets'
 import {
-  createTask, createTeam, END_PROMPT, TALK_PROMPT, hire, mergeTask, newWorkflow, pauseTask, remember, REPLY_TIME, sayInTalk, START_PROMPT, tick,
+  createTask, createTeam, END_PROMPT, TALK_PROMPT, hire, mergeTask, newWorkflow, pauseTask, remember, resumeTask, REPLY_TIME, sayInTalk, START_PROMPT, tick,
 } from '../domain/sim'
 import type { Blueprint, GitSource, Look, ModelProvider, Workflow, WorkflowNode, World } from '../domain/types'
 
@@ -101,7 +101,7 @@ function node(
   extra: Partial<WorkflowNode> = {},
 ): WorkflowNode {
   return {
-    id, kind, name, prompt, replicaIds, assignment: 'firstAvailable', handoff: 'all', join: 'all',
+    id, kind, name, prompt, replicaIds, handoff: 'all', join: 'all',
     pos: { x: 0, y: 0 }, ...extra,
   }
 }
@@ -134,12 +134,13 @@ export function seedWorld(): World {
 
   // The workflow from the hand-drawn sketch: task → research → report / dev, plus a review join.
   const main = newWorkflow(w, '研究後開發')
-  const [start, review] = main.nodes
-  review.join = 'any'
+  const start = node('n-start', 'work', '整理需求', START_PROMPT, [mira.id])
+  const review = node('n-review', 'work', '驗收', END_PROMPT, [rex.id], { join: 'any' })
+  main.nodes = [start, review]
   main.nodes.push(
-    node('n-research', 'work', '研究', '調查現有程式與做法，比較方案並給出建議。', [mira.id, theo.id], { handoff: 'pickOne' }),
+    node('n-research', 'work', '研究', '調查現有程式與做法，比較方案並給出建議。', [mira.id], { handoff: 'pickOne' }),
     node('n-report', 'work', '報告', '把研究結果寫成給人看的報告，放在 docs/reports/。', [ivy.id]),
-    node('n-dev', 'work', '開發', '依研究結論實作，附測試，小步提交。', [kai.id, juno.id], { assignment: 'firstAvailable' }),
+    node('n-dev', 'work', '開發', '依研究結論實作，附測試，小步提交。', [kai.id]),
   )
   main.edges = [
     { id: 'e1', from: start.id, to: 'n-research', condition: '' },
@@ -153,11 +154,11 @@ export function seedWorld(): World {
   const bugfix: Workflow = {
     id: 'wf-bugfix', name: '修 Bug',
     nodes: [
-      node('b-start', 'task', '整理需求', START_PROMPT, []),
+      node('b-start', 'work', '整理需求', START_PROMPT, [juno.id]),
       node('b-repro', 'work', '重現', '寫一個會失敗的測試重現 bug。', [juno.id]),
       node('b-logs', 'work', '查紀錄', '查錯誤紀錄與最近的 commit，找出可能原因。', [theo.id]),
-      node('b-fix', 'work', '修正', '讓失敗的測試通過，不改無關的程式。', [kai.id, juno.id], { join: 'all', assignment: 'everyone' }),
-      node('b-review', 'work', '驗收', END_PROMPT, []),
+      node('b-fix', 'work', '修正', '讓失敗的測試通過，不改無關的程式。', [kai.id], { join: 'all' }),
+      node('b-review', 'work', '驗收', END_PROMPT, [rex.id]),
     ],
     edges: [
       { id: 'be1', from: 'b-start', to: 'b-repro', condition: '' },
@@ -177,9 +178,11 @@ export function seedWorld(): World {
   const ada = hire(w, docs.id, 'bp-writer', 'Ada', { ...BLUEPRINTS[2].look, hair: '#d9d4c7' }, { model: 'claude-sonnet-5' })
   const leo = hire(w, docs.id, 'bp-reviewer', 'Leo', { ...BLUEPRINTS[3].look, skin: '#e0ac7e' }, { model: 'gpt-5.5' })
   const dwf = newWorkflow(w, '寫文件')
-  const [dstart, dreview] = dwf.nodes
+  const dstart = node('d-start', 'work', '整理需求', START_PROMPT, [leo.id])
+  const dreview = node('d-review', 'work', '驗收', END_PROMPT, [leo.id])
+  dwf.nodes = [dstart, dreview]
   dwf.nodes.push(
-    node('d-talk', 'talk', '討論大綱', TALK_PROMPT, [ada.id]),
+    node('d-talk', 'talk', '討論大綱', TALK_PROMPT, [ada.id, leo.id]),
     node('d-write', 'work', '撰寫文件', '依需求撰寫或更新文件頁面。', [ada.id]),
   )
   dwf.edges = [
@@ -194,9 +197,15 @@ export function seedWorld(): World {
     for (let i = 0; i < seconds * 2; i++) tick(w, 0.5)
   }
   const calm = { ask: undefined, fail: undefined, sendBack: undefined }
+  // a new task waits in 待辦; the demo's tasks are already under way
+  const begin = (input: Parameters<typeof createTask>[1]) => {
+    const t = createTask(w, input)
+    resumeTask(w, t.id)
+    return t
+  }
   const quick = { ...calm, duration: 14 }
 
-  const done = createTask(w, {
+  const done = begin({
     teamId: shop.id, title: '首頁加上季節活動橫幅', description: '首頁頂部放活動橫幅，可以關閉。',
     workflowId: main.id, ownerId: rex.id,
     // the review sends 開發 back once, and 開發 sends it on back to 研究
@@ -206,7 +215,7 @@ export function seedWorld(): World {
       'n-dev': { sendBack: { roll: 0.1, reason: '研究結論沒提到可以關閉橫幅，要重新確認做法。' } },
     },
   })
-  const report = createTask(w, {
+  const report = begin({
     teamId: shop.id, title: '評估結帳頁改版', description: '評估把結帳改成單頁的成本與風險，先不要動程式。',
     workflowId: main.id, ownerId: ivy.id, overrides: { '*': { ...quick, route: 0 } },
   })
@@ -214,7 +223,7 @@ export function seedWorld(): World {
   mergeTask(w, done.id)
   run(30)
 
-  createTask(w, {
+  begin({
     teamId: shop.id, title: '購物車數量不會更新', description: '加入商品後，右上角的數量要重新整理才會變。',
     workflowId: bugfix.id, ownerId: rex.id,
     overrides: {
@@ -222,7 +231,7 @@ export function seedWorld(): World {
       'b-review': { sendBack: { roll: 0.2, reason: '少了數量為 0 時的測試，補上再送審。' } },
     },
   })
-  createTask(w, {
+  begin({
     teamId: shop.id, title: '商品頁加上評論區', description: '商品頁下方顯示評論與星等，可以分頁。',
     workflowId: main.id, ownerId: mira.id,
     overrides: {
@@ -231,12 +240,12 @@ export function seedWorld(): World {
     },
     mergeConflict: true,
   })
-  const quickstart = createTask(w, {
+  const quickstart = begin({
     teamId: docs.id, title: '新增快速開始頁', description: '五分鐘內跑起第一個範例。',
     workflowId: dwf.id, ownerId: leo.id,
     overrides: { '*': { ...calm, duration: 30 }, [dstart.id]: { ...calm, duration: 8 }, 'd-talk': { duration: 6 } },
   })
-  const paused = createTask(w, {
+  const paused = begin({
     teamId: shop.id, title: '整理 API 錯誤訊息', description: '所有錯誤訊息統一格式，並補上英文。',
     workflowId: main.id, ownerId: ivy.id, overrides: { '*': { ...calm, route: 1 } },
   })
@@ -246,15 +255,40 @@ export function seedWorld(): World {
   run(6)
   const talkSub = Object.values(w.subTasks).find((s) => s.taskId === quickstart.id && s.review?.kind === 'talk')
 
-  createTask(w, {
+  begin({
     teamId: shop.id, title: '搜尋支援注音輸入', description: '輸入注音時不要觸發搜尋，等選字完成。',
     workflowId: main.id, ownerId: juno.id, overrides: { '*': { ...calm, route: 1 } },
   })
-  // the outline is talked over with the user: Ada opens it, the user has answered once, and she has replied
+  // the outline is talked over with the user and Leo: Ada opens it as chair, the user has asked them both, and both have replied
   run(4)
-  if (talkSub) sayInTalk(w, talkSub.id, '主要讀者是第一次用的開發者，只要涵蓋安裝和第一個範例。')
-  run(REPLY_TIME + 1)
+  if (talkSub) sayInTalk(w, talkSub.id, '@All 主要讀者是第一次用的開發者，只要涵蓋安裝和第一個範例。', [leo.id, ada.id])
+  run(2 * REPLY_TIME + 1)
   void report
+
+  // a meeting under way: @All, the chair alone, someone mentioned in, and the chair's question waiting on the user
+  const said = (by: string, text: string) => ({ at: w.now, from: 'agent' as const, by, text })
+  const asked = (text: string, mentions?: string[]) => ({ at: w.now, from: 'user' as const, text, ...(mentions ? { mentions } : {}) })
+  const guest = (r: typeof kai) => ({ replicaId: r.id, name: r.name, look: r.look, model: r.model })
+  w.chats['chat-meeting'] = {
+    id: 'chat-meeting', teamId: shop.id, replicaId: mira.id, name: mira.name, look: mira.look, model: mira.model,
+    title: '結帳頁改版討論', tokens: 18400, createdAt: w.now, unread: true,
+    guests: [guest(kai), guest(ivy), guest(rex)],
+    joins: [{ before: 6, replicaId: rex.id, name: rex.name }],
+    messages: [
+      asked('@All 結帳頁想改成單頁，大家怎麼看？', [kai.id, ivy.id, mira.id]),
+      said(kai.id, '前端可以做，地址和付款拆成兩個區塊，同一頁展開就好。大約三天。'),
+      said(ivy.id, '文案要重寫，錯誤訊息也要跟著改，我可以同步進行。'),
+      said(mira.id, '整理一下：前端三天，文案同步。風險在付款失敗的流程，要先確認。'),
+      asked('付款失敗現在會怎樣？'),
+      said(mira.id, '目前會跳回購物車，填過的地址會不見。單頁之後可以留在原地重試。'),
+      asked('@Rex 你也看一下風險', [rex.id]),
+      said(rex.id, '付款重試要防重複扣款，後端要加冪等鍵（同一筆請求只處理一次）。'),
+      asked('那要先做哪一個？'),
+      said(mira.id, '你想先做哪一個？'),
+    ],
+    speaker: mira.id,
+    question: { options: ['先做前端', '先做後端的冪等鍵'] },
+  }
 
   installPresets(w)
   // the tasks above took their staff from the flows; shared flows name nobody

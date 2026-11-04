@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { combine } from './rollup'
 import {
-  cancelTask, fire, changeWorkflow, createTask, createTeam, DEFAULT_MODEL, deleteBlueprint, deleteTask, deleteTeam, gitSources, updateBlueprint, updateSource, deleteWorkflow, duplicateWorkflow, newWorkflow, hire, pauseTask, mergeTask, returnTask,
-  MERGE_TIME, RESOLVE_TIME, resolveReview, resumeTask, setOwner, statusOf, subsOf, tick, END_PROMPT, START_PROMPT,
+  cancelTask, fire, changeWorkflow, updateReplica, createTask as makeTask, createTeam, notStarted, DEFAULT_MODEL, deleteBlueprint, deleteTask, deleteTeam, gitSources, updateBlueprint, updateSource, deleteWorkflow, duplicateWorkflow, newWorkflow, hire, pauseTask, mergeTask, returnTask,
+  MERGE_TIME, RESOLVE_TIME, resolveReview, resumeTask, statusOf, subsOf, tick,
   endTalk, REPLY_TIME, sayInTalk, taskTokens, createChat, handOffChat, rewindChat, retryChat, sayInChat, setChatChair, inviteToChat, MAX_CHAT_PEOPLE,
 } from './sim'
 import { composePrompt, validate, wouldCreateCycle } from './graph'
 import type { GitSource, Script, World, Workflow, WorkflowNode } from './types'
+
+/** Makes a task and starts it, as the user does; a new task waits in 待辦 until then. */
+function createTask(w: World, input: Parameters<typeof makeTask>[1]) {
+  const task = makeTask(w, input)
+  resumeTask(w, task.id)
+  return task
+}
 
 // No random questions or failures, so each test only sees the events it sets up.
 const calm: Partial<Script> = { duration: 10, costRate: 0.001, route: 0, ask: undefined, fail: undefined, sendBack: undefined }
@@ -26,7 +33,7 @@ function world(): World {
 
 function node(id: string, extra: Partial<WorkflowNode> = {}): WorkflowNode {
   return {
-    id, kind: 'work', name: id, prompt: id, replicaIds: [], assignment: 'firstAvailable', handoff: 'all',
+    id, kind: 'work', name: id, prompt: id, replicaIds: [], handoff: 'all',
     join: 'all', pos: { x: 0, y: 0 }, ...extra,
   }
 }
@@ -38,7 +45,7 @@ function setup(edges: [string, string, string?][], nodes: Record<string, Partial
   const w = world()
   const team = createTeam(w, { name: 't', folder: '/tmp/t', targetBranch: 'main', branches: ['main'], initializedGit: false })
   const wf: Workflow = newWorkflow(w, 'f')
-  // tests draw their own flow, so drop the review the new flow ends with
+  // a new flow is one blank step: the tests' start
   const start = wf.nodes[0]
   wf.nodes = [start]
   const ids = new Set(edges.flatMap(([a, b]) => [a, b]))
@@ -76,6 +83,21 @@ describe('createTask', () => {
     const u = createTask(w, { teamId: team.id, title: 'y', description: '', workflowId: firstFlow(w) })
     expect(u.images).toEqual([])
   })
+
+  it('waits in 待辦 until started, and is not shown as paused', () => {
+    const { w, team } = setup([['start', 'research']])
+    const t = makeTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
+    for (let i = 0; i < 20; i++) tick(w, 1)
+    expect(notStarted(t)).toBe(true)
+    expect(statusOf(w, t)).toBe('todo')
+    expect(subsOf(w, t.id).every((s) => s.status === 'todo')).toBe(true)
+    resumeTask(w, t.id)
+    tick(w, 1)
+    expect(notStarted(t)).toBe(false)
+    expect(statusOf(w, t)).toBe('progressing')
+    pauseTask(w, t.id)
+    expect(notStarted(t)).toBe(false)
+  })
 })
 
 describe('rollup', () => {
@@ -92,7 +114,7 @@ describe('workflow run', () => {
     const { w, team } = setup([['start', 'research'], ['research', 'report'], ['research', 'dev']])
     const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
     run(w, 80)
-    expect(nodesDone(w, t.id).sort()).toEqual(['dev', 'report', 'research', '整理需求'].sort())
+    expect(nodesDone(w, t.id).sort()).toEqual(['dev', 'report', 'research', '新步驟1'].sort())
     expect(t.stage).toBe('awaitMerge')
     expect(statusOf(w, t)).toBe('review')
     mergeTask(w, t.id)
@@ -229,17 +251,13 @@ describe('workflow run', () => {
     expect(t.stage).toBe('awaitMerge')
   })
 
-  it('Everyone mode runs one sub-task per Replica and hands off once', () => {
+  it('keeps the first employee of a work step from before a work step had one', () => {
     const { w, team, wf } = setup([['start', 'a'], ['a', 'b']])
     const a = wf.nodes.find((n) => n.id === 'a')!
-    a.assignment = 'everyone'
+    const first = a.replicaIds[0]
     a.replicaIds.push(hire(w, team.id, 'bp', 'a2').id)
     const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
-    run(w, 80)
-    expect(subsOf(w, t.id).filter((s) => s.nodeId === 'a')).toHaveLength(2)
-    const b = subsOf(w, t.id).filter((s) => s.nodeId === 'b')
-    expect(b).toHaveLength(1)
-    expect(b[0].upstreamIds).toHaveLength(2)
+    expect(t.workflow.nodes.find((n) => n.id === 'a')!.replicaIds).toEqual([first])
   })
 
   it('takes a question answered in words alone, but not other waits', () => {
@@ -261,15 +279,27 @@ describe('workflow run', () => {
     expect(t.stage).toBe('awaitMerge')
   })
 
-  it('skips the first step when asked, handing the description on without running it', () => {
-    const { w, team, start: first } = setup([['start', 'a']])
-    const t = createTask(w, { teamId: team.id, title: 'x', description: '驗收：變藍', workflowId: firstFlow(w), overrides: { '*': calm }, skipStart: true })
-    const start = subsOf(w, t.id).find((s) => s.nodeId === first.id)!
-    expect(start.skipped).toBe(true)
-    expect(start.status).toBe('complete')
-    run(w, 1)
-    expect(start.replicaId).toBeNull()
-    expect(subsOf(w, t.id).some((s) => s.nodeId === 'a')).toBe(true)
+  it('starts every step nothing hands on to, each from the description, and finishes once every branch is done', () => {
+    const { w, team, wf } = setup([['start', 'a'], ['b', 'c']])
+    const t = createTask(w, { teamId: team.id, title: 'x', description: 'd', workflowId: wf.id, overrides: { '*': calm } })
+    const first = subsOf(w, t.id)
+    expect(first.map((s) => s.nodeId).sort()).toEqual([wf.nodes[0].id, 'b'].sort())
+    expect(first.every((s) => !s.upstreamIds.length)).toBe(true)
+    run(w, 80)
+    expect(t.stage).toBe('awaitMerge')
+    expect(nodesDone(w, t.id).sort()).toEqual(['a', 'b', 'c', wf.nodes[0].name].sort())
+  })
+
+  it('sends back only from a step whose switch is on', () => {
+    const back = { ...calm, sendBack: { roll: 0.2, reason: 'redo' } }
+    const off = setup([['start', 'a'], ['a', 'z']], { z: { sendBack: false } })
+    const t = createTask(off.w, { teamId: off.team.id, title: 'x', description: '', workflowId: off.wf.id, overrides: { '*': calm, z: back } })
+    run(off.w, 80)
+    expect(subsOf(off.w, t.id).some((s) => s.sentBack)).toBe(false)
+    const on = setup([['start', 'a'], ['a', 'b'], ['b', 'z']], { b: { sendBack: true } })
+    const u = createTask(on.w, { teamId: on.team.id, title: 'x', description: '', workflowId: on.wf.id, overrides: { '*': calm, b: back } })
+    run(on.w, 120)
+    expect(subsOf(on.w, u.id).some((s) => s.nodeId === 'b' && s.sentBack)).toBe(true)
   })
 
   it('retries failures up to the team limit, then asks the user', () => {
@@ -350,6 +380,27 @@ describe('chat tokens', () => {
     expect(handOffChat(w, chat.id, 1, chat.replicaId)?.tokens).toBe(0)
     rewindChat(w, chat.id, 0)
     expect(chat.tokens).toBe(used)
+  })
+})
+
+describe('employees with settings of their own', () => {
+  const own = { source: { kind: 'yaml' as const, text: '' }, prompt: '寫文件', comment: '', skills: [], tools: [], from: 'bp' }
+
+  it('are theirs alone, kept off the blueprints, and go with them', () => {
+    const { w, team } = setup([['start', 'a']])
+    const ada = Object.values(w.replicas)[0]
+    const bo = hire(w, team.id, '', 'Bo', undefined, {}, own)
+    const mine = w.blueprints[bo.blueprintId]
+    expect(mine).toMatchObject({ owner: bo.id, name: 'Bo', prompt: '寫文件', from: 'bp', autoUpdate: false })
+    updateReplica(w, bo.id, { name: 'Bob', blueprintId: bo.blueprintId, model: bo.model, effort: bo.effort, look: bo.look }, { ...own, prompt: '改過' })
+    expect(w.blueprints[bo.blueprintId]).toMatchObject({ id: mine.id, name: 'Bob', prompt: '改過' })
+    // back to a blueprint: theirs go
+    updateReplica(w, bo.id, { name: 'Bob', blueprintId: 'bp', model: bo.model, effort: bo.effort, look: bo.look })
+    expect(w.blueprints[mine.id]).toBeUndefined()
+    const cy = hire(w, team.id, '', 'Cy', undefined, {}, own)
+    const theirs = cy.blueprintId
+    fire(w, cy.id, ada.id)
+    expect(w.blueprints[theirs]).toBeUndefined()
   })
 })
 
@@ -510,7 +561,8 @@ describe('work tree and merge', () => {
 
   it('the merge does not wait for the owner to finish other work', () => {
     const { w, team, wf } = setup([['start', 'a']])
-    const owner = wf.nodes[1].replicaIds[0]
+    // the owner works the first step, so the second task keeps them busy
+    const owner = wf.nodes[0].replicaIds[0]
     const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: wf.id, ownerId: owner, overrides: { '*': calm } })
     run(w, 60)
     // the owner takes a long step on another task
@@ -544,34 +596,14 @@ describe('work tree and merge', () => {
 })
 
 describe('task owner', () => {
-  it('works the first and last steps with fixed instructions, whatever the flow or staff says', () => {
-    const { w, team, wf } = setup([['start', 'a'], ['a', 'rev']], { rev: { prompt: 'my own review' } })
+  it('answers for the task without taking over any step', () => {
+    const { w, team, wf } = setup([['start', 'a'], ['a', 'rev']])
     const owner = hire(w, team.id, 'bp', 'Boss').id
-    const task = createTask(w, {
-      teamId: team.id, title: 't', description: '', workflowId: wf.id, ownerId: owner,
-      staff: { [wf.nodes[0].id]: [wf.nodes[1].replicaIds[0]], rev: [wf.nodes[1].replicaIds[0]] }, overrides: { '*': calm },
-    })
-    const [start, a, rev] = task.workflow.nodes
+    const task = createTask(w, { teamId: team.id, title: 't', description: '', workflowId: wf.id, ownerId: owner, overrides: { '*': calm } })
     expect(task.ownerId).toBe(owner)
-    expect(start.replicaIds).toEqual([owner])
-    expect(rev.replicaIds).toEqual([owner])
-    expect(a.replicaIds).not.toEqual([owner])
-    expect(start.prompt).toBe(START_PROMPT)
-    expect(rev.prompt).toBe(END_PROMPT)
-    // the flow itself is left as it was
-    expect(wf.nodes.find((n) => n.id === 'rev')!.prompt).toBe('my own review')
+    expect(task.workflow.nodes.map((n) => n.replicaIds)).toEqual(wf.nodes.map((n) => n.replicaIds))
     run(w, 100)
-    const who = (nodeId: string) => subsOf(w, task.id).find((s) => s.nodeId === nodeId)!.replicaId
-    expect(who(start.id)).toBe(owner)
-    expect(who('rev')).toBe(owner)
-  })
-
-  it('a new owner takes over both ends', () => {
-    const { w, team, wf } = setup([['start', 'rev']])
-    const [x, y] = [hire(w, team.id, 'bp', 'X').id, hire(w, team.id, 'bp', 'Y').id]
-    const task = createTask(w, { teamId: team.id, title: 't', description: '', workflowId: wf.id, ownerId: x })
-    setOwner(task, y)
-    expect(task.workflow.nodes.map((n) => n.replicaIds)).toEqual([[y], [y]])
+    expect(subsOf(w, task.id).some((s) => s.replicaId === owner)).toBe(false)
   })
 
   it('firing hands every unfinished job to the heir', () => {
@@ -600,11 +632,11 @@ describe('task owner', () => {
     expect(task.stage).toBe('awaitMerge')
   })
 
-  it('a flow does not need staff on its two ends', () => {
+  it('a flow needs staff on every step, its first and last too', () => {
     const { wf } = setup([['start', 'a'], ['a', 'rev']])
     wf.nodes[0].replicaIds = []
     wf.nodes.find((n) => n.id === 'rev')!.replicaIds = []
-    expect(validate(wf)).toEqual([])
+    expect(validate(wf).map((i) => i.kind)).toEqual(['noReplica', 'noReplica'])
   })
 })
 
@@ -673,10 +705,10 @@ describe('workflow editing', () => {
     wf.nodes.find((n) => n.id === 'a')!.handoff = 'pickOne'
     wf.edges.push({ id: 'x', from: 'a', to: 'c', condition: '' })
     wf.nodes.push(node('c'))
-    // c is now the last step, which the task's owner works; a middle step with nobody is the problem
+    // c was added with nobody, and a loses its employee: both are flagged
     wf.nodes.find((n) => n.id === 'a')!.replicaIds = []
     const kinds = validate(wf).map((i) => i.kind).sort()
-    expect(kinds).toEqual(['noCondition', 'noCondition', 'noReplica'])
+    expect(kinds).toEqual(['noCondition', 'noCondition', 'noReplica', 'noReplica'])
   })
 
   it('composes the prompt with the node first, then handoff, then the Replica', () => {
@@ -868,12 +900,21 @@ describe('使用者討論', () => {
     expect(sub.talk?.messages.filter((m) => m.from === 'user')).toEqual([])
   })
 
-  it('is held by one employee even when everyone on the step would work it', () => {
-    const t = setup([['start', 'talk'], ['talk', 'build']], { talk: { kind: 'talk', assignment: 'everyone' } })
-    const two = [hire(t.w, t.team.id, 'bp', 'a').id, hire(t.w, t.team.id, 'bp', 'b').id]
-    t.wf.nodes.find((n) => n.id === 'talk')!.replicaIds = two
+  it('is a meeting with several: the first chairs, those mentioned reply in turn, and with none the chair alone', () => {
+    const t = setup([['start', 'talk'], ['talk', 'build']], { talk: { kind: 'talk' } })
+    const [a, b] = [hire(t.w, t.team.id, 'bp', 'a').id, hire(t.w, t.team.id, 'bp', 'b').id]
+    t.wf.nodes.find((n) => n.id === 'talk')!.replicaIds = [a, b]
     const task = createTask(t.w, { teamId: t.team.id, title: 'x', description: '', workflowId: t.wf.id, overrides: { '*': calm } })
     run(t.w, 40)
-    expect(subsOf(t.w, task.id).filter((s) => s.nodeId === 'talk')).toHaveLength(1)
+    const talks = subsOf(t.w, task.id).filter((s) => s.nodeId === 'talk')
+    expect(talks).toHaveLength(1)
+    const sub = talks[0]
+    expect(sub.talk?.messages.map((m) => m.by)).toEqual([a])
+    sayInTalk(t.w, sub.id, '@All 怎麼看', [b, a])
+    run(t.w, 2 * REPLY_TIME)
+    expect(sub.talk?.messages.slice(1).map((m) => m.by ?? 'user')).toEqual(['user', b, a])
+    sayInTalk(t.w, sub.id, '好')
+    run(t.w, REPLY_TIME)
+    expect(sub.talk?.messages.at(-1)?.by).toBe(a)
   })
 })

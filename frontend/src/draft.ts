@@ -2,7 +2,6 @@
 // employees, and dropped when the new-task sheet goes.
 
 import { create } from 'zustand'
-import { isFixed } from './core/domain/graph'
 import type { Attachment, Task, World } from './core/domain/types'
 import { flowList, teamReplicas, teamTasks } from './core/model'
 
@@ -10,17 +9,15 @@ export interface TaskDraft {
   title: string
   description: string
   workflowId: string
-  /** Who works each step, by node id; the two fixed ends go to the owner instead. */
+  /** Who works each step, by node id. */
   staff: Record<string, string[]>
-  /** The task's owner, who works 整理需求 and 驗收. */
+  /** The task's owner, who answers for it. */
   ownerId: string | null
   /** The task whose staff this started from, if any. */
   from: number | null
   /** Pictures to go with the description; only a new task takes them. */
   images?: Attachment[]
   files?: Attachment[]
-  /** Start past 整理需求, with the description as the requirement; only a new task takes it. */
-  skipStart?: boolean
   /** Set when editing a task that exists: its own copy of the flow is the one staffed. */
   taskId?: string
 }
@@ -36,6 +33,9 @@ export function lastFlowId(w: World, teamId: string): string {
   return chosen ?? flowList(w)[0]?.id ?? ''
 }
 
+/** A work step has one employee: staff from before that keeps the first. A discussion keeps them all. */
+const oneOnWork = (n: { kind: string }, ids: string[]) => (n.kind === 'talk' ? ids : ids.slice(0, 1))
+
 /**
  * Who to start with for a flow: the staff of the company's last task on it, so a new task only changes who
  * is different this time. Employees who have left are dropped. With no earlier task, the flow's own list.
@@ -48,7 +48,7 @@ export function lastStaff(w: World, teamId: string, workflowId: string): Pick<Ta
   const staff: Record<string, string[]> = {}
   for (const n of wf.nodes) {
     const was = last?.workflow.nodes.find((x) => x.id === n.id)?.replicaIds ?? n.replicaIds
-    staff[n.id] = was.filter((r) => here.has(r))
+    staff[n.id] = oneOnWork(n, was.filter((r) => here.has(r)))
   }
   const ownerId = last?.ownerId && here.has(last.ownerId) ? last.ownerId : null
   return { staff, from: last?.number ?? null, ownerId }
@@ -68,7 +68,7 @@ export function copyDraft(w: World, teamId: string, t: Task): TaskDraft {
   const staff: Record<string, string[]> = {}
   for (const n of w.workflows[t.workflowId].nodes) {
     const was = t.workflow.nodes.find((x) => x.id === n.id)?.replicaIds ?? n.replicaIds
-    staff[n.id] = was.filter((r) => here.has(r))
+    staff[n.id] = oneOnWork(n, was.filter((r) => here.has(r)))
   }
   return { ...content, workflowId: t.workflowId, staff, from: t.number }
 }
@@ -76,23 +76,13 @@ export function copyDraft(w: World, teamId: string, t: Task): TaskDraft {
 /** The flow the draft is staffing. */
 export const draftFlow = (w: World, d: TaskDraft) => (d.taskId ? w.tasks[d.taskId]?.workflow : w.workflows[d.workflowId])
 
-/** Who works a step of the draft: the owner on the two fixed ends, else the step's own pick. */
-export const draftStaff = (w: World, d: TaskDraft, nodeId: string): string[] => {
-  const wf = draftFlow(w, d)
-  if (wf && isFixed(wf, nodeId)) return d.ownerId ? [d.ownerId] : []
-  return d.staff[nodeId] ?? []
-}
+/** Who works a step of the draft. */
+export const draftStaff = (_w: World, d: TaskDraft, nodeId: string): string[] => d.staff[nodeId] ?? []
 
 /** The owner alone on every step of the draft's flow. No longer the staff of an earlier task, so `from` goes too. */
 export const ownerOnEveryStep = (w: World, d: TaskDraft): Partial<TaskDraft> =>
   d.ownerId ? { staff: Object.fromEntries((draftFlow(w, d)?.nodes ?? []).map((n) => [n.id, [d.ownerId!]])), from: null } : {}
 
-/** Whether the owner also works a step between the ends, so 驗收 is no longer a check by someone else. */
-export const ownerChecksOwnWork = (w: World, d: TaskDraft) => {
-  const wf = draftFlow(w, d)
-  return !!wf && !!d.ownerId && wf.nodes.some((n) => n.kind === 'work' && !isFixed(wf, n.id) && draftStaff(w, d, n.id).includes(d.ownerId!))
-}
-
-/** The steps nobody works yet, ends included while there is no owner. A task can start only when there are none. */
+/** The steps nobody works yet. A task can start only when there are none. */
 export const unstaffed = (w: World, d: TaskDraft) =>
   (draftFlow(w, d)?.nodes ?? []).filter((n) => !draftStaff(w, d, n.id).length)

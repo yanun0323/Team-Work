@@ -10,8 +10,15 @@ import { chatMindOf, chatSign, chatWho } from './crew'
 import { prereqsOf } from './prereqs'
 import { teamAlerts, teamReplicas, waitingTab } from './core/model'
 
-const setup = () => {
+// the mock world comes with a meeting; these count and list only the chats they make
+const bare = () => {
   const w = seedWorld()
+  w.chats = {}
+  return w
+}
+
+const setup = () => {
+  const w = bare()
   const teamId = Object.keys(w.teams)[0]
   const r = teamReplicas(w, teamId)[0]
   return { w, teamId, r, chat: createChat(w, { teamId, replicaId: r.id, text: '第一句\n第二行' }) }
@@ -52,6 +59,9 @@ describe('chats', () => {
     const task = Object.values(w.tasks).find((x) => x.teamId === teamId)!
     task.stage = 'awaitMerge'
     expect(waitingTab(w, teamId)).toBe('tasks')
+    expect(waitingTab(w, teamId, 'chats')).toBe('chats')
+    w.chats[chat.id].question = undefined
+    expect(waitingTab(w, teamId, 'chats')).toBe('tasks')
   })
 
   it('queue what is said while replying, steered first, and send it when the reply ends', () => {
@@ -238,7 +248,7 @@ describe('a question from the employee', () => {
 
 describe('airport chats', () => {
   const start = () => {
-    const w = seedWorld()
+    const w = bare()
     return { w, chat: createAirportChat(w, { model: 'm', effort: 'default', text: '你好' }) }
   }
 
@@ -299,6 +309,7 @@ describe('the chat list', () => {
   it('puts the sign before the face', () => {
     // rendered on the server, the store gives its first state: the chat has to go in there
     const w = useStore.getState().world
+    delete w.chats['chat-meeting']
     const teamId = Object.keys(w.teams)[0]
     const chat = createChat(w, { teamId, replicaId: teamReplicas(w, teamId)[0].id, text: '嗨' })
     delete chat.replyAt
@@ -316,6 +327,7 @@ describe('the chat list', () => {
 describe('a meeting on the list', () => {
   it('stacks the faces with the chair in front and lists the names in place of the model', () => {
     const w = useStore.getState().world
+    delete w.chats['chat-meeting']
     const teamId = Object.keys(w.teams)[0]
     const [ada, bea, cy, dee] = teamReplicas(w, teamId)
     const chat = createChat(w, { teamId, replicaId: ada.id, guests: [bea, cy, dee].filter(Boolean).map((r) => r.id), text: '嗨' })
