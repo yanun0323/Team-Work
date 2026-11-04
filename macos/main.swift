@@ -2,7 +2,7 @@ import AppKit
 import Sparkle
 import WebKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKDownloadDelegate, SPUUpdaterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply, WKDownloadDelegate, SPUUpdaterDelegate {
     private var window: NSWindow!
     // Sparkle checks on its own schedule and shows its own windows; the page only gets a dot when one is found.
     private var updater: SPUStandardUpdaterController!
@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         configuration.userContentController.add(self, name: "quit")
         configuration.userContentController.add(self, name: "language")
         configuration.userContentController.add(self, name: "update")
+        configuration.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "pickFolder")
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -188,6 +189,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             updater.checkForUpdates(nil)
         default:
             NSApp.terminate(nil)
+        }
+    }
+
+    // A new company's folder. The app is already in front, so its own sheet shows at once, where the backend's
+    // osascript dialog first has to be let into the foreground, which macOS can hold off for seconds.
+    // Replies with the full path, or "" when cancelled.
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
+        guard message.frameInfo.securityOrigin.host == origin.host, window.attachedSheet == nil else {
+            replyHandler("", nil)
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = say("選擇專案資料夾", "Choose the project folder")
+        panel.beginSheetModal(for: window) { result in
+            replyHandler(result == .OK ? panel.url?.path ?? "" : "", nil)
         }
     }
 

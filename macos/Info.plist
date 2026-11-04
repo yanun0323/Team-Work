@@ -13,6 +13,7 @@
     <key>SUFeedURL</key><string>https://github.com/yanun0323/Team-Work/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key><string>2KZT31UtCHLeQS6k5rM66HNBITk5BAlfNQYaHxZaBPg=</string>
     <key>SUEnableAutomaticChecks</key><true/>
+    <key>SUScheduledCheckInterval</key><integer>3600</integer>
     <key>LSMinimumSystemVersion</key><string>12.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>

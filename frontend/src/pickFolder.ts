@@ -1,7 +1,8 @@
 // Ask the system's file browser for a folder.
 //
-// A web page is never told where a picked folder is, only its name. So the backend, on the same computer, opens
-// the dialog and gives the full path. Mock mode has no backend and makes up a place for the name instead.
+// A web page is never told where a picked folder is, only its name. So the Mac app opens its own dialog and gives
+// the full path; in a browser the backend, on the same computer, does. Mock mode has no backend and makes up a
+// place for the name instead.
 
 import { request } from './core/backend'
 import { MOCK } from './core/mode'
@@ -12,6 +13,8 @@ interface DirectoryPicker {
 
 /** The path of the folder picked, or null when the dialog was closed without one. Throws what went wrong. */
 export async function pickFolder(typed: string): Promise<string | null> {
+  const app = (window as unknown as { webkit?: { messageHandlers?: { pickFolder?: { postMessage: (x: null) => Promise<string> } } } }).webkit?.messageHandlers?.pickFolder
+  if (app) return (await app.postMessage(null)) || null
   if (!MOCK) return (await request<{ path: string }>('POST', '/folder-picker')).path || null
   const name = await pickFolderName()
   return name && pickedPath(typed, name)
