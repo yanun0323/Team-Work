@@ -78,6 +78,7 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 	if err := model.CheckTutorial(s.Tutorial); err != nil {
 		return s, settingsError("tutorial.yaml", err)
 	}
+	retirePresets(&s)
 	for _, err := range []error{
 		sameIDs("teams", s.Teams, e.w.Teams), sameIDs("replicas", s.Replicas, e.w.Replicas),
 		sameIDs("providers", s.Providers, e.w.Providers), sameIDs("blueprints", s.Blueprints, model.WithoutPresets(e.w.Blueprints), true),

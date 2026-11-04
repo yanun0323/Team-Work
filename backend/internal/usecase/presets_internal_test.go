@@ -8,10 +8,10 @@ import (
 )
 
 func TestLocalizeFlowLeavesStepsThatMovedInATaskCopy(t *testing.T) {
-	// a task copied the planning flow when its first step was a discussion; the flow has since changed its order
+	// a task copied the bug fix flow when its first step was a discussion; the flow has since changed its order
 	var wf *model.Workflow
 	for _, f := range presets.Flows {
-		if f.ID == "preset-planning" {
+		if f.ID == "preset-bugfix" {
 			wf = f.in(model.LanguageZh)
 		}
 	}
@@ -28,8 +28,8 @@ func TestLocalizeFlowLeavesStepsThatMovedInATaskCopy(t *testing.T) {
 			if n.Name != "討論需求" || n.Prompt != presets.Talk.En {
 				t.Fatalf("%+v", n)
 			}
-		case presetNodeID(wf.ID, 0, 1):
-			if n.Name != "Spec discussion" {
+		case presetNodeID(wf.ID, 1, 0):
+			if n.Name != "Fix" {
 				t.Fatalf("%+v", n)
 			}
 		}

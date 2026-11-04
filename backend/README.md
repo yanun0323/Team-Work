@@ -108,7 +108,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /providers`、`PATCH`/`DELETE /providers/:id` | 模型供應商；模型清單由供應商提供，`prices` 是每百萬 token 的美元價格。ChatGPT 訂閱可帶 `imageDefault`：`true` 設成生圖供應商，`false` 且它原本是生圖供應商時清空 |
 | `POST /blueprints`、`PUT`/`DELETE /blueprints/:id`、`POST /blueprints/:id/update` | 藍圖；`update` 把 Git 來源移到最新版 |
 | `POST /replicas`、`PATCH /replicas/:id`、`DELETE /replicas/:id?heir=` | 雇用、修改（含記憶）、離職交接 |
-| `POST /tasks`、`PATCH`/`DELETE /tasks/:id` | 任務；新任務留在待辦（`paused: true`、沒有 `pausedAt`），用 `resume` 開始；建立時可附 `images` 和 `files`；`PATCH` 改標題、說明、人員、負責人，不存在的節點 id 或把節點改成沒有人都會被拒絕。由員工或對話建立的任務有 `origin`（`kind` 為 `employee`、`chat` 或 `airport`，加 `id`、`name`、`depth`） |
+| `POST /tasks`、`PATCH`/`DELETE /tasks/:id` | 任務；新任務留在待辦（`paused: true`、沒有 `pausedAt`），用 `resume` 開始；建立時可附 `images` 和 `files`；帶 `workflow`（完整流程）時任務用這份自訂流程、`workflowId` 為空，流程照任務藍圖的規則檢查，但不會存成任務藍圖；`PATCH` 改標題、說明、人員、負責人，不存在的節點 id 或把節點改成沒有人都會被拒絕。由員工或對話建立的任務有 `origin`（`kind` 為 `employee`、`chat` 或 `airport`，加 `id`、`name`、`depth`） |
 | `POST /tasks/:id/{pause,resume,cancel,merge}` | 暫停、恢復、取消（要先暫停）、合併 |
 | `POST /tasks/:id/return`、`POST /tasks/:id/workflow` | 退回（`feedback`）、更換任務藍圖（`workflowId`，要先暫停） |
 | `GET /subtasks/:id/file?path=` | 讀子任務交接的檔案（該次 commit 的內容，上限 1 MB，只限文字檔） |
@@ -210,7 +210,7 @@ Claude Code 的設定：
 
 ## 預設內容
 
-內建十六個員工藍圖（專案經理、產品負責人、設計師、後端工程師、前端工程師、全端工程師、測試工程師、研究員、程式審查員、技術架構師、資安工程師、DevOps 工程師、技術文件寫手、資料分析師、行銷文案、特助）和五條任務藍圖（「功能開發」「修 Bug」「產品規劃」「程式審查」「重構」），繁中和英文都在 `internal/usecase/presets.json`。它們的 id 以 `preset-` 開頭，不存進設定檔，也不能修改或刪除；世界資料裡是目前語言的版本，員工收到的一律是英文。自訂項目不能用這個開頭的 id。
+內建十五個員工藍圖（通才、前端工程師、後端工程師、程式審查員、測試工程師、設計師、產品負責人、專案經理、技術架構師、研究員、技術文件寫手、資安工程師、DevOps 工程師、資料分析師、行銷文案），外加機場服務人員專用的 `preset-airport`（設定頁看得到，但不能拿來新增員工，`list_blueprints` 也不列）和四條任務藍圖（依序為「一般任務」「修 Bug」「功能開發」「程式審查」），繁中和英文都在 `internal/usecase/presets.json`。它們的 id 以 `preset-` 開頭，不存進設定檔，也不能修改或刪除；世界資料裡是目前語言的版本，員工收到的一律是英文。自訂項目不能用這個開頭的 id。
 
 任務藍圖由所有公司共用，任務開始時留一份，之後改任務藍圖不影響它。任務藍圖不指定員工，由每個任務決定。
 

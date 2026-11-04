@@ -214,8 +214,8 @@ func (e *Engine) listBlueprints() any {
 	}
 	out := []row{}
 	for _, b := range e.w.Blueprints {
-		// an employee's own settings are theirs, not one to hire from
-		if b.Owner != "" {
+		// an employee's own settings are theirs, not one to hire from; nor are the airport staff's
+		if b.Owner != "" || b.ID == airportBlueprintID {
 			continue
 		}
 		out = append(out, row{b.ID, versionOf(b), b.Name, b.Source.Kind, !model.IsPresetID(b.ID) && b.Source.Kind != "git", b.Prompt, b.Comment, b.Tools, e.writtenPacks(b.Skills)})

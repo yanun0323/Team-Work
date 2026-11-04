@@ -714,6 +714,9 @@ type chatRun struct {
 	team string
 	// said is the user's words alone: an attached file's text in the conversation names no skill
 	said string
+	// peers are the packs of the others in a meeting: a skill the user names with "$" is everyone's, as the list
+	// they pick it from is, and whoever replies first brings it for the round
+	peers []packRoot
 	// context is how much the model read last time; compact is what stands in for the conversation's start
 	context int
 	compact *model.ChatCompact
@@ -755,7 +758,15 @@ func (e *Engine) launchChat(c *model.Chat, speaker string, spec agentSpec) {
 	if len(c.Guests) > 0 { // each keeps their own, whoever chairs, so their provider's cache stays theirs
 		session = c.ID + "-" + speaker
 	}
-	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, team: c.TeamID, said: said, context: c.Context, compact: clone(c.Compact), memory: !c.AtAirport(),
+	var peers []packRoot
+	for _, id := range append([]string{c.ReplicaID}, guestIDs(c)...) {
+		if p := e.w.Replicas[id]; id != speaker && p != nil && p.TeamID == c.TeamID {
+			if bp := e.w.Blueprints[p.BlueprintID]; bp != nil {
+				peers = append(peers, e.packsOf(bp)...)
+			}
+		}
+	}
+	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, team: c.TeamID, said: said, peers: peers, context: c.Context, compact: clone(c.Compact), memory: !c.AtAirport(),
 		speaker: speaker, actor: speaker == roundActor(c), actorName: chatNames(c)[roundActor(c)], note: e.roundNote(c, speaker), session: session, names: chatNames(c)})
 }
 
@@ -896,9 +907,16 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		repoRole = role
 	}
 	skills, roots, _ := e.loadSkills(ctx, in.spec.packs)
+	// the speaker's own come first, so where two have the same name theirs counts
+	known := skills
+	if len(in.peers) > 0 {
+		peers, peerRoots, _ := e.loadSkills(ctx, in.peers)
+		known = append(slices.Clip(skills), peers...)
+		roots = append(roots, peerRoots...)
+	}
 	// kept with the message from here on, so what the employee was told does not change under the conversation
 	if last := len(in.conv) - 1; last >= 0 {
-		if said, named := withSkills(in.conv[last], in.said, skills); named {
+		if said, named := withSkills(in.conv[last], in.said, known); named {
 			in.conv[last] = said
 			kept := e.applyChat(in, func(c *model.Chat) {
 				conv := e.w.Conversations[c.ID]
@@ -983,7 +1001,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 				c.Queue = slices.Clone(c.Queue[1:])
 				e.chatHears(c, q.Text, q.Images, q.Files, q.Mentions)
 				conv := e.w.Conversations[c.ID]
-				conv[len(conv)-1], _ = withSkills(conv[len(conv)-1], q.Text, skills)
+				conv[len(conv)-1], _ = withSkills(conv[len(conv)-1], q.Text, known)
 			}
 			heard = slices.Clone(e.w.Conversations[c.ID][before:])
 		})

@@ -68,6 +68,12 @@ func run() error {
 	}
 	// runs stop first, so nothing is saved to a closing database
 	defer engine.Close()
+	// a built-in blueprint's repo is kept as a source with no version until it is first read
+	go func() {
+		if err := engine.PinSources(ctx); err != nil {
+			log.Warn().Err(err).Msg("pin sources")
+		}
+	}()
 
 	l, err := net.Listen("tcp", net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)))
 	if err != nil {

@@ -1251,3 +1251,37 @@ func TestForgetRemovesANoteAndRejectsAnUnknownOne(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+func TestTaskRunsOnAFlowOfItsOwn(t *testing.T) {
+	r := newRig(t, nil)
+	own := copyOf(*r.flow)
+	own.ID, own.Name = "ignored", "只為這次"
+	own.Nodes = append(own.Nodes, model.WorkflowNode{ID: "mid", Kind: enum.NodeWork, Name: "中間", ReplicaIDs: []string{},
+		Handoff: enum.HandoffAll, Join: enum.JoinAll})
+	own.Edges = []model.WorkflowEdge{{ID: "e1", From: "start", To: "mid"}, {ID: "e2", From: "mid", To: "end"}}
+	before := len(r.world().Workflows)
+	made, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "自訂", WorkflowID: r.flow.ID, Workflow: &own,
+		Staff: map[string][]string{"mid": {r.owner.ID}}, OwnerID: &r.owner.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if made.WorkflowID != "" || made.Workflow.ID != "" || made.Workflow.Name != "只為這次" || len(made.Workflow.Nodes) != 3 {
+		t.Fatalf("%+v", made)
+	}
+	if got := len(r.world().Workflows); got != before {
+		t.Fatalf("%d blueprints, was %d", got, before)
+	}
+	// it is checked as a blueprint is: no loops
+	own.Edges = append(own.Edges, model.WorkflowEdge{ID: "e3", From: "end", To: "start"})
+	if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "迴圈", Workflow: &own,
+		Staff: map[string][]string{"mid": {r.owner.ID}}, OwnerID: &r.owner.ID}); err == nil {
+		t.Fatal("a flow with a loop was taken")
+	}
+}
+
+func copyOf[T any](v T) T {
+	raw, _ := json.Marshal(v)
+	var out T
+	_ = json.Unmarshal(raw, &out)
+	return out
+}

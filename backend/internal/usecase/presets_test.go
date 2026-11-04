@@ -34,7 +34,7 @@ func TestPresets(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"專案經理", "產品負責人", "設計師", "後端工程師", "前端工程師", "全端工程師", "測試工程師", "研究員", "程式審查員", "技術架構師", "資安工程師", "DevOps 工程師", "技術文件寫手", "資料分析師", "行銷文案", "特助"} {
+	for _, want := range []string{"專案經理", "產品負責人", "設計師", "後端工程師", "前端工程師", "測試工程師", "研究員", "程式審查員", "技術架構師", "資安工程師", "DevOps 工程師", "技術文件寫手", "資料分析師", "行銷文案", "通才"} {
 		if names[want] == "" {
 			t.Fatalf("no blueprint %s: %v", want, names)
 		}
@@ -43,30 +43,31 @@ func TestPresets(t *testing.T) {
 		t.Fatal("the designer can't run commands")
 	}
 	for _, tool := range []enum.Tool{enum.ToolReadFile, enum.ToolWriteFile, enum.ToolWebSearch, enum.ToolRunCommand} {
-		for _, name := range []string{"特助", "全端工程師"} {
+		for _, name := range []string{"通才"} {
 			if !slices.Contains(w.Blueprints[names[name]].Tools, tool) {
 				t.Fatalf("%s lacks %s", name, tool)
 			}
 		}
 	}
 	feature := presetFlowOf(t, w, "preset-feature")
-	if feature.Name != "功能開發" || len(feature.Nodes) != 4 || len(feature.Edges) != 3 {
+	if feature.Name != "功能開發" || len(feature.Nodes) != 3 || len(feature.Edges) != 2 {
 		t.Fatalf("%+v", feature)
 	}
 	small := presetFlowOf(t, w, "preset-small")
-	if small.Name != "小功能" || len(small.Nodes) != 2 || len(small.Edges) != 1 {
+	if small.Name != "一般任務" || len(small.Nodes) != 1 || len(small.Edges) != 0 {
 		t.Fatalf("%+v", small)
 	}
+	bugfix := presetFlowOf(t, w, "preset-bugfix")
 	// a built-in flow starts with its first step, and only a last step fed by one step alone may send work back
-	if n := small.Nodes[1]; n.SendBack == nil || !*n.SendBack || small.Nodes[0].SendBack != nil {
-		t.Fatalf("%+v", small.Nodes)
+	if n := bugfix.Nodes[1]; n.SendBack == nil || !*n.SendBack || bugfix.Nodes[0].SendBack != nil {
+		t.Fatalf("%+v", bugfix.Nodes)
 	}
-	for _, n := range feature.Nodes[2:] {
+	for _, n := range feature.Nodes[1:] {
 		if n.SendBack == nil || *n.SendBack {
 			t.Fatalf("%+v", n)
 		}
 	}
-	for _, id := range []string{"preset-feature", "preset-small", "preset-bugfix", "preset-planning", "preset-review", "preset-refactor"} {
+	for _, id := range []string{"preset-small", "preset-bugfix", "preset-feature", "preset-review"} {
 		// a copy goes through the same checks as a flow drawn by hand
 		c, err := r.e.DuplicateWorkflow(id)
 		if err != nil {
@@ -258,8 +259,8 @@ func TestPresetsUseTheAgentFolders(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	found := 0
 	for id, b := range r.world().Blueprints {
-		if !model.IsPresetID(id) {
-			continue
+		if !model.IsPresetID(id) || id == "preset-matt-pocock" || id == "preset-poteto" {
+			continue // these read their skills from GitHub
 		}
 		found++
 		var paths []string
@@ -273,7 +274,7 @@ func TestPresetsUseTheAgentFolders(t *testing.T) {
 			t.Fatalf("%s: %v", b.Name, paths)
 		}
 	}
-	if found != 17 {
+	if found != 16 {
 		t.Fatalf("%d presets", found)
 	}
 }
@@ -389,5 +390,42 @@ func TestPresetSkillFoldersFollowPreferences(t *testing.T) {
 	}
 	if got := folders(); !slices.Contains(got, "~/.codex/") || slices.Contains(got, "~/.claude/") || !slices.Contains(got, "~/.agents/") {
 		t.Fatalf("without Claude: %v", got)
+	}
+}
+
+func TestPresetsFromGitHubKeepTheirReposAsSources(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	want := map[string][2]string{
+		"preset-matt-pocock": {"https://github.com/mattpocock/skills", ""},
+		"preset-poteto":      {"https://github.com/cursor/plugins", "pstack"},
+	}
+	check := func() map[string]string {
+		t.Helper()
+		w := r.world()
+		ids := map[string]string{}
+		for id, repo := range want {
+			b := w.Blueprints[id]
+			if b == nil || len(b.Skills) != 1 {
+				t.Fatalf("%s: %+v", id, b)
+			}
+			p := b.Skills[0]
+			s := w.Sources[p.SourceID]
+			if s == nil || s.Kind != "git" || s.Repo != repo[0] || s.Ref != "main" || p.Path != repo[1] || p.Include != nil {
+				t.Fatalf("%s: %+v %+v", id, p, s)
+			}
+			ids[id] = s.ID
+		}
+		return ids
+	}
+	before := check()
+	// the blueprint reads it, so it stays
+	if err := r.e.DeleteSource(before["preset-poteto"]); err == nil {
+		t.Fatal("deleted a built-in blueprint's source")
+	}
+	// kept in the settings, so a restart finds the same one instead of adding another
+	r.e.Close()
+	newEngine(t, r)
+	if after := check(); after["preset-matt-pocock"] != before["preset-matt-pocock"] || after["preset-poteto"] != before["preset-poteto"] {
+		t.Fatalf("%v, then %v", before, after)
 	}
 }

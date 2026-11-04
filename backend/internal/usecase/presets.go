@@ -47,6 +47,16 @@ type presetBlueprint struct {
 	Prompt presetText  `json:"prompt"`
 	Tools  []enum.Tool `json:"tools"`
 	Look   model.Look  `json:"look"`
+	// Skills are the repos a blueprint reads its skills from, in place of the agents' own folders.
+	Skills []presetPack `json:"skills"`
+}
+
+// presetPack is the folder Path ("" the whole repo) of a repo at a branch. The repo is kept as a source like one the
+// user added, following its upstream, and cannot be deleted while the built-in blueprint reads it.
+type presetPack struct {
+	Repo string `json:"repo"`
+	Ref  string `json:"ref"`
+	Path string `json:"path"`
 }
 
 // presetFlow lists a flow's steps by layer: the steps of a layer run side by side, and each gets everything from the
@@ -202,7 +212,18 @@ func localizeFlow(wf *model.Workflow, language string) {
 func (e *Engine) installPresets() {
 	folders := presetSkillFolders(e.w.Preferences)
 	for _, p := range presets.Blueprints {
-		e.w.Blueprints[p.ID] = p.in(e.w.Language, folders)
+		b := p.in(e.w.Language, folders)
+		if len(p.Skills) > 0 {
+			b.Skills = make([]model.SkillPack, len(p.Skills))
+			for i, pack := range p.Skills {
+				src, err := cleanSource(NewSource{Kind: "git", Repo: pack.Repo, Ref: pack.Ref})
+				if err != nil {
+					panic(err) // presets.json is wrong
+				}
+				b.Skills[i] = model.SkillPack{SourceID: e.sourceFor(src).ID, Path: pack.Path, Exclude: []string{}}
+			}
+		}
+		e.w.Blueprints[p.ID] = b
 	}
 	for _, wf := range e.w.Workflows {
 		settleStarts(wf)
@@ -211,6 +232,27 @@ func (e *Engine) installPresets() {
 	}
 	for _, p := range presets.Flows {
 		e.w.Workflows[p.ID] = p.in(e.w.Language)
+	}
+}
+
+// retiredPresets maps a built-in blueprint that is gone to the one that took over its work.
+var retiredPresets = map[string]string{model.PresetPrefix + "fullstack": model.PresetPrefix + "assistant"}
+
+// retirePresets moves employees, and the blueprints copied from one, off built-in blueprints that are gone.
+func retirePresets(s *model.Settings) {
+	for id, r := range s.Replicas {
+		if to, ok := retiredPresets[r.BlueprintID]; ok {
+			r.BlueprintID = to
+			s.Replicas[id] = r
+		}
+	}
+	for _, b := range s.Blueprints {
+		if b == nil {
+			continue // the checks after say what is wrong with it
+		}
+		if to, ok := retiredPresets[b.From]; ok {
+			b.From = to
+		}
 	}
 }
 

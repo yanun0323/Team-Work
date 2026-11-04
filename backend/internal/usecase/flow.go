@@ -519,16 +519,20 @@ func (e *Engine) statusOf(t *model.Task) enum.Status {
 
 // ---------- what the user does ----------
 
-// NewTask is what a task is made from.
+// NewTask is what a task is made from. Workflow, when given, is a flow of the task's own, written for it alone, and
+// WorkflowID is ignored.
 type NewTask struct {
 	TeamID      string              `json:"teamId"`
 	Title       string              `json:"title"`
 	Description string              `json:"description"`
 	WorkflowID  string              `json:"workflowId"`
+	Workflow    *model.Workflow     `json:"workflow,omitempty"`
 	Staff       map[string][]string `json:"staff"`
 	OwnerID     *string             `json:"ownerId"`
 	Images      []model.Attachment  `json:"images"`
 	Files       []model.Attachment  `json:"files"`
+	// ChatID is the company chat the user made the task from; it shows under the chat's last message.
+	ChatID string `json:"chatId"`
 	// Origin is set when an employee makes the task; a request cannot claim one.
 	Origin *model.TaskOrigin `json:"-"`
 }
@@ -566,9 +570,9 @@ func (e *Engine) createTask(in NewTask) (*model.Task, error) {
 		if strings.TrimSpace(in.Title) == "" {
 			return model.Errorf(model.CodeInvalid, "任務要有標題")
 		}
-		wf := e.w.Workflows[in.WorkflowID]
-		if wf == nil {
-			return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
+		wf, workflowID, err := e.taskFlow(in)
+		if err != nil {
+			return err
 		}
 		if in.OwnerID != nil {
 			if r := e.w.Replicas[*in.OwnerID]; r == nil || r.TeamID != in.TeamID {
@@ -590,7 +594,7 @@ func (e *Engine) createTask(in NewTask) (*model.Task, error) {
 		}
 		t := &model.Task{
 			ID: e.uid("task"), TeamID: in.TeamID, Number: number, Title: strings.TrimSpace(in.Title), Description: in.Description, Images: images, Files: in.Files,
-			WorkflowID: in.WorkflowID, Workflow: clone(*wf), CreatedAt: e.w.Now, Stage: enum.StageRunning, Branch: fmt.Sprintf("task/%d", number), Origin: in.Origin,
+			WorkflowID: workflowID, Workflow: *wf, CreatedAt: e.w.Now, Stage: enum.StageRunning, Branch: fmt.Sprintf("task/%d", number), Origin: in.Origin,
 		}
 		e.staffFlow(t, in.Staff, in.OwnerID)
 		if name := crowdedStep(&t.Workflow); name != "" {
@@ -606,11 +610,55 @@ func (e *Engine) createTask(in NewTask) (*model.Task, error) {
 		}
 		t.Paused, t.PausedStatus = true, enum.StatusTodo
 		e.w.Tasks[t.ID] = t
+		e.pinToChat(in, t.ID)
 		e.start(t)
 		out = clone(t)
 		return nil
 	}()
 	return out, err
+}
+
+// taskFlow is the copy of a flow a new task runs on, and the blueprint it names: the task's own flow, checked as a
+// blueprint would be and naming none, or else a copy of the blueprint. Call it holding the lock.
+func (e *Engine) taskFlow(in NewTask) (*model.Workflow, string, error) {
+	if in.Workflow != nil {
+		wf := clone(in.Workflow)
+		wf.ID = ""
+		settleStarts(wf)
+		if err := e.checkFlow(wf); err != nil {
+			return nil, "", err
+		}
+		return wf, "", nil
+	}
+	wf := e.w.Workflows[in.WorkflowID]
+	if wf == nil {
+		return nil, "", model.Errorf(model.CodeNotFound, "找不到任務藍圖")
+	}
+	return clone(wf), in.WorkflowID, nil
+}
+
+// pinToChat shows a task made in a chat under the message it came from: the create_task line when an employee made
+// it (the first one since the user last spoke that has no task yet), else the chat's last message. Call it holding the lock.
+func (e *Engine) pinToChat(in NewTask, taskID string) {
+	byTool := in.Origin != nil && (in.Origin.Kind == "chat" || in.Origin.Kind == "airport")
+	chatID := in.ChatID
+	if byTool {
+		chatID = in.Origin.ID
+	}
+	c := e.w.Chats[chatID]
+	if c == nil || len(c.Messages) == 0 || (!byTool && c.TeamID != in.TeamID) {
+		return
+	}
+	at := len(c.Messages) - 1
+	if byTool {
+		for i := len(c.Messages) - 1; i >= 0 && c.Messages[i].From != "user"; i-- {
+			m := c.Messages[i]
+			if name, _, _ := strings.Cut(m.Text, " "); m.From == "tool" && strings.HasSuffix(name, toolCreateTask) && len(m.Tasks) == 0 {
+				at = i
+			}
+		}
+	}
+	c.Messages[at].Tasks = append(c.Messages[at].Tasks, taskID)
 }
 
 // start sets off every step a task's flow starts with; each gets the task as it is.

@@ -2,6 +2,8 @@ package usecase_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -19,6 +21,42 @@ func wordsOf(msgs []model.Message) string {
 		}
 	}
 	return out.String()
+}
+
+// A skill named with "$" is picked from everyone's in the chat, so it comes whoever replies first.
+func TestMeetingSkillComesFromWhoeverHasIt(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "skills", "tdd")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: tdd\ndescription: d\n---\n先寫測試"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	bp, err := r.e.CreateBlueprint(model.Blueprint{Name: "Tester", Skills: []model.SkillPack{{Source: &model.BlueprintSource{Kind: "local", Path: root}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bea, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: bp.ID, Name: "Bea", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// the chair, who has no such skill, replies first; Bea, who has it, after
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Guests: []string{bea.ID}, Text: "用 $tdd", Mentions: []string{r.owner.ID, bea.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("both", chatDone(c.ID))
+	if len(r.fake.seen) != 2 {
+		t.Fatalf("%d replies", len(r.fake.seen))
+	}
+	for i, req := range r.fake.seen {
+		if got := wordsOf(req.Messages); strings.Count(got, "先寫測試") != 1 {
+			t.Fatalf("reply %d heard %s", i, got)
+		}
+	}
 }
 
 func TestMeetingRepliesInTurn(t *testing.T) {

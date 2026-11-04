@@ -298,6 +298,14 @@ func TestInvalidNewFlowIsRefusedAndLeavesNothing(t *testing.T) {
 	}
 }
 
+func TestListBlueprintsLeavesOutTheAirportStaff(t *testing.T) {
+	r, m := manageRig(t)
+	versionFrom(t, r, m, "list_blueprints", "preset-assistant")
+	if strings.Contains(lastResult(t, r).Text, `"preset-airport"`) {
+		t.Fatal("the airport staff's blueprint is listed")
+	}
+}
+
 func TestChangingABlueprintWaitsForTheUserInAChat(t *testing.T) {
 	r, m := manageRig(t)
 	id := r.owner.BlueprintID
@@ -617,6 +625,11 @@ func TestCreateTaskWaitsInTodoAndSaysWhereItCameFrom(t *testing.T) {
 	if o := made.Origin; o == nil || o.Kind != "chat" || o.ID != c.ID || o.Name != "Ada" || o.Depth != 0 {
 		t.Fatalf("%+v", made.Origin)
 	}
+	// the task shows under the create_task line, and stays there for when the chat is opened again
+	pinned := slices.IndexFunc(w.Chats[c.ID].Messages, func(m model.ChatMessage) bool { return slices.Contains(m.Tasks, made.ID) })
+	if pinned < 0 || w.Chats[c.ID].Messages[pinned].From != "tool" || !strings.HasPrefix(w.Chats[c.ID].Messages[pinned].Text, "create_task ") {
+		t.Fatalf("%+v", w.Chats[c.ID].Messages)
+	}
 	for _, s := range w.SubTasks {
 		if s.Status != enum.StatusTodo {
 			t.Fatalf("a step ran before the user started the task: %+v", s)
@@ -631,6 +644,19 @@ func TestCreateTaskWaitsInTodoAndSaysWhereItCameFrom(t *testing.T) {
 	// what the user makes has no origin
 	if mine := r.task(r.flow.ID); mine.Origin != nil {
 		t.Fatalf("%+v", mine.Origin)
+	}
+}
+
+func TestTaskTheUserMakesFromAChatShowsUnderItsLastMessage(t *testing.T) {
+	r, m := manageRig(t)
+	c := inChat(t, r, m)
+	made, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "從對話", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, ChatID: c.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := r.world().Chats[c.ID].Messages
+	if last := msgs[len(msgs)-1]; !slices.Equal(last.Tasks, []string{made.ID}) {
+		t.Fatalf("%+v", msgs)
 	}
 }
 

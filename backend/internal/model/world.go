@@ -249,6 +249,8 @@ type ChatMessage struct {
 	// Failed marks a reply that did not come, in a chat; SignedOut is the provider to sign in to again, when that is why.
 	Failed    bool   `json:"failed,omitempty"`
 	SignedOut string `json:"signedOut,omitempty"`
+	// Tasks are the ones made in the chat at this message, by the user or with create_task, oldest first.
+	Tasks []string `json:"tasks,omitempty"`
 }
 
 // ChatGuest is someone in a meeting besides the chair. Name and Look keep who it was, for when they have left.
