@@ -10,6 +10,19 @@ it('shows the clock in place of a title, and names the app only for a screen rea
   expect(html).toContain('class="fx-brand-time"')
 })
 
+it('shows the version under the clock, and a red ! to update only once the app has found an update', () => {
+  const html = renderToStaticMarkup(<Brand />)
+  expect(html).toMatch(/<small class="fx-brand-version">v\d+\.\d+\.\d+( \(\w+\))?<\/small>/)
+  expect(html).not.toContain('fx-brand-update')
+  const g = globalThis as { twUpdate?: boolean }
+  g.twUpdate = true
+  try {
+    expect(renderToStaticMarkup(<Brand />)).toContain('class="fx-brand-update" aria-label="有新版本"')
+  } finally {
+    delete g.twUpdate
+  }
+})
+
 it('shows the time on a 24-hour clock and the date with its weekday', () => {
   const at = new Date(2026, 9, 31, 0, 5)
   expect(clockText(at, 'zh')).toEqual({ time: '00:05', date: '2026/10/31（週六）' })

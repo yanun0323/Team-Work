@@ -177,7 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         NSApp.terminate(nil)
     }
 
-    // The airport's power and update buttons. Navigation stays on our own origin, so only our page can send these.
+    // The airport's power button and the update button by the clock. Navigation stays on our own origin, so only our page can send these.
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         switch message.name {
         case "language":
@@ -221,7 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         showUpdateFound()
     }
 
-    // The page reads window.twUpdate when the airport opens and listens for tw-update after that.
+    // The page reads window.twUpdate when the clock first shows and listens for tw-update after that.
     private func showUpdateFound() {
         guard ready, webView.url?.host == origin.host else { return }
         webView.evaluateJavaScript("window.twUpdate = \(updateFound); window.dispatchEvent(new Event('tw-update'))")

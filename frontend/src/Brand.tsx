@@ -1,5 +1,5 @@
-// The time and date, in the corner of the main screen, and below them what is left of
-// each model provider's allowance.
+// The time and date, in the corner of the main screen, with the version under them and, beside the time, a button
+// when the Mac app has found an update; below them what is left of each model provider's allowance.
 
 import { useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
@@ -8,6 +8,7 @@ import { request } from './core/backend'
 import { MOCK } from './core/mode'
 import { tr } from './core/i18n'
 import type { Locale, ModelProvider } from './core/domain/types'
+import { checkForUpdate, useUpdateFound, VERSION } from './update'
 
 export function clockText(now: Date, locale: Locale) {
   const tag = locale === 'zh' ? 'zh-TW' : 'en-US'
@@ -181,6 +182,7 @@ export function Brand() {
   const locale = useStore((s) => s.world.language)
   const providers = useStore((s) => s.world.providers)
   const quotas = useQuotas((s) => s.quotas)
+  const update = useUpdateFound()
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000)
@@ -191,10 +193,21 @@ export function Brand() {
     <div className="fx-brand fx-tag">
       {/* the clock stands where a title would; the name is still there for a screen reader */}
       <h1 className="fx-sr">Team Work</h1>
-      <time dateTime={now.toISOString()}>
-        <span className="fx-brand-time">{time}</span>
-        <span className="fx-brand-date">{date}</span>
-      </time>
+      <div className="fx-brand-clock">
+        <time dateTime={now.toISOString()}>
+          <span className="fx-brand-time">{time}</span>
+          <span className="fx-brand-date">{date}</span>
+        </time>
+        {update && (
+          <button type="button" className="fx-brand-update" onClick={checkForUpdate} aria-label={tr('有新版本')} title={tr('有新版本')}>
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path d="M8 3.5v5.5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+              <circle cx="8" cy="12.4" r="1.25" fill="currentColor" />
+            </svg>
+          </button>
+        )}
+      </div>
+      <small className="fx-brand-version">{VERSION}</small>
       <QuotaList providers={Object.values(providers)} quotas={quotas} now={Math.floor(now.getTime() / 1000)} />
     </div>
   )

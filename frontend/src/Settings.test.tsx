@@ -5,7 +5,7 @@ import { version } from '../package.json'
 import { useStore } from './core/store'
 import { createAirportChat } from './core/domain/sim'
 import { airportTabOr, DEFAULT_PREFS, ordered, type AirportTab, usePrefs } from './prefs'
-import { AdvancedSection, ChatTitleFields, PrefsPage, QuitTool, Settings, UpdateTool, ReloadSettings, ResetSettings, SystemSection } from './Settings'
+import { AdvancedSection, ChatTitleFields, PrefsPage, QuitTool, Settings, ReloadSettings, ResetSettings, SystemSection } from './Settings'
 
 it('is a drawer headed as the airport, its model providers listed under the first tab', () => {
   const html = renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)
@@ -54,19 +54,6 @@ it('leaves the power button to the app', () => {
   expect(renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)).not.toContain('aria-label="檢查更新"')
 })
 
-it('marks the update button when the app has found an update', () => {
-  expect(renderToStaticMarkup(<UpdateTool />)).toContain('aria-label="檢查更新"')
-  expect(renderToStaticMarkup(<UpdateTool />)).not.toContain('fx-update-dot')
-  const g = globalThis as { twUpdate?: boolean }
-  g.twUpdate = true
-  try {
-    const html = renderToStaticMarkup(<UpdateTool />)
-    expect(html).toContain('aria-label="有新版本"')
-    expect(html).toContain('fx-update-dot')
-  } finally {
-    delete g.twUpdate
-  }
-})
 
 
 it('offers a keyboard-accessible reload action with persistent announcement regions', () => {

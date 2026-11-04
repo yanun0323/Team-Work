@@ -28,7 +28,6 @@ import type { Team } from './core/domain/types'
 import { MOCK } from './core/mode'
 import { attempt } from './core/ops'
 import { Ocean } from './Ocean'
-import { useUpdateFound } from './update'
 import { Strollers } from './People'
 import { NO_OUTLINE_LAYER, PixelPass } from './PixelPass'
 import { toonInstanced } from './toon'
@@ -78,17 +77,12 @@ function useRises(n: number) {
   return last.rises + (n > last.n ? 1 : 0)
 }
 
-/** On a company's tag: its unread chats and the tasks waiting for a reply, apart. The airport's also shows an update the app found. */
-export function TagAlerts({ unreadChats, waitingTasks, update = false }: ReturnType<typeof teamAlerts> & { update?: boolean }) {
+/** On a company's tag: its unread chats and the tasks waiting for a reply, apart. */
+export function TagAlerts({ unreadChats, waitingTasks }: ReturnType<typeof teamAlerts>) {
   const chatRises = useRises(unreadChats), taskRises = useRises(waitingTasks)
-  if (!unreadChats && !waitingTasks && !update) return null
+  if (!unreadChats && !waitingTasks) return null
   return (
     <span className="fx-tag-alerts">
-      {update && (
-        <span className="fx-badge fx-tag-alert fx-tag-alert-update" title={tr('有新版本')}>
-          <span className="fx-sr">{tr('有新版本')}</span>
-        </span>
-      )}
       {unreadChats > 0 && (
         <span key={`chat-${chatRises}`} className="fx-badge fx-tag-alert fx-tag-alert-chat" title={tr('{n} 則對話未讀', { n: unreadChats })}>
           <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M1.5 2h9v6.5H5L2.5 10.8V8.5h-1z" fill="currentColor" /></svg>
@@ -278,7 +272,6 @@ export function World() {
   const crewNames = useStore((s) => (selected ? teamReplicas(s.world, selected).map((r) => `${r.id}\t${r.name}`).join('\n') : ''))
   // the airport's tag is in words, so it changes with the language
   const language = useStore((s) => s.world.language)
-  const updateFound = useUpdateFound()
   const labels = useMemo(() => {
     // People move about, so each tag follows the point its person writes every frame
     const crew = crewNames.split('\n').filter(Boolean).map((line): LabelSpec => {
@@ -289,7 +282,7 @@ export function World() {
     const airport: LabelSpec = {
       id: 'fusion-airport', at: [ax + AIRPORT_TAG[0], AIRPORT_TAG[1], az + AIRPORT_TAG[2]],
       tone: hovered === AIRPORT_ID && !open && !settingsOpen && !placing && !editing ? 'fusion lifted' : 'fusion',
-      text: <span className="fx-tag">{tr('機場')}<TagAlerts {...teamAlerts(useStore.getState().world, '')} update={updateFound} /></span>,
+      text: <span className="fx-tag">{tr('機場')}<TagAlerts {...teamAlerts(useStore.getState().world, '')} /></span>,
       onClick: selectAirport,
     }
     const tags = town.lots.map((l, i): LabelSpec => {
@@ -307,7 +300,7 @@ export function World() {
     // the open company's own name is in the drawer, and its roof is cut away
     return [...(panel === 'settings' ? [] : [airport]), ...tags.filter((t) => t.id !== `fusion-${open?.id}`), ...crew]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [town, open, crewNames, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language, alerts, updateFound])
+  }, [town, open, crewNames, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language, alerts])
 
   const shownLabels = useFadingLabels(labels)
   const help = useLingering(helpOpen ? 'help' : null)
