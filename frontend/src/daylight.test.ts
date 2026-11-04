@@ -39,6 +39,15 @@ describe('lightAt', () => {
     expect(lightAt(0.79).glow).toBeGreaterThan(0)
   })
 
+  it('holds the full dawn and dusk look for an hour', () => {
+    const at = (h: number) => lightAt(h / 24)
+    for (const [from, to, sky] of [[5.5, 6.5, '8f86b4'], [17.5, 18.5, '8a5f8f']] as const) {
+      for (let h = from; h <= to; h += 0.25) expect(at(h).sky.getHexString()).toBe(sky)
+      expect(at(from - 0.5).sky.getHexString()).not.toBe(sky)
+      expect(at(to + 0.5).sky.getHexString()).not.toBe(sky)
+    }
+  })
+
   it('changes smoothly round the whole day, midnight included', () => {
     for (let p = 0; p < 1; p += 0.001) {
       const a = lightAt(p), b = lightAt(p + 0.001)

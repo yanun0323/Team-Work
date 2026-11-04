@@ -20,13 +20,15 @@ export function phaseOf(mode: Daylight, now: Date): number {
 }
 
 /**
- * Night, dawn, day and dusk, as shares of the day. In a Minecraft day that is 10 minutes of day, 1.5 of dusk, 7 of
- * night and 1.5 of dawn; on the clock, day runs 6:00–18:00 and night 19:48–4:12.
+ * Night, dawn, day and dusk, as shares of the day. On the clock dawn runs 4:30–7:30, day 7:30–16:30, dusk 16:30–19:30
+ * and night 19:30–4:30; in a Minecraft day that is 2.5 minutes each of dawn and dusk and 7.5 each of day and night.
  */
-const DAWN = 0.175
-const DAY = 0.25
-const DUSK = 0.75
-const NIGHT = 0.825
+const DAWN = 4.5 / 24
+const DAY = 7.5 / 24
+const DUSK = 16.5 / 24
+const NIGHT = 19.5 / 24
+/** How long dawn and dusk hold their full look, in their middle, so they are not over in a moment: an hour. */
+const HOLD = 1 / 24
 
 /** The middle of each part of the day, for jumping straight to it. */
 export const SCENES = { dawn: (DAWN + DAY) / 2, noon: 0.5, dusk: (DUSK + NIGHT) / 2, midnight: 0 } as const
@@ -68,8 +70,8 @@ const LOOKS: Record<'night' | 'dawn' | 'day' | 'dusk', Look> = {
 
 /** The looks round the day, by phase; the last wraps to the first. */
 const STOPS: [number, Look][] = [
-  [DAWN, LOOKS.night], [(DAWN + DAY) / 2, LOOKS.dawn], [DAY, LOOKS.day],
-  [DUSK, LOOKS.day], [(DUSK + NIGHT) / 2, LOOKS.dusk], [NIGHT, LOOKS.night],
+  [DAWN, LOOKS.night], [(DAWN + DAY - HOLD) / 2, LOOKS.dawn], [(DAWN + DAY + HOLD) / 2, LOOKS.dawn], [DAY, LOOKS.day],
+  [DUSK, LOOKS.day], [(DUSK + NIGHT - HOLD) / 2, LOOKS.dusk], [(DUSK + NIGHT + HOLD) / 2, LOOKS.dusk], [NIGHT, LOOKS.night],
 ]
 
 export interface Light {
