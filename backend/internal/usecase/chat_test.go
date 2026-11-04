@@ -1199,6 +1199,9 @@ func TestAirportChatRunsWithoutACompany(t *testing.T) {
 	if slices.Contains(names, "remember") || slices.Contains(names, "forget") {
 		t.Fatalf("airport staff keep no memory: %v", names)
 	}
+	if slices.Contains(names, "read_terminal") {
+		t.Fatalf("the airport has no terminal: %v", names)
+	}
 	if _, err := r.e.ChatTaskDraft(context.Background(), c.ID); err == nil {
 		t.Fatal("an airport chat has no company to make a task in")
 	}

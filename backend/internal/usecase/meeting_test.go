@@ -43,12 +43,12 @@ func TestMeetingRepliesInTurn(t *testing.T) {
 	bea, cy := hire("Bea"), hire("Cy")
 	beaID = bea.ID
 
-	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Guests: []string{bea.ID, cy.ID}, Text: "大家怎麼看"})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Guests: []string{bea.ID, cy.ID}, Text: "@All 大家怎麼看", Mentions: []string{bea.ID, cy.ID, r.owner.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	r.wait("everyone", chatDone(c.ID))
-	// with nobody mentioned everyone replies, the chair last
+	// with everyone mentioned everyone replies, the chair last
 	var by []string
 	for _, m := range r.world().Chats[c.ID].Messages {
 		if m.From == "agent" {
@@ -94,6 +94,16 @@ func TestMeetingRepliesInTurn(t *testing.T) {
 		t.Fatalf("Ada could not act:\n%s", adaSaw)
 	}
 
+	// with nobody mentioned the chair replies alone
+	r.fake.seen = nil
+	if err := r.e.SayInChat(c.ID, "那就這樣", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("chair", chatDone(c.ID))
+	if m := r.world().Chats[c.ID].Messages; len(r.fake.seen) != 1 || m[len(m)-1].By != r.owner.ID {
+		t.Fatalf("%d requests, last by %s", len(r.fake.seen), m[len(m)-1].By)
+	}
+
 	// one mentioned alone replies alone, and acts
 	r.fake.seen = nil
 	if err := r.e.SayInChatTo(c.ID, "@Cy 你呢", nil, nil, []string{cy.ID}); err != nil {
@@ -123,6 +133,12 @@ func TestMeetingRepliesInTurn(t *testing.T) {
 	r.wait("Dee", chatDone(c.ID))
 	if g := r.world().Chats[c.ID].Guests; len(g) != 3 || g[2].ReplicaID != dee.ID || g[2].Name != "Dee" {
 		t.Fatalf("%+v", g)
+	}
+	// the chat shows Dee joined after the message that mentions her; those it began with did not join
+	joined := r.world().Chats[c.ID]
+	said := slices.IndexFunc(joined.Messages, func(m model.ChatMessage) bool { return m.Text == "@Dee 你也來" })
+	if len(joined.Joins) != 1 || joined.Joins[0] != (model.ChatJoin{Before: said + 1, ReplicaID: dee.ID, Name: "Dee"}) {
+		t.Fatalf("%+v", joined.Joins)
 	}
 
 	// another chair sums up from then on
@@ -154,13 +170,13 @@ func TestMeetingOutlivesItsChair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: bea.ID, Guests: []string{cy.ID}, Text: "@Cy 你先", Mentions: []string{cy.ID}})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: bea.ID, Text: "@Cy 你先", Mentions: []string{cy.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	r.wait("Cy", chatDone(c.ID))
-	// the first message's mentions pick who replies, as a later one's do
-	if got := r.world().Chats[c.ID].Messages; len(got) != 2 || got[1].By != cy.ID {
+	// the first message's mentions pick who replies, as a later one's do, and those it brings in start the chat
+	if got := r.world().Chats[c.ID]; len(got.Messages) != 2 || got.Messages[1].By != cy.ID || len(got.Guests) != 1 || len(got.Joins) != 0 {
 		t.Fatalf("%+v", got)
 	}
 	if err := r.e.Fire(bea.ID, r.owner.ID); err != nil {
@@ -174,4 +190,62 @@ func TestMeetingOutlivesItsChair(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.wait("Cy again", chatDone(c.ID))
+}
+
+func TestInviteToChat(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	bea, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bea", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// not while a reply is being written
+	if err := r.e.InviteToChat(c.ID, bea.ID); err == nil {
+		t.Fatal("invited while replying")
+	}
+	r.wait("reply", chatDone(c.ID))
+	if err := r.e.InviteToChat(c.ID, "nobody"); err == nil {
+		t.Fatal("invited nobody")
+	}
+	if err := r.e.InviteToChat(c.ID, bea.ID); err != nil {
+		t.Fatal(err)
+	}
+	// inviting someone already there changes nothing; the one-to-one chair stays the chair
+	if err := r.e.InviteToChat(c.ID, bea.ID); err != nil {
+		t.Fatal(err)
+	}
+	got := r.world().Chats[c.ID]
+	if got.ReplicaID != r.owner.ID || len(got.Guests) != 1 || got.Guests[0].ReplicaID != bea.ID {
+		t.Fatalf("%+v", got)
+	}
+	if len(got.Joins) != 1 || got.Joins[0] != (model.ChatJoin{Before: len(got.Messages), ReplicaID: bea.ID, Name: "Bea"}) {
+		t.Fatalf("%+v", got.Joins)
+	}
+	// taking back the chat keeps the line within what is left
+	if err := r.e.RewindChat(c.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if j := r.world().Chats[c.ID].Joins; j[0].Before != 0 {
+		t.Fatalf("%+v", j)
+	}
+	for i := 2; i < 6; i++ {
+		x, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "X" + string(rune('0'+i)), Model: "fake"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := r.e.InviteToChat(c.ID, x.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// six at most
+	extra, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Extra", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.InviteToChat(c.ID, extra.ID); err == nil {
+		t.Fatal("seven in a chat")
+	}
 }

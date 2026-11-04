@@ -158,6 +158,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.PATCH("/chats/:id/title", s.renameChat)
 	api.PATCH("/chats/:id/pin", s.pinChat)
 	api.PATCH("/chats/:id/chair", s.setChatChair)
+	api.POST("/chats/:id/guests", s.inviteToChat)
 	api.POST("/chats/:id/say", s.sayInChat)
 	api.POST("/chats/:id/stop", s.stopChat)
 	api.POST("/chats/:id/retry", s.retryChat)
@@ -807,6 +808,16 @@ func (s *Server) setChatChair(c echo.Context) error {
 		return err
 	}
 	return done(c, s.engine.SetChatChair(c.Param("id"), in.ReplicaID))
+}
+
+func (s *Server) inviteToChat(c echo.Context) error {
+	in, err := bind[struct {
+		ReplicaID string `json:"replicaId"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.InviteToChat(c.Param("id"), in.ReplicaID))
 }
 
 func (s *Server) rewindChat(c echo.Context) error {

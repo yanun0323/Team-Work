@@ -90,7 +90,7 @@ func (e *Engine) CreateChat(in NewChat) (*model.Chat, error) {
 		if err := e.checkInvite(c, in.Guests); err != nil {
 			return err
 		}
-		e.invite(c, in.Guests)
+		e.invite(c, in.Guests, -1)
 		e.w.Chats[c.ID] = c
 		if err := e.beginRound(c, text, in.Images, in.Files, in.Mentions); err != nil {
 			delete(e.w.Chats, c.ID)
@@ -294,9 +294,7 @@ func (e *Engine) RewindChat(id string, index int) error {
 		c.Question = nil
 		c.Change = nil
 		c.Messages = c.Messages[:index]
-		for i := range c.Handoffs {
-			c.Handoffs[i].Before = min(c.Handoffs[i].Before, index)
-		}
+		keepMarks(c, index)
 		e.w.Conversations[c.ID] = e.w.Conversations[c.ID][:end]
 		if c.Compact != nil && end < c.Compact.Upto {
 			c.Compact = nil // it summed up what was just taken back
@@ -353,6 +351,11 @@ func (e *Engine) HandOffChat(id string, index int, replicaID string) (*model.Cha
 			return model.Errorf(model.CodeConflict, "這段對話的紀錄對不上，無法複製")
 		}
 		fork := &model.Chat{ID: e.uid("chat"), TeamID: c.TeamID, ReplicaID: c.ReplicaID, Name: c.Name, Look: c.Look, Model: c.Model, Effort: c.Effort, CreatedAt: e.w.Now, Messages: clone(c.Messages[:keep]), Handoffs: clone(c.Handoffs), Guests: clone(c.Guests)}
+		for _, j := range c.Joins { // who joined after where it is copied from did so in the original alone
+			if j.Before <= keep {
+				fork.Joins = append(fork.Joins, j)
+			}
+		}
 		if replicaID != c.ReplicaID { // a meeting handed to one of its own or anyone else goes on with them alone
 			fork.Guests = nil
 			// they take over from the user's message, or after the reply it ends with
@@ -457,9 +460,7 @@ func (e *Engine) RetryChat(id string) error {
 			return err
 		}
 		c.Messages = c.Messages[:len(c.Messages)-1]
-		for i := range c.Handoffs {
-			c.Handoffs[i].Before = min(c.Handoffs[i].Before, len(c.Messages))
-		}
+		keepMarks(c, len(c.Messages))
 		// a call the failed reply left without a result is closed, as the model refuses it otherwise
 		conv := e.w.Conversations[c.ID]
 		closed := answerPending(conv, "")
@@ -709,6 +710,8 @@ type chatRun struct {
 	spec   agentSpec
 	conv   []model.Message
 	folder string
+	// team is the company the chat is in, "" at the airport
+	team string
 	// said is the user's words alone: an attached file's text in the conversation names no skill
 	said string
 	// context is how much the model read last time; compact is what stands in for the conversation's start
@@ -752,7 +755,7 @@ func (e *Engine) launchChat(c *model.Chat, speaker string, spec agentSpec) {
 	if len(c.Guests) > 0 { // each keeps their own, whoever chairs, so their provider's cache stays theirs
 		session = c.ID + "-" + speaker
 	}
-	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, said: said, context: c.Context, compact: clone(c.Compact), memory: !c.AtAirport(),
+	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, team: c.TeamID, said: said, context: c.Context, compact: clone(c.Compact), memory: !c.AtAirport(),
 		speaker: speaker, actor: speaker == roundActor(c), actorName: chatNames(c)[roundActor(c)], note: e.roundNote(c, speaker), session: session, names: chatNames(c)})
 }
 
@@ -910,6 +913,9 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	read := append(append(roots, e.attachmentRoot(in.id)), in.spec.read...)
 	list := tools.For(in.spec.allowed, tools.Env{Read: read, Output: e.outputRoot(in.id), Search: e.search})
 	list = append(list, e.chatAskUser(in))
+	if in.team != "" && (slices.Contains(in.spec.allowed, enum.ToolReadFile) || slices.Contains(in.spec.allowed, enum.ToolRunCommand)) {
+		list = append(list, e.readTerminalTool(in.team))
+	}
 	list = append(list, imageTools(in.spec, read, e.chatKeepsImage(in))...)
 	if in.memory {
 		list = append(list, e.chatMemoryTools(in)...)

@@ -49,16 +49,20 @@ func (s *Server) terminal(c echo.Context) error {
 	defer conn.Close()
 	conn.SetReadLimit(terminalReadLimit)
 	_ = s.engine.Learn("terminal") // only the tutorial's record; the terminal works without it
+	// what the employees in its chats can read
+	log := s.engine.TerminalOutput(c.Param("id"))
 
 	// Closing the connection ends the read loop below.
 	output := make(chan struct{})
 	go func() { // ends when the shell's output does; shell.Close sees to that
 		defer close(output)
 		defer conn.Close()
+		defer log.End()
 		buf := make([]byte, 32<<10)
 		connected := true
 		for {
 			n, err := shell.Read(buf)
+			_, _ = log.Write(buf[:n])
 			// keeps reading once the client has gone: on macOS a shell cannot finish exiting, not even when
 			// killed, while output it wrote is waiting to be read
 			if n > 0 && connected {

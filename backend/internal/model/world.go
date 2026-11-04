@@ -213,7 +213,7 @@ type ChatMessage struct {
 	Files  []Attachment `json:"files,omitempty"`
 	// By is the employee who said or ran it, in a chat; empty in older chats, where it is the one the chat was with.
 	By string `json:"by,omitempty"`
-	// Mentions are the employees the user's message is for, in a meeting; none is everyone.
+	// Mentions are the employees the user's message is for, in a meeting; none is the chair alone.
 	Mentions []string `json:"mentions,omitempty"`
 	// Failed marks a reply that did not come, in a chat; SignedOut is the provider to sign in to again, when that is why.
 	Failed    bool   `json:"failed,omitempty"`
@@ -231,6 +231,14 @@ type ChatGuest struct {
 // ChatHandoff is where an employee handed the chat to whoever comes next: the messages before Before were theirs
 // to answer, back to the handoff before it.
 type ChatHandoff struct {
+	Before    int    `json:"before"`
+	ReplicaID string `json:"replicaId"`
+	Name      string `json:"name"`
+}
+
+// ChatJoin is where an employee joined the chat, invited or mentioned: before the message at Before. It is only
+// shown to the user and never reaches a model.
+type ChatJoin struct {
 	Before    int    `json:"before"`
 	ReplicaID string `json:"replicaId"`
 	Name      string `json:"name"`
@@ -274,6 +282,8 @@ type Chat struct {
 	Handoffs []ChatHandoff `json:"handoffs,omitempty"`
 	// Guests are the others in a meeting, in the order they joined.
 	Guests []ChatGuest `json:"guests,omitempty"`
+	// Joins are where guests joined once the chat was under way, oldest first.
+	Joins []ChatJoin `json:"joins,omitempty"`
 	// Speaker is who replies, or last replied, to the user's last message; Next are who reply after them.
 	Speaker string   `json:"speaker,omitempty"`
 	Next    []string `json:"next,omitempty"`

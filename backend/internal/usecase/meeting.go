@@ -42,17 +42,31 @@ func (e *Engine) checkInvite(c *model.Chat, ids []string) error {
 	return nil
 }
 
-// invite brings into a chat those not in it yet, after checkInvite.
-func (e *Engine) invite(c *model.Chat, ids []string) {
+// invite brings into a chat those not in it yet, after checkInvite. With before at 0 or more, the chat shows they
+// joined there; those it starts with did not join.
+func (e *Engine) invite(c *model.Chat, ids []string, before int) {
 	for _, id := range ids {
 		if r := e.w.Replicas[id]; r != nil && !chatHas(c, id) {
 			c.Guests = append(c.Guests, model.ChatGuest{ReplicaID: r.ID, Name: r.Name, Look: r.Look, Model: r.Model})
+			if before >= 0 {
+				c.Joins = append(c.Joins, model.ChatJoin{Before: before, ReplicaID: r.ID, Name: r.Name})
+			}
 		}
 	}
 }
 
-// speakersFor are who reply to a message, in turn: those it mentions, in that order, or everyone, the chair last
-// to sum up. Those who left are skipped. The airport staff are "".
+// keepMarks has the lines between messages stay within the first n messages, after the rest are taken back.
+func keepMarks(c *model.Chat, n int) {
+	for i := range c.Handoffs {
+		c.Handoffs[i].Before = min(c.Handoffs[i].Before, n)
+	}
+	for i := range c.Joins {
+		c.Joins[i].Before = min(c.Joins[i].Before, n)
+	}
+}
+
+// speakersFor are who reply to a message, in turn: those it mentions, in that order, or else the chair alone. "@All"
+// comes as everyone mentioned, the chair last to sum up. Those who left are skipped. The airport staff are "".
 func (e *Engine) speakersFor(c *model.Chat, mentions []string) []string {
 	if c.AtAirport() {
 		return []string{""}
@@ -67,9 +81,6 @@ func (e *Engine) speakersFor(c *model.Chat, mentions []string) []string {
 		add(id)
 	}
 	if len(mentions) == 0 {
-		for _, g := range c.Guests {
-			add(g.ReplicaID)
-		}
 		add(c.ReplicaID)
 	}
 	return out
@@ -112,7 +123,12 @@ func (e *Engine) beginRound(c *model.Chat, text string, images, files []model.At
 	if err := e.checkInvite(c, mentions); err != nil {
 		return err
 	}
-	e.invite(c, mentions)
+	// after the message that mentions them; those the first message mentions start the chat, so did not join
+	before := len(c.Messages) + 1
+	if len(c.Messages) == 0 {
+		before = -1
+	}
+	e.invite(c, mentions, before)
 	speakers := e.speakersFor(c, mentions)
 	if len(speakers) == 0 {
 		return model.Errorf(model.CodeInvalid, "對話裡沒有人可以回覆")
@@ -161,6 +177,26 @@ func (e *Engine) nextSpeaker(c *model.Chat) bool {
 	return false
 }
 
+// InviteToChat brings an employee of the chat's company into it, as mentioning them would, while nobody is replying.
+// They see the whole chat so far.
+func (e *Engine) InviteToChat(id, replicaID string) error {
+	return e.do(func() error {
+		c := e.w.Chats[id]
+		if c == nil {
+			return model.Errorf(model.CodeNotFound, "找不到對話")
+		}
+		if c.ReplyAt != nil || c.Change != nil {
+			return model.Errorf(model.CodeInvalid, "員工還在回覆")
+		}
+		ids := []string{replicaID}
+		if err := e.checkInvite(c, ids); err != nil {
+			return err
+		}
+		e.invite(c, ids, len(c.Messages))
+		return nil
+	})
+}
+
 // SetChatChair has a guest chair the meeting: they act for it when nobody is mentioned alone, and sum up last.
 func (e *Engine) SetChatChair(id, replicaID string) error {
 	return e.do(func() error {
@@ -189,7 +225,7 @@ func meetingRule(c *model.Chat, speaker string) string {
 		return ""
 	}
 	return "This chat is a meeting of the user and several employees; you are " + chatNames(c)[speaker] + ". " +
-		"The employees the user @mentions reply one after another; with no mention everyone does, the chair last. " +
+		"The employees the user @mentions reply one after another, and @All is everyone, the chair last; with no mention the chair replies alone. " +
 		"Each sees what was said before them. What another employee said comes to you as a user message starting with their name in brackets, like \"[Ada] ...\": " +
 		"it is theirs, not the user's. Speak only for yourself, add what is yours to add rather than repeat the others, and keep it short. " +
 		"Only one employee a round may create or change tasks, blueprints and flows, or ask the user; when someone else needs to do that, say so for them to do. " +
