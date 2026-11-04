@@ -330,6 +330,7 @@ func (e *Engine) listProviders() any {
 // ---------- tasks ----------
 
 const createTaskDescription = "Create a task, with no confirmation. It waits in to-do until the user starts it. Who works its steps is the user's decision: do not pick employees yourself. " +
+	taskBranchRule + " If the task needs changes not yet committed, tell the user to commit them before starting it. " +
 	"If steps have nobody, this fails and lists them; then ask the user with ask_user, and call again with what they chose in staff or owner_id."
 
 const staffProperty = `"staff":{"type":"object","description":"Step id to the ids of the employees who work it","additionalProperties":{"type":"array","items":{"type":"string"}}}`

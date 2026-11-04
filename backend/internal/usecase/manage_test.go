@@ -181,6 +181,22 @@ func TestManageToolsFollowTheBlueprint(t *testing.T) {
 	}
 }
 
+func TestCreateTaskSaysTasksRunOnTheirOwnBranch(t *testing.T) {
+	r, _ := manageRig(t)
+	c := startChat(t, r)
+	r.wait("reply", chatDone(c.ID))
+	for _, s := range r.fake.requests()[0].Tools {
+		if s.Name == "create_task" {
+			if !strings.Contains(s.Description, "separate work tree") || !strings.Contains(s.Description, "should not say how to commit") ||
+				!strings.Contains(s.Description, "not yet committed") || !strings.Contains(s.Description, "relative to the project folder") {
+				t.Fatal(s.Description)
+			}
+			return
+		}
+	}
+	t.Fatal("no create_task")
+}
+
 func TestAirportStaffHaveEveryManageTool(t *testing.T) {
 	r, _ := manageRig(t)
 	c, err := r.e.CreateAirportChat(usecase.NewAirportChat{Model: "fake", Text: "嗨"})

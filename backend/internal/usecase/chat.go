@@ -41,7 +41,13 @@ const (
 // airportBlueprintID is the built-in blueprint the airport staff work by: their role, tools and skills.
 const airportBlueprintID = model.PresetPrefix + "airport"
 
-const chatDraftRules = "Write the chat below as a task for a colleague who has not seen it. First line: the task title, with no markup. Then a blank line and the description: goal, decisions, constraints and acceptance criteria. Use only what the chat says. Output nothing else."
+const chatDraftRules = "Write the chat below as a task for a colleague who has not seen it. First line: the task title, with no markup. Then a blank line and the description: goal, decisions, constraints and acceptance criteria. Use only what the chat says. " +
+	taskBranchRule + " Output nothing else."
+
+// taskBranchRule tells whoever writes a task how it runs, so the chat's own rules on committing do not end up in it.
+const taskBranchRule = "A task runs on its own branch in a separate work tree, started from the target branch's latest commit: changes not yet committed in the project folder are not in it. " +
+	"Each step's handoff commits its work, and the user decides whether to merge at the end. So the description should not say how to commit, branch, push or merge. " +
+	"Write paths to the project's files relative to the project folder, since the work tree is elsewhere."
 
 // maxChatImages keeps a message within what the API takes in one request.
 const maxChatImages = 6
