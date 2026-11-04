@@ -96,7 +96,7 @@ func sumUsage(records []model.Usage, names map[string]string, since, now float64
 			parts[pk] = i
 			d.Parts = append(d.Parts, model.UsagePart{ProviderID: u.ProviderID, Model: u.Model})
 		}
-		d.Parts[i].Tokens += max(u.Input-u.CacheRead, 0) + u.Output
+		d.Parts[i].Add(u)
 	}
 	for id, p := range providers {
 		for _, m := range models[id] {

@@ -33,7 +33,9 @@ func TestSumUsageFillsDaysInTheAskersZone(t *testing.T) {
 	if got.Days[1].Calls != 0 || got.Days[2].Calls != 2 {
 		t.Fatalf("day totals %+v", got.Days)
 	}
-	if p := got.Days[2].Parts; len(p) != 2 || p[0] != (model.UsagePart{ProviderID: "b", Model: "m2", Tokens: 600}) || p[1] != (model.UsagePart{ProviderID: "a", Model: "m3", Tokens: 20}) {
+	if p := got.Days[2].Parts; len(p) != 2 ||
+		p[0] != (model.UsagePart{ProviderID: "b", Model: "m2", UsageTotals: model.UsageTotals{Calls: 1, Input: 500, Output: 500, CacheRead: 400, Tokens: 600, Unpriced: 1}}) ||
+		p[1] != (model.UsagePart{ProviderID: "a", Model: "m3", UsageTotals: model.UsageTotals{Calls: 1, Input: 10, Output: 10, Tokens: 20, CostUSD: 2}}) {
 		t.Fatalf("day parts %+v", p)
 	}
 	if got.Days[1].Parts == nil {

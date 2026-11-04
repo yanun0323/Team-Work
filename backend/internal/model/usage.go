@@ -58,15 +58,15 @@ type UsageProvider struct {
 type UsageDay struct {
 	Date string `json:"date"`
 	UsageTotals
-	// Parts are the day's tokens by provider and model, in no order.
+	// Parts are the day's usage by provider and model, in no order.
 	Parts []UsagePart `json:"parts"`
 }
 
-// UsagePart is one model's tokens on a day.
+// UsagePart is one model's usage on a day.
 type UsagePart struct {
 	ProviderID string `json:"providerId"`
 	Model      string `json:"model"`
-	Tokens     int    `json:"tokens"`
+	UsageTotals
 }
 
 // UsageStats is usage since a moment, by provider and by day.
