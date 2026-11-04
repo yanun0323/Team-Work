@@ -179,6 +179,15 @@ export function acceptMention(text: string, m: Mention, choice: MentionChoice) {
   return { text: text.slice(0, m.start) + choice.text + text.slice(m.start + m.token.length), cursor: m.start + choice.text.length }
 }
 
+/** "@All" in a meeting: everyone in it replies. */
+export const ALL: Person = { id: '@all', name: 'All' }
+
+/** Mentions with "@All" made everyone in the meeting: the guests, then others it mentions, the chair last to sum up. */
+export function withAll(mentions: string[], guests: string[], chair: string): string[] {
+  if (!mentions.includes(ALL.id)) return mentions
+  return [...new Set([...guests, ...mentions.filter((x) => x !== ALL.id && x !== chair)]), chair]
+}
+
 /** Who a message is for: those it mentions, or else the one whose question it answers, so the rest stay quiet. */
 export function answerMentions(mentions: string[], asker: string | undefined): string[] {
   return mentions.length || !asker ? mentions : [asker]

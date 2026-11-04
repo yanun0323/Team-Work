@@ -3,7 +3,7 @@ import { combine } from './rollup'
 import {
   cancelTask, fire, changeWorkflow, createTask, createTeam, DEFAULT_MODEL, deleteBlueprint, deleteTask, deleteTeam, gitSources, updateBlueprint, updateSource, deleteWorkflow, duplicateWorkflow, newWorkflow, hire, pauseTask, mergeTask, returnTask,
   MERGE_TIME, RESOLVE_TIME, resolveReview, resumeTask, setOwner, statusOf, subsOf, tick, END_PROMPT, START_PROMPT,
-  endTalk, REPLY_TIME, sayInTalk, taskTokens, createChat, handOffChat, rewindChat, retryChat, sayInChat, setChatChair, MAX_CHAT_PEOPLE,
+  endTalk, REPLY_TIME, sayInTalk, taskTokens, createChat, handOffChat, rewindChat, retryChat, sayInChat, setChatChair, inviteToChat, MAX_CHAT_PEOPLE,
 } from './sim'
 import { composePrompt, validate, wouldCreateCycle } from './graph'
 import type { GitSource, Script, World, Workflow, WorkflowNode } from './types'
@@ -359,12 +359,12 @@ describe('meetings', () => {
     const ada = Object.values(w.replicas)[0]
     const bea = hire(w, team.id, 'bp', 'Bea')
     const cy = hire(w, team.id, 'bp', 'Cy')
-    const chat = createChat(w, { teamId: team.id, replicaId: ada.id, guests: [bea.id, cy.id], text: '大家怎麼看' })
+    const chat = createChat(w, { teamId: team.id, replicaId: ada.id, guests: [bea.id, cy.id], mentions: [bea.id, cy.id, ada.id], text: '@All 大家怎麼看' })
     return { w, team, ada, bea, cy, chat }
   }
   const saidBy = (chat: { messages: { from: string; by?: string }[] }) => chat.messages.filter((m) => m.from === 'agent').map((m) => m.by)
 
-  it('has everyone reply in turn, the chair last, and those mentioned in the order mentioned', () => {
+  it('has those mentioned reply in the order mentioned, and the chair alone when nobody is', () => {
     const { w, ada, bea, cy, chat } = meet()
     run(w, REPLY_TIME * 3 + 1)
     expect(saidBy(chat)).toEqual([bea.id, cy.id, ada.id])
@@ -372,6 +372,17 @@ describe('meetings', () => {
     sayInChat(w, chat.id, '@Cy @Ada', [], [], [cy.id, ada.id])
     run(w, REPLY_TIME * 2 + 1)
     expect(saidBy(chat).slice(3)).toEqual([cy.id, ada.id])
+    sayInChat(w, chat.id, '好')
+    run(w, REPLY_TIME * 3 + 1)
+    expect(saidBy(chat).slice(5)).toEqual([ada.id])
+  })
+
+  it('starts with those picked or the first message mentions, with no line that they joined', () => {
+    const { w, team, ada, bea } = meet()
+    const dee = hire(w, team.id, 'bp', 'Dee')
+    const chat = createChat(w, { teamId: team.id, replicaId: ada.id, guests: [bea.id], mentions: [dee.id], text: '@Dee 你好' })
+    expect(chat.guests?.map((g) => g.replicaId)).toEqual([bea.id, dee.id])
+    expect(chat.joins).toBeUndefined()
   })
 
   it('asks in whoever is mentioned and not in it yet, up to the most it holds', () => {
@@ -381,6 +392,23 @@ describe('meetings', () => {
     sayInChat(w, chat.id, 'hi', [], [], more.map((r) => r.id))
     expect(chat.guests?.map((g) => g.replicaId)).toHaveLength(MAX_CHAT_PEOPLE - 1)
     expect(chat.next).toHaveLength(MAX_CHAT_PEOPLE - 4)
+  })
+
+  it('invites someone by hand only while nobody is replying, up to the most it holds', () => {
+    const { w, team, chat } = meet()
+    const more = [1, 2, 3, 4].map((i) => hire(w, team.id, 'bp', `p${i}`))
+    inviteToChat(w, chat.id, more[0].id)
+    expect(chat.guests).toHaveLength(2)
+    run(w, REPLY_TIME * 3 + 1)
+    inviteToChat(w, chat.id, more[0].id)
+    expect(chat.joins).toEqual([{ before: chat.messages.length, replicaId: more[0].id, name: more[0].name }])
+    sayInChat(w, chat.id, '@p2', [], [], [more[1].id])
+    expect(chat.joins?.[1]).toEqual({ before: chat.messages.length, replicaId: more[1].id, name: more[1].name })
+    expect(chat.messages.at(-1)?.text).toBe('@p2')
+    run(w, REPLY_TIME + 1)
+    for (const r of more) inviteToChat(w, chat.id, r.id)
+    expect(chat.guests?.map((g) => g.replicaId)).toHaveLength(MAX_CHAT_PEOPLE - 1)
+    expect(chat.replyAt).toBeUndefined()
   })
 
   it('has whoever failed to reply try again, and only that', () => {

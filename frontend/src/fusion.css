@@ -1156,6 +1156,8 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fx-room-head { flex: none; display: flex; align-items: center; gap: 16px; padding-inline-end: 130px; }
 /* room for one more tool: 更換主持人 */
 .fx-room:has(> .fx-tools .fx-handoff) .fx-room-head { padding-inline-end: 230px; }
+/* a new chat has no tools up there, so its picks take the whole width */
+.fx-room:not(:has(> .fx-tools)) .fx-room-head { padding-inline-end: 0; }
 .fx-room-model { font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
 .fx-room-head > svg, .fx-room-face > svg { flex: none; padding: 3px; background: var(--clip); box-shadow: var(--lift); transform: rotate(-2deg); }
 .fx-room-face { flex: none; display: block; padding: 0; background: none; }
@@ -1164,7 +1166,14 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fx-room-face:hover > svg { box-shadow: var(--lift), inset 0 0 0 100vmax var(--shade); }
 .fx-room-name { margin: -2px -6px; padding: 2px 6px; background: none; }
 .fx-room-head h2 { padding: 0; font-size: 18px; }
-.fx-room-picks { flex: 1; min-width: 0; display: grid; gap: 8px; }
+.fx-room-picks { --label: 4em; flex: 1; min-width: 0; display: grid; gap: 8px; }
+/* the labels here are few and short: as wide as the longest, 思考等級 or Thinking level */
+:lang(en) .fx-room-picks { --label: 7em; }
+.fx-room-picks .fx-field { grid-template-columns: var(--label) minmax(0, 1fr); }
+/* the employee pick keeps room for its list's rows; 多人對話 goes under it when the sheet is narrow */
+.fx-room-pick-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.fx-room-pick-row > .fx-field { flex: 1 1 calc(var(--label) + 12px + 240px); min-width: 0; }
+.fx-room-several { flex: none; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); white-space: nowrap; cursor: pointer; }
 /* a meeting on top: the stacked faces on a card like one face's, the names in a line, the chair's crown by theirs */
 .fx-room-faces { flex: none; display: block; }
 /* a meeting's names: the chair's large, a little under a lone employee's, the others after it */
@@ -1177,7 +1186,6 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fx-row-main .fx-crew-head { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
 .fx-row-main .fx-crew-head .fx-crew-name { flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: inherit; color: inherit; white-space: nowrap; text-overflow: ellipsis; overflow-wrap: normal; }
 .fx-row-main .fx-crew-head .fx-crew-bp { flex: 0 1000 auto; min-width: 2em; overflow: hidden; font-weight: 400; white-space: nowrap; text-overflow: ellipsis; overflow-wrap: normal; }
-.fx-pick-names { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* who wrote the replies below, in a meeting */
 .fx-room-log .fx-room-speaker { flex: none; display: flex; align-items: center; gap: 8px; margin-block-end: -6px; font-size: 12px; color: var(--muted); }
 .fx-room-speaker > svg, .fx-room-speaker .fx-room-face > svg { padding: 2px; }
@@ -1210,6 +1218,11 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fx-room-queue-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-room-say { position: relative; flex: none; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
 .fx-room-say-wide { flex: 0 0 100%; }
+.fx-room-to { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; font-size: 12.5px; color: var(--muted); }
+.fx-room-to-one { display: inline-flex; align-items: center; gap: 4px; color: var(--ink); }
+.fx-room-to-one svg { display: block; }
+/* a question's options with who asked, to answer them by typing instead: dashed, as a choice left open */
+.fx-room-answer { display: grid; gap: 8px; padding: 10px; border: 1.5px dashed var(--rule); border-radius: 4px; }
 .fx-room-attach { flex: none; display: grid; place-items: center; width: 32px; height: 40px; color: var(--muted); cursor: pointer; }
 .fx-room-attach:hover { color: var(--ink); }
 .fx-room-attach:focus-within { outline: 2px solid rgb(31 29 43 / 0.3); }

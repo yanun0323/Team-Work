@@ -6,7 +6,7 @@ import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, 
 
 import { colon, listOf, tr, trRecorded } from './core/i18n'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { isFixed, nodeOf } from './core/domain/graph'
+import { isFixed, nodeOf, taskNodeOf } from './core/domain/graph'
 import { blueprintUsers, gitSources, statusOf, subsOf } from './core/domain/sim'
 import { TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
 import { sourceState, sourceText, toolName } from './source'
@@ -1867,7 +1867,7 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
           {draft.from !== null && <p className="fx-d-muted">{tr('沿用 #{from} 的配置', { from: draft.from })}</p>}
           <div className="fx-flow">
             <FlowNotes wf={wf} staff={(n) => draftStaff(w, draft, n)} open={open} onOpen={onOpen}
-              canOpen={(n) => !isFixed(wf, n)} />
+              done={(n) => !!draft.skipStart && n === taskNodeOf(wf).id} canOpen={(n) => !isFixed(wf, n)} />
           </div>
         </Section>
       )}
@@ -1971,7 +1971,7 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
       <Section name={tr('人員')}>
         <div className="fx-flow">
           <FlowNotes wf={task.workflow} staff={(n) => draftStaff(w, draft, n)} open={open} onOpen={onOpen}
-            canOpen={(n) => !isFixed(task.workflow, n)} />
+            done={(n) => subsOf(w, id).some((s) => s.skipped && !s.cancelled && s.nodeId === n)} canOpen={(n) => !isFixed(task.workflow, n)} />
         </div>
       </Section>
       <p className="fx-d-actions">

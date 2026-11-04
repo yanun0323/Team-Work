@@ -48,6 +48,7 @@ export const endTalk = pick('endTalk', (_w: World, id: string, end: TalkEnd) => 
 // ---------- chats ----------
 
 export const sayInChat = pick('sayInChat', (_w: World, id: string, text: string, images: Attachment[] = [], files: Attachment[] = [], mentions: string[] = []) => fire_('POST', `/chats/${id}/say`, { text, images, files, mentions }))
+export const inviteToChat = pick('inviteToChat', (_w: World, id: string, replicaId: string) => fire_('POST', `/chats/${id}/guests`, { replicaId }))
 export const setChatChair = pick('setChatChair', (_w: World, id: string, replicaId: string) => fire_('PATCH', `/chats/${id}/chair`, { replicaId }))
 export const setChatMind = pick('setChatMind', (_w: World, id: string, model: string, effort: string) => fire_('PATCH', `/chats/${id}/mind`, { model, effort }))
 export const renameChat = pick('renameChat', (_w: World, id: string, title: string) => fire_('PATCH', `/chats/${id}/title`, { title }))

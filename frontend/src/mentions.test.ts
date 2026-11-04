@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acceptMention, answerMentions, fileChoices, mentionAt, mentionedPeople, personChoices, saidParts, skillChoices } from './mentions'
+import { acceptMention, ALL, answerMentions, fileChoices, mentionAt, mentionedPeople, personChoices, saidParts, skillChoices, withAll } from './mentions'
 
 const at = (text: string) => mentionAt(text, text.length)
 
@@ -98,6 +98,15 @@ describe('saidParts', () => {
       { kind: '#', id: undefined, path: 'my notes.txt', dir: false, skill: undefined },
       { kind: '$', id: undefined, path: undefined, dir: undefined, skill: 'tdd' },
     ])
+  })
+})
+
+describe('withAll', () => {
+  it('makes @All everyone in the meeting, others mentioned after the guests and the chair last', () => {
+    expect(withAll([ALL.id], ['b', 'c'], 'a')).toEqual(['b', 'c', 'a'])
+    expect(withAll(['a', ALL.id, 'd'], ['b', 'c'], 'a')).toEqual(['b', 'c', 'd', 'a'])
+    expect(withAll(['c'], ['b', 'c'], 'a')).toEqual(['c'])
+    expect(mentionedPeople('@All 你們呢', [ALL, { id: 'a', name: 'Ada' }])).toEqual([ALL.id])
   })
 })
 

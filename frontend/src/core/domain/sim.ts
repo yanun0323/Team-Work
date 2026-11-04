@@ -348,19 +348,20 @@ export const MAX_CHAT_PEOPLE = 6
 /** Whether an employee chairs a chat or is a guest of it, whether or not they have left since. */
 export const chatHas = (chat: Chat, replicaId: string) => replicaId === chat.replicaId || !!chat.guests?.some((g) => g.replicaId === replicaId)
 
-/** Brings into a chat whoever of its company is mentioned and not in it yet, up to the most it holds. */
-function invite(w: World, chat: Chat, ids: string[]) {
+/** Brings into a chat whoever of its company is mentioned and not in it yet, up to the most it holds. With `before`, the chat shows they joined there; those it starts with did not join. */
+function invite(w: World, chat: Chat, ids: string[], before?: number) {
   for (const id of ids) {
     const r = w.replicas[id]
     if (!r || r.teamId !== chat.teamId || !chat.teamId || chatHas(chat, id) || 1 + (chat.guests?.length ?? 0) >= MAX_CHAT_PEOPLE) continue
     chat.guests = [...chat.guests ?? [], { replicaId: r.id, name: r.name, look: r.look, model: r.model }]
+    if (before !== undefined) chat.joins = [...chat.joins ?? [], { before, replicaId: r.id, name: r.name }]
   }
 }
 
-/** Who reply to a message, in turn: those it mentions, in that order, or everyone, the chair last to sum up. Those who left are skipped; the airport staff are ''. */
+/** Who reply to a message, in turn: those it mentions, in that order, or else the chair alone. "@All" comes as everyone mentioned, the chair last to sum up. Those who left are skipped; the airport staff are ''. */
 export function speakersFor(w: World, chat: Chat, mentions: string[] = []): string[] {
   if (!chat.teamId) return ['']
-  const wanted = mentions.length ? mentions : [...(chat.guests ?? []).map((g) => g.replicaId), chat.replicaId]
+  const wanted = mentions.length ? mentions : [chat.replicaId]
   return [...new Set(wanted)].filter((id) => w.replicas[id] && chatHas(chat, id))
 }
 
@@ -369,6 +370,13 @@ export const actorOf = (chat: Chat, mentions: string[] = []) => (mentions.length
 
 /** The actor of the round under way, from the user's last message. */
 export const roundActor = (chat: Chat) => actorOf(chat, chat.messages.findLast((m) => m.from === 'user')?.mentions)
+
+/** Brings an employee of the chat's company into it, as mentioning them would, while nobody is replying. */
+export function inviteToChat(w: World, id: string, replicaId: string) {
+  const chat = w.chats[id]
+  if (!chat || chat.replyAt !== undefined || chat.change) return
+  invite(w, chat, [replicaId], chat.messages.length)
+}
 
 /** Has a guest chair the meeting, the chair becoming a guest. */
 export function setChatChair(w: World, id: string, replicaId: string) {
@@ -436,7 +444,8 @@ export function sayInChat(w: World, id: string, text: string, images: Attachment
 }
 
 function hearInChat(w: World, chat: Chat, text: string, images: Attachment[] = [], files: Attachment[] = [], mentions: string[] = []) {
-  invite(w, chat, mentions)
+  // after the message that mentions them; those the first message mentions start the chat, so did not join
+  invite(w, chat, mentions, chat.messages.length ? chat.messages.length + 1 : undefined)
   const [first, ...rest] = speakersFor(w, chat, mentions)
   if (first === undefined) return
   delete chat.question
@@ -561,7 +570,7 @@ export function rewindChat(w: World, id: string, index: number) {
   const chat = w.chats[id]
   if (chat?.messages[index]?.from !== 'user') return
   chat.messages.length = index
-  for (const h of chat.handoffs ?? []) h.before = Math.min(h.before, index)
+  for (const h of [...chat.handoffs ?? [], ...chat.joins ?? []]) h.before = Math.min(h.before, index)
   delete chat.replyAt
   delete chat.next
   delete chat.question
@@ -596,6 +605,9 @@ export function handOffChat(w: World, id: string, index: number, replicaId: stri
     delete fork.effort
   }
   if (!fork.handoffs) delete fork.handoffs
+  // who joined after where it is copied from did so in the original alone
+  fork.joins = chat.joins?.filter((j) => j.before <= keep).map((j) => ({ ...j }))
+  if (!fork.joins?.length) delete fork.joins
   if (keep < chat.messages.length) delete fork.question
   delete fork.change // a copy cannot agree for the original
   delete fork.unread

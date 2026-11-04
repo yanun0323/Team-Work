@@ -314,6 +314,8 @@ export interface Chat {
   queue?: QueuedMessage[]
   /** Where other employees handed the chat on, oldest first. */
   handoffs?: ChatHandoff[]
+  /** Where guests joined once the chat was under way, oldest first; shown to the user alone. */
+  joins?: ChatJoin[]
   /** The others in a meeting, in the order they joined. */
   guests?: ChatGuest[]
   /** Who replies, or last replied, to the user's last message; `next` are who reply after them. */
@@ -323,6 +325,13 @@ export interface Chat {
 }
 
 /** Where an employee handed a chat to whoever comes next: the messages before `before` were theirs, back to the handoff before it. */
+/** Where an employee joined a chat, invited or mentioned: before the message at `before`. */
+export interface ChatJoin {
+  before: number
+  replicaId: string
+  name: string
+}
+
 export interface ChatHandoff {
   before: number
   replicaId: string
