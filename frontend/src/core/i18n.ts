@@ -537,7 +537,6 @@ const en = {
   '關於': 'About',
   '統計': 'Usage',
   '統計區間': 'Period',
-  '圖表分色': 'Chart split',
   '過去 30 天': 'Last 30 days',
   '所有歷史': 'All time',
   '這段期間沒有用量': 'No usage in this period',

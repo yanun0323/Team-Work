@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { bars, fmtCacheRate, fmtCount, fmtUsd, partKey, rangeStart, usageColors, UsageReport, type UsageStats, type UsageTotals } from './Stats'
+import { addTotals, barProviders, bars, fmtCacheRate, fmtCount, fmtUsd, partKey, rangeStart, usageColors, UsageReport, type UsageStats, type UsageTotals } from './Stats'
 
 const totals = (o: Partial<UsageTotals>): UsageTotals => ({ calls: 1, input: 0, output: 0, cacheRead: 0, tokens: 0, costUsd: 0, unpriced: 0, ...o })
 
@@ -20,21 +20,26 @@ test('cost is a dash when nothing was priced', () => {
 })
 
 test('long periods are drawn a week to a bar', () => {
-  const days = Array.from({ length: 61 }, (_, i) => ({ date: `d${i}`, ...totals({ tokens: 1 }), parts: [{ providerId: 'p', model: 'm', tokens: 1 }] }))
+  const days = Array.from({ length: 61 }, (_, i) => ({ date: `d${i}`, ...totals({ tokens: 1 }), parts: [{ providerId: 'p', model: 'm', ...totals({ tokens: 1 }) }] }))
   const list = bars(days)
   expect(list).toHaveLength(9)
   expect(list[0]).toMatchObject({ label: 'd0 – d6', tokens: 7 })
-  expect(list[0].parts.get(partKey('p', 'm'))).toBe(7)
+  expect(list[0].parts.get(partKey('p', 'm'))).toMatchObject({ calls: 7, tokens: 7 })
   expect(list[8]).toMatchObject({ label: 'd56 – d60', tokens: 5 })
   expect(bars(days.slice(0, 7))).toHaveLength(7)
 })
 
-test('split by provider, a bar sums each provider\'s models', () => {
+test('narrowed to a bar, the table keeps its rows and shows what each used in that bar', () => {
+  const row = (id: string, models: string[]) => ({ id, name: id, ...totals({ tokens: 100 }), models: models.map((model) => ({ model, ...totals({ tokens: 50 }) })) })
   const days = [{ date: 'd0', ...totals({ tokens: 6 }), parts: [
-    { providerId: 'p', model: 'a', tokens: 1 }, { providerId: 'p', model: 'b', tokens: 2 }, { providerId: 'q', model: 'c', tokens: 3 },
+    { providerId: 'p', model: 'a', ...totals({ tokens: 1, input: 10, cacheRead: 5, costUsd: 0.5 }) },
+    { providerId: 'p', model: 'b', ...totals({ tokens: 2, input: 10, cacheRead: 0, costUsd: 0.25 }) },
   ] }]
-  const [bar] = bars(days, 'provider')
-  expect([...bar.parts]).toEqual([['p', 3], ['q', 3]])
+  const [p, q] = barProviders([row('p', ['a', 'b']), row('q', ['c'])], bars(days)[0])
+  expect(p).toMatchObject({ id: 'p', calls: 2, tokens: 3, input: 20, cacheRead: 5, costUsd: 0.75 })
+  expect(p.models.map((m) => [m.model, m.tokens])).toEqual([['a', 1], ['b', 2]])
+  expect(q).toMatchObject({ id: 'q', calls: 0, tokens: 0 })
+  expect(q.models).toMatchObject([{ model: 'c', tokens: 0 }])
 })
 
 test('the report lists each provider over its models', () => {
@@ -43,9 +48,9 @@ test('the report lists each provider over its models', () => {
     total: totals({ calls: 2, tokens: 450, input: 1000, cacheRead: 600, unpriced: 2 }),
     providers: [{ id: 'p', name: 'Claude', ...totals({ calls: 2, tokens: 450, input: 1000, cacheRead: 600, unpriced: 2 }),
       models: [{ model: 'claude-opus', ...totals({ calls: 2, tokens: 450, input: 1000, cacheRead: 600, unpriced: 2 }) }] }],
-    days: [{ date: '2026-11-03', ...totals({ tokens: 450 }), parts: [{ providerId: 'p', model: 'claude-opus', tokens: 450 }] }],
+    days: [{ date: '2026-11-03', ...totals({ tokens: 450 }), parts: [{ providerId: 'p', model: 'claude-opus', ...totals({ calls: 2, tokens: 450 }) }] }],
   }
-  const html = renderToStaticMarkup(<UsageReport stats={stats} depth="model" />)
+  const html = renderToStaticMarkup(<UsageReport stats={stats} />)
   expect(html).toContain('Claude')
   expect(html).toContain('claude-opus')
   expect(html).toContain('60%')
@@ -54,10 +59,7 @@ test('the report lists each provider over its models', () => {
   expect(html.match(/fx-stats-swatch/g)).toHaveLength(2)
   const color = usageColors(stats.providers).get(partKey('p', 'claude-opus'))!
   expect(html).toContain(`background:${color}`)
-  // by provider, the bar takes the provider's colour instead
-  const byProvider = renderToStaticMarkup(<UsageReport stats={stats} />)
-  expect(byProvider).toContain(`background:${usageColors(stats.providers).get('p')}`)
-  expect(byProvider).not.toContain(`background:${color}`)
+  expect(html).not.toContain(`background:${usageColors(stats.providers).get('p')}`)
 })
 
 test('every row has its own colour', () => {
@@ -66,4 +68,10 @@ test('every row has its own colour', () => {
   const colors = usageColors(providers)
   expect(colors.size).toBe(7)
   expect(new Set(colors.values()).size).toBe(7)
+})
+
+test('adding to a day leaves its date and parts alone', () => {
+  const day = { date: 'd0', ...totals({ calls: 0 }), parts: [] as unknown[] }
+  addTotals(day, totals({ tokens: 5 }))
+  expect(day).toMatchObject({ date: 'd0', calls: 1, tokens: 5, parts: [] })
 })

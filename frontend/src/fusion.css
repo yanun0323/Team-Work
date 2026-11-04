@@ -789,11 +789,8 @@ a.fx-save { text-decoration: none; }
 
 /* the airport's usage: the period, three totals, a bar a day, then each provider over its models */
 .fx-stats { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-content: start; }
-/* the period on the left, how finely the chart is split on the right */
 .fx-stats-tools { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
 .fx-stats-tools > .fx-switcher:first-child { width: min(100%, 240px); }
-.fx-stats-tools > .fx-switcher + .fx-switcher { width: 150px; height: 30px; }
-.fx-stats-tools > .fx-switcher + .fx-switcher .fx-switcher-option { font-size: 13px; }
 .fx-stats-sum { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; }
 .fx-stats-sum div { display: grid; gap: 2px; min-width: 0; }
 .fx-stats-sum dt { color: var(--muted); font-size: 12px; }
@@ -802,7 +799,7 @@ a.fx-save { text-decoration: none; }
 .fx-stats-chart { position: relative; display: grid; gap: 6px; margin: -12px 0 0; }
 .fx-stats-bars { display: flex; align-items: flex-end; gap: 2px; height: 96px; border-bottom: 1px solid var(--ink); }
 /* each bar a stack of strips, one per model, the table's first row at the bottom */
-/* a column the chart's full height: the space above the bar shows the whole bar, 12px of it kept even over the tallest */
+/* a column the chart's full height, so the space above a bar points at it too; 12px of it kept even over the tallest */
 .fx-stats-col { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; height: 100%; }
 .fx-stats-above { flex: 1 1 0; min-height: 0; }
 .fx-stats-bar {
@@ -810,10 +807,8 @@ a.fx-save { text-decoration: none; }
   height: calc(var(--h) * (100% - 12px)); min-height: 1px; overflow: hidden; border-radius: 1px 1px 0 0;
 }
 .fx-stats-col[data-shown] { background: color-mix(in oklab, var(--ink) 8%, transparent); }
-.fx-stats-col[data-shown] > .fx-stats-bar { filter: grayscale(1); }
 .fx-stats-bar > span { flex: 1 1 0; min-height: 0; }
-.fx-stats-bar > span[data-shown] { filter: brightness(0.85) saturate(1.2); }
-/* the strip under the pointer, on a white note pinned in the chart's top corner away from it */
+/* the bar under the pointer, on a white note pinned in the chart's top corner away from it */
 .fx-stats-note {
   position: absolute; top: -6px; inset-inline-start: 0; z-index: 1; display: grid; gap: 1px; max-width: 60%;
   padding: 7px 10px 8px; border-radius: 2px; background: var(--note-fixed); box-shadow: var(--lift);

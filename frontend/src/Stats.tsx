@@ -24,7 +24,7 @@ export interface UsageStats {
   providers: Array<UsageTotals & { id: string; name: string; models: Array<UsageTotals & { model: string }> }>
   days: Array<UsageTotals & { date: string; parts: UsagePart[] }>
 }
-export interface UsagePart { providerId: string; model: string; tokens: number }
+export type UsagePart = UsageTotals & { providerId: string; model: string }
 
 /** One model's share of the chart, keyed as in partKey. */
 export const partKey = (providerId: string, model: string) => `${providerId}\u0000${model}`
@@ -75,28 +75,28 @@ export const fmtCacheRate = (t: UsageTotals) => (t.input > 0 ? `${Math.round((t.
 /** More than this many days are drawn a week to a bar, so each stays wide enough to see. */
 const DAILY_BARS = 60
 
-export interface Bar { label: string; tokens: number; parts: Map<string, number> }
+/** A bar's usage by model, keyed as in partKey. */
+export interface Bar { label: string; tokens: number; parts: Map<string, UsageTotals> }
 
-/** How finely the chart splits each bar: by provider, or by each provider's models. */
-export const STATS_DEPTHS = ['provider', 'model'] as const
-export type StatsDepth = (typeof STATS_DEPTHS)[number]
-const DEPTH_LABELS: Record<StatsDepth, Key> = { provider: '供應商', model: '模型' }
-const DEPTH_KEY = 'tw.statsDepth'
-const savedDepth = (): StatsDepth => {
-  try { return localStorage.getItem(DEPTH_KEY) === 'model' ? 'model' : 'provider' } catch { return 'provider' }
+const emptyTotals = (): UsageTotals => ({ calls: 0, input: 0, output: 0, cacheRead: 0, tokens: 0, costUsd: 0, unpriced: 0 })
+const TOTAL_KEYS = Object.keys(emptyTotals()) as Array<keyof UsageTotals>
+/** Counts u into t, touching only the totals: t may be a day, whose date and parts stay as they are. */
+export const addTotals = (t: UsageTotals, u: UsageTotals) => {
+  for (const k of TOTAL_KEYS) t[k] += u[k] ?? 0
 }
 
-/** Bars keyed by provider id, or by partKey when split by model. */
-export function bars(days: UsageStats['days'], depth: StatsDepth = 'model'): Bar[] {
+export function bars(days: UsageStats['days']): Bar[] {
   const step = days.length <= DAILY_BARS ? 1 : 7
   const out: Bar[] = []
   for (let i = 0; i < days.length; i += step) {
     const group = days.slice(i, i + step)
-    const parts = new Map<string, number>()
+    const parts = new Map<string, UsageTotals>()
     for (const d of group) {
       for (const p of d.parts ?? []) {
-        const k = depth === 'model' ? partKey(p.providerId, p.model) : p.providerId
-        parts.set(k, (parts.get(k) ?? 0) + p.tokens)
+        const k = partKey(p.providerId, p.model)
+        const t = parts.get(k) ?? emptyTotals()
+        addTotals(t, p)
+        parts.set(k, t)
       }
     }
     const label = step === 1 ? group[0].date : `${group[0].date} – ${group[group.length - 1].date}`
@@ -107,11 +107,6 @@ export function bars(days: UsageStats['days'], depth: StatsDepth = 'model'): Bar
 
 export function Stats() {
   const [range, setRange] = useState<StatsRange>('30d')
-  const [depth, setDepth] = useState<StatsDepth>(savedDepth)
-  const pickDepth = (d: StatsDepth) => {
-    setDepth(d)
-    try { localStorage.setItem(DEPTH_KEY, d) } catch { /* private mode */ }
-  }
   const [stats, setStats] = useState<UsageStats | null>(null)
   const [error, setError] = useState('')
   const world = useStore((s) => s.world)
@@ -136,10 +131,9 @@ export function Stats() {
     <div className="fx-stats">
       <div className="fx-stats-tools">
         <Switcher name="fx-stats-range" label={tr('統計區間')} options={STATS_RANGES} labels={RANGE_LABELS} value={range} onChange={setRange} />
-        <Switcher name="fx-stats-depth" label={tr('圖表分色')} options={STATS_DEPTHS} labels={DEPTH_LABELS} value={depth} onChange={pickDepth} />
       </div>
       {error ? <p className="fx-empty" role="alert">{error}</p>
-        : stats && (stats.total.calls === 0 ? <p className="fx-empty">{tr('這段期間沒有用量')}</p> : <UsageReport stats={stats} depth={depth} />)}
+        : stats && (stats.total.calls === 0 ? <p className="fx-empty">{tr('這段期間沒有用量')}</p> : <UsageReport stats={stats} />)}
     </div>
   )
 }
@@ -161,9 +155,28 @@ function Switcher<T extends string>({ name, label, options, labels, value, onCha
   )
 }
 
-export function UsageReport({ stats, depth = 'provider' }: { stats: UsageStats; depth?: StatsDepth }) {
+/**
+ * The table's rows narrowed to one bar: the same providers and models in the same order, so nothing moves under
+ * the pointer, each with what it used in that bar.
+ */
+export function barProviders(providers: UsageStats['providers'], bar: Bar): UsageStats['providers'] {
+  return providers.map((p) => {
+    const sum = emptyTotals()
+    const models = p.models.map((m) => {
+      const t = bar.parts.get(partKey(p.id, m.model)) ?? emptyTotals()
+      addTotals(sum, t)
+      return { model: m.model, ...t }
+    })
+    return { id: p.id, name: p.name, ...sum, models }
+  })
+}
+
+export function UsageReport({ stats }: { stats: UsageStats }) {
   const { total } = stats
   const colors = usageColors(stats.providers)
+  const list = bars(stats.days)
+  const [shown, setShown] = useState<number | null>(null)
+  const rows = shown !== null && list[shown] ? barProviders(stats.providers, list[shown]) : stats.providers
   return (
     <>
       <dl className="fx-stats-sum">
@@ -171,12 +184,12 @@ export function UsageReport({ stats, depth = 'provider' }: { stats: UsageStats; 
         <div><dt>{tr('費用')}</dt><dd>{fmtUsd(total)}</dd></div>
         <div><dt>{tr('快取命中率')}</dt><dd>{fmtCacheRate(total)}</dd></div>
       </dl>
-      <DailyChart days={stats.days} providers={stats.providers} colors={colors} depth={depth} />
-      <table className="fx-stats-table">
+      <DailyChart list={list} providers={stats.providers} colors={colors} shown={shown} onShow={setShown} />
+      <table className="fx-stats-table" data-bar={shown !== null ? '' : undefined}>
         <thead>
           <tr><th scope="col">{tr('供應商與模型')}</th><th scope="col">Token</th><th scope="col">{tr('快取命中率')}</th><th scope="col">{tr('費用')}</th></tr>
         </thead>
-        {stats.providers.map((p) => (
+        {rows.map((p) => (
           <tbody key={p.id}>
             <tr className="fx-stats-provider">
               <th scope="row"><Swatch color={colors.get(p.id)} />{p.name}</th><td>{fmtCount(p.tokens)}</td><td>{fmtCacheRate(p)}</td><td>{fmtUsd(p)}</td>
@@ -198,51 +211,35 @@ const Swatch = ({ color }: { color?: string }) => (
   <span className="fx-stats-swatch" aria-hidden="true" style={{ '--swatch': color } as CSSProperties} />
 )
 
-function DailyChart({ days, providers, colors, depth }: {
-  days: UsageStats['days']; providers: UsageStats['providers']; colors: Map<string, string>; depth: StatsDepth
+function DailyChart({ list, providers, colors, shown, onShow }: {
+  list: Bar[]; providers: UsageStats['providers']; colors: Map<string, string>; shown: number | null; onShow: (bar: number | null) => void
 }) {
-  const list = bars(days, depth)
   // stacked in the table's order, its first row at the bottom
-  const order = depth === 'model' ? providers.flatMap((p) => p.models.map((m) => partKey(p.id, m.model))) : providers.map((p) => p.id)
-  const names = new Map<string, { provider: string; model?: string }>(depth === 'model'
-    ? providers.flatMap((p) => p.models.map((m) => [partKey(p.id, m.model), { provider: p.name, model: m.model }] as const))
-    : providers.map((p) => [p.id, { provider: p.name }] as const))
-  // key null: the whole bar, from the pointer in the space above it
-  const [shown, setShown] = useState<{ bar: number; key: string | null } | null>(null)
+  const order = providers.flatMap((p) => p.models.map((m) => partKey(p.id, m.model)))
   if (list.length === 0) return null
   const peak = Math.max(...list.map((b) => b.tokens))
   const top = list.find((b) => b.tokens === peak)!
   return (
     <figure className="fx-stats-chart">
       <div className="fx-stats-bars" role="img" aria-label={tr('每日 Token，最多是 {label} 的 {tokens}', { label: top.label, tokens: fmtCount(peak) })}
-        onPointerLeave={() => setShown(null)}>
+        onPointerLeave={() => onShow(null)}>
         {list.map((b, i) => (
-          <span key={b.label} className="fx-stats-col" data-shown={shown?.bar === i && shown.key === null ? '' : undefined}>
-            <span className="fx-stats-above" onPointerEnter={() => setShown({ bar: i, key: null })} />
+          <span key={b.label} className="fx-stats-col" data-shown={shown === i ? '' : undefined} onPointerEnter={() => onShow(i)}>
+            <span className="fx-stats-above" />
             <span className="fx-stats-bar" style={{ '--h': peak > 0 ? b.tokens / peak : 0 } as CSSProperties}>
               {order.map((k) => {
-                const tokens = b.parts.get(k) ?? 0
-                return tokens > 0 && (
-                  <span key={k} style={{ flexGrow: tokens, background: colors.get(k) }}
-                    data-shown={shown?.bar === i && shown.key === k ? '' : undefined}
-                    onPointerEnter={() => setShown({ bar: i, key: k })} />
-                )
+                const tokens = b.parts.get(k)?.tokens ?? 0
+                return tokens > 0 && <span key={k} style={{ flexGrow: tokens, background: colors.get(k) }} />
               })}
             </span>
           </span>
         ))}
       </div>
-      {shown && list[shown.bar] && (
+      {shown !== null && list[shown] && (
         // in the corner away from the bar, so it never covers what it describes
-        <div className={shown.bar < list.length / 2 ? 'fx-stats-note fx-stats-note-right' : 'fx-stats-note'} aria-hidden="true">
-          {shown.key === null ? <>
-            <b>{list[shown.bar].label}</b>
-            <span>{fmtCount(list[shown.bar].tokens)} Token</span>
-          </> : <>
-            <b><Swatch color={colors.get(shown.key)} />{names.get(shown.key)?.provider}</b>
-            {names.get(shown.key)?.model && <span>{names.get(shown.key)?.model}</span>}
-            <span>{list[shown.bar].label} · {fmtCount(list[shown.bar].parts.get(shown.key) ?? 0)} Token</span>
-          </>}
+        <div className={shown < list.length / 2 ? 'fx-stats-note fx-stats-note-right' : 'fx-stats-note'} aria-hidden="true">
+          <b>{list[shown].label}</b>
+          <span>{fmtCount(list[shown].tokens)} Token</span>
         </div>
       )}
       <figcaption aria-hidden="true"><span>{list[0].label.split(' – ')[0]}</span><span>{list[list.length - 1].label.split(' – ').pop()}</span></figcaption>
@@ -252,10 +249,8 @@ function DailyChart({ days, providers, colors, depth }: {
 
 /** Made-up numbers for the simulator, steady for each provider and range. */
 function mockStats(w: World, range: StatsRange, since: number): UsageStats {
-  const empty = (): UsageTotals => ({ calls: 0, input: 0, output: 0, cacheRead: 0, tokens: 0, costUsd: 0, unpriced: 0 })
-  const add = (t: UsageTotals, u: UsageTotals) => {
-    for (const k of Object.keys(u) as Array<keyof UsageTotals>) t[k] += u[k]
-  }
+  const empty = emptyTotals
+  const add = addTotals
   const n = range === '30d' ? 30 : 120
   const today = new Date()
   const days = Array.from({ length: n }, (_, i) => {
@@ -277,7 +272,7 @@ function mockStats(w: World, range: StatsRange, since: number): UsageStats {
           costUsd: subscription ? 0 : ((input - cacheRead) * 3 + output * 15 + cacheRead * 0.3) / 1e6, unpriced: subscription ? 12 : 0 }
         add(m, u)
         add(day, u)
-        day.parts.push({ providerId: p.id, model, tokens: u.tokens })
+        day.parts.push({ providerId: p.id, model, ...u })
       })
       add(sum, m)
       return { model, ...m }
