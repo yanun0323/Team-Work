@@ -14,6 +14,7 @@ import { OFFICE_SCALE } from './office'
 import { Figure, lookOf, newRig, pose, type Rig } from './People'
 import { usePrefs } from './prefs'
 import { toon } from './toon'
+import { IndoorRoom } from './IndoorLight'
 import { MAX_FRAME } from './PixelPass'
 import { advance, inSteps, type P, type Walker } from './walk'
 
@@ -521,6 +522,9 @@ function Terminal({ crowd, detail }: { crowd: boolean; detail: boolean }) {
         )}
       </>
       {crowd && <Passengers />}
+      {/* lit evenly after dark, like ceiling panels; down to the ground for the escalators' lower ends */}
+      {/* a little past the walls, so no wall face sits on its edge, and above the apron's paving */}
+      <IndoorRoom min={[x0 - 0.1, -HALL_LIFT + 0.09, z0 - 0.1]} max={[x1 + 0.1, CUT + 2, z1 + 0.1]} />
     </>
   )
 }
@@ -543,6 +547,8 @@ function TowerCab() {
       <Clear p={[-1.4, floor + 0.7, 0]} s={[0.1, 1.4, 2.7]} c="#5b8ab4" />
       <Clear p={[0, floor + 0.7, 1.4]} s={[2.9, 1.4, 0.1]} c="#5b8ab4" />
       <Clear p={[1.4, floor + 0.7, 0]} s={[0.1, 1.4, 2.7]} c="#5b8ab4" />
+      {/* the whole slab under the cab, so no face sits on the box's edge, but not the shaft below it */}
+      <IndoorRoom min={[-1.65, floor - 0.21, -1.65]} max={[1.65, floor + 1.6, 1.65]} />
     </group>
   )
 }

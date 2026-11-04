@@ -156,7 +156,7 @@ it('offers the terminal startup command under 進階, empty by default', () => {
 it('offers the global AGENTS.md under 系統, locked until the file has been read', () => {
   const html = renderToStaticMarkup(<SystemSection />)
   expect(html).toContain('>系統</h4>')
-  expect(html).toContain('<span>全域 AGENTS.md</span>')
+  expect(html).toContain('<span>全域員工規則</span>')
   expect(html).toMatch(/<textarea[^>]* disabled/)
   expect(html).toContain('role="alert"')
 })

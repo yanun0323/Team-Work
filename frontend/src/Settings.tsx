@@ -342,7 +342,7 @@ export function SystemSection() {
         <Toggle label={tr('使用 Codex Skill')} checked={codexSkills} onChange={(v) => setPrefs({ codexSkills: v })} />
         <Toggle label={tr('使用 Claude Skill')} checked={claudeSkills} onChange={(v) => setPrefs({ claudeSkills: v })} />
         <label className="fx-field fx-field-top">
-          <span>{tr('全域 AGENTS.md')}</span>
+          <span>{tr('全域員工規則')}</span>
           <textarea ref={box} className="fx-control fx-prefs-prompt" rows={6} value={draft} disabled={saved === null} spellCheck={false}
             onChange={(e) => { typing.current = true; setDraft(e.target.value) }} onBlur={() => void save()} />
         </label>
@@ -464,10 +464,6 @@ export function PrefsPage() {
             onChange={(v) => prefs.set({ autoTab: v as AutoTab })} />
         </div>
       </section>
-      <section className="fx-d-group" aria-labelledby="fx-prefs-tutorial">
-        <h4 id="fx-prefs-tutorial">{tr('教學')}</h4>
-        <TutorialActs />
-      </section>
       <section className="fx-d-group" aria-labelledby="fx-prefs-controls">
         <h4 id="fx-prefs-controls">{tr('操作')}</h4>
         <div className="fx-fields">
@@ -501,6 +497,10 @@ export function PrefsPage() {
       <MusicSection />
       {!MOCK && <SystemSection />}
       {!MOCK && <AdvancedSection />}
+      <section className="fx-d-group" aria-labelledby="fx-prefs-tutorial">
+        <h4 id="fx-prefs-tutorial">{tr('教學')}</h4>
+        <TutorialActs />
+      </section>
       {!MOCK && <ReloadSettings />}
       <ResetSettings />
     </div>

@@ -38,7 +38,7 @@ export const STEPS: TutorialStep[] = [
   { id: 'provider', text: '到機場新增模型供應商', after: ['help'], met: (w) => Object.keys(w.providers).length > 0, goal: { kind: 'airport', tab: 'providers' } },
   { id: 'company', text: '新增一間公司', after: ['provider'], met: (w) => Object.keys(w.teams).length > 0, goal: { kind: 'newCompany' } },
   { id: 'airportChat', text: '到機場找機場服務人員聊天', after: ['provider'], met: (w) => some(w.chats, (c) => !c.teamId), goal: { kind: 'airport', tab: 'chats' } },
-  { id: 'globalAgents', text: '到機場 > 設定填寫全域 AGENTS.md', after: ['provider'], goal: { kind: 'airport', tab: 'prefs' } },
+  { id: 'globalAgents', text: '到機場 > 設定填寫全域員工規則', after: ['provider'], goal: { kind: 'airport', tab: 'prefs' } },
   { id: 'sound', text: '到機場 > 設定調整音樂或音效', after: ['provider'], goal: { kind: 'airport', tab: 'prefs' } },
   { id: 'hire', text: '新增一個員工', after: ['company'], met: (w) => Object.keys(w.replicas).length > 0, goal: { kind: 'company', tab: 'crew' } },
   { id: 'openFolder', text: '從公司的資料夾按鈕打開 Finder', after: ['company'], goal: { kind: 'company' } },

@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { Select } from './Controls'
-import { crewOrder, CrewPicks, CrewRow, CrewSelect } from './Pickers'
+import { CrewPicks, CrewRow, CrewSelect } from './Pickers'
 import { chatMindOf, chatPeople, chatPreview, DEFAULT_EFFORT, effortsOf, lastAirportMind, lastChatReplica, mindOf, modelGroups, modelsOf, noteColors, personMindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
 import { ALL, answerMentions, mentionedPeople, withAll } from './mentions'
@@ -17,7 +17,7 @@ import { Gone, Heading, DeleteTool, PinTool, type Head } from './DrawerDetail'
 import { composing } from './ime'
 import { fmtClock, fmtTokens, teamReplicas, useAtBottom, useStickToBottom } from './core/model'
 import type { Attachment, Chat, Look, QueuedMessage } from './core/domain/types'
-import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, inviteToChat, openFolder, readChat, renameChat, resolveChatChange, retryChat, rewindChat, sayInChat, setChatChair, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
+import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, openFolder, readChat, renameChat, resolveChatChange, retryChat, rewindChat, sayInChat, setChatChair, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
 import { AIRPORT_STAFF_LOOK, canHandOff, MAX_CHAT_PEOPLE, roundActor } from './core/domain/sim'
 import { HandOffIcon, HandOffMenu } from './HandOffMenu'
 import { useLiveOutput, useLiveText } from './core/live'
@@ -201,8 +201,6 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     return ids.flatMap((id) => people.filter((x) => x.id === id))
   }
   const sendTo = meeting ? (() => { const m = mentionsIn(text); return m.length ? m : [chair] })().flatMap((id) => (w.replicas[id] ? [w.replicas[id]] : [])) : []
-  // whom the company has to invite, in the order of its pick-lists
-  const outsiders = crewOrder(w, crew.filter((r) => !inChat(r.id))).flatMap((id) => (w.replicas[id] ? [w.replicas[id]] : []))
   const guests = chat ? people.slice(1).flatMap((x) => (w.replicas[x.id] ? [w.replicas[x.id]] : [])) : []
   // each employee writes on their own colour; the airport staff on the plain note
   const colors = chat && !airport ? noteColors([...people.map((x) => x.id), ...chat.messages.flatMap((m) => (m.by ? [m.by] : []))]) : {}
@@ -378,10 +376,6 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     <div className="fx-room">
       {chat && (
         <div className="fx-tools">
-          {!airport && !left && !full && outsiders.length > 0 && (
-            <HandOffMenu crew={outsiders} label={tr('邀請其他員工')} text end disabled={writing || !!chat.change}
-              onPick={(to) => act((y) => inviteToChat(y, chat.id, to))} />
-          )}
           {meeting && guests.length > 0 && (
             <HandOffMenu crew={guests} label={tr('更換主持人')} text end disabled={writing || !!chat.change}
               onPick={(to) => act((y) => setChatChair(y, chat.id, to))} />

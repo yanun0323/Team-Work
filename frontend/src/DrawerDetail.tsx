@@ -45,6 +45,7 @@ import { addProvider, providerUsers, updateProvider, type ProviderLogin, DEFAULT
 import { handedImageUrl, readHandedFile, request } from './core/backend'
 import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, endTalk, fire, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
+import { NotesSheet } from './Notes'
 import { learn } from './tutorial'
 import { ChatSheet, type ChatTaskSeed } from './ChatSheet'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, link, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
@@ -80,9 +81,11 @@ export type Item =
   | { kind: 'newProvider' }
   | { kind: 'blueprintEdit'; id: string }
   | { kind: 'disband' }
+  /** The company's notes, from the note pinned to its file. */
+  | { kind: 'notes' }
 
 export const itemKey = (x: Item) =>
-  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' ? `file:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
+  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' ? `file:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 const HANDOFF = { pickOne: '交給其中一個下一步', all: '交給所有下一步' } as const
@@ -202,6 +205,7 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               onProvider={(x) => onPush({ kind: 'providerEdit', id: x })} onGoneChat={onDone} />
           )}
           {item.kind === 'disband' && <Disband teamId={teamId} title={title} tid={id} onDone={onDone} />}
+          {item.kind === 'notes' && <NotesSheet teamId={teamId} title={title} tid={id} />}
           {item.kind === 'staff' && <StaffPick node={item.node} teamId={teamId} title={title} tid={id} onDone={onDone} />}
         </div>
       </div>
@@ -2278,9 +2282,9 @@ function ImageDetail({ item, ...h }: Head & { item: Extract<Item, { kind: 'image
 }
 
 /** The round pencil in a sheet's upper right. */
-function EditTool({ onClick, open }: { onClick: () => void; open?: boolean }) {
+export function EditTool({ onClick, open, pressed }: { onClick: () => void; open?: boolean; pressed?: boolean }) {
   return (
-    <button type="button" className="fx-tool fx-hit" onClick={onClick} aria-expanded={open} aria-label={tr('編輯')} title={tr('編輯')}>
+    <button type="button" className="fx-tool fx-hit" onClick={onClick} aria-expanded={open} aria-pressed={pressed} aria-label={tr('編輯')} title={tr('編輯')}>
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path d="M2.5 13.5l.6-3L10.6 3l2.4 2.4-7.5 7.5z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
         <path d="M9 4.6l2.4 2.4" stroke="currentColor" strokeWidth="1.5" />

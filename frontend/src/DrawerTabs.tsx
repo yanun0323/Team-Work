@@ -225,7 +225,7 @@ function Settings({ teamId, ...p }: Opens) {
         onChange={(v) => act((x) => editTeam(x, teamId, { targetBranch: v }))}
       />
       <label className="fx-field fx-field-top">
-        <span>AGENTS.md</span>
+        <span>{tr('公司員工規則')}</span>
         <textarea className="fx-control" rows={6} value={team.prompt}
           onChange={(e) => act((x) => editTeam(x, teamId, { prompt: e.target.value }))} />
       </label>

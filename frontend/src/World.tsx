@@ -33,8 +33,10 @@ import { Strollers } from './People'
 import { NO_OUTLINE_LAYER, PixelPass } from './PixelPass'
 import { toonInstanced } from './toon'
 import { usePrefs } from './prefs'
-import { glowing, light, lightAt, MIN_SUN_ELEVATION, phaseOf } from './daylight'
-import { propBoxes, type Box } from './streetProps'
+import { debugDaylight, glowing, light, lightAt, MIN_SUN_ELEVATION, phaseOf } from './daylight'
+import { DaylightDebug } from './DaylightDebug'
+import { IndoorLights } from './IndoorLight'
+import { LANTERN, propBoxes, type Box } from './streetProps'
 import { playSound, useSound } from './sound'
 import { Brand, useQuotaPolling } from './Brand'
 import { TutorialList } from './TutorialList'
@@ -365,6 +367,7 @@ export function World() {
         raycaster.layers.enable(NO_OUTLINE_LAYER)
       }}>
       <Sun reach={span} />
+      <IndoorLights />
       <Ocean map={land.sea} calm={calm} />
       <Island town={town} land={land} />
       <Pavement town={town} />
@@ -396,6 +399,7 @@ export function World() {
         {!placing && !editing && <TutorialList onGo={goTutorial} />}
       </div>
     )}
+    {import.meta.env.DEV && <DaylightDebug />}
     {!drawer.value && !settings.value && !sheet.value && !help.value && (
       <>
       {(placing || editing) && (
@@ -519,7 +523,7 @@ function Sun({ reach }: { reach: number }) {
   const distance = depth + 30
   // the frames run all the time anyway (PixelPass), so this costs no extra ones
   useFrame(() => {
-    lightAt(phaseOf(daylight, new Date()), light)
+    lightAt(debugDaylight.phase ?? phaseOf(daylight, new Date()), light)
     background.current?.copy(light.sky)
     if (sky.current) {
       sky.current.color.copy(light.above)
@@ -773,9 +777,13 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
 const UNIT = new THREE.BoxGeometry(1, 1, 1)
 
 /** Many static boxes in one draw call, toon-lit. Build `boxes` in a useMemo. */
-function Batch({ boxes }: { boxes: Box[] }) {
+function Batch({ boxes, glow }: { boxes: Box[]; glow?: string }) {
   const ref = useRef<THREE.InstancedMesh>(null)
-  const material = useMemo(toonInstanced, [])
+  const material = useMemo(() => toonInstanced(glow), [glow])
+  useEffect(() => () => {
+    glowing.delete(material)
+    material.dispose()
+  }, [material])
   useLayoutEffect(() => {
     const mesh = ref.current
     if (!mesh) return
@@ -813,7 +821,12 @@ function Pavement({ town }: { town: Town }) {
 function StreetProps({ town }: { town: Town }) {
   const detail = usePrefs((s) => s.detail)
   const boxes = useMemo(() => town.lots.flatMap((l) => propBoxes(town, l, detail)), [town, detail])
-  return <Batch boxes={boxes} />
+  // the lamps' lanterns shine after dark
+  const [lit, rest] = useMemo(() => [boxes.filter((b) => b.glow), boxes.filter((b) => !b.glow)], [boxes])
+  return <>
+    <Batch boxes={rest} />
+    <Batch boxes={lit} glow={LANTERN} />
+  </>
 }
 
 const LEAVES = [['#4fa848', '#62b955'], ['#3e8f55', '#4c9f62'], ['#e5883a', '#f0a04a']]

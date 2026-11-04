@@ -28,6 +28,12 @@ const DAY = 0.25
 const DUSK = 0.75
 const NIGHT = 0.825
 
+/** The middle of each part of the day, for jumping straight to it. */
+export const SCENES = { dawn: (DAWN + DAY) / 2, noon: 0.5, dusk: (DUSK + NIGHT) / 2, midnight: 0 } as const
+
+/** A time of day picked in the debug bar (dev builds only); null follows the preference. */
+export const debugDaylight: { phase: number | null } = { phase: null }
+
 /** The sun is never lower than this, in degrees: lower, its shadows run off the shadow box and hide the town. */
 export const MIN_SUN_ELEVATION = 32
 /** At noon the sun is where it always stood before there was time of day: from the back left, fairly high. */
@@ -54,10 +60,10 @@ interface Look {
 
 const LOOKS: Record<'night' | 'dawn' | 'day' | 'dusk', Look> = {
   night: { sky: '#1d2f57', above: '#a9bdf0', below: '#3d5288', fill: 1.15, sun: '#c4d4ff', strength: 0.75, shallow: '#3d7891', mid: '#2a5785', deep: '#1d3a6b', glow: 1 },
-  dawn: { sky: '#8f86b4', above: '#ffd6b8', below: '#7088b8', fill: 1.35, sun: '#ffb889', strength: 1.6, shallow: '#6fd0e6', mid: '#3f92e0', deep: '#3466c4', glow: 0.35 },
+  dawn: { sky: '#8f86b4', above: '#ffe6d6', below: '#7088b8', fill: 1.35, sun: '#ffd2b4', strength: 1.6, shallow: '#a4acd0', mid: '#7c88b4', deep: '#4c64ac', glow: 0.35 },
   // the light as it was before time of day
   day: { sky: '#3b86c6', above: '#fff4e0', below: '#7fb6d6', fill: 1.5, sun: '#fff6e6', strength: 2.2, shallow: '#86dcd6', mid: '#4fb2dc', deep: '#3b86c6', glow: 0 },
-  dusk: { sky: '#8a5f8f', above: '#ffc7a0', below: '#6474a8', fill: 1.3, sun: '#ff9f66', strength: 1.7, shallow: '#6cbede', mid: '#3c7ad6', deep: '#3150b4', glow: 0.6 },
+  dusk: { sky: '#8a5f8f', above: '#ffc7a0', below: '#6474a8', fill: 1.3, sun: '#ff9f66', strength: 1.7, shallow: '#9890bc', mid: '#6c6a9c', deep: '#3e4a96', glow: 0.6 },
 }
 
 /** The looks round the day, by phase; the last wraps to the first. */
@@ -133,5 +139,5 @@ export function lightAt(phase: number, out: Light = newLight()): Light {
 /** The light now, shared by the scene's lights, the sea and the windows; the World's sun updates it each frame. */
 export const light = lightAt(0.5)
 
-/** Materials whose lit windows glow in the dark; see `glowMap`. */
+/** Materials that shine in the dark: lit windows, lit glass, lamps. Their emissiveIntensity follows `light.glow`. */
 export const glowing = new Set<THREE.MeshToonMaterial>()

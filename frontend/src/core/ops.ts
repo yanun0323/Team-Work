@@ -48,7 +48,6 @@ export const endTalk = pick('endTalk', (_w: World, id: string, end: TalkEnd) => 
 // ---------- chats ----------
 
 export const sayInChat = pick('sayInChat', (_w: World, id: string, text: string, images: Attachment[] = [], files: Attachment[] = [], mentions: string[] = []) => fire_('POST', `/chats/${id}/say`, { text, images, files, mentions }))
-export const inviteToChat = pick('inviteToChat', (_w: World, id: string, replicaId: string) => fire_('POST', `/chats/${id}/guests`, { replicaId }))
 export const setChatChair = pick('setChatChair', (_w: World, id: string, replicaId: string) => fire_('PATCH', `/chats/${id}/chair`, { replicaId }))
 export const setChatMind = pick('setChatMind', (_w: World, id: string, model: string, effort: string) => fire_('PATCH', `/chats/${id}/mind`, { model, effort }))
 export const renameChat = pick('renameChat', (_w: World, id: string, title: string) => fire_('PATCH', `/chats/${id}/title`, { title }))
@@ -190,6 +189,18 @@ export function editTeam(w: World, id: string, patch: TeamEdit) {
 export const openFolder = (id: string, path = '') => {
   if (!MOCK) fire_('POST', `${mentionBase(id)}/open-folder${path ? `?path=${encodeURIComponent(path)}` : ''}`)
 }
+
+/** The prototype's notes, kept until the page reloads. */
+const mockNotes = new Map<string, string>()
+
+/** A company's notes, the Markdown in its folder's .team-work/NOTES.md, as they are now. */
+export const readNotes = (teamId: string, signal?: AbortSignal) => (MOCK
+  ? Promise.resolve(mockNotes.get(teamId) ?? '')
+  : request<{ text: string }>('GET', `/teams/${teamId}/notes`, undefined, signal).then((r) => r.text))
+
+export const saveNotes = (teamId: string, text: string) => (MOCK
+  ? Promise.resolve(void mockNotes.set(teamId, text))
+  : request('PUT', `/teams/${teamId}/notes`, { text }).then(() => {}))
 
 /** A text file in a company's folder, or at home with no company, as it is now. */
 export const readProjectFile = (teamId: string, path: string, signal?: AbortSignal) => (MOCK

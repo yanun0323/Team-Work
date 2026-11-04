@@ -3,7 +3,11 @@
 
 import { CELL, hash, rectCenter, type Lot, type Town } from './layout'
 
-export interface Box { p: [number, number, number]; s: [number, number, number]; c: string }
+/** `glow`: a lamp's lantern, lit after dark. */
+export interface Box { p: [number, number, number]; s: [number, number, number]; c: string; glow?: boolean }
+
+/** The light a lit lantern gives off. */
+export const LANTERN = '#ffd98a'
 
 const WOOD_SEAT = '#a8774e'
 const WOOD_LIGHT = '#bb8a5c'
@@ -33,7 +37,7 @@ export function propBoxes(town: Town, lot: Lot, detail: boolean): Box[] {
       const top = 1.75 * CELL
       out.push({ p: [x, 0.2, z], s: [0.5, 0.24, 0.5], c: '#3c4253' })
       out.push({ p: [x, top / 2, z], s: [0.16, top, 0.16], c: '#3c4253' })
-      out.push({ p: [x, top + 0.2, z], s: [0.46, 0.4, 0.46], c: '#ffe7a3' })
+      out.push({ p: [x, top + 0.2, z], s: [0.46, 0.4, 0.46], c: '#ffe7a3', glow: true })
       out.push({ p: [x, top + 0.45, z], s: [0.56, 0.1, 0.56], c: '#3c4253' })
       continue
     }

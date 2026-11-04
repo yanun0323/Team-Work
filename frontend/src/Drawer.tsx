@@ -18,6 +18,7 @@ import { usePrefs } from './prefs'
 import type { BuildingLook } from './layout'
 import type { Team } from './core/domain/types'
 import { takeCompanyTab } from './tutorial'
+import { NotesPin } from './Notes'
 
 const Terminal = lazy(() => import('./Terminal'))
 
@@ -147,9 +148,9 @@ export function Drawer({ teamId, look, leaving, onGone }: {
     pick(TABS[j].id)
     tabs.current[j]?.focus()
   }
-  // the sheet belongs to the tab it was opened from
+  // the sheet belongs to the tab it was opened from; the notes belong to none
   const pick = (next: Tab) => {
-    if (next !== tab) back(-1, false)
+    if (next !== tab && base?.item.kind !== 'notes') back(-1, false)
     if (next === 'terminal') setTerminalTeam(teamId)
     setTab(next)
   }
@@ -162,6 +163,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
       onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
+      <NotesPin teamId={teamId} open={base?.item.kind === 'notes' && !base.leaving} onOpen={() => sheets.open({ kind: 'notes' })} />
       <div className="fx-sheet">
         <header className="fx-head">
           <CompanyTitle team={team} look={look} canOpenFolder>

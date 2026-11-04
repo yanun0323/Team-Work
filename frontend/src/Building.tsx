@@ -28,6 +28,7 @@ import { OfficeCrew, type Amenities, type CrewMember } from './People'
 import { headingOf } from './walk'
 import { NO_OUTLINE_LAYER } from './PixelPass'
 import { propBoxes } from './streetProps'
+import { IndoorRoom } from './IndoorLight'
 import { toon, toonMap } from './toon'
 import { glowing, light } from './daylight'
 
@@ -686,6 +687,9 @@ function CutAway({ lot }: { lot: Lot }) {
       <Clear p={[0, CUT / 2, hz]} s={[w, CUT, WALL]} c={pal.wall} />
       <Clear p={[hx, CUT / 2, 0]} s={[WALL, CUT, d - WALL * 2]} c={pal.wall} />
       <Office teamId={lot.id} plan={plan} decor={decor} trim={pal.trim} seed={seed} />
+      {/* lit evenly after dark, like ceiling panels */}
+      {/* a little past the walls, so no wall face sits on its edge, and above the paving round the building */}
+      <IndoorRoom min={[-w / 2 - 0.06, 0.085, -d / 2 - 0.06]} max={[w / 2 + 0.06, CUT + 2, d / 2 + 0.06]} />
     </>
   )
 }

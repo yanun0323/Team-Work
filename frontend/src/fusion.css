@@ -147,6 +147,43 @@ body { margin: 0; overflow: hidden; }
 }
 .fx-tape-l { left: 30px; transform: rotate(-6deg); }
 .fx-tape-r { right: 30px; transform: rotate(4deg); }
+/* the company's notes: a flat sticky note stuck askew on the file's upper right corner, the first lines of the notes
+   on it, each cut off at its edge. Its lower right corner lifts a little off the page: the paper bends there, and
+   casts a longer shadow from under it. It straightens a little when pointed at. The title keeps clear of it */
+.fx-notes-pin {
+  position: absolute; top: 20px; inset-inline-end: 22px; z-index: 3; width: 164px; height: 110px; padding: 0; border: 0;
+  background: none;
+  transform: rotate(-5deg);
+  cursor: pointer; transition: transform 160ms ease-out;
+}
+.fx-notes-lift {
+  position: absolute; right: 6px; bottom: 7px; width: 46%; height: 26px;
+  background: var(--note); box-shadow: 0 9px 11px rgb(31 29 43 / 0.34);
+  transform: rotate(4deg);
+}
+.fx-notes-paper {
+  position: absolute; inset: 0;
+  background: linear-gradient(to top left, rgb(60 40 10 / 0.07), transparent 22%), var(--note);
+  border-bottom-right-radius: 34px 7px;
+  box-shadow: 0 1px 1px rgb(31 29 43 / 0.14);
+}
+.fx-notes-pin:hover, .fx-notes-pin[aria-expanded="true"] { transform: rotate(-2deg); }
+.fx-notes-pin:focus-visible { outline-offset: 3px; }
+.fx-notes-peek {
+  position: absolute; inset: 9px 11px 6px; overflow: hidden; display: flex; flex-direction: column;
+  color: var(--ink-2); font: 500 13px/1.45 var(--font-sans); text-align: start;
+}
+/* each line drawn as Markdown, yet kept to one line */
+.fx-notes-line { flex: none; white-space: nowrap; overflow: hidden; }
+.fx-notes-heading { color: var(--ink); font-weight: 700; }
+.fx-notes-done { color: var(--muted); text-decoration: line-through; }
+.fx-notes-quote { padding-inline-start: 6px; border-inline-start: 2px solid rgb(31 29 43 / 0.25); color: var(--muted); }
+.fx-notes-mark { margin-inline-end: 4px; }
+.fx-notes-done .fx-notes-mark { display: inline-block; text-decoration: none; }
+.fx-notes-peek code { padding: 0 0.25em; background: rgb(0 0 0 / 0.06); border-radius: 3px; font: 0.88em var(--font-mono); }
+.fx-notes-code > code { padding: 0; background: none; white-space: pre; }
+.fx-drawer .fx-title { padding-inline-end: 166px; }
+@media (prefers-reduced-motion: reduce) { .fx-notes-pin { transition: none; } }
 
 /* keyboard focus: a faint ink ring, the paper's grey rather than the accent; never on what the page itself
    focuses (a title, when a sheet opens) */
@@ -497,6 +534,19 @@ body { margin: 0; overflow: hidden; }
   transform: rotate(-0.4deg);
 }
 .fx-doc-note::before { content: ""; position: absolute; inset: 0 0 auto; height: 14px; background: rgb(0 0 0 / 0.035); }
+/* the notes on their sheet: the same flat yellow as the note on the file, with no glue strip or shading; a click
+   anywhere on it writes */
+.fx-doc-note.fx-notes { padding-top: 20px; background: var(--note); }
+.fx-doc-note.fx-notes::before { content: none; }
+.fx-notes-read { min-height: 180px; cursor: text; }
+.fx-notes-read a { cursor: pointer; }
+.fx-notes .fx-notes-empty { color: var(--muted); }
+.fx-notes-box {
+  display: block; width: 100%; min-height: 180px; box-sizing: border-box; margin: 0; padding: 0; border: 0;
+  background: none; color: var(--ink); font: 13px/1.6 var(--font-mono); resize: none; overflow: hidden;
+}
+.fx-notes .fx-notes-box:focus-visible { outline: none; }
+.fx-notes-editing:focus-within { outline: 2px solid rgb(31 29 43 / 0.3); outline-offset: 2px; }
 /* a task's pictures: small prints in a row; a new task's end in a dashed slot to add more */
 .fx-thumbs { display: flex; flex-wrap: wrap; gap: 10px; }
 .fx-thumb {
@@ -922,6 +972,18 @@ a.fx-save { text-decoration: none; }
 @media (prefers-reduced-motion: no-preference) { :is(.fx-ring > span, .fx-quota-balance) { animation: fx-quota-in 320ms ease-out; } }
 .fx-settings-trigger { display: grid; place-items: center; width: 44px; padding: 0; }
 .fx-settings-trigger:disabled { background-color: #d6d4cf; color: #76747c; cursor: not-allowed; filter: grayscale(1); }
+/* dev builds only: put the town at any time of day */
+.fx-daylight-debug {
+  position: absolute; bottom: 22px; inset-inline-start: 22px; z-index: 4;
+  display: flex; align-items: center; gap: 4px; padding: 6px 10px; rotate: 0.6deg;
+}
+.fx-daylight-debug button {
+  padding: 4px 9px; border: 0; border-radius: 2px; background: transparent; color: inherit; font: inherit; cursor: pointer;
+}
+.fx-daylight-debug button[aria-pressed="true"] { background: #1f1d2b; color: #f4efe2; }
+.fx-daylight-debug input { width: 160px; margin: 0 4px 0 8px; accent-color: #1f1d2b; cursor: pointer; }
+.fx-daylight-debug output { min-width: 5ch; font-variant-numeric: tabular-nums; }
+.fx-daylight-debug :focus-visible { outline: 2px solid #1f1d2b; outline-offset: 2px; }
 /* what to pick on the map, across the middle of the top; narrow windows have no room beside the buttons */
 .fx-map-tip { position: absolute; top: 22px; inset-inline: 0; z-index: 4; display: flex; justify-content: center; pointer-events: none; }
 @media (max-width: 760px) { .fx-map-tip { top: 78px; } }

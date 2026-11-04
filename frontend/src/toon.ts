@@ -1,6 +1,7 @@
 // Banded "toon" lighting for every Fusion surface, so light falls in a few flat steps like pixel art.
 
 import * as THREE from 'three'
+import { glowing, light } from './daylight'
 
 /**
  * Shadows, complete and without acne, in two halves:
@@ -49,12 +50,34 @@ export function toon(color: string): THREE.MeshToonMaterial {
   return m
 }
 
+const glowCache = new Map<string, THREE.MeshToonMaterial>()
+
+/** A toon surface that shines `glow` in the dark: lit glass, a lamp. The time of day sets how brightly (see `glowing`). */
+export function toonGlow(color: string, glow: string): THREE.MeshToonMaterial {
+  const key = `${color} ${glow}`
+  let m = glowCache.get(key)
+  if (!m) {
+    m = sunSide(new THREE.MeshToonMaterial({ color, gradientMap: gradient, emissive: glow, emissiveIntensity: light.glow }))
+    glowCache.set(key, m)
+    glowing.add(m)
+  }
+  return m
+}
+
 export function toonMap(color: string, map: THREE.Texture | null): THREE.MeshToonMaterial {
   return sunSide(new THREE.MeshToonMaterial({ color, map, gradientMap: gradient }))
 }
 
-/** White, for per-instance colours. */
-export const toonInstanced = () => sunSide(new THREE.MeshToonMaterial({ color: '#ffffff', gradientMap: gradient }))
+/** White, for per-instance colours; with `glow`, they shine that colour in the dark. */
+export const toonInstanced = (glow?: string) => {
+  const m = sunSide(new THREE.MeshToonMaterial({ color: '#ffffff', gradientMap: gradient }))
+  if (glow) {
+    m.emissive.set(glow)
+    m.emissiveIntensity = light.glow
+    glowing.add(m)
+  }
+  return m
+}
 
 /**
  * Toon material that alternates two shades by world cell, so the grid shows on smooth land.

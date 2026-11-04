@@ -13,13 +13,14 @@ import { AIRPORT, CELL, rectCenter, RUNWAY_CELLS, RUNWAY_LINE, BRIDGE_DX, HALL_L
 import { MAX_FRAME, NO_OUTLINE_LAYER } from './PixelPass'
 import { usePrefs } from './prefs'
 import { playSound, stopSound } from './sound'
-import { toon } from './toon'
+import { toon, toonGlow } from './toon'
 
 type V3 = [number, number, number]
 
-function B({ p, s, c, r, shadow = true }: { p: V3; s: V3; c: string; r?: V3; shadow?: boolean }) {
+/** `glow`: lit from inside after dark, in that colour. */
+function B({ p, s, c, r, shadow = true, glow }: { p: V3; s: V3; c: string; r?: V3; shadow?: boolean; glow?: string }) {
   return (
-    <mesh position={p} rotation={r} scale={s} material={toon(c)} castShadow={shadow} receiveShadow>
+    <mesh position={p} rotation={r} scale={s} material={glow ? toonGlow(c, glow) : toon(c)} castShadow={shadow} receiveShadow>
       <boxGeometry />
     </mesh>
   )
@@ -34,6 +35,8 @@ const TAXI = '#585d6a'
 const CONCRETE = '#c4c0cc'
 const MARK = '#f2f0e8'
 const YELLOW = '#e5b33a'
+/** The terminal's glass front and the tower's cab, lit from inside after dark. */
+const LIT_GLASS = '#f2cf86'
 
 /** Runway: along x on the town side, three cells wide. */
 const RUNWAY_Z = (RUNWAY_LINE - AIRPORT.d / 2) * CELL
@@ -337,7 +340,7 @@ export function Airport({ town, open, hover, still, calm, onHover, onSelect }: {
       <Fade show={!open}>
       {/* terminal: a long low hall, glass facing the apron, a white roof with a band of the airport colour */}
       <B p={[tx, TERMINAL.h / 2, tz]} s={[tw, TERMINAL.h, td]} c="#dfe3ea" />
-      <B p={[tx, TERMINAL.h * 0.45, TERMINAL.z1 + 0.02]} s={[tw - 1.2, TERMINAL.h * 0.62, 0.06]} c="#5b8ab4" />
+      <B p={[tx, TERMINAL.h * 0.45, TERMINAL.z1 + 0.02]} s={[tw - 1.2, TERMINAL.h * 0.62, 0.06]} c="#5b8ab4" glow={LIT_GLASS} />
       {detail && Array.from({ length: Math.floor(tw / 2) }, (_, i) => (
         <B key={i} p={[TERMINAL.x0 + 1 + i * 2, TERMINAL.h * 0.45, TERMINAL.z1 + 0.06]} s={[0.12, TERMINAL.h * 0.62, 0.04]} c="#3d4a5c" shadow={false} />
       ))}
@@ -355,7 +358,7 @@ export function Airport({ town, open, hover, still, calm, onHover, onSelect }: {
         <B p={[0, TOWER.h / 2, 0]} s={[1.6, TOWER.h, 1.6]} c="#e8ebf0" />
         <B p={[0, TOWER.h + 0.1, 0]} s={[3.2, 0.2, 3.2]} c="#c9ced8" />
         <Fade show={!open}>
-          <B p={[0, TOWER.h + 1.0, 0]} s={[2.9, 1.6, 2.9]} c="#5b8ab4" />
+          <B p={[0, TOWER.h + 1.0, 0]} s={[2.9, 1.6, 2.9]} c="#5b8ab4" glow={LIT_GLASS} />
           <B p={[0, TOWER.h + 1.95, 0]} s={[3.4, 0.3, 3.4]} c="#3a3f4a" />
           <B p={[0, TOWER.h + 2.8, 0]} s={[0.1, 1.4, 0.1]} c="#3a3f4a" />
           <B p={[0, TOWER.h + 3.55, 0]} s={[0.25, 0.25, 0.25]} c="#e5533a" />
