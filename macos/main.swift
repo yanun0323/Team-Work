@@ -7,6 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     // Sparkle checks on its own schedule and shows its own windows; the page only gets a dot when one is found.
     private var updater: SPUStandardUpdaterController!
     private var updateFound = false
+    // A check the page asked for is under way; the page shows a spinner until it ends.
+    private var updateChecking = false
     private var webView: WKWebView!
     private var backend: Process?
     private let input = Pipe()
@@ -35,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         configuration.userContentController.add(self, name: "quit")
         configuration.userContentController.add(self, name: "language")
         configuration.userContentController.add(self, name: "update")
+        configuration.userContentController.add(self, name: "checkUpdate")
         configuration.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "pickFolder")
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
@@ -187,6 +190,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             }
         case "update":
             updater.checkForUpdates(nil)
+        case "checkUpdate":
+            // A quiet check, like the one at launch: the red ! shows if it finds one. One already under way is waited for.
+            if smoke {
+                updateChecking = false
+            } else {
+                updateChecking = true
+                if !updater.updater.sessionInProgress { updater.updater.checkForUpdateInformation() }
+            }
+            showUpdateFound()
         default:
             NSApp.terminate(nil)
         }
@@ -221,10 +233,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         showUpdateFound()
     }
 
-    // The page reads window.twUpdate when the clock first shows and listens for tw-update after that.
+    // Every check ends here, found or not, failed or cancelled, so the spinner always goes away.
+    func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        guard updateChecking else { return }
+        updateChecking = false
+        showUpdateFound()
+    }
+
+    // The page reads window.twUpdate and window.twChecking when the clock first shows and listens for tw-update after that.
     private func showUpdateFound() {
         guard ready, webView.url?.host == origin.host else { return }
-        webView.evaluateJavaScript("window.twUpdate = \(updateFound); window.dispatchEvent(new Event('tw-update'))")
+        webView.evaluateJavaScript("window.twUpdate = \(updateFound); window.twChecking = \(updateChecking); window.dispatchEvent(new Event('tw-update'))")
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -292,7 +311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             bootFinished()
             return
         }
-        if updateFound { showUpdateFound() }
+        if updateFound || updateChecking { showUpdateFound() }
         guard smoke, ready, webView.url?.host == origin.host else { return }
         let js = """
         const world = await (await fetch('/api/v1/world')).json();

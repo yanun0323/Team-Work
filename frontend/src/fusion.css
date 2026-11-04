@@ -957,7 +957,34 @@ a.fx-save { text-decoration: none; }
 .fx-brand-update:hover { background: #b8321f; }
 .fx-brand-update:focus-visible { outline: 2px solid #1f1d2b; outline-offset: 3px; }
 @media (prefers-reduced-motion: no-preference) { .fx-brand-update { animation: fx-alert-pop 420ms cubic-bezier(0.3, 1.6, 0.5, 1) both; } }
+/* where the red ! goes, a grey ring turning while the app checks */
+.fx-brand-checking {
+  grid-area: 1 / 2; justify-self: end; box-sizing: border-box; width: 24px; height: 24px; border-radius: 50%;
+  border: 3px solid rgb(31 29 43 / 0.15); border-top-color: rgb(31 29 43 / 0.55);
+  animation: fx-brand-spin 800ms linear infinite, fx-fade-in 300ms ease-out;
+}
+/* fading out while the red ! pops in over it; the 300ms is SPINNER_FADE_MS in Brand.tsx */
+.fx-brand-checking.leaving { animation: fx-brand-spin 800ms linear infinite, fx-fade-out 300ms ease-in forwards; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .fx-brand-checking, .fx-brand-checking.leaving { animation-duration: 2s, 300ms; } }
+@keyframes fx-brand-spin { to { rotate: 1turn; } }
 .fx-brand-version { font: 500 10px/1.2 var(--font-mono); opacity: 0.4; white-space: nowrap; }
+/* in the app the version checks for an update when pressed */
+/* the grey behind it on hover sits in the padding, which the margin takes back, so nothing around it moves */
+button.fx-brand-version {
+  justify-self: start; display: grid; box-sizing: content-box; height: 12px; margin: -2px -5px; padding: 2px 5px; border: 0; border-radius: 4px;
+  background: transparent; color: inherit; text-align: start; opacity: 1; overflow: visible;
+  cursor: pointer; pointer-events: auto; -webkit-tap-highlight-color: transparent; transition: background-color 180ms ease;
+}
+/* the version and, in its place on hover, what pressing does: stacked in one cell of one fixed line, so the button
+   keeps its size and the two only cross-fade */
+/* each on its own layer for good: one made only while it fades would redraw the tilted paper's dots at another offset,
+   and they would jump at the start and end of each fade */
+button.fx-brand-version > span { grid-area: 1 / 1; height: 12px; font: inherit; line-height: 12px; opacity: 0.4; transition: opacity 180ms ease; will-change: opacity; }
+button.fx-brand-version > span + span { justify-self: center; opacity: 0; }
+button.fx-brand-version:is(:hover, :focus-visible) { background-color: rgb(31 29 43 / 0.1); }
+button.fx-brand-version:is(:hover, :focus-visible) > span:first-child { opacity: 0; }
+button.fx-brand-version:is(:hover, :focus-visible) > span + span { opacity: 0.7; }
+button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offset: 2px; }
 @media (max-width: 640px) { .fx-brand { top: 78px; } }
 /* each model provider's allowance, one row each under the date */
 /* every row is a ring's height and its reset time, so a balance row spaces out the same */

@@ -295,6 +295,8 @@ const en = {
   '退出': 'Quit',
   '檢查更新': 'Check for updates',
   '有新版本': 'Update available',
+  '正在檢查更新': 'Checking for updates',
+  '檢查新版本': 'Check for updates',
   '已自動更新': 'Updated automatically',
   '自動更新': 'Auto-update',
   '確定退出': 'Confirm quit',

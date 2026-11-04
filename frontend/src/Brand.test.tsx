@@ -3,6 +3,20 @@ import { expect, it } from 'vitest'
 import { Brand, QuotaList, UsageRing, balanceText, clockText, leftOf, levelOf, resetText } from './Brand'
 import type { ModelProvider } from './core/domain/types'
 
+it('shows a grey spinner where the red ! goes while the app checks for an update', () => {
+  const g = globalThis as { twUpdate?: boolean; twChecking?: boolean }
+  g.twUpdate = true
+  g.twChecking = true
+  try {
+    const html = renderToStaticMarkup(<Brand />)
+    expect(html).toContain('class="fx-brand-checking" role="status" aria-label="正在檢查更新"')
+    expect(html).not.toContain('fx-brand-update')
+  } finally {
+    delete g.twUpdate
+    delete g.twChecking
+  }
+})
+
 it('shows the clock in place of a title, and names the app only for a screen reader', () => {
   const html = renderToStaticMarkup(<Brand />)
   expect(html).toContain('<h1 class="fx-sr">Team Work</h1>')
