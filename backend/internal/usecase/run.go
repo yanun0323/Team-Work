@@ -803,6 +803,13 @@ func hideSecret(s string) string {
 	return "…" + string(r[len(r)-4:])
 }
 
+// stepProgress guesses how far a step is from its model calls so far. Nobody knows the
+// total in advance, so it nears 0.95 ever more slowly; a typical step of about
+// 15 calls shows half, and only the handoff sets 1.
+func stepProgress(calls int) float64 {
+	return min(0.95, float64(calls)/float64(calls+15))
+}
+
 func clip(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
@@ -820,7 +827,7 @@ func (e *Engine) onSubReply(in subRun, tr *turn, calls *int) func(model.ModelRep
 			e.w.Conversations[s.ID] = append(e.w.Conversations[s.ID], model.Message{Role: enum.RoleAssistant, Content: reply.Content, By: in.speaker})
 			e.dirty[s.ID] = true
 			if !talking(s) {
-				s.Progress = min(0.95, float64(*calls)/float64(*calls+4))
+				s.Progress = stepProgress(*calls)
 			}
 			for _, b := range reply.Content {
 				if b.Type == enum.BlockText && !in.talk {
