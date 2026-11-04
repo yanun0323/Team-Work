@@ -4,7 +4,7 @@
 
 import { request } from './backend'
 import * as sim from './domain/sim'
-import type { Attachment, Blueprint, Chat, Effort, FileInfo, Locale, Look, MemoryEntry, Replica, SkillInfo, SkillText, TalkEnd, Team, Workflow, World } from './domain/types'
+import type { Attachment, Blueprint, Chat, Source, SourceChanges, SourceItem, SourcePreview, Effort, FileInfo, Locale, Look, MemoryEntry, Replica, SkillInfo, SkillText, TalkEnd, Team, Workflow, World } from './domain/types'
 import { MOCK } from './mode'
 
 /** Reports a request that failed; the store shows it. Set once at start. */
@@ -253,6 +253,7 @@ export function saveBlueprint(w: World, id: string | null, make: (key: string, p
     if (id && !w.blueprints[id]) return
     const key = id ?? `bp${++w.seq}`
     w.blueprints[key] = make(key, w.blueprints[key])
+    sim.adoptSources(w)
     return
   }
   const body = make(id ?? '', id ? w.blueprints[id] : undefined)
@@ -261,6 +262,39 @@ export function saveBlueprint(w: World, id: string | null, make: (key: string, p
     if (sim.gitSources(body).some((s) => !s.commit)) await request('POST', `/blueprints/${saved}/update`)
   })
 }
+
+// ---------- sources ----------
+
+/**
+ * Keeps a repo at a branch, or a folder, as a source, or finds the one kept; a new repo is read at its newest
+ * version. `act` changes the simulator's world, as the store's does.
+ */
+export function addSource(act: (fn: (w: World) => void) => void, kind: Source['kind'], where: string, ref = '', commit = ''): Promise<Source> {
+  if (!MOCK) return request<Source>('POST', '/sources', kind === 'git' ? { kind, repo: where, ref, commit } : { kind, path: where })
+  let made: Source | undefined
+  act((x) => { made = { ...sim.addSource(x, kind, where, ref) } })
+  return made ? Promise.resolve(made) : Promise.reject(new Error('add source'))
+}
+
+/** What a source would bring before it is kept: a repo's newest version and its skills there. */
+export const previewSource = (kind: Source['kind'], where: string, ref = '', signal?: AbortSignal) => (MOCK
+  ? new Promise<SourcePreview>((done) => setTimeout(() => done(sim.previewSource(kind, where, ref)), 400))
+  : request<SourcePreview>('POST', '/sources/preview', kind === 'git' ? { kind, repo: where, ref } : { kind, path: where }, signal))
+
+/** The skills a source has, at the version in use. */
+export const sourceItems = (w: World, id: string, signal?: AbortSignal) => (MOCK
+  ? Promise.resolve(w.sources[id] ? sim.itemsOf(w.sources[id]) : [])
+  : request<SourceItem[]>('GET', `/sources/${id}/items`, undefined, signal))
+
+/** What putting a source's newest version in use would change, and whom. */
+export const sourceChanges = (w: World, id: string, signal?: AbortSignal) => (MOCK
+  ? Promise.resolve(sim.sourceChanges(w, id))
+  : request<SourceChanges>('GET', `/sources/${id}/changes`, undefined, signal))
+
+export const applySource = pick('applySource', (_w: World, id: string) => fire_('POST', `/sources/${id}/apply`))
+export const seeSource = pick('seeSource', (_w: World, id: string) => fire_('POST', `/sources/${id}/seen`))
+export const setSourceAutoApply = pick('setSourceAutoApply', (_w: World, id: string, on: boolean) => fire_('PUT', `/sources/${id}/auto-apply`, { on }))
+export const deleteSource = pick('deleteSource', (_w: World, id: string) => fire_('DELETE', `/sources/${id}`))
 
 // ---------- model providers ----------
 

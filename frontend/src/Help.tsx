@@ -133,7 +133,7 @@ const TOPICS: Topic[] = [
         <p>內建藍圖可以直接用，但不能修改或刪除。想改就按右上角的複製，會帶入目前顯示語言的內容，改好後存成自己的藍圖。內建藍圖跟著語言顯示，實際給員工的一律是英文，再加上回覆語言的規則；你自己的藍圖則照你寫的內容給。</p>
         <dl>
           <dt>新增</dt><dd>直接填寫名稱、Prompt、備註、技能和工具。之前從 GitHub 匯入的藍圖仍可改名稱、Repo 和版本。</dd>
-          <dt>技能</dt><dd>可以來自本機資料夾或多個 GitHub repo；位置選「本機 Codex」或「本機 Claude Code」會固定讀 <code>~/.codex/</code> 或 <code>~/.claude/</code>。GitHub 來源可以指定子資料夾，用「只載入」「排除」挑選。每個 GitHub 來源都會標出更新狀態。另外，不論哪個藍圖，員工都會讀取公司資料夾裡 <code>.agents/</code>、<code>.team-work/</code>、<code>.codex/</code>、<code>.claude/</code> 的技能，和藍圖的技能同名時以公司的為準。</dd>
+          <dt>技能</dt><dd>列出「機場 → 來源」的每個來源和它的技能，點一下技能就會亮起，代表使用。勾選來源名稱會使用它全部的技能，之後新增的技能也會使用，點暗的技能會排除；沒勾來源名稱時只用亮著的技能，之後新增的不會使用。不同來源使用了同名的技能時，這些技能會變成紅底白字，點暗其中一個即可。另外，不論哪個藍圖，員工都會讀取公司資料夾裡 <code>.agents/</code>、<code>.team-work/</code>、<code>.codex/</code>、<code>.claude/</code> 的技能，和藍圖的技能同名時以公司的為準。</dd>
           <dt>工具</dt><dd>只有讀取檔案、寫入檔案、網路搜尋、執行指令四種。讀取檔案也能讓員工看 PNG、JPEG、GIF、WebP 圖片（單張最大 3.75MB）。執行指令沒有沙盒，只給你信任的藍圖。</dd>
           <dt>管理能力</dt><dd>工具也決定員工能否管理任務、藍圖、任務藍圖和模型供應商：勾讀取檔案可以查看，勾寫入檔案或執行指令還可以新增和修改，只勾網路搜尋則都不行。內建藍圖都能讀寫。</dd>
           <dt>員工新增或修改</dt><dd>員工新增的藍圖立刻可用；修改藍圖要你同意才會寫入，包括員工改自己用的藍圖。內建和從 Git 來的藍圖不能修改。同意後正在進行的步驟不變，之後的步驟會用新藍圖。</dd>
@@ -160,6 +160,23 @@ const TOPICS: Topic[] = [
         </dl>
         <p>任務藍圖不指定員工，由每個任務決定這次誰來做。任務藍圖由所有公司共用，在「機場 → 任務藍圖」管理，列表分成「我的」和「內建」。自己的可以新增、編輯、複製和刪除；內建的「功能開發」「小功能」「修 Bug」「產品規劃」「程式審查」「重構」不能修改或刪除，複製後會用目前顯示的語言變成自己的任務藍圖。改了任務藍圖只影響之後開的任務，已經開始的不受影響。新增任務時會帶入這間公司上次選的任務藍圖，還沒選過就帶第一條。</p>
         <p>有權限的員工也能新增和修改任務藍圖：新增的立刻可用，修改要你同意才會寫入。無效的內容（例如有迴圈）會被拒絕；內建的不能修改；員工讀取之後你又改過的話，員工的修改也會被拒絕。</p>
+      </>
+    ),
+  },
+  {
+    id: 'sources',
+    alt: '來源的詳細內容：版本、更新內容和技能',
+    label: '來源',
+    group: '機場',
+    body: (
+      <>
+        <p>來源是技能的出處：一個 GitHub repo 加分支，或本機的一個資料夾。新增 GitHub 來源時會先讀出它的技能，讀到技能才能新增。在「機場 → 來源」管理，所有藍圖和自訂員工共用，同一個 repo 和分支只會下載一份。<code>~/.agents/</code>、<code>~/.team-work/</code>、<code>~/.codex/</code>、<code>~/.claude/</code> 會自動列為本機來源，列表上蓋著「本地」印章。</p>
+        <dl>
+          <dt>檢查更新</dt><dd>每 6 小時自動檢查一次。有新版本時，列表上這個來源前面會出現紅色驚嘆號，打開後會列出新增和移除的技能，以及受影響的藍圖和員工，按「套用更新」才會換成新版本。</dd>
+          <dt>自動套用更新</dt><dd>預設關閉。打開後，列表上這個來源右邊會蓋上「自動更新」印章；檢查到新版本就直接套用，這個來源前面會出現紅點，打開這個來源後消失。</dd>
+          <dt>版本</dt><dd>同一個來源的使用者都用同一個版本。進行中的工作沿用開始時的版本；連不上網路時，已下載的版本照常可用。</dd>
+        </dl>
+        <p>還有藍圖或員工使用的來源不能刪除。</p>
       </>
     ),
   },
@@ -387,7 +404,7 @@ export function Help({ leaving, onGone }: {
           {/* keyed, so each topic turns in like a fresh page */}
           <section key={current.id} id="fx-help-panel" className="fx-page fx-help-page" aria-labelledby="fx-help-page-title">
             <h2 id="fx-help-page-title">{shown.title ?? shown.label}</h2>
-            <img className="fx-help-shot" src={SHOTS[`./help/${appLanguage()}/${current.id}.jpg`]} alt={shown.alt} />
+            {SHOTS[`./help/${appLanguage()}/${current.id}.jpg`] && <img className="fx-help-shot" src={SHOTS[`./help/${appLanguage()}/${current.id}.jpg`]} alt={shown.alt} />}
             {shown.body}
           </section>
         </div>

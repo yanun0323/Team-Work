@@ -103,13 +103,28 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
         <p>Built-in blueprints are ready to use but cannot be changed or deleted. To change one, press Copy at the top right: it brings in the text in the language shown, for you to edit and save as your own. Built-in blueprints show in the app's language, but employees always receive the English version plus a rule about which language to reply in. Your own blueprints are given as you wrote them.</p>
         <dl>
           <dt>Add</dt><dd>Fill in the name, prompt, comment, skills and tools. Blueprints imported from GitHub earlier can still change their name, repo and version.</dd>
-          <dt>Skills</dt><dd>These can come from local folders or several GitHub repos, or a subfolder of one. Local Codex and Local Claude Code always read <code>~/.codex/</code> and <code>~/.claude/</code>. Choose with Include only and Exclude. Each GitHub source shows its update state. Whatever the blueprint, employees also read the skills in <code>.agents/</code>, <code>.team-work/</code>, <code>.codex/</code> and <code>.claude/</code> in the company's folder, and these win over a blueprint skill with the same name.</dd>
+          <dt>Skills</dt><dd>Every source in Airport → Sources is listed with its skills; click a skill to light it up and use it. Ticking a source's name uses all its skills, including ones added later, and a skill you dim is left out. With the name unticked, only the lit skills are used, and ones added later are not. If skills in use from two sources share a name, they turn red; dim one of them. Whatever the blueprint, employees also read the skills in <code>.agents/</code>, <code>.team-work/</code>, <code>.codex/</code> and <code>.claude/</code> in the company's folder, and these win over a blueprint skill with the same name.</dd>
           <dt>Tools</dt><dd>There are only four: read files, write files, web search and run commands. Reading files also lets employees see PNG, JPEG, GIF and WebP images (up to 3.75MB each). Running commands has no sandbox, so allow it only for blueprints you trust.</dd>
           <dt>Managing</dt><dd>Tools also decide whether an employee can manage tasks, blueprints, workflows and model providers. Read files lets them view these, write files or run commands also lets them add and change them, and web search alone allows neither. All built-in blueprints can read and write.</dd>
           <dt>Added or changed by employees</dt><dd>A blueprint an employee adds can be used at once. Changing one is written only if you agree, even when employees change their own. Built-in blueprints and those from Git cannot be changed. Once you agree, steps under way stay as they are, and later steps use the new blueprint.</dd>
           <dt>Known limit</dt><dd>An employee who can run commands could still edit the settings files directly and reload them, without asking you.</dd>
         </dl>
         <p>A blueprint cannot be deleted while employees use it.</p>
+      </>
+    ),
+  },
+  sources: {
+    label: 'Sources',
+    alt: "A source's details: version, what an update changes, and skills",
+    body: (
+      <>
+        <p>A source is where skills come from: a GitHub repo at a branch, or a folder on this computer. Adding a GitHub source first reads its skills, and it can be added only once some are found. Manage them in Airport → Sources. All blueprints and custom employees share them, and a repo at a branch is downloaded only once. <code>~/.agents/</code>, <code>~/.team-work/</code>, <code>~/.codex/</code> and <code>~/.claude/</code> are listed as local sources by themselves, stamped Local.</p>
+        <dl>
+          <dt>Check for updates</dt><dd>Sources are checked every 6 hours by themselves. When a newer version is out, a red ! shows before the source in the list, and opening it lists the skills added and removed and the blueprints and employees affected. It is used only once you press Apply update.</dd>
+          <dt>Apply updates automatically</dt><dd>Off by default. When on, the source is stamped Auto-update in the list, a newer version is used as soon as it is found, and a red dot shows before the source in the list until you open it.</dd>
+          <dt>Versions</dt><dd>Everyone using a source uses the same version. Work under way keeps the version it started with, and offline, the versions already downloaded still work.</dd>
+        </dl>
+        <p>A source cannot be deleted while blueprints or employees use it.</p>
       </>
     ),
   },

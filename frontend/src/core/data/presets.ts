@@ -92,7 +92,7 @@ export function installPresets(w: World) {
   const language = w.language
   for (const b of data.blueprints) {
     w.blueprints[b.id] = {
-      id: b.id, name: b.name[language], prompt: b.prompt[language], comment: '', autoUpdate: false, source: { kind: 'preset' },
+      id: b.id, name: b.name[language], prompt: b.prompt[language], comment: '', source: { kind: 'preset' },
       tools: b.tools as Tool[], look: b.look as Look,
       skills: data.skillFolders.map((path) => ({ source: { kind: 'local', path }, include: null, exclude: [] })),
     } satisfies Blueprint

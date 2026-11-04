@@ -64,10 +64,61 @@ export interface LocalSkills {
   path: string
 }
 
-/** Skills read from one place: `source` null means the blueprint's own repo. */
+/**
+ * A place items are read from, kept once for everything that uses it: a Git repo at a branch, or a folder on this
+ * computer. Everyone using it reads `commit`; `latest` is the newest found upstream, put in use by the user, or by
+ * the source itself when `autoApply` is on.
+ */
+export interface Source {
+  id: string
+  kind: 'git' | 'local'
+  repo?: string
+  /** The branch; empty for the default one. */
+  ref?: string
+  /** A folder's path. */
+  path?: string
+  commit?: string
+  latest?: string
+  upstream: boolean
+  update?: { at: number; ok: boolean; error?: string }
+  autoApply: boolean
+  /** An update was applied by itself, and the user has not opened the source since. */
+  unseen?: boolean
+}
+
+/** A skill a source has: its folder in the source, and the folder holding it, its category ('' the top). */
+export interface SourceItem {
+  name: string
+  description: string
+  path: string
+  category: string
+}
+
+/** What a source would bring before it is kept: the version read, and its skills there. */
+export interface SourcePreview {
+  commit: string
+  items: SourceItem[]
+}
+
+/** What putting a source's newest version in use would change, and whom. */
+export interface SourceChanges {
+  from: string
+  to: string
+  added: SourceItem[]
+  removed: SourceItem[]
+  blueprints: string[]
+  replicas: string[]
+}
+
+/**
+ * Skills taken from one place: the folder `path` ('' all of it) of the source `sourceId`. `source` is a place
+ * written into the pack itself, as built-in blueprints have; null with no `sourceId` means the blueprint's own repo.
+ */
 export interface SkillPack {
-  source: GitSource | LocalSkills | null
-  /** The skills taken from it; null takes every one it has. */
+  sourceId?: string
+  path?: string
+  source?: GitSource | LocalSkills | null
+  /** The skills taken from it; null takes every one it has, those added later too. */
   include: string[] | null
   /** Skills it has that are left out. */
   exclude: string[]
@@ -81,7 +132,6 @@ export interface Blueprint {
   id: string
   name: string
   source: BlueprintSource
-  autoUpdate: boolean
   /** The system prompt every employee made from it starts with; may be empty. */
   prompt: string
   /** The author's note on it, such as which model suits it; may be empty. */
@@ -503,7 +553,7 @@ export interface Task {
 export type WorldEvent =
   | { kind: 'review'; taskId: string; subId: string }
   | { kind: 'awaitMerge'; taskId: string }
-  | { kind: 'blueprintUpdated'; blueprintId: string; commit: string; auto: boolean }
+  | { kind: 'blueprintUpdated'; blueprintId: string; commit: string }
 
 /** The kind of API a model provider speaks. */
 export type ProviderKind = 'anthropic' | 'openai' | 'google' | 'compatible'
@@ -564,6 +614,7 @@ export interface World {
   teams: Record<string, Team>
   providers: Record<string, ModelProvider>
   blueprints: Record<string, Blueprint>
+  sources: Record<string, Source>
   replicas: Record<string, Replica>
   workflows: Record<string, Workflow>
   tasks: Record<string, Task>

@@ -6,12 +6,15 @@ import { fixedSteps, installPresets, localizeFlow } from '../data/presets'
 import { canReach, canSendBack, feedsOnly, inEdges, nodeOf, outEdges, startsOf } from './graph'
 import { between, chance, hex, pick, uid } from './rng'
 import { taskStatus } from './rollup'
+import { adoptSources, covers, itemsOf } from './sources'
 import type {
   Chat,
   Look,
   Attachment, Blueprint, GitSource, Locale, LogKind, MemorySource, ModelProvider, ProviderAuth, Replica, Review, Script, SubTask, TalkEnd, Task, Team, Workflow, World,
   FileInfo, SkillInfo, SkillText,
 } from './types'
+
+export * from './sources'
 
 /** Seconds a box spends on the belt between two nodes. */
 export const TRAVEL = 3
@@ -454,14 +457,22 @@ export function resolveChatChange(w: World, id: string, approve: boolean) {
 }
 
 export function replicaSkills(w: World, replicaId: string): SkillInfo[] {
-  const packs = w.blueprints[w.replicas[replicaId]?.blueprintId]?.skills ?? []
-  const names = packs.flatMap((p) => (p.include ?? []).filter((name) => !p.exclude.includes(name)))
+  const names = blueprintSkills(w, w.replicas[replicaId]?.blueprintId ?? '').flatMap((names) => names ?? [])
   return [...new Set(names)].map((name) => ({ name, description: '' }))
 }
 
-/** The prototype reads no files: a pack that takes every skill brings a few made up. */
+/**
+ * The prototype reads no files: a pack of a source brings what the source is made up to have, and one that takes
+ * every skill of a place written into it a few made up.
+ */
 export function blueprintSkills(w: World, id: string): (string[] | null)[] {
-  return (w.blueprints[id]?.skills ?? []).map((p) => (p.include ?? ['code-review', 'tdd', 'summarize', 'handoff']).filter((name) => !p.exclude.includes(name)))
+  return (w.blueprints[id]?.skills ?? []).map((p) => {
+    if (p.sourceId) {
+      const s = w.sources[p.sourceId]
+      return s ? itemsOf(s).filter((it) => covers(p, it)).map((it) => it.name) : null
+    }
+    return (p.include ?? ['code-review', 'tdd', 'summarize', 'handoff']).filter((name) => !p.exclude.includes(name))
+  })
 }
 
 const MOCK_FILES: FileInfo[] = [
@@ -1116,8 +1127,9 @@ export type OwnSettings = Pick<Blueprint, 'source' | 'prompt' | 'comment' | 'ski
 function ownBlueprint(w: World, r: Replica, own: OwnSettings) {
   const old = w.blueprints[r.blueprintId]
   const id = old?.owner === r.id ? old.id : uid(w, 'bp')
-  w.blueprints[id] = { ...own, id, name: r.name, look: r.look, autoUpdate: false, owner: r.id }
+  w.blueprints[id] = { ...own, id, name: r.name, look: r.look, owner: r.id }
   r.blueprintId = id
+  adoptSources(w)
 }
 
 /** r's own settings go with them. */
@@ -1249,18 +1261,25 @@ const bump = (ref: string) => {
 
 /**
  * Now and then one of the Git repos a blueprint reads (its own or a skill pack's) gets a new upstream
- * version; a blueprint that updates itself tries to move to it at once. Repos whose upstream is gone get none.
+ * version, left for the user to apply. Repos whose upstream is gone get none.
  */
 function drift(w: World) {
   if (w.now < w.nextDriftAt) return
   w.nextDriftAt = w.now + between(w, 90, 160)
+  const kept = Object.values(w.sources ?? {}).filter((s) => s.kind === 'git' && s.upstream)
+  if (kept.length && chance(w, 0.5)) {
+    // a source kept apart: those that apply updates themselves move at once
+    const s = pick(w, kept)
+    s.latest = hex(w)
+    if (s.autoApply) s.commit = s.latest
+    return
+  }
   const all = Object.values(w.blueprints).flatMap((bp) => gitSources(bp).filter((s) => s.upstream).map((s) => ({ bp, s })))
   if (!all.length) return
   const { bp, s } = pick(w, all)
   s.latest = hex(w)
   s.latestRef = bump(s.latestRef)
-  if (bp.autoUpdate) updateSource(w, s)
-  w.events.push({ kind: 'blueprintUpdated', blueprintId: bp.id, commit: s.latest, auto: bp.autoUpdate })
+  w.events.push({ kind: 'blueprintUpdated', blueprintId: bp.id, commit: s.latest })
 }
 
 /** What every flow starts as: one blank step, named `name`. `id` names the node. */

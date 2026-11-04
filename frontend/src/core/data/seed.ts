@@ -4,7 +4,7 @@ import { autoLayout } from '../domain/graph'
 import { mockThinking } from '../../providers'
 import { installPresets } from './presets'
 import {
-  createTask, createTeam, END_PROMPT, TALK_PROMPT, hire, mergeTask, newWorkflow, pauseTask, remember, resumeTask, REPLY_TIME, sayInTalk, START_PROMPT, tick,
+  adoptSources, createTask, createTeam, END_PROMPT, TALK_PROMPT, hire, mergeTask, newWorkflow, pauseTask, remember, resumeTask, REPLY_TIME, sayInTalk, START_PROMPT, tick,
 } from '../domain/sim'
 import type { Blueprint, GitSource, Look, ModelProvider, Workflow, WorkflowNode, World } from '../domain/types'
 
@@ -27,7 +27,7 @@ const PROVIDERS: ModelProvider[] = ([
 
 const BLUEPRINTS: Blueprint[] = [
   {
-    id: 'bp-researcher', name: 'Researcher', autoUpdate: true,
+    id: 'bp-researcher', name: 'Researcher',
     source: git('acme/agent-blueprints', 'v1.4.0', '3f9a2c1', { update: { at: 0, ok: true } }),
     prompt: '你是研究員。先讀現有資料，再比較方案，結論要附來源。',
     comment: '適合長篇閱讀，建議用上下文長的模型。',
@@ -39,7 +39,7 @@ const BLUEPRINTS: Blueprint[] = [
     look: look('#4f7cff', '#2d3550', 'glasses'),
   },
   {
-    id: 'bp-developer', name: 'Developer', autoUpdate: false,
+    id: 'bp-developer', name: 'Developer',
     // a newer version is out and has not been taken yet
     source: git('acme/agent-blueprints', 'v2.1.0', 'a71c09e', { latestRef: 'v2.2.0', latest: 'c04d5b8' }),
     prompt: '你是工程師。小步提交，每次提交前跑測試。',
@@ -55,7 +55,7 @@ const BLUEPRINTS: Blueprint[] = [
     look: look('#2fb37a', '#30343c', 'headset'),
   },
   {
-    id: 'bp-writer', name: 'Writer', autoUpdate: false,
+    id: 'bp-writer', name: 'Writer',
     // written by hand; the fields below are what this says
     source: {
       kind: 'yaml',
@@ -83,7 +83,7 @@ const BLUEPRINTS: Blueprint[] = [
     look: look('#f2a23a', '#5a4632', 'none'),
   },
   {
-    id: 'bp-reviewer', name: 'Reviewer', autoUpdate: true,
+    id: 'bp-reviewer', name: 'Reviewer',
     source: git('acme/private-blueprints', 'v0.9.2', '9b2e441', { private: true, update: { at: 0, ok: true } }),
     prompt: '你是審查者。先找會出錯的地方，風格問題列為建議。',
     comment: '建議搭配 GPT 系列模型。',
@@ -108,11 +108,12 @@ function node(
 
 export function seedWorld(): World {
   const w: World = {
-    now: 0, seq: 100, language: 'zh', teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
+    now: 0, seq: 100, language: 'zh', teams: {}, providers: {}, blueprints: {}, sources: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
     nextDriftAt: 75, rng: 20261028, events: [],
   }
   for (const p of PROVIDERS) w.providers[p.id] = structuredClone(p)
   for (const bp of BLUEPRINTS) w.blueprints[bp.id] = structuredClone(bp)
+  adoptSources(w)
 
   // ---------- team 1: web shop ----------
   const shop = createTeam(w, {

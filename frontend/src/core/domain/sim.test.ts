@@ -20,11 +20,11 @@ const calm: Partial<Script> = { duration: 10, costRate: 0.001, route: 0, ask: un
 
 function world(): World {
   const w: World = {
-    now: 0, seq: 0, language: 'zh', teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
+    now: 0, seq: 0, language: 'zh', teams: {}, providers: {}, blueprints: {}, sources: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
     nextDriftAt: Infinity, rng: 42, events: [],
   }
   w.blueprints.bp = {
-    id: 'bp', name: 'Dev', source: { kind: 'yaml', text: '' }, autoUpdate: false,
+    id: 'bp', name: 'Dev', source: { kind: 'yaml', text: '' },
     prompt: '', comment: '', skills: [], tools: [],
     look: { skin: '#fff', hair: '#000', shirt: '#00f', pants: '#333', extra: 'none' },
   }
@@ -391,7 +391,7 @@ describe('employees with settings of their own', () => {
     const ada = Object.values(w.replicas)[0]
     const bo = hire(w, team.id, '', 'Bo', undefined, {}, own)
     const mine = w.blueprints[bo.blueprintId]
-    expect(mine).toMatchObject({ owner: bo.id, name: 'Bo', prompt: '寫文件', from: 'bp', autoUpdate: false })
+    expect(mine).toMatchObject({ owner: bo.id, name: 'Bo', prompt: '寫文件', from: 'bp' })
     updateReplica(w, bo.id, { name: 'Bob', blueprintId: bo.blueprintId, model: bo.model, effort: bo.effort, look: bo.look }, { ...own, prompt: '改過' })
     expect(w.blueprints[bo.blueprintId]).toMatchObject({ id: mine.id, name: 'Bob', prompt: '改過' })
     // back to a blueprint: theirs go

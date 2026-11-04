@@ -8,8 +8,8 @@ import { colon, listOf, tr, trRecorded } from './core/i18n'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { canSendBack, inEdges as stepsIn, nodeOf } from './core/domain/graph'
 import { blueprintUsers, gitSources, notStarted, statusOf, subsOf, type OwnSettings } from './core/domain/sim'
-import { TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SkillPack, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
-import { sourceState, sourceText, toolName } from './source'
+import { TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
+import { keptState, sourceName, sourceState, sourceText, toolName } from './source'
 import { composing } from './ime'
 import { blueprintList, flowList, activity, fmtClock, fmtTokens, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
@@ -36,7 +36,8 @@ import { Prereqs, usePrereqs } from './PrereqStamps'
 import { MentionBox } from './MentionBox'
 import { ChatFaces } from './ChatFaces'
 import { ALL, mentionedPeople, withAll } from './mentions'
-import { AGENT_FOLDERS, newSkillRow, skillPacksOf, skillRowsOf, type SkillRow } from './blueprintForm'
+import { SkillPicker } from './SkillPicker'
+import { NewSource, SourceDetail } from './Sources'
 import { authLabel, makesImages, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
 import { MAX_CHAT_PEOPLE, talking, talkPeople } from './core/domain/sim'
 import { fixedSteps, isPreset } from './core/data/presets'
@@ -83,9 +84,11 @@ export type Item =
   | { kind: 'disband' }
   /** The company's notes, from the note pinned to its file. */
   | { kind: 'notes' }
+  | { kind: 'source'; id: string }
+  | { kind: 'newSource' }
 
 export const itemKey = (x: Item) =>
-  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' ? `file:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
+  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' || x.kind === 'newSource' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' ? `file:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 const HANDOFF = { pickOne: '交給其中一個下一步', all: '交給所有下一步' } as const
@@ -187,6 +190,8 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
             <BlueprintEdit id={item.kind === 'blueprintEdit' ? item.id : null} copyOf={item.kind === 'newBlueprint' ? item.copyOf : undefined}
               title={title} tid={id} onDone={onDone} />
           )}
+          {item.kind === 'source' && <SourceDetail id={item.id} title={title} tid={id} onGoneSource={onDone} />}
+          {item.kind === 'newSource' && <NewSource title={title} tid={id} onDone={onDone} />}
           {(item.kind === 'crewEdit' || item.kind === 'newCrew') && (
             <CrewEdit id={item.kind === 'crewEdit' ? item.id : null} teamId={teamId} title={title} tid={id} onDone={onDone} />
           )}
@@ -1307,6 +1312,7 @@ function BlueprintDetail({ id, teamId, editing, copying, onEdit, onCopy, onGoneB
 /** What those who work by a blueprint are given, to read: its prompt, note, skills and tools. */
 function BlueprintFacts({ bp }: { bp: Blueprint }) {
   const now = useStore((s) => s.world.now)
+  const sources = useStore((s) => s.world.sources)
   // what each pack that takes every skill turns out to bring; read again whenever the packs change
   const packs = JSON.stringify(bp.skills)
   const [found, setFound] = useState<(string[] | null)[]>([])
@@ -1326,7 +1332,7 @@ function BlueprintFacts({ bp }: { bp: Blueprint }) {
         {bp.skills.length === 0 ? <p className="fx-d-muted">{tr('沒有')}</p> : (
           <ul className="fx-src-list">
             {bp.skills.map((p, i) => (
-              <SourceRow key={i} source={p.source} now={now}>
+              <SourceRow key={i} source={p.sourceId ? sources[p.sourceId] ?? null : p.source ?? null} folder={p.path} now={now}>
                 <p className="fx-d-chips">
                   {/* every skill: what was read, or 全部 until then or when it cannot be read */}
                   {(p.include ?? found[i])?.map((x) => <span key={x}>{x}</span>) ?? <span className="fx-chip-all">{tr('全部')}</span>}
@@ -1352,7 +1358,28 @@ function BlueprintFacts({ bp }: { bp: Blueprint }) {
  * One place a blueprint reads from (`source` null: the blueprint's own repo), with whether its upstream
  * was found and how the last update went; `children` is what it brings, under it.
  */
-function SourceRow({ source, now, children }: { source: BlueprintSource | LocalSkills | null; now: number; children?: React.ReactNode }) {
+function SourceRow({ source: given, folder, now, children }: {
+  /** A source kept apart is shown as one, with `folder` its folder read. */
+  source: BlueprintSource | LocalSkills | Source | null
+  folder?: string
+  now: number
+  children?: React.ReactNode
+}) {
+  if (given && 'id' in given) {
+    const state = keptState(given, now)
+    return (
+      <li className="fx-src">
+        <p className="fx-src-head">
+          <code>{[sourceName(given), folder].filter(Boolean).join(' / ')}</code>
+          {given.kind === 'local' && <span className="fx-d-muted">{tr('本機')}</span>}
+          {state && <span className={`fx-src-state fx-src-${state.tone}`}>{state.label}</span>}
+        </p>
+        {state?.note && <p className={state.tone === 'bad' ? 'fx-src-note fx-src-note-bad' : 'fx-src-note'}>{state.note}</p>}
+        {children}
+      </li>
+    )
+  }
+  const source = given
   const state = source?.kind === 'git' ? sourceState(source, now) : null
   return (
     <li className="fx-src">
@@ -1373,12 +1400,11 @@ const keepSource = (old: Blueprint | undefined, next: GitSource) =>
   (old ? gitSources(old) : []).find((s) => s.repo === next.repo && s.ref === next.ref && (s.path ?? '') === (next.path ?? '')) ?? next
 
 /**
- * A blueprint as saved: what was read or kept, with the look picked on the form, which wins over the one it
- * had, and whether it updates itself, as it was.
+ * A blueprint as saved: what was read or kept, with the look picked on the form, which wins over the one it had.
  */
-export function blueprintOf(id: string, prev: Blueprint | undefined, look: Look, bp: Omit<Blueprint, 'id' | 'look' | 'autoUpdate'>): Blueprint {
+export function blueprintOf(id: string, look: Look, bp: Omit<Blueprint, 'id' | 'look'>): Blueprint {
   const { look: _was, ...rest } = bp as Partial<Blueprint>
-  return { ...(rest as typeof bp), id, look, autoUpdate: prev?.autoUpdate ?? false }
+  return { ...(rest as typeof bp), id, look }
 }
 
 /**
@@ -1400,17 +1426,14 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
   const [ref, setRef] = useState(was?.kind === 'git' ? was.ref : '')
   const [prompt, setPrompt] = useState(from?.prompt ?? '')
   const [comment, setComment] = useState(from?.comment ?? '')
-  const [rows, setRows] = useState<SkillRow[]>(() => skillRowsOf(from?.skills ?? []))
+  const [packs, setPacks] = useState<SkillPack[]>(from?.skills ?? [])
   const [tools, setTools] = useState<Tool[]>(from?.tools ?? ['readFile', 'writeFile'])
   const [name, setName] = useState(old?.name ?? (from ? (language === 'en' ? `${from.name} copy` : tr('{name} 副本', { name: from.name })) : ''))
   const [named, setNamed] = useState(!!from)
   // the face it is drawn with now, fixed, so the form shows the same one whatever name it goes by
   const [look, setLook] = useState<Look>(() => (old ? pinLook(old.look, old.name) : randomLook()))
   const [repoError, setRepoError] = useState(false)
-  // the key of the skill row whose repo is not one
-  const [badRow, setBadRow] = useState<number | null>(null)
   const repoField = useRef<HTMLInputElement>(null)
-  const rowFields = useRef(new Map<number, HTMLInputElement>())
   if (id && !old) return <Gone {...h} />
   const follow = (src: string) => {
     if (!named) setName((src.split(/[/\\:]/).filter(Boolean).pop() ?? '').replace(/\.git$/, ''))
@@ -1427,8 +1450,8 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
     return true
   }
   const hash = () => Math.random().toString(16).slice(2, 9)
-  const keep = (bp: Omit<Blueprint, 'id' | 'look' | 'autoUpdate'>) => {
-    act((x) => saveBlueprint(x, id, (key, prev) => blueprintOf(key, prev, look, bp)))
+  const keep = (bp: Omit<Blueprint, 'id' | 'look'>) => {
+    act((x) => saveBlueprint(x, id, (key) => blueprintOf(key, look, bp)))
     if (copyOf) learn('copyBlueprint')
     onDone()
   }
@@ -1436,17 +1459,8 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
     e.preventDefault()
     const now = useStore.getState().world.now
     if (kind === 'local') {
-      // the simulator makes up a version; the backend finds the real one once the blueprint is saved
-      const read = skillPacksOf(rows, now, () => (MOCK ? hash() : ''))
-      if (!read.ok) {
-        const row = rows[read.row]
-        setBadRow(row.key)
-        rowFields.current.get(row.key)?.focus()
-        return
-      }
-      const skills = read.skills.map((p) => (p.source?.kind === 'git' ? { ...p, source: keepSource(old, p.source) } : p))
-      const form = { name: name.trim(), prompt: prompt.trim(), comment: comment.trim(), skills, tools: TOOLS.filter((t) => tools.includes(t)) }
-      return keep({ ...form, source: { kind: 'yaml', text: blueprintToYaml(form) } })
+      const form = { name: name.trim(), prompt: prompt.trim(), comment: comment.trim(), skills: packs, tools: TOOLS.filter((t) => tools.includes(t)) }
+      return keep({ ...form, source: { kind: 'yaml', text: blueprintToYaml(form, useStore.getState().world.sources) } })
     }
     const g = parseGithub(repo)
     if (!g) {
@@ -1522,115 +1536,12 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
       </div>
       {kind === 'local' && (
         <>
-          <SkillSources rows={rows} setRows={setRows} bad={badRow} setBad={setBadRow} fields={rowFields} />
+          <SkillPicker packs={packs} onChange={setPacks} />
           <ToolPicks tools={tools} setTools={setTools} />
         </>
       )}
       <button type="submit" className="fx-save">{old ? tr('儲存') : tr('新增')}</button>
     </form>
-  )
-}
-
-/** What each place skills can come from is called on the form. */
-const KIND_LABELS: Record<SkillRow['kind'], () => string> = {
-  local: () => tr('本機資料夾'), codex: () => tr('本機 Codex'), claude: () => tr('本機 Claude Code'), git: () => 'GitHub',
-}
-
-/**
- * Where a blueprint's skills come from, a row each, to fill in. `bad` is the key of the row whose repo is not one;
- * `fields` holds each row's first field, for the form to point at it.
- */
-function SkillSources({ rows, setRows, bad: badRow, setBad, fields }: {
-  rows: SkillRow[]
-  setRows: React.Dispatch<React.SetStateAction<SkillRow[]>>
-  bad: number | null
-  setBad: (key: number | null) => void
-  fields: React.RefObject<Map<number, HTMLInputElement>>
-}) {
-  // a row just added takes the keyboard
-  const [focusRow, setFocusRow] = useState<number | null>(null)
-  const addRow = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
-    if (focusRow === null) return
-    fields.current.get(focusRow)?.focus()
-    setFocusRow(null)
-  }, [focusRow, fields])
-  return (
-    <Section name={tr('技能')}>
-      {rows.length > 0 && (
-        <ul className="fx-skill-rows">
-          {rows.map((row, i) => {
-            const change = (patch: Partial<SkillRow>) => setRows((rs) => rs.map((r) => (r.key === row.key ? { ...r, ...patch } : r)))
-            const bad = badRow === row.key
-            // an agent's own folder is set by picking the agent
-            const fixed = row.kind === 'codex' || row.kind === 'claude'
-            return (
-              <li key={row.key} className="fx-skill-row">
-                <Select label={tr('位置')} value={row.kind} options={['local', 'codex', 'claude', 'git']} labelOf={(x) => KIND_LABELS[x as SkillRow['kind']]()}
-                  onChange={(x) => {
-                    const kind = x as SkillRow['kind']
-                    if (kind !== row.kind) change({ kind, where: kind === 'local' || kind === 'git' ? '' : AGENT_FOLDERS[kind], ref: '', path: '' })
-                    setBad(null)
-                  }} />
-                <label className="fx-field">
-                  <span>{row.kind === 'git' ? 'Repo' : tr('資料夾')}</span>
-                  <input ref={(el) => { if (el) fields.current.set(row.key, el); else fields.current.delete(row.key) }}
-                    className="fx-control" value={row.where} required pattern=".*\S.*" spellCheck={false} autoComplete="off"
-                    readOnly={fixed} placeholder={row.kind === 'git' ? 'owner/repo' : '~/.agents/'} aria-invalid={bad || undefined}
-                    aria-describedby={bad ? `fx-skill-error-${row.key}` : undefined}
-                    onChange={(e) => { change({ where: e.target.value }); setBad(null) }}
-                    // an address becomes owner/repo, and the version and folder in it go to their fields
-                    onBlur={() => {
-                      const g = row.kind === 'git' ? parseGithub(row.where) : null
-                      if (g) change({ where: shortRepo(githubAddress(g)), ref: g.ref || row.ref, path: g.path || row.path })
-                    }} />
-                </label>
-                {bad && <p id={`fx-skill-error-${row.key}`} className="fx-field-error">{tr('請輸入 owner/repo 或 GitHub 網址')}</p>}
-                {row.kind === 'git' && (
-                  <label className="fx-field">
-                    <span>{tr('版本')}</span>
-                    <input className="fx-control" value={row.ref} spellCheck={false} autoComplete="off" placeholder={tr('留空為預設分支')}
-                      onChange={(e) => change({ ref: e.target.value })} />
-                  </label>
-                )}
-                {row.kind === 'git' && (
-                  <label className="fx-field">
-                    <span>{tr('子資料夾')}</span>
-                    <input className="fx-control" value={row.path} spellCheck={false} autoComplete="off" placeholder={tr('留空為整個 repo')}
-                      onChange={(e) => change({ path: e.target.value })} />
-                  </label>
-                )}
-                <label className="fx-field">
-                  <span>{tr('只載入')}</span>
-                  <input className="fx-control" value={row.include} spellCheck={false} autoComplete="off" placeholder={tr('留空為全部，以逗號分隔')}
-                    onChange={(e) => change({ include: e.target.value })} />
-                </label>
-                <label className="fx-field">
-                  <span>{tr('排除')}</span>
-                  <input className="fx-control" value={row.exclude} spellCheck={false} autoComplete="off" placeholder={tr('留空為不排除，以逗號分隔')}
-                    onChange={(e) => change({ exclude: e.target.value })} />
-                </label>
-                <button type="button" className="fx-tool fx-hit fx-skill-remove" aria-label={tr('刪除第 {a} 個技能來源', { a: i + 1 })} title={tr('刪除')}
-                  onClick={() => {
-                    setRows((rs) => rs.filter((r) => r.key !== row.key))
-                    addRow.current?.focus()
-                  }}>
-                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                    <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                  </svg>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-      <button ref={addRow} type="button" className="fx-task fx-task-new fx-flow-new fx-hit fx-skill-add"
-        onClick={() => {
-          const row = newSkillRow()
-          setRows((rs) => [...rs, row])
-          setFocusRow(row.key)
-        }}>{tr('＋ 新增技能來源')}</button>
-    </Section>
   )
 }
 
@@ -1683,10 +1594,8 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
   // the settings of their own being written, and what they were copied from: theirs, or the blueprint copied
   const [base, setBase] = useState<Blueprint | undefined>(mine)
   const [prompt, setPrompt] = useState(mine?.prompt ?? '')
-  const [rows, setRows] = useState<SkillRow[]>(() => skillRowsOf(mine ? ownPacks(mine) : []))
+  const [packs, setPacks] = useState<SkillPack[]>(() => (mine ? ownPacks(mine) : []))
   const [tools, setTools] = useState<Tool[]>(mine?.tools ?? ['readFile', 'writeFile'])
-  const [badRow, setBadRow] = useState<number | null>(null)
-  const rowFields = useRef(new Map<number, HTMLInputElement>())
   const [model, setModel] = useState(r?.model ?? (MOCK ? DEFAULT_MODEL : modelsOf(w)[0] ?? ''))
   const [effort, setEffort] = useState(r?.effort ?? DEFAULT_EFFORT)
   // what the model takes decides; another model that doesn't take this level starts on the default
@@ -1704,26 +1613,17 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
     if (!b) return
     setBase(b)
     setPrompt(b.prompt)
-    setRows(skillRowsOf(ownPacks(b)))
+    setPacks(ownPacks(b))
     setTools(b.tools)
-    setBadRow(null)
   }
   const save = (e: React.FormEvent) => {
     e.preventDefault()
     let own: OwnSettings | undefined
     if (mode === 'custom') {
-      // the simulator makes up a version; the backend finds the real one once they are saved
-      const read = skillPacksOf(rows, w.now, () => (MOCK ? Math.random().toString(16).slice(2, 9) : ''))
-      if (!read.ok) {
-        const row = rows[read.row]
-        setBadRow(row.key)
-        rowFields.current.get(row.key)?.focus()
-        return
-      }
-      const skills = read.skills.map((p) => (p.source?.kind === 'git' ? { ...p, source: keepSource(base, p.source) } : p))
+      const skills = packs
       const form = { name: name.trim(), prompt: prompt.trim(), comment: '', skills, tools: TOOLS.filter((t) => tools.includes(t)) }
       // a copy of a blueprint from GitHub keeps its repo, whose AGENTS.md stands in for an empty prompt
-      const source: BlueprintSource = base?.source.kind === 'git' ? base.source : { kind: 'yaml', text: blueprintToYaml(form) }
+      const source: BlueprintSource = base?.source.kind === 'git' ? base.source : { kind: 'yaml', text: blueprintToYaml(form, w.sources) }
       own = { source, prompt: form.prompt, comment: '', skills, tools: form.tools, ...(from && { from }) }
     }
     act((x) => {
@@ -1774,7 +1674,7 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
         </>
       ) : (
         <>
-          <SkillSources rows={rows} setRows={setRows} bad={badRow} setBad={setBadRow} fields={rowFields} />
+          <SkillPicker key={from ?? ''} packs={packs} onChange={setPacks} />
           <ToolPicks tools={tools} setTools={setTools} />
         </>
       )}
@@ -1787,7 +1687,7 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
 /** A blueprint's skill packs, each naming where it reads from: those of its own repo name the repo. */
 function ownPacks(bp: Blueprint): SkillPack[] {
   const own = bp.source.kind === 'git' ? bp.source : null
-  return bp.skills.flatMap((p) => (p.source ? [p] : own ? [{ ...p, source: own }] : []))
+  return bp.skills.flatMap((p) => (p.sourceId || p.source ? [p] : own ? [{ ...p, source: own }] : []))
 }
 
 /**

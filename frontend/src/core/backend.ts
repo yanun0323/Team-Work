@@ -26,7 +26,7 @@ export type ServerEvent =
   | { type: 'notice'; kind: 'review' | 'awaitMerge'; taskId: string; subId?: string }
 
 const BOOKS: Record<string, keyof World> = {
-  team: 'teams', provider: 'providers', blueprint: 'blueprints', replica: 'replicas', workflow: 'workflows', task: 'tasks', subTask: 'subTasks', chat: 'chats',
+  team: 'teams', provider: 'providers', blueprint: 'blueprints', source: 'sources', replica: 'replicas', workflow: 'workflows', task: 'tasks', subTask: 'subTasks', chat: 'chats',
 }
 
 /** Writes a batch of changes into the world. `skip` leaves out what the user is in the middle of editing. */
@@ -56,7 +56,7 @@ export const handedImageUrl = (subId: string, path: string) => `/api/v1/subtasks
 
 /** A world with nothing in it, until the backend's snapshot arrives. */
 export const emptyWorld = (): World => ({
-  preferences: { ...DEFAULT_PREFS }, now: Date.now() / 1000, seq: 0, language: 'zh', teams: {}, providers: {}, blueprints: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
+  preferences: { ...DEFAULT_PREFS }, now: Date.now() / 1000, seq: 0, language: 'zh', teams: {}, providers: {}, blueprints: {}, sources: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
   nextDriftAt: Infinity, rng: 0, events: [],
 })
 

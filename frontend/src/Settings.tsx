@@ -16,7 +16,7 @@ import { blueprintList, flowList, waitingTab } from './core/model'
 import { isPreset } from './core/data/presets'
 import { itemKey, type Item } from './DrawerDetail'
 import { FlowNotes, openCard } from './FlowNotes'
-import { sourceState, sourceText } from './source'
+import { keptState, sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, makesImages, PROVIDER_KINDS } from './providers'
 import { Select, Switcher, Toggle, useAutoGrow } from './Controls'
@@ -30,6 +30,7 @@ import { DEFAULT_EFFORT, effortsOf, modelGroups, modelsOf } from './crew'
 import { takeAirportTab, tutorialOf, updateTutorial } from './tutorial'
 import { composing } from './ime'
 import { Stats } from './Stats'
+import { SourcesTab } from './Sources'
 import { useUpdateFound } from './update'
 import type { Daylight } from './daylight'
 
@@ -151,6 +152,7 @@ export function Settings({ leaving, onGone }: {
           {tab === 'chats' && <Chats teamId="" open={open} onOpen={sheets.open} />}
           {tab === 'providers' && <Providers open={open} onOpen={sheets.open} />}
           {tab === 'blueprints' && <Blueprints open={open} onOpen={sheets.open} />}
+          {tab === 'sources' && <SourcesTab open={open} onOpen={sheets.open} />}
           {tab === 'flows' && <Flows open={open} onOpen={sheets.open} />}
           {tab === 'prefs' && <PrefsPage />}
           {tab === 'stats' && <Stats />}
@@ -204,7 +206,9 @@ function Blueprints({ open, onOpen }: { open: string | null; onOpen: (x: Item) =
         <ul className="fx-list">
           {list.map((bp) => {
             // a repo that can't be found or failed to update is flagged on the list too
+            const kept = bp.skills.flatMap((p) => (p.sourceId && w.sources[p.sourceId] ? [w.sources[p.sourceId]] : []))
             const trouble = gitSources(bp).filter((s) => sourceState(s, w.now).tone === 'bad').length
+              + [...new Set(kept)].filter((s) => keptState(s, w.now)?.tone === 'bad').length
             return (
               <li key={bp.id}><button className="fx-row fx-hit" {...opener({ kind: 'blueprint', id: bp.id })}>
                 <span aria-hidden="true"><BlueprintIcon look={bp.look} name={bp.name} size={34} /></span>

@@ -3,7 +3,7 @@
 
 import { tr } from './core/i18n'
 import { shortRepo } from './github'
-import type { BlueprintSource, GitSource, LocalSkills, Tool } from './core/domain/types'
+import type { BlueprintSource, GitSource, LocalSkills, Source, Tool } from './core/domain/types'
 
 /**
  * Where something comes from, as one line: `owner/repo @ version` (`owner/repo/folder` for a folder in it) (no version: the default branch), a
@@ -15,6 +15,23 @@ export function sourceText(s: BlueprintSource | LocalSkills) {
   if (s.kind === 'local') return s.path
   const repo = shortRepo(s.repo) + (s.path ? `/${s.path}` : '')
   return s.ref ? `${repo} @ ${s.ref}` : repo
+}
+
+/** A source kept apart, as one line: `owner/repo @ branch`, or its folder. */
+export function sourceName(s: Source) {
+  if (s.kind === 'local') return s.path ?? ''
+  const repo = shortRepo(s.repo ?? '')
+  return s.ref ? `${repo} @ ${s.ref}` : repo
+}
+
+/** The state of a source kept apart, as `sourceState` says it; none for a folder, which has no versions. */
+export function keptState(s: Source, now: number): SourceState | null {
+  if (s.kind !== 'git') return null
+  const short = (c?: string) => (c ?? '').slice(0, 7)
+  return sourceState({
+    kind: 'git', repo: s.repo ?? '', ref: '', commit: s.commit ?? '', latestRef: short(s.latest), latest: s.latest ?? '',
+    private: false, upstream: s.upstream, update: s.update,
+  }, now, short(s.commit))
 }
 
 export interface SourceState {
@@ -36,8 +53,7 @@ export function ago(now: number, at: number) {
  * The state of a source, most pressing first: an upstream that can't be found, then a failed update (the
  * version in use stays), then a newer version waiting, then up to date.
  */
-export function sourceState(s: GitSource, now: number): SourceState {
-  const inUse = s.ref || s.commit
+export function sourceState(s: GitSource, now: number, inUse = s.ref || s.commit): SourceState {
   const newest = s.latestRef || s.latest
   if (!s.upstream) return { tone: 'bad', label: tr('找不到上游'), note: tr('repo 可能已改名、刪除或沒有讀取權限，仍使用 {inUse}', { inUse }) }
   if (s.update && !s.update.ok) {

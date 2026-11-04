@@ -13,6 +13,7 @@ export const AIRPORT_TABS = [
   { id: 'providers', label: '模型供應商' },
   { id: 'blueprints', label: '員工藍圖' },
   { id: 'flows', label: '任務藍圖#tab' },
+  { id: 'sources', label: '來源#tab' },
   { id: 'stats', label: '統計' },
   { id: 'prefs', label: '設定' },
   { id: 'about', label: '關於' },
