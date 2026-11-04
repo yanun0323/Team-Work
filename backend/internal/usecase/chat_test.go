@@ -340,6 +340,10 @@ func TestTaskDraftFromAChat(t *testing.T) {
 	if d.Title != "做登入" || d.Description != "要有忘記密碼" {
 		t.Fatalf("%+v", d)
 	}
+	if system := r.fake.seen[len(r.fake.seen)-1].System; !strings.Contains(system, "separate work tree") || !strings.Contains(system, "should not say how to commit") ||
+		!strings.Contains(system, "not yet committed") || !strings.Contains(system, "relative to the project folder") {
+		t.Fatalf("the draft is not told how a task runs: %s", system)
+	}
 	seen := r.fake.seen[len(r.fake.seen)-1].Messages[0].Content[0].Text
 	if !strings.Contains(seen, "討論登入") || !strings.Contains(seen, "要做登入嗎") {
 		t.Fatal(seen)

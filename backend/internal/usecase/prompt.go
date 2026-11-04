@@ -16,9 +16,15 @@ import (
 
 // systemRules come first and no flow or blueprint can override them; the priority rules tell the model so.
 const systemRules = "You are a company employee working on one step of a task. Work only inside the working directory, the work tree this task shares. Attached files may be read from their supplied paths outside it, but must not be modified.\n" +
+	workTreeRule + "\n" +
 	"When a decision belongs to the user, ask with ask_user instead of guessing. " + memoryRule + "\n" +
 	sharedFilesRule + "\n" +
 	dataRule
+
+// workTreeRule says what the work tree is made from, so a step does not look for what only the project folder has.
+const workTreeRule = "The work tree is the task's own branch, apart from the project folder, started from the target branch's latest commit. " +
+	"Files git ignores, such as installed dependencies, build output and .env, are not in it: install or build what you need here, do not take files from the project folder, and ask with ask_user for any you cannot make. " +
+	"Paths in the task that point into the project folder mean the same files in the work tree."
 
 // memoryRule says what remember and forget are for; tasks and chats both have them.
 const memoryRule = "Use remember for project conventions, pitfalls and user preferences that later tasks need, not for task progress or one-off decisions. When a note in your memory is wrong or out of date, forget it by id; to correct one, forget it and remember the new version."

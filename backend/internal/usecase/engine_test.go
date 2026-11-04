@@ -514,7 +514,8 @@ func TestEveryStepSeesItsNeighbours(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	for step, wants := range map[string][]string{
-		"寫碼": {"- Clarify requirements: " + usecase.StartPrompt, "- 討論 (id: talk): " + usecase.TalkPrompt},
+		// a step also knows what its work tree lacks next to the project folder
+		"寫碼": {"- Clarify requirements: " + usecase.StartPrompt, "- 討論 (id: talk): " + usecase.TalkPrompt, "started from the target branch's latest commit", "Files git ignores"},
 		"討論": {"- 寫碼: 寫碼的指示", "- Acceptance review: " + usecase.EndPrompt},
 	} {
 		for _, want := range wants {
