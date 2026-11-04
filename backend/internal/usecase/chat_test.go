@@ -504,7 +504,7 @@ func TestDiscussionPassesOnItsWordsButWorkStepsStayQuiet(t *testing.T) {
 	})
 	wf := *r.flow
 	start, end := wf.Nodes[0].ID, wf.Nodes[1].ID
-	wf.Nodes = append(wf.Nodes[:1], model.WorkflowNode{ID: "talk", Kind: enum.NodeTalk, Name: "討論", Prompt: usecase.TalkPrompt, ReplicaIDs: []string{r.owner.ID}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll}, wf.Nodes[1])
+	wf.Nodes = append(wf.Nodes[:1], model.WorkflowNode{ID: "talk", Kind: enum.NodeTalk, Name: "討論", Prompt: usecase.TalkPrompt, ReplicaIDs: []string{r.owner.ID}, Handoff: enum.HandoffAll, Join: enum.JoinAll}, wf.Nodes[1])
 	wf.Edges = []model.WorkflowEdge{{ID: "1", From: start, To: "talk"}, {ID: "2", From: "talk", To: end}}
 	if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
 		t.Fatal(err)

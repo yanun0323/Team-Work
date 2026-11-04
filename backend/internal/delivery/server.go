@@ -532,6 +532,9 @@ func (s *Server) hire(c echo.Context) error {
 		return err
 	}
 	out, err := s.engine.Hire(in)
+	if err == nil {
+		err = s.engine.PinOwnSources(c.Request().Context(), out.ID)
+	}
 	return created(c, out, err)
 }
 
@@ -540,7 +543,10 @@ func (s *Server) updateReplica(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	return done(c, s.engine.UpdateReplica(c.Param("id"), in))
+	if err := s.engine.UpdateReplica(c.Param("id"), in); err != nil {
+		return err
+	}
+	return done(c, s.engine.PinOwnSources(c.Request().Context(), c.Param("id")))
 }
 
 func (s *Server) fire(c echo.Context) error {
@@ -614,12 +620,13 @@ func (s *Server) handedImage(c echo.Context) error {
 
 func (s *Server) sayInTalk(c echo.Context) error {
 	in, err := bind[struct {
-		Text string `json:"text"`
+		Text     string   `json:"text"`
+		Mentions []string `json:"mentions"`
 	}](c)
 	if err != nil {
 		return err
 	}
-	return done(c, s.engine.SayInTalk(c.Param("id"), in.Text))
+	return done(c, s.engine.SayInTalk(c.Param("id"), in.Text, in.Mentions))
 }
 
 func (s *Server) endTalk(c echo.Context) error {

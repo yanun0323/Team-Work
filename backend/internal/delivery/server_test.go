@@ -630,7 +630,8 @@ func TestFileAttachmentEndpoints(t *testing.T) {
 	id := chat["id"].(string)
 	post("/chats/"+id+"/stop", nil, http.StatusNoContent)
 	post("/chats/"+id+"/say", map[string]any{"files": files}, http.StatusNoContent)
-	task := post("/tasks", map[string]any{"teamId": team["id"], "title": "files", "workflowId": flow["id"], "ownerId": employee["id"], "files": files}, http.StatusCreated)
+	task := post("/tasks", map[string]any{"teamId": team["id"], "title": "files", "workflowId": flow["id"], "ownerId": employee["id"], "files": files,
+		"staff": map[string]any{flow["nodes"].([]any)[0].(map[string]any)["id"].(string): []any{employee["id"]}}}, http.StatusCreated)
 	if len(task["files"].([]any)) != 1 {
 		t.Fatal(task)
 	}

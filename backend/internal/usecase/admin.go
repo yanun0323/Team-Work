@@ -234,7 +234,14 @@ func (e *Engine) DeleteTeam(id string) error {
 		}
 		for rid, r := range e.w.Replicas {
 			if r.TeamID == id {
+				e.dropOwnBlueprint(r)
 				delete(e.w.Replicas, rid)
+			}
+		}
+		// flows are shared by every company: a step loses the people who are gone, or the flow would no longer load
+		for _, wf := range e.w.Workflows {
+			for i := range wf.Nodes {
+				wf.Nodes[i].ReplicaIDs = slices.DeleteFunc(wf.Nodes[i].ReplicaIDs, func(rid string) bool { return e.w.Replicas[rid] == nil })
 			}
 		}
 		for _, c := range e.w.Chats {
@@ -254,14 +261,12 @@ func errPreset() error {
 	return model.Errorf(model.CodeConflict, "內建的項目不能修改，請複製後再改")
 }
 
+// newWorkflow is a flow of one blank step, to be written.
 func (e *Engine) newWorkflow(name string) *model.Workflow {
-	start, end := e.uid("n"), e.uid("n")
 	wf := &model.Workflow{ID: e.uid("wf"), Name: name,
-		Nodes: []model.WorkflowNode{
-			{ID: start, Kind: enum.NodeTask, Name: presets.Start.Name.in(e.w.Language), Prompt: presets.Start.Prompt.in(e.w.Language), ReplicaIDs: []string{}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll},
-			{ID: end, Kind: enum.NodeWork, Name: presets.End.Name.in(e.w.Language), Prompt: presets.End.Prompt.in(e.w.Language), ReplicaIDs: []string{}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll, Pos: model.Point{Y: 200}},
-		},
-		Edges: []model.WorkflowEdge{{ID: e.uid("e"), From: start, To: end}},
+		Nodes: []model.WorkflowNode{{ID: e.uid("n"), Kind: enum.NodeWork, Name: i18n.T("新步驟%d", 1), Prompt: "", ReplicaIDs: []string{},
+			Handoff: enum.HandoffAll, Join: enum.JoinAll}},
+		Edges: []model.WorkflowEdge{},
 	}
 	e.w.Workflows[wf.ID] = wf
 	return wf
@@ -271,7 +276,7 @@ func (e *Engine) CreateWorkflow(name string) (*model.Workflow, error) {
 	var out *model.Workflow
 	err := e.doSettings(func() error {
 		if strings.TrimSpace(name) == "" {
-			return model.Errorf(model.CodeInvalid, "任務流程要有名稱")
+			return model.Errorf(model.CodeInvalid, "任務藍圖要有名稱")
 		}
 		out = clone(e.newWorkflow(strings.TrimSpace(name)))
 		return nil
@@ -287,12 +292,13 @@ func (e *Engine) SaveWorkflow(id string, wf model.Workflow) error {
 // saveWorkflow does it holding the lock, inside a change.
 func (e *Engine) saveWorkflow(id string, wf model.Workflow) error {
 	if e.w.Workflows[id] == nil {
-		return model.Errorf(model.CodeNotFound, "找不到任務流程")
+		return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
 	}
 	if model.IsPresetID(id) {
 		return errPreset()
 	}
 	wf.ID = id
+	settleStarts(&wf)
 	if err := e.checkFlow(&wf); err != nil {
 		return err
 	}
@@ -307,8 +313,13 @@ func (e *Engine) saveWorkflow(id string, wf model.Workflow) error {
 // checkFlow is everything a flow has to be before it is kept.
 func (e *Engine) checkFlow(wf *model.Workflow) error {
 	if strings.TrimSpace(wf.Name) == "" {
-		return model.Errorf(model.CodeInvalid, "任務流程要有名稱")
+		return model.Errorf(model.CodeInvalid, "任務藍圖要有名稱")
 	}
+	if name := crowdedStep(wf); name != "" {
+		return model.Errorf(model.CodeInvalid, "工作步驟「%s」只能有一位員工", name)
+	}
+	wf.Nodes = slices.Clone(wf.Nodes)
+	settleStaff(wf) // drops what an older client still sends
 	if err := checkWorkflow(wf); err != nil {
 		return err
 	}
@@ -328,7 +339,7 @@ func (e *Engine) DuplicateWorkflow(id string) (*model.Workflow, error) {
 	err := e.doSettings(func() error {
 		from := e.w.Workflows[id]
 		if from == nil {
-			return model.Errorf(model.CodeNotFound, "找不到任務流程")
+			return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
 		}
 		taken := map[string]bool{}
 		for _, wf := range e.w.Workflows {
@@ -352,7 +363,7 @@ func (e *Engine) DuplicateWorkflow(id string) (*model.Workflow, error) {
 func (e *Engine) DeleteWorkflow(id string) error {
 	return e.doSettings(func() error {
 		if e.w.Workflows[id] == nil {
-			return model.Errorf(model.CodeNotFound, "找不到任務流程")
+			return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
 		}
 		if model.IsPresetID(id) {
 			return errPreset()
@@ -874,7 +885,7 @@ func (e *Engine) CreateBlueprint(b model.Blueprint) (*model.Blueprint, error) {
 		if err := checkBlueprint(&b); err != nil {
 			return err
 		}
-		b.ID = e.uid("bp")
+		b.ID, b.Owner = e.uid("bp"), ""
 		e.w.Blueprints[b.ID] = &b
 		out = clone(&b)
 		return nil
@@ -897,9 +908,64 @@ func (e *Engine) saveBlueprint(id string, b model.Blueprint) error {
 	if err := checkBlueprint(&b); err != nil {
 		return err
 	}
-	b.ID = id
+	b.ID, b.Owner = id, e.w.Blueprints[id].Owner
 	e.w.Blueprints[id] = &b
 	return nil
+}
+
+// hireableBlueprint is a blueprint employee rid may work by: one anyone can be hired from, or their own.
+func (e *Engine) hireableBlueprint(id, rid string) *model.Blueprint {
+	if b := e.w.Blueprints[id]; b != nil && (b.Owner == "" || b.Owner == rid) {
+		return b
+	}
+	return nil
+}
+
+// ownBlueprint gives r settings of their own, b, in place of the ones they had; their own already are rewritten.
+// They are named after r and never update themselves, so a copy keeps the versions it was made with.
+func (e *Engine) ownBlueprint(r *model.Replica, b model.Blueprint) error {
+	b.Name, b.Look, b.Owner, b.AutoUpdate = r.Name, r.Look, r.ID, false
+	if err := checkBlueprint(&b); err != nil {
+		return err
+	}
+	if old := e.w.Blueprints[r.BlueprintID]; old != nil && old.Owner == r.ID {
+		b.ID = old.ID
+	} else {
+		b.ID = e.uid("bp")
+	}
+	e.w.Blueprints[b.ID] = &b
+	r.BlueprintID = b.ID
+	return nil
+}
+
+// PinOwnSources finds the version of each Git source an employee's own settings name without one, as the app does
+// once a blueprint is saved.
+func (e *Engine) PinOwnSources(ctx context.Context, rid string) error {
+	e.mu.Lock()
+	id := ""
+	if r := e.w.Replicas[rid]; r != nil {
+		if b := e.w.Blueprints[r.BlueprintID]; b != nil && b.Owner == rid {
+			unpinned := b.Source.Kind == "git" && b.Source.Commit == ""
+			for _, p := range b.Skills {
+				unpinned = unpinned || p.Source != nil && p.Source.Kind == "git" && p.Source.Commit == ""
+			}
+			if unpinned {
+				id = b.ID
+			}
+		}
+	}
+	e.mu.Unlock()
+	if id == "" {
+		return nil
+	}
+	return e.UpdateBlueprint(ctx, id)
+}
+
+// dropOwnBlueprint removes r's own settings, which go with them.
+func (e *Engine) dropOwnBlueprint(r *model.Replica) {
+	if b := e.w.Blueprints[r.BlueprintID]; b != nil && b.Owner == r.ID {
+		delete(e.w.Blueprints, b.ID)
+	}
 }
 
 func (e *Engine) DeleteBlueprint(id string) error {
@@ -990,12 +1056,17 @@ type NewReplica struct {
 	Look        *model.Look `json:"look"`
 	Model       string      `json:"model"`
 	Effort      string      `json:"effort"`
+	// Custom, when given, is their own settings, in place of a blueprint to be hired from.
+	Custom *model.Blueprint `json:"custom"`
 }
 
 func (e *Engine) Hire(in NewReplica) (*model.Replica, error) {
 	var out *model.Replica
 	err := e.doSettings(func() error {
-		bp := e.w.Blueprints[in.BlueprintID]
+		bp := e.hireableBlueprint(in.BlueprintID, "")
+		if in.Custom != nil {
+			bp = in.Custom
+		}
 		if e.w.Teams[in.TeamID] == nil || bp == nil {
 			return model.Errorf(model.CodeNotFound, "找不到公司或藍圖")
 		}
@@ -1018,6 +1089,11 @@ func (e *Engine) Hire(in NewReplica) (*model.Replica, error) {
 		}
 		r := &model.Replica{ID: e.uid("rep"), TeamID: in.TeamID, BlueprintID: in.BlueprintID, Name: strings.TrimSpace(in.Name), Look: look,
 			Model: in.Model, Effort: effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now}
+		if in.Custom != nil {
+			if err := e.ownBlueprint(r, *in.Custom); err != nil {
+				return err
+			}
+		}
 		e.w.Replicas[r.ID] = r
 		out = clone(r)
 		return nil
@@ -1033,11 +1109,13 @@ type ReplicaPatch struct {
 	Effort      *string              `json:"effort"`
 	Look        *model.Look          `json:"look"`
 	Memory      *[]model.MemoryEntry `json:"memory"`
+	// Custom gives them settings of their own, or rewrites theirs; BlueprintID instead lets their own go.
+	Custom *model.Blueprint `json:"custom"`
 }
 
 func (e *Engine) UpdateReplica(id string, p ReplicaPatch) error {
 	change := e.doSettings
-	if p.Name == nil && p.BlueprintID == nil && p.Model == nil && p.Effort == nil && p.Look == nil {
+	if p.Name == nil && p.BlueprintID == nil && p.Model == nil && p.Effort == nil && p.Look == nil && p.Custom == nil {
 		change = e.do
 	}
 	return change(func() error {
@@ -1051,8 +1129,15 @@ func (e *Engine) UpdateReplica(id string, p ReplicaPatch) error {
 		if p.Model != nil && e.providerFor(*p.Model) == nil {
 			return model.Errorf(model.CodeInvalid, "沒有模型供應商提供 %s", *p.Model)
 		}
-		if p.BlueprintID != nil && e.w.Blueprints[*p.BlueprintID] == nil {
+		if p.BlueprintID != nil && e.hireableBlueprint(*p.BlueprintID, id) == nil {
 			return model.Errorf(model.CodeNotFound, "找不到藍圖")
+		}
+		if p.Custom != nil {
+			try := *p.Custom
+			try.Name = r.Name
+			if err := checkBlueprint(&try); err != nil {
+				return err
+			}
 		}
 		// a level goes with its model: without a new one, a new model may have to fall back on the default
 		modelID, effort := r.Model, r.Effort
@@ -1068,7 +1153,8 @@ func (e *Engine) UpdateReplica(id string, p ReplicaPatch) error {
 			return model.Errorf(model.CodeInvalid, "%s 沒有思考等級 %s", modelID, effort)
 		}
 		r.Effort = effort
-		if p.BlueprintID != nil {
+		if p.BlueprintID != nil && p.Custom == nil && *p.BlueprintID != r.BlueprintID {
+			e.dropOwnBlueprint(r)
 			r.BlueprintID = *p.BlueprintID
 		}
 		if p.Name != nil {
@@ -1082,6 +1168,13 @@ func (e *Engine) UpdateReplica(id string, p ReplicaPatch) error {
 		}
 		if p.Memory != nil {
 			r.Memory = *p.Memory
+		}
+		if p.Custom != nil {
+			return e.ownBlueprint(r, *p.Custom)
+		}
+		// their own settings go by their name and look
+		if b := e.w.Blueprints[r.BlueprintID]; b != nil && b.Owner == r.ID {
+			b.Name, b.Look = r.Name, r.Look
 		}
 		return nil
 	})
@@ -1144,6 +1237,7 @@ func (e *Engine) Fire(id, heirID string) error {
 			}
 			e.logLine(s, enum.LogSystem, i18n.T("%s 離職，交給 %s", r.Name, heir.Name), "handover", map[string]any{"from": r.Name, "to": heir.Name})
 		}
+		e.dropOwnBlueprint(r)
 		delete(e.w.Replicas, id)
 		return nil
 	})

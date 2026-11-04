@@ -368,28 +368,122 @@ func (e *Engine) startSub(t *model.Task, s *model.SubTask) {
 	}
 	e.w.Conversations[s.ID] = conv
 	e.dirty[s.ID] = true
+	if node.Kind == enum.NodeTalk { // the chair opens it, and in a meeting knows who else is in it
+		e.launch(t, s, e.talkSpec(t, s, spec), r.ID, e.talkSees(t, s, conv, r.ID))
+		return
+	}
 	e.launch(t, s, spec, r.ID, slices.Clone(conv))
 }
 
-// startTalkReply has the employee answer in a discussion. Call it holding the lock.
-func (e *Engine) startTalkReply(t *model.Task, s *model.SubTask) {
-	r := e.w.Replicas[*s.ReplicaID]
+// talkPeople are who hold a discussion: the one who opened it, who chairs, then the rest of its step's employees
+// still here. Several make it a meeting.
+func (e *Engine) talkPeople(t *model.Task, s *model.SubTask) []string {
+	var out []string
+	add := func(id string) {
+		if e.w.Replicas[id] != nil && !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	if s.ReplicaID != nil {
+		add(*s.ReplicaID)
+	}
+	for _, id := range nodeOf(&t.Workflow, s.NodeID).ReplicaIDs {
+		add(id)
+	}
+	return out
+}
+
+// talkSpec is a discussion's spec for the one replying, told how a meeting goes round when there is one.
+func (e *Engine) talkSpec(t *model.Task, s *model.SubTask, spec agentSpec) agentSpec {
+	if len(e.talkPeople(t, s)) > 1 {
+		spec.prompt.rules += talkMeetingRule
+	}
+	return spec
+}
+
+// talkSees is a discussion as the one replying reads it: in a meeting what the others said comes as said to them,
+// and the round's note ends the user's latest words.
+func (e *Engine) talkSees(t *model.Task, s *model.SubTask, conv []model.Message, speaker string) []model.Message {
+	people := e.talkPeople(t, s)
+	if len(people) < 2 {
+		return slices.Clone(conv)
+	}
+	names := map[string]string{}
+	for _, id := range people {
+		names[id] = e.w.Replicas[id].Name
+	}
+	who := func(id string) string {
+		switch {
+		case id == speaker && id == people[0]:
+			return names[id] + " (you, chair)"
+		case id == speaker:
+			return names[id] + " (you)"
+		case id == people[0]:
+			return names[id] + " (chair)"
+		}
+		return names[id]
+	}
+	here := make([]string, len(people))
+	for i, id := range people {
+		here[i] = who(id)
+	}
+	var round []string
+	if s.Talk != nil {
+		for i := len(s.Talk.Messages) - 1; i >= 0 && s.Talk.Messages[i].From != "user"; i-- {
+			if by := s.Talk.Messages[i].By; by != "" && by != speaker && names[by] != "" && !slices.Contains(round, by) {
+				round = append([]string{by}, round...)
+			}
+		}
+		round = append(round, speaker)
+		round = append(round, s.Talk.Next...)
+	} else {
+		round = []string{speaker}
+	}
+	order := make([]string, 0, len(round))
+	for _, id := range round {
+		if names[id] != "" {
+			order = append(order, who(id))
+		}
+	}
+	note := fmt.Sprintf("[Meeting] In it: %s. This round replies, in order: %s.", strings.Join(here, ", "), strings.Join(order, ", "))
+	return withNote(chatSees(conv, speaker, names), note)
+}
+
+// startTalkReply has an employee answer in a discussion. Call it holding the lock.
+func (e *Engine) startTalkReply(t *model.Task, s *model.SubTask, speaker string) {
+	r := e.w.Replicas[speaker]
 	if r == nil {
 		return
 	}
+	s.Talk.Speaker = speaker
 	spec, err := e.buildSpec(t, nodeOf(&t.Workflow, s.NodeID), r)
 	if err != nil {
 		e.talkFailed(s, safeText(err))
 		return
 	}
 	s.Talk.ReplyAt = ptr(e.w.Now)
-	e.launch(t, s, spec, r.ID, slices.Clone(e.w.Conversations[s.ID]))
+	e.launch(t, s, e.talkSpec(t, s, spec), r.ID, e.talkSees(t, s, e.w.Conversations[s.ID], speaker))
 }
 
+// nextInTalk has the next one in the round reply, after the one before ended; false when the round is over.
+func (e *Engine) nextInTalk(t *model.Task, s *model.SubTask) bool {
+	for len(s.Talk.Next) > 0 {
+		id := s.Talk.Next[0]
+		s.Talk.Next = slices.Clone(s.Talk.Next[1:])
+		if e.w.Replicas[id] != nil {
+			e.startTalkReply(t, s, id)
+			return true
+		}
+	}
+	s.Talk.Next = nil
+	return false
+}
+
+// talkFailed ends the round: the user can say it again, to whom they choose.
 func (e *Engine) talkFailed(s *model.SubTask, detail string) {
-	s.Talk.ReplyAt = nil
+	s.Talk.ReplyAt, s.Talk.Next = nil, nil
 	text := i18n.T("（回覆失敗：%s）", detail)
-	s.Talk.Messages = append(s.Talk.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: text})
+	s.Talk.Messages = append(s.Talk.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: text, By: s.Talk.Speaker})
 	e.logLine(s, enum.LogSystem, text, "", nil)
 }
 
@@ -406,7 +500,15 @@ func (e *Engine) launch(t *model.Task, s *model.SubTask, spec agentSpec, replica
 	// the branch's copy first; the company's folder then brings the skills git leaves out of a work tree
 	project := append(projectPacks(e.worktreeOf(t), e.w.Preferences), projectPacks(e.w.Teams[t.TeamID].Folder, e.w.Preferences)...)
 	spec.packs = append(project, spec.packs...)
-	in := subRun{r: r, subID: s.ID, taskID: t.ID, spec: spec, conv: conv, talk: nodeOf(&t.Workflow, s.NodeID).Kind == enum.NodeTalk,
+	talk := nodeOf(&t.Workflow, s.NodeID).Kind == enum.NodeTalk
+	session, speaker := s.ID, ""
+	if talk {
+		speaker = replicaID
+		if len(e.talkPeople(t, s)) > 1 { // each keeps their own, so their provider's cache stays theirs
+			session = s.ID + "-" + replicaID
+		}
+	}
+	in := subRun{r: r, subID: s.ID, taskID: t.ID, spec: spec, conv: conv, talk: talk, speaker: speaker, session: session,
 		folder: e.w.Teams[t.TeamID].Folder, dir: e.worktreeOf(t), branch: t.Branch, target: e.w.Teams[t.TeamID].TargetBranch,
 		label: fmt.Sprintf("#%d %s", t.Number, nodeOf(&t.Workflow, s.NodeID).Name)}
 	e.wg.Add(1)
@@ -435,11 +537,13 @@ func safeText(err error) string {
 }
 
 type subRun struct {
-	r                           *run
-	subID, taskID               string
-	spec                        agentSpec
-	conv                        []model.Message
-	talk                        bool
+	r             *run
+	subID, taskID string
+	spec          agentSpec
+	conv          []model.Message
+	talk          bool
+	// speaker is who replies in a discussion; session is the provider's, one each in a meeting.
+	speaker, session            string
 	folder, dir, branch, target string
 	label                       string
 }
@@ -525,7 +629,7 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 			return
 		}
 		if in.talk {
-			e.apply(in, func(tk *model.Task, s *model.SubTask) { e.talkSays(tk, s, res.Text) })
+			e.apply(in, func(tk *model.Task, s *model.SubTask) { e.talkSays(tk, s, in.speaker, res.Text) })
 			return
 		}
 		if nudges == maxNudges {
@@ -543,21 +647,23 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 	}
 }
 
-// talkSays is the employee's words in a discussion: the opening, which starts it, or a reply.
-func (e *Engine) talkSays(t *model.Task, s *model.SubTask, text string) {
+// talkSays is an employee's words in a discussion: the opening, which starts it, or a reply, after which the next
+// in the round replies.
+func (e *Engine) talkSays(t *model.Task, s *model.SubTask, by, text string) {
 	if s.Talk == nil {
 		delete(e.live, s.ID)
-		s.Talk = &model.Talk{Messages: []model.ChatMessage{}}
+		s.Talk = &model.Talk{Messages: []model.ChatMessage{}, Speaker: by}
 		s.Progress = 1
-		s.Talk.Messages = append(s.Talk.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: text})
+		s.Talk.Messages = append(s.Talk.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: text, By: by})
 		e.logLine(s, enum.LogSay, text, "", nil)
 		e.openReview(t, s, model.Review{Kind: enum.ReviewTalk})
 		return
 	}
 	delete(e.live, s.ID)
 	s.Talk.ReplyAt = nil
-	s.Talk.Messages = append(s.Talk.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: text})
+	s.Talk.Messages = append(s.Talk.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: text, By: by})
 	e.logLine(s, enum.LogSay, text, "", nil)
+	e.nextInTalk(t, s)
 }
 
 func (e *Engine) subTurn(in subRun, roots []string) *turn {
@@ -580,7 +686,7 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 	}
 	return &turn{
 		provider: in.spec.provider,
-		req:      model.ModelRequest{Cwd: in.dir, Session: in.subID, Model: in.spec.model, Effort: in.spec.effort, Messages: in.conv, Tools: specs},
+		req:      model.ModelRequest{Cwd: in.dir, Session: in.session, Model: in.spec.model, Effort: in.spec.effort, Messages: in.conv, Tools: specs},
 		tools:    byName, cwd: in.dir,
 		onStart: func() {
 			if in.talk {
@@ -671,7 +777,7 @@ func (e *Engine) onSubReply(in subRun, tr *turn, calls *int) func(model.ModelRep
 		*calls++
 		goOn := false
 		e.apply(in, func(t *model.Task, s *model.SubTask) {
-			e.w.Conversations[s.ID] = append(e.w.Conversations[s.ID], model.Message{Role: enum.RoleAssistant, Content: reply.Content})
+			e.w.Conversations[s.ID] = append(e.w.Conversations[s.ID], model.Message{Role: enum.RoleAssistant, Content: reply.Content, By: in.speaker})
 			e.dirty[s.ID] = true
 			if !talking(s) {
 				s.Progress = min(0.95, float64(*calls)/float64(*calls+4))

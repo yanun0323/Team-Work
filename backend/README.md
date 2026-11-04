@@ -1,6 +1,6 @@
 # Team Work 後端
 
-單人在本機使用的 Go 伺服器：管理公司、員工、任務流程與任務，並讓員工真的呼叫模型、改檔案、跑指令。任務流程規則與前端模擬器（`frontend/src/core/domain/sim.ts`）相同，名詞以 `CONTEXT.md` 為準。Agent 迴圈、工具、模型串流與訂閱登入參考 `mho` 的實作。
+單人在本機使用的 Go 伺服器：管理公司、員工、任務藍圖與任務，並讓員工真的呼叫模型、改檔案、跑指令。任務藍圖規則與前端模擬器（`frontend/src/core/domain/sim.ts`）相同，名詞以 `CONTEXT.md` 為準。Agent 迴圈、工具、模型串流與訂閱登入參考 `mho` 的實作。
 
 `make dev` 會同時啟動後端和前端，前端直接接這個 API；`make dev-mock` 的前端用模擬器，不需要後端。
 
@@ -16,11 +16,11 @@ make test-backend  # 測試
 | 路徑（相對於 `TEAM_WORK_HOME`） | 內容 |
 |---|---|
 | `config.yaml` | 全域啟動設定 |
-| `preferences.yaml` | 介面偏好：預設頁籤、紀錄排序、保留終端機、細節、陰影、民眾、飛機與雲朵 |
+| `preferences.yaml` | 介面偏好：預設頁籤、紀錄排序、保留終端機、細節、陰影、民眾、飛機、雲朵與時間 |
 | `company/<team_id>/config.yaml` | 公司名稱、專案位置、目標分支、逾時與費用限制 |
 | `company/<team_id>/employee/<replica_id>.json` | 每位員工的名稱、藍圖、外觀、模型、思考等級 |
 | `blueprints/<blueprint_id>.yaml` | 每份員工藍圖 |
-| `workflows/<workflow_id>.yaml` | 每條任務流程 |
+| `workflows/<workflow_id>.yaml` | 每條任務藍圖 |
 | `provider.json` | 供應商設定，以供應商 id 為鍵；含網址、登入方式 `authKind`、模型、`thinking` 與價格，不含憑證 |
 | `data.db` | SQLite：任務、子任務、交接、流程快照、對話、用量、員工記憶、登入狀態、憑證、語言、公司位置與建築外觀，以及項目識別與建立時間 |
 | `cache/worktrees/` | 任務工作目錄 |
@@ -51,7 +51,7 @@ debug: false
 
 Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及地圖位置。`preferences.yaml` 在介面修改後立即儲存；手動編輯後按「重新載入設定」，不必重啟。省略的欄位使用預設值，未知欄位、`null`、錯誤型別或不存在的頁籤會被拒絕。
 
-偏好欄位的預設值：`logOrder: newestFirst`（也可用 `newestLast`）、`defaultTab: tasks`（`chats`、`tasks`、`crew`、`terminal`、`settings`）、`defaultAirportTab: providers`（`chats`、`providers`、`blueprints`、`flows`、`prefs`、`about`）、`openWaitingTab: true`、`chatTitleModel: ""`、`chatTitleEffort: ""`（有模型時，公司和機場的新對話會把第一則訊息最多約 2,000 字送給這個模型取一次名字，沒有工具，30 秒逾時、失敗不重試，用量算進該對話；空字串表示關閉，`effort` 空白或模型不支援就不指定思考等級）、`imageProvider: ""`（生圖用的 ChatGPT 訂閱供應商 id，空字串表示沒有 `image_gen`，見「訂閱登入」）；`detail`、`shadows`、`crowd`、`planes`、`clouds` 預設 `true`，`autoView` 預設 `panZoom`（也可用 `pan`、`off`；舊欄位 `autoZoom` 讀取時會自動換成它），`busyAnimation` 預設 `money`（也可用 `shout`，公司工作中時建築旁的動畫），`zoomSensitivity` 預設 100（接受 20–300 的整數），`terminalCommand` 預設空字串，`keepTerminals` 預設 `false`。語言沿用 SQLite 儲存。聲音偏好 `muteInBackground`（預設 `true`）、`musicVolume`（預設 50）、`effectsVolume`（預設 100）接受 0–100 的整數，0 為靜音；`musicMuted`、`effectsMuted`（預設 `false`）直接靜音該聲道並保留音量；`soundTakeoff`、`soundLanding`、`soundFlyover`、`soundUI`、`soundNotice`、`soundOpenTeam`、`soundOpenAirport`、`soundWaves` 分別控制起飛、降落、飛越、介面、通知（待回覆任務與對話回覆）、打開公司、打開機場音效和持續循環的海浪聲，預設皆為 `true`。`musicStyle` 可選 `bossa`（預設）、`chiptune`、`piano`、`ambient`。舊偏好檔缺少的欄位會補上預設值。
+偏好欄位的預設值：`logOrder: newestFirst`（也可用 `newestLast`）、`defaultTab: tasks`（`chats`、`tasks`、`crew`、`terminal`、`settings`）、`defaultAirportTab: providers`（`chats`、`providers`、`blueprints`、`flows`、`prefs`、`about`）、`autoTab: chats`（`off`、`chats`、`tasks`：打開公司或機場時先顯示有事待處理的頁籤，兩者都有時先顯示選的那個；`off` 一律用預設頁籤。舊欄位 `openWaitingTab` 讀取時會自動換成它）、`chatTitleModel: ""`、`chatTitleEffort: ""`（有模型時，公司和機場的新對話會把第一則訊息最多約 2,000 字送給這個模型取一次名字，沒有工具，30 秒逾時、失敗不重試，用量算進該對話；空字串表示關閉，`effort` 空白或模型不支援就不指定思考等級）、`imageProvider: ""`（生圖用的 ChatGPT 訂閱供應商 id，空字串表示沒有 `image_gen`，見「訂閱登入」）；`detail`、`shadows`、`crowd`、`planes`、`clouds` 預設 `true`，`autoView` 預設 `panZoom`（也可用 `pan`、`off`；舊欄位 `autoZoom` 讀取時會自動換成它），`busyAnimation` 預設 `money`（也可用 `shout`，公司工作中時建築旁的動畫），`daylight` 預設 `minecraft`（也可用 `real`、`day`、`night`，小島的時間），`zoomSensitivity` 預設 100（接受 20–300 的整數），`terminalCommand` 預設空字串，`keepTerminals` 預設 `false`。語言沿用 SQLite 儲存。聲音偏好 `muteInBackground`（預設 `true`）、`musicVolume`（預設 50）、`effectsVolume`（預設 100）接受 0–100 的整數，0 為靜音；`musicMuted`、`effectsMuted`（預設 `false`）直接靜音該聲道並保留音量；`soundTakeoff`、`soundLanding`、`soundFlyover`、`soundUI`、`soundNotice`、`soundOpenTeam`、`soundOpenAirport`、`soundWaves` 分別控制起飛、降落、飛越、介面、通知（待回覆任務與對話回覆）、打開公司、打開機場音效和持續循環的海浪聲，預設皆為 `true`。`musicStyle` 可選 `bossa`（預設）、`chiptune`、`piano`、`ambient`。舊偏好檔缺少的欄位會補上預設值。
 
 公司位置、建築樣式和配色種子存在 SQLite 的公司記錄，建立與移動時儲存，解散時一起移除。位置必須為整數格、兩軸各介於 -512 到 512，不可重疊公司或機場，並且整塊 16×16 用地都必須落在現有陸地格子向八個方向擴張 32 格的範圍內。搬家以搬動前的陸地計算，包含所選公司的原有陸地；機場保留兩格間距。前後端以相同的陸地格子（含連接陸地與填平的內湖）驗證。不讀取或搬移舊的網頁 `localStorage`；沒有共用位置的公司會重新配置位置與外觀。`make dev-mock` 的偏好和地圖只存在記憶體。
 
@@ -103,17 +103,17 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `GET /branches?folder=` | 查資料夾的分支（只讀），`repo` 是它是不是 git repo |
 | `POST /teams/:id/prompt/refresh` | 重新讀專案的 `AGENTS.md`。公司的 `prompt` 就是這個檔案：`PATCH` 會寫回檔案（不會 commit），建立公司、啟動和員工開工時都會重新讀 |
 | `POST /folder-picker` | 開系統的選擇資料夾視窗（目前只有 macOS），回傳完整路徑 `path`，取消時是空字串 |
-| `POST /workflows`、`PUT`/`DELETE /workflows/:id`、`POST /workflows/:id/duplicate` | 任務流程，所有公司共用；不允許迴圈，內建的只能複製 |
+| `POST /workflows`、`PUT`/`DELETE /workflows/:id`、`POST /workflows/:id/duplicate` | 任務藍圖，所有公司共用；不允許迴圈，內建的只能複製 |
 | `POST /providers`、`PATCH`/`DELETE /providers/:id` | 模型供應商；模型清單由供應商提供，`prices` 是每百萬 token 的美元價格。ChatGPT 訂閱可帶 `imageDefault`：`true` 設成生圖供應商，`false` 且它原本是生圖供應商時清空 |
 | `POST /blueprints`、`PUT`/`DELETE /blueprints/:id`、`POST /blueprints/:id/update` | 藍圖；`update` 把 Git 來源移到最新版 |
 | `POST /replicas`、`PATCH /replicas/:id`、`DELETE /replicas/:id?heir=` | 雇用、修改（含記憶）、離職交接 |
-| `POST /tasks`、`PATCH`/`DELETE /tasks/:id` | 任務；建立時可附 `images` 和 `files`；`PATCH` 改標題、說明、人員、負責人，不存在的節點 id 或把節點改成沒有人都會被拒絕。由員工或對話建立的任務有 `origin`（`kind` 為 `employee`、`chat` 或 `airport`，加 `id`、`name`、`depth`） |
+| `POST /tasks`、`PATCH`/`DELETE /tasks/:id` | 任務；新任務留在待辦（`paused: true`、沒有 `pausedAt`），用 `resume` 開始；建立時可附 `images` 和 `files`；`PATCH` 改標題、說明、人員、負責人，不存在的節點 id 或把節點改成沒有人都會被拒絕。由員工或對話建立的任務有 `origin`（`kind` 為 `employee`、`chat` 或 `airport`，加 `id`、`name`、`depth`） |
 | `POST /tasks/:id/{pause,resume,cancel,merge}` | 暫停、恢復、取消（要先暫停）、合併 |
-| `POST /tasks/:id/return`、`POST /tasks/:id/workflow` | 退回（`feedback`）、更換任務流程（`workflowId`，要先暫停） |
+| `POST /tasks/:id/return`、`POST /tasks/:id/workflow` | 退回（`feedback`）、更換任務藍圖（`workflowId`，要先暫停） |
 | `GET /subtasks/:id/file?path=` | 讀子任務交接的檔案（該次 commit 的內容，上限 1 MB，只限文字檔） |
 | `GET /subtasks/:id/image?path=` | 讀子任務交接的圖片（該次 commit 的內容，上限 25 MB，只限 PNG、JPEG、GIF、WebP），直接回傳圖片本身 |
 | `POST /subtasks/:id/review` | 回覆審核（`optionId`、`note`）；修改確認（`review.kind` 為 `change`，內容在 `review.change`）的 `optionId` 是 `approve` 或 `reject` |
-| `POST /subtasks/:id/talk`、`POST /subtasks/:id/talk/end` | 討論發言（`text`）、結束（`kind`: `continue`/`back`/`stop`，`to`、`reason`） |
+| `POST /subtasks/:id/talk`、`POST /subtasks/:id/talk/end` | 討論發言（`text`；會議裡 `mentions` 是要回話的員工 id，依序回話，空的就由主持人回話）、結束（`kind`: `continue`/`back`/`stop`，`to`、`reason`） |
 | `GET /teams/:id/uncommitted` | 公司資料夾有沒有未提交的改動 |
 | `POST /teams/:id/open-folder?path=` | 在 Finder 打開公司資料夾，有 `path` 時打開其中的子資料夾 |
 | `GET /teams/:id/file?path=` | 讀公司資料夾裡現在的檔案（訊息提及的 `#檔案`，上限 1 MB，只限文字檔；不能經由 `..` 或連結跑出資料夾） |
@@ -150,7 +150,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 
 ## 員工的管理工具
 
-任務中的員工、公司對話的員工和機場服務人員，可以用工具讀取任務、藍圖、任務流程和模型供應商，並新增或修改。能用哪些工具由藍圖勾選的工具決定，藍圖可選的工具仍是原本四個；實作在 `internal/usecase/manage.go`。
+任務中的員工、公司對話的員工和機場服務人員，可以用工具讀取任務、藍圖、任務藍圖和模型供應商，並新增或修改。能用哪些工具由藍圖勾選的工具決定，藍圖可選的工具仍是原本四個；實作在 `internal/usecase/manage.go`。
 
 | 藍圖勾選 | 可使用 |
 |---|---|
@@ -158,15 +158,15 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `write_file` 或 `run_command` | 上面的讀取工具，加上 `create_task`、`update_task`、`save_blueprint`、`save_workflow`、`save_provider` |
 | `web_search` | 沒有額外工具 |
 
-機場服務人員四個工具都有，所以擁有全部能力。內建的 15 個藍圖都有讀寫能力。任務流程的「和員工討論」步驟只有讀取工具。沒有刪除工具。錯誤和拒絕都以工具結果回傳給模型。
+機場服務人員四個工具都有，所以擁有全部能力。內建的 15 個藍圖都有讀寫能力。任務藍圖的「和員工討論」步驟只有讀取工具。沒有刪除工具。錯誤和拒絕都以工具結果回傳給模型。
 
-- **範圍**：公司的員工只能讀取、建立、修改自己公司的任務，也只列得到自己公司的員工和公司；機場服務人員可以跨公司，`create_task` 要帶 `team_id`。藍圖、任務流程和供應商由所有公司共用，修改會影響每間公司。
-- **直接生效**：新增藍圖、新增任務流程、新增供應商、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。
+- **範圍**：公司的員工只能讀取、建立、修改自己公司的任務，也只列得到自己公司的員工和公司；機場服務人員可以跨公司，`create_task` 要帶 `team_id`。藍圖、任務藍圖和供應商由所有公司共用，修改會影響每間公司。
+- **直接生效**：新增藍圖、新增任務藍圖、新增供應商、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。
 - **要確認**：帶 `id` 的 `save_blueprint`、`save_workflow`、`save_provider`，包括員工修改自己用的藍圖。後端先檢查內容並算出差異，然後暫停，同意前不會寫入。任務的子任務進入等待回覆（`review.kind` 為 `change`），對話則是 `chat.change`；兩者都會保存，重新啟動後還在。同意或拒絕都會回傳給模型，模型接著工作。內容沒有差異時不會暫停。同一輪在這個呼叫之後的工具不會執行，模型會收到 `interrupted`。
 - **不能修改**：`preset-` 開頭的內建項目（要新增一份自己的）、Git 來源的藍圖。修改要帶 `list_*` 回傳的 `version`，不符就拒絕；等待確認期間內容被改過或刪除時，同意也不會寫入，模型會收到原因。
-- **設定檔**：寫入藍圖、任務流程和供應商的規則和介面相同：有外部修改尚未載入時回傳 `conflict`。
-- **生效範圍**：任務建立時留一份任務流程，修改共用流程不影響進行中的任務。藍圖不同：同意後正在進行的步驟不變，但每次開始步驟都讀最新藍圖，所以同一任務之後的步驟會用新藍圖。
-- **`create_task`**：帶標題、說明、任務流程，立即建立並開始，不需要確認。內建流程的步驟沒有指定員工，有步驟沒有人時會失敗並列出這些步驟，模型應該問使用者後再用 `staff` 或 `owner_id` 重試；模型自己填人選時後端無法分辨。
+- **設定檔**：寫入藍圖、任務藍圖和供應商的規則和介面相同：有外部修改尚未載入時回傳 `conflict`。
+- **生效範圍**：任務建立時留一份任務藍圖，修改共用流程不影響進行中的任務。藍圖不同：同意後正在進行的步驟不變，但每次開始步驟都讀最新藍圖，所以同一任務之後的步驟會用新藍圖。
+- **`create_task`**：帶標題、說明、任務藍圖，立即建立，不需要確認；任務和使用者建立的一樣留在待辦（`paused: true`、沒有 `pausedAt`），等使用者按開始（`POST /tasks/:id/resume`）。內建流程的步驟沒有指定員工，有步驟沒有人時會失敗並列出這些步驟，模型應該問使用者後再用 `staff` 或 `owner_id` 重試；模型自己填人選時後端無法分辨。
 - **連鎖深度**：任務中的員工建立的任務，深度是來源任務加 1，最多 3 層（`maxTaskDepth`，暫定值），超過就拒絕並告知模型。從對話建立的任務深度是 0。同時執行的任務數量沒有限制。
 - **`save_blueprint`**：模型不能設定外觀，新藍圖取自內建藍圖之一。技能用 Git 來源時不會在儲存當下解析 commit，執行時才取 `origin/HEAD`，也不會套用 `ref`；要固定版本請呼叫 `POST /blueprints/:id/update`。
 - **`save_workflow`**：`nodes`、`edges` 是完整的新清單，已存在的節點 id 沒帶的欄位保留原值。模型不指定座標，新節點由後端排版。有迴圈等無效內容會被拒絕。
@@ -209,9 +209,9 @@ Claude Code 的設定：
 
 ## 預設內容
 
-內建十六個員工藍圖（專案經理、產品負責人、設計師、後端工程師、前端工程師、全端工程師、測試工程師、研究員、程式審查員、技術架構師、資安工程師、DevOps 工程師、技術文件寫手、資料分析師、行銷文案、特助）和五條任務流程（「功能開發」「修 Bug」「產品規劃」「程式審查」「重構」），繁中和英文都在 `internal/usecase/presets.json`。它們的 id 以 `preset-` 開頭，不存進設定檔，也不能修改或刪除；世界資料裡是目前語言的版本，員工收到的一律是英文。自訂項目不能用這個開頭的 id。
+內建十六個員工藍圖（專案經理、產品負責人、設計師、後端工程師、前端工程師、全端工程師、測試工程師、研究員、程式審查員、技術架構師、資安工程師、DevOps 工程師、技術文件寫手、資料分析師、行銷文案、特助）和五條任務藍圖（「功能開發」「修 Bug」「產品規劃」「程式審查」「重構」），繁中和英文都在 `internal/usecase/presets.json`。它們的 id 以 `preset-` 開頭，不存進設定檔，也不能修改或刪除；世界資料裡是目前語言的版本，員工收到的一律是英文。自訂項目不能用這個開頭的 id。
 
-任務流程由所有公司共用，任務開始時留一份，之後改任務流程不影響它。任務流程不指定員工，由每個任務決定。
+任務藍圖由所有公司共用，任務開始時留一份，之後改任務藍圖不影響它。任務藍圖不指定員工，由每個任務決定。
 
 ## 藍圖來源
 
@@ -221,8 +221,10 @@ Claude Code 的設定：
 
 ## 執行方式
 
+- **起點與完成**：任務藍圖沒有固定的頭尾。沒有上游的節點都是起點，任務開始時同時啟動，各自直接拿到任務說明。所有實際啟動的支線都完成才進入等待合併，條件分支沒選到的不用等；`join: all` 的節點遇到確定不會啟動的上游時，把它當作已結清。負責人只代表誰對任務負責，不會自動接手任何節點。舊資料裡的 `kind: task` 讀入時當作工作節點。
+- **退回**：工作節點的 `sendBack` 打開時，完成後可以把工作退回上游重做；只有一個上游、且該上游只交給這個節點時才能打開（`checkWorkflow` 不檢查，執行時不符合就當作關閉）。起點和討論節點不能退回。沒設定時照舊規則：終點和被退回過的節點可以。退回不會取消其他支線，一個任務最多退回兩次。多個終點時，等待合併的「退回」和合併由最後完成的終點決定，有上游的終點優先。
 - **Work tree**：任務第一次開工時從目標分支開 `task/<編號>`，work tree 放在資料目錄。所有步驟共用它，每次交接自動 commit，同時進行的步驟會改到同一份檔案。
-- **合併**：使用者按合併後，先把目標分支合進任務分支，有衝突由負責人解；再以 fast-forward 更新目標分支，然後移除 work tree 與分支。目標分支所在的資料夾有會被覆蓋的未 commit 變更時，合併會失敗並回到等待合併。取消或更換任務流程會直接刪除任務分支與 work tree。
+- **合併**：使用者按合併後，先把目標分支合進任務分支，有衝突由負責人解；再以 fast-forward 更新目標分支，然後移除 work tree 與分支。目標分支所在的資料夾有會被覆蓋的未 commit 變更時，合併會失敗並回到等待合併。取消或更換任務藍圖會直接刪除任務分支與 work tree。
 - **失敗**：供應商暫時性錯誤先重試 3 次；之後依公司的「重試次數」重跑，再不行就等使用者選重試或略過。逾時（公司的 `timeoutMin`）同樣處理。
 - **費用**：依供應商的 `prices` 計算。**沒設定價格的模型費用算 0，費用上限對它無效**，子任務 log 會提醒一次。
 - **重新啟動**：進行中的工作回到佇列，從保存的對話接著做。

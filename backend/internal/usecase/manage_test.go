@@ -199,7 +199,7 @@ func TestAirportStaffHaveEveryManageTool(t *testing.T) {
 func TestDiscussionOnlyReads(t *testing.T) {
 	r, _ := manageRig(t)
 	wf := *r.flow
-	wf.Nodes = append(wf.Nodes, model.WorkflowNode{ID: "talk", Kind: enum.NodeTalk, Name: "討論", ReplicaIDs: []string{r.owner.ID}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll})
+	wf.Nodes = append(wf.Nodes, model.WorkflowNode{ID: "talk", Kind: enum.NodeTalk, Name: "討論", ReplicaIDs: []string{r.owner.ID}, Handoff: enum.HandoffAll, Join: enum.JoinAll})
 	wf.Edges = []model.WorkflowEdge{{ID: "e", From: wf.Nodes[0].ID, To: "talk"}, {ID: "e2", From: "talk", To: wf.Nodes[1].ID}}
 	if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
 		t.Fatal(err)
@@ -255,6 +255,12 @@ func TestCreatingABlueprintAndFlowTakesEffectAtOnce(t *testing.T) {
 	if made == nil || len(made.Nodes) != 4 {
 		t.Fatalf("%+v", made)
 	}
+	// an old-style start is a step like any other; a new last step that two steps feed cannot send work back
+	for _, n := range made.Nodes {
+		if n.Kind != enum.NodeWork || (n.ID == "z" && (n.SendBack == nil || *n.SendBack)) {
+			t.Fatalf("%+v", n)
+		}
+	}
 	// nobody on top of anybody, and each below what it follows
 	spots := map[model.Point]bool{}
 	y := map[string]float64{}
@@ -268,7 +274,7 @@ func TestCreatingABlueprintAndFlowTakesEffectAtOnce(t *testing.T) {
 		t.Fatalf("%v", y)
 	}
 	// it runs
-	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "跑", WorkflowID: made.ID, Staff: map[string][]string{"a": {r.owner.ID}, "b": {r.owner.ID}}, OwnerID: &r.owner.ID})
+	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "跑", WorkflowID: made.ID, Staff: map[string][]string{"s": {r.owner.ID}, "a": {r.owner.ID}, "b": {r.owner.ID}, "z": {r.owner.ID}}, OwnerID: &r.owner.ID})
 	if err != nil || task == nil {
 		t.Fatal(err)
 	}
@@ -346,6 +352,11 @@ func TestChangingAFlowWaitsForTheUserInATaskAndSparesTasksUnderWay(t *testing.T)
 	r, m := manageRig(t)
 	running, err := r.e.CreateWorkflow("共用流程")
 	if err != nil {
+		t.Fatal(err)
+	}
+	running.Nodes, running.Edges = slices.Clone(r.flow.Nodes), slices.Clone(r.flow.Edges)
+	running.Nodes[1].Pos.Y = 400
+	if err := r.e.SaveWorkflow(running.ID, *running); err != nil {
 		t.Fatal(err)
 	}
 	version := versionFrom(t, r, m, "list_workflows", running.ID)
@@ -589,7 +600,7 @@ func TestWhatRanBeforeAStopIsNotDoneAgain(t *testing.T) {
 	}
 }
 
-func TestCreateTaskStartsAtOnceAndSaysWhereItCameFrom(t *testing.T) {
+func TestCreateTaskWaitsInTodoAndSaysWhereItCameFrom(t *testing.T) {
 	r, m := manageRig(t)
 	c := inChat(t, r, m, doing("create_task", map[string]any{"title": "新任務", "description": "內容", "workflow_id": r.flow.ID, "owner_id": r.owner.ID}))
 	w := r.world()
@@ -600,14 +611,22 @@ func TestCreateTaskStartsAtOnceAndSaysWhereItCameFrom(t *testing.T) {
 	for _, task := range w.Tasks {
 		made = task
 	}
-	if made == nil || made.Stage != enum.StageRunning || made.Description != "內容" {
+	if made == nil || made.Stage != enum.StageRunning || made.Description != "內容" || !made.Paused || made.PausedAt != nil {
 		t.Fatalf("%+v", made)
 	}
 	if o := made.Origin; o == nil || o.Kind != "chat" || o.ID != c.ID || o.Name != "Ada" || o.Depth != 0 {
 		t.Fatalf("%+v", made.Origin)
 	}
-	if subs := w.SubTasks; len(subs) == 0 {
-		t.Fatal("it did not start")
+	for _, s := range w.SubTasks {
+		if s.Status != enum.StatusTodo {
+			t.Fatalf("a step ran before the user started the task: %+v", s)
+		}
+	}
+	if len(w.SubTasks) == 0 {
+		t.Fatal("its first steps are missing")
+	}
+	if res := lastResult(t, r); res.IsError || !strings.Contains(res.Text, "to-do") {
+		t.Fatalf("%+v", res)
 	}
 	// what the user makes has no origin
 	if mine := r.task(r.flow.ID); mine.Origin != nil {
@@ -618,7 +637,8 @@ func TestCreateTaskStartsAtOnceAndSaysWhereItCameFrom(t *testing.T) {
 func TestCreateTaskAsksForMissingStaffInsteadOfPicking(t *testing.T) {
 	r, m := manageRig(t)
 	wf := *r.world().Workflows[r.flow.ID]
-	wf.Nodes = append(wf.Nodes, model.WorkflowNode{ID: "mid", Kind: enum.NodeWork, Name: "中間", ReplicaIDs: []string{}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll})
+	wf.Nodes = append(wf.Nodes, model.WorkflowNode{ID: "mid", Kind: enum.NodeWork, Name: "中間", ReplicaIDs: []string{}, Handoff: enum.HandoffAll, Join: enum.JoinAll})
+	wf.Nodes[0].ReplicaIDs = []string{}
 	wf.Edges = []model.WorkflowEdge{{ID: "e1", From: wf.Nodes[0].ID, To: "mid"}, {ID: "e2", From: "mid", To: wf.Nodes[1].ID}}
 	if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
 		t.Fatal(err)
@@ -645,7 +665,7 @@ func TestCreateTaskAsksForMissingStaffInsteadOfPicking(t *testing.T) {
 			t.Fatalf("%s: %d tasks", name, got)
 		}
 	}
-	inChat(t, r, m, doing("create_task", map[string]any{"title": "有人做", "workflow_id": wf.ID, "owner_id": r.owner.ID, "staff": map[string][]string{"mid": {r.owner.ID}}}))
+	inChat(t, r, m, doing("create_task", map[string]any{"title": "有人做", "workflow_id": wf.ID, "owner_id": r.owner.ID, "staff": map[string][]string{"start": {r.owner.ID}, "mid": {r.owner.ID}}}))
 	if res := lastResult(t, r); res.IsError {
 		t.Fatalf("%+v", res)
 	}
@@ -661,7 +681,8 @@ func TestCompaniesAreKeptApart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	theirs, err := r.e.CreateTask(usecase.NewTask{TeamID: other.ID, Title: "別家的任務", WorkflowID: r.flow.ID, OwnerID: &stranger.ID})
+	theirs, err := r.e.CreateTask(usecase.NewTask{TeamID: other.ID, Title: "別家的任務", WorkflowID: r.flow.ID, OwnerID: &stranger.ID,
+		Staff: map[string][]string{"start": {stranger.ID}, "end": {stranger.ID}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -708,7 +729,8 @@ func TestCompaniesAreKeptApart(t *testing.T) {
 	if res := lastResult(t, r); !res.IsError || !strings.Contains(res.Text, "team_id") {
 		t.Fatalf("%+v", res)
 	}
-	m.add(doing("create_task", map[string]any{"team_id": other.ID, "title": "機場建的", "workflow_id": r.flow.ID, "owner_id": stranger.ID}))
+	m.add(doing("create_task", map[string]any{"team_id": other.ID, "title": "機場建的", "workflow_id": r.flow.ID, "owner_id": stranger.ID,
+		"staff": map[string][]string{"start": {stranger.ID}, "end": {stranger.ID}}}))
 	if err := r.e.SayInChat(a.ID, "建", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -735,6 +757,11 @@ func TestTasksMadeByEmployeesStopAtTheDepthLimit(t *testing.T) {
 	r.task(flow)
 	w := r.wait("the chain to stop", func(w *model.World) bool {
 		for _, task := range w.Tasks {
+			// the user starts each task an employee makes
+			if task.Paused {
+				_ = r.e.ResumeTask(task.ID)
+				return false
+			}
 			if task.Stage != enum.StageAwaitMerge {
 				return false
 			}
@@ -776,7 +803,7 @@ func TestUpdateTaskTakesEffectAtOnceAndRefusesWhatCouldNotRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	wf := *r.world().Workflows[r.flow.ID]
-	wf.Nodes = append(wf.Nodes, model.WorkflowNode{ID: "mid", Kind: enum.NodeWork, Name: "中間", ReplicaIDs: []string{r.owner.ID}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll})
+	wf.Nodes = append(wf.Nodes, model.WorkflowNode{ID: "mid", Kind: enum.NodeWork, Name: "中間", ReplicaIDs: []string{r.owner.ID}, Handoff: enum.HandoffAll, Join: enum.JoinAll})
 	wf.Edges = []model.WorkflowEdge{{ID: "e1", From: wf.Nodes[0].ID, To: "mid"}, {ID: "e2", From: "mid", To: wf.Nodes[1].ID}}
 	if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
 		t.Fatal(err)
@@ -839,4 +866,48 @@ func nodeStaff(t *model.Task, id string) []string {
 		}
 	}
 	return nil
+}
+
+// An employee's own settings are theirs alone: no one else is hired from them, and they go when the employee does.
+func TestCustomEmployeeOwnsTheirSettings(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	custom := &model.Blueprint{Name: "ignored", Prompt: "你是寫手", Tools: []enum.Tool{enum.ToolReadFile}, From: r.owner.BlueprintID}
+	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, Name: "Bo", Model: "fake", Custom: custom})
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := r.world().Blueprints[bo.BlueprintID]
+	if own == nil || own.Owner != bo.ID || own.Name != "Bo" || own.Prompt != "你是寫手" || own.From != r.owner.BlueprintID {
+		t.Fatalf("%+v", own)
+	}
+	if _, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: own.ID, Name: "Cy", Model: "fake"}); err == nil {
+		t.Fatal("hired someone from another's own settings")
+	}
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{BlueprintID: &own.ID}); err == nil {
+		t.Fatal("moved someone onto another's own settings")
+	}
+	// rewriting them keeps the same ones
+	if err := r.e.UpdateReplica(bo.ID, usecase.ReplicaPatch{Custom: &model.Blueprint{Prompt: "改過"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.world().Replicas[bo.ID].BlueprintID; got != own.ID || r.world().Blueprints[got].Prompt != "改過" {
+		t.Fatalf("%s %+v", got, r.world().Blueprints[got])
+	}
+	// back to a blueprint: their own go
+	if err := r.e.UpdateReplica(bo.ID, usecase.ReplicaPatch{BlueprintID: &r.owner.BlueprintID}); err != nil {
+		t.Fatal(err)
+	}
+	if r.world().Blueprints[own.ID] != nil {
+		t.Fatal("their own settings outlived them")
+	}
+	if err := r.e.UpdateReplica(bo.ID, usecase.ReplicaPatch{Custom: &model.Blueprint{Prompt: "再一次"}}); err != nil {
+		t.Fatal(err)
+	}
+	again := r.world().Replicas[bo.ID].BlueprintID
+	if err := r.e.Fire(bo.ID, r.owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if r.world().Blueprints[again] != nil {
+		t.Fatal("their own settings outlived them")
+	}
 }

@@ -312,3 +312,24 @@ func TestImportYAMLAndKeepEditsAcrossRestart(t *testing.T) {
 		t.Fatal("combined settings file exists")
 	}
 }
+
+func TestOlderFlowKeepsFirstOnAWorkStep(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
+	bea, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bea", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := readSettings(t, r)
+	w := *s.Workflows[r.flow.ID]
+	w.Nodes = append([]model.WorkflowNode{}, w.Nodes...)
+	w.Nodes[0].ReplicaIDs, w.Nodes[0].Assignment = []string{bea.ID, r.owner.ID}, "everyone"
+	s.Workflows[w.ID] = &w
+	writeSettings(t, r, s)
+	if err := r.e.ReloadSettings(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	n := r.world().Workflows[w.ID].Nodes[0]
+	if len(n.ReplicaIDs) != 1 || n.ReplicaIDs[0] != bea.ID || n.Assignment != "" {
+		t.Fatalf("%+v", n)
+	}
+}

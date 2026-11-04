@@ -10,13 +10,6 @@ const (
 	StatusComplete    Status = "complete"
 )
 
-type Assignment string
-
-const (
-	AssignFirstAvailable Assignment = "firstAvailable"
-	AssignEveryone       Assignment = "everyone"
-)
-
 type HandoffMode string
 
 const (
@@ -34,6 +27,7 @@ const (
 type NodeKind string
 
 const (
+	// NodeTask is the 整理需求 start of flows from before a flow could start anywhere; kept so old tasks still read.
 	NodeTask NodeKind = "task"
 	NodeWork NodeKind = "work"
 	NodeTalk NodeKind = "talk"

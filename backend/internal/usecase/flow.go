@@ -122,39 +122,6 @@ func searchMemory(notes []model.MemoryEntry, query string) string {
 	return b.String()
 }
 
-func (e *Engine) busyReplicas() map[string]bool {
-	busy := map[string]bool{}
-	for _, s := range e.w.SubTasks {
-		if s.Status == enum.StatusProgressing && s.ReplicaID != nil {
-			busy[*s.ReplicaID] = true
-		}
-	}
-	for _, r := range e.runs {
-		busy[r.replicaID] = true
-	}
-	for _, t := range e.w.Tasks {
-		if t.Stage == enum.StageMerging && t.Merge != nil && t.Merge.StartedAt != nil && t.Merge.ReplicaID != nil {
-			busy[*t.Merge.ReplicaID] = true
-		}
-	}
-	return busy
-}
-
-func setOwner(t *model.Task, ownerID *string) {
-	t.OwnerID = ownerID
-	wf := &t.Workflow
-	for i := range wf.Nodes {
-		n := &wf.Nodes[i]
-		if !isFixed(wf, n.ID) {
-			continue
-		}
-		if ownerID != nil {
-			n.ReplicaIDs = []string{*ownerID}
-			n.Assignment = enum.AssignFirstAvailable
-		}
-	}
-}
-
 func (e *Engine) spawn(t *model.Task, nodeID string, upstream []string, parent *string, waiting bool, round int) *model.SubTask {
 	s := &model.SubTask{
 		ID: e.uid("sub"), TaskID: t.ID, NodeID: nodeID, ParentID: parent, UpstreamIDs: upstream, Status: enum.StatusTodo,
@@ -169,28 +136,9 @@ func (e *Engine) spawn(t *model.Task, nodeID string, upstream []string, parent *
 	return s
 }
 
-// release queues a sub-task; on an Everyone step each employee gets a copy of their own.
-func (e *Engine) release(t *model.Task, s *model.SubTask) {
+// release queues a sub-task.
+func (e *Engine) release(_ *model.Task, s *model.SubTask) {
 	s.Waiting = false
-	n := nodeOf(&t.Workflow, s.NodeID)
-	var ids []string
-	for _, r := range n.ReplicaIDs {
-		if e.w.Replicas[r] != nil {
-			ids = append(ids, r)
-		}
-	}
-	if n.Assignment == enum.AssignEveryone && n.Kind != enum.NodeTalk && len(ids) > 0 {
-		s.ReplicaID = ptr(ids[0])
-		if len(ids) > 1 {
-			s.Group = s.ID
-			for _, r := range ids[1:] {
-				mate := clone(*s)
-				mate.ID = e.uid("sub")
-				mate.ReplicaID = ptr(r)
-				e.w.SubTasks[mate.ID] = &mate
-			}
-		}
-	}
 	e.logLine(s, enum.LogSystem, i18n.T("已排入佇列"), "queued", nil)
 }
 
@@ -291,15 +239,20 @@ func (e *Engine) route(t *model.Task, s *model.SubTask) bool {
 	return true
 }
 
-// maySendBack: only the flow's last step and a step that was itself sent back may send work back, never
-// the first step, a discussion, or more than MaxSendBacks times.
+// maySendBack: a step the flow lets send work back, and only while it can (see canSendBack), never a start or a
+// discussion, and never more than MaxSendBacks times a task. A flow from before the switch existed lets its last
+// step and a step that was itself sent back.
 func (e *Engine) maySendBack(t *model.Task, s *model.SubTask) bool {
 	wf := &t.Workflow
 	n := nodeOf(wf, s.NodeID)
 	if n == nil || n.Kind != enum.NodeWork || len(s.UpstreamIDs) == 0 {
 		return false
 	}
-	if len(outEdges(wf, n.ID)) > 0 && s.Rework == nil {
+	if n.SendBack != nil {
+		if !*n.SendBack || !canSendBack(wf, n.ID) {
+			return false
+		}
+	} else if len(outEdges(wf, n.ID)) > 0 && s.Rework == nil {
 		return false
 	}
 	rounds := 0
@@ -338,7 +291,7 @@ func (e *Engine) sendBack(t *model.Task, s *model.SubTask, members []*model.SubT
 	for _, nodeID := range to {
 		u := before[nodeID]
 		redo := e.spawn(t, nodeID, slices.Clone(u.UpstreamIDs), ptr(s.ID), false, s.Round+1)
-		if u.ReplicaID != nil && e.w.Replicas[*u.ReplicaID] != nil && nodeOf(wf, nodeID).Assignment != enum.AssignEveryone {
+		if u.ReplicaID != nil && e.w.Replicas[*u.ReplicaID] != nil {
 			redo.ReplicaID = ptr(*u.ReplicaID)
 		}
 		for _, r := range e.groupOf(t, redo) {
@@ -455,7 +408,6 @@ func (e *Engine) cancelSub(sub *model.SubTask, text, key string) {
 }
 
 func (e *Engine) dispatch() {
-	busy := e.busyReplicas()
 	var ready []*model.SubTask
 	for _, s := range e.w.SubTasks {
 		t := e.w.Tasks[s.TaskID]
@@ -469,15 +421,9 @@ func (e *Engine) dispatch() {
 		if s.ReplicaID != nil {
 			id = *s.ReplicaID
 		} else {
-			// someone free if there is, as nobody has to wait for anyone
+			// the step's employee; on a discussion held by several, the first, who chairs it
 			for _, r := range nodeOf(&t.Workflow, s.NodeID).ReplicaIDs {
-				if e.w.Replicas[r] == nil {
-					continue
-				}
-				if id == "" {
-					id = r
-				}
-				if !busy[r] {
+				if e.w.Replicas[r] != nil {
 					id = r
 					break
 				}
@@ -488,7 +434,6 @@ func (e *Engine) dispatch() {
 		}
 		s.ReplicaID = ptr(id)
 		s.Status = enum.StatusProgressing
-		busy[id] = true
 		name := e.w.Replicas[id].Name
 		e.logLine(s, enum.LogSystem, i18n.T("%s 開始工作", name), "start", map[string]any{"name": name})
 		if s.StartedAt == nil {
@@ -584,8 +529,6 @@ type NewTask struct {
 	OwnerID     *string             `json:"ownerId"`
 	Images      []model.Attachment  `json:"images"`
 	Files       []model.Attachment  `json:"files"`
-	// SkipStart has the first step hand the description on as it is, without running it.
-	SkipStart bool `json:"skipStart"`
 	// Origin is set when an employee makes the task; a request cannot claim one.
 	Origin *model.TaskOrigin `json:"-"`
 }
@@ -609,10 +552,11 @@ func (e *Engine) staffFlow(t *model.Task, staff map[string][]string, ownerID *st
 	}
 	localizeFlow(&t.Workflow, e.w.Language)
 	e.keepOwnStaff(t)
-	setOwner(t, ownerID)
+	t.OwnerID = ownerID
 }
 
-// createTask makes a task and starts it. Call it holding the lock, inside a change.
+// createTask makes a task that waits in 待辦 until the user starts it with ResumeTask: it is paused, with no PausedAt.
+// Call it holding the lock, inside a change.
 func (e *Engine) createTask(in NewTask) (*model.Task, error) {
 	var out *model.Task
 	err := func() error {
@@ -624,7 +568,7 @@ func (e *Engine) createTask(in NewTask) (*model.Task, error) {
 		}
 		wf := e.w.Workflows[in.WorkflowID]
 		if wf == nil {
-			return model.Errorf(model.CodeNotFound, "找不到任務流程")
+			return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
 		}
 		if in.OwnerID != nil {
 			if r := e.w.Replicas[*in.OwnerID]; r == nil || r.TeamID != in.TeamID {
@@ -649,6 +593,9 @@ func (e *Engine) createTask(in NewTask) (*model.Task, error) {
 			WorkflowID: in.WorkflowID, Workflow: clone(*wf), CreatedAt: e.w.Now, Stage: enum.StageRunning, Branch: fmt.Sprintf("task/%d", number), Origin: in.Origin,
 		}
 		e.staffFlow(t, in.Staff, in.OwnerID)
+		if name := crowdedStep(&t.Workflow); name != "" {
+			return model.Errorf(model.CodeInvalid, "工作步驟「%s」只能有一位員工", name)
+		}
 		for _, n := range t.Workflow.Nodes {
 			if !slices.ContainsFunc(n.ReplicaIDs, func(r string) bool { return e.w.Replicas[r] != nil }) {
 				return model.Errorf(model.CodeInvalid, "節點「%s」沒有指派員工", n.Name)
@@ -657,29 +604,20 @@ func (e *Engine) createTask(in NewTask) (*model.Task, error) {
 		if err := e.saveAttachments(t.ID, t.Files); err != nil {
 			return err
 		}
+		t.Paused, t.PausedStatus = true, enum.StatusTodo
 		e.w.Tasks[t.ID] = t
-		first := e.spawn(t, taskNodeOf(&t.Workflow).ID, []string{}, nil, false, 0)
-		if in.SkipStart {
-			e.skipStart(t, first)
-		}
+		e.start(t)
 		out = clone(t)
 		return nil
 	}()
 	return out, err
 }
 
-// skipStart finishes the first step at once: the description, already clear, is the requirement handed on.
-func (e *Engine) skipStart(t *model.Task, s *model.SubTask) {
-	s.Status = enum.StatusComplete
-	s.Skipped = true
-	s.Progress = 1
-	s.EndedAt = ptr(e.w.Now)
-	s.Handoff = &model.Handoff{
-		Agent: model.AgentHandoff{Goal: t.Title, Done: []string{}, Outputs: []string{},
-			Decisions: []string{"The user skipped this step: the task description is the requirement, with its acceptance criteria if it has any"}, Open: []string{}},
-		Human: model.HumanSummary{Headline: i18n.T("已跳過整理需求，以任務說明為準。"), Did: []string{}, Outputs: []string{}},
+// start sets off every step a task's flow starts with; each gets the task as it is.
+func (e *Engine) start(t *model.Task) {
+	for _, n := range startsOf(&t.Workflow) {
+		e.spawn(t, n.ID, []string{}, nil, false, 0)
 	}
-	e.logLine(s, enum.LogSystem, i18n.T("已跳過整理需求，以任務說明為準。"), "startSkipped", nil)
 }
 
 // TaskPatch changes a task; a nil field stays. Steps left out of Staff keep who they have.
@@ -729,7 +667,10 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 	if p.OwnerID != nil {
 		owner = p.OwnerID
 	}
-	setOwner(&next, owner)
+	next.OwnerID = owner
+	if name := crowdedStep(&next.Workflow); name != "" {
+		return model.Errorf(model.CodeInvalid, "工作步驟「%s」只能有一位員工", name)
+	}
 	for nodeID := range p.Staff {
 		n := nodeOf(&next.Workflow, nodeID)
 		if !slices.ContainsFunc(n.ReplicaIDs, func(r string) bool { return e.w.Replicas[r] != nil }) {
@@ -899,8 +840,11 @@ func (e *Engine) ResumeTask(id string) error {
 		if !t.Paused {
 			return model.Errorf(model.CodeConflict, "這個任務沒有暫停")
 		}
+		// a task that was never started has no PausedAt; starting it is not the pause lesson
+		if t.PausedAt != nil {
+			e.w.Tutorial.Learn("pause")
+		}
 		t.Paused, t.PausedAt, t.PausedStatus = false, nil, ""
-		e.w.Tutorial.Learn("pause")
 		return nil
 	})
 }
@@ -975,10 +919,10 @@ func (e *Engine) ChangeWorkflow(id, workflowID string) error {
 		}
 		wf := e.w.Workflows[workflowID]
 		if wf == nil {
-			return model.Errorf(model.CodeNotFound, "找不到任務流程")
+			return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
 		}
 		if !t.Paused {
-			return model.Errorf(model.CodeConflict, "任務要先暫停才能更換任務流程")
+			return model.Errorf(model.CodeConflict, "任務要先暫停才能更換任務藍圖")
 		}
 		t.CostCarry = e.taskCost(t)
 		t.TokensCarry = e.taskTokens(t)
@@ -987,9 +931,8 @@ func (e *Engine) ChangeWorkflow(id, workflowID string) error {
 		t.WorkflowID, t.Workflow = workflowID, clone(*wf)
 		localizeFlow(&t.Workflow, e.w.Language)
 		e.keepOwnStaff(t)
-		setOwner(t, t.OwnerID)
 		t.Paused, t.PausedAt, t.PausedStatus = false, nil, ""
-		e.spawn(t, taskNodeOf(&t.Workflow).ID, []string{}, nil, false, 0)
+		e.start(t)
 		return nil
 	})
 }
@@ -1008,10 +951,19 @@ func (e *Engine) DeleteTask(id string) error {
 	})
 }
 
+// lastReview is the run a task ended with: of the runs of its last steps, the one that finished last. With several
+// last steps, one with a step before it comes first, so that returning the task has somewhere to send it.
 func (e *Engine) lastReview(t *model.Task) *model.SubTask {
 	var best *model.SubTask
 	for _, s := range e.subsOf(t.ID) {
 		if !s.Cancelled && (s.Group == "" || s.Group == s.ID) && s.Status == enum.StatusComplete && len(outEdges(&t.Workflow, s.NodeID)) == 0 {
+			if best != nil && len(best.UpstreamIDs) > 0 && len(s.UpstreamIDs) == 0 {
+				continue
+			}
+			if best != nil && len(best.UpstreamIDs) == 0 && len(s.UpstreamIDs) > 0 {
+				best = s
+				continue
+			}
 			if best == nil || (s.EndedAt != nil && best.EndedAt != nil && *s.EndedAt >= *best.EndedAt) {
 				best = s
 			}
@@ -1020,7 +972,7 @@ func (e *Engine) lastReview(t *model.Task) *model.SubTask {
 	return best
 }
 
-// MergeTask has the owner (or whoever did 驗收) merge the work tree into the target branch.
+// MergeTask has the owner (or whoever did the last step) merge the work tree into the target branch.
 func (e *Engine) MergeTask(id string) error {
 	return e.do(func() error {
 		t, err := e.taskOf(id)
@@ -1047,7 +999,8 @@ func (e *Engine) MergeTask(id string) error {
 	})
 }
 
-// ReturnTask sends a task waiting to be merged back, with feedback: the steps before 驗收 run again.
+// ReturnTask sends a task waiting to be merged back, with feedback: the steps before its last step (see lastReview)
+// run again. It does not depend on the step letting work be sent back.
 func (e *Engine) ReturnTask(id, feedback string) error {
 	return e.do(func() error {
 		t, err := e.taskOf(id)
@@ -1072,8 +1025,9 @@ func (e *Engine) ReturnTask(id, feedback string) error {
 	})
 }
 
-// SayInTalk is the user writing in an open discussion; the employee answers.
-func (e *Engine) SayInTalk(subID, text string) error {
+// SayInTalk is the user writing in an open discussion. Those it mentions answer, in that order; with none, the
+// chair alone does. "@All" comes as everyone mentioned, the chair last.
+func (e *Engine) SayInTalk(subID, text string, mentions []string) error {
 	return e.do(func() error {
 		s, t, err := e.subOf(subID)
 		if err != nil {
@@ -1086,11 +1040,28 @@ func (e *Engine) SayInTalk(subID, text string) error {
 		if !talking(s) || s.Talk.ReplyAt != nil {
 			return model.Errorf(model.CodeConflict, "現在不能在這裡發言")
 		}
-		s.Talk.Messages = append(s.Talk.Messages, model.ChatMessage{At: e.w.Now, From: "user", Text: text})
+		people := e.talkPeople(t, s)
+		if len(people) == 0 {
+			return model.Errorf(model.CodeInvalid, "討論裡沒有人可以回覆")
+		}
+		var speakers []string
+		for _, id := range mentions {
+			if !slices.Contains(people, id) {
+				return model.Errorf(model.CodeInvalid, "這個討論裡沒有這位員工")
+			}
+			if !slices.Contains(speakers, id) {
+				speakers = append(speakers, id)
+			}
+		}
+		if len(speakers) == 0 {
+			speakers = people[:1]
+		}
+		s.Talk.Messages = append(s.Talk.Messages, model.ChatMessage{At: e.w.Now, From: "user", Text: text, Mentions: slices.Clone(mentions)})
 		e.logLine(s, enum.LogHuman, text, "", nil)
 		e.w.Conversations[s.ID] = append(answerPending(e.w.Conversations[s.ID], ""), userText(text))
 		e.dirty[s.ID] = true
-		e.startTalkReply(t, s)
+		s.Talk.Next = speakers[1:]
+		e.startTalkReply(t, s, speakers[0])
 		return nil
 	})
 }
@@ -1132,7 +1103,7 @@ func (e *Engine) EndTalk(subID string, end model.TalkEnd) error {
 				lastAgent = m.Text
 			}
 		}
-		s.Talk.Ended, s.Talk.ReplyAt, s.Review = end.Kind, nil, nil
+		s.Talk.Ended, s.Talk.ReplyAt, s.Talk.Next, s.Review = end.Kind, nil, nil, nil
 		s.Status = enum.StatusComplete
 		s.EndedAt = ptr(e.w.Now)
 		if end.Kind == "stop" {

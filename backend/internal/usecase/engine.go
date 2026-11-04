@@ -137,6 +137,9 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	e.w.Now = e.clock()
 	i18n.Set(e.w.Language)
 	e.installPresets()
+	for _, t := range e.w.Tasks {
+		settleStaff(&t.Workflow)
+	}
 	for _, t := range e.w.Teams {
 		e.readPrompt(t)
 	}
@@ -166,8 +169,13 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	for _, s := range e.w.SubTasks {
 		if s.Talk != nil && s.Talk.ReplyAt != nil {
 			s.Talk.ReplyAt = nil
-			if talking(s) {
-				e.startTalkReply(e.w.Tasks[s.TaskID], s)
+			if t := e.w.Tasks[s.TaskID]; talking(s) {
+				// the one who was replying, or the chair if they have left
+				speaker := s.Talk.Speaker
+				if people := e.talkPeople(t, s); e.w.Replicas[speaker] == nil && len(people) > 0 {
+					speaker = people[0]
+				}
+				e.startTalkReply(t, s, speaker)
 			}
 		}
 	}

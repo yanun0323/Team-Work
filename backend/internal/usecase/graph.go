@@ -34,33 +34,23 @@ func nodeOf(wf *model.Workflow, id string) *model.WorkflowNode {
 	return nil
 }
 
-func taskNodeOf(wf *model.Workflow) *model.WorkflowNode {
+// startsOf are the steps a flow starts with: those nothing hands on to. A task starts them all at once.
+func startsOf(wf *model.Workflow) []*model.WorkflowNode {
+	var out []*model.WorkflowNode
 	for i := range wf.Nodes {
-		if wf.Nodes[i].Kind == enum.NodeTask {
-			return &wf.Nodes[i]
+		if len(inEdges(wf, wf.Nodes[i].ID)) == 0 {
+			out = append(out, &wf.Nodes[i])
 		}
 	}
-	return nil
+	return out
 }
 
-// endNodeOf is the step a flow ends with (驗收): the last work step that hands on to nothing.
-func endNodeOf(wf *model.Workflow) *model.WorkflowNode {
-	for i := len(wf.Nodes) - 1; i >= 0; i-- {
-		n := &wf.Nodes[i]
-		if n.Kind == enum.NodeWork && len(outEdges(wf, n.ID)) == 0 {
-			return n
-		}
-	}
-	return nil
-}
-
-// isFixed tells 整理需求 and 驗收, which the task's owner works on instructions of their own.
-func isFixed(wf *model.Workflow, id string) bool {
-	if n := nodeOf(wf, id); n != nil && n.Kind == enum.NodeTask {
-		return true
-	}
-	end := endNodeOf(wf)
-	return end != nil && end.ID == id
+// canSendBack is whether a step may be let send work back: a work step with one step before it, whose work goes
+// only to this one, so redoing it holds up nothing else.
+func canSendBack(wf *model.Workflow, id string) bool {
+	n := nodeOf(wf, id)
+	ins := inEdges(wf, id)
+	return n != nil && n.Kind == enum.NodeWork && len(ins) == 1 && feedsOnly(wf, ins[0].From, id)
 }
 
 func canReach(wf *model.Workflow, from, to string) bool {
@@ -110,35 +100,25 @@ func feedsOnly(wf *model.Workflow, id, target string) bool {
 	return true
 }
 
-// checkWorkflow refuses a flow that could not run: it starts at one task node, every edge joins two of
-// its nodes, it has no cycle, and every node can be reached.
+// checkWorkflow refuses a flow that could not run: it has steps, every edge joins two of its nodes, and it has no
+// cycle, so every step can be reached from a start.
 func checkWorkflow(wf *model.Workflow) error {
-	starts := 0
+	if len(wf.Nodes) == 0 {
+		return model.Errorf(model.CodeInvalid, "任務藍圖至少要有一個步驟")
+	}
 	seen := map[string]bool{}
 	for _, n := range wf.Nodes {
 		if n.ID == "" || seen[n.ID] {
-			return model.Errorf(model.CodeInvalid, "任務流程的節點 id 重複或是空的")
+			return model.Errorf(model.CodeInvalid, "任務藍圖的節點 id 重複或是空的")
 		}
 		seen[n.ID] = true
-		if n.Kind == enum.NodeTask {
-			starts++
-		}
-	}
-	if starts != 1 {
-		return model.Errorf(model.CodeInvalid, "任務流程要剛好有一個任務節點")
 	}
 	for _, e := range wf.Edges {
 		if !seen[e.From] || !seen[e.To] {
-			return model.Errorf(model.CodeInvalid, "任務流程的連線接到不存在的節點")
+			return model.Errorf(model.CodeInvalid, "任務藍圖的連線接到不存在的節點")
 		}
 		if canReach(wf, e.To, e.From) {
-			return model.Errorf(model.CodeInvalid, "任務流程不能有迴圈")
-		}
-	}
-	start := taskNodeOf(wf)
-	for _, n := range wf.Nodes {
-		if !canReach(wf, start.ID, n.ID) {
-			return model.Errorf(model.CodeInvalid, "節點「%s」接不到任務流程起點", n.Name)
+			return model.Errorf(model.CodeInvalid, "任務藍圖不能有迴圈")
 		}
 	}
 	return nil

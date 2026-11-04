@@ -214,6 +214,10 @@ func (e *Engine) listBlueprints() any {
 	}
 	out := []row{}
 	for _, b := range e.w.Blueprints {
+		// an employee's own settings are theirs, not one to hire from
+		if b.Owner != "" {
+			continue
+		}
 		out = append(out, row{b.ID, versionOf(b), b.Name, b.Source.Kind, !model.IsPresetID(b.ID) && b.Source.Kind != "git", b.Prompt, b.Comment, b.Tools, b.Skills})
 	}
 	slices.SortFunc(out, func(a, b row) int { return strings.Compare(a.ID, b.ID) })
@@ -227,7 +231,6 @@ func (e *Engine) listWorkflows() any {
 		Name       string           `json:"name"`
 		Prompt     string           `json:"prompt"`
 		ReplicaIDs []string         `json:"replicaIds"`
-		Assignment enum.Assignment  `json:"assignment"`
 		Handoff    enum.HandoffMode `json:"handoff"`
 		Join       enum.JoinMode    `json:"join"`
 	}
@@ -248,7 +251,7 @@ func (e *Engine) listWorkflows() any {
 	for _, wf := range e.w.Workflows {
 		r := row{ID: wf.ID, Version: versionOf(wf), Name: wf.Name, Editable: !model.IsPresetID(wf.ID), Nodes: []node{}, Edges: []edge{}}
 		for _, n := range wf.Nodes {
-			r.Nodes = append(r.Nodes, node{n.ID, n.Kind, n.Name, n.Prompt, n.ReplicaIDs, n.Assignment, n.Handoff, n.Join})
+			r.Nodes = append(r.Nodes, node{n.ID, n.Kind, n.Name, n.Prompt, n.ReplicaIDs, n.Handoff, n.Join})
 		}
 		for _, x := range wf.Edges {
 			r.Edges = append(r.Edges, edge{x.From, x.To, x.Condition})
@@ -276,6 +279,9 @@ func (e *Engine) listEmployees(m manager) any {
 		blueprint := ""
 		if b := e.w.Blueprints[r.BlueprintID]; b != nil {
 			blueprint = b.Name
+			if b.Owner != "" {
+				blueprint = "(custom)"
+			}
 		}
 		out = append(out, row{r.ID, r.TeamID, r.Name, r.BlueprintID, blueprint, r.Model})
 	}
@@ -323,7 +329,7 @@ func (e *Engine) listProviders() any {
 
 // ---------- tasks ----------
 
-const createTaskDescription = "Create a task and start it at once, with no confirmation. Who works its steps is the user's decision: do not pick employees yourself. " +
+const createTaskDescription = "Create a task, with no confirmation. It waits in to-do until the user starts it. Who works its steps is the user's decision: do not pick employees yourself. " +
 	"If steps have nobody, this fails and lists them; then ask the user with ask_user, and call again with what they chose in staff or owner_id."
 
 const staffProperty = `"staff":{"type":"object","description":"Step id to the ids of the employees who work it","additionalProperties":{"type":"array","items":{"type":"string"}}}`
@@ -335,8 +341,7 @@ func createTaskSchema(m manager) json.RawMessage {
 	}
 	return json.RawMessage(`{"type":"object","properties":{` + team +
 		`"title":{"type":"string"},"description":{"type":"string"},"workflow_id":{"type":"string"},` + staffProperty + `,` +
-		`"owner_id":{"type":"string","description":"The employee who owns the task and works its first and last steps"},` +
-		`"skip_start":{"type":"boolean","description":"Skip the first step, Clarify requirements, when the description already states the requirements and acceptance criteria clearly"}},"required":[` + required + `]}`)
+		`"owner_id":{"type":"string","description":"The employee answerable for the whole task; it does not work any step by being its owner"}},"required":[` + required + `]}`)
 }
 
 const updateTaskSchema = `{"type":"object","properties":{"task_id":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},` + staffProperty + `,"owner_id":{"type":"string"}},"required":["task_id"]}`
@@ -360,7 +365,6 @@ func (e *Engine) createTaskTool(m manager) func(context.Context, string, json.Ra
 			WorkflowID  string              `json:"workflow_id"`
 			Staff       map[string][]string `json:"staff"`
 			OwnerID     *string             `json:"owner_id"`
-			SkipStart   bool                `json:"skip_start"`
 		}
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return toolError("invalid arguments: %v", err)
@@ -386,7 +390,7 @@ func (e *Engine) createTaskTool(m manager) func(context.Context, string, json.Ra
 				return nil
 			}
 			var err error
-			made, err = e.createTask(NewTask{TeamID: teamID, Title: a.Title, Description: a.Description, WorkflowID: a.WorkflowID, Staff: a.Staff, OwnerID: a.OwnerID, SkipStart: a.SkipStart, Origin: &origin})
+			made, err = e.createTask(NewTask{TeamID: teamID, Title: a.Title, Description: a.Description, WorkflowID: a.WorkflowID, Staff: a.Staff, OwnerID: a.OwnerID, Origin: &origin})
 			return err
 		})
 		if err != nil {
@@ -395,7 +399,7 @@ func (e *Engine) createTaskTool(m manager) func(context.Context, string, json.Ra
 		if refused != "" {
 			return toolError("%s", refused)
 		}
-		return model.ToolResult{Text: fmt.Sprintf("created task #%d, id %s; it has started", made.Number, made.ID)}
+		return model.ToolResult{Text: fmt.Sprintf("created task #%d, id %s; it waits in to-do until the user starts it", made.Number, made.ID)}
 	}
 }
 
@@ -428,6 +432,9 @@ func (e *Engine) staffProblem(teamID, workflowID string, staff map[string][]stri
 		if !slices.ContainsFunc(n.ReplicaIDs, func(r string) bool { return e.w.Replicas[r] != nil }) {
 			missing = append(missing, fmt.Sprintf("%s (%s)", n.Name, n.ID))
 		}
+	}
+	if name := crowdedStep(&probe.Workflow); name != "" {
+		return "no task was created: work step " + name + " can have only one employee; only a discussion can have several"
 	}
 	if len(missing) == 0 {
 		return ""
@@ -603,7 +610,7 @@ func (e *Engine) saveBlueprintTool(m manager) func(context.Context, string, json
 		var change *model.PendingChange
 		err := e.act(m, false, func() error {
 			old := e.w.Blueprints[a.ID]
-			if old == nil {
+			if old == nil || old.Owner != "" {
 				return model.Errorf(model.CodeNotFound, "找不到藍圖")
 			}
 			if model.IsPresetID(a.ID) {
@@ -840,12 +847,13 @@ func pricesText(prices map[string]model.ModelPrice) string {
 
 const saveWorkflowDescription = "Without id, create a task flow; it can be used at once. With id and the version from list_workflows, replace one: nodes and edges are the whole new list, " +
 	"and in a node that has an id already what you leave out stays. Then you stop until the user agrees or refuses, which is what this call then returns. Tasks under way keep the flow they started with. Built-in flows cannot be changed, so make a new one instead. " +
-	"A flow has one node of kind task where it starts; every node must be reachable from it, with no cycles. The last work node with no outgoing edge is the acceptance step, which the task's owner works. Do not give positions: they are worked out for you. Node ids are yours to choose, unique in the flow."
+	"A step nothing leads to is a start: a task starts every start at once, each with the task as given. A step that leads nowhere is a last step, and the task is done once every branch that ran is done. No cycles. Kind task is only in old flows; use work. " +
+	"send_back lets a work step send work back to the one step before it, when that step hands on to it alone; leave it out of other steps. Do not give positions: they are worked out for you. Node ids are yours to choose, unique in the flow."
 
 const saveWorkflowSchema = `{"type":"object","properties":{"id":{"type":"string"},"version":{"type":"string"},"name":{"type":"string"},` +
-	`"nodes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"kind":{"type":"string","enum":["task","work","talk"]},"name":{"type":"string"},"prompt":{"type":"string"},` +
-	`"replica_ids":{"type":"array","items":{"type":"string"},"description":"Usually left out: each task decides who works its steps"},` +
-	`"assignment":{"type":"string","enum":["firstAvailable","everyone"]},"handoff":{"type":"string","enum":["all","pickOne"]},"join":{"type":"string","enum":["all","any"]}},"required":["id"]}},` +
+	`"nodes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"kind":{"type":"string","enum":["work","talk"]},"name":{"type":"string"},"prompt":{"type":"string"},` +
+	`"replica_ids":{"type":"array","items":{"type":"string"},"description":"Usually left out: each task decides who works its steps. One on a work step; a talk step may have several, who hold it as a meeting, the first chairing"},` +
+	`"handoff":{"type":"string","enum":["all","pickOne"]},"join":{"type":"string","enum":["all","any"]},"send_back":{"type":"boolean"}},"required":["id"]}},` +
 	`"edges":{"type":"array","items":{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"},"condition":{"type":"string"}},"required":["from","to"]}}}}`
 
 type workflowArgs struct {
@@ -858,9 +866,9 @@ type workflowArgs struct {
 		Name       *string           `json:"name"`
 		Prompt     *string           `json:"prompt"`
 		ReplicaIDs *[]string         `json:"replica_ids"`
-		Assignment *enum.Assignment  `json:"assignment"`
 		Handoff    *enum.HandoffMode `json:"handoff"`
 		Join       *enum.JoinMode    `json:"join"`
+		SendBack   *bool             `json:"send_back"`
 	} `json:"nodes"`
 	Edges *[]struct {
 		From      string `json:"from"`
@@ -883,7 +891,7 @@ func (e *Engine) buildFlow(a workflowArgs, old *model.Workflow) (*model.Workflow
 		was := next.Nodes
 		next.Nodes = make([]model.WorkflowNode, len(*a.Nodes))
 		for i, in := range *a.Nodes {
-			n := model.WorkflowNode{ID: in.ID, Kind: enum.NodeWork, ReplicaIDs: []string{}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll}
+			n := model.WorkflowNode{ID: in.ID, Kind: enum.NodeWork, ReplicaIDs: []string{}, Handoff: enum.HandoffAll, Join: enum.JoinAll}
 			if at := slices.IndexFunc(was, func(x model.WorkflowNode) bool { return x.ID == in.ID }); at >= 0 {
 				n = was[at]
 				known[in.ID] = true
@@ -900,23 +908,25 @@ func (e *Engine) buildFlow(a workflowArgs, old *model.Workflow) (*model.Workflow
 			if in.ReplicaIDs != nil {
 				n.ReplicaIDs = *in.ReplicaIDs
 			}
-			if in.Assignment != nil {
-				n.Assignment = *in.Assignment
-			}
 			if in.Handoff != nil {
 				n.Handoff = *in.Handoff
 			}
 			if in.Join != nil {
 				n.Join = *in.Join
 			}
+			if in.SendBack != nil {
+				n.SendBack = ptr(*in.SendBack)
+			}
 			if n.Name == "" {
 				return nil, model.Errorf(model.CodeInvalid, "節點要有名稱")
 			}
 			if !slices.Contains([]enum.NodeKind{enum.NodeTask, enum.NodeWork, enum.NodeTalk}, n.Kind) ||
-				!slices.Contains([]enum.Assignment{enum.AssignFirstAvailable, enum.AssignEveryone}, n.Assignment) ||
 				!slices.Contains([]enum.HandoffMode{enum.HandoffAll, enum.HandoffPickOne}, n.Handoff) ||
 				!slices.Contains([]enum.JoinMode{enum.JoinAll, enum.JoinAny}, n.Join) {
 				return nil, model.Errorf(model.CodeInvalid, "節點「%s」的設定不正確", n.Name)
+			}
+			if n.Kind != enum.NodeTalk && len(n.ReplicaIDs) > 1 {
+				return nil, model.Errorf(model.CodeInvalid, "工作步驟「%s」只能有一位員工", n.Name)
 			}
 			next.Nodes[i] = n
 		}
@@ -931,7 +941,7 @@ func (e *Engine) buildFlow(a workflowArgs, old *model.Workflow) (*model.Workflow
 		seen := map[string]bool{}
 		for i, in := range *a.Edges {
 			if seen[in.From+"\x00"+in.To] {
-				return nil, model.Errorf(model.CodeInvalid, "任務流程的連線重複")
+				return nil, model.Errorf(model.CodeInvalid, "任務藍圖的連線重複")
 			}
 			seen[in.From+"\x00"+in.To] = true
 			edge := model.WorkflowEdge{From: in.From, To: in.To, Condition: in.Condition}
@@ -941,6 +951,13 @@ func (e *Engine) buildFlow(a workflowArgs, old *model.Workflow) (*model.Workflow
 				edge.ID = e.uid("e")
 			}
 			next.Edges[i] = edge
+		}
+	}
+	settleStarts(next)
+	// a new step that ends the flow may send work back unless told otherwise, as on the flow's sheet
+	for i := range next.Nodes {
+		if n := &next.Nodes[i]; !known[n.ID] && n.SendBack == nil && n.Kind == enum.NodeWork && len(inEdges(next, n.ID)) > 0 {
+			n.SendBack = ptr(len(outEdges(next, n.ID)) == 0 && canSendBack(next, n.ID))
 		}
 	}
 	localizeFlow(next, e.w.Language)
@@ -1012,7 +1029,7 @@ func (e *Engine) saveWorkflowTool(m manager) func(context.Context, string, json.
 		err := e.act(m, false, func() error {
 			old := e.w.Workflows[a.ID]
 			if old == nil {
-				return model.Errorf(model.CodeNotFound, "找不到任務流程")
+				return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
 			}
 			if model.IsPresetID(a.ID) {
 				return errPreset()
@@ -1068,7 +1085,6 @@ func (e *Engine) workflowDiff(before, after *model.Workflow) []model.ChangeLine 
 		add("kind", string(was.Kind), string(n.Kind))
 		add("prompt", was.Prompt, n.Prompt)
 		add("staff", staff(was.ReplicaIDs), staff(n.ReplicaIDs))
-		add("assignment", string(was.Assignment), string(n.Assignment))
 		add("handoff", string(was.Handoff), string(n.Handoff))
 		add("join", string(was.Join), string(n.Join))
 	}

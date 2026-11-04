@@ -32,12 +32,15 @@ type Preferences struct {
 	KeepTerminals    bool   `json:"keepTerminals"`
 	AutoView         string `json:"autoView"`
 	// BusyAnimation is what a company's building shows while it is at work: shout strokes or money tossed off its sides.
-	BusyAnimation     string `json:"busyAnimation"`
+	BusyAnimation string `json:"busyAnimation"`
+	// Daylight is the time of day the town shows: the clock (real), a 20-minute day (minecraft), or always day or night.
+	Daylight          string `json:"daylight"`
 	ZoomSensitivity   int    `json:"zoomSensitivity"`
 	TerminalCommand   string `json:"terminalCommand"`
 	DefaultTab        string `json:"defaultTab"`
 	DefaultAirportTab string `json:"defaultAirportTab"`
-	OpenWaitingTab    bool   `json:"openWaitingTab"`
+	// AutoTab opens a company or the airport on a tab with something waiting: off, chats first, or tasks first.
+	AutoTab string `json:"autoTab"`
 	// ChatTitleModel names each new chat from its first message; empty turns naming off.
 	ChatTitleModel  string `json:"chatTitleModel"`
 	ChatTitleEffort string `json:"chatTitleEffort"`
@@ -49,7 +52,7 @@ type Preferences struct {
 }
 
 func DefaultPreferences() Preferences {
-	return Preferences{MuteInBackground: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", BusyAnimation: "money", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", OpenWaitingTab: true, CodexSkills: true, ClaudeSkills: true}
+	return Preferences{MuteInBackground: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", BusyAnimation: "money", Daylight: "minecraft", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", AutoTab: "chats", CodexSkills: true, ClaudeSkills: true}
 }
 
 // MergePreferences accepts only known, non-null fields; omitted fields keep their values.
@@ -78,6 +81,8 @@ func MergePreferences(current Preferences, patch map[string]json.RawMessage) (Pr
 		!slices.Contains([]string{"newestFirst", "newestLast"}, next.LogOrder) ||
 		!slices.Contains([]string{"panZoom", "pan", "off"}, next.AutoView) ||
 		!slices.Contains([]string{"shout", "money"}, next.BusyAnimation) ||
+		!slices.Contains([]string{"real", "minecraft", "day", "night"}, next.Daylight) ||
+		!slices.Contains([]string{"off", "chats", "tasks"}, next.AutoTab) ||
 		!slices.Contains([]string{"chats", "tasks", "crew", "terminal", "settings"}, next.DefaultTab) ||
 		!slices.Contains([]string{"chats", "providers", "blueprints", "flows", "stats", "prefs", "about"}, next.DefaultAirportTab) {
 		return current, fmt.Errorf("invalid preference value")
@@ -99,6 +104,13 @@ func (p *Preferences) UnmarshalJSON(raw []byte) error {
 		delete(patch, "autoZoom")
 		if _, set := patch["autoView"]; !set && string(old) == "false" {
 			patch["autoView"] = json.RawMessage(`"off"`)
+		}
+	}
+	// Files written while this was a checkbox: on takes the default.
+	if old, ok := patch["openWaitingTab"]; ok {
+		delete(patch, "openWaitingTab")
+		if _, set := patch["autoTab"]; !set && string(old) == "false" {
+			patch["autoTab"] = json.RawMessage(`"off"`)
 		}
 	}
 	// Files written while opening a waiting task could also open its sub-task.

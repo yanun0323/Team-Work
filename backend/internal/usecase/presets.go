@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/yanun0323/Team-Work/internal/model"
@@ -48,8 +49,8 @@ type presetBlueprint struct {
 	Look   model.Look  `json:"look"`
 }
 
-// presetFlow lists a flow's steps between its two ends, by layer: the steps of a layer run side by side, and each
-// gets everything from the layer before.
+// presetFlow lists a flow's steps by layer: the steps of a layer run side by side, and each gets everything from the
+// layer before; the first layer's start the task.
 type presetFlow struct {
 	ID     string         `json:"id"`
 	Name   presetText     `json:"name"`
@@ -70,7 +71,8 @@ var presets = func() (p struct {
 	return p
 }()
 
-// What the fixed steps are told, in English like every instruction an employee receives.
+// Instructions the app wrote, in English like every instruction an employee receives. Start and End are templates
+// for a flow's first and last steps: flows from before a flow could start and end anywhere began and ended with them.
 var (
 	StartPrompt = presets.Start.Prompt.En
 	EndPrompt   = presets.End.Prompt.En
@@ -115,15 +117,7 @@ func (p presetBlueprint) in(language string, folders []string) *model.Blueprint 
 }
 
 func (p presetFlow) in(language string) *model.Workflow {
-	node := func(id string, kind enum.NodeKind, s presetStep, pos model.Point) model.WorkflowNode {
-		return model.WorkflowNode{ID: id, Kind: kind, Name: s.Name.in(language), Prompt: s.Prompt.in(language), ReplicaIDs: []string{},
-			Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll, Pos: pos}
-	}
-	start, end := p.ID+"-start", p.ID+"-end"
-	wf := &model.Workflow{ID: p.ID, Name: p.Name.in(language), Nodes: []model.WorkflowNode{
-		node(start, enum.NodeTask, presets.Start, model.Point{}),
-		node(end, enum.NodeWork, presets.End, model.Point{Y: float64(len(p.Layers)+1) * layoutDY}),
-	}}
+	wf := &model.Workflow{ID: p.ID, Name: p.Name.in(language), Nodes: []model.WorkflowNode{}}
 	seq := 0
 	link := func(from, to []string) {
 		for _, f := range from {
@@ -133,7 +127,7 @@ func (p presetFlow) in(language string) *model.Workflow {
 			}
 		}
 	}
-	prev := []string{start}
+	var prev []string
 	for i, layer := range p.Layers {
 		ids := make([]string, len(layer))
 		for j, s := range layer {
@@ -142,17 +136,28 @@ func (p presetFlow) in(language string) *model.Workflow {
 			if s.Talk {
 				kind, s.Prompt = enum.NodeTalk, presets.Talk
 			}
-			wf.Nodes = append(wf.Nodes, node(ids[j], kind, s, model.Point{X: (float64(j) - float64(len(layer)-1)/2) * layoutDX, Y: float64(i+1) * layoutDY}))
+			n := model.WorkflowNode{ID: ids[j], Kind: kind, Name: s.Name.in(language), Prompt: s.Prompt.in(language), ReplicaIDs: []string{},
+				Handoff: enum.HandoffAll, Join: enum.JoinAll,
+				Pos: model.Point{X: (float64(j) - float64(len(layer)-1)/2) * layoutDX, Y: float64(i) * layoutDY}}
+			if i > 0 && kind == enum.NodeWork {
+				n.SendBack = ptr(false)
+			}
+			wf.Nodes = append(wf.Nodes, n)
 		}
 		link(prev, ids)
 		prev = ids
 	}
-	link(prev, []string{end})
+	// a last step may send work back, as a new flow's would
+	for i := range wf.Nodes {
+		if n := &wf.Nodes[i]; n.SendBack != nil && slices.Contains(prev, n.ID) {
+			n.SendBack = ptr(canSendBack(wf, n.ID))
+		}
+	}
 	return wf
 }
 
 // localizeFlow puts what the app itself wrote in a flow into a language: all of a built-in flow, and in any flow the
-// instructions of the fixed steps and discussions, and the two ends' names unless they were renamed by hand.
+// instructions of discussions, and a step's name and instructions while they are still the Start or End template's.
 // What a user wrote stays as written. Tasks' copies of a flow go through here too.
 func localizeFlow(wf *model.Workflow, language string) {
 	steps := map[string]presetStep{}
@@ -176,14 +181,17 @@ func localizeFlow(wf *model.Workflow, language string) {
 		switch {
 		case n.Kind == enum.NodeTalk:
 			n.Prompt = presets.Talk.in(language)
-		case isFixed(wf, n.ID):
-			fixed := presets.End
-			if n.Kind == enum.NodeTask {
-				fixed = presets.Start
-			}
-			n.Prompt = fixed.Prompt.in(language)
-			if n.Name == fixed.Name.Zh || n.Name == fixed.Name.En {
-				n.Name = fixed.Name.in(language)
+		case n.Kind == enum.NodeTask:
+			n.Prompt = presets.Start.Prompt.in(language)
+			fallthrough
+		default:
+			for _, fixed := range []presetStep{presets.Start, presets.End} {
+				if n.Prompt == fixed.Prompt.Zh || n.Prompt == fixed.Prompt.En {
+					n.Prompt = fixed.Prompt.in(language)
+				}
+				if n.Name == fixed.Name.Zh || n.Name == fixed.Name.En {
+					n.Name = fixed.Name.in(language)
+				}
 			}
 		}
 	}
@@ -197,6 +205,8 @@ func (e *Engine) installPresets() {
 		e.w.Blueprints[p.ID] = p.in(e.w.Language, folders)
 	}
 	for _, wf := range e.w.Workflows {
+		settleStarts(wf)
+		settleStaff(wf)
 		localizeFlow(wf, e.w.Language)
 	}
 	for _, p := range presets.Flows {
@@ -228,4 +238,36 @@ func agentRole(bp *model.Blueprint) string {
 		}
 	}
 	return bp.Prompt
+}
+
+// settleStarts turns the 整理需求 start of a flow from before a flow could start anywhere into a step like any other,
+// keeping its name and instructions. Tasks' copies keep it as it was.
+func settleStarts(wf *model.Workflow) {
+	for i := range wf.Nodes {
+		if wf.Nodes[i].Kind == enum.NodeTask {
+			wf.Nodes[i].Kind = enum.NodeWork
+		}
+	}
+}
+
+// settleStaff keeps the first employee of a work step from before a work step had one, and drops how it chose
+// among them. A discussion keeps them all: they hold it as a meeting.
+func settleStaff(wf *model.Workflow) {
+	for i := range wf.Nodes {
+		n := &wf.Nodes[i]
+		n.Assignment = ""
+		if n.Kind != enum.NodeTalk && len(n.ReplicaIDs) > 1 {
+			n.ReplicaIDs = n.ReplicaIDs[:1]
+		}
+	}
+}
+
+// crowdedStep names a work step given more than one employee, which only a discussion can have; "" when there is none.
+func crowdedStep(wf *model.Workflow) string {
+	for _, n := range wf.Nodes {
+		if n.Kind != enum.NodeTalk && len(n.ReplicaIDs) > 1 {
+			return n.Name
+		}
+	}
+	return ""
 }

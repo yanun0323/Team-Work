@@ -57,11 +57,7 @@ func TestFileAttachmentsReachChatsAndTasks(t *testing.T) {
 			})
 			var id string
 			if task {
-				made, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "files", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, Files: files})
-				if err != nil {
-					t.Fatal(err)
-				}
-				id = made.ID
+				id = r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "files", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, Files: files})).ID
 				r.wait("task", stage(id, enum.StageAwaitMerge))
 				if !slices.Equal(r.world().Tasks[id].Files, files) {
 					t.Fatal("lost task files")

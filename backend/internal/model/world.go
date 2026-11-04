@@ -55,6 +55,10 @@ type Blueprint struct {
 	Skills     []SkillPack     `json:"skills"`
 	Tools      []enum.Tool     `json:"tools"`
 	Look       Look            `json:"look"`
+	// Owner is the employee whose own settings these are, made on their sheet rather than picked from the list;
+	// empty for a blueprint anyone can be hired from. From is the blueprint they were copied from, if any.
+	Owner string `json:"owner,omitempty"`
+	From  string `json:"from,omitempty"`
 }
 
 type MemoryEntry struct {
@@ -83,15 +87,21 @@ type Point struct {
 }
 
 type WorkflowNode struct {
-	ID         string           `json:"id"`
-	Kind       enum.NodeKind    `json:"kind"`
-	Name       string           `json:"name"`
-	Prompt     string           `json:"prompt"`
-	ReplicaIDs []string         `json:"replicaIds"`
-	Assignment enum.Assignment  `json:"assignment"`
+	ID     string        `json:"id"`
+	Kind   enum.NodeKind `json:"kind"`
+	Name   string        `json:"name"`
+	Prompt string        `json:"prompt"`
+	// ReplicaIDs are who work the step: one on a work step; on a discussion one, or several who hold it as a meeting,
+	// the first chairing.
+	ReplicaIDs []string `json:"replicaIds"`
+	// Assignment is from before a work step had one employee, read so older settings still load; settleStaff drops it.
+	Assignment string           `json:"assignment,omitempty"`
 	Handoff    enum.HandoffMode `json:"handoff"`
 	Join       enum.JoinMode    `json:"join"`
-	Pos        Point            `json:"pos"`
+	// SendBack lets the step send work back to the one before it. Nil in flows from before it existed, which keep
+	// the old rule: only the last step, and a step that was itself sent back, may.
+	SendBack *bool `json:"sendBack,omitempty"`
+	Pos      Point `json:"pos"`
 }
 
 type WorkflowEdge struct {
@@ -248,6 +258,9 @@ type Talk struct {
 	Messages []ChatMessage `json:"messages"`
 	// ReplyAt is set while the employee writes a reply: when they started.
 	ReplyAt *float64 `json:"replyAt,omitempty"`
+	// Speaker is who replies, or last replied; Next are who reply after them, in a discussion held by several.
+	Speaker string   `json:"speaker,omitempty"`
+	Next    []string `json:"next,omitempty"`
 	Ended   string   `json:"ended,omitempty"`
 }
 

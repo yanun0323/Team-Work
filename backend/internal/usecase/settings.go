@@ -205,6 +205,8 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 		if strings.TrimSpace(wf.Name) == "" {
 			return bad(field+".name", "不能是空的")
 		}
+		settleStarts(wf)
+		settleStaff(wf)
 		if err := checkWorkflow(wf); err != nil {
 			return s, settingsError(field, err)
 		}
@@ -212,9 +214,6 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 			f := fmt.Sprintf("%s.nodes[%d]", field, i)
 			if !slices.Contains([]enum.NodeKind{enum.NodeTask, enum.NodeWork, enum.NodeTalk}, n.Kind) {
 				return bad(f+".kind", "不認識的節點種類")
-			}
-			if !slices.Contains([]enum.Assignment{enum.AssignFirstAvailable, enum.AssignEveryone}, n.Assignment) {
-				return bad(f+".assignment", "不認識的分派模式")
 			}
 			if !slices.Contains([]enum.HandoffMode{enum.HandoffAll, enum.HandoffPickOne}, n.Handoff) {
 				return bad(f+".handoff", "不認識的交接模式")

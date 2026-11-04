@@ -50,12 +50,21 @@ func TestPresets(t *testing.T) {
 		}
 	}
 	feature := presetFlowOf(t, w, "preset-feature")
-	if feature.Name != "功能開發" || len(feature.Edges) != 6 {
+	if feature.Name != "功能開發" || len(feature.Nodes) != 4 || len(feature.Edges) != 3 {
 		t.Fatalf("%+v", feature)
 	}
 	small := presetFlowOf(t, w, "preset-small")
-	if small.Name != "小功能" || len(small.Nodes) != 4 || len(small.Edges) != 3 {
+	if small.Name != "小功能" || len(small.Nodes) != 2 || len(small.Edges) != 1 {
 		t.Fatalf("%+v", small)
+	}
+	// a built-in flow starts with its first step, and only a last step fed by one step alone may send work back
+	if n := small.Nodes[1]; n.SendBack == nil || !*n.SendBack || small.Nodes[0].SendBack != nil {
+		t.Fatalf("%+v", small.Nodes)
+	}
+	for _, n := range feature.Nodes[2:] {
+		if n.SendBack == nil || *n.SendBack {
+			t.Fatalf("%+v", n)
+		}
 	}
 	for _, id := range []string{"preset-feature", "preset-small", "preset-bugfix", "preset-planning", "preset-review", "preset-refactor"} {
 		// a copy goes through the same checks as a flow drawn by hand
@@ -98,10 +107,10 @@ func TestPresetsCannotChangeButCanBeCopied(t *testing.T) {
 		t.Fatal(err)
 	}
 	w = r.world()
-	if got := w.Workflows[c.ID]; got.Name != "功能開發-1" || got.Nodes[2].Name != "撰寫規格" || got.Nodes[0].Name != "Clarify requirements" {
-		t.Fatalf("%s %+v", got.Name, got.Nodes[:3])
+	if got := w.Workflows[c.ID]; got.Name != "功能開發-1" || got.Nodes[0].Name != "撰寫規格" {
+		t.Fatalf("%s %+v", got.Name, got.Nodes[:1])
 	}
-	if got := presetFlowOf(t, w, wf.ID); got.Name != "Feature development" || got.Nodes[2].Name != "Write spec" {
+	if got := presetFlowOf(t, w, wf.ID); got.Name != "Feature development" || got.Nodes[0].Name != "Write spec" {
 		t.Fatalf("%+v", got)
 	}
 	if got := w.Blueprints[bp.ID]; got.Name != "Project Manager" || strings.Contains(got.Prompt, "你是") {
@@ -129,32 +138,29 @@ func TestEmployeesAreToldPresetsInEnglish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "加功能", WorkflowID: "preset-bugfix", OwnerID: &pm.ID,
-		Staff: map[string][]string{"preset-bugfix-0-0": {pm.ID}, "preset-bugfix-1-0": {pm.ID}, "preset-bugfix-2-0": {pm.ID}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.Workflow.Nodes[2].Name != "重現問題" {
-		t.Fatalf("the task shows %q", task.Workflow.Nodes[2].Name)
+	task := r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "加功能", WorkflowID: "preset-bugfix", OwnerID: &pm.ID,
+		Staff: map[string][]string{"preset-bugfix-0-0": {pm.ID}, "preset-bugfix-1-0": {pm.ID}}}))
+	if task.Workflow.Nodes[0].Name != "重現問題" {
+		t.Fatalf("the task shows %q", task.Workflow.Nodes[0].Name)
 	}
 	r.wait("the second step", func(*model.World) bool { return len(r.fake.requests()) > 1 })
 	got := r.fake.requests()[1]
-	for _, want := range []string{"company's project manager", "# This step: Reproduce", "user reads in Traditional Chinese", "- Clarify requirements: "} {
+	for _, want := range []string{"company's project manager", "# This step: Fix", "user reads in Traditional Chinese", "- Reproduce: "} {
 		if !strings.Contains(got.System, want) {
 			t.Errorf("no %q in:\n%s", want, got.System)
 		}
 	}
-	if strings.Contains(got.System, "專案經理") || strings.Contains(got.System, "重現問題") {
+	if strings.Contains(got.System, "專案經理") || strings.Contains(got.System, "修正") {
 		t.Errorf("Chinese in:\n%s", got.System)
 	}
-	if !strings.Contains(got.Messages[0].Content[0].Text, `Handoff from "Clarify requirements"`) {
+	if !strings.Contains(got.Messages[0].Content[0].Text, `Handoff from "Reproduce"`) {
 		t.Errorf("%s", got.Messages[0].Content[0].Text)
 	}
 	// a task under way shows the new language too
 	if err := r.e.SetLanguage(model.LanguageEn); err != nil {
 		t.Fatal(err)
 	}
-	if got := r.world().Tasks[task.ID].Workflow.Nodes[2].Name; got != "Reproduce" {
+	if got := r.world().Tasks[task.ID].Workflow.Nodes[0].Name; got != "Reproduce" {
 		t.Fatalf("%q", got)
 	}
 }
@@ -177,7 +183,10 @@ func TestFlowsAreShared(t *testing.T) {
 	if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
 		t.Fatal(err)
 	}
-	task := r.task(wf.ID)
+	if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: wf.ID}); err == nil {
+		t.Fatal("a step with only someone from another company was staffed")
+	}
+	task := r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: wf.ID, Staff: map[string][]string{wf.Nodes[1].ID: {r.owner.ID}}}))
 	for _, n := range task.Workflow.Nodes {
 		if slices.Contains(n.ReplicaIDs, bo.ID) {
 			t.Fatal("staff from another company came along")
@@ -187,8 +196,8 @@ func TestFlowsAreShared(t *testing.T) {
 	if err := r.e.DeleteTeam(other.ID); err != nil {
 		t.Fatal(err)
 	}
-	if r.world().Workflows[wf.ID] == nil {
-		t.Fatal("the flow went with the company")
+	if got := r.world().Workflows[wf.ID]; got == nil || slices.Contains(got.Nodes[1].ReplicaIDs, bo.ID) {
+		t.Fatal("the flow went with the company, or kept its people")
 	}
 	if err := r.e.DeleteWorkflow(wf.ID); err != nil {
 		t.Fatal(err)

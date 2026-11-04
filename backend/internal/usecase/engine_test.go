@@ -176,9 +176,19 @@ func newRig(t *testing.T, reply func(model.ModelRequest) (model.ModelReply, erro
 		t.Fatal(err)
 	}
 	r.owner = owner
-	// a flow of just its two ends, so a test's task needs no staff
+	// 整理需求 then 驗收 on the app's templates, both worked by the owner, so a test's task needs no staff
 	plain, err := r.e.CreateWorkflow("只有頭尾")
 	if err != nil {
+		t.Fatal(err)
+	}
+	step := func(id, name, prompt string) model.WorkflowNode {
+		return model.WorkflowNode{ID: id, Kind: enum.NodeWork, Name: name, Prompt: prompt, ReplicaIDs: []string{owner.ID},
+			Handoff: enum.HandoffAll, Join: enum.JoinAll}
+	}
+	plain.Nodes = []model.WorkflowNode{step("start", "整理需求", usecase.StartPrompt), step("end", "驗收", usecase.EndPrompt)}
+	plain.Nodes[1].SendBack = ptrTo(true)
+	plain.Edges = []model.WorkflowEdge{{ID: "e", From: "start", To: "end"}}
+	if err := r.e.SaveWorkflow(plain.ID, *plain); err != nil {
 		t.Fatal(err)
 	}
 	r.flow = r.world().Workflows[plain.ID]
@@ -212,13 +222,22 @@ func (r *rig) wait(what string, ok func(*model.World) bool) *model.World {
 	return nil
 }
 
+// task makes a task and starts it, as the user does with the start button.
 func (r *rig) task(wfID string) *model.Task {
 	r.t.Helper()
-	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "加功能", Description: "說明", WorkflowID: wfID, OwnerID: &r.owner.ID})
+	return r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "加功能", Description: "說明", WorkflowID: wfID, OwnerID: &r.owner.ID}))
+}
+
+// start starts a task just made, which waits in 待辦 until then.
+func (r *rig) start(task *model.Task, err error) *model.Task {
+	r.t.Helper()
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	return task
+	if err := r.e.ResumeTask(task.ID); err != nil {
+		r.t.Fatal(err)
+	}
+	return r.world().Tasks[task.ID]
 }
 
 func stage(id string, want enum.TaskStage) func(*model.World) bool {
@@ -285,30 +304,6 @@ func TestTaskRunsToMergeOnRealGit(t *testing.T) {
 	}
 }
 
-func TestSkippingClarifyHandsTheDescriptionOn(t *testing.T) {
-	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
-		return call("submit_handoff", handoff), nil
-	})
-	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "加功能", Description: "驗收：按鈕變藍", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, SkipStart: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
-	first := subAt(w, task.ID, "整理需求")
-	if !first.Skipped || first.Handoff == nil || first.ReplicaID != nil {
-		t.Fatalf("the first step ran or handed nothing on: %+v", first)
-	}
-	for _, req := range r.fake.seen {
-		if stepOf(req) == "Clarify requirements" {
-			t.Fatal("the skipped step was run")
-		}
-	}
-	last := r.fake.seen[len(r.fake.seen)-1].Messages[0].Content[0].Text
-	if !strings.Contains(last, "驗收：按鈕變藍") || !strings.Contains(last, "the task description is the requirement") {
-		t.Fatalf("the review was not told the description is the requirement: %s", last)
-	}
-}
-
 func TestQuestionResumesWithTheAnswer(t *testing.T) {
 	asked := false
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -363,7 +358,7 @@ func TestPickOneAskingAndFailureReview(t *testing.T) {
 	start, end := wf.Nodes[0].ID, wf.Nodes[1].ID
 	wf.Nodes[0].Handoff = enum.HandoffPickOne
 	node := func(id, name string) model.WorkflowNode {
-		return model.WorkflowNode{ID: id, Kind: enum.NodeWork, Name: name, Prompt: "做", ReplicaIDs: []string{r.owner.ID}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAny}
+		return model.WorkflowNode{ID: id, Kind: enum.NodeWork, Name: name, Prompt: "做", ReplicaIDs: []string{r.owner.ID}, Handoff: enum.HandoffAll, Join: enum.JoinAny}
 	}
 	wf.Nodes = append(wf.Nodes[:1], node("a", "甲"), node("b", "乙"), wf.Nodes[1])
 	wf.Edges = []model.WorkflowEdge{{ID: "1", From: start, To: "a", Condition: "簡單"}, {ID: "2", From: start, To: "b", Condition: "困難"}, {ID: "3", From: "a", To: end}, {ID: "4", From: "b", To: end}}
@@ -398,6 +393,70 @@ func TestPickOneAskingAndFailureReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+}
+
+// Steps with nothing before them all start the task, each from its description; it ends once every last step is done.
+func TestSeveralStartsAndEnds(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	node := func(id, name string) model.WorkflowNode {
+		return model.WorkflowNode{ID: id, Kind: enum.NodeWork, Name: name, Prompt: "做", ReplicaIDs: []string{r.owner.ID}, Handoff: enum.HandoffAll, Join: enum.JoinAll}
+	}
+	wf := *r.flow
+	wf.Nodes = []model.WorkflowNode{node("a", "甲"), node("b", "乙"), node("j", "合"), node("c", "丙")}
+	wf.Edges = []model.WorkflowEdge{{ID: "1", From: "a", To: "j"}, {ID: "2", From: "b", To: "j"}, {ID: "3", From: "a", To: "c"}}
+	if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
+		t.Fatal(err)
+	}
+	task := r.task(wf.ID)
+	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	for _, name := range []string{"甲", "乙"} {
+		if s := subAt(w, task.ID, name); s == nil || len(s.UpstreamIDs) != 0 {
+			t.Fatalf("%s: %+v", name, s)
+		}
+	}
+	if j := subAt(w, task.ID, "合"); j == nil || len(j.UpstreamIDs) != 2 || j.Status != enum.StatusComplete {
+		t.Fatalf("%+v", j)
+	}
+	if c := subAt(w, task.ID, "丙"); c == nil || c.Status != enum.StatusComplete {
+		t.Fatalf("%+v", c)
+	}
+	runs := 0
+	for _, s := range w.SubTasks {
+		if s.TaskID == task.ID {
+			runs++
+		}
+	}
+	if runs != 4 {
+		t.Fatalf("%d runs", runs)
+	}
+}
+
+// A last step switched off from sending back gets no send_back; with the switch unset it has it, as before.
+func TestSendBackSwitch(t *testing.T) {
+	var mu sync.Mutex
+	tools := map[string][]string{}
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		mu.Lock()
+		tools[stepOf(req)] = toolsOf(req)
+		mu.Unlock()
+		return call("submit_handoff", handoff), nil
+	})
+	for _, on := range []*bool{ptrTo(false), nil} {
+		wf := *r.flow
+		wf.Nodes = slices.Clone(wf.Nodes)
+		wf.Nodes[1].SendBack = on
+		if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
+			t.Fatal(err)
+		}
+		task := r.task(wf.ID)
+		r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+		mu.Lock()
+		got := slices.Contains(tools["Acceptance review"], "send_back")
+		mu.Unlock()
+		if got != (on == nil) {
+			t.Fatalf("switch %v: send_back %v", on, got)
+		}
+	}
 }
 
 func TestHandedFileReadsTheCommit(t *testing.T) {
@@ -440,7 +499,7 @@ func TestEveryStepSeesItsNeighbours(t *testing.T) {
 	wf := *r.flow
 	start, end := wf.Nodes[0].ID, wf.Nodes[1].ID
 	node := func(id, kind, name, prompt string) model.WorkflowNode {
-		return model.WorkflowNode{ID: id, Kind: enum.NodeKind(kind), Name: name, Prompt: prompt, ReplicaIDs: []string{r.owner.ID}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll}
+		return model.WorkflowNode{ID: id, Kind: enum.NodeKind(kind), Name: name, Prompt: prompt, ReplicaIDs: []string{r.owner.ID}, Handoff: enum.HandoffAll, Join: enum.JoinAll}
 	}
 	wf.Nodes = append(wf.Nodes, node("work", string(enum.NodeWork), "寫碼", "寫碼的指示"), node("talk", string(enum.NodeTalk), "討論", usecase.TalkPrompt))
 	wf.Edges = []model.WorkflowEdge{{ID: "1", From: start, To: "work"}, {ID: "2", From: "work", To: "talk"}, {ID: "3", From: "talk", To: end}}
@@ -502,7 +561,7 @@ func TestDiscussion(t *testing.T) {
 	})
 	wf := *r.flow
 	start, end := wf.Nodes[0].ID, wf.Nodes[1].ID
-	wf.Nodes = append(wf.Nodes[:1], model.WorkflowNode{ID: "talk", Kind: enum.NodeTalk, Name: "討論", Prompt: usecase.TalkPrompt, ReplicaIDs: []string{r.owner.ID}, Assignment: enum.AssignFirstAvailable, Handoff: enum.HandoffAll, Join: enum.JoinAll}, wf.Nodes[1])
+	wf.Nodes = append(wf.Nodes[:1], model.WorkflowNode{ID: "talk", Kind: enum.NodeTalk, Name: "討論", Prompt: usecase.TalkPrompt, ReplicaIDs: []string{r.owner.ID}, Handoff: enum.HandoffAll, Join: enum.JoinAll}, wf.Nodes[1])
 	wf.Edges = []model.WorkflowEdge{{ID: "1", From: start, To: "talk"}, {ID: "2", From: "talk", To: end}}
 	if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
 		t.Fatal(err)
@@ -516,7 +575,7 @@ func TestDiscussion(t *testing.T) {
 	if s.Talk.Messages[0].Text != "想問你一件事" {
 		t.Fatalf("talk = %+v", s.Talk)
 	}
-	if err := r.e.SayInTalk(s.ID, "用 A"); err != nil {
+	if err := r.e.SayInTalk(s.ID, "用 A", nil); err != nil {
 		t.Fatal(err)
 	}
 	r.wait("reply", func(w *model.World) bool {
@@ -645,6 +704,27 @@ func TestMergeLeftUnresolvedCanBeTriedAgain(t *testing.T) {
 	}
 	if len(w.Tasks[task.ID].Merge.Log) < 5 {
 		t.Fatalf("earlier attempt's log lost: %+v", w.Tasks[task.ID].Merge.Log)
+	}
+}
+
+func TestNewTaskWaitsInTodoUntilStarted(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	made, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "等著", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	w := r.world()
+	task := w.Tasks[made.ID]
+	if !task.Paused || task.PausedAt != nil || task.PausedStatus != enum.StatusTodo || len(r.fake.requests()) != 0 {
+		t.Fatalf("%+v, %d model calls", task, len(r.fake.requests()))
+	}
+	if err := r.e.ResumeTask(made.ID); err != nil {
+		t.Fatal(err)
+	}
+	w = r.wait("await merge", stage(made.ID, enum.StageAwaitMerge))
+	if slices.Contains(w.Tutorial.Actions, "pause") {
+		t.Fatal("starting a new task counted as pausing one")
 	}
 }
 
@@ -863,9 +943,8 @@ func TestSubscriptionSignedOutElsewhere(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: r.flow.ID, OwnerID: &worker.ID}); err != nil {
-		t.Fatal(err)
-	}
+	r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: r.flow.ID, OwnerID: &worker.ID,
+		Staff: map[string][]string{"start": {worker.ID}, "end": {worker.ID}}}))
 	r.wait("signed out", func(w *model.World) bool { return !w.Providers[p.ID].Auth.SignedIn })
 	if _, err := r.e.StartLogin(ctx, p.ID, ""); err != nil {
 		t.Fatal(err)
@@ -892,10 +971,8 @@ func TestSubscriptionRunsSayNothingAboutPrices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: r.flow.ID, OwnerID: &worker.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
+	task := r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: r.flow.ID, OwnerID: &worker.ID,
+		Staff: map[string][]string{"start": {worker.ID}, "end": {worker.ID}}}))
 	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
 	s := subAt(w, task.ID, "整理需求")
 	if s.Unpriced || s.CostUSD != 0 || s.Tokens <= 0 {
@@ -927,7 +1004,8 @@ func TestEditingATask(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := r.world().Tasks[task.ID]
-	if got.Title != title || *got.OwnerID != bo.ID || got.Workflow.Nodes[1].ReplicaIDs[0] != bo.ID {
+	// the owner answers for the task and works no step by it: who works each step stays
+	if got.Title != title || *got.OwnerID != bo.ID || got.Workflow.Nodes[1].ReplicaIDs[0] != r.owner.ID {
 		t.Fatalf("%+v", got)
 	}
 }
@@ -1171,3 +1249,5 @@ func TestForgetRemovesANoteAndRejectsAnUnknownOne(t *testing.T) {
 		t.Fatal("forgetting an unknown note did not fail")
 	}
 }
+
+func ptrTo[T any](v T) *T { return &v }

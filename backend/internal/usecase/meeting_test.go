@@ -249,3 +249,87 @@ func TestInviteToChat(t *testing.T) {
 		t.Fatal("seven in a chat")
 	}
 }
+
+func TestTalkWithSeveralIsAMeeting(t *testing.T) {
+	var beaID string
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if stepOf(req) != "討論" {
+			return call("submit_handoff", handoff), nil
+		}
+		if beaID != "" && strings.HasSuffix(req.Session, beaID) {
+			return say("Bea 的意見"), nil
+		}
+		return say("Ada 的意見"), nil
+	})
+	bea, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bea", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beaID = bea.ID
+	wf := *r.flow
+	start, end := wf.Nodes[0].ID, wf.Nodes[1].ID
+	two := []string{r.owner.ID, bea.ID}
+	crowded := slices.Clone(wf.Nodes)
+	crowded[0].ReplicaIDs = two
+	if err := r.e.SaveWorkflow(wf.ID, model.Workflow{ID: wf.ID, Name: wf.Name, Nodes: crowded, Edges: wf.Edges}); err == nil {
+		t.Fatal("a work step with two employees was accepted")
+	}
+	wf.Nodes = append(wf.Nodes[:1], model.WorkflowNode{ID: "talk", Kind: enum.NodeTalk, Name: "討論", Prompt: usecase.TalkPrompt, ReplicaIDs: two, Handoff: enum.HandoffAll, Join: enum.JoinAll}, wf.Nodes[1])
+	wf.Edges = []model.WorkflowEdge{{ID: "1", From: start, To: "talk"}, {ID: "2", From: "talk", To: end}}
+	if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: wf.ID, Staff: map[string][]string{start: two}}); err == nil {
+		t.Fatal("a task with two employees on a work step was accepted")
+	}
+	task := r.task(wf.ID)
+	w := r.wait("opening", func(w *model.World) bool {
+		s := subAt(w, task.ID, "討論")
+		return s != nil && s.Review != nil
+	})
+	s := subAt(w, task.ID, "討論")
+	// the chair opens it
+	if m := s.Talk.Messages[0]; m.By != r.owner.ID || m.Text != "Ada 的意見" {
+		t.Fatalf("opening = %+v", m)
+	}
+	if err := r.e.SayInTalk(s.ID, "大家怎麼看", []string{"nobody"}); err == nil {
+		t.Fatal("a mention of someone not in it was accepted")
+	}
+	if err := r.e.SayInTalk(s.ID, "大家怎麼看", []string{bea.ID, r.owner.ID}); err != nil {
+		t.Fatal(err)
+	}
+	w = r.wait("round", func(w *model.World) bool {
+		x := w.SubTasks[s.ID]
+		return len(x.Talk.Messages) == 4 && x.Talk.ReplyAt == nil
+	})
+	var by []string
+	for _, m := range w.SubTasks[s.ID].Talk.Messages[2:] {
+		by = append(by, m.By+":"+m.Text)
+	}
+	if want := []string{bea.ID + ":Bea 的意見", r.owner.ID + ":Ada 的意見"}; !slices.Equal(by, want) {
+		t.Fatalf("%v", by)
+	}
+	var adaSaw string
+	for _, req := range r.fake.seen {
+		if req.Session == s.ID+"-"+bea.ID && !strings.Contains(wordsOf(req.Messages), "[Meeting] In it: Ada (chair), Bea (you)") {
+			t.Fatalf("Bea saw\n%s", wordsOf(req.Messages))
+		}
+		if req.Session == s.ID+"-"+r.owner.ID {
+			adaSaw = wordsOf(req.Messages)
+		}
+	}
+	if !strings.Contains(adaSaw, "[Bea] Bea 的意見") {
+		t.Fatalf("Ada saw\n%s", adaSaw)
+	}
+	// with no mention the chair alone replies
+	if err := r.e.SayInTalk(s.ID, "好", nil); err != nil {
+		t.Fatal(err)
+	}
+	w = r.wait("chair", func(w *model.World) bool {
+		x := w.SubTasks[s.ID]
+		return len(x.Talk.Messages) == 6 && x.Talk.ReplyAt == nil
+	})
+	if m := w.SubTasks[s.ID].Talk.Messages[5]; m.By != r.owner.ID {
+		t.Fatalf("reply by %s", m.By)
+	}
+}
