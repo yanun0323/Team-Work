@@ -127,7 +127,7 @@ func (p presetBlueprint) in(language string, folders []string) *model.Blueprint 
 }
 
 func (p presetFlow) in(language string) *model.Workflow {
-	wf := &model.Workflow{ID: p.ID, Name: p.Name.in(language), Nodes: []model.WorkflowNode{}}
+	wf := &model.Workflow{ID: p.ID, Name: p.Name.in(language), Nodes: []model.WorkflowNode{}, Edges: []model.WorkflowEdge{}}
 	seq := 0
 	link := func(from, to []string) {
 		for _, f := range from {

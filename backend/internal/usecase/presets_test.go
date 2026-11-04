@@ -57,6 +57,10 @@ func TestPresets(t *testing.T) {
 	if small.Name != "一般任務" || len(small.Nodes) != 1 || len(small.Edges) != 0 {
 		t.Fatalf("%+v", small)
 	}
+	// a flow of one step still sends its edges as a list: the screens iterate it, and null breaks them
+	if raw, err := json.Marshal(small); err != nil || !strings.Contains(string(raw), `"edges":[]`) {
+		t.Fatalf("%s %v", raw, err)
+	}
 	bugfix := presetFlowOf(t, w, "preset-bugfix")
 	// a built-in flow starts with its first step, and only a last step fed by one step alone may send work back
 	if n := bugfix.Nodes[1]; n.SendBack == nil || !*n.SendBack || bugfix.Nodes[0].SendBack != nil {
