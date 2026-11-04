@@ -3,13 +3,19 @@
 
 import data from '../../../../backend/internal/usecase/presets.json'
 import { autoLayout, canSendBack } from '../domain/graph'
+import { sourceFor } from '../domain/sources'
 import type { Blueprint, Locale, Look, Tool, Workflow, WorkflowNode, World } from '../domain/types'
 
 type Text = { zh: string; en: string }
 type Step = { name: Text; prompt?: Text; talk?: boolean }
+/** The folder (none: the whole repo) of a repo at a branch that a built-in blueprint reads its skills from. */
+type Pack = { repo: string; ref: string; path?: string }
 
 /** Built-in blueprints and flows have ids of this form; a copy gets an id of its own. */
 export const isPreset = (id: string) => id.startsWith('preset-')
+
+/** The airport staff's blueprint: theirs alone, shown with the others but not hired from. */
+export const AIRPORT_BLUEPRINT = 'preset-airport'
 
 /** The templates for a step that sorts out the task and one that reviews it, and what every discussion is told. */
 export const fixedSteps = (language: Locale) => ({
@@ -87,14 +93,21 @@ function presetFlow(f: (typeof data.flows)[number], language: Locale): Workflow 
   return wf
 }
 
-/** Puts the built-in blueprints and flows into the world in its language, and every flow's fixed text too. */
+/**
+ * Puts the built-in blueprints and flows into the world in its language, and every flow's fixed text too. A built-in
+ * blueprint's repos are kept as sources, like ones the user added.
+ */
 export function installPresets(w: World) {
   const language = w.language
+  w.sources ??= {}
   for (const b of data.blueprints) {
+    const packs = 'skills' in b ? (b.skills as Pack[]) : undefined
     w.blueprints[b.id] = {
       id: b.id, name: b.name[language], prompt: b.prompt[language], comment: '', source: { kind: 'preset' },
       tools: b.tools as Tool[], look: b.look as Look,
-      skills: data.skillFolders.map((path) => ({ source: { kind: 'local', path }, include: null, exclude: [] })),
+      skills: packs
+        ? packs.map((p) => ({ sourceId: sourceFor(w, 'git', p.repo, p.ref).id, ...(p.path && { path: p.path }), include: null, exclude: [] }))
+        : data.skillFolders.map((path) => ({ source: { kind: 'local', path }, include: null, exclude: [] })),
     } satisfies Blueprint
   }
   for (const wf of Object.values(w.workflows)) localizeFlow(wf, language)

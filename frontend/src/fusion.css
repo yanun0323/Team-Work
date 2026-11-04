@@ -372,7 +372,6 @@ body { margin: 0; overflow: hidden; }
 /* writing a flow: notes are pressed and dragged to draw arrows; a dot mid-arrow opens into ＋ and × */
 .fx-flow .flow-label { position: absolute; z-index: 1; translate: -50% -50%; }
 .fx-d-flowedit { display: grid; gap: 14px; }
-.fx-d-flowedit .fx-d-steps { margin-top: 14px; }
 /* while written the drawing gets more room around it: empty space to let an arrow go on */
 .fx-flow-scroll.fx-flow-edit { position: relative; display: grid; align-content: center; min-height: 280px; }
 /* the arrow being drawn and the would-be note, over the whole block */
@@ -704,6 +703,8 @@ a.fx-save { text-decoration: none; }
 /* a step written in place: its name (a field, unless it is the start or the end) with delete beside it */
 .fx-step-head { display: flex; align-items: center; gap: 8px; min-height: 32px; }
 .fx-step-head .fx-step-name { flex: 1; max-width: 240px; font-weight: 700; font-size: 14px; }
+/* a step's own sheet: its name field stands in for the title, which is kept for screen readers only */
+.fx-d-head > .fx-step-head > h2 { position: absolute; margin: 0; }
 .fx-d-picks { display: flex; flex-wrap: wrap; gap: 6px; }
 .fx-d-picks button { padding: 4px 10px; border: 0; font: inherit; font-size: 13px; color: var(--ink-2); background: rgb(31 29 43 / 0.05); cursor: pointer; }
 .fx-d-picks button[aria-pressed="true"] { color: var(--ink); background: var(--clip); box-shadow: var(--lift); }
@@ -800,13 +801,19 @@ a.fx-save { text-decoration: none; }
 .fx-stats-sum div { display: grid; gap: 2px; min-width: 0; }
 .fx-stats-sum dt { color: var(--muted); font-size: 12px; }
 .fx-stats-sum dd { margin: 0; color: var(--ink); font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.fx-stats-chart { position: relative; display: grid; gap: 6px; margin: 0; }
+/* pulled up by the bars' 12px of headroom, so the totals sit as close as before */
+.fx-stats-chart { position: relative; display: grid; gap: 6px; margin: -12px 0 0; }
 .fx-stats-bars { display: flex; align-items: flex-end; gap: 2px; height: 96px; border-bottom: 1px solid var(--ink); }
 /* each bar a stack of strips, one per model, the table's first row at the bottom */
+/* a column the chart's full height: the space above the bar shows the whole bar, 12px of it kept even over the tallest */
+.fx-stats-col { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; height: 100%; }
+.fx-stats-above { flex: 1 1 0; min-height: 0; }
 .fx-stats-bar {
-  display: flex; flex-direction: column-reverse; flex: 1 1 0; min-width: 0;
-  height: calc(var(--h) * 100%); min-height: 1px; overflow: hidden; border-radius: 1px 1px 0 0;
+  display: flex; flex-direction: column-reverse; flex: none;
+  height: calc(var(--h) * (100% - 12px)); min-height: 1px; overflow: hidden; border-radius: 1px 1px 0 0;
 }
+.fx-stats-col[data-shown] { background: color-mix(in oklab, var(--ink) 8%, transparent); }
+.fx-stats-col[data-shown] > .fx-stats-bar { filter: grayscale(1); }
 .fx-stats-bar > span { flex: 1 1 0; min-height: 0; }
 .fx-stats-bar > span[data-shown] { filter: brightness(0.85) saturate(1.2); }
 /* the strip under the pointer, on a white note pinned in the chart's top corner away from it */
@@ -860,6 +867,8 @@ a.fx-save { text-decoration: none; }
   animation-name: fx-slip-up;
 }
 @keyframes fx-slip-up { from { opacity: 0; transform: translateY(6px) rotate(-1.4deg); } }
+/* a pick-list near the panel's foot opens upward, where there is more room */
+.fx-slip.fx-slip-up { top: auto; bottom: calc(100% + 6px); transform-origin: 50% 100%; animation-name: fx-slip-up; }
 .fx-mention-wrap { position: relative; display: grid; min-width: 0; }
 .fx-slip .fx-mention-row { gap: 10px; }
 .fx-mention-row:not(.fx-slip-row) > b { flex: none; max-width: 60%; overflow: hidden; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
@@ -875,6 +884,8 @@ a.fx-save { text-decoration: none; }
 .fx-slip li.fx-slip-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 10px; font-weight: 400; }
 .fx-slip-row[aria-selected="true"] { background: rgb(31 29 43 / 0.04); }
 .fx-pick-picture { display: flex; flex: none; }
+/* a row with no picture (無) keeps its name in line with the others' */
+.fx-slip-row .fx-pick-picture:empty { width: 32px; }
 .fx-slip-row .fx-pick-picture svg { padding: 3px; background: var(--clip); box-shadow: var(--lift); transform: rotate(-2deg); }
 .fx-pick-value { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .fx-pick-value svg { display: block; border-radius: 2px; }
@@ -882,10 +893,6 @@ a.fx-save { text-decoration: none; }
   .fx-slip li.fx-slip-row { grid-template-columns: auto minmax(0, 1fr) auto; }
   .fx-slip-row .fx-staff-tools { grid-column: 2 / -1; justify-self: start; }
 }
-.fx-slip li.fx-slip-row:has(.fx-pick-flow) { grid-template-columns: minmax(0, 1fr) auto; }
-/* Pick-list previews already sit inside the option's padding; do not add the shared flow indent. */
-.fx-pick-flow { display: block; min-width: 0; grid-column: 1 / -1; cursor: pointer; }
-.fx-pick-flow .fx-flow-scroll { overflow: hidden; padding: 0; }
 .fx-language { position: relative; }
 .fx-language-menu { inset-inline: auto 0; width: max-content; min-width: 150px; background: #fdfbf5; color: #1f1d2b; }
 .fx-language-menu button {
@@ -1331,6 +1338,10 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fx-room-log .fx-chat-user .fx-chat-bubble { transform: skewY(0.4deg); }
 .fx-room-tool { flex: none; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
 .fx-room-tool-images { justify-content: flex-start; margin-top: 4px; }
+/* the tasks made at the message above: the same clippings as on the task board */
+.fx-room-log .fx-chat-tasks { flex: none; display: flex; flex-wrap: wrap; gap: 10px; padding-block: 2px; }
+.fx-room-log .fx-chat-tasks-user { justify-content: flex-end; }
+.fx-chat-tasks .fx-task { width: min(220px, 100%); }
 .fx-room-output { flex: none; margin-top: -4px; padding-left: 10px; border-left: 2px solid var(--shade); color: var(--muted); }
 .fx-room-output pre { margin: 0; font-family: var(--font-mono); font-size: 11px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .fx-room-warn { flex: none; color: var(--accent); font-size: 13px; }

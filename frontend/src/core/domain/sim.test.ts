@@ -84,6 +84,18 @@ describe('createTask', () => {
     expect(u.images).toEqual([])
   })
 
+  it('made from a chat, shows under the message the chat had come to, and stays there', () => {
+    const { w, team } = setup([['start', 'research']])
+    const replica = Object.values(w.replicas)[0]
+    const chat = createChat(w, { teamId: team.id, replicaId: replica.id, text: '嗨' })
+    run(w, REPLY_TIME + 1)
+    const at = chat.messages.length - 1
+    const t = makeTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), chatId: chat.id })
+    sayInChat(w, chat.id, '還有', [])
+    expect(w.chats[chat.id].messages[at].tasks).toEqual([t.id])
+    expect(w.chats[chat.id].messages.filter((m) => m.tasks?.length)).toHaveLength(1)
+  })
+
   it('waits in 待辦 until started, and is not shown as paused', () => {
     const { w, team } = setup([['start', 'research']])
     const t = makeTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })

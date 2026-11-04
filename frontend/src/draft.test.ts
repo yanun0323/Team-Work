@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { seedWorld } from './core/data/seed'
 import { createTask, createTeam } from './core/domain/sim'
 import { flowList, teamReplicas, teamTasks } from './core/model'
-import { copyDraft, draftStaff, lastFlowId, ownerOnEveryStep, unstaffed } from './draft'
+import { copyDraft, customFlow, draftFlow, draftStaff, editCustom, lastFlowId, ownerOnEveryStep, unstaffed, useDraft } from './draft'
 
 const fixture = () => {
   const w = seedWorld()
@@ -71,5 +71,45 @@ describe('ownerOnEveryStep', () => {
     const { w, t } = fixture()
     const d = { ...copyDraft(w, t.teamId, t), ownerId: null }
     expect(ownerOnEveryStep(w, d)).toEqual({})
+  })
+})
+
+describe('a flow of the task\'s own', () => {
+  it('starts as a copy of the blueprint, whose steps keep their ids, or blank', () => {
+    const { w, t } = fixture()
+    const bp = w.workflows[t.workflowId]
+    const own = customFlow(w, bp.id)
+    expect(own.id).toBe('')
+    expect(own.name).not.toBe(bp.name)
+    expect(own.nodes.map((n) => n.id)).toEqual(bp.nodes.map((n) => n.id))
+    expect(own.nodes).not.toBe(bp.nodes)
+    expect(customFlow(w, '').nodes).toHaveLength(1)
+  })
+
+  it('makes a task that names no blueprint, and a copy of that task writes the same flow again', () => {
+    const { w, t } = fixture()
+    const own = customFlow(w, t.workflowId)
+    own.nodes = own.nodes.slice(0, 1)
+    own.edges = []
+    const id = own.nodes[0].id
+    const made = createTask(w, { teamId: t.teamId, title: 'own', description: '', workflowId: t.workflowId, workflow: own, staff: { [id]: [t.ownerId!] } })
+    expect(made.workflowId).toBe('')
+    expect(made.workflow.nodes.map((n) => n.id)).toEqual([id])
+    const d = copyDraft(w, t.teamId, made)
+    expect(d.custom?.nodes.map((n) => n.id)).toEqual([id])
+    expect(draftFlow(w, d)).toBe(d.custom)
+    expect(unstaffed(w, d)).toEqual([])
+  })
+
+  it('keeps one employee on a step turned back into work', () => {
+    const { w, t } = fixture()
+    const own = customFlow(w, t.workflowId)
+    const n = own.nodes[0]
+    n.kind = 'talk'
+    const two = teamReplicas(w, t.teamId).slice(0, 2).map((r) => r.id)
+    useDraft.setState({ draft: { ...copyDraft(w, t.teamId, t), workflowId: t.workflowId, custom: own, staff: { [n.id]: two } } })
+    editCustom((f) => ({ ...f, nodes: f.nodes.map((x) => (x.id === n.id ? { ...x, kind: 'work' } : x)) }))
+    expect(useDraft.getState().draft?.staff[n.id]).toEqual(two.slice(0, 1))
+    useDraft.setState({ draft: null })
   })
 })

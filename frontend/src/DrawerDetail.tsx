@@ -8,7 +8,7 @@ import { colon, listOf, tr, trRecorded } from './core/i18n'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { canSendBack, inEdges as stepsIn, nodeOf } from './core/domain/graph'
 import { blueprintUsers, gitSources, notStarted, statusOf, subsOf, type OwnSettings } from './core/domain/sim'
-import { TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type World } from './core/domain/types'
+import { TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type WorkflowNode, type World } from './core/domain/types'
 import { keptState, sourceName, sourceState, sourceText, toolName } from './source'
 import { composing } from './ime'
 import { blueprintList, flowList, activity, fmtClock, fmtTokens, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
@@ -16,7 +16,7 @@ import { useLiveText } from './core/live'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { BlueprintIcon, pinLook } from './BlueprintIcon'
-import { BlueprintSelect, crewOrder, CrewRow, CrewSelect, mineAndBuiltIn } from './Pickers'
+import { BlueprintSelect, crewOrder, CrewPicks, CrewRow, CrewSelect, mineAndBuiltIn } from './Pickers'
 import { seedOf } from './People'
 import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
@@ -24,8 +24,8 @@ import { ClaudeAccount } from './ClaudeAccount'
 import { Markdown, MarkdownLine } from './Markdown'
 import { useAutoGrow, Select, Switcher, Toggle, WaitBadge } from './Controls'
 import { changeAsk, ChangeLines } from './ChangeCard'
-import { FlowNotes, FlowPreview, openCard } from './FlowNotes'
-import { copyDraft, draftFlow, draftStaff, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
+import { FlowNotes, openCard } from './FlowNotes'
+import { copyDraft, customFlow, draftFlow, draftStaff, editCustom, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
 import { blueprintLabel, chatPreview, DEFAULT_EFFORT, effortsOf, isCustom, mindOf, modelGroups, modelsOf, randomLook } from './crew'
 import { docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
@@ -48,7 +48,7 @@ import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, ed
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { NotesSheet } from './Notes'
 import { learn } from './tutorial'
-import { ChatSheet, type ChatTaskSeed } from './ChatSheet'
+import { ChatSheet, SentTo, type ChatTaskSeed } from './ChatSheet'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, link, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
 
 export type Item =
@@ -75,6 +75,8 @@ export type Item =
   | { kind: 'image'; key: string; image: Attachment; task?: string; chat?: string }
   | { kind: 'flowEdit'; id: string }
   | { kind: 'newFlow' }
+  /** A step of the blueprint being written on the sheet under it. */
+  | { kind: 'flowStep'; node: string }
   /** With copyOf, the sheet starts filled in from that blueprint. */
   | { kind: 'newBlueprint'; copyOf?: string }
   | { kind: 'provider'; id: string }
@@ -88,7 +90,7 @@ export type Item =
   | { kind: 'newSource' }
 
 export const itemKey = (x: Item) =>
-  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' || x.kind === 'newSource' ? x.kind : x.kind === 'staff' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' ? `file:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
+  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' || x.kind === 'newSource' ? x.kind : x.kind === 'staff' || x.kind === 'flowStep' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' ? `file:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 const HANDOFF = { pickOne: '交給其中一個下一步', all: '交給所有下一步' } as const
@@ -168,7 +170,8 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               onEdit={() => onPush({ kind: 'flowEdit', id: item.id })} onGoneFlow={onDone} />
           )}
           {(item.kind === 'flowEdit' || item.kind === 'newFlow') && (
-            <FlowEdit id={item.kind === 'flowEdit' ? item.id : null} title={title} tid={id} onDone={onDone} />
+            <FlowEdit id={item.kind === 'flowEdit' ? item.id : null} title={title} tid={id} onDone={onDone}
+              open={above?.kind === 'flowStep' ? above.node : null} onOpen={(node) => onPush({ kind: 'flowStep', node })} />
           )}
           {item.kind === 'crew' && (
             <CrewDetail id={item.id} title={title} tid={id} editing={above?.kind === 'crewEdit'} firing={above?.kind === 'fire'}
@@ -207,11 +210,13 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               onFile={(path) => onPush({ kind: 'file', path })} onSkill={(chat, name) => onPush({ kind: 'skill', chat, name })}
               image={above?.kind === 'image' ? above.key : null} onImage={(key, image, chat) => onPush({ kind: 'image', key, image, chat })}
               onTask={(seed) => onPush({ kind: 'newTask', seed })} onHandOff={(x) => onPush({ kind: 'chat', id: x })}
+              task={above?.kind === 'task' ? above.id : null} onOpenTask={(x) => onPush({ kind: 'task', id: x })}
               onProvider={(x) => onPush({ kind: 'providerEdit', id: x })} onGoneChat={onDone} />
           )}
           {item.kind === 'disband' && <Disband teamId={teamId} title={title} tid={id} onDone={onDone} />}
           {item.kind === 'notes' && <NotesSheet teamId={teamId} title={title} tid={id} />}
-          {item.kind === 'staff' && <StaffPick node={item.node} teamId={teamId} title={title} tid={id} onDone={onDone} />}
+          {item.kind === 'flowStep' && <FlowStepSheet node={item.node} title={title} tid={id} onDone={onDone} />}
+          {item.kind === 'staff' && <StepSheet node={item.node} teamId={teamId} title={title} tid={id} onDone={onDone} />}
         </div>
       </div>
       {covered && !leaving && <button type="button" className="fx-detail-cover" aria-label={tr('收起上面那張，回到這張')} onClick={onBack} />}
@@ -512,9 +517,12 @@ function Chat({ sub }: { sub: SubTask }) {
   const outs = outEdges(wf, sub.nodeId)
   // the step picks one of several next steps: going on names which
   const routes = node?.handoff === 'pickOne' && outs.length > 1 ? outs.map((e) => e.to) : null
+  const mentionsIn = (words: string) => (meeting ? withAll(mentionedPeople(words, mentionable), people.slice(1).map((x) => x.id), people[0].id) : [])
+  // who the message goes to as it is typed: those it mentions, or else the chair
+  const sendTo = meeting && text.trim() ? (() => { const m = mentionsIn(text); return m.length ? m : [people[0].id] })().flatMap((id) => (w.replicas[id] ? [w.replicas[id]] : [])) : []
   const send = () => {
     if (!text.trim() || writing) return
-    const mentions = meeting ? withAll(mentionedPeople(text, mentionable), people.slice(1).map((x) => x.id), people[0].id) : []
+    const mentions = mentionsIn(text)
     act((x) => sayInTalk(x, sub.id, text, mentions))
     setText('')
   }
@@ -550,6 +558,7 @@ function Chat({ sub }: { sub: SubTask }) {
       {talk.ended && <p className="fx-d-muted">{ENDED[talk.ended]}</p>}
       {open && !ending && (
         <form className="fx-chat-say" onSubmit={(e) => { e.preventDefault(); send() }}>
+          {sendTo.length > 0 && <SentTo people={sendTo} live />}
           {meeting ? (
             <div className="fx-mention-wrap">
               <MentionBox box={box} grow value={text} teamId={task.teamId} people={mentionable} personRow={mentionRow} label={tr('訊息')}
@@ -1607,14 +1616,13 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
   if (id && !r) return <Gone {...h} />
   const picked = w.blueprints[bp]
   const from = base && (base.owner ? base.from : base.id)
-  // filling in their own settings from a blueprint: what was written here gives way to it
+  // filling in their own settings from a blueprint, or blank ones for none: what was written here gives way to it
   const take = (bpId: string) => {
     const b = w.blueprints[bpId]
-    if (!b) return
     setBase(b)
-    setPrompt(b.prompt)
-    setPacks(ownPacks(b))
-    setTools(b.tools)
+    setPrompt(b?.prompt ?? '')
+    setPacks(b ? ownPacks(b) : [])
+    setTools(b?.tools ?? [])
   }
   const save = (e: React.FormEvent) => {
     e.preventDefault()
@@ -1655,10 +1663,10 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
           groupOf={(m) => modelGroups(w).findIndex((g) => g.models.includes(m))} />
         <Select label={tr('思考等級')} value={level} options={levels} onChange={setEffort} />
         <Switcher label={tr('設定方式')} value={mode} options={['blueprint', 'custom'] as const}
-          labelOf={(x) => (x === 'blueprint' ? tr('員工藍圖#kind') : tr('自訂'))} onChange={setMode} />
-        {mode === 'blueprint' ? <BlueprintSelect label={tr('藍圖')} value={bp} onChange={setBp} /> : (
+          labelOf={(x) => (x === 'blueprint' ? tr('使用員工藍圖') : tr('自訂'))} onChange={setMode} />
+        {mode === 'blueprint' ? <BlueprintSelect label={tr('員工藍圖#kind')} value={bp} onChange={setBp} /> : (
           <>
-            <BlueprintSelect label={tr('從員工藍圖匯入')} value={listed(from) ?? ''} placeholder={tr('沒有')} onChange={take} />
+            <BlueprintSelect label={tr('從員工藍圖匯入')} value={listed(from) ?? ''} none onChange={take} />
             <label className="fx-field fx-field-top">
               <span>Prompt</span>
               <textarea className="fx-control" rows={8} value={prompt} onChange={(e) => setPrompt(e.target.value)}
@@ -1799,7 +1807,11 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
   const [reading, setReading] = useState(false)
   const [attachmentError, setAttachmentError] = useState('')
   const attachmentSession = useRef(0)
+  // the flow of the task's own last saved as a blueprint, so saving again waits for a change
+  const [saved, setSaved] = useState<Workflow | null>(null)
   const flows = flowList(w)
+  const flowIds = flows.map((x) => x.id)
+  const flowGroups = mineAndBuiltIn(flowIds)
   // what a task needs may go while this is open
   const needs = usePrereqs(teamId, 'tasks').filter((x) => x.blocks)
   // a fresh draft on the flow last chosen, or a copy of a task; dropped when the sheet goes
@@ -1814,16 +1826,47 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
     return () => { attachmentSession.current++; useDraft.setState({ draft: null }) }
   }, [teamId, copyOf, seed])
   if (!draft) return null
-  const wf = w.workflows[draft.workflowId]
+  const { custom } = draft
+  const wf = draftFlow(w, draft)
   const missing = unstaffed(w, draft)
-  const ready = !reading && draft.title.trim() && wf && missing.length === 0 && !blocked(needs)
+  const unnamed = !!custom?.nodes.some((n) => !n.name.trim())
+  const flowReady = custom ? !!custom.name.trim() && !unnamed : !!wf
+  const ready = !reading && draft.title.trim() && flowReady && missing.length === 0 && !blocked(needs)
   const start = (e: React.FormEvent) => {
     e.preventDefault()
     if (!ready || !draft.ownerId) return
     const { title, description, workflowId, staff, ownerId, images, files } = draft
-    act((x) => void createTask(x, { teamId, title: title.trim(), description: description.trim(), workflowId, staff, ownerId, images, files }))
+    const workflow = custom && trimmedFlow(custom)
+    act((x) => void createTask(x, { teamId, title: title.trim(), description: description.trim(), workflowId, workflow, staff, ownerId, images, files, chatId: seed?.chatId }))
     if (seed) learn('chatTask')
     onDone()
+  }
+  // a blueprint to run on, its staff from the company's last task on it
+  const onFlow = (id: string, own: boolean) => {
+    editDraft((d) => {
+      const s = useStore.getState().world
+      const last = lastStaff(s, teamId, id)
+      return { workflowId: id, custom: own ? customFlow(s, id) : undefined, ...last, ownerId: d.ownerId ?? last.ownerId }
+    })
+  }
+  // to a flow of its own, blank until a blueprint is imported; back to a blueprint, the one imported, or the last
+  // one chosen
+  const blank = () => editDraft(() => ({ workflowId: '', custom: customFlow(useStore.getState().world, ''), staff: {}, from: null }))
+  const setMode = (mode: 'blueprint' | 'custom') => {
+    const s = useStore.getState().world
+    if (mode === 'custom') blank()
+    else onFlow(s.workflows[draft.workflowId] ? draft.workflowId : lastFlowId(s, teamId), false)
+  }
+  // a step just made goes into the flow; one made with ＋ also opens on its sheet, ready to be written
+  const made = ([next, id]: [Workflow, string], open = false) => {
+    if (!id) return
+    editCustom(() => next)
+    if (open) onOpen(id)
+  }
+  const keep = () => {
+    if (!custom) return
+    act((x) => saveWorkflow(x, null, trimmedFlow(custom)))
+    setSaved(custom)
   }
   // a screenshot pasted into either text box comes in as a picture
   const paste = (e: React.ClipboardEvent) => {
@@ -1885,78 +1928,107 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
           </div>
         </div>
         {attachmentError && <p role="alert" className="fx-room-warn">{attachmentError}</p>}
-        <Select label={tr('任務藍圖')} value={draft.workflowId} options={flows.map((x) => x.id)} labelOf={(x) => w.workflows[x]?.name ?? x}
-          {...mineAndBuiltIn(flows.map((x) => x.id))}
-          rowOf={(id, on) => (
-            <>
-              <b>{w.workflows[id].name}</b>
-              <span className="fx-check" aria-hidden="true">{on ? '✓' : ''}</span>
-              <FlowPreview wf={w.workflows[id]} />
-            </>
-          )}
-          onChange={(id) => editDraft((d) => {
-            const last = lastStaff(useStore.getState().world, teamId, id)
-            return { workflowId: id, ...last, ownerId: d.ownerId ?? last.ownerId }
-          })} />
         {wf && <OwnerField teamId={teamId} draft={draft} />}
+        <Switcher label={tr('流程')} value={custom ? 'custom' : 'blueprint'} options={['blueprint', 'custom'] as const}
+          labelOf={(x) => (x === 'blueprint' ? tr('使用任務藍圖') : tr('自訂'))} onChange={setMode} />
+        <Select label={custom ? tr('從任務藍圖匯入') : tr('任務藍圖')} value={draft.workflowId}
+          // importing may also start from none: a blank flow
+          options={custom ? ['', ...flowIds] : flowIds} groups={flowGroups.groups}
+          groupOf={(x) => (x ? flowGroups.groupOf(x) : -1)}
+          labelOf={(x) => (x ? w.workflows[x]?.name ?? x : tr('無'))}
+          shownAs={(x) => w.workflows[x]?.name ?? <span className="fx-d-muted">{tr(custom ? '無' : '沒有')}</span>}
+          onChange={(id) => (id ? onFlow(id, !!custom) : blank())} />
+        {custom && (
+          <label className="fx-field">
+            <span>{tr('名稱')}</span>
+            <input className="fx-control" value={custom.name} required onChange={(e) => editCustom((f) => ({ ...f, name: e.target.value }))} />
+          </label>
+        )}
       </div>
       {wf && (
-        <Section name={tr('人員')}>
+        // a task blueprint is set apart in a dashed box, as a blueprint is on the employee form
+        <div className={custom ? undefined : 'fx-bp-facts'}>
+        <Section name={custom ? tr('流程') : tr('人員')}>
           {draft.from !== null && <p className="fx-d-muted">{tr('沿用 #{from} 的配置', { from: draft.from })}</p>}
-          <div className="fx-flow">
-            <FlowNotes wf={wf} staff={(n) => draftStaff(w, draft, n)} open={open} onOpen={onOpen} />
-          </div>
+          {custom ? (
+            <div className="fx-d-flowedit">
+              <div className="fx-flow">
+                <FlowNotes wf={custom} staff={(n) => draftStaff(w, draft, n)} open={open} onOpen={onOpen} edit={{
+                  canLink: (a, b) => canLink(custom, a, b),
+                  link: (a, b) => editCustom((f) => link(f, a, b)),
+                  unlink: (e) => editCustom((f) => unlink(f, e)),
+                  branch: (from) => made(branchStep(custom, from)),
+                  insert: (e) => made(insertStep(custom, e)),
+                  remove: (n) => editCustom((f) => removeStep(f, n)),
+                }} />
+              </div>
+              <button type="button" className="fx-task fx-task-new fx-flow-new fx-hit" onClick={() => made(addStep(custom), true)}>{tr('＋ 新增步驟')}</button>
+              <p className="fx-d-actions">
+                <button type="button" className="fx-save fx-plain" disabled={!flowReady || saved === custom} onClick={keep}>
+                  {saved === custom ? tr('已存成任務藍圖') : tr('存成任務藍圖')}
+                </button>
+              </p>
+            </div>
+          ) : (
+            <div className="fx-flow">
+              <FlowNotes wf={wf} staff={(n) => draftStaff(w, draft, n)} open={open} onOpen={onOpen} />
+            </div>
+          )}
         </Section>
+        </div>
       )}
       <p className="fx-d-actions">
         <button type="submit" className="fx-save" disabled={!ready}>{tr('建立任務')}</button>
         <Prereqs list={needs} />
-        {wf && <Missing draft={draft} missing={missing.length} />}
+        {unnamed ? <span className="fx-d-muted">{tr('有步驟沒有名稱')}</span> : wf && <Missing draft={draft} missing={missing.length} />}
       </p>
     </form>
   )
 }
 
 /**
- * Who works one step of the new task: one employee on a work step; on a discussion one, or several who hold it as a
- * meeting, the first picked chairing. One employee can work several steps.
+ * One step of the task being written, on the sheet over it: who works it (one employee on a work step; on a
+ * discussion one, or several who hold it as a meeting, the first picked chairing), and on a flow of the task's own,
+ * the step itself. Every change counts at once; 完成 only puts the sheet away.
  */
-function StaffPick({ node, teamId, onDone, ...h }: Head & { node: string; teamId: string; onDone: () => void }) {
+function StepSheet({ node, teamId, onDone, ...h }: Head & { node: string; teamId: string; onDone: () => void }) {
   const w = useStore((s) => s.world)
   const draft = useDraft((s) => s.draft)
   const wf = draft && draftFlow(w, draft)
-  const [picked, setPicked] = useState<string[]>(() => (draft ? draftStaff(w, draft, node) : []))
   const n = wf && nodeOf(wf, node)
-  if (!wf || !n) return <Gone {...h} />
+  if (!draft || !wf || !n) return <Gone {...h} />
+  const own = !draft.taskId && draft.custom ? draft.custom : null
   const crew = teamReplicas(w, teamId)
-  const talk = n.kind === 'talk'
-  const toggle = (id: string) => setPicked((p) => (!talk ? [id] : p.includes(id) ? p.filter((x) => x !== id) : p.length < MAX_CHAT_PEOPLE ? [...p, id] : p))
-  const save = (e: React.FormEvent) => {
-    e.preventDefault()
-    // in the order picked, as the first chairs a discussion
-    editDraft((d) => ({ staff: { ...d.staff, [node]: picked.filter((id) => w.replicas[id]) } }))
-    onDone()
-  }
+  const picked = draftStaff(w, draft, node).filter((id) => w.replicas[id])
+  // in the order picked, as the first chairs a discussion
+  const pick = (ids: string[]) => editDraft((d) => ({ staff: { ...d.staff, [node]: ids } }))
   return (
-    <form className="fx-d-form" onSubmit={save}>
+    <div className="fx-d-form">
       <header className="fx-d-head">
-        <Heading {...h}>{stepName(wf, node)}</Heading>
-        <p className="fx-d-meta">
-          <span>{wf.name}</span>
-        </p>
+        {own ? (
+          <div className="fx-step-head">
+            <Heading {...h}><span className="fx-sr">{n.name || tr('這一步')}</span></Heading>
+            <StepName flow={own} id={node} edit={editCustom} />
+            {own.nodes.length > 1 && <DeleteTool what={tr('步驟')} onConfirm={() => { onDone(); editCustom((f) => removeStep(f, node)) }} />}
+          </div>
+        ) : (
+          <>
+            <Heading {...h}>{stepName(wf, node)}</Heading>
+            <p className="fx-d-meta"><span>{wf.name}</span></p>
+          </>
+        )}
       </header>
-      {n.prompt && <p className="fx-d-text fx-d-quote">{n.prompt}</p>}
-      <ul className="fx-list">
-        {crewOrder(w, crew).map((id) => (
-          <li key={id}>
-            <button type="button" className="fx-row fx-hit" aria-pressed={picked.includes(id)} onClick={() => toggle(id)}>
-              <CrewRow r={w.replicas[id]} on={picked.includes(id)} chair={talk && picked.length > 1 && picked[0] === id} />
-            </button>
-          </li>
-        ))}
-      </ul>
-      <button type="submit" className="fx-save" disabled={picked.length === 0}>{tr('確定')}</button>
-    </form>
+      {!own && n.prompt && <p className="fx-d-text fx-d-quote">{n.prompt}</p>}
+      <div className="fx-fields">
+        {n.kind === 'talk'
+          ? <CrewPicks label={tr('人員')} value={picked} crew={crew} max={MAX_CHAT_PEOPLE} placeholder={tr('選擇員工')} onChange={pick} />
+          : <CrewSelect label={tr('人員')} value={picked[0] ?? ''} crew={crew} placeholder={tr('選擇員工')} onChange={(id) => pick([id])} />}
+      </div>
+      {own && <StepFields flow={own} id={node} edit={editCustom} />}
+      <p className="fx-d-actions">
+        <button type="button" className="fx-save" onClick={onDone}>{tr('完成#button')}</button>
+      </p>
+    </div>
   )
 }
 
@@ -2246,11 +2318,13 @@ export function DeleteTool({ what, onConfirm, disabled, why }: { what: string; o
 }
 
 /**
- * Write a flow: a new one (`id` null) or one the company has. Every step is written right here, in a list
- * under the drawing; clicking a note goes to its place in the list. Nothing is kept until it is saved.
+ * Write a flow: a new one (`id` null) or one the company has. Each step is written on its own sheet over this one,
+ * opened from its note (`open` is the one open). Nothing is kept until it is saved.
  */
-function FlowEdit({ id, onDone, ...h }: Head & {
+function FlowEdit({ id, open, onOpen, onDone, ...h }: Head & {
   id: string | null
+  open: string | null
+  onOpen: (node: string) => void
   onDone: () => void
 }) {
   const w = useStore((s) => s.world)
@@ -2264,40 +2338,18 @@ function FlowEdit({ id, onDone, ...h }: Head & {
     useFlowDraft.setState({ draft: { flow } })
     return () => useFlowDraft.setState({ draft: null })
   }, [id])
-  // the list keeps the order it opened with, so a step does not jump away while its arrows change;
-  // a new step goes just after the last step it comes from, or at the bottom
-  const order = useRef<string[]>([])
-  // the step to bring into view and type into, once it is in the list
-  const [aim, setAim] = useState<string | null>(null)
-  useEffect(() => {
-    if (!aim) return
-    const field = document.querySelector<HTMLElement>(`#fx-step-${CSS.escape(aim)} :is(input, textarea)`)
-    field?.focus({ preventScroll: true })
-    if (field instanceof HTMLInputElement) field.select()
-    field?.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
-    setAim(null)
-  }, [aim])
   if (id && !w.workflows[id]) return <Gone {...h} />
   if (!draft) return null
   const { flow } = draft
   const unnamed = flow.nodes.some((n) => !n.name.trim())
-  if (!order.current.length) order.current = inOrder(flow).map((n) => n.id)
-  else {
-    // drop removed steps; put each new one just after the last step it comes from (or at the bottom)
-    const list = order.current.filter((x) => flow.nodes.some((n) => n.id === x))
-    for (const n of flow.nodes) {
-      if (list.includes(n.id)) continue
-      const from = Math.max(-1, ...inEdges(flow, n.id).map((e) => list.indexOf(e.from)))
-      list.splice(from >= 0 ? from + 1 : list.length, 0, n.id)
-    }
-    order.current = list
-  }
   const ready = flow.name.trim() && flow.nodes.length > 0 && !unnamed
-  // a step just made goes into the draft and stays put in the list; its note is clicked to go to it
-  const made = ([next, step]: [Workflow, string]) => {
-    if (step) editFlowDraft(() => ({ flow: next }))
+  // a step just made goes into the draft; one made with ＋ also opens on its sheet, ready to be written
+  const made = ([next, step]: [Workflow, string], show = false) => {
+    if (!step) return
+    editFlowDraft(() => ({ flow: next }))
+    if (show) onOpen(step)
   }
-  const add = () => made(addStep(flow))
+  const add = () => made(addStep(flow), true)
   const save = (e: React.FormEvent) => {
     e.preventDefault()
     if (!ready) return
@@ -2320,7 +2372,7 @@ function FlowEdit({ id, onDone, ...h }: Head & {
       </div>
       <div className="fx-d-flowedit fx-blueprint">
         <div className="fx-flow">
-          <FlowNotes wf={flow} onOpen={setAim} edit={{
+          <FlowNotes wf={flow} open={open} onOpen={onOpen} edit={{
             canLink: (a, b) => canLink(flow, a, b),
             link: (a, b) => editFlowDraft((d) => ({ flow: link(d.flow, a, b) })),
             unlink: (e) => editFlowDraft((d) => ({ flow: unlink(d.flow, e) })),
@@ -2330,9 +2382,6 @@ function FlowEdit({ id, onDone, ...h }: Head & {
           }} />
         </div>
         <button type="button" className="fx-task fx-task-new fx-flow-new fx-hit" onClick={add}>{tr('＋ 新增步驟')}</button>
-        <ol className="fx-d-steps">
-          {order.current.map((x) => <StepForm key={x} flow={flow} id={x} />)}
-        </ol>
       </div>
       <p className="fx-d-actions">
         <button type="submit" className="fx-save" disabled={!ready}>{id ? tr('儲存') : tr('建立')}</button>
@@ -2342,29 +2391,74 @@ function FlowEdit({ id, onDone, ...h }: Head & {
   )
 }
 
-/** One step of the flow being written, in the list under its drawing: every change goes into the draft at once. */
-function StepForm({ flow, id }: { flow: Workflow; id: string }) {
+/** A flow as it is kept: names and prompts without the spaces typed around them. */
+const trimmedFlow = (flow: Workflow): Workflow => ({
+  ...structuredClone(flow),
+  name: flow.name.trim(),
+  nodes: flow.nodes.map((n) => ({ ...structuredClone(n), name: n.name.trim(), prompt: n.prompt.trim() })),
+})
+
+/** A change to the flow being written. */
+type FlowChange = (f: (wf: Workflow) => Workflow) => void
+
+/**
+ * One step of the blueprint being written, on the sheet over it: its name, how it works and where it hands on. Every
+ * change goes into the blueprint's draft at once, still kept only when the blueprint is saved; 完成 puts the sheet away.
+ */
+function FlowStepSheet({ node, onDone, ...h }: Head & { node: string; onDone: () => void }) {
+  const draft = useFlowDraft((s) => s.draft)
+  const flow = draft?.flow
+  const n = flow && nodeOf(flow, node)
+  if (!flow || !n) return <Gone {...h} />
+  const edit: FlowChange = (f) => editFlowDraft((d) => ({ flow: f(d.flow) }))
+  return (
+    <div className="fx-d-form fx-blueprint">
+      <header className="fx-d-head">
+        <div className="fx-step-head">
+          <Heading {...h}><span className="fx-sr">{n.name || tr('這一步')}</span></Heading>
+          <StepName flow={flow} id={node} edit={edit} />
+          {flow.nodes.length > 1 && <DeleteTool what={tr('步驟')} onConfirm={() => { onDone(); edit((f) => removeStep(f, node)) }} />}
+        </div>
+      </header>
+      <StepFields flow={flow} id={node} edit={edit} />
+      <p className="fx-d-actions">
+        <button type="button" className="fx-save" onClick={onDone}>{tr('完成#button')}</button>
+      </p>
+    </div>
+  )
+}
+
+/** A change to one step's own fields. */
+const putIn = (edit: FlowChange, id: string) => (x: Partial<WorkflowNode>) => edit((wf) => {
+  const cur = nodeOf(wf, id)
+  return cur ? putStep(wf, { ...cur, ...x }) : wf
+})
+
+/** A step's name, written in place. */
+function StepName({ flow, id, edit }: { flow: Workflow; id: string; edit: FlowChange }) {
+  const n = nodeOf(flow, id)
+  if (!n) return null
+  return (
+    <input className="fx-control fx-step-name" aria-label={tr('步驟名稱')} placeholder={tr('步驟名稱')} value={n.name}
+      onChange={(e) => putIn(edit, id)({ name: e.target.value })} />
+  )
+}
+
+/** How a step of the flow being written works: what kind, its instructions, when it starts, and where it hands on. */
+function StepFields({ flow, id, edit }: { flow: Workflow; id: string; edit: FlowChange }) {
   const n = nodeOf(flow, id)
   if (!n) return null
   const next = outEdges(flow, id).map((e) => e.to)
   const choices = nextChoices(flow, id)
   const before = inEdges(flow, id).length
   const mayBack = canSendBack(flow, id)
-  const put = (x: Partial<typeof n>) => editFlowDraft((d) => {
-    const cur = nodeOf(d.flow, id)
-    return cur ? { flow: putStep(d.flow, { ...cur, ...x }) } : {}
-  })
-  const toggle = (to: string) => editFlowDraft((d) => {
-    const cur = nodeOf(d.flow, id)
-    const now = outEdges(d.flow, id).map((e) => e.to)
-    return cur ? { flow: putStep(d.flow, cur, now.includes(to) ? now.filter((x) => x !== to) : [...now, to]) } : {}
+  const put = putIn(edit, id)
+  const toggle = (to: string) => edit((wf) => {
+    const cur = nodeOf(wf, id)
+    const now = outEdges(wf, id).map((e) => e.to)
+    return cur ? putStep(wf, cur, now.includes(to) ? now.filter((x) => x !== to) : [...now, to]) : wf
   })
   return (
-    <li id={`fx-step-${id}`} className={`fx-step-form fx-step-note${noteCls(flow, id)}`}>
-      <div className="fx-step-head">
-        <input className="fx-control fx-step-name" aria-label={tr('步驟名稱')} placeholder={tr('步驟名稱')} value={n.name} onChange={(e) => put({ name: e.target.value })} />
-        {flow.nodes.length > 1 && <DeleteTool what={tr('步驟')} onConfirm={() => editFlowDraft((d) => ({ flow: removeStep(d.flow, id) }))} />}
-      </div>
       <div className="fx-fields">
         {(
           <>
@@ -2413,7 +2507,6 @@ function StepForm({ flow, id }: { flow: Workflow; id: string }) {
           </div>
         )}
       </div>
-    </li>
   )
 }
 

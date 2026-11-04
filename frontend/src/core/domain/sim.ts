@@ -71,6 +71,8 @@ export interface NewTask {
   title: string
   description: string
   workflowId: string
+  /** A flow of the task's own, written for it alone; when given, `workflowId` is ignored and the task names no blueprint. */
+  workflow?: Workflow
   overrides?: Record<string, Partial<Script>>
   mergeConflict?: boolean
   /** Who works each step of this task, by node id. Steps left out keep the flow's own list. */
@@ -79,6 +81,8 @@ export interface NewTask {
   ownerId?: string
   images?: Attachment[]
   files?: Attachment[]
+  /** The company chat the user made it from; it shows under the chat's last message. */
+  chatId?: string
 }
 
 /** A flow is shared, so a task's copy of it keeps only people from the task's own company. */
@@ -98,8 +102,8 @@ export function createTask(w: World, input: NewTask): Task {
     description: input.description,
     images: input.images ?? [],
     files: input.files ?? [],
-    workflowId: input.workflowId,
-    workflow: ownStaff(w, input.teamId, clone(w.workflows[input.workflowId])),
+    workflowId: input.workflow ? '' : input.workflowId,
+    workflow: ownStaff(w, input.teamId, input.workflow ? { ...clone(input.workflow), id: '' } : clone(w.workflows[input.workflowId])),
     createdAt: w.now,
     stage: 'running',
     paused: true,
@@ -116,6 +120,9 @@ export function createTask(w: World, input: NewTask): Task {
   settleStaff(task.workflow)
   localizeFlow(task.workflow, w.language)
   w.tasks[task.id] = task
+  const chat = input.chatId ? w.chats[input.chatId] : undefined
+  const at = chat?.teamId === input.teamId ? chat.messages[chat.messages.length - 1] : undefined
+  if (at) at.tasks = [...(at.tasks ?? []), task.id]
   start(w, task)
   return task
 }

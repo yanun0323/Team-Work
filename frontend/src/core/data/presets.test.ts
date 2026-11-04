@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { canSendBack } from '../domain/graph'
 import { effortsOf } from '../../crew'
-import { blueprintList, flowList } from '../model'
+import { blueprintList, flowList, hireList } from '../model'
 import type { LocalSkills, World } from '../domain/types'
 import { seedWorld } from './seed'
 import { isPreset } from './presets'
-import { duplicateWorkflow, setLanguage } from '../domain/sim'
+import { deleteSource, duplicateWorkflow, setLanguage } from '../domain/sim'
 
 describe('presets', () => {
   const blueprints = (w: World) => Object.values(w.blueprints).filter((b) => isPreset(b.id))
 
   it('are in the mock world, in the language picked', () => {
     const w = seedWorld()
-    expect(blueprints(w).map((b) => b.name)).toEqual(['專案經理', '產品負責人', '設計師', '後端工程師', '前端工程師', '全端工程師', '測試工程師', '研究員', '程式審查員', '技術架構師', '資安工程師', 'DevOps 工程師', '技術文件寫手', '資料分析師', '行銷文案', '特助', '機場服務人員'])
+    expect(blueprints(w).map((b) => b.name)).toEqual(['通才', '前端工程師', '後端工程師', '程式審查員', '測試工程師', '設計師', '產品負責人', '專案經理', '技術架構師', '研究員', '技術文件寫手', '資安工程師', 'DevOps 工程師', '資料分析師', '行銷文案', 'Matt Pocock', 'Poteto', '機場服務人員'])
     setLanguage(w, 'en')
     expect(w.blueprints['preset-pm'].name).toBe('Project Manager')
     expect(w.blueprints['preset-pm'].prompt).toContain("company's project manager")
@@ -42,9 +42,20 @@ describe('presets', () => {
   })
 
   it('find skills in the agent folders', () => {
-    for (const b of blueprints(seedWorld())) {
+    for (const b of blueprints(seedWorld()).filter((b) => b.id !== 'preset-matt-pocock' && b.id !== 'preset-poteto')) {
       expect(b.skills.map((p) => (p.source as LocalSkills).path)).toEqual(['~/.agents/', '~/.team-work/', '~/.codex/', '~/.claude/'])
     }
+  })
+
+  it('keep the repos they read from GitHub as sources', () => {
+    const w = seedWorld()
+    const read = (id: string) => w.blueprints[id].skills.map((p) => ({ repo: w.sources[p.sourceId!]?.repo, ref: w.sources[p.sourceId!]?.ref, path: p.path }))
+    expect(read('preset-matt-pocock')).toEqual([{ repo: 'https://github.com/mattpocock/skills', ref: 'main', path: undefined }])
+    expect(read('preset-poteto')).toEqual([{ repo: 'https://github.com/cursor/plugins', ref: 'main', path: 'pstack' }])
+    const kept = Object.keys(w.sources).length
+    setLanguage(w, 'en')
+    expect(Object.keys(w.sources)).toHaveLength(kept)
+    expect(deleteSource(w, w.blueprints['preset-poteto'].skills[0].sourceId!)).toBe(false)
   })
 
   it('start where they do the work, join every step up, and run side by side where drawn', () => {
@@ -86,9 +97,11 @@ describe('own first', () => {
   it('lists the user\'s own before the built-in ones', () => {
     const w = seedWorld()
     const ids = blueprintList(w).map((b) => b.id)
-    expect(ids.findIndex(isPreset)).toBe(ids.length - 17)
-    expect(ids.slice(-17)[0]).toBe('preset-pm')
-    expect(flowList(w).slice(-6).map((f) => f.id)).toEqual(['preset-feature', 'preset-small', 'preset-bugfix', 'preset-planning', 'preset-review', 'preset-refactor'])
+    expect(ids.findIndex(isPreset)).toBe(ids.length - 18)
+    expect(ids.slice(-18)[0]).toBe('preset-assistant')
+    expect(ids.at(-1)).toBe('preset-airport')
+    expect(hireList(w).map((b) => b.id)).toEqual(ids.slice(0, -1))
+    expect(flowList(w).slice(-4).map((f) => f.id)).toEqual(['preset-small', 'preset-bugfix', 'preset-feature', 'preset-review'])
   })
 })
 

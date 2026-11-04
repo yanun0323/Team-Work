@@ -207,7 +207,8 @@ function DailyChart({ days, providers, colors, depth }: {
   const names = new Map<string, { provider: string; model?: string }>(depth === 'model'
     ? providers.flatMap((p) => p.models.map((m) => [partKey(p.id, m.model), { provider: p.name, model: m.model }] as const))
     : providers.map((p) => [p.id, { provider: p.name }] as const))
-  const [shown, setShown] = useState<{ bar: number; key: string } | null>(null)
+  // key null: the whole bar, from the pointer in the space above it
+  const [shown, setShown] = useState<{ bar: number; key: string | null } | null>(null)
   if (list.length === 0) return null
   const peak = Math.max(...list.map((b) => b.tokens))
   const top = list.find((b) => b.tokens === peak)!
@@ -216,24 +217,32 @@ function DailyChart({ days, providers, colors, depth }: {
       <div className="fx-stats-bars" role="img" aria-label={tr('每日 Token，最多是 {label} 的 {tokens}', { label: top.label, tokens: fmtCount(peak) })}
         onPointerLeave={() => setShown(null)}>
         {list.map((b, i) => (
-          <span key={b.label} className="fx-stats-bar" style={{ '--h': peak > 0 ? b.tokens / peak : 0 } as CSSProperties}>
-            {order.map((k) => {
-              const tokens = b.parts.get(k) ?? 0
-              return tokens > 0 && (
-                <span key={k} style={{ flexGrow: tokens, background: colors.get(k) }}
-                  data-shown={shown?.bar === i && shown.key === k ? '' : undefined}
-                  onPointerEnter={() => setShown({ bar: i, key: k })} />
-              )
-            })}
+          <span key={b.label} className="fx-stats-col" data-shown={shown?.bar === i && shown.key === null ? '' : undefined}>
+            <span className="fx-stats-above" onPointerEnter={() => setShown({ bar: i, key: null })} />
+            <span className="fx-stats-bar" style={{ '--h': peak > 0 ? b.tokens / peak : 0 } as CSSProperties}>
+              {order.map((k) => {
+                const tokens = b.parts.get(k) ?? 0
+                return tokens > 0 && (
+                  <span key={k} style={{ flexGrow: tokens, background: colors.get(k) }}
+                    data-shown={shown?.bar === i && shown.key === k ? '' : undefined}
+                    onPointerEnter={() => setShown({ bar: i, key: k })} />
+                )
+              })}
+            </span>
           </span>
         ))}
       </div>
       {shown && list[shown.bar] && (
         // in the corner away from the bar, so it never covers what it describes
         <div className={shown.bar < list.length / 2 ? 'fx-stats-note fx-stats-note-right' : 'fx-stats-note'} aria-hidden="true">
-          <b><Swatch color={colors.get(shown.key)} />{names.get(shown.key)?.provider}</b>
-          {names.get(shown.key)?.model && <span>{names.get(shown.key)?.model}</span>}
-          <span>{list[shown.bar].label} · {fmtCount(list[shown.bar].parts.get(shown.key) ?? 0)} Token</span>
+          {shown.key === null ? <>
+            <b>{list[shown.bar].label}</b>
+            <span>{fmtCount(list[shown.bar].tokens)} Token</span>
+          </> : <>
+            <b><Swatch color={colors.get(shown.key)} />{names.get(shown.key)?.provider}</b>
+            {names.get(shown.key)?.model && <span>{names.get(shown.key)?.model}</span>}
+            <span>{list[shown.bar].label} · {fmtCount(list[shown.bar].parts.get(shown.key) ?? 0)} Token</span>
+          </>}
         </div>
       )}
       <figcaption aria-hidden="true"><span>{list[0].label.split(' – ')[0]}</span><span>{list[list.length - 1].label.split(' – ').pop()}</span></figcaption>

@@ -6,7 +6,7 @@ import { combine } from './domain/rollup'
 import { busyReplicas, statusOf, subsOf, TRAVEL } from './domain/sim'
 import type { LogLine, Replica, Status, SubTask, Task, World, Workflow, WorkflowNode } from './domain/types'
 import { appLanguage, colon, trRecorded } from './i18n'
-import { presetRank } from './data/presets'
+import { AIRPORT_BLUEPRINT, presetRank } from './data/presets'
 import { useStore } from './store'
 
 export const useWorld = () => useStore((s) => s.world)
@@ -76,6 +76,9 @@ export const flowList = (w: World) => ownFirst(w.workflows)
 
 /** Blueprints the same way: those anyone can be hired from, not an employee's own settings. */
 export const blueprintList = (w: World) => ownFirst(w.blueprints).filter((bp) => !bp.owner)
+
+/** The blueprints an employee can be hired from: all but the airport staff's. */
+export const hireList = (w: World) => blueprintList(w).filter((bp) => bp.id !== AIRPORT_BLUEPRINT)
 
 export type InboxItem = { task: Task; sub?: SubTask; kind: string; name: string }
 

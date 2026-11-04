@@ -5,13 +5,13 @@ import { BlueprintIcon } from './BlueprintIcon'
 import { Select } from './Controls'
 import { isPreset } from './core/data/presets'
 import { TOOLS, type Blueprint, type Replica } from './core/domain/types'
-import { blueprintList } from './core/model'
+import { hireList } from './core/model'
 import { useStore } from './core/store'
 import { blueprintLabel, byBlueprint, mindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
 import { listOf } from './core/i18n'
 import { PixelFace } from './core/voxel/PixelFace'
-import { sourceText, toolName } from './source'
+import { toolName } from './source'
 
 /** What a blueprint's employees can use, as up to four notes, two by two. */
 export function ToolNotes({ bp }: { bp: Blueprint }) {
@@ -87,11 +87,13 @@ export function CrewSelect({ label, value, crew, placeholder, onChange }: {
  * Picks up to `max` of `crew`, in the order they are picked: the first chairs. Picking one already picked lets them go,
  * though never the last one.
  */
-export function CrewPicks({ label, value, crew, max, onChange }: {
+export function CrewPicks({ label, value, crew, max, placeholder, onChange }: {
   label: string
   value: string[]
   crew: Replica[]
   max: number
+  /** What the closed list shows with nobody picked yet. */
+  placeholder?: string
   onChange: (ids: string[]) => void
 }) {
   const w = useStore((s) => s.world)
@@ -106,12 +108,12 @@ export function CrewPicks({ label, value, crew, max, onChange }: {
     <Select
       label={label} value={value[0] ?? ''} options={options} labelOf={(id) => of(id)?.name ?? ''}
       picked={(id) => value.includes(id)} onChange={toggle}
-      shownAs={() => (
+      shownAs={() => (!picked.length ? <span className="fx-d-muted">{placeholder}</span> : (
         <span className="fx-pick-value">
           <Picture><ChatFaces people={picked} size={18} /></Picture>
           <span className="fx-pick-names">{listOf(picked.map((r) => r.name))}</span>
         </span>
-      )}
+      ))}
       rowOf={(id, on) => <CrewRow r={of(id) as Replica} on={on} chair={on && value.length > 1 && id === value[0]} />}
     />
   )
@@ -126,28 +128,32 @@ export function mineAndBuiltIn(ids: string[]) {
     : { groups: groups.slice(1), groupOf: () => 0 }
 }
 
-/** Picks one of the island's blueprints, in the same rows as employees. */
-export function BlueprintSelect({ label, value, placeholder, onChange }: { label: string; value: string; placeholder?: string; onChange: (id: string) => void }) {
+/**
+ * Picks one of the island's blueprints by its face and name. With `none`, 無 comes first and picks '' (nothing).
+ */
+export function BlueprintSelect({ label, value, none, onChange }: { label: string; value: string; none?: boolean; onChange: (id: string) => void }) {
   const w = useStore((s) => s.world)
   const blueprints = w.blueprints
-  const ids = blueprintList(w).map((b) => b.id)
+  const ids = hireList(w).map((b) => b.id)
+  const { groups, groupOf } = mineAndBuiltIn(ids)
   return (
     <Select
-      label={label} value={value} options={ids} labelOf={(id) => blueprints[id]?.name ?? id} onChange={onChange} {...mineAndBuiltIn(ids)}
+      label={label} value={value} options={none ? ['', ...ids] : ids} onChange={onChange}
+      labelOf={(id) => (id ? blueprints[id]?.name ?? id : tr('無'))}
+      groups={groups} groupOf={(id) => (id ? groupOf(id) : -1)}
       shownAs={(id) => {
         const bp = blueprints[id]
         return bp
           ? <span className="fx-pick-value"><Picture><BlueprintIcon look={bp.look} name={bp.name} size={18} /></Picture>{bp.name}</span>
-          : placeholder && <span className="fx-d-muted">{placeholder}</span>
+          : none && <span className="fx-d-muted">{tr('無')}</span>
       }}
       rowOf={(id, on) => {
         const bp = blueprints[id]
         return (
           <>
-            <Picture><BlueprintIcon look={bp.look} name={bp.name} size={26} /></Picture>
-            <span className="fx-row-main"><b>{bp.name}</b>{!isPreset(id) && <span>{sourceText(bp.source)}</span>}</span>
+            <Picture>{bp && <BlueprintIcon look={bp.look} name={bp.name} size={26} />}</Picture>
+            <span className="fx-row-main"><b>{bp ? bp.name : tr('無')}</b></span>
             <Tick on={on} />
-            <ToolNotes bp={bp} />
           </>
         )
       }}

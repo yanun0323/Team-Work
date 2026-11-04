@@ -42,7 +42,10 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, sh
   shownAs?: (o: string) => ReactNode
   /** An option's whole row, when it is more than the label; it marks being picked itself. */
   rowOf?: (o: string, picked: boolean) => ReactNode
-  /** Headings to list the options under; each group's options must follow each other in `options`. */
+  /**
+   * Headings to list the options under; each group's options must follow each other in `options`. Options in no
+   * group (`groupOf` below 0) come first, under no heading.
+   */
   groups?: { label: string; count: number }[]
   groupOf?: (o: string) => number
   /** Makes it a list to pick several from: which are picked; picking one turns it on or off and leaves the list open. */
@@ -92,16 +95,25 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, sh
     }
   }, [open, active])
   const hasRows = !!rowOf
-  // a tall slip stops short of the panel's edge, as long as that leaves it room to be used
+  // a tall slip stops short of the panel's edge, as long as that leaves it room to be used; short of room under the
+  // list, it opens upward when there is more above
   useLayoutEffect(() => {
     const slip = list.current
-    if (!open || !hasRows || !slip) return
+    const at = button.current
+    if (!open || !hasRows || !slip || !at) return
     let up = slip.parentElement
     while (up && !/auto|scroll|hidden/.test(getComputedStyle(up).overflowY)) up = up.parentElement
     if (!up) return
-    // the slip is still 6px high here, dropping in
-    const room = up.getBoundingClientRect().bottom - slip.getBoundingClientRect().top - 14
-    if (room >= 160) slip.style.maxHeight = `${Math.min(room, slip.offsetHeight)}px`
+    // measured from the button, as the slip is still shifted while it drops in
+    const box = up.getBoundingClientRect()
+    const b = at.getBoundingClientRect()
+    const want = slip.offsetHeight
+    const below = box.bottom - b.bottom - 20
+    const above = b.top - box.top - 20
+    const flip = below < want && above > below
+    slip.classList.toggle('fx-slip-up', flip)
+    const room = flip ? above : below
+    if (room >= 160) slip.style.maxHeight = `${Math.min(room, want)}px`
   }, [open, hasRows])
 
   const onKey = (e: KeyboardEvent) => {
@@ -176,12 +188,12 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, sh
         {open && (
           <ul ref={list} id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} aria-multiselectable={several || undefined} className={`fx-slip${rowOf ? ' fx-slip-rows' : ''}`}>
             {groups && groupOf
-              ? groups.map((g, at) => (
+              ? [...options.filter((o) => groupOf(o) < 0).map(option), ...groups.map((g, at) => (
                 <li key={at} role="group" aria-label={g.label} className="fx-slip-group">
                   <span className="fx-slip-head" aria-hidden="true">{g.label}<span className="fx-count">{g.count}</span></span>
                   <ul role="presentation">{options.filter((o) => groupOf(o) === at).map(option)}</ul>
                 </li>
-              ))
+              ))]
               : options.map(option)}
           </ul>
         )}

@@ -333,6 +333,8 @@ export interface ChatMessage {
   /** A reply that did not come, in a chat; signedOut is the provider to sign in to again, when that is why. */
   failed?: boolean
   signedOut?: string
+  /** The tasks made in the chat at this message, by the user or with create_task, oldest first. */
+  tasks?: string[]
 }
 
 /** Someone in a meeting besides the chair; `name` and `look` keep who it was, for when they have left. */

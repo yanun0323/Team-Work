@@ -30,7 +30,7 @@ export interface Quota {
   currency?: string
 }
 
-const QUOTA_EVERY_MS = 2 * 60 * 1000
+const QUOTA_EVERY_MS = 30 * 1000
 
 /** The balance with its currency, or '-' without one. */
 export const balanceText = (q?: Quota) => (q?.balance === undefined ? '-' : `${q.balance.toFixed(2)} ${q.currency ?? ''}`.trim())

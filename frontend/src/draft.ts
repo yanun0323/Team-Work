@@ -2,13 +2,18 @@
 // employees, and dropped when the new-task sheet goes.
 
 import { create } from 'zustand'
-import type { Attachment, Task, World } from './core/domain/types'
+import { tr } from './core/i18n'
+import type { Attachment, Task, Workflow, World } from './core/domain/types'
 import { flowList, teamReplicas, teamTasks } from './core/model'
+import { blankFlow } from './flowDraft'
 
 export interface TaskDraft {
   title: string
   description: string
+  /** The blueprint the task runs on; with `custom`, the one its flow was imported from, or '' for none. */
   workflowId: string
+  /** A flow written for this task alone, which it runs on instead of the blueprint. */
+  custom?: Workflow
   /** Who works each step, by node id. */
   staff: Record<string, string[]>
   /** The task's owner, who answers for it. */
@@ -61,6 +66,12 @@ export function lastStaff(w: World, teamId: string, workflowId: string): Pick<Ta
 export function copyDraft(w: World, teamId: string, t: Task): TaskDraft {
   const here = new Set(teamReplicas(w, teamId).map((r) => r.id))
   const content = { title: t.title, description: t.description, images: [...t.images], files: [...(t.files ?? [])], ownerId: t.ownerId && here.has(t.ownerId) ? t.ownerId : null }
+  if (!t.workflowId) {
+    // a flow of its own: the copy gets the same flow, as its own again
+    const custom = { ...structuredClone(t.workflow), id: '' }
+    const staff = Object.fromEntries(custom.nodes.map((n) => [n.id, oneOnWork(n, n.replicaIds.filter((r) => here.has(r)))]))
+    return { ...content, workflowId: '', custom, staff, from: t.number }
+  }
   if (!w.workflows[t.workflowId]) {
     const workflowId = lastFlowId(w, teamId)
     return { ...lastStaff(w, teamId, workflowId), ...content, workflowId }
@@ -74,7 +85,29 @@ export function copyDraft(w: World, teamId: string, t: Task): TaskDraft {
 }
 
 /** The flow the draft is staffing. */
-export const draftFlow = (w: World, d: TaskDraft) => (d.taskId ? w.tasks[d.taskId]?.workflow : w.workflows[d.workflowId])
+export const draftFlow = (w: World, d: TaskDraft): Workflow | undefined =>
+  d.taskId ? w.tasks[d.taskId]?.workflow : d.custom ?? w.workflows[d.workflowId]
+
+/**
+ * A flow of the task's own to write, copied from a blueprint (its steps keep their ids, so who works them carries
+ * over) or blank. Named apart from the blueprint, so the task shows it is not the blueprint's.
+ */
+export function customFlow(w: World, workflowId: string): Workflow {
+  const from = w.workflows[workflowId]
+  if (!from) return { ...blankFlow(), name: tr('自訂流程') }
+  return { ...structuredClone(from), id: '', name: tr('{name}（自訂）', { name: from.name }) }
+}
+
+/** A change to the draft's own flow; a step turned back into work keeps only its first employee. */
+export const editCustom = (f: (wf: Workflow) => Workflow) => editDraft((d) => {
+  if (!d.custom) return {}
+  const custom = f(d.custom)
+  const staff = Object.fromEntries(Object.entries(d.staff).map(([id, ids]) => {
+    const n = custom.nodes.find((x) => x.id === id)
+    return [id, n ? oneOnWork(n, ids) : ids]
+  }))
+  return { custom, staff }
+})
 
 /** Who works a step of the draft. */
 export const draftStaff = (_w: World, d: TaskDraft, nodeId: string): string[] => d.staff[nodeId] ?? []

@@ -218,20 +218,6 @@ export function FlowNotes({ wf, staff, done, open, onOpen, canOpen, edit }: {
   )
 }
 
-/** A flow's whole drawing, shrunk to fit its row in a pick-list, where the name beside it is what gets read out. */
-export function FlowPreview({ wf }: { wf: Workflow }) {
-  const box = useRef<HTMLDivElement>(null)
-  const [width, setWidth] = useState(0)
-  useLayoutEffect(() => setWidth(box.current?.clientWidth ?? 0), [])
-  const { count } = layers(wf)
-  const natural = count * NOTE + (count - 1) * MIN_ARROW + PAD * 2
-  return (
-    <div ref={box} className="fx-flow fx-pick-flow" aria-hidden="true">
-      {width > 0 && <div style={{ width: natural, zoom: Math.min(1, width / natural) }}><FlowNotes wf={wf} /></div>}
-    </div>
-  )
-}
-
 /** Whether work may not go along an arrow: one of several next steps is picked, or any one of several before will do. */
 function maybe(wf: Workflow, e: WorkflowEdge) {
   const from = wf.nodes.find((n) => n.id === e.from)

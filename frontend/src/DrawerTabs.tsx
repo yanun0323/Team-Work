@@ -3,7 +3,7 @@
 import { listOf, tr, type Key } from './core/i18n'
 import { useEffect } from 'react'
 import { nodeOf } from './core/domain/graph'
-import { notStarted, statusOf, subsOf, taskTokens } from './core/domain/sim'
+import { statusOf } from './core/domain/sim'
 import type { Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
 import { MOCK } from './core/mode'
@@ -17,6 +17,7 @@ import { editTeam, refreshPrompt } from './core/ops'
 import { itemKey, PinTool, type Item } from './DrawerDetail'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
+import { TaskCard } from './TaskCard'
 
 export type Tab = 'chats' | 'tasks' | 'crew' | 'terminal' | 'settings'
 
@@ -124,30 +125,7 @@ export function Tasks(p: Opens) {
             {c.status === 'todo' && (
               <button className="fx-task fx-task-new fx-hit" disabled={blocked(needs)} {...opener({ kind: 'newTask' }, p)}>{tr('＋ 新增任務')}</button>
             )}
-            {list.map((task) => {
-              const faces = subsOf(w, task.id)
-                .filter((s) => !s.cancelled && s.replicaId && (s.status === 'progressing' || s.status === 'review'))
-                .map((s) => w.replicas[s.replicaId as string])
-                .filter((r, i, all) => r && all.indexOf(r) === i)
-              const tokens = taskTokens(w, task)
-              return (
-                <button key={task.id} className="fx-task fx-hit" {...opener({ kind: 'task', id: task.id }, p)}>
-                  {/* waiting on the user: red to answer, green to merge */}
-                  {c.status === 'review' && <WaitBadge merge={task.stage === 'awaitMerge'} />}
-                  <span className="fx-task-title"><span className="fx-task-no">#{task.number}</span>{task.title}</span>
-                  {faces.length > 0 && (
-                    <span className="fx-faces">
-                      {faces.map((r) => <span key={r.id} title={r.name}><PixelFace look={r.look} name={r.name} size={22} /></span>)}
-                    </span>
-                  )}
-                  {/* only what the column doesn't already say */}
-                  {((task.paused && !notStarted(task)) || task.stage === 'merging') && (
-                    <span className="fx-pill">{task.stage === 'merging' ? tr('合併中') : tr('已暫停')}</span>
-                  )}
-                  {tokens > 0 && <span className="fx-task-tokens">{fmtTokens(tokens)} Token</span>}
-                </button>
-              )
-            })}
+            {list.map((task) => <TaskCard key={task.id} task={task} {...opener({ kind: 'task', id: task.id }, p)} />)}
           </section>
         )
       })}

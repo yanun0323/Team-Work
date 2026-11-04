@@ -29,6 +29,7 @@ import { changeAsk, ChangeLines } from './ChangeCard'
 import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, splitAttachments } from './attachments'
 import { draftKey, useChatDraft } from './chatDraft'
 import { watchChat } from './sound'
+import { TaskCard } from './TaskCard'
 
 /** Copies a message's text, showing a tick for a moment after. */
 function CopyButton({ text }: { text: string }) {
@@ -56,7 +57,7 @@ function CopyButton({ text }: { text: string }) {
 
 /** The chat's name, written in place: saved on leaving the field or Enter, put back on Escape; empty shows the first message again. */
 /** 送給, then the face and name of each one a message is for. */
-function SentTo({ people, className, live }: { people: { id: string; name: string; look: Look }[]; className?: string; live?: boolean }) {
+export function SentTo({ people, className, live }: { people: { id: string; name: string; look: Look }[]; className?: string; live?: boolean }) {
   return (
     <p className={['fx-room-to', className].filter(Boolean).join(' ')} aria-live={live ? 'polite' : undefined}>
       {tr('送給')}
@@ -87,9 +88,9 @@ function ChatTitle({ chat }: { chat: Chat }) {
   )
 }
 
-export interface ChatTaskSeed { title: string; description: string; ownerId: string | null }
+export interface ChatTaskSeed { title: string; description: string; ownerId: string | null; chatId: string }
 
-export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFile, onSkill, image, onImage, onTask, onHandOff, onProvider, onGoneChat, ...h }: Head & {
+export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFile, onSkill, image, onImage, onTask, onHandOff, task: taskOpen, onOpenTask, onProvider, onGoneChat, ...h }: Head & {
   /** The chat to open; none starts a new one. */
   id?: string
   teamId: string
@@ -107,6 +108,9 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   onTask: (seed: ChatTaskSeed) => void
   /** Opens the copy just made of this chat. */
   onHandOff: (id: string) => void
+  /** The task made in this chat that is open on the sheet above, and how to open one. */
+  task: string | null
+  onOpenTask: (id: string) => void
   /** Opens a provider to sign in to it again. */
   onProvider: (id: string) => void
   onGoneChat: () => void
@@ -357,7 +361,17 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     setDrafting(false)
     // the one who may act this round owns it, as with a task the employees create themselves
     const actor = roundActor(chat)
-    if (draft) onTask({ ...draft, ownerId: w.replicas[actor] ? actor : replica?.id ?? null })
+    if (draft) onTask({ ...draft, ownerId: w.replicas[actor] ? actor : replica?.id ?? null, chatId: chat.id })
+  }
+  // the tasks made at a message, under it; one deleted since is gone from here too
+  const madeAt = (i: number) => {
+    const m = chat?.messages[i]
+    const tasks = (m?.tasks ?? []).flatMap((x) => (w.tasks[x] ? [w.tasks[x]] : []))
+    return tasks.length ? [(
+      <li key={`tasks-${i}`} className={`fx-chat-tasks${m?.from === 'user' ? ' fx-chat-tasks-user' : ''}`}>
+        {tasks.map((t) => <TaskCard key={t.id} task={t} aria-expanded={taskOpen === t.id} onClick={() => onOpenTask(t.id)} />)}
+      </li>
+    )] : []
   }
 
   // what a mention in the chat opens: in the airport's, files and folders are at home, as there is no company
@@ -493,7 +507,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
                   </div>
                 )}
             </li>
-          )])}
+          ), ...madeAt(i)])}
         {chat && handoffLines(chat.messages.length)}
         {chat && joinLines(chat.messages.length)}
         {/* the running command's last lines; the tool line above has already been read out */}
