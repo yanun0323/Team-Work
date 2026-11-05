@@ -51,7 +51,7 @@ build)
         goarch="$arch"
         [ "$arch" != x86_64 ] || goarch=amd64
         (cd backend && CGO_ENABLED=0 GOOS=darwin GOARCH="$goarch" go build -trimpath -ldflags='-s -w' -o "$stage/server-$arch" ./cmd/server)
-        xcrun swiftc -swift-version 5 -O -target "$arch-apple-macos13.3" -framework AppKit -framework WebKit \
+        xcrun swiftc -swift-version 5 -O -target "$arch-apple-macos13.3" -framework AppKit -framework WebKit -framework UserNotifications \
             -F "$sparkle" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
             macos/main.swift -o "$stage/app-$arch"
     done

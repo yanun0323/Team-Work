@@ -1,8 +1,9 @@
 import AppKit
 import Sparkle
+import UserNotifications
 import WebKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply, WKDownloadDelegate, SPUUpdaterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply, WKDownloadDelegate, SPUUpdaterDelegate, UNUserNotificationCenterDelegate {
     private var window: NSWindow!
     // Sparkle checks on its own schedule and shows its own windows; the page only gets a dot when one is found.
     private var updater: SPUStandardUpdaterController!
@@ -21,9 +22,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var startupTimer: Timer?
     private let origin = URL(string: "http://127.0.0.1:18787")!
     private let smoke = CommandLine.arguments.contains("--smoke-test")
+    // The task or chat of a clicked notification, kept until the app's page can open it.
+    private var asked: [String: String]?
     // The page reports the app's language; it is remembered for what shows before the page loads.
     private var english: Bool { UserDefaults.standard.string(forKey: "language") == "en" }
     private func say(_ zh: String, _ en: String) -> String { english ? en : zh }
+
+    // Set before launch ends, so a click that launched the app still arrives.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        if !smoke { UNUserNotificationCenter.current().delegate = self }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -38,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         configuration.userContentController.add(self, name: "language")
         configuration.userContentController.add(self, name: "update")
         configuration.userContentController.add(self, name: "checkUpdate")
+        configuration.userContentController.add(self, name: "notify")
+        configuration.userContentController.add(self, name: "badge")
         configuration.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "pickFolder")
         webView = WKWebView(frame: .zero, configuration: configuration)
         // Lets Safari's Web Inspector attach to a signed release, where WebKit problems are otherwise invisible.
@@ -201,9 +211,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 if !updater.updater.sessionInProgress { updater.updater.checkForUpdateInformation() }
             }
             showUpdateFound()
+        case "notify":
+            guard message.frameInfo.securityOrigin.host == origin.host, let body = message.body as? [String: Any] else { return }
+            notify(body)
+        case "badge":
+            guard message.frameInfo.securityOrigin.host == origin.host else { return }
+            let count = (message.body as? Int) ?? 0
+            NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
         default:
             NSApp.terminate(nil)
         }
+    }
+
+    // A task or chat waiting on the user, sent by the page while the app is in the background. macOS asks for
+    // permission the first time; once refused, only System Settings can turn it back on.
+    private func notify(_ body: [String: Any]) {
+        guard !smoke, let kind = body["kind"] as? String, ["task", "chat"].contains(kind), let id = body["id"] as? String, let title = body["title"] as? String else { return }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.subtitle = body["subtitle"] as? String ?? ""
+        content.body = body["body"] as? String ?? ""
+        // The page asks for a sound only when its own chime is muted in the background.
+        if body["sound"] as? Bool == true { content.sound = .default }
+        content.userInfo = ["kind": kind, "id": id]
+        // One per task or chat: a newer one replaces the last.
+        let request = UNNotificationRequest(identifier: "\(kind):\(id)", content: content, trigger: nil)
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            if granted { center.add(request) }
+        }
+    }
+
+    // In front, the app's own badges and chime are enough.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([])
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        let info = response.notification.request.content.userInfo
+        if let kind = info["kind"] as? String, let id = info["id"] as? String {
+            DispatchQueue.main.async {
+                self.asked = ["kind": kind, "id": id]
+                self.showAsked()
+            }
+        }
+        completionHandler()
+    }
+
+    // Brings the window forward and has the page open the clicked task or chat; before the page is up, it waits for didFinish.
+    private func showAsked() {
+        guard asked != nil, bootDone else { return }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        guard ready, webView.url?.host == origin.host, !webView.isLoading,
+              let data = try? JSONSerialization.data(withJSONObject: asked as Any), let detail = String(data: data, encoding: .utf8) else { return }
+        asked = nil
+        // The page reads window.twOpen when it starts and on each tw-open after that, as with twUpdate.
+        webView.evaluateJavaScript("window.twOpen = \(detail); window.dispatchEvent(new Event('tw-open'))")
+    }
+
+    // What was waiting can be seen in the app now; the ones in Notification Center would only be stale.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        if !smoke { UNUserNotificationCenter.current().removeAllDeliveredNotifications() }
     }
 
     // A new company's folder. The app is already in front, so its own sheet shows at once, where the backend's
@@ -316,6 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             return
         }
         if updateFound || updateChecking { showUpdateFound() }
+        if asked != nil { showAsked() }
         guard smoke, ready, webView.url?.host == origin.host else { return }
         let js = """
         const world = await (await fetch('/api/v1/world')).json();
