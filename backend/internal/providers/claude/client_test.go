@@ -1,8 +1,12 @@
 package claude
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/png"
 	"strings"
 	"testing"
 
@@ -49,6 +53,30 @@ func TestCompleteThroughTheChild(t *testing.T) {
 
 func (u ModelUsage) CacheReadKnown() bool  { return u.CacheReadReported }
 func (u ModelUsage) CacheWriteKnown() bool { return u.CacheWriteReported }
+
+// Conversations saved before read_file scaled images down still hold large ones; they are scaled on the way out.
+func TestLargeImagesInHistoryAreScaledDown(t *testing.T) {
+	var buf bytes.Buffer
+	png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 4800, 3000)))
+	big := base64.StdEncoding.EncodeToString(buf.Bytes())
+	got := toMessages([]model.Message{
+		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockImage, MimeType: "image/png", Data: big}}},
+		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "a", Text: "Image a.png", MimeType: "image/png", Data: big}}},
+	})
+	for _, b := range []Block{got[0].Content[0], got[1].Content[1]} {
+		raw, _ := base64.StdEncoding.DecodeString(b.Data)
+		if cfg, err := png.DecodeConfig(bytes.NewReader(raw)); err != nil || cfg.Width != 2000 || cfg.Height != 1250 || b.MimeType != "image/png" {
+			t.Fatalf("%v %+v", err, cfg)
+		}
+	}
+}
+
+func TestTooManyLargeImagesSaysSo(t *testing.T) {
+	err := claudeError(`API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.3.content.0.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests: 2000 pixels"}}`)
+	if err == nil || !strings.Contains(err.Error(), "Claude") || strings.Contains(err.Error(), "installation") {
+		t.Fatalf("%v", err)
+	}
+}
 
 func TestToolResultKeepsItsImage(t *testing.T) {
 	got := toMessages([]model.Message{{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "a", Text: "Image a.png", MimeType: "image/png", Data: "QUJD"}}}})

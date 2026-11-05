@@ -44,6 +44,8 @@ func claudeError(text string) error {
 		return &authError{signedOut("Claude Code is not logged in. Run claude auth login, then /login and choose Claude Code.")}
 	case strings.Contains(s, "rate_limit"), strings.Contains(s, "overloaded"), strings.Contains(s, "network"), strings.Contains(s, "fetch failed"), strings.Contains(s, "429"), strings.Contains(s, "503"):
 		return unavailable("Claude is temporarily unavailable. Check your connection and try again.")
+	case strings.Contains(s, "many-image"), strings.Contains(s, "image dimensions"), strings.Contains(s, "image exceeds"):
+		return rejected("這段對話裡的圖片太大，Claude 無法讀取。請開新對話，或改看較小的圖片")
 	case modelRefused(s):
 		return modelUnavailable()
 	default:

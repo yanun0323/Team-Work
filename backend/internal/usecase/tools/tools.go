@@ -24,6 +24,7 @@ import (
 	"golang.org/x/image/webp"
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/imagefit"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
@@ -171,7 +172,7 @@ func within(cwd, path string, roots ...string) (string, error) {
 type Read struct{ Extra []string }
 
 func (Read) Spec() model.ToolSpec {
-	return model.ToolSpec{Name: "read_file", Description: "Read a text file or look at an image (PNG, JPEG, GIF, WebP). Text returns at most 2000 lines or 50KB; use offset and limit to continue. An image comes whole, up to 3.75MB and 20 million pixels.",
+	return model.ToolSpec{Name: "read_file", Description: "Read a text file or look at an image (PNG, JPEG, GIF, WebP). Text returns at most 2000 lines or 50KB; use offset and limit to continue. An image comes whole, up to 3.75MB and 20 million pixels, scaled down to at most 2000 pixels a side.",
 		Parameters: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Absolute, or relative to the working directory"},"offset":{"type":"integer","minimum":1,"description":"Line to start from, 1-indexed"},"limit":{"type":"integer","minimum":1,"description":"Maximum number of lines"}},"required":["path"]}`)}
 }
 
@@ -294,7 +295,12 @@ func readImage(r io.Reader, path, mime string) model.ToolResult {
 	if _, err := decodeImage(bytes.NewReader(data)); err != nil {
 		return fail("%s is not a valid image: %v", path, err)
 	}
-	return model.ToolResult{Text: fmt.Sprintf("Image %s (%s, %d x %d, %d bytes)", path, mime, cfg.Width, cfg.Height, len(data)), MimeType: mime, Data: base64.StdEncoding.EncodeToString(data)}
+	text := fmt.Sprintf("Image %s (%s, %d x %d, %d bytes)", path, mime, cfg.Width, cfg.Height, len(data))
+	if out, outMime, w, h, changed := imagefit.Fit(data, mime); changed {
+		text += fmt.Sprintf(", shown scaled down to %d x %d", w, h)
+		data, mime = out, outMime
+	}
+	return model.ToolResult{Text: text, MimeType: mime, Data: base64.StdEncoding.EncodeToString(data)}
 }
 
 // Write creates or replaces a file in the working directory.

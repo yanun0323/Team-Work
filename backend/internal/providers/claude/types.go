@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yanun0323/Team-Work/internal/i18n"
+	"github.com/yanun0323/Team-Work/internal/imagefit"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
@@ -260,13 +261,15 @@ func toMessages(msgs []model.Message) []ModelMessage {
 			case enum.BlockText:
 				plain = append(plain, Block{Type: "text", Text: b.Text})
 			case enum.BlockImage:
-				plain = append(plain, Block{Type: "image", MimeType: b.MimeType, Data: b.Data})
+				data, mime := imagefit.FitBase64(b.Data, b.MimeType)
+				plain = append(plain, Block{Type: "image", MimeType: mime, Data: data})
 			case enum.BlockToolCall:
 				plain = append(plain, Block{Type: "tool_call", ID: b.ID, Name: b.Name, Args: b.Args})
 			case enum.BlockToolResult:
 				content := []Block{{Type: "text", Text: b.Text}}
 				if b.Data != "" {
-					content = append(content, Block{Type: "image", MimeType: b.MimeType, Data: b.Data})
+					data, mime := imagefit.FitBase64(b.Data, b.MimeType)
+					content = append(content, Block{Type: "image", MimeType: mime, Data: data})
 				}
 				out = append(out, ModelMessage{Role: "tool", CallID: b.ID, IsError: b.IsError, Content: content})
 			}

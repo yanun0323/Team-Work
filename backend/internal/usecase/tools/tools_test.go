@@ -181,6 +181,22 @@ func TestReadLooksAtImages(t *testing.T) {
 	}
 }
 
+// Anthropic refuses a request with more than 20 images if any is over 2000 x 2000, so read_file scales big ones down.
+func TestReadScalesLargeImagesDown(t *testing.T) {
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 3200, 2000)))
+	os.WriteFile(filepath.Join(dir, "wide.png"), buf.Bytes(), 0o644)
+	r := (Read{}).Run(context.Background(), dir, args(map[string]string{"path": "wide.png"}))
+	raw, err := base64.StdEncoding.DecodeString(r.Data)
+	if r.IsError || err != nil || r.MimeType != "image/png" || !strings.Contains(r.Text, "3200 x 2000") || !strings.Contains(r.Text, "scaled down to 2000 x 1250") {
+		t.Fatalf("%v %+v", err, r.Text)
+	}
+	if cfg, err := png.DecodeConfig(bytes.NewReader(raw)); err != nil || cfg.Width != 2000 || cfg.Height != 1250 {
+		t.Fatalf("%v %+v", err, cfg)
+	}
+}
+
 func slicesClone(b []byte) []byte { return append([]byte(nil), b...) }
 
 func TestEditReplacesExactText(t *testing.T) {
