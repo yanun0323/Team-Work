@@ -294,7 +294,6 @@ var en = map[string]string{
 	"完成，commit %s":                       "Done, commit %s",
 	"寫入記憶：%s":                            "Saved to memory: %s",
 	"移除記憶：%s":                            "Removed from memory: %s",
-	"：退回":                                ": sent back",
 	"設定 %s：%v":                           "Settings %s: %v",
 	"不能省略或設為 null":                       "Cannot be left out or null",
 	"不能以刪除設定的方式刪除資料，請使用介面":               "Deleting from the settings files does not delete data. Use the app",

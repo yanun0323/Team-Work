@@ -503,8 +503,7 @@ func (e *Engine) launch(t *model.Task, s *model.SubTask, spec agentSpec, replica
 		}
 	}
 	in := subRun{r: r, subID: s.ID, taskID: t.ID, spec: spec, conv: conv, talk: talk, speaker: speaker, session: session,
-		folder: e.w.Teams[t.TeamID].Folder, dir: e.worktreeOf(t), branch: t.Branch, target: e.w.Teams[t.TeamID].TargetBranch,
-		label: fmt.Sprintf("#%d %s", t.Number, nodeOf(&t.Workflow, s.NodeID).Name)}
+		folder: e.w.Teams[t.TeamID].Folder, dir: e.worktreeOf(t), branch: t.Branch, target: e.w.Teams[t.TeamID].TargetBranch}
 	e.wg.Add(1)
 	go e.runSub(ctx, in)
 }
@@ -539,7 +538,6 @@ type subRun struct {
 	// speaker is who replies in a discussion; session is the provider's, one each in a meeting.
 	speaker, session            string
 	folder, dir, branch, target string
-	label                       string
 }
 
 // apply changes the world for a run, unless the run was stopped or replaced meanwhile.
@@ -875,8 +873,9 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 		`"decisions":{"type":"array","items":{"type":"string"}},"open":{"type":"array","items":{"type":"string"}},` +
 		`"next_node":{"type":"string","description":"When picking one next step: its id. Empty leaves the choice to the user."},"next_reason":{"type":"string"},` +
 		`"headline":{"type":"string","description":"One sentence for the user: the conclusion"},"did":{"type":"array","items":{"type":"string"},"description":"For the user: what was done"},"ask":{"type":"string","description":"For the user: anything they need to decide"},` +
-		`"learned":{"type":"array","items":{"type":"string"},"description":"Optional, and most steps have none: project conventions, pitfalls or user preferences that later tasks need. Not task progress or one-off decisions."}` +
-		`},"required":["goal","done","headline","did"]}`
+		`"learned":{"type":"array","items":{"type":"string"},"description":"Optional, and most steps have none: project conventions, pitfalls or user preferences that later tasks need. Not task progress or one-off decisions."},` +
+		`"commit_message":{"type":"string","description":"` + commitMessageHow + `"}` +
+		`},"required":["goal","done","headline","did","commit_message"]}`
 	out := []adapter.Tool{
 		funcTool{model.ToolSpec{Name: "submit_handoff", Description: "Finish this step: commit the work and hand off to the next step.", Parameters: json.RawMessage(handoffSchema)}, e.submitHandoff(in)},
 		funcTool{model.ToolSpec{Name: toolAskUser, Description: "Stop and ask the user something. Work resumes with their answer. " + askUserHow,
@@ -894,10 +893,16 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 	defer e.mu.Unlock()
 	if s, t := e.w.SubTasks[in.subID], e.w.Tasks[in.taskID]; s != nil && t != nil && e.maySendBack(t, s) {
 		out = append(out, funcTool{model.ToolSpec{Name: "send_back", Description: "The work does not pass: commit what is here and send it back to the steps before this one, to redo.",
-			Parameters: json.RawMessage(`{"type":"object","properties":{"reason":{"type":"string"}},"required":["reason"]}`)}, e.sendBackTool(in)})
+			Parameters: json.RawMessage(`{"type":"object","properties":{"reason":{"type":"string"},"commit_message":{"type":"string","description":"` + commitMessageHow + ` Only needed when files changed."}},"required":["reason"]}`)}, e.sendBackTool(in)})
 	}
 	return out
 }
+
+// commitMessageHow describes the message a step's work is committed with; it lands on the target branch as written.
+const commitMessageHow = "The git commit message for this step's work, written the way the project's commit messages are, whatever language the rest of the handoff is in."
+
+// sendBackCommit is the message for a send-back's changes when the employee wrote none.
+const sendBackCommit = "chore: keep the work before sending it back"
 
 // askUserHow and askUserSchema are ask_user's, in a task step and in a chat alike.
 const (
@@ -952,9 +957,10 @@ func (e *Engine) submitHandoff(in subRun) func(context.Context, string, json.Raw
 			Did        []string `json:"did"`
 			Ask        string   `json:"ask"`
 			Learned    []string `json:"learned"`
+			Commit     string   `json:"commit_message"`
 		}
-		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Goal) == "" || strings.TrimSpace(a.Headline) == "" {
-			return toolError("goal and headline are required")
+		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Goal) == "" || strings.TrimSpace(a.Headline) == "" || strings.TrimSpace(a.Commit) == "" {
+			return toolError("goal, headline and commit_message are required")
 		}
 		// checked before committing, so a wrong id costs nothing
 		badNext := false
@@ -968,7 +974,7 @@ func (e *Engine) submitHandoff(in subRun) func(context.Context, string, json.Raw
 		if badNext {
 			return toolError("%s is not a next step of this one", a.NextNode)
 		}
-		commit, err := e.git.Commit(ctx, cwd, in.spec.name, in.label+": "+a.Headline)
+		commit, err := e.git.Commit(ctx, cwd, in.spec.name, strings.TrimSpace(a.Commit))
 		if err != nil {
 			e.log.Warn().Err(err).Str("sub", in.subID).Msg("commit handoff")
 			return toolError("commit failed: %v; fix it and call submit_handoff again", err)
@@ -1075,11 +1081,16 @@ func (e *Engine) sendBackTool(in subRun) func(context.Context, string, json.RawM
 	return func(ctx context.Context, cwd string, raw json.RawMessage) model.ToolResult {
 		var a struct {
 			Reason string `json:"reason"`
+			Commit string `json:"commit_message"`
 		}
 		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Reason) == "" {
 			return toolError("reason is required")
 		}
-		commit, err := e.git.Commit(ctx, cwd, in.spec.name, in.label+i18n.T("：退回"))
+		message := strings.TrimSpace(a.Commit)
+		if message == "" {
+			message = sendBackCommit
+		}
+		commit, err := e.git.Commit(ctx, cwd, in.spec.name, message)
 		if err != nil {
 			return toolError("commit failed: %v", err)
 		}

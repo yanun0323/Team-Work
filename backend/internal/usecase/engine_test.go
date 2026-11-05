@@ -118,7 +118,7 @@ func say(text string) model.ModelReply {
 	return model.ModelReply{Content: []model.Block{{Type: enum.BlockText, Text: text}}}
 }
 
-var handoff = map[string]any{"goal": "g", "done": []string{"d"}, "headline": "h", "did": []string{"x"}}
+var handoff = map[string]any{"goal": "g", "done": []string{"d"}, "headline": "h", "did": []string{"x"}, "commit_message": "chore: step"}
 
 // stepOf reads which step a request is for, from the system prompt.
 func stepOf(req model.ModelRequest) string {
@@ -610,6 +610,41 @@ func TestDiscussion(t *testing.T) {
 	w = r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
 	if d := w.SubTasks[s.ID].Handoff.Agent.Decisions; len(d) != 1 || d[0] != "User: 用 A" {
 		t.Fatalf("decisions = %v", d)
+	}
+}
+
+// A handoff's commit carries the commit message the employee wrote, not the headline meant for the user;
+// one without a commit message is refused before anything is committed.
+func TestHandoffCommitsWithItsCommitMessage(t *testing.T) {
+	var refused string
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if stepOf(req) != "Clarify requirements" {
+			return call("submit_handoff", handoff), nil
+		}
+		switch len(req.Messages) {
+		case 1:
+			return call("write_file", map[string]string{"path": "feature.txt", "content": "new\n"}), nil
+		case 3:
+			return call("submit_handoff", map[string]any{"goal": "g", "done": []string{"d"}, "headline": "加好了功能", "did": []string{"x"}}), nil
+		}
+		if refused == "" {
+			last := req.Messages[len(req.Messages)-1].Content[0]
+			refused = last.Text
+			if !last.IsError {
+				refused = "accepted"
+			}
+		}
+		return call("submit_handoff", map[string]any{"goal": "g", "done": []string{"d"}, "headline": "加好了功能", "did": []string{"x"},
+			"commit_message": "feat: add the feature\n\nWrite feature.txt."}), nil
+	})
+	task := r.task(r.flow.ID)
+	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	if !strings.Contains(refused, "commit_message") {
+		t.Fatalf("a handoff without a commit message got: %q", refused)
+	}
+	first := subAt(w, task.ID, "整理需求")
+	if got := gitOut(t, r.folder, "log", "-1", "--format=%B", first.Handoff.Commit); got != "feat: add the feature\n\nWrite feature.txt." {
+		t.Fatalf("commit message = %q", got)
 	}
 }
 
@@ -1197,7 +1232,7 @@ func (s *script) requests() []model.ModelRequest {
 
 func TestHandoffKeepsWhatWasLearned(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
-		return call("submit_handoff", map[string]any{"goal": "g", "done": []string{"d"}, "headline": "h", "did": []string{"x"}, "learned": []string{" 測試要加 -race ", "  "}}), nil
+		return call("submit_handoff", map[string]any{"goal": "g", "done": []string{"d"}, "headline": "h", "did": []string{"x"}, "commit_message": "chore: step", "learned": []string{" 測試要加 -race ", "  "}}), nil
 	})
 	task := r.task(r.flow.ID)
 	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
