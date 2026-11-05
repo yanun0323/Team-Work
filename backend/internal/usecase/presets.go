@@ -23,16 +23,24 @@ const (
 //go:embed presets.json
 var presetsJSON []byte
 
-type presetText struct {
-	Zh string `json:"zh"`
-	En string `json:"en"`
-}
+// presetText is one text in every language the app shows, by language code.
+type presetText map[string]string
 
 func (t presetText) in(language string) string {
-	if language == model.LanguageEn {
-		return t.En
+	if text, ok := t[language]; ok {
+		return text
 	}
-	return t.Zh
+	return t[model.LanguageZh]
+}
+
+// is reports whether s is this text in any language.
+func (t presetText) is(s string) bool {
+	for _, text := range t {
+		if s == text {
+			return true
+		}
+	}
+	return false
 }
 
 type presetStep struct {
@@ -84,9 +92,9 @@ var presets = func() (p struct {
 // Instructions the app wrote, in English like every instruction an employee receives. Start and End are templates
 // for a flow's first and last steps: flows from before a flow could start and end anywhere began and ended with them.
 var (
-	StartPrompt = presets.Start.Prompt.En
-	EndPrompt   = presets.End.Prompt.En
-	TalkPrompt  = presets.Talk.En
+	StartPrompt = presets.Start.Prompt[model.LanguageEn]
+	EndPrompt   = presets.End.Prompt[model.LanguageEn]
+	TalkPrompt  = presets.Talk[model.LanguageEn]
 )
 
 func presetNodeID(flow string, layer, step int) string {
@@ -185,7 +193,7 @@ func localizeFlow(wf *model.Workflow, language string) {
 	for i := range wf.Nodes {
 		n := &wf.Nodes[i]
 		// a task's copy from before the flow changed may hold another step at this place, so the name must match too
-		if s, ok := steps[n.ID]; ok && (n.Name == s.Name.Zh || n.Name == s.Name.En) {
+		if s, ok := steps[n.ID]; ok && s.Name.is(n.Name) {
 			n.Name, n.Prompt = s.Name.in(language), s.Prompt.in(language)
 		}
 		switch {
@@ -196,10 +204,10 @@ func localizeFlow(wf *model.Workflow, language string) {
 			fallthrough
 		default:
 			for _, fixed := range []presetStep{presets.Start, presets.End} {
-				if n.Prompt == fixed.Prompt.Zh || n.Prompt == fixed.Prompt.En {
+				if fixed.Prompt.is(n.Prompt) {
 					n.Prompt = fixed.Prompt.in(language)
 				}
-				if n.Name == fixed.Name.Zh || n.Name == fixed.Name.En {
+				if fixed.Name.is(n.Name) {
 					n.Name = fixed.Name.in(language)
 				}
 			}
@@ -276,7 +284,7 @@ func agentFlow(wf *model.Workflow) *model.Workflow {
 func agentRole(bp *model.Blueprint) string {
 	for _, p := range presets.Blueprints {
 		if p.ID == bp.ID {
-			return p.Prompt.En
+			return p.Prompt[model.LanguageEn]
 		}
 	}
 	return bp.Prompt

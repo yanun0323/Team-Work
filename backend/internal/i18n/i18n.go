@@ -7,8 +7,12 @@ import (
 	"sync/atomic"
 )
 
-// English is the language with a catalog; anything else reads as Chinese.
+// English is the language employees are told in; with the other languages here, it has a catalog. Anything else reads
+// as Traditional Chinese.
 const English = "en"
+
+// catalogs are the languages with a translation of every text, by the app's language code.
+var catalogs = map[string]map[string]string{English: en, "zh-Hans": zhHans, "ja": ja, "ko": ko}
 
 var language atomic.Value
 
@@ -16,10 +20,10 @@ var language atomic.Value
 func Set(next string) { language.Store(next) }
 
 // T is a text in the current language, filled in like fmt.Sprintf. A text missing from the catalog shows as written;
-// a test keeps the catalog complete. Call it when the text is needed, not in a package variable.
+// a test keeps the catalogs complete. Call it when the text is needed, not in a package variable.
 func T(format string, args ...any) string {
-	if language.Load() == English {
-		if text, ok := en[format]; ok {
+	if next, _ := language.Load().(string); next != "" {
+		if text, ok := catalogs[next][format]; ok {
 			format = text
 		}
 	}

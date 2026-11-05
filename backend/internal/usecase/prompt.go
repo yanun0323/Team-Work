@@ -95,7 +95,10 @@ func memorySection(r *model.Replica) string {
 }
 
 // languageNames are the languages employees can be told to write in, as the model is told them.
-var languageNames = map[string]string{model.LanguageZh: "Traditional Chinese", model.LanguageEn: "English"}
+var languageNames = map[string]string{
+	model.LanguageZh: "Traditional Chinese", model.LanguageEn: "English", model.LanguageZhHans: "Simplified Chinese",
+	model.LanguageJa: "Japanese", model.LanguageKo: "Korean",
+}
 
 // languageRule says which language the user reads. Every prompt is in English, so without it replies would be too.
 func languageRule(language string) string {

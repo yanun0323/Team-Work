@@ -586,8 +586,11 @@ type World struct {
 
 // The languages of the app and of what employees write to the user.
 const (
-	LanguageZh = "zh"
-	LanguageEn = "en"
+	LanguageZh     = "zh"
+	LanguageEn     = "en"
+	LanguageZhHans = "zh-Hans"
+	LanguageJa     = "ja"
+	LanguageKo     = "ko"
 )
 
 // SourcePreset marks a blueprint built into the app. Built-in blueprints and flows have ids starting with PresetPrefix:

@@ -1588,3 +1588,28 @@ func TestChatRetriesAFailedReplyAfterSigningInAgain(t *testing.T) {
 		t.Fatal("retried a reply that came")
 	}
 }
+
+// Simplified Chinese, Japanese and Korean reach what the backend says and the built-in flows, and survive a restart.
+func TestOtherLanguagesReachMessagesAndPresets(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
+	for _, c := range []struct{ code, notFound, flow string }{
+		{model.LanguageZhHans, "找不到对话", "功能开发"},
+		{model.LanguageJa, "チャットが見つかりません", "機能開発"},
+		{model.LanguageKo, "채팅을 찾을 수 없습니다", "기능 개발"},
+	} {
+		if err := r.e.SetLanguage(c.code); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.e.SayInChat("nobody", "hi", nil); err == nil || err.Error() != c.notFound {
+			t.Errorf("%s: %v", c.code, err)
+		}
+		if got := presetFlowOf(t, r.world(), "preset-feature").Name; got != c.flow {
+			t.Errorf("%s: %s", c.code, got)
+		}
+	}
+	r.e.Close()
+	newEngine(t, r)
+	if r.world().Language != model.LanguageKo || presetFlowOf(t, r.world(), "preset-feature").Name != "기능 개발" {
+		t.Fatalf("not kept over a restart: %s", r.world().Language)
+	}
+}

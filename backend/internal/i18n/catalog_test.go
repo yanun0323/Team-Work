@@ -18,6 +18,9 @@ var (
 	verb    = regexp.MustCompile(`%[a-z]`)
 )
 
+// catalogFiles hold the translations, which are not texts to translate.
+var catalogFiles = map[string]bool{"../i18n/en.go": true, "../i18n/zh_hans.go": true, "../i18n/ja.go": true, "../i18n/ko.go": true}
+
 // translators take a text in Chinese and put it in the current language.
 var translators = []string{"T", "Errorf", "rejected", "signedOut", "unavailable", "bad"}
 
@@ -35,7 +38,7 @@ func callName(call *ast.CallExpr) string {
 func TestEveryTextHasEnglish(t *testing.T) {
 	seen := map[string]bool{}
 	err := filepath.WalkDir("..", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "en.go") {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || catalogFiles[path] {
 			return err
 		}
 		fset := token.NewFileSet()
@@ -101,6 +104,27 @@ func TestEnglishFillsTheSameValues(t *testing.T) {
 	}
 }
 
+// Every other language translates exactly the texts English does, filling in the same values in the same order.
+func TestEveryLanguageHasEveryText(t *testing.T) {
+	for code, catalog := range catalogs {
+		for zh := range en {
+			text, ok := catalog[zh]
+			if !ok || strings.TrimSpace(text) == "" {
+				t.Errorf("%s: no text for %q", code, zh)
+				continue
+			}
+			if !slices.Equal(verb.FindAllString(zh, -1), verb.FindAllString(text, -1)) {
+				t.Errorf("%s: %q and %q fill in different values", code, zh, text)
+			}
+		}
+		for zh := range catalog {
+			if _, ok := en[zh]; !ok {
+				t.Errorf("%s: %q is not a text the backend uses", code, zh)
+			}
+		}
+	}
+}
+
 func TestLanguagePicksTheText(t *testing.T) {
 	t.Cleanup(func() { Set("") })
 	Set("zh")
@@ -113,5 +137,11 @@ func TestLanguagePicksTheText(t *testing.T) {
 	}
 	if got := Errorf("一則訊息最多附 %d 張圖", 6).Error(); got != "A message can have at most 6 images" {
 		t.Fatal(got)
+	}
+	for code, want := range map[string]string{"zh-Hans": "找不到公司", "ja": "会社が見つかりません", "ko": "회사를 찾을 수 없습니다"} {
+		Set(code)
+		if got := T("找不到公司"); got != want {
+			t.Errorf("%s: %s", code, got)
+		}
 	}
 }

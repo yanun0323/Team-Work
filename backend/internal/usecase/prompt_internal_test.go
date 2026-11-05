@@ -41,3 +41,15 @@ func TestLanguageRuleCoversNotesBetweenToolCalls(t *testing.T) {
 		}
 	}
 }
+
+// Employees are told by name which language the user reads, in each language the app can be set to.
+func TestLanguageRuleNamesEveryLanguage(t *testing.T) {
+	for code, name := range map[string]string{
+		model.LanguageZh: "Traditional Chinese", model.LanguageEn: "English", model.LanguageZhHans: "Simplified Chinese",
+		model.LanguageJa: "Japanese", model.LanguageKo: "Korean",
+	} {
+		if rule := languageRule(code); !strings.Contains(rule, "Write everything the user reads in "+name+":") {
+			t.Errorf("languageRule(%s) = %q", code, rule)
+		}
+	}
+}
