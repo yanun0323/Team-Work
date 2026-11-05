@@ -5,6 +5,7 @@ import { holdBoot, revealBoot } from './boot'
 import { useAppLanguage, useBackend, useSimLoop, useStore } from './core/store'
 import { unreachable } from './core/backend'
 import { World } from './World'
+import { GitGate } from './GitInstall'
 import './fonts.css'
 import './fusion.css'
 
@@ -24,7 +25,7 @@ function App() {
     const timer = setTimeout(revealBoot, BOOT_LIMIT_MS)
     return () => clearTimeout(timer)
   }, [loaded])
-  return <div className="fusion">{loaded && <World />}<Trouble /></div>
+  return <div className="fusion"><GitGate>{loaded && <World />}</GitGate><Trouble /></div>
 }
 
 /** Says when the backend can't be reached, or turned something down. */

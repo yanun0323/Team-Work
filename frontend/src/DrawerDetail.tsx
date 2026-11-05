@@ -47,6 +47,8 @@ import { handedImageUrl, readHandedFile, request } from './core/backend'
 import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, endTalk, fire, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { NotesSheet } from './Notes'
+import { FileDetail, FileEdit } from './FileSheets'
+import { CodeFile } from './Highlight'
 import { learn } from './tutorial'
 import { ChatSheet, SentTo, type ChatTaskSeed } from './ChatSheet'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, link, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
@@ -70,6 +72,7 @@ export type Item =
   | { kind: 'doc'; sub: string; path: string }
   /** A file in the company's folder as it is now, and a skill of someone in a chat, that a message mentions. */
   | { kind: 'file'; path: string }
+  | { kind: 'fileEdit'; path: string }
   | { kind: 'skill'; chat: string; name: string }
   /** A picture at full width; `key` says where it was opened from, and `task` or `chat` what it belongs to. */
   | { kind: 'image'; key: string; image: Attachment; task?: string; chat?: string }
@@ -90,7 +93,7 @@ export type Item =
   | { kind: 'newSource' }
 
 export const itemKey = (x: Item) =>
-  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' || x.kind === 'newSource' ? x.kind : x.kind === 'staff' || x.kind === 'flowStep' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' ? `file:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
+  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' || x.kind === 'newSource' ? x.kind : x.kind === 'staff' || x.kind === 'flowStep' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' || x.kind === 'fileEdit' ? `${x.kind}:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 const HANDOFF = { pickOne: '交給其中一個下一步', all: '交給所有下一步' } as const
@@ -159,7 +162,11 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               crew={above?.kind === 'crew' ? above.id : null} onCrew={(x) => onPush({ kind: 'crew', id: x })} />
           )}
           {item.kind === 'doc' && <DocDetail sub={item.sub} path={item.path} title={title} tid={id} />}
-          {item.kind === 'file' && <ProjectFileDetail teamId={teamId} path={item.path} title={title} tid={id} />}
+          {item.kind === 'file' && (teamId && !MOCK
+            ? <FileDetail teamId={teamId} path={item.path} title={title} tid={id} editing={above?.kind === 'fileEdit'}
+                onEdit={() => onPush({ kind: 'fileEdit', path: item.path })} />
+            : <ProjectFileDetail teamId={teamId} path={item.path} title={title} tid={id} />)}
+          {item.kind === 'fileEdit' && <FileEdit teamId={teamId} path={item.path} title={title} tid={id} onDone={onDone} />}
           {item.kind === 'skill' && <SkillDetail chat={item.chat} name={item.name} title={title} tid={id} />}
           {item.kind === 'taskEdit' && (
             <TaskEdit id={item.id} teamId={teamId} title={title} tid={id} open={above?.kind === 'staff' ? above.node : null}
@@ -2165,11 +2172,17 @@ function HandedImage({ sub, path }: { sub: string; path: string }) {
 }
 
 function HandedText({ sub, path }: { sub: string; path: string }) {
-  return <ReadText path={path} read={(signal) => readHandedFile(sub, path, signal)} at={`${sub}:${path}`} />
+  return <ReadText path={path} read={(signal) => readHandedFile(sub, path, signal)} at={`${sub}:${path}`}
+    imageUrl={(p) => handedImageUrl(sub, p)} />
 }
 
-/** A text file read from wherever `read` takes it, read again when `at` changes: Markdown rendered, anything else as it is. */
-function ReadText({ path, read, at }: { path: string; read: (signal: AbortSignal) => Promise<string>; at: string }) {
+/**
+ * A text file read from wherever `read` takes it, read again when `at` changes: Markdown rendered, with its HTML and its
+ * own pictures (from `imageUrl`), anything else as it is.
+ */
+function ReadText({ path, read, at, imageUrl }: {
+  path: string; read: (signal: AbortSignal) => Promise<string>; at: string; imageUrl: (path: string) => string
+}) {
   const [state, setState] = useState<{ text?: string; error?: string }>({})
   useEffect(() => {
     const stop = new AbortController()
@@ -2182,8 +2195,11 @@ function ReadText({ path, read, at }: { path: string; read: (signal: AbortSignal
   }, [at])
   if (state.error) return <p className="fx-d-text" role="alert">{state.error}</p>
   if (state.text === undefined) return <p className="fx-d-text">{tr('讀取中…')}</p>
-  if (/\.mdx?$/i.test(path)) return <Markdown text={state.text} file />
-  return <pre className="fx-doc-code fx-doc-raw"><code>{state.text}</code></pre>
+  if (/\.mdx?$/i.test(path)) {
+    const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
+    return <Markdown text={state.text} project={{ dir, imageUrl }} />
+  }
+  return <CodeFile path={path} text={state.text} />
 }
 
 /** A file in the company's folder that a message mentions, as it is on disk now. */
@@ -2202,7 +2218,8 @@ function ProjectFileDetail({ teamId, path, ...h }: Head & { teamId: string; path
           ? (failed
             ? <p className="fx-d-text" role="alert">{teamId ? tr('{name} 讀不到，請到專案資料夾打開', { name }) : tr('{name} 讀不到，請到 Finder 打開', { name })}</p>
             : <img className="fx-d-image" src={projectImageUrl(teamId, path)} alt={path} onError={() => setFailed(true)} />)
-          : <ReadText path={path} read={(signal) => readProjectFile(teamId, path, signal)} at={`${teamId}:${path}`} />}
+          : <ReadText path={path} read={(signal) => readProjectFile(teamId, path, signal)} at={`${teamId}:${path}`}
+              imageUrl={(p) => projectImageUrl(teamId, p)} />}
       </div>
     </>
   )

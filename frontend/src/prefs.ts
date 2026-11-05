@@ -40,8 +40,8 @@ export const AUTO_TABS = { off: '關#switch', chats: '開：未讀對話優先',
 /** Opens a company or the airport on a tab with something waiting, the one named first when both are; off always opens the default tab. */
 export type AutoTab = keyof typeof AUTO_TABS
 
-export const BUSY_ANIMATIONS = { money: '撒錢', shout: '粗線條' } as const
-/** money tosses bills off one side of a busy building, then the other; shout flickers cartoon strokes off both sides. */
+export const BUSY_ANIMATIONS = { off: '關閉#view', money: '撒錢', shout: '粗線條' } as const
+/** money tosses bills off one side of a busy building, then the other; shout flickers cartoon strokes off both sides; off shows neither (the progress ring on the label stays). */
 export type BusyAnimation = keyof typeof BUSY_ANIMATIONS
 
 export const DAYLIGHTS = { real: '跟隨真實時間', minecraft: 'Minecraft', day: '永遠白天', night: '永遠夜晚' } as const satisfies Record<Daylight, string>

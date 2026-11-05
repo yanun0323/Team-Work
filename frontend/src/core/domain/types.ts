@@ -173,6 +173,8 @@ export interface SkillText extends SkillInfo {
 export interface FileInfo {
   path: string
   dir: boolean
+  /** The company's git ignore rules leave it out of the repo. */
+  ignored?: boolean
 }
 
 export interface Replica {

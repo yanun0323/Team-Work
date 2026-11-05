@@ -1,11 +1,11 @@
 // A company's notes: a sticky note pinned to the corner of its file, opening on a sheet of their own. They are
-// the Markdown in the project's .team-work/NOTES.md, shown rendered; a click on them turns the sheet into an
+// the Markdown in the project's .team-work/NOTES.md, shown rendered with its HTML and pictures; a click on them turns the sheet into an
 // editor, saved as one types and once more when it is left.
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { create } from 'zustand'
 import { tr } from './core/i18n'
-import { readNotes, saveNotes } from './core/ops'
+import { projectImageUrl, readNotes, saveNotes } from './core/ops'
 import { useAutoGrow } from './Controls'
 import { EditTool, Heading, type Head } from './DrawerDetail'
 import { Markdown, MarkdownLine } from './Markdown'
@@ -152,7 +152,7 @@ export function NotesSheet({ teamId, ...h }: Head & { teamId: string }) {
   }
   // a click on the notes writes in them, unless it follows a link or ends a selection
   const onRead = (e: MouseEvent) => {
-    if (text === undefined || (e.target as HTMLElement).closest('a') || window.getSelection()?.toString()) return
+    if (text === undefined || (e.target as HTMLElement).closest('a, summary') || window.getSelection()?.toString()) return
     setEditing(true)
   }
 
@@ -179,7 +179,7 @@ export function NotesSheet({ teamId, ...h }: Head & { teamId: string }) {
         ) : (
           <div className="fx-notes-read" onClick={onRead}>
             {text === undefined ? !error && <p className="fx-d-text">{tr('讀取中…')}</p>
-              : text.trim() ? <Markdown text={text} file />
+              : text.trim() ? <Markdown text={text} project={{ dir: '.team-work', imageUrl: (p) => projectImageUrl(teamId, p) }} />
               : <p className="fx-notes-empty">{tr('點一下開始寫')}</p>}
           </div>
         )}

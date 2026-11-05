@@ -26,7 +26,7 @@ Team Work 是一個 macOS App，讓一群 AI Agent 在你自己的專案裡工�
 - **模型供應商**：Anthropic、OpenAI、Google Gemini 和任何 OpenAI 相容 API，也可以用 Claude 或 ChatGPT 訂閱登入。
 - **技能**：藍圖可以從本機資料夾或 GitHub repo 載入技能。
 - **終端機**：每間公司都有一個開在專案資料夾的 zsh 終端機。
-- **檔案瀏覽**：瀏覽公司的專案資料夾，新增檔案和資料夾、編輯文字檔、預覽圖片。
+- **檔案瀏覽**：瀏覽公司的專案資料夾，編輯文字檔、預覽圖片。
 - **語言**：繁體中文和英文。
 
 ## 安裝
@@ -34,7 +34,7 @@ Team Work 是一個 macOS App，讓一群 AI Agent 在你自己的專案裡工�
 1. 從 [Releases](https://github.com/yanun0323/Team-Work/releases) 下載 `Team-Work-macOS.zip`。
 2. 解壓縮後，把 `Team Work.app` 移到「應用程式」資料夾。
 
-需要 macOS 12 以上，支援 Apple Silicon 和 Intel。任務需要 Git，專案資料夾也必須是 Git repo。
+需要 macOS 12 以上，支援 Apple Silicon 和 Intel。App 需要 Git：Mac 上沒有的話，App 會停下來，等你安裝 Apple 的 Command Line Tools（裡面就有 Git），並可以直接開始安裝。專案資料夾還不是 Git repo 的話，建立公司時會自動初始化。
 
 ## 開始使用
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { request } from './core/backend'
 import { MOCK } from './core/mode'
 import { useStore } from './core/store'
+import { useGit } from './GitInstall'
 import { prereqsOf, type Prereq, type PrereqTab, type ProjectHealth } from './prereqs'
 
 /** The company's folder as it is now, asked again each time the window comes back, as it changes outside the app. */
@@ -11,6 +12,8 @@ function useProjectHealth(teamId: string) {
   const [health, setHealth] = useState<ProjectHealth | null>(null)
   // a target branch just picked may be the fix
   const target = useStore((s) => s.world.teams[teamId]?.targetBranch)
+  // and so may git, once installed
+  const gitReady = useGit().phase === 'ready'
   useEffect(() => {
     if (MOCK || !teamId) return // the airport has no folder
     const asking = new AbortController()
@@ -22,7 +25,7 @@ function useProjectHealth(teamId: string) {
       asking.abort()
       window.removeEventListener('focus', ask)
     }
-  }, [teamId, target])
+  }, [teamId, target, gitReady])
   return health
 }
 

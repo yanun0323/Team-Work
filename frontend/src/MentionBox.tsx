@@ -9,6 +9,7 @@ import { useAutoGrow } from './Controls'
 import { tr } from './core/i18n'
 import { airportSkills, replicaSkills, searchFiles } from './core/ops'
 import { useStore } from './core/store'
+import { EntryIcon } from './FileIcons'
 import { acceptMention, fileChoices, mentionAt, personChoices, skillChoices, type MentionChoice, type Person } from './mentions'
 import { indentLines } from './indent'
 import { composing } from './ime'
@@ -107,12 +108,12 @@ export function MentionBox({ box, value, teamId, airport, replicaIds = [], peopl
         <ul ref={list} id={`${id}-list`} role="listbox" aria-label={kind === '$' ? tr('技能') : kind === '@' ? tr('員工') : tr('檔案和資料夾')} className={`fx-slip ${below ? 'fx-mention-below' : 'fx-mention'}`}>
           {choices.map((c, i) => (
             <li key={c.key} id={`${id}-${i}`} role="option" aria-selected={i === picked}
-              className={['fx-mention-row', kind === '@' && personRow && 'fx-slip-row', i === picked && 'active'].filter(Boolean).join(' ')}
+              className={['fx-mention-row', kind === '@' && personRow && 'fx-slip-row', c.file?.ignored && 'fx-files-ignored', i === picked && 'active'].filter(Boolean).join(' ')}
               // only a mouse really moving: a list opening under a resting one must not change the pick
               onMouseMove={(e) => { if (e.movementX || e.movementY) setActive(i) }}
               onMouseDown={(e) => e.preventDefault()} // the box keeps the focus
               onClick={() => accept(c)}>
-              {kind === '@' && personRow ? personRow(c.key) : <><b>{c.name}</b>{c.hint && <span>{c.hint}</span>}</>}
+              {kind === '@' && personRow ? personRow(c.key) : <>{c.file && <EntryIcon name={c.name} dir={c.file.dir} />}<b>{c.name}</b>{c.hint && <span>{c.hint}</span>}</>}
             </li>
           ))}
         </ul>

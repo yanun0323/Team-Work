@@ -3,7 +3,7 @@ import { seedWorld } from './core/data/seed'
 import type { ModelProvider, World } from './core/domain/types'
 import { blocked, prereqsOf, type PrereqTab, type ProjectHealth } from './prereqs'
 
-const healthy: ProjectHealth = { folder: true, repo: true, targetBranch: true }
+const healthy: ProjectHealth = { git: true, folder: true, repo: true, targetBranch: true }
 
 function world(): { w: World; teamId: string } {
   const w = seedWorld()
@@ -70,14 +70,23 @@ describe('what a tab of the company file needs', () => {
   it('reports the folder where work runs in it, and the repo where tasks need it', () => {
     const { w, teamId } = world()
     for (const r of Object.values(w.replicas)) r.model = Object.values(w.providers)[0].models[0]
-    const gone = { folder: false, repo: false, targetBranch: false }
+    const gone = { git: true, folder: false, repo: false, targetBranch: false }
     expect(ids(w, teamId, 'chats', gone)).toEqual(['folder'])
     expect(ids(w, teamId, 'tasks', gone)).toEqual(['folder'])
     expect(ids(w, teamId, 'terminal', gone)).toEqual(['folder'])
     expect(ids(w, teamId, 'crew', gone)).toEqual([])
-    expect(ids(w, teamId, 'tasks', { folder: true, repo: false, targetBranch: false })).toEqual(['repo'])
-    expect(ids(w, teamId, 'chats', { folder: true, repo: false, targetBranch: false })).toEqual([])
-    expect(ids(w, teamId, 'tasks', { folder: true, repo: true, targetBranch: false })).toEqual(['targetBranch'])
+    expect(ids(w, teamId, 'tasks', { git: true, folder: true, repo: false, targetBranch: false })).toEqual(['repo'])
+    expect(ids(w, teamId, 'chats', { git: true, folder: true, repo: false, targetBranch: false })).toEqual([])
+    expect(ids(w, teamId, 'tasks', { git: true, folder: true, repo: true, targetBranch: false })).toEqual(['targetBranch'])
+  })
+
+  it('does not call a folder no repo when git is missing, which stops the whole app instead', () => {
+    const { w, teamId } = world()
+    for (const r of Object.values(w.replicas)) r.model = Object.values(w.providers)[0].models[0]
+    const noGit = { git: false, folder: true, repo: false, targetBranch: false }
+    expect(ids(w, teamId, 'tasks', noGit)).toEqual([])
+    expect(ids(w, teamId, 'chats', noGit)).toEqual([])
+    expect(ids(w, teamId, 'terminal', noGit)).toEqual([])
   })
 
   it('says nothing about the folder until it is known', () => {

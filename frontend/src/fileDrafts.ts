@@ -1,7 +1,9 @@
-// What the file browser keeps while the app runs: each company's open file and opened folders, and the text of every
-// file being edited, by company and path. It lives outside the tab, so a change of tab or company leaves it as it was.
+// What the file browser keeps while the app runs: each company's opened folders and their listings, and the text of
+// every file being edited, by company and path. It lives outside the tab and the sheets, so a change of tab or a sheet
+// put away leaves it as it was.
 
 import { create } from 'zustand'
+import { listProjectTree, type TreeEntry } from './core/ops'
 
 /** A text file as it is being edited. */
 export interface FileDraft {
@@ -15,17 +17,25 @@ export interface FileDraft {
   crlf: boolean
 }
 
-/** Where a company's file browser is: the open file and the folders opened in its tree. */
-export interface BrowserView { open: string | null; expanded: string[] }
+/** Where a company's file browser is: the folders opened in its tree. */
+export interface BrowserView { expanded: string[] }
+
+/** One folder's level of the tree, as far as it has been read. */
+export type DirState =
+  | { status: 'loading'; entries?: TreeEntry[]; truncated?: boolean }
+  | { status: 'ok'; entries: TreeEntry[]; truncated: boolean }
+  | { status: 'error'; message: string }
 
 interface State {
   drafts: Record<string, FileDraft>
   views: Record<string, BrowserView>
+  /** Each folder's listing, by company and path ('' is the project itself), as last read. */
+  dirs: Record<string, DirState>
   /** A company being left while it has unsaved drafts, and what leaving does once the user agrees. */
   leaving: { teamId: string; proceed: () => void } | null
 }
 
-export const useFileDrafts = create<State>(() => ({ drafts: {}, views: {}, leaving: null }))
+export const useFileDrafts = create<State>(() => ({ drafts: {}, views: {}, dirs: {}, leaving: null }))
 
 export const draftKey = (teamId: string, path: string) => `${teamId}\n${path}`
 
@@ -74,7 +84,12 @@ export const unsavedIn = (drafts: Record<string, FileDraft>, teamId: string) =>
 
 export const anyUnsaved = () => Object.values(useFileDrafts.getState().drafts).some(isDirty)
 
-const NO_VIEW: BrowserView = { open: null, expanded: [] }
+/** Forgets a draft with nothing unsaved, so the file is read afresh next time; an unsaved one stays to come back to. */
+export function forgetClean(teamId: string, path: string) {
+  if (!isDirty(draftAt(teamId, path))) dropDraft(teamId, path)
+}
+
+const NO_VIEW: BrowserView = { expanded: [] }
 
 export const viewOf = (views: Record<string, BrowserView>, teamId: string) => views[teamId] ?? NO_VIEW
 
@@ -85,15 +100,6 @@ export function editView(teamId: string, f: (v: BrowserView) => Partial<BrowserV
   })
 }
 
-/**
- * Opens a file: the one open before is dropped unless it has unsaved changes, so coming back to it reads it afresh.
- */
-export function openFile(teamId: string, path: string | null) {
-  const before = viewOf(useFileDrafts.getState().views, teamId).open
-  if (before && before !== path && !isDirty(draftAt(teamId, before))) dropDraft(teamId, before)
-  editView(teamId, () => ({ open: path }))
-}
-
 export function toggleFolder(teamId: string, path: string, open?: boolean) {
   editView(teamId, (v) => {
     const has = v.expanded.includes(path)
@@ -101,6 +107,20 @@ export function toggleFolder(teamId: string, path: string, open?: boolean) {
     if (want === has) return {}
     return { expanded: want ? [...v.expanded, path] : v.expanded.filter((x) => x !== path) }
   })
+}
+
+export const dirAt = (dirs: Record<string, DirState>, teamId: string, path: string): DirState | undefined => dirs[draftKey(teamId, path)]
+
+/** Reads one folder's level again, keeping what was listed before on show while it is read. */
+export function loadDir(teamId: string, path: string) {
+  const key = draftKey(teamId, path)
+  const put = (d: DirState) => useFileDrafts.setState((s) => ({ dirs: { ...s.dirs, [key]: d } }))
+  const was = useFileDrafts.getState().dirs[key]
+  put(was?.status === 'ok' ? { ...was, status: 'loading' } : { status: 'loading' })
+  return listProjectTree(teamId, path).then(
+    (r) => put({ status: 'ok', ...r }),
+    (e: Error) => put({ status: 'error', message: e.message }),
+  )
 }
 
 /**

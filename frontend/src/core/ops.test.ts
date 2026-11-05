@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyPatches, emptyWorld, request, unreachable } from './backend'
 import { fmtClock } from './model'
 import { ApiError } from './backend'
-import { createProjectEntry, deleteMemory, editMemory, listProjectTree, projectImageUrl } from './ops'
+import { deleteMemory, editMemory, listProjectTree, projectImageUrl } from './ops'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -71,16 +71,6 @@ describe('the project\'s files', () => {
     vi.stubGlobal('fetch', f)
     await expect(listProjectTree('t', 'a b')).resolves.toEqual({ entries: [], truncated: false })
     expect(f.mock.calls[0]).toEqual(['/api/v1/teams/t/tree?path=a%20b', expect.objectContaining({ method: 'GET' })])
-  })
-
-  it('makes a file or folder in a folder', async () => {
-    const f = vi.fn(async () => new Response('{"name":"n.txt","path":"a/n.txt","kind":"file"}', { status: 201 }))
-    vi.stubGlobal('fetch', f)
-    await expect(createProjectEntry('t', 'a', 'n.txt', 'file')).resolves.toEqual({ name: 'n.txt', path: 'a/n.txt', kind: 'file' })
-    const [path, init] = f.mock.calls[0] as unknown as [string, RequestInit]
-    expect(path).toBe('/api/v1/teams/t/tree')
-    expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body as string)).toEqual({ parent: 'a', name: 'n.txt', kind: 'file' })
   })
 })
 

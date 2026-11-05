@@ -17,6 +17,8 @@ export interface MentionChoice {
   hint: string
   /** What replaces the word when picked. */
   text: string
+  /** A file or folder's, for its icon and to show it faint when git ignores it. */
+  file?: { dir: boolean; ignored?: boolean }
 }
 
 const isSpace = (c: string) => /\s/.test(c)
@@ -159,10 +161,10 @@ export function saidParts(text: string, people: Person[], signs: string = '@#$')
 
 /** A file ends the mention; a folder leaves it open, so the search carries on inside it. */
 export function fileChoices(files: FileInfo[]): MentionChoice[] {
-  return files.map(({ path, dir }) => {
+  return files.map(({ path, dir, ignored }) => {
     const at = path.lastIndexOf('/')
     const name = path.slice(at + 1)
-    return { key: path, name: dir ? `${name}/` : name, hint: path.slice(0, at + 1), text: dir ? mentionText(`${path}/`, false) : mentionText(path, true) }
+    return { key: path, name: dir ? `${name}/` : name, hint: path.slice(0, at + 1), text: dir ? mentionText(`${path}/`, false) : mentionText(path, true), file: { dir, ignored: !!ignored } }
   })
 }
 

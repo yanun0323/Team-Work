@@ -70,6 +70,15 @@ describe('choices', () => {
     expect(at(folder.text)).toMatchObject({ query: 'my folder/' })
     expect(at(spaced.text)).toBeNull()
   })
+
+  it('carry what a file is, and whether git ignores it, for its icon', () => {
+    const [dir, ignored, plain] = fileChoices([
+      { path: 'src', dir: true }, { path: '.env', dir: false, ignored: true }, { path: 'a.ts', dir: false },
+    ])
+    expect(dir.file).toEqual({ dir: true, ignored: false })
+    expect(ignored.file).toEqual({ dir: false, ignored: true })
+    expect(plain.file).toEqual({ dir: false, ignored: false })
+  })
 })
 
 describe('saidParts', () => {

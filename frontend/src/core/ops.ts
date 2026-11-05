@@ -208,7 +208,7 @@ export const readProjectFile = (teamId: string, path: string, signal?: AbortSign
   : request<{ text: string }>('GET', `${mentionBase(teamId)}/file?path=${encodeURIComponent(path)}`, undefined, signal).then((r) => r.text))
 
 /** One thing in a folder of a company's project, as the file browser lists it. */
-export interface TreeEntry { name: string; path: string; kind: 'dir' | 'file' }
+export interface TreeEntry { name: string; path: string; kind: 'dir' | 'file'; /** git's ignore rules leave it out */ ignored?: boolean }
 
 const projectBase = (teamId: string) => `/teams/${encodeURIComponent(teamId)}`
 
@@ -224,10 +224,6 @@ export const openProjectFile = (teamId: string, path: string, signal?: AbortSign
 /** Writes a text file in a company's project, only if it still has the content `hash` was taken of; answers the new hash. */
 export const saveProjectFile = (teamId: string, path: string, text: string, hash: string) =>
   request<{ hash: string }>('PUT', `${projectBase(teamId)}/file`, { path, text, hash }).then((r) => r.hash)
-
-/** A new empty file or folder in a folder of a company's project ('' is the project itself). */
-export const createProjectEntry = (teamId: string, parent: string, name: string, kind: TreeEntry['kind']) =>
-  request<TreeEntry>('POST', `${projectBase(teamId)}/tree`, { parent, name, kind })
 
 /** Where an `<img>` loads a picture in a company's folder, or at home with no company, as it is now. */
 export const projectImageUrl = (teamId: string, path: string) => `/api/v1${mentionBase(teamId)}/image?path=${encodeURIComponent(path)}`

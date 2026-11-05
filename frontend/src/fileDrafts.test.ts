@@ -1,10 +1,11 @@
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
-  answerLeaving, draftAt, draftOf, editDraftText, isDirty, leaveTeam, markSaved, openFile, setDraft, textToSave, toggleFolder,
-  unsavedIn, useFileDrafts, viewOf,
+  answerLeaving, dirAt, draftAt, draftOf, editDraftText, forgetClean, isDirty, leaveTeam, loadDir, markSaved, setDraft,
+  textToSave, toggleFolder, unsavedIn, useFileDrafts, viewOf,
 } from './fileDrafts'
 
-beforeEach(() => useFileDrafts.setState({ drafts: {}, views: {}, leaving: null }))
+beforeEach(() => useFileDrafts.setState({ drafts: {}, views: {}, dirs: {}, leaving: null }))
+afterEach(() => vi.unstubAllGlobals())
 
 it('edits CRLF files with LF line ends and writes them back with CRLF', () => {
   const d = draftOf('a\r\nb\r\n', 'h')
@@ -27,16 +28,28 @@ it('is unsaved while the text differs from what was read or last saved', () => {
   expect(isDirty(draftAt('t', 'a.txt'))).toBe(false)
 })
 
-it('keeps an unsaved draft when another file opens, and forgets a clean one', () => {
+it('forgets a clean draft once its sheets are put away, and keeps an unsaved one', () => {
   setDraft('t', 'a.txt', draftOf('a', 'h'))
-  openFile('t', 'a.txt')
-  openFile('t', 'b.txt')
+  forgetClean('t', 'a.txt')
   expect(draftAt('t', 'a.txt')).toBeUndefined()
-  expect(viewOf(useFileDrafts.getState().views, 't').open).toBe('b.txt')
   setDraft('t', 'b.txt', draftOf('b', 'h'))
   editDraftText('t', 'b.txt', 'changed')
-  openFile('t', 'c.txt')
+  forgetClean('t', 'b.txt')
   expect(draftAt('t', 'b.txt')?.text).toBe('changed')
+})
+
+it('reads a folder, keeping the old listing on show while it is read again, and says why one could not be read', async () => {
+  const entries = [{ name: 'src', path: 'src', kind: 'dir' }]
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ entries, truncated: false }))))
+  await loadDir('t', '')
+  expect(dirAt(useFileDrafts.getState().dirs, 't', '')).toEqual({ status: 'ok', entries, truncated: false })
+  const again = loadDir('t', '')
+  expect(dirAt(useFileDrafts.getState().dirs, 't', '')).toEqual({ status: 'loading', entries, truncated: false })
+  await again
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { code: 'not_found', message: '找不到' } }), { status: 404 })))
+  await loadDir('t', 'gone')
+  expect(dirAt(useFileDrafts.getState().dirs, 't', 'gone')).toEqual({ status: 'error', message: '找不到' })
+  expect(dirAt(useFileDrafts.getState().dirs, 'u', '')).toBeUndefined()
 })
 
 it('remembers which folders are open, per company', () => {

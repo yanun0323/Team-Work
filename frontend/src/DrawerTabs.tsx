@@ -18,6 +18,7 @@ import { itemKey, PinTool, type Item } from './DrawerDetail'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { TaskCard } from './TaskCard'
+import { Files } from './FileBrowser'
 
 export type Tab = 'chats' | 'tasks' | 'crew' | 'terminal' | 'files' | 'settings'
 
@@ -44,8 +45,9 @@ const COLUMNS: { status: Status; label: Key }[] = [
 /** Which item's detail sheet is open (by itemKey), and how to open one. */
 interface Opens { teamId: string; open: string | null; onOpen: (x: Item) => void }
 
-/** The terminal is not here: the company file keeps it apart, so it outlasts a change of tab. Nor is the file browser, a chunk of its own. */
-export function TabBody({ tab, ...p }: Opens & { tab: Exclude<Tab, 'terminal' | 'files'> }) {
+/** The terminal is not here: the company file keeps it apart, so it outlasts a change of tab. */
+export function TabBody({ tab, ...p }: Opens & { tab: Exclude<Tab, 'terminal'> }) {
+  if (tab === 'files') return <Files {...p} />
   if (tab === 'chats') return <Chats {...p} />
   if (tab === 'tasks') return <Tasks {...p} />
   if (tab === 'crew') return <Crew {...p} />

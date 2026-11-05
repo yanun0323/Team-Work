@@ -555,7 +555,8 @@ function Exterior({ look, w, d, floors, busy }: { look: BuildingLook; w: number;
       <group position={[0, h + 0.18, 0]} scale={KIT}>
         <Roof style={style} w={w / KIT} d={d / KIT} pal={pal} />
       </group>
-      {!!busy && (busyAnimation === 'money' ? <MoneyToss w={w} d={d} h={h} seed={seed} /> : <Shout w={w} d={d} h={h} seed={seed} />)}
+      {!!busy && busyAnimation === 'money' && <MoneyToss w={w} d={d} h={h} seed={seed} />}
+      {!!busy && busyAnimation === 'shout' && <Shout w={w} d={d} h={h} seed={seed} />}
     </>
   )
 }

@@ -1,14 +1,17 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { FilePane, Level, loadFile, parentOf, saveDraft, type DirState } from './FileBrowser'
-import { draftAt, draftOf, editDraftText, setDraft, useFileDrafts } from './fileDrafts'
+import { createRef } from 'react'
+import { Files, Level } from './FileBrowser'
+import { fileKind } from './FileIcons'
+import { FileDetail, FileEdit, loadFile, parentOf, saveDraft } from './FileSheets'
+import { draftAt, draftOf, editDraftText, setDraft, useFileDrafts, type DirState } from './fileDrafts'
 
 // rendered to a string, a store is read at its initial state: these renders show the state set up for them
 const render = (el: Parameters<typeof renderToStaticMarkup>[0]) => {
   Object.assign(useFileDrafts.getInitialState(), useFileDrafts.getState())
   return renderToStaticMarkup(el)
 }
-beforeEach(() => useFileDrafts.setState({ drafts: {}, views: {}, leaving: null }))
+beforeEach(() => useFileDrafts.setState({ drafts: {}, views: {}, dirs: {}, leaving: null }))
 afterEach(() => vi.unstubAllGlobals())
 
 const answer = (status: number, body: unknown) => vi.fn(async () => new Response(JSON.stringify(body), { status }))
@@ -76,11 +79,20 @@ describe('saving', () => {
   })
 })
 
-describe('the tree', () => {
-  const level = (dirs: Record<string, DirState>, expanded: string[] = [], open: string | null = null) => render(
-    <Level teamId="t" path="" dirs={dirs} expanded={expanded} open={open} creating={null}
-      onToggle={() => {}} onCreate={() => {}} onCancelCreate={() => {}} onCreated={() => {}} />,
-  )
+const head = { title: createRef<HTMLHeadingElement>(), tid: 'h' }
+const dirsOf = (dirs: Record<string, DirState>) => Object.fromEntries(Object.entries(dirs).map(([path, d]) => [`t\n${path}`, d]))
+
+describe('the tab', () => {
+  const level = (dirs: Record<string, DirState>, expanded: string[] = [], open: string | null = null) => {
+    useFileDrafts.setState({ dirs: dirsOf(dirs) })
+    return render(<Level teamId="t" path="" open={open} onOpen={() => {}} expanded={expanded} onToggle={() => {}} />)
+  }
+
+  it('has no way to make files or folders, only the tree', () => {
+    const html = render(<Files teamId="t" open={null} onOpen={() => {}} />)
+    expect(html).toContain('fx-files-level')
+    expect(html).not.toContain('新增')
+  })
 
   it('shows a folder being read, an empty one and one that failed', () => {
     expect(level({})).toContain('讀取中…')
@@ -88,21 +100,55 @@ describe('the tree', () => {
     expect(level({ '': { status: 'error', message: '找不到專案資料夾' } })).toContain('role="alert">找不到專案資料夾')
   })
 
-  it('lists folders that open in place, files marked while unsaved, and says when the list was cut short', () => {
+  it('opens folders in place and files on a sheet, marks files while unsaved, and says when the list was cut short', () => {
     setDraft('t', 'b.txt', draftOf('b', 'h'))
     editDraftText('t', 'b.txt', 'changed')
     const html = level({
       '': { status: 'ok', entries: [{ name: 'src', path: 'src', kind: 'dir' }, { name: 'a.txt', path: 'a.txt', kind: 'file' }, { name: 'b.txt', path: 'b.txt', kind: 'file' }], truncated: true },
       src: { status: 'ok', entries: [{ name: 'main.go', path: 'src/main.go', kind: 'file' }], truncated: false },
-    }, ['src'], 'a.txt')
+    }, ['src'], 'file:a.txt')
     expect(html).toContain('data-path="src" aria-expanded="true"')
     expect(html).toContain('data-path="src/main.go"')
-    expect(html).toContain('data-path="a.txt" aria-current="true"')
+    expect(html).toContain('data-path="a.txt" aria-expanded="true" aria-controls="fx-detail"')
+    expect(html).toContain('data-path="b.txt" aria-expanded="false"')
     expect(html.match(/fx-files-dot/g)).toHaveLength(1)
     expect(html.indexOf('fx-files-dot')).toBeGreaterThan(html.indexOf('data-path="b.txt"'))
     expect(html).toContain('只列出前 5000 項')
-    expect(html).toContain('aria-label="新增檔案"')
-    expect(html).toContain('aria-label="新增資料夾"')
+  })
+
+  it('marks each row with an icon for what it is, and a folder open or shut by its icon', () => {
+    const html = level({
+      '': { status: 'ok', entries: [
+        { name: 'src', path: 'src', kind: 'dir' }, { name: 'docs', path: 'docs', kind: 'dir' },
+        { name: 'a.md', path: 'a.md', kind: 'file' }, { name: 'logo.PNG', path: 'logo.PNG', kind: 'file' }, { name: 'run.sh', path: 'run.sh', kind: 'file' },
+      ], truncated: false },
+      src: { status: 'ok', entries: [], truncated: false },
+    }, ['src'])
+    const iconAfter = (path: string) => html.slice(html.indexOf(`data-path="${path}"`)).match(/fx-files-icon-([a-z-]+)/)?.[1]
+    expect(iconAfter('src')).toBe('folder-open')
+    expect(iconAfter('docs')).toBe('folder')
+    expect(iconAfter('a.md')).toBe('file')
+    expect(iconAfter('logo.PNG')).toBe('media')
+    expect(iconAfter('run.sh')).toBe('shell')
+    expect(html).not.toMatch(/[▸▾]/)
+  })
+
+  it('shows what git ignores faintly', () => {
+    const html = level({ '': { status: 'ok', entries: [
+      { name: 'dist', path: 'dist', kind: 'dir', ignored: true }, { name: 'src', path: 'src', kind: 'dir' },
+      { name: '.env', path: '.env', kind: 'file', ignored: true }, { name: 'a.go', path: 'a.go', kind: 'file' },
+    ], truncated: false } })
+    const classOf = (path: string) => html.match(new RegExp(`class="([^"]*)" data-path="${path.replace('.', '\\.')}"`))?.[1]
+    expect(classOf('dist')).toContain('fx-files-ignored')
+    expect(classOf('.env')).toContain('fx-files-ignored')
+    expect(classOf('src')).not.toContain('fx-files-ignored')
+    expect(classOf('a.go')).not.toContain('fx-files-ignored')
+  })
+
+  it('tells media and shell scripts from other files by name', () => {
+    expect(['a.jpg', 'b.webp', 'c.svg', 'd.mp4', 'e.mp3'].map(fileKind)).toEqual(['media', 'media', 'media', 'media', 'media'])
+    expect(['x.sh', 'y.bash', 'z.zsh', 'w.command'].map(fileKind)).toEqual(['shell', 'shell', 'shell', 'shell'])
+    expect(['README.md', 'Makefile', 'main.go', 'sh'].map(fileKind)).toEqual(['text', 'text', 'text', 'text'])
   })
 
   it('does not read a folder that is closed', () => {
@@ -112,28 +158,23 @@ describe('the tree', () => {
   })
 })
 
-describe('the open file', () => {
-  const pane = (state: Parameters<typeof FilePane>[0]['state'], path = 'a.txt') =>
-    render(<FilePane teamId="t" path={path} state={state} onReread={() => {}} onImageError={() => {}} />)
-
-  it('edits text, saving only once something changed', () => {
-    setDraft('t', 'a.txt', draftOf('hello', 'h'))
-    expect(pane({ status: 'ready' })).toMatch(/<button type="button" class="fx-save" disabled="">儲存<\/button>/)
-    expect(pane({ status: 'ready' })).toContain('hello</textarea>')
-    editDraftText('t', 'a.txt', 'hello!')
-    expect(pane({ status: 'ready' })).toMatch(/<button type="button" class="fx-save">儲存<\/button>/)
-    expect(pane({ status: 'ready' })).toContain('fx-files-dot')
+describe('the sheets', () => {
+  it('show a file being read, with no way to edit it yet', () => {
+    const html = render(<FileDetail {...head} teamId="t" path="docs/a.md" editing={false} onEdit={() => {}} />)
+    expect(html).toContain('>a.md</h2>')
+    expect(html).toContain('<code>docs/a.md</code>')
+    expect(html).toContain('讀取中…')
+    expect(html).not.toContain('aria-label="編輯"')
   })
 
-  it('shows a picture, says why a file cannot be shown, and shows read errors', () => {
-    expect(pane({ status: 'image' }, 'p/x.png')).toContain('src="/api/v1/teams/t/image?path=p%2Fx.png"')
-    const no = pane({ status: 'unsupported', message: 'x.bin 不是文字檔' }, 'x.bin')
-    expect(no).toContain('無法預覽')
-    expect(no).toContain('x.bin 不是文字檔')
-    expect(no).toContain('在 Finder 顯示')
-    expect(no).not.toContain('fx-save')
-    expect(pane({ status: 'error', message: '找不到' })).toContain('role="alert">找不到')
-    expect(pane({ status: 'loading' })).toContain('讀取中…')
+  it('show a picture without reading it as text', () => {
+    const html = render(<FileDetail {...head} teamId="t" path="p/x.png" editing={false} onEdit={() => {}} />)
+    expect(html).toContain('讀取中…')
+    expect(html).not.toContain('fx-files-text')
+  })
+
+  it('edit a file in a text box once it is read', () => {
+    expect(render(<FileEdit {...head} teamId="t" path="a.txt" onDone={() => {}} />)).toContain('編輯 a.txt')
   })
 })
 

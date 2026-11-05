@@ -74,6 +74,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Model provider</dt><dd>None, or unavailable: add one, sign in or refresh its models at the airport. Affects chats, tasks and employees.</dd>
           <dt>Employees</dt><dd>The company has none: add one first. Affects chats and tasks. If one employee's model stops working you only get a warning, and the others carry on.</dd>
           <dt>Project folder</dt><dd>Not found: put it back. Affects chats, tasks and the terminal.</dd>
+          <dt>Git</dt><dd>While this Mac has no git, the whole app stops and greys out under a note. Press Install and install the developer tools in the window Apple opens; the app comes back once they are in.</dd>
           <dt>Git repo</dt><dd>The folder is not a git repo: run <code>git init</code> in the terminal. Affects tasks.</dd>
           <dt>Target branch</dt><dd>The branch is gone: change it in the company's Settings. Affects tasks.</dd>
         </dl>
@@ -275,16 +276,14 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
   },
   files: {
     label: 'Files',
-    alt: "The company file's Files tab: the project folder's tree on the left, an open text file on the right",
+    alt: "The company file's Files tab: the project folder's tree",
     body: (
       <>
-        <p>Browse the company's project folder to change a few lines or look at a picture without leaving the app. The tree on the left reads a folder only when you open it, so hidden files, <code>.git</code> and <code>node_modules</code> are all there, and a closed folder is never read. The simulator has no such tab.</p>
+        <p>Browse the company's project folder to change a few lines or look at a picture without leaving the app. The tab holds the folder's tree; click a folder to open it. A folder is read only when you open it, so hidden files, <code>.git</code> and <code>node_modules</code> are all there, and a closed folder is never read; what <code>.gitignore</code> leaves out is shown faded. Open folders are read again when you come back to the tab or the app. You can view and edit existing files, but not create, delete, move or rename anything. The simulator has no such tab.</p>
         <dl>
-          <dt>Opening</dt><dd>Text files open in a plain text box to edit. PNG, JPG, GIF and WebP pictures are only shown. Other files, and text files over 1 MiB, cannot be previewed; you can show them in Finder.</dd>
-          <dt>Creating</dt><dd>New file and New folder sit at the top of the tree and at the right of each folder's row, shown on hover. Type a name and press Enter, or Esc to cancel. A name that is not allowed or already taken is explained beside the box. Nothing can be deleted, moved or renamed.</dd>
-          <dt>Saving</dt><dd>Press Save or Command+S (Ctrl+S). A red dot marks unsaved files. Drafts stay when you switch tabs, open another file or close the company file, until the app closes. Closing a file, closing the company file or going to another company asks first when there are unsaved changes. Files with CRLF line endings are saved with CRLF.</dd>
-          <dt>Changed elsewhere</dt><dd>If an employee, the terminal or another editor changed the file after you opened it, saving is refused, so their change is not overwritten. Choose Reload to drop your draft, or Keep my changes to copy them out yourself.</dd>
-          <dt>Refresh</dt><dd>The tree does not update by itself. Refresh at the top rereads the open folders and any unchanged file.</dd>
+          <dt>Opening</dt><dd>Click a file to open it alongside: Markdown is formatted, other text shown as it is, and PNG, JPG, GIF and WebP show as pictures. Other files, and text files over 1 MiB, show why they cannot be previewed; you can show them in Finder.</dd>
+          <dt>Editing</dt><dd>Edit at the top right of a text file opens its edit sheet, a plain text box. Save saves and puts it away; Command+S (Ctrl+S) saves and keeps editing. Put it away unsaved and the draft stays, marked by a red dot in the tree; press Edit again to carry on, or Discard changes to drop it. Drafts last until the app closes. Closing the company file or going to another company asks first when there are unsaved changes. Files with CRLF line endings are saved with CRLF.</dd>
+          <dt>Changed elsewhere</dt><dd>If an employee, the terminal or another editor changed the file after you opened it, saving is refused, so their change is not overwritten. Copy out your changes if you need them, then press Reload.</dd>
         </dl>
       </>
     ),

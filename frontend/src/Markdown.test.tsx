@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { Markdown, MarkdownLine } from './Markdown'
+import { projectImageUrl } from './core/ops'
+import { Markdown, MarkdownLine, projectPath } from './Markdown'
 import { SaidContext, type SaidActions } from './Said'
 
 const html = (text: string, file?: boolean) => renderToStaticMarkup(<Markdown text={text} file={file} />)
@@ -109,4 +110,56 @@ describe('mentions in a message', () => {
     expect(out).toContain('<li>')
     expect(out).toContain('<code>#not/this</code>')
   })
+
+  it('draws the HTML of a project file, cleaned, with its own pictures loaded from the project', () => {
+    const out = renderToStaticMarkup(<Markdown project={{ dir: 'docs', imageUrl: (p) => projectImageUrl('t', p) }} text={[
+      '<p align="center"><a href="."><img height="160" src="./img/logo.png" alt="Logo"></a></p>',
+      '<p><img src="https://img.shields.io/badge/x" alt="徽章"><script>alert(1)</script><b onclick="x()">粗</b></p>',
+      '',
+      '# Title',
+    ].join('\n')} />)
+    expect(out).toContain('<p align="center">')
+    expect(out).toContain(`src="/api/v1/teams/t/image?path=${encodeURIComponent('docs/img/logo.png')}"`)
+    expect(out).toContain('height="160"')
+    expect(out).toContain('徽章')
+    expect(out).toContain('<a href="https://img.shields.io/badge/x" target="_blank" rel="noreferrer">徽章</a>')
+    expect(out).not.toMatch(/<img[^>]*shields/)
+    expect(out).not.toMatch(/<script|onclick|alert/)
+    expect(out).toContain('<b>粗</b>')
+    expect(out).toContain('<h1>Title</h1>')
+  })
+
+  it('keeps HTML as text in what people and models write', () => {
+    expect(html('<b>粗</b>', true)).not.toContain('<b>')
+    expect(html('<b>粗</b>')).not.toContain('<b>')
+  })
+
+  it('finds a relative address in the project, and nothing outside it', () => {
+    expect(projectPath('docs', './a.png')).toBe('docs/a.png')
+    expect(projectPath('docs/x', '../a%20b.png?raw=1')).toBe('docs/a b.png')
+    expect(projectPath('', '/macos/i.png')).toBe('macos/i.png')
+    expect(projectPath('', '../a.png')).toBeNull()
+    expect(projectPath('', 'https://x.dev/a.png')).toBeNull()
+    expect(projectPath('', '//x.dev/a.png')).toBeNull()
+    expect(projectPath('', 'data:image/png;base64,AA')).toBeNull()
+    expect(projectPath('', '%E0%A4%A.png')).toBeNull()
+  })
+
+  it('colours a code block by the language it names, in messages and files alike', () => {
+    const block = '```go\nfunc main() {}\n```'
+    for (const out of [html(block), html(block, true), renderToStaticMarkup(<Markdown text={block} project={{ dir: '', imageUrl: (p) => p }} />)]) {
+      expect(out).toContain('class="hljs language-go"')
+      expect(out).toContain('<span class="hljs-keyword">func</span>')
+    }
+    expect(html('```\nfunc main() {}\n```')).not.toContain('hljs-keyword')
+    expect(html('```nosuchlang\nfunc\n```')).toContain('func')
+  })
+
+  it('gives every code block a button to copy it, and nothing else one', () => {
+    for (const out of [html('```go\nx := 1\n```'), html('```\nplain\n```', true), renderToStaticMarkup(<Markdown text={'```sh\nls\n```'} project={{ dir: '', imageUrl: (p) => p }} />)]) {
+      expect(out).toMatch(/<div class="fx-md-code"><pre><code[^>]*>[^]*<\/code><\/pre><button type="button" class="fx-md-copy fx-hit" aria-label="複製程式碼"/)
+    }
+    expect(html('平常 `碼` 而已')).not.toContain('fx-md-copy')
+  })
 })
+

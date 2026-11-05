@@ -6,6 +6,8 @@ import type { ModelProvider, World } from './core/domain/types'
 
 /** What only the backend can see: the company's folder as it is now. */
 export interface ProjectHealth {
+  /** Whether git runs on this computer at all; without it `repo` and `targetBranch` cannot be known, and the app stops (GitGate). */
+  git: boolean
   folder: boolean
   repo: boolean
   targetBranch: boolean
@@ -44,7 +46,8 @@ const folder = (h: ProjectHealth | null): Prereq | null =>
 
 /** Tasks work in branches of the repo and merge into the target branch. */
 const repo = (w: World, teamId: string, h: ProjectHealth | null): Prereq | null => {
-  if (!h?.folder) return null
+  // without git the whole app is stopped, so there is no repo to complain about
+  if (!h?.folder || !h.git) return null
   if (!h.repo) return { id: 'repo', text: tr('專案資料夾不是 git repo。請先在終端機執行 git init'), blocks: true }
   if (!h.targetBranch) return { id: 'targetBranch', text: tr('找不到目標分支 {targetBranch}。請先到「設定」頁籤更換目標分支', { targetBranch: w.teams[teamId]?.targetBranch }), blocks: true }
   return null

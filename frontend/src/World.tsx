@@ -35,6 +35,7 @@ import { toonInstanced } from './toon'
 import { usePrefs } from './prefs'
 import { debugDaylight, glowing, light, lightAt, MIN_SUN_ELEVATION, phaseOf } from './daylight'
 import { DaylightDebug } from './DaylightDebug'
+import { CleanMacDebug } from './CleanMacDebug'
 import { IndoorLights } from './IndoorLight'
 import { LANTERN, propBoxes, type Box } from './streetProps'
 import { playSound, useSound } from './sound'
@@ -418,7 +419,12 @@ export function World() {
         {!placing && !editing && <TutorialList onGo={goTutorial} />}
       </div>
     )}
-    {import.meta.env.DEV && <DaylightDebug />}
+    {import.meta.env.DEV && (
+      <div className="fx-debug">
+        {MOCK && <CleanMacDebug />}
+        <DaylightDebug />
+      </div>
+    )}
     {!drawer.value && !settings.value && !sheet.value && !help.value && (
       <>
       {(placing || editing) && (
