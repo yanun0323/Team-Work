@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -158,9 +159,15 @@ func (g *Git) Files(ctx context.Context, folder string) []string {
 }
 
 // Ignored says which of paths, relative to folder with "/" separators, git's ignore rules leave out; a folder ends in
-// "/" so rules for folders only apply. None are when folder is no repo or git cannot run.
+// "/" so rules for folders only apply. None are when folder is no repo or git cannot run, except that .git and
+// everything in it always is: git's own data is never part of the repo, though check-ignore does not say so.
 func (g *Git) Ignored(ctx context.Context, folder string, paths []string) map[string]bool {
 	ignored := map[string]bool{}
+	for _, p := range paths {
+		if slices.Contains(strings.Split(strings.TrimSuffix(p, "/"), "/"), ".git") {
+			ignored[p] = true
+		}
+	}
 	path, err := tool.path(ctx)
 	if err != nil || len(paths) == 0 {
 		return ignored

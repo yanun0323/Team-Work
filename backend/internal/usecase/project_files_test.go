@@ -99,12 +99,35 @@ func TestProjectTreeMarksWhatGitIgnores(t *testing.T) {
 		}
 		return strings.Join(out, " ")
 	}
-	// "build/" only matches folders, so it is asked about as one
-	if got := marks(""); got != "build logs a.log" {
+	// "build/" only matches folders, so it is asked about as one; .git is git's own data, so always marked
+	if got := marks(""); got != ".git build logs a.log" {
 		t.Fatalf("root: %q", got)
 	}
 	if got := marks("src"); got != "gen" {
 		t.Fatalf("src: %q", got)
+	}
+}
+
+func TestProjectTreeMarksGitFolderIgnored(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	for _, rel := range []string{"", ".git"} {
+		tree, err := r.e.ProjectTree(context.Background(), r.team.ID, rel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := false
+		for _, x := range tree.Entries {
+			if rel == "" && x.Name != ".git" {
+				continue
+			}
+			seen = true
+			if !x.Ignored {
+				t.Fatalf("%q: not marked: %+v", rel, x)
+			}
+		}
+		if !seen {
+			t.Fatalf("%q: nothing listed", rel)
+		}
 	}
 }
 
