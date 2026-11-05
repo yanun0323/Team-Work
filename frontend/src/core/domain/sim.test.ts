@@ -503,7 +503,7 @@ describe('meetings', () => {
     expect(chat.question).toBeDefined()
   })
 
-  it('changes chair, goes on with the next guest when the chair leaves, and hands off as the chair or one-on-one', () => {
+  it('changes chair, goes on with the next guest when the chair leaves, and hands off one-on-one, even to the chair', () => {
     const { w, ada, bea, cy, chat } = meet()
     run(w, REPLY_TIME * 3 + 1)
     setChatChair(w, chat.id, cy.id)
@@ -511,7 +511,8 @@ describe('meetings', () => {
     fire(w, cy.id, ada.id)
     expect(chat.replicaId).toBe(bea.id)
     expect(chat.guests?.map((g) => g.name)).toEqual(['Cy', ada.name])
-    expect(handOffChat(w, chat.id, 3, bea.id)?.guests).toHaveLength(2)
+    const chair = handOffChat(w, chat.id, 3, bea.id)!
+    expect([chair.replicaId, chair.guests, chair.handoffs]).toEqual([bea.id, undefined, undefined])
     const alone = handOffChat(w, chat.id, 3, ada.id)!
     expect([alone.replicaId, alone.guests]).toEqual([ada.id, undefined])
   })

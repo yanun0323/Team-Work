@@ -627,10 +627,10 @@ export function handOffChat(w: World, id: string, index: number, replicaId: stri
   if (chat.replyAt !== undefined && !chat.messages.slice(index).some((x) => x.from === 'user')) return undefined
   const next = m.from === 'user' ? -1 : chat.messages.findIndex((x, i) => i > index && x.from === 'user')
   const keep = m.from === 'user' ? index + 1 : next < 0 ? chat.messages.length : next
-  const fork: Chat = { ...chat, id: uid(w, 'chat'), messages: chat.messages.slice(0, keep).map((x) => ({ ...x })), handoffs: chat.handoffs?.map((h) => ({ ...h })), guests: chat.guests?.map((g) => ({ ...g })), tokens: 0, createdAt: w.now }
+  const fork: Chat = { ...chat, id: uid(w, 'chat'), messages: chat.messages.slice(0, keep).map((x) => ({ ...x })), handoffs: chat.handoffs?.map((h) => ({ ...h })), tokens: 0, createdAt: w.now }
+  // a meeting handed to anyone, its chair too, goes on with them alone
+  delete fork.guests
   if (taker && replicaId !== chat.replicaId) {
-    // a meeting handed to one of its own or anyone else goes on with them alone
-    delete fork.guests
     // they take over from the user's message, or after the reply it ends with
     fork.handoffs = [...fork.handoffs ?? [], { before: m.from === 'user' ? index : keep, replicaId: chat.replicaId, name: chat.name }]
     Object.assign(fork, { replicaId, name: taker.name, look: taker.look, model: taker.model })
