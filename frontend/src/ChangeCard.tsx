@@ -19,6 +19,7 @@ function fieldName(field: string) {
     case 'comment': return tr('備註')
     case 'tools': return tr('工具')
     case 'skills': return tr('技能')
+    case 'source': return tr('新增來源')
     case 'kind': return tr('種類')
     case 'staff': return tr('員工')
     case 'handoff': return tr('交接')
@@ -34,7 +35,7 @@ function fieldName(field: string) {
   }
 }
 
-const added = (l: ChangeLine) => (l.field === 'node' || l.field === 'edge') && !l.before
+const added = (l: ChangeLine) => (l.field === 'node' || l.field === 'edge' || l.field === 'source') && !l.before
 const removed = (l: ChangeLine) => (l.field === 'node' || l.field === 'edge') && !l.after
 
 export function ChangeLines({ change }: { change: PendingChange }) {

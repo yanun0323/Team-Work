@@ -31,6 +31,13 @@ describe('a change card', () => {
     expect((html.match(/<ins>/g) ?? []).length).toBe(3) // a removed connection has nothing after it
   })
 
+  it('shows a source a blueprint brings as only added', () => {
+    const html = renderToStaticMarkup(<ChangeLines change={{ ...change, lines: [{ field: 'source', after: 'https://github.com/a/b main @ 1a2b3c4' }] }} />)
+    expect(html).toContain('新增來源')
+    expect(html).toContain('1a2b3c4')
+    expect(html).not.toContain('<del>')
+  })
+
   it('names what it is about, in either language', () => {
     expect(changeAsk(change)).toContain('藍圖「Dev」')
     expect(changeAsk({ ...change, kind: 'workflow' })).toContain('任務藍圖「Dev」')
