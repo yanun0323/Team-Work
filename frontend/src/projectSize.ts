@@ -6,7 +6,7 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import { request } from './core/backend'
 import { MOCK } from './core/mode'
-import { FLOOR_BYTES, seedOfId } from './layout'
+import { FLOOR_BYTES, FLOOR_GROWTH, seedOfId } from './layout'
 
 const KEPT = 'projectBytes'
 /** How often sizes are asked for again, besides whenever a task is finished: commits made outside the app show up too. */
@@ -25,7 +25,7 @@ function kept(): Record<string, number> {
 export const useProjectBytes = create<Record<string, number>>(() => (MOCK ? {} : kept()))
 
 /** A made-up size for the mock world: one to eight storeys, the same for a company every time. */
-const mockBytes = (id: string) => FLOOR_BYTES * 2 ** ((seedOfId(id) % 8) - 1)
+const mockBytes = (id: string) => FLOOR_BYTES * FLOOR_GROWTH ** ((seedOfId(id) % 8) - 1)
 
 /**
  * Keeps `useProjectBytes` up to date for the companies in `ids` (joined by newlines): now, every `REFRESH_MS`, and

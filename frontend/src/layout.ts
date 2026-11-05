@@ -115,8 +115,9 @@ export const BUILDING_CELLS = 10
 /** Footprint edges a building goes through as it grows; even, so the two-cell door stays in the middle. */
 export const BUILDING_SIZES = [4, 6, 8, 10] as const
 export const MAX_FLOORS = 10
-/** A project this big gets a second storey, and each time it doubles one more. */
-export const FLOOR_BYTES = 128 * 1024
+/** A project this big gets a second storey, and one more each time it grows `FLOOR_GROWTH` times: about 1.5 GB is ten. */
+export const FLOOR_BYTES = 1024 * 1024
+export const FLOOR_GROWTH = 2.5
 /**
  * Finished tasks that bring each dressing to the building, in turn: a blade sign, flags over the entrance, a
  * billboard on the side, neon along the roof, and the billboard turned into a moving screen.
@@ -166,10 +167,12 @@ export function footprintOf(members: number): number {
   return BUILDING_SIZES.find((s) => officeCapacity(s * CELL, CELL) >= members) ?? BUILDING_CELLS
 }
 
-/** Storeys for a project of `bytes`: one below `FLOOR_BYTES`, then one more each time it doubles, up to `MAX_FLOORS`. */
+/** Storeys for a project of `bytes`: one below `FLOOR_BYTES`, then one more each time it grows `FLOOR_GROWTH` times, up to `MAX_FLOORS`. */
 export function floorsOf(bytes: number): number {
-  if (!(bytes >= FLOOR_BYTES)) return 1
-  return Math.min(MAX_FLOORS, 2 + Math.floor(Math.log2(bytes / FLOOR_BYTES)))
+  let floors = 1
+  // counted up rather than by logarithm, so a size right on a threshold is never rounded down
+  for (let start = FLOOR_BYTES; floors < MAX_FLOORS && bytes >= Math.ceil(start); start *= FLOOR_GROWTH) floors++
+  return floors
 }
 
 /** How many of `DECOR_TASKS` a company has reached with `done` finished tasks. */

@@ -106,14 +106,19 @@ describe('fusion town grid', () => {
     expect(footprintOf(500)).toBe(BUILDING_CELLS)
   })
 
-  it('adds a storey each time the project doubles, from one up to ten', () => {
+  it('adds a storey from 1 MB, then each time the project grows 2.5 times, up to ten', () => {
+    const MB = 1024 * 1024
+    expect(FLOOR_BYTES).toBe(MB)
     expect(floorsOf(0)).toBe(1)
     expect(floorsOf(Number.NaN)).toBe(1)
-    expect(floorsOf(FLOOR_BYTES - 1)).toBe(1)
-    expect(floorsOf(FLOOR_BYTES)).toBe(2)
-    expect(floorsOf(FLOOR_BYTES * 2 - 1)).toBe(2)
-    expect(floorsOf(FLOOR_BYTES * 2)).toBe(3)
-    expect(floorsOf(FLOOR_BYTES * 2 ** (MAX_FLOORS - 2))).toBe(MAX_FLOORS)
+    // where each storey starts: 1, 2.5, 6.25, 15.625 MB and so on, 2.5 times the one before
+    const starts = Array.from({ length: MAX_FLOORS - 1 }, (_, i) => Math.ceil(MB * 2.5 ** i))
+    starts.forEach((bytes, i) => {
+      expect(floorsOf(bytes - 1), `just under storey ${i + 2}`).toBe(i + 1)
+      expect(floorsOf(bytes), `storey ${i + 2}`).toBe(i + 2)
+    })
+    // about 1.5 GB is the top
+    expect(starts[MAX_FLOORS - 2]).toBe(Math.ceil(1525.87890625 * MB))
     expect(floorsOf(1e15)).toBe(MAX_FLOORS)
   })
 
