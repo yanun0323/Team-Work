@@ -1507,7 +1507,8 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fx-room-say { position: relative; flex: none; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
 .fx-room-say-wide { flex: 0 0 100%; }
 /* the chat's context use, under the box */
-.fx-room-context { margin: -4px 0 0; font: 500 11px/1.2 var(--font-mono); color: var(--muted); text-align: end; }
+/* ends with the box, clear of the send button and the gap before it */
+.fx-room-context { box-sizing: border-box; margin: -4px 0 0; padding-inline-end: 48px; font: 500 11px/1.2 var(--font-mono); color: var(--muted); text-align: end; }
 .fx-room-to { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; font-size: 12.5px; color: var(--muted); }
 .fx-room-to-one { display: inline-flex; align-items: center; gap: 4px; color: var(--ink); }
 .fx-room-to-one svg { display: block; }

@@ -191,7 +191,8 @@ function Blueprints({ open, onOpen }: { open: string | null; onOpen: (x: Item) =
             const trouble = gitSources(bp).filter((s) => sourceState(s, w.now).tone === 'bad').length
               + [...new Set(kept)].filter((s) => keptState(s, w.now)?.tone === 'bad').length
             return (
-              <li key={bp.id} className={hidden.includes(bp.id) ? 'fx-hidable fx-hidden-item' : 'fx-hidable'}>
+              // the airport staff's is never hired from, so it always looks hidden
+              <li key={bp.id} className={hidden.includes(bp.id) || bp.id === AIRPORT_BLUEPRINT ? 'fx-hidable fx-hidden-item' : 'fx-hidable'}>
                 <button className="fx-row fx-hit" {...opener({ kind: 'blueprint', id: bp.id })}>
                   <span aria-hidden="true"><BlueprintIcon look={bp.look} name={bp.name} size={34} /></span>
                   <span className="fx-row-main">

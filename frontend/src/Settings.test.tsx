@@ -165,15 +165,16 @@ it('fades a hidden blueprint in its place, with an eye on each row to hide or sh
   set({ defaultAirportTab: 'blueprints', autoTab: 'off' })
   try {
     const shown = html()
-    const rows = shown.match(/class="fx-hidable"/g)?.length ?? 0
+    const rows = shown.match(/class="fx-hidable( fx-hidden-item)?"/g)?.length ?? 0
     expect(rows).toBeGreaterThan(1)
-    // every row but the airport staff's, which cannot be hidden
+    // the airport staff's always looks hidden, and has no eye: it cannot be hidden or shown
+    expect(shown.match(/fx-hidden-item/g)).toHaveLength(1)
     expect(shown.match(/aria-pressed="false" aria-label="隱藏"/g)).toHaveLength(rows - 1)
     set({ hiddenBlueprints: ['preset-assistant'] })
     const after = html()
     // the same rows in the same order, one of them faded and its eye struck through
     expect(after.match(/class="fx-hidable( fx-hidden-item)?"/g)).toHaveLength(rows)
-    expect(after.match(/fx-hidden-item/g)).toHaveLength(1)
+    expect(after.match(/fx-hidden-item/g)).toHaveLength(2)
     expect(after.match(/aria-pressed="true" aria-label="隱藏"/g)).toHaveLength(1)
     expect(after.replace(/ fx-hidden-item/, '').replace(/aria-pressed="true"/, 'aria-pressed="false"').replace(/title="取消隱藏"/, 'title="隱藏"').replace('<path d="M2.5 13.5l11-11" stroke="currentColor" stroke-width="1.5"></path>', '')).toBe(shown)
   } finally {
