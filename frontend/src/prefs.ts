@@ -107,9 +107,21 @@ export interface Prefs {
   /** The built-in blueprints read skills from ~/.codex/ and ~/.claude/. */
   codexSkills: boolean
   claudeSkills: boolean
+  /** Left out of every list to pick from and out of employees' tools; whatever is already on them keeps them. */
+  hiddenBlueprints: string[]
+  hiddenWorkflows: string[]
+  /** How full, in percent, a chat on a model of 1M tokens or more, 256K or more, 128K or more, or less may get before it is summed up. */
+  compact1M: number
+  compact256K: number
+  compact128K: number
+  compactSmall: number
 }
 
-export const DEFAULT_PREFS: Prefs = { muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true }
+/** The compaction percentages as they come, and their range; the backend checks the same. */
+export const COMPACT_DEFAULTS = { compact1M: 40, compact256K: 90, compact128K: 95, compactSmall: 95 } satisfies Partial<Prefs>
+export const COMPACT_SHARE = { min: 10, max: 100 }
+
+export const DEFAULT_PREFS: Prefs = { muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], ...COMPACT_DEFAULTS }
 
 /** The range of `zoomSensitivity`; the backend checks the same. */
 export const ZOOM_SENSITIVITY = { min: 20, max: 300 }

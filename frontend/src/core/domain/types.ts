@@ -364,6 +364,8 @@ export interface Chat {
   effort?: Effort
   messages: ChatMessage[]
   tokens: number
+  /** About how many tokens the next call sends, which the chat is summed up to keep under the model's context window. */
+  context?: number
   /** The employee is writing a reply. */
   replyAt?: number
   /** The employee waits for an answer to what they just asked; the next message is it. */
@@ -589,6 +591,8 @@ export interface ModelProvider {
   models: string[]
   /** The thinking levels each model reports, weakest first; a model not in it reports none. */
   thinking?: Record<string, string[]>
+  /** How many tokens its models can read, as the user set it; only Google and compatible ones keep one. */
+  contextWindow?: number
 }
 
 /**

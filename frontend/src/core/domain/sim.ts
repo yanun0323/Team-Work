@@ -1113,7 +1113,7 @@ const authOf = (l: ProviderLogin): ProviderAuth =>
   l.kind === 'apiKey' ? { kind: 'apiKey', keyHint: l.apiKey.trim().slice(-4) } : { kind: 'subscription', signedIn: true }
 
 /** Add a model provider, with the models it lists; names are trimmed and each model kept once. */
-export function addProvider(w: World, input: Pick<ModelProvider, 'name' | 'kind' | 'baseUrl' | 'models' | 'thinking'> & { login: ProviderLogin }): ModelProvider {
+export function addProvider(w: World, input: Pick<ModelProvider, 'name' | 'kind' | 'baseUrl' | 'models' | 'thinking' | 'contextWindow'> & { login: ProviderLogin }): ModelProvider {
   const id = uid(w, 'mp')
   const auth = authOf(input.login)
   w.providers[id] = {
@@ -1121,21 +1121,26 @@ export function addProvider(w: World, input: Pick<ModelProvider, 'name' | 'kind'
     baseUrl: auth.kind === 'subscription' ? '' : input.baseUrl.trim(),
     models: [...new Set(input.models.map((m) => m.trim()).filter(Boolean))],
     thinking: input.thinking,
+    ...(fixedContext(input.kind) || !input.contextWindow ? {} : { contextWindow: input.contextWindow }),
   }
   return w.providers[id]
 }
+
+/** Whether a provider's kind decides how many tokens its models read, leaving none to set. */
+export const fixedContext = (kind: ModelProvider['kind']) => kind === 'anthropic' || kind === 'openai'
 
 /**
  * Change a provider's name, address or sign-in; its kind, and so its models, stay. A null login keeps
  * the one it has, as does an empty key for a provider already on a key.
  */
-export function updateProvider(w: World, id: string, input: { name: string; baseUrl: string; login: ProviderLogin | null }) {
+export function updateProvider(w: World, id: string, input: { name: string; baseUrl: string; login: ProviderLogin | null; contextWindow?: number }) {
   const p = w.providers[id]
   if (!p) return
   const keep = !input.login || (input.login.kind === 'apiKey' && !input.login.apiKey.trim() && p.auth.kind === 'apiKey')
   if (!keep) p.auth = authOf(input.login!)
   p.name = input.name.trim()
   p.baseUrl = p.auth.kind === 'subscription' ? '' : input.baseUrl.trim()
+  if (input.contextWindow !== undefined && !fixedContext(p.kind)) p.contextWindow = input.contextWindow || undefined
 }
 
 /** Employees, in any company, running on a model the provider offers. */

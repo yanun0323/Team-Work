@@ -12,16 +12,16 @@ import { BlueprintIcon } from './BlueprintIcon'
 import { SheetStack, useSheets } from './Drawer'
 import { gitSources } from './core/domain/sim'
 import { blueprintList, flowList, waitingTab } from './core/model'
-import { isPreset } from './core/data/presets'
-import { itemKey, type Item } from './DrawerDetail'
+import { AIRPORT_BLUEPRINT, isPreset } from './core/data/presets'
+import { HideTool, itemKey, type Item } from './DrawerDetail'
 import { FlowNotes, openCard } from './FlowNotes'
 import { keptState, sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, makesImages, PROVIDER_KINDS } from './providers'
 import { Select, Switcher, Toggle, useAutoGrow } from './Controls'
-import { setLanguage } from './core/ops'
+import { hideBlueprint, hideWorkflow, setLanguage } from './core/ops'
 import { Chats, TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
-import { airportTabOr, AIRPORT_TABS, AUTO_TABS, AUTO_VIEWS, BUSY_ANIMATIONS, DAYLIGHTS, DEFAULT_PREFS, type AirportTab, type AutoTab, type AutoView, type BusyAnimation, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY } from './prefs'
+import { airportTabOr, AIRPORT_TABS, AUTO_TABS, AUTO_VIEWS, BUSY_ANIMATIONS, DAYLIGHTS, DEFAULT_PREFS, type AirportTab, type AutoTab, type AutoView, type BusyAnimation, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY, COMPACT_DEFAULTS, COMPACT_SHARE } from './prefs'
 import { request } from './core/backend'
 import { MusicSection, Volume } from './SoundPage'
 import { MOCK } from './core/mode'
@@ -177,6 +177,8 @@ function MineAndBuiltIn<T extends { id: string }>({ items, render }: { items: T[
 
 function Blueprints({ open, onOpen }: { open: string | null; onOpen: (x: Item) => void }) {
   const w = useStore((s) => s.world)
+  const act = useStore((s) => s.act)
+  const hidden = usePrefs((s) => s.hiddenBlueprints)
   const opener = (x: Item) => ({ type: 'button' as const, 'aria-expanded': open === itemKey(x), 'aria-controls': 'fx-detail', onClick: () => onOpen(x) })
   return (
     <div className="fx-d-groups">
@@ -189,14 +191,19 @@ function Blueprints({ open, onOpen }: { open: string | null; onOpen: (x: Item) =
             const trouble = gitSources(bp).filter((s) => sourceState(s, w.now).tone === 'bad').length
               + [...new Set(kept)].filter((s) => keptState(s, w.now)?.tone === 'bad').length
             return (
-              <li key={bp.id}><button className="fx-row fx-hit" {...opener({ kind: 'blueprint', id: bp.id })}>
-                <span aria-hidden="true"><BlueprintIcon look={bp.look} name={bp.name} size={34} /></span>
-                <span className="fx-row-main">
-                  <b>{bp.name}</b>
-                  {!isPreset(bp.id) && <span>{sourceText(bp.source)}</span>}
-                  {trouble > 0 && <span className="fx-src-note-bad">{tr('{trouble} 個來源有問題', { trouble })}</span>}
-                </span>
-              </button></li>
+              <li key={bp.id} className={hidden.includes(bp.id) ? 'fx-hidable fx-hidden-item' : 'fx-hidable'}>
+                <button className="fx-row fx-hit" {...opener({ kind: 'blueprint', id: bp.id })}>
+                  <span aria-hidden="true"><BlueprintIcon look={bp.look} name={bp.name} size={34} /></span>
+                  <span className="fx-row-main">
+                    <b>{bp.name}</b>
+                    {!isPreset(bp.id) && <span>{sourceText(bp.source)}</span>}
+                    {trouble > 0 && <span className="fx-src-note-bad">{tr('{trouble} 個來源有問題', { trouble })}</span>}
+                  </span>
+                </button>
+                {bp.id !== AIRPORT_BLUEPRINT && (
+                  <HideTool className="fx-hide-on-hover" hidden={hidden.includes(bp.id)} onChange={(on) => act((x) => hideBlueprint(x, bp.id, on))} />
+                )}
+              </li>
             )
           })}
         </ul>
@@ -207,17 +214,20 @@ function Blueprints({ open, onOpen }: { open: string | null; onOpen: (x: Item) =
 
 function Flows({ open, onOpen }: { open: string | null; onOpen: (x: Item) => void }) {
   const w = useStore((s) => s.world)
+  const act = useStore((s) => s.act)
+  const hidden = usePrefs((s) => s.hiddenWorkflows)
   const opener = (x: Item) => ({ type: 'button' as const, 'aria-expanded': open === itemKey(x), 'aria-controls': 'fx-detail', onClick: () => onOpen(x) })
   return (
     <div className="fx-flows">
       <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newFlow' })}>{tr('＋ 新增任務藍圖')}</button>
       {/* each flow opens as a whole; its title is the button, stretched over the flow */}
       <MineAndBuiltIn items={flowList(w)} render={(list) => list.map((wf) => (
-        <section key={wf.id} className="fx-flow fx-flow-card fx-blueprint" onClick={openCard}>
+        <section key={wf.id} className={`fx-flow fx-flow-card fx-blueprint fx-hidable${hidden.includes(wf.id) ? ' fx-hidden-item' : ''}`} onClick={openCard}>
           <h3>
             <button className="fx-flow-open" {...opener({ kind: 'flow', id: wf.id })}>{wf.name}</button>
           </h3>
           <FlowNotes wf={wf} />
+          <HideTool className="fx-hide-on-hover" hidden={hidden.includes(wf.id)} onChange={(on) => act((x) => hideWorkflow(x, wf.id, on))} />
         </section>
       ))} />
     </div>
@@ -370,6 +380,29 @@ export function ImageProviderField() {
   )
 }
 
+const COMPACT_GROUPS = [['compact1M', '1M+'], ['compact256K', '256K+'], ['compact128K', '128K+'], ['compactSmall', '< 128K']] as const
+
+/** How full a chat may get, by the size of its model, before it is summed up. 20K tokens always stay free besides. */
+export function CompactSection() {
+  const prefs = usePrefs()
+  const changed = COMPACT_GROUPS.some(([key]) => prefs[key] !== COMPACT_DEFAULTS[key])
+  return (
+    <section className="fx-d-group" aria-labelledby="fx-prefs-compact">
+      <h4 id="fx-prefs-compact">{tr('自動整理對話')}</h4>
+      <div className="fx-fields">
+        {COMPACT_GROUPS.map(([key, label]) => (
+          <Volume key={key} label={label} value={prefs[key]} {...COMPACT_SHARE} onChange={(v) => prefs.set({ [key]: v })} />
+        ))}
+      </div>
+      {changed && (
+        <div className="fx-settings-file-acts">
+          <button type="button" className="fx-save" onClick={() => prefs.set(COMPACT_DEFAULTS)}>{tr('恢復預設')}</button>
+        </div>
+      )}
+    </section>
+  )
+}
+
 export function AdvancedSection() {
   const saved = usePrefs((s) => s.terminalCommand)
   const set = usePrefs((s) => s.set)
@@ -429,7 +462,7 @@ export function PrefsPage() {
   const prefs = usePrefs()
   const language = useStore((s) => s.world.language)
   const act = useStore((s) => s.act)
-  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView' | 'busyAnimation' | 'autoTab' | 'daylight'>, label: string) => (
+  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView' | 'busyAnimation' | 'autoTab' | 'daylight' | 'hiddenBlueprints' | 'hiddenWorkflows' | keyof typeof COMPACT_DEFAULTS>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
   return (
@@ -479,6 +512,7 @@ export function PrefsPage() {
       </section>
       <MusicSection />
       {!MOCK && <SystemSection />}
+      {!MOCK && <CompactSection />}
       {!MOCK && <AdvancedSection />}
       <section className="fx-d-group" aria-labelledby="fx-prefs-tutorial">
         <h4 id="fx-prefs-tutorial">{tr('教學')}</h4>

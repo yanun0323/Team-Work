@@ -3,7 +3,7 @@
 
 import { HAIRS, SKINS } from './core/domain/sim'
 import { AIRPORT_STAFF_LOOK } from './core/domain/sim'
-import type { Blueprint, Chat, Look, Replica, World } from './core/domain/types'
+import type { Blueprint, Chat, Look, ModelProvider, Replica, World } from './core/domain/types'
 import { tr } from './core/i18n'
 import { blueprintList } from './core/model'
 
@@ -52,6 +52,27 @@ export function effortsOf(w: World, model: string): string[] {
   return [DEFAULT_EFFORT, ...(levels.length || p?.kind !== 'compatible'
     ? levels : ['none', 'low', 'medium', 'high', 'xhigh', 'max'])]
 }
+
+/** What a provider's models can read when it has no size of its own and none was set. */
+export const CONTEXT_UNKNOWN = 128_000
+
+/** How many tokens a provider's models can read: Anthropic's and OpenAI's are fixed, the others' are set by the user. */
+export function providerWindow(p: Pick<ModelProvider, 'kind' | 'contextWindow'>): number {
+  if (p.kind === 'anthropic') return 1_000_000
+  if (p.kind === 'openai') return 272_000
+  return p.contextWindow || CONTEXT_UNKNOWN
+}
+
+/** How many tokens a model can read, from the provider the backend runs it on: the one with the shortest id. */
+export function contextWindowOf(w: World, model: string): number {
+  const p = Object.values(w.providers).filter((x) => x.models.includes(model))
+    .sort((a, b) => a.id.length - b.id.length || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0]
+  return p ? providerWindow(p) : CONTEXT_UNKNOWN
+}
+
+/** The least anyone in a chat can read, each on the model they joined with; the chat is summed up to fit it. */
+export const chatWindow = (w: World, c: Chat) =>
+  Math.min(...[c.model, ...(c.guests ?? []).map((g) => g.model)].map((m) => contextWindowOf(w, m)))
 
 export const SHIRTS = [
   '#3f7fbf', '#d9644a', '#4f9a6a', '#8a5bb8', '#e0b13a', '#2f3b52', '#c94f7c', '#5fa8a0', '#eae4d6',

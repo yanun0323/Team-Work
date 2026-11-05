@@ -5,13 +5,13 @@ import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, 
 // below that still shows puts the top one away unsaved. They read the live world.
 
 import { colon, listOf, tr, trRecorded } from './core/i18n'
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { canSendBack, inEdges as stepsIn, nodeOf } from './core/domain/graph'
 import { blueprintUsers, gitSources, notStarted, statusOf, subsOf, type OwnSettings } from './core/domain/sim'
 import { TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type WorkflowNode, type World } from './core/domain/types'
 import { keptState, sourceName, sourceState, sourceText, toolName } from './source'
 import { composing } from './ime'
-import { blueprintList, flowList, activity, fmtClock, fmtTokens, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
+import { flowList, hireList, unhidden, activity, fmtClock, fmtTokens, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -26,7 +26,7 @@ import { useAutoGrow, Select, Switcher, Toggle, WaitBadge } from './Controls'
 import { changeAsk, ChangeLines } from './ChangeCard'
 import { FlowNotes, openCard } from './FlowNotes'
 import { copyDraft, customFlow, draftFlow, draftStaff, editCustom, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
-import { blueprintLabel, chatPreview, DEFAULT_EFFORT, effortsOf, isCustom, mindOf, modelGroups, modelsOf, randomLook } from './crew'
+import { blueprintLabel, chatPreview, CONTEXT_UNKNOWN, providerWindow, DEFAULT_EFFORT, effortsOf, isCustom, mindOf, modelGroups, modelsOf, randomLook } from './crew'
 import { docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
 import { githubAddress, parseGithub, shortRepo, wholeRef } from './github'
@@ -40,11 +40,11 @@ import { SkillPicker } from './SkillPicker'
 import { NewSource, SourceDetail } from './Sources'
 import { authLabel, makesImages, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
 import { MAX_CHAT_PEOPLE, talking, talkPeople } from './core/domain/sim'
-import { fixedSteps, isPreset } from './core/data/presets'
+import { AIRPORT_BLUEPRINT, fixedSteps, isPreset } from './core/data/presets'
 import type { SkillText, TalkEnd } from './core/domain/types'
-import { addProvider, providerUsers, updateProvider, type ProviderLogin, DEFAULT_MODEL, RESOLVE_TIME, costLimit, taskTokens } from './core/domain/sim'
+import { addProvider, fixedContext, providerUsers, updateProvider, type ProviderLogin, DEFAULT_MODEL, RESOLVE_TIME, costLimit, taskTokens } from './core/domain/sim'
 import { handedImageUrl, readHandedFile, request } from './core/backend'
-import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, endTalk, fire, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
+import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fire, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { NotesSheet } from './Notes'
 import { FileDetail, FileEdit } from './FileSheets'
@@ -928,6 +928,7 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const wf = w.workflows[id]
+  const hidden = usePrefs((s) => s.hiddenWorkflows.includes(id))
   if (!wf) return <Gone {...h} />
   const remove = () => {
     onGoneFlow()
@@ -941,6 +942,7 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
         <button type="button" className="fx-tool fx-hit" onClick={() => act((x) => void duplicateWorkflow(x, id))} aria-label={tr('複製')} title={tr('複製')}>
           <CopyIcon />
         </button>
+        <HideTool hidden={hidden} onChange={(on) => act((x) => hideWorkflow(x, id, on))} />
         {!isPreset(id) && <DeleteTool what={tr('任務藍圖')} onConfirm={remove} />}
       </div>
       <header className="fx-d-head">
@@ -1095,6 +1097,7 @@ function ProviderDetail({ id, editing, onEdit, onGoneProvider, ...h }: Head & {
           <Section name="API Key"><p className="fx-d-text"><code>{p.auth.keyHint ? `••••${p.auth.keyHint}` : tr('沒有')}</code></p></Section>
         </>
       )}
+      <Section name="Context window"><p className="fx-d-text"><code>{providerWindow(p).toLocaleString('en-US')}</code></p></Section>
       <Section name={tr('模型#list')}>
         {p.models.length === 0 ? <p className="fx-d-muted">{tr('沒有')}</p> : (
           <p className="fx-d-chips fx-d-mono">{p.models.map((m) => <span key={m}>{m}</span>)}</p>
@@ -1108,6 +1111,23 @@ function ProviderDetail({ id, editing, onEdit, onGoneProvider, ...h }: Head & {
         )}
       </Section>
     </>
+  )
+}
+
+/** How many tokens a provider's models can read, typed or picked from the usual sizes; empty leaves the 128K guess. */
+export function ContextWindowField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const id = useId()
+  return (
+    <div className="fx-field">
+      <label htmlFor={id}>Context window</label>
+      <span className="fx-unit">
+        <input id={id} className="fx-control" type="number" inputMode="numeric" min={8_000} max={10_000_000} step={1_000} value={value}
+          placeholder={String(CONTEXT_UNKNOWN)} onChange={(e) => onChange(e.target.value)} />
+        {([['128K', 128_000], ['256K', 256_000], ['1M', 1_000_000]] as const).map(([label, n]) => (
+          <button key={label} type="button" className="fx-window-pick fx-hit" aria-pressed={value === String(n)} onClick={() => onChange(String(n))}>{label}</button>
+        ))}
+      </span>
+    </div>
   )
 }
 
@@ -1125,6 +1145,7 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
   const [name, setName] = useState(old?.name ?? PROVIDER_KINDS.anthropic.label)
   const [named, setNamed] = useState(!!old)
   const [url, setUrl] = useState(old?.baseUrl ?? '')
+  const [windowSize, setWindowSize] = useState(old?.contextWindow ? String(old.contextWindow) : '')
   const [key, setKey] = useState('')
   const [signedIn, setSignedIn] = useState(old?.auth.kind === 'subscription')
   const [loginError, setLoginError] = useState(false)
@@ -1180,13 +1201,14 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
       ? (old?.auth.kind === 'subscription' ? null : { kind: 'subscription' })
       : { kind: 'apiKey', apiKey: key }
     const image = draws ? { imageDefault } : {}
+    const contextWindow = fixedContext(kind) ? undefined : Number(windowSize) || 0
     if (!MOCK) {
       // the form stays open if the backend turns it down, for a key that does not work, say
       void attempt(async () => {
         if (made) await request('PATCH', `/providers/${made}`, { name, ...image })
-        else if (old) await request('PATCH', `/providers/${old.id}`, { name, baseUrl: url, login, ...image })
+        else if (old) await request('PATCH', `/providers/${old.id}`, { name, baseUrl: url, login, contextWindow, ...image })
         else {
-          const p = await request<{ id: string }>('POST', '/providers', { name, kind, baseUrl: url, login: login ?? { kind: 'subscription' }, ...image })
+          const p = await request<{ id: string }>('POST', '/providers', { name, kind, baseUrl: url, login: login ?? { kind: 'subscription' }, contextWindow, ...image })
           // Claude Code is signed in already by now; the backend only has to see it
           if (claude) await request('POST', `/providers/${p.id}/login`, {})
         }
@@ -1198,8 +1220,8 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
     const models = claude ? claudeModels : PROVIDER_KINDS[kind].models
     let saved = old?.id ?? ''
     act((x) => {
-      if (old) updateProvider(x, old.id, { name, baseUrl: url, login })
-      else saved = addProvider(x, { name, kind, baseUrl: url, login: login ?? { kind: 'subscription' }, models, thinking: mockThinking(kind, models) }).id
+      if (old) updateProvider(x, old.id, { name, baseUrl: url, login, contextWindow })
+      else saved = addProvider(x, { name, kind, baseUrl: url, login: login ?? { kind: 'subscription' }, models, thinking: mockThinking(kind, models), contextWindow }).id
     })
     // the mock keeps preferences apart from the world, so it follows the backend here
     const prefs = usePrefs.getState()
@@ -1271,6 +1293,7 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
             {loginError && <p id="fx-login-error" className="fx-field-error">{tr('請先登入 {sub}', { sub })}</p>}
           </>
         )}
+        {!fixedContext(kind) && <ContextWindowField value={windowSize} onChange={setWindowSize} />}
         {draws && <Toggle label={tr('作為預設圖片生成供應商')} checked={imageDefault} onChange={setImageDefault} />}
       </div>
       <button type="submit" className="fx-save">{old ? tr('儲存') : tr('新增')}</button>
@@ -1291,6 +1314,7 @@ function BlueprintDetail({ id, teamId, editing, copying, onEdit, onCopy, onGoneB
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const bp = w.blueprints[id]
+  const hidden = usePrefs((s) => s.hiddenBlueprints.includes(id))
   if (!bp) return <Gone {...h} />
   // from the settings: everyone made from it, in every company
   const crew = (teamId ? teamReplicas(w, teamId) : Object.values(w.replicas)).filter((r) => r.blueprintId === bp.id)
@@ -1307,6 +1331,7 @@ function BlueprintDetail({ id, teamId, editing, copying, onEdit, onCopy, onGoneB
         <button type="button" className="fx-tool fx-hit" onClick={onCopy} aria-expanded={copying} aria-label={tr('複製')} title={tr('複製')}>
           <CopyIcon />
         </button>
+        {id !== AIRPORT_BLUEPRINT && <HideTool hidden={hidden} onChange={(on) => act((x) => hideBlueprint(x, id, on))} />}
         {!isPreset(id) && <DeleteTool what={tr('藍圖')} onConfirm={remove} disabled={users > 0} why={tr('還有 {users} 位員工使用這個藍圖，無法刪除', { users })} />}
       </div>
       <header className="fx-d-head fx-d-who">
@@ -1607,7 +1632,7 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
   const listed = (x?: string) => (x && w.blueprints[x] && !w.blueprints[x].owner ? x : undefined)
   const [name, setName] = useState(() => r?.name ?? NAMES.find((n) => !Object.values(w.replicas).some((x) => x.name === n)) ?? 'Nova')
   const [mode, setMode] = useState<'blueprint' | 'custom'>(mine ? 'custom' : 'blueprint')
-  const [bp, setBp] = useState(listed(mine ? mine.from : r?.blueprintId) ?? blueprintList(w)[0]?.id ?? '')
+  const [bp, setBp] = useState(() => listed(mine ? mine.from : r?.blueprintId) ?? unhidden(hireList(w), usePrefs.getState().hiddenBlueprints)[0]?.id ?? '')
   // the settings of their own being written, and what they were copied from: theirs, or the blueprint copied
   const [base, setBase] = useState<Blueprint | undefined>(mine)
   const [prompt, setPrompt] = useState(mine?.prompt ?? '')
@@ -1817,9 +1842,7 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
   const attachmentSession = useRef(0)
   // the flow of the task's own last saved as a blueprint, so saving again waits for a change
   const [saved, setSaved] = useState<Workflow | null>(null)
-  const flows = flowList(w)
-  const flowIds = flows.map((x) => x.id)
-  const flowGroups = mineAndBuiltIn(flowIds)
+  const hiddenFlows = usePrefs((s) => s.hiddenWorkflows)
   // what a task needs may go while this is open
   const needs = usePrereqs(teamId, 'tasks').filter((x) => x.blocks)
   // a fresh draft on the flow last chosen, or a copy of a task; dropped when the sheet goes
@@ -1835,6 +1858,9 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
   }, [teamId, copyOf, seed])
   if (!draft) return null
   const { custom } = draft
+  // hidden flows are not offered, but the one this draft is on stays
+  const flowIds = unhidden(flowList(w), hiddenFlows, custom ? undefined : draft.workflowId).map((x) => x.id)
+  const flowGroups = mineAndBuiltIn(flowIds)
   const wf = draftFlow(w, draft)
   const missing = unstaffed(w, draft)
   const unnamed = !!custom?.nodes.some((n) => !n.name.trim())
@@ -2278,6 +2304,21 @@ export function EditTool({ onClick, open, pressed }: { onClick: () => void; open
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path d="M2.5 13.5l.6-3L10.6 3l2.4 2.4-7.5 7.5z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
         <path d="M9 4.6l2.4 2.4" stroke="currentColor" strokeWidth="1.5" />
+      </svg>
+    </button>
+  )
+}
+
+/** Takes a blueprint or flow out of every list to pick from, or puts it back; what already uses it keeps it. */
+export function HideTool({ hidden, onChange, className = '' }: { hidden: boolean; onChange: (hidden: boolean) => void; className?: string }) {
+  const label = hidden ? tr('取消隱藏') : tr('隱藏')
+  return (
+    <button type="button" className={`fx-tool fx-hit ${className}`.trim()} onClick={() => onChange(!hidden)} aria-pressed={hidden} aria-label={tr('隱藏')} title={label}>
+      {/* the eye as it is now: open while shown, struck through while hidden */}
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+        <circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        {hidden && <path d="M2.5 13.5l11-11" stroke="currentColor" strokeWidth="1.5" />}
       </svg>
     </button>
   )

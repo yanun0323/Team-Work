@@ -10,7 +10,7 @@ import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { Select } from './Controls'
 import { CrewPicks, CrewRow, CrewSelect } from './Pickers'
-import { chatMindOf, chatPeople, chatPreview, DEFAULT_EFFORT, effortsOf, lastAirportMind, lastChatReplica, mindOf, modelGroups, modelsOf, noteColors, personMindOf } from './crew'
+import { chatMindOf, chatPeople, chatPreview, chatWindow, DEFAULT_EFFORT, effortsOf, lastAirportMind, lastChatReplica, mindOf, modelGroups, modelsOf, noteColors, personMindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
 import { ALL, answerMentions, mentionedPeople, withAll } from './mentions'
 import { Gone, Heading, DeleteTool, PinTool, type Head } from './DrawerDetail'
@@ -66,6 +66,13 @@ export function SentTo({ people, className, live }: { people: { id: string; name
       ))}
     </p>
   )
+}
+
+/** How much the chat's next call sends, of the least anyone in it can read. */
+export function ContextUse({ chat }: { chat: Chat }) {
+  const window = useStore((s) => chatWindow(s.world, chat))
+  const used = (chat.context ?? 0).toLocaleString('en-US')
+  return <p className="fx-room-context fx-room-say-wide">{used} / {window.toLocaleString('en-US')}</p>
 }
 
 function ChatTitle({ chat }: { chat: Chat }) {
@@ -627,6 +634,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
                   <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </button>
               )}
+            {chat && <ContextUse chat={chat} />}
           </form>
         )}
     </div>

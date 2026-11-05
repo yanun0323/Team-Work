@@ -5,8 +5,9 @@ import { BlueprintIcon } from './BlueprintIcon'
 import { Select } from './Controls'
 import { isPreset } from './core/data/presets'
 import { TOOLS, type Blueprint, type Replica } from './core/domain/types'
-import { hireList } from './core/model'
+import { hireList, unhidden } from './core/model'
 import { useStore } from './core/store'
+import { usePrefs } from './prefs'
 import { blueprintLabel, byBlueprint, mindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
 import { listOf } from './core/i18n'
@@ -134,7 +135,8 @@ export function mineAndBuiltIn(ids: string[]) {
 export function BlueprintSelect({ label, value, none, onChange }: { label: string; value: string; none?: boolean; onChange: (id: string) => void }) {
   const w = useStore((s) => s.world)
   const blueprints = w.blueprints
-  const ids = hireList(w).map((b) => b.id)
+  const hidden = usePrefs((s) => s.hiddenBlueprints)
+  const ids = unhidden(hireList(w), hidden, value).map((b) => b.id)
   const { groups, groupOf } = mineAndBuiltIn(ids)
   return (
     <Select

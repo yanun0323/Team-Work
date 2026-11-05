@@ -77,6 +77,10 @@ export const flowList = (w: World) => ownFirst(w.workflows)
 /** Blueprints the same way: those anyone can be hired from, not an employee's own settings. */
 export const blueprintList = (w: World) => ownFirst(w.blueprints).filter((bp) => !bp.owner)
 
+/** What can be picked: all but the hidden ones, keeping `keep`, the one already chosen, even when hidden. */
+export const unhidden = <T extends { id: string }>(list: T[], hidden: string[], keep?: string) =>
+  list.filter((x) => x.id === keep || !hidden.includes(x.id))
+
 /** The blueprints an employee can be hired from: all but the airport staff's. */
 export const hireList = (w: World) => blueprintList(w).filter((bp) => bp.id !== AIRPORT_BLUEPRINT)
 

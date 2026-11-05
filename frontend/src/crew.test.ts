@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { seedWorld } from './core/data/seed'
 import type { Chat, World } from './core/domain/types'
-import { blueprintLabel, byBlueprint, chatMindOf, chatOrder, chatSortAt, lastChatReplica, NOTE_COLORS, noteColors } from './crew'
+import { blueprintLabel, byBlueprint, chatMindOf, chatOrder, chatSortAt, chatWindow, contextWindowOf, lastChatReplica, NOTE_COLORS, noteColors, providerWindow } from './crew'
 
 function chatOn(effort: string): { w: World; chat: Chat } {
   const w = seedWorld()
@@ -99,5 +99,24 @@ describe('byBlueprint', () => {
     expect(groups.some((g) => g.bp?.id === 'own')).toBe(false)
     expect(blueprintLabel(w, b)).toBe('自訂')
     expect(blueprintLabel(w, a)).toBe(bp.name)
+  })
+})
+
+describe('how much a chat can read', () => {
+  it('is fixed for Anthropic and OpenAI, and set or guessed for the rest', () => {
+    expect(providerWindow({ kind: 'anthropic', contextWindow: 50_000 })).toBe(1_000_000)
+    expect(providerWindow({ kind: 'openai' })).toBe(272_000)
+    expect(providerWindow({ kind: 'google', contextWindow: 200_000 })).toBe(200_000)
+    expect(providerWindow({ kind: 'compatible' })).toBe(128_000)
+  })
+
+  it('is the least anyone in a meeting can read', () => {
+    const { w, chat } = chatOn('high')
+    w.providers.big = { id: 'big', name: 'B', kind: 'anthropic', baseUrl: '', auth: { kind: 'apiKey', keyHint: 'x' }, models: ['claude'] }
+    chat.model = 'claude'
+    expect(chatWindow(w, chat)).toBe(1_000_000)
+    chat.guests = [{ replicaId: 'g', name: 'G', look: chat.look, model: 'm' }]
+    expect(chatWindow(w, chat)).toBe(272_000)
+    expect(contextWindowOf(w, 'gone')).toBe(128_000)
   })
 })

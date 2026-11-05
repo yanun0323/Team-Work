@@ -5,7 +5,7 @@ import { version } from '../package.json'
 import { useStore } from './core/store'
 import { createAirportChat } from './core/domain/sim'
 import { airportTabOr, DEFAULT_PREFS, ordered, type AirportTab, usePrefs } from './prefs'
-import { AdvancedSection, ChatTitleFields, PrefsPage, QuitTool, Settings, ReloadSettings, ResetSettings, SystemSection } from './Settings'
+import { AdvancedSection, ChatTitleFields, CompactSection, PrefsPage, QuitTool, Settings, ReloadSettings, ResetSettings, SystemSection } from './Settings'
 
 it('is a drawer headed as the airport, its model providers listed under the first tab', () => {
   const html = renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)
@@ -27,7 +27,7 @@ it('is a drawer headed as the airport, its model providers listed under the firs
 })
 
 it('starts with every preference on and the newest log line first', () => {
-  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true })
+  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], compact1M: 40, compact256K: 90, compact128K: 95, compactSmall: 95 })
   expect(ordered([1, 2, 3], 'newestFirst')).toEqual([3, 2, 1])
   expect(ordered([1, 2, 3], 'newestLast')).toEqual([1, 2, 3])
 })
@@ -157,4 +157,43 @@ it('names chats only when turned on, then with a model and level of its own', ()
   // a model no provider offers any more still shows as chosen
   expect(on).toContain('gone-model')
   expect(renderToStaticMarkup(<SystemSection />)).toContain('自動命名對話')
+})
+
+it('fades a hidden blueprint in its place, with an eye on each row to hide or show it', () => {
+  const set = (p: Partial<typeof DEFAULT_PREFS>) => { usePrefs.setState(p); Object.assign(usePrefs.getInitialState(), usePrefs.getState()) }
+  const html = () => renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)
+  set({ defaultAirportTab: 'blueprints', autoTab: 'off' })
+  try {
+    const shown = html()
+    const rows = shown.match(/class="fx-hidable"/g)?.length ?? 0
+    expect(rows).toBeGreaterThan(1)
+    // every row but the airport staff's, which cannot be hidden
+    expect(shown.match(/aria-pressed="false" aria-label="隱藏"/g)).toHaveLength(rows - 1)
+    set({ hiddenBlueprints: ['preset-assistant'] })
+    const after = html()
+    // the same rows in the same order, one of them faded and its eye struck through
+    expect(after.match(/class="fx-hidable( fx-hidden-item)?"/g)).toHaveLength(rows)
+    expect(after.match(/fx-hidden-item/g)).toHaveLength(1)
+    expect(after.match(/aria-pressed="true" aria-label="隱藏"/g)).toHaveLength(1)
+    expect(after.replace(/ fx-hidden-item/, '').replace(/aria-pressed="true"/, 'aria-pressed="false"').replace(/title="取消隱藏"/, 'title="隱藏"').replace('<path d="M2.5 13.5l11-11" stroke="currentColor" stroke-width="1.5"></path>', '')).toBe(shown)
+  } finally {
+    set({ defaultAirportTab: 'providers', autoTab: 'chats', hiddenBlueprints: [] })
+  }
+})
+
+it('sets how full a chat may get by the size of its model, and offers the defaults back once changed', () => {
+  const html = () => renderToStaticMarkup(<CompactSection />)
+  expect(html()).toContain('>自動整理對話</h4>')
+  for (const label of ['1M+', '256K+', '128K+', '&lt; 128K']) expect(html()).toContain(`>${label}</label>`)
+  expect(html()).toContain('min="10" max="100"')
+  expect(html()).toContain('>40%</output>')
+  expect(html()).not.toContain('恢復預設')
+  // the server render reads the store's initial state
+  Object.assign(usePrefs.getInitialState(), { compact1M: 60 })
+  try {
+    expect(html()).toContain('>60%</output>')
+    expect(html()).toContain('>恢復預設</button>')
+  } finally {
+    Object.assign(usePrefs.getInitialState(), { compact1M: 40 })
+  }
 })

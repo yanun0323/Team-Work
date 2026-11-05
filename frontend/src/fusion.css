@@ -643,6 +643,15 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
   .fx-staff-tools { grid-column: 2 / -1; justify-self: start; }
   .fx-row:has(> .fx-staff-tools) { grid-template-columns: auto minmax(0, 1fr) auto; }
 }
+/* the airport's blueprints and flows: a hidden one stays in its place, faded and grey, and the eye that hides it or
+   shows it again comes up at the right of a row while the pointer or the focus is on it */
+.fx-hidable { position: relative; }
+.fx-list .fx-hidable > .fx-row { padding-inline-end: 44px; }
+.fx-hidden-item > .fx-row > *, .fx-hidden-item > h3, .fx-hidden-item > .fx-flow-scroll { opacity: 0.45; filter: grayscale(1); }
+.fx-hide-on-hover { position: absolute; top: 50%; right: -4px; z-index: 3; translate: 0 -50%; opacity: 0; }
+.fx-flow-card > .fx-hide-on-hover { top: 4px; right: 4px; translate: none; }
+.fx-hidable:hover > .fx-hide-on-hover, .fx-hide-on-hover:focus-visible { opacity: 1; }
+@media (hover: none) { .fx-hide-on-hover { opacity: 1; } }
 .fx-check { width: 1em; font-weight: 700; color: var(--ink); text-align: center; }
 /* the slot for a new task: a blank slip, dashed where the next card goes */
 .fx-task-new { color: var(--muted); font-size: 13.5px; text-align: center; background: none; box-shadow: none; outline: 1.5px dashed var(--rule); outline-offset: -1px; --tilt: 0deg; }
@@ -816,6 +825,9 @@ a.fx-save { text-decoration: none; }
 .fx-fields hr { width: 100%; margin: 10px 0 4px; border: 0; border-top: 1px solid var(--rule); }
 .fx-field { display: grid; grid-template-columns: 8.5em minmax(0, 1fr); align-items: center; gap: 12px; font-size: 13px; color: var(--ink-2); }
 .fx-unit { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+/* a usual context window, picked instead of typed */
+.fx-window-pick { flex: none; padding: 4px 6px; border: 0; border-radius: 3px; background: none; font: 600 12px/1.2 var(--font-mono); color: var(--muted); cursor: pointer; }
+.fx-window-pick:hover, .fx-window-pick[aria-pressed="true"] { color: var(--ink); background: color-mix(in srgb, var(--ink) 10%, transparent); }
 
 /* anything you can fill in or pick sits on a faint grey wash: no rule, no outline, darker while in use */
 .fx-control, .fx-stepper {
@@ -1494,6 +1506,8 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fx-room-queue-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-room-say { position: relative; flex: none; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
 .fx-room-say-wide { flex: 0 0 100%; }
+/* the chat's context use, under the box */
+.fx-room-context { margin: -4px 0 0; font: 500 11px/1.2 var(--font-mono); color: var(--muted); text-align: end; }
 .fx-room-to { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; font-size: 12.5px; color: var(--muted); }
 .fx-room-to-one { display: inline-flex; align-items: center; gap: 4px; color: var(--ink); }
 .fx-room-to-one svg { display: block; }

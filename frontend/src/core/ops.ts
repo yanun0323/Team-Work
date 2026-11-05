@@ -7,6 +7,7 @@ import { seedWorld } from './data/seed'
 import * as sim from './domain/sim'
 import type { Attachment, Blueprint, Chat, Source, SourceChanges, SourceItem, SourcePreview, Effort, FileInfo, Locale, Look, MemoryEntry, Replica, SkillInfo, SkillText, TalkEnd, Team, Workflow, World } from './domain/types'
 import { MOCK } from './mode'
+import { usePrefs } from '../prefs'
 
 /** Reports a request that failed; the store shows it. Set once at start. */
 let onFailure: (message: string) => void = () => {}
@@ -142,6 +143,15 @@ export function updateTask(w: World, id: string, p: { title: string; description
 
 // ---------- flows ----------
 
+/** Hides a blueprint or flow from every list to pick from and from employees' tools, or shows it again. */
+const markHidden = (key: 'hiddenBlueprints' | 'hiddenWorkflows', id: string, hidden: boolean) =>
+  usePrefs.setState((p) => ({ [key]: [...p[key].filter((x) => x !== id), ...(hidden ? [id] : [])] }))
+export const hideWorkflow = MOCK
+  ? (_w: World, id: string, hidden: boolean) => markHidden('hiddenWorkflows', id, hidden)
+  : (_w: World, id: string, hidden: boolean) => fire_('PUT', `/workflows/${id}/hidden`, { hidden })
+export const hideBlueprint = MOCK
+  ? (_w: World, id: string, hidden: boolean) => markHidden('hiddenBlueprints', id, hidden)
+  : (_w: World, id: string, hidden: boolean) => fire_('PUT', `/blueprints/${id}/hidden`, { hidden })
 export const deleteWorkflow = pick('deleteWorkflow', (_w: World, id: string) => fire_('DELETE', `/workflows/${id}`))
 export const duplicateWorkflow = pick('duplicateWorkflow', (_w: World, id: string) => fire_('POST', `/workflows/${id}/duplicate`))
 

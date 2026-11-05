@@ -4,7 +4,8 @@
 import { create } from 'zustand'
 import { tr } from './core/i18n'
 import type { Attachment, Task, Workflow, World } from './core/domain/types'
-import { flowList, teamReplicas, teamTasks } from './core/model'
+import { flowList, teamReplicas, teamTasks, unhidden } from './core/model'
+import { usePrefs } from './prefs'
 import { blankFlow } from './flowDraft'
 
 export interface TaskDraft {
@@ -32,10 +33,11 @@ export const useDraft = create<{ draft: TaskDraft | null }>(() => ({ draft: null
 export const editDraft = (f: (d: TaskDraft) => Partial<TaskDraft>) =>
   useDraft.setState(({ draft }) => ({ draft: draft && { ...draft, ...f(draft) } }))
 
-/** The flow a new task starts on: the one the company last chose, if it is still there, or else the first. */
+/** The flow a new task starts on: the one the company last chose, if it is still there and shown, or else the first. */
 export function lastFlowId(w: World, teamId: string): string {
-  const chosen = teamTasks(w, teamId).find((t) => w.workflows[t.workflowId])?.workflowId
-  return chosen ?? flowList(w)[0]?.id ?? ''
+  const hidden = usePrefs.getState().hiddenWorkflows
+  const chosen = teamTasks(w, teamId).find((t) => w.workflows[t.workflowId] && !hidden.includes(t.workflowId))?.workflowId
+  return chosen ?? unhidden(flowList(w), hidden)[0]?.id ?? ''
 }
 
 /** A work step has one employee: staff from before that keeps the first. A discussion keeps them all. */
