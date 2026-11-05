@@ -337,6 +337,14 @@ export interface ChatMessage {
   signedOut?: string
   /** The tasks made in the chat at this message, by the user or with create_task, oldest first. */
   tasks?: string[]
+  /** The blueprints, flows and providers an employee created with this tool line, oldest first. */
+  made?: Made[]
+}
+
+/** Something an employee created in a chat. */
+export interface Made {
+  kind: 'blueprint' | 'workflow' | 'provider'
+  id: string
 }
 
 /** Someone in a meeting besides the chair; `name` and `look` keep who it was, for when they have left. */

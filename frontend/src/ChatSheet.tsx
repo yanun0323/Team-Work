@@ -16,7 +16,7 @@ import { ALL, answerMentions, mentionedPeople, withAll } from './mentions'
 import { Gone, Heading, DeleteTool, PinTool, type Head } from './DrawerDetail'
 import { composing } from './ime'
 import { fmtClock, fmtTokens, teamReplicas, useAtBottom, useStickToBottom } from './core/model'
-import type { Attachment, Chat, Look, QueuedMessage } from './core/domain/types'
+import type { Attachment, Chat, Look, Made, QueuedMessage } from './core/domain/types'
 import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, openFolder, readChat, renameChat, resolveChatChange, retryChat, rewindChat, sayInChat, setChatChair, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
 import { AIRPORT_STAFF_LOOK, canHandOff, MAX_CHAT_PEOPLE, roundActor } from './core/domain/sim'
 import { HandOffIcon, HandOffMenu } from './HandOffMenu'
@@ -29,7 +29,7 @@ import { changeAsk, ChangeLines } from './ChangeCard'
 import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, splitAttachments } from './attachments'
 import { draftKey, useChatDraft } from './chatDraft'
 import { watchChat } from './sound'
-import { TaskCard } from './TaskCard'
+import { MadeCard, TaskCard } from './TaskCard'
 
 /** Copies a message's text, showing a tick for a moment after. */
 function CopyButton({ text }: { text: string }) {
@@ -105,7 +105,7 @@ function ChatTitle({ chat }: { chat: Chat }) {
 
 export interface ChatTaskSeed { title: string; description: string; ownerId: string | null; chatId: string }
 
-export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFile, onSkill, image, onImage, onTask, onHandOff, task: taskOpen, onOpenTask, onProvider, onGoneChat, ...h }: Head & {
+export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFile, onSkill, image, onImage, onTask, onHandOff, task: taskOpen, onOpenTask, made: madeOpen, onOpenMade, onProvider, onGoneChat, ...h }: Head & {
   /** The chat to open; none starts a new one. */
   id?: string
   teamId: string
@@ -126,6 +126,9 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   /** The task made in this chat that is open on the sheet above, and how to open one. */
   task: string | null
   onOpenTask: (id: string) => void
+  /** The blueprint, flow or provider an employee created in this chat that is open on the sheet above, and how to open one. */
+  made: Made | null
+  onOpenMade: (made: Made) => void
   /** Opens a provider to sign in to it again. */
   onProvider: (id: string) => void
   onGoneChat: () => void
@@ -379,13 +382,17 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     const actor = roundActor(chat)
     if (draft) onTask({ ...draft, ownerId: w.replicas[actor] ? actor : replica?.id ?? null, chatId: chat.id })
   }
-  // the tasks made at a message, under it; one deleted since is gone from here too
+  // the tasks, blueprints, flows and providers made at a message, under it; one deleted since is gone from here too
   const madeAt = (i: number) => {
     const m = chat?.messages[i]
     const tasks = (m?.tasks ?? []).flatMap((x) => (w.tasks[x] ? [w.tasks[x]] : []))
-    return tasks.length ? [(
+    const made = (m?.made ?? []).filter((x) => (x.kind === 'blueprint' ? w.blueprints : x.kind === 'workflow' ? w.workflows : w.providers)[x.id])
+    return tasks.length || made.length ? [(
       <li key={`tasks-${i}`} className={`fx-chat-tasks${m?.from === 'user' ? ' fx-chat-tasks-user' : ''}`}>
         {tasks.map((t) => <TaskCard key={t.id} task={t} aria-expanded={taskOpen === t.id} onClick={() => onOpenTask(t.id)} />)}
+        {made.map((x) => (
+          <MadeCard key={`${x.kind}-${x.id}`} made={x} aria-expanded={madeOpen?.kind === x.kind && madeOpen.id === x.id} onClick={() => onOpenMade(x)} />
+        ))}
       </li>
     )] : []
   }

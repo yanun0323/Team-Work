@@ -1,13 +1,27 @@
-// A task as a clipping: on the company file's task board, and under the chat message it was made at.
+// A task as a clipping: on the company file's task board, and under the chat message it was made at. What else
+// an employee creates in a chat is a clipping there too.
 
 import type { ButtonHTMLAttributes } from 'react'
 import { tr } from './core/i18n'
 import { notStarted, statusOf, subsOf, taskTokens } from './core/domain/sim'
-import type { Task } from './core/domain/types'
+import type { Made, Task } from './core/domain/types'
 import { fmtTokens } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { WaitBadge } from './Controls'
+
+const madeKind = { blueprint: '員工藍圖#kind', workflow: '任務藍圖', provider: '供應商' } as const
+
+/** A blueprint, flow or provider an employee created, as a clipping under the chat message it was made at; none once it is gone. */
+export function MadeCard({ made, className, ...button }: { made: Made } & ButtonHTMLAttributes<HTMLButtonElement>) {
+  const name = useStore((s) => (made.kind === 'blueprint' ? s.world.blueprints : made.kind === 'workflow' ? s.world.workflows : s.world.providers)[made.id]?.name)
+  if (name === undefined) return null
+  return (
+    <button type="button" className={`fx-task fx-hit${className ? ` ${className}` : ''}`} {...button}>
+      <span className="fx-task-title"><span className="fx-task-no">{tr(madeKind[made.kind])}</span>{name}</span>
+    </button>
+  )
+}
 
 export function TaskCard({ task, className, ...button }: { task: Task } & ButtonHTMLAttributes<HTMLButtonElement>) {
   const w = useStore((s) => s.world)

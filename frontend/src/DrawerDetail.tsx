@@ -218,6 +218,8 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               image={above?.kind === 'image' ? above.key : null} onImage={(key, image, chat) => onPush({ kind: 'image', key, image, chat })}
               onTask={(seed) => onPush({ kind: 'newTask', seed })} onHandOff={(x) => onPush({ kind: 'chat', id: x })}
               task={above?.kind === 'task' ? above.id : null} onOpenTask={(x) => onPush({ kind: 'task', id: x })}
+              made={above?.kind === 'blueprint' || above?.kind === 'provider' ? above : above?.kind === 'flow' ? { kind: 'workflow', id: above.id } : null}
+              onOpenMade={(x) => onPush({ kind: x.kind === 'workflow' ? 'flow' : x.kind, id: x.id })}
               onProvider={(x) => onPush({ kind: 'providerEdit', id: x })} onGoneChat={onDone} />
           )}
           {item.kind === 'disband' && <Disband teamId={teamId} title={title} tid={id} onDone={onDone} />}
