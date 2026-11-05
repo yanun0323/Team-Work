@@ -25,19 +25,24 @@ const aircraft = (key: SoundEffect) => key === 'soundTakeoff' || key === 'soundL
 /** Each effect's share of the effects volume: planes and the sea sit back in the mix. */
 const trim = (key: SoundEffect) => aircraft(key) ? 0.6 : key === 'soundWaves' ? 0.2 : 1
 
-/** Use actual notice events, not badge counts: two tasks can exchange places without changing the count. */
-export function subscribeNoticeSound(notify: () => void) {
+/** What a notice is about: a task waiting on a reply or, with `merge`, on its merge; or a chat with a reply unread. */
+export type NoticeTarget = { kind: 'task'; id: string; merge: boolean } | { kind: 'chat'; id: string }
+
+/** Use actual notice events, not badge counts: two tasks can exchange places without changing the count. Each fresh batch is one call, one target per task. */
+export function subscribeNoticeSound(notify: (targets: NoticeTarget[]) => void) {
   let latest = Math.max(0, ...useStore.getState().toasts.map((toast) => toast.id))
   return useStore.subscribe((state) => {
     const fresh: Toast[] = state.toasts.filter((toast) => toast.id > latest)
     if (!fresh.length) return
     latest = Math.max(latest, ...fresh.map((toast) => toast.id))
     if (!state.loaded || state.offline) return
-    if (fresh.some(({ event }) => {
-      if (event.kind !== 'review' && event.kind !== 'awaitMerge') return false
+    const targets = new Map<string, NoticeTarget>()
+    for (const { event } of fresh) {
+      if (event.kind !== 'review' && event.kind !== 'awaitMerge') continue
       const task = state.world.tasks[event.taskId]
-      return task && task.stage !== 'cancelled' && task.stage !== 'done' && !!state.world.teams[task.teamId]
-    })) notify()
+      if (task && task.stage !== 'cancelled' && task.stage !== 'done' && state.world.teams[task.teamId]) targets.set(task.id, { kind: 'task', id: task.id, merge: event.kind === 'awaitMerge' })
+    }
+    if (targets.size) notify([...targets.values()])
   })
 }
 
@@ -55,15 +60,15 @@ export function watchChat(id: string) {
  * Sound when a chat turns unread, which the badge counts only once its reply has ended, and nobody has it open.
  * The first world and the snapshot after a lost connection only set what counts as already unread.
  */
-export function subscribeChatSound(notify: () => void) {
+export function subscribeChatSound(notify: (targets: NoticeTarget[]) => void) {
   const unread = (chats: World['chats']) => new Set(Object.values(chats).filter((chat) => chat.unread && chat.replyAt === undefined).map((chat) => chat.id))
   let seen = unread(useStore.getState().world.chats)
   return useStore.subscribe((state, previous) => {
     if (state.world.chats === previous.world.chats) return
     const now = unread(state.world.chats)
-    const fresh = previous.loaded && !previous.offline && [...now].some((id) => !seen.has(id) && !watched.has(id))
+    const fresh = previous.loaded && !previous.offline ? [...now].filter((id) => !seen.has(id) && !watched.has(id)) : []
     seen = now
-    if (fresh) notify()
+    if (fresh.length) notify(fresh.map((id) => ({ kind: 'chat', id })))
   })
 }
 

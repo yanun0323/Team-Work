@@ -9,7 +9,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useStore } from './core/store'
 import LICENSE from '../../LICENSE?raw'
 import { BlueprintIcon } from './BlueprintIcon'
-import { SheetStack, useSheets } from './Drawer'
+import { openOnce, SheetStack, useSheets } from './Drawer'
+import { useOpenedFromNotice } from './notices'
 import { gitSources } from './core/domain/sim'
 import { blueprintList, flowList, waitingTab } from './core/model'
 import { AIRPORT_BLUEPRINT, isPreset } from './core/data/presets'
@@ -81,6 +82,11 @@ export function Settings({ leaving, onGone }: {
   const sheets = useSheets()
   const { back } = sheets
   useEffect(() => title.current?.focus({ preventScroll: true }), [])
+  // the airport has only chats to open
+  useOpenedFromNotice('', leaving, (x) => {
+    setTab('chats')
+    openOnce(sheets, x)
+  })
   const base = sheets.layers[0]
   const open = base && !base.leaving ? itemKey(base.item) : null
 
@@ -495,6 +501,7 @@ export function PrefsPage() {
           <Select label={tr('任務紀錄排序')} value={prefs.logOrder} options={Object.keys(LOG_ORDERS)} labelOf={(o) => tr(LOG_ORDERS[o as LogOrder])}
             onChange={(v) => prefs.set({ logOrder: v as LogOrder })} />
           {!MOCK && <Toggle label={tr('保留終端機')} checked={prefs.keepTerminals} onChange={(v) => prefs.set({ keepTerminals: v })} />}
+          {import.meta.env.MODE === 'desktop' && check('systemNotices', tr('系統通知'))}
         </div>
       </section>
       <section className="fx-d-group" aria-labelledby="fx-prefs-perf">

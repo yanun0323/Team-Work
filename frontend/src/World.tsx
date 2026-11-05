@@ -7,6 +7,7 @@ import { MapControls } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
 import { guardUnload, leaveTeam } from './fileDrafts'
+import { placeOf, useOpenRequest, useSystemNotices } from './notices'
 import * as THREE from 'three'
 import { inTerminal, teamAlerts, teamReplicas, teamWork } from './core/model'
 import { useStore } from './core/store'
@@ -123,6 +124,7 @@ export function TagAlerts({ waitingChats, waitingTasks }: ReturnType<typeof team
 
 export function World() {
   useSound()
+  useSystemNotices()
   useQuotaPolling()
   const { crowd, planes, clouds, autoView, zoomSensitivity } = usePrefs()
   // the simulation changes the world ten times a second; rebuild the town only when its shape changes
@@ -201,6 +203,33 @@ export function World() {
     if (want !== cur) leaveTeam(cur, () => setSelectedNow(want))
   }, [])
   useEffect(guardUnload, [])
+  // a clicked notification: whatever is under way on the map gives way, then its company or the airport opens, which
+  // opens the task or chat itself. One gone by now opens nothing; declining to leave unsaved files stays put
+  const asked = useOpenRequest((s) => s.asked)
+  const loaded = useStore((s) => s.loaded)
+  useEffect(() => {
+    if (!asked || !loaded) return
+    useOpenRequest.setState({ asked: null })
+    const teamId = placeOf(useStore.getState().world, asked)
+    if (teamId === null) return
+    setHelpOpen(false)
+    setPlacing(false)
+    setSpot(null)
+    setEditing(false)
+    setMoving(null)
+    const cur = selectedNow.current
+    leaveTeam(cur === teamId ? null : cur, () => {
+      useOpenRequest.setState({ ready: { ...asked, teamId } })
+      if (teamId) {
+        setPanel(null)
+        setSelectedNow(teamId)
+      } else {
+        setSelectedNow(null)
+        setByAirport(true)
+        setPanel('settings')
+      }
+    })
+  }, [asked, loaded])
   // the building under the pointer: it darkens and its name tag lifts
   const [hovered, setHovered] = useState<string | null>(null)
   const hover = useCallback((id: string, on: boolean) => setHovered((cur) => (on ? id : cur === id ? null : cur)), [])

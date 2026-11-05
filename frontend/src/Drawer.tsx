@@ -18,6 +18,7 @@ import { usePrefs } from './prefs'
 import type { BuildingLook } from './layout'
 import type { Team } from './core/domain/types'
 import { takeCompanyTab } from './tutorial'
+import { useOpenedFromNotice, type OpenTarget } from './notices'
 import { NotesPin } from './Notes'
 import { answerLeaving, unsavedIn, useFileDrafts } from './fileDrafts'
 
@@ -156,6 +157,11 @@ export function Drawer({ teamId, look, leaving, onGone }: {
       setTerminalFocus((n) => n + 1)
     }
   }, [teamId, back])
+  // after the opening effect above, so the asked-for tab wins over the one it starts on
+  useOpenedFromNotice(teamId, leaving, (x) => {
+    setTab(x.kind === 'task' ? 'tasks' : 'chats')
+    openOnce(sheets, x)
+  })
   if (!team) return null
   const base = sheets.layers[0]
 
@@ -287,6 +293,13 @@ export function useSheets() {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [top, back])
   return { layers, top, open, push, back, gone }
+}
+
+/** Opens a task or chat as the only sheet; one already showing it stays, where opening it again would close it. */
+export function openOnce(sheets: Sheets, x: OpenTarget) {
+  const item: Item = x.kind === 'task' ? { kind: 'task', id: x.id } : { kind: 'chat', id: x.id }
+  const top = sheets.layers[0]
+  if (!top || top.leaving || itemKey(top.item) !== itemKey(item)) sheets.open(item)
 }
 
 /** The detail sheets opened from a drawer, over the upper left of the map. */

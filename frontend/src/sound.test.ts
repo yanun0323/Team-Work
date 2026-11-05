@@ -301,8 +301,11 @@ it('sounds once per fresh notice batch, never for existing notices, rerenders or
     // Replacing one notification with another leaves the count unchanged.
     useStore.setState({ toasts: [{ id: 3, event: { kind: 'awaitMerge', taskId: task.id } }] })
     expect(notify).toHaveBeenCalledTimes(2)
+    expect(notify).toHaveBeenLastCalledWith([{ kind: 'task', id: task.id, merge: true }])
     useStore.setState({ toasts: [{ id: 4, event: review }, { id: 5, event: review }] })
     expect(notify).toHaveBeenCalledTimes(3)
+    // One target per task, however many of its notices came together.
+    expect(notify).toHaveBeenLastCalledWith([{ kind: 'task', id: task.id, merge: false }])
     useStore.getState().receive({ type: 'snapshot', world: initial.world })
     expect(notify).toHaveBeenCalledTimes(3)
     useStore.setState({ toasts: [{ id: 6, event: { ...review, taskId: 'deleted' } }] })
@@ -339,6 +342,7 @@ it('sounds when a chat turns unread after its reply, but not for open chats, sna
     expect(notify).toHaveBeenCalledTimes(1)
     useStore.setState(chats(chat('d'), chat('e', { unread: true })))
     expect(notify).toHaveBeenCalledTimes(2)
+    expect(notify).toHaveBeenLastCalledWith([{ kind: 'chat', id: 'e' }])
   } finally { unsubscribe(); useStore.setState(initial) }
 })
 
