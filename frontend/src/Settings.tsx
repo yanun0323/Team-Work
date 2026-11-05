@@ -441,7 +441,7 @@ export function PrefsPage() {
             onChange={(l) => act((x) => void setLanguage(x, l))} />
           <Select label={tr('預設機場頁面')} value={airportTabOr(prefs.defaultAirportTab)} options={AIRPORT_TABS.map((x) => x.id)}
             labelOf={(id) => tr(AIRPORT_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultAirportTab: v as AirportTab })} />
-          <Select label={tr('預設公司頁面')} value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.map((x) => x.id)}
+          <Select label={tr('預設公司頁面')} value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.filter((x) => x.id !== 'files').map((x) => x.id)}
             labelOf={(id) => tr(COMPANY_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultTab: v as CompanyTab })} />
           <Select label={tr('自動切換預設頁面')} value={prefs.autoTab} options={Object.keys(AUTO_TABS)} labelOf={(o) => tr(AUTO_TABS[o as AutoTab])}
             onChange={(v) => prefs.set({ autoTab: v as AutoTab })} />

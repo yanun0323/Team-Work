@@ -2,6 +2,9 @@ package usecase
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -30,14 +33,16 @@ func (e *Engine) mentionRoot(teamID string) (string, error) {
 // projectPath is where a path a message mentions is in its company's folder, or at home for the airport's, as it is
 // now on disk. A path that leads out of the folder, by "..", by being absolute or through a link, is refused.
 func (e *Engine) projectPath(teamID, rel string) (string, error) {
-	rel = strings.TrimSpace(rel)
 	clean := filepath.ToSlash(filepath.Clean(rel))
-	if rel == "" || filepath.IsAbs(rel) || clean == ".." || strings.HasPrefix(clean, "../") {
+	if rel == "" || strings.ContainsRune(rel, 0) || filepath.IsAbs(rel) || slices.Contains(strings.Split(filepath.ToSlash(rel), "/"), "..") {
 		return "", model.Errorf(model.CodeInvalid, "檔案路徑不正確：%s", rel)
 	}
 	folder, err := e.mentionRoot(teamID)
 	if err != nil {
 		return "", err
+	}
+	if folder == "" {
+		return "", model.Errorf(model.CodeInvalid, "找不到專案資料夾 %s", folder)
 	}
 	root, err := filepath.EvalSymlinks(folder)
 	if err != nil {
@@ -53,27 +58,64 @@ func (e *Engine) projectPath(teamID, rel string) (string, error) {
 	return at, nil
 }
 
-// ProjectFile is a text file in a company's folder as it is now, for a "#" mention to show.
-func (e *Engine) ProjectFile(teamID, rel string) (string, error) {
+// ProjectText keeps the text and fingerprint from the same read of the original bytes.
+type ProjectText struct {
+	Text string `json:"text"`
+	Hash string `json:"hash"`
+}
+
+func projectHash(raw []byte) string { return fmt.Sprintf("%x", sha256.Sum256(raw)) }
+
+// ProjectFile is a text file in a company's folder, or at home for an airport mention.
+func (e *Engine) ProjectFile(teamID, rel string) (ProjectText, error) {
 	at, err := e.projectPath(teamID, rel)
 	if err != nil {
-		return "", err
+		return ProjectText{}, err
 	}
 	info, err := os.Stat(at)
-	if err != nil || info.IsDir() {
-		return "", missing(teamID, rel)
+	if err != nil {
+		return ProjectText{}, missing(teamID, rel)
+	}
+	if info.IsDir() {
+		return ProjectText{}, missing(teamID, rel)
+	}
+	if !info.Mode().IsRegular() {
+		return ProjectText{}, notText(teamID, rel)
+	}
+	f, err := os.Open(at)
+	if err != nil {
+		return ProjectText{}, missing(teamID, rel)
+	}
+	defer f.Close()
+	raw, _, err := readProjectText(f, teamID, rel)
+	if err != nil {
+		return ProjectText{}, err
+	}
+	return ProjectText{Text: string(raw), Hash: projectHash(raw)}, nil
+}
+
+func readProjectText(f *os.File, teamID, rel string) ([]byte, os.FileInfo, error) {
+	info, err := f.Stat()
+	if err != nil {
+		return nil, nil, missing(teamID, rel)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, nil, model.Errorf(model.CodeInvalid, "必須是一般檔案")
 	}
 	if info.Size() > maxProjectText {
-		return "", tooLarge(teamID, rel)
+		return nil, nil, tooLarge(teamID, rel, model.CodeUnsupported)
 	}
-	raw, err := os.ReadFile(at)
+	raw, err := io.ReadAll(io.LimitReader(f, maxProjectText+1))
 	if err != nil {
-		return "", missing(teamID, rel)
+		return nil, nil, model.Errorf(model.CodeUnavailable, "讀不到檔案 %s", rel)
+	}
+	if len(raw) > maxProjectText {
+		return nil, nil, tooLarge(teamID, rel, model.CodeUnsupported)
 	}
 	if slices.Contains(raw, 0) || !utf8.Valid(raw) {
-		return "", notText(teamID, rel)
+		return nil, nil, notText(teamID, rel)
 	}
-	return string(raw), nil
+	return raw, info, nil
 }
 
 // ProjectImage is a picture in a company's folder as it is now, with its media type; anything else is refused.
@@ -87,7 +129,7 @@ func (e *Engine) ProjectImage(teamID, rel string) ([]byte, string, error) {
 		return nil, "", missing(teamID, rel)
 	}
 	if info.Size() > maxProjectImage {
-		return nil, "", tooLarge(teamID, rel)
+		return nil, "", tooLarge(teamID, rel, model.CodeInvalid)
 	}
 	data, err := os.ReadFile(at)
 	if err != nil {
@@ -125,18 +167,18 @@ func missing(teamID, rel string) error {
 	return model.Errorf(model.CodeNotFound, "專案資料夾裡沒有 %s", rel)
 }
 
-func tooLarge(teamID, rel string) error {
+func tooLarge(teamID, rel, code string) error {
 	if teamID == "" {
-		return model.Errorf(model.CodeInvalid, "%s 太大，請到 Finder 打開", rel)
+		return model.Errorf(code, "%s 太大，請到 Finder 打開", rel)
 	}
-	return model.Errorf(model.CodeInvalid, "%s 太大，請到專案資料夾打開", rel)
+	return model.Errorf(code, "%s 太大，請到專案資料夾打開", rel)
 }
 
 func notText(teamID, rel string) error {
 	if teamID == "" {
-		return model.Errorf(model.CodeInvalid, "%s 不是文字檔，請到 Finder 打開", rel)
+		return model.Errorf(model.CodeUnsupported, "%s 不是文字檔，請到 Finder 打開", rel)
 	}
-	return model.Errorf(model.CodeInvalid, "%s 不是文字檔，請到專案資料夾打開", rel)
+	return model.Errorf(model.CodeUnsupported, "%s 不是文字檔，請到專案資料夾打開", rel)
 }
 
 func notImage(teamID, rel string) error {

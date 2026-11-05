@@ -207,6 +207,28 @@ export const readProjectFile = (teamId: string, path: string, signal?: AbortSign
   ? Promise.resolve().then(() => sim.projectFile(path))
   : request<{ text: string }>('GET', `${mentionBase(teamId)}/file?path=${encodeURIComponent(path)}`, undefined, signal).then((r) => r.text))
 
+/** One thing in a folder of a company's project, as the file browser lists it. */
+export interface TreeEntry { name: string; path: string; kind: 'dir' | 'file' }
+
+const projectBase = (teamId: string) => `/teams/${encodeURIComponent(teamId)}`
+
+/** One level of a folder in a company's project ('' is the project itself), straight from disk; at most 5000 entries. */
+export const listProjectTree = (teamId: string, path: string, signal?: AbortSignal) =>
+  request<{ entries: TreeEntry[] | null; truncated: boolean }>('GET', `${projectBase(teamId)}/tree?path=${encodeURIComponent(path)}`, undefined, signal)
+    .then((r) => ({ entries: r.entries ?? [], truncated: r.truncated }))
+
+/** A text file in a company's project to edit, with the fingerprint (sha256) of its content to save against. */
+export const openProjectFile = (teamId: string, path: string, signal?: AbortSignal) =>
+  request<{ text: string; hash: string }>('GET', `${projectBase(teamId)}/file?path=${encodeURIComponent(path)}`, undefined, signal)
+
+/** Writes a text file in a company's project, only if it still has the content `hash` was taken of; answers the new hash. */
+export const saveProjectFile = (teamId: string, path: string, text: string, hash: string) =>
+  request<{ hash: string }>('PUT', `${projectBase(teamId)}/file`, { path, text, hash }).then((r) => r.hash)
+
+/** A new empty file or folder in a folder of a company's project ('' is the project itself). */
+export const createProjectEntry = (teamId: string, parent: string, name: string, kind: TreeEntry['kind']) =>
+  request<TreeEntry>('POST', `${projectBase(teamId)}/tree`, { parent, name, kind })
+
 /** Where an `<img>` loads a picture in a company's folder, or at home with no company, as it is now. */
 export const projectImageUrl = (teamId: string, path: string) => `/api/v1${mentionBase(teamId)}/image?path=${encodeURIComponent(path)}`
 

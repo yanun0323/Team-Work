@@ -64,6 +64,9 @@ type Event struct {
 // Engine owns the world: everything is read and changed under mu. Agent runs work outside it, and each
 // run's goroutine is owned by the engine: Close cancels them and waits.
 type Engine struct {
+	// ponytail: serialize browser saves; use per-path locks if editor throughput becomes significant.
+	projectMu sync.Mutex
+
 	mu      sync.Mutex
 	w       *model.World
 	secrets map[string]string

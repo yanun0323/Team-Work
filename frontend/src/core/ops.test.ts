@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applyPatches, emptyWorld, request, unreachable } from './backend'
 import { fmtClock } from './model'
-import { deleteMemory, editMemory, projectImageUrl } from './ops'
+import { ApiError } from './backend'
+import { createProjectEntry, deleteMemory, editMemory, listProjectTree, projectImageUrl } from './ops'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -54,6 +55,32 @@ describe('requests', () => {
     await expect(request('POST', '/x')).rejects.toThrow(unreachable())
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed') }))
     await expect(request('POST', '/x')).rejects.toThrow(unreachable())
+  })
+
+  it('tells kinds of refusal apart by the backend\'s code and status', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":{"code":"conflict","message":"不行"}}', { status: 409 })))
+    const e = await request('POST', '/x').catch((x: unknown) => x)
+    expect(e).toBeInstanceOf(ApiError)
+    expect(e).toMatchObject({ message: '不行', code: 'conflict', status: 409 })
+  })
+})
+
+describe('the project\'s files', () => {
+  it('lists one level of a folder, empty as an empty list', async () => {
+    const f = vi.fn(async () => new Response('{"entries":null,"truncated":false}'))
+    vi.stubGlobal('fetch', f)
+    await expect(listProjectTree('t', 'a b')).resolves.toEqual({ entries: [], truncated: false })
+    expect(f.mock.calls[0]).toEqual(['/api/v1/teams/t/tree?path=a%20b', expect.objectContaining({ method: 'GET' })])
+  })
+
+  it('makes a file or folder in a folder', async () => {
+    const f = vi.fn(async () => new Response('{"name":"n.txt","path":"a/n.txt","kind":"file"}', { status: 201 }))
+    vi.stubGlobal('fetch', f)
+    await expect(createProjectEntry('t', 'a', 'n.txt', 'file')).resolves.toEqual({ name: 'n.txt', path: 'a/n.txt', kind: 'file' })
+    const [path, init] = f.mock.calls[0] as unknown as [string, RequestInit]
+    expect(path).toBe('/api/v1/teams/t/tree')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ parent: 'a', name: 'n.txt', kind: 'file' })
   })
 })
 

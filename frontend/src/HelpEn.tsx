@@ -67,7 +67,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
       <>
         <p>A company has one project folder and one target branch. The folder button after the project location opens it in Finder. Click the building, its plot or its name tag to open a company, and click elsewhere on the map or press Esc to put it away. While one is open, other companies keep their name tags; click one to go straight to that company. On the right is the company file. On the left you can see employees in the office: those with work sit at their desks, and the rest walk around, chat with colleagues, sit on the sofa, have coffee or daydream. Every office has a coffee machine and a sofa.</p>
         <p>The building grows with the company: more finished tasks and employees mean more floors and a bigger footprint (up to 10×10 cells and 10 floors).</p>
-        <p>The company file has Chats, Tasks, Employees, Terminal and Settings tabs. You can choose which one opens first with Default company page in Airport → Settings.</p>
+        <p>The company file has Chats, Tasks, Employees, Terminal, Files and Settings tabs. You can choose which one opens first with Default company page in Airport → Settings.</p>
         <p>The sticky note pinned to the upper right holds the company's notes: open it to read them as Markdown, and click them to edit; they save as you type. They are stored in <code>.team-work/NOTES.md</code> in the project folder, are not committed automatically, and are not given to employees.</p>
         <p>When something is not ready, a red stamp above the tabs says what is missing, and the matching add button is disabled:</p>
         <dl>
@@ -269,6 +269,22 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Keep terminals</dt><dd>With this on in Airport → Settings, it keeps running when you leave the company and is there when you return, until the app closes or the company is disbanded. On the web, a refresh counts as closing.</dd>
           <dt>Employees reading it</dt><dd>In company chats, employees whose blueprint has Read files or Run commands can read the last 5,000 lines the terminal has shown, but cannot type into it. Full-screen programs such as vim are left out. A reopened terminal starts a new record.</dd>
           <dt>Keyboard</dt><dd>Opening this tab puts the keyboard in the terminal, and typing brings it back from elsewhere, unless you are typing in another field. Press F6 to leave the terminal. Focus returns to the tab. Option works as Alt. Option+←→ moves by word, Command+←→ goes to the start or end of the line, Command+Delete deletes to the start of the line, Shift+Enter adds a line without running it, Command+K clears the screen, and Command+↑↓ scrolls to the top or bottom.</dd>
+        </dl>
+      </>
+    ),
+  },
+  files: {
+    label: 'Files',
+    alt: "The company file's Files tab: the project folder's tree on the left, an open text file on the right",
+    body: (
+      <>
+        <p>Browse the company's project folder to change a few lines or look at a picture without leaving the app. The tree on the left reads a folder only when you open it, so hidden files, <code>.git</code> and <code>node_modules</code> are all there, and a closed folder is never read. The simulator has no such tab.</p>
+        <dl>
+          <dt>Opening</dt><dd>Text files open in a plain text box to edit. PNG, JPG, GIF and WebP pictures are only shown. Other files, and text files over 1 MiB, cannot be previewed; you can show them in Finder.</dd>
+          <dt>Creating</dt><dd>New file and New folder sit at the top of the tree and at the right of each folder's row, shown on hover. Type a name and press Enter, or Esc to cancel. A name that is not allowed or already taken is explained beside the box. Nothing can be deleted, moved or renamed.</dd>
+          <dt>Saving</dt><dd>Press Save or Command+S (Ctrl+S). A red dot marks unsaved files. Drafts stay when you switch tabs, open another file or close the company file, until the app closes. Closing a file, closing the company file or going to another company asks first when there are unsaved changes. Files with CRLF line endings are saved with CRLF.</dd>
+          <dt>Changed elsewhere</dt><dd>If an employee, the terminal or another editor changed the file after you opened it, saving is refused, so their change is not overwritten. Choose Reload to drop your draft, or Keep my changes to copy them out yourself.</dd>
+          <dt>Refresh</dt><dd>The tree does not update by itself. Refresh at the top rereads the open folders and any unchanged file.</dd>
         </dl>
       </>
     ),

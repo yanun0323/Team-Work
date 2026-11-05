@@ -19,14 +19,15 @@ import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { TaskCard } from './TaskCard'
 
-export type Tab = 'chats' | 'tasks' | 'crew' | 'terminal' | 'settings'
+export type Tab = 'chats' | 'tasks' | 'crew' | 'terminal' | 'files' | 'settings'
 
 export const TABS: { id: Tab; label: Key }[] = [
   { id: 'chats', label: '對話#tab' },
   { id: 'tasks', label: '任務#tab' },
   { id: 'crew', label: '員工#tab' },
   // the simulator has no computer to run a shell on
-  ...(MOCK ? [] : [{ id: 'terminal' as const, label: '終端機' as const }]),
+  // the simulator has no folder to browse either
+  ...(MOCK ? [] : [{ id: 'terminal' as const, label: '終端機' as const }, { id: 'files' as const, label: '檔案瀏覽' as const }]),
   { id: 'settings', label: '設定' },
 ]
 
@@ -43,8 +44,8 @@ const COLUMNS: { status: Status; label: Key }[] = [
 /** Which item's detail sheet is open (by itemKey), and how to open one. */
 interface Opens { teamId: string; open: string | null; onOpen: (x: Item) => void }
 
-/** The terminal is not here: the company file keeps it apart, so it outlasts a change of tab. */
-export function TabBody({ tab, ...p }: Opens & { tab: Exclude<Tab, 'terminal'> }) {
+/** The terminal is not here: the company file keeps it apart, so it outlasts a change of tab. Nor is the file browser, a chunk of its own. */
+export function TabBody({ tab, ...p }: Opens & { tab: Exclude<Tab, 'terminal' | 'files'> }) {
   if (tab === 'chats') return <Chats {...p} />
   if (tab === 'tasks') return <Tasks {...p} />
   if (tab === 'crew') return <Crew {...p} />

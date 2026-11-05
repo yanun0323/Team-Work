@@ -7,6 +7,7 @@ const (
 	CodeNotFound    = "not_found"
 	CodeInvalid     = "invalid_request"
 	CodeConflict    = "conflict"
+	CodeUnsupported = "unsupported"
 	CodeUnavailable = "unavailable" // a passing failure, worth trying again
 	CodeInternal    = "internal"
 	// CodeContextOverflow means the conversation is longer than the model can read.

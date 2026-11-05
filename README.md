@@ -26,6 +26,7 @@ Team Work is a macOS app that runs a team of AI agents on your own projects. Eac
 - **Model providers**: Anthropic, OpenAI, Google Gemini and any OpenAI-compatible API. You can also sign in with a Claude or ChatGPT subscription.
 - **Skills**: blueprints load skills from local folders or GitHub repos.
 - **Terminal**: each company has a zsh terminal in its project folder.
+- **Files**: browse a company's project folder, create files and folders, edit text files and preview images.
 - **Languages**: Traditional Chinese and English.
 
 ## Installation

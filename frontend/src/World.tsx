@@ -5,7 +5,8 @@ import { tr } from './core/i18n'
 import { LanguageMenu } from './LanguageMenu'
 import { MapControls } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
+import { guardUnload, leaveTeam } from './fileDrafts'
 import * as THREE from 'three'
 import { inTerminal, teamAlerts, teamReplicas } from './core/model'
 import { useStore } from './core/store'
@@ -158,7 +159,16 @@ export function World() {
     if (el && sheetClosed.current) el.focus({ preventScroll: true })
     sheetClosed.current = false
   }, [])
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelectedNow] = useState<string | null>(null)
+  // leaving a company whose files have unsaved changes first asks (the file browser's drafts)
+  const selectedNow = useRef(selected)
+  selectedNow.current = selected
+  const setSelected = useCallback((next: SetStateAction<string | null>) => {
+    const cur = selectedNow.current
+    const want = typeof next === 'function' ? next(cur) : next
+    if (want !== cur) leaveTeam(cur, () => setSelectedNow(want))
+  }, [])
+  useEffect(guardUnload, [])
   // the building under the pointer: it darkens and its name tag lifts
   const [hovered, setHovered] = useState<string | null>(null)
   const hover = useCallback((id: string, on: boolean) => setHovered((cur) => (on ? id : cur === id ? null : cur)), [])
@@ -204,7 +214,7 @@ export function World() {
   }, [moving, key])
   // a company that was closed puts its file away
   useEffect(() => {
-    if (selected && !useStore.getState().world.teams[selected]) setSelected(null)
+    if (selected && !useStore.getState().world.teams[selected]) setSelectedNow(null)
   }, [selected, key])
   // The simulator pins its generated layout in memory; real positions arrive in team records.
   useEffect(() => {

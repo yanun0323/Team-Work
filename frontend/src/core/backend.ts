@@ -60,7 +60,14 @@ export const emptyWorld = (): World => ({
   nextDriftAt: Infinity, rng: 0, events: [],
 })
 
-/** Sends a request and reads its JSON, if any. A failure throws what can be shown to the user. */
+/** A request the backend refused: its message can be shown as it is; `code` and `status` tell kinds of refusal apart. */
+export class ApiError extends Error {
+  constructor(message: string, readonly code: string, readonly status: number) {
+    super(message)
+  }
+}
+
+/** Sends a request and reads its JSON, if any. A failure throws what can be shown to the user, an ApiError when the backend answered. */
 export async function request<T = void>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   let res: Response
   try {
@@ -73,8 +80,9 @@ export async function request<T = void>(method: string, path: string, body?: unk
   }
   if (!res.ok) {
     // the dev proxy answers without JSON when the backend is not running
-    const err = await res.json().catch(() => null) as { error?: { message?: string } } | null
-    throw new Error(err?.error?.message ?? unreachable())
+    const err = await res.json().catch(() => null) as { error?: { code?: string; message?: string } } | null
+    if (!err?.error?.message) throw new Error(unreachable())
+    throw new ApiError(err.error.message, err.error.code ?? '', res.status)
   }
   return (res.status === 204 ? undefined : await res.json()) as T
 }

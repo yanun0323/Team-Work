@@ -151,6 +151,9 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.GET("/replicas/:id/skills", s.replicaSkills)
 	api.POST("/teams/:id/open-folder", s.openFolder)
 	api.GET("/teams/:id/file", s.projectFile)
+	api.PUT("/teams/:id/file", s.saveProjectFile)
+	api.GET("/teams/:id/tree", s.projectTree)
+	api.POST("/teams/:id/tree", s.createProjectEntry)
 	api.GET("/teams/:id/image", s.projectImage)
 	api.GET("/chats/:id/skill", s.chatSkill)
 	api.GET("/teams/:id/terminal", s.terminal)
@@ -265,6 +268,8 @@ func (s *Server) handleError(err error, c echo.Context) {
 			status = http.StatusBadRequest
 		case model.CodeConflict:
 			status = http.StatusConflict
+		case model.CodeUnsupported:
+			status = http.StatusUnsupportedMediaType
 		case model.CodeUnavailable:
 			status = http.StatusBadGateway
 		case codeForbidden:
@@ -687,7 +692,47 @@ func (s *Server) projectFile(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusOK, map[string]any{"text": text})
+	return c.JSON(http.StatusOK, text)
+}
+
+func (s *Server) projectTree(c echo.Context) error {
+	tree, err := s.engine.ProjectTree(c.Param("id"), c.QueryParam("path"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, tree)
+}
+
+func (s *Server) saveProjectFile(c echo.Context) error {
+	in, err := bind[struct {
+		Path string  `json:"path"`
+		Text *string `json:"text"`
+		Hash string  `json:"hash"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	if in.Text == nil {
+		return model.Errorf(model.CodeInvalid, "儲存內容必須是文字")
+	}
+	hash, err := s.engine.SaveProjectFile(c.Param("id"), in.Path, *in.Text, in.Hash)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]string{"hash": hash})
+}
+
+func (s *Server) createProjectEntry(c echo.Context) error {
+	in, err := bind[struct {
+		Parent string `json:"parent"`
+		Name   string `json:"name"`
+		Kind   string `json:"kind"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	entry, err := s.engine.CreateProjectEntry(c.Param("id"), in.Parent, in.Name, in.Kind)
+	return created(c, entry, err)
 }
 
 func (s *Server) projectImage(c echo.Context) error {

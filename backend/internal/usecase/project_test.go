@@ -31,7 +31,7 @@ func TestProjectFilesAreReadOnlyInsideTheFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if text, err := r.e.ProjectFile(r.team.ID, "docs/plan.md"); err != nil || text != "# 計畫" {
+	if text, err := r.e.ProjectFile(r.team.ID, "docs/plan.md"); err != nil || text.Text != "# 計畫" {
 		t.Fatalf("%q %v", text, err)
 	}
 	for _, path := range []string{"../" + filepath.Base(outside) + "/secret.txt", outside + "/secret.txt", "away/secret.txt", "bin.dat", "docs", "nope.md"} {
@@ -191,7 +191,7 @@ func TestAirportFilesBrowseHomeOneFolderAtATime(t *testing.T) {
 	}
 
 	// what a mention names opens from home too, and nothing outside it
-	if text, err := r.e.ProjectFile("", "Documents/plan.md"); err != nil || text != "x" {
+	if text, err := r.e.ProjectFile("", "Documents/plan.md"); err != nil || text.Text != "x" {
 		t.Fatalf("%q %v", text, err)
 	}
 	if folder, err := r.e.ProjectFolder("", "Docs"); err != nil || filepath.Base(folder) != "Documents" {

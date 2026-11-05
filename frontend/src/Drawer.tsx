@@ -19,8 +19,30 @@ import type { BuildingLook } from './layout'
 import type { Team } from './core/domain/types'
 import { takeCompanyTab } from './tutorial'
 import { NotesPin } from './Notes'
+import { answerLeaving, unsavedIn, useFileDrafts } from './fileDrafts'
 
 const Terminal = lazy(() => import('./Terminal'))
+const FileBrowser = lazy(() => import('./FileBrowser'))
+
+/** Asks before leaving this company while files in it have unsaved changes (see leaveTeam). */
+function LeaveAsk({ teamId }: { teamId: string }) {
+  const asking = useFileDrafts((s) => s.leaving?.teamId === teamId)
+  const count = useFileDrafts((s) => unsavedIn(s.drafts, teamId).length)
+  if (!asking) return null
+  return <LeavePrompt count={count} onAnswer={answerLeaving} />
+}
+
+/** Whether to leave a company whose files have unsaved changes; Esc stays. The drafts stay either way. */
+export function LeavePrompt({ count, onAnswer }: { count: number; onAnswer: (leave: boolean) => void }) {
+  return (
+    <div className="fx-files-ask fx-files-leave" role="alertdialog" aria-labelledby="fx-files-leave"
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onAnswer(false) } }}>
+      <span id="fx-files-leave">{tr('{count} 個檔案還沒儲存', { count })}</span>
+      <button type="button" className="fx-tool fx-tool-text fx-hit" autoFocus onClick={() => onAnswer(false)}>{tr('留下')}</button>
+      <button type="button" className="fx-tool fx-tool-ask fx-hit" onClick={() => onAnswer(true)}>{tr('離開')}</button>
+    </div>
+  )
+}
 
 type Rect = [number, number, number, number, string]
 
@@ -183,7 +205,15 @@ export function Drawer({ teamId, look, leaving, onGone }: {
           </div>
         </header>
         {/* keyed, so each tab turns in like a fresh page */}
-        {tab !== 'terminal' && (
+        <LeaveAsk teamId={teamId} />
+        {tab === 'files' && (
+          <section key={tab} id="fx-panel" className="fx-page fx-page-files" role="tabpanel" aria-labelledby="fx-tab-files">
+            <Suspense fallback={<p className="fx-files-note">{tr('讀取中…')}</p>}>
+              <FileBrowser key={teamId} teamId={teamId} />
+            </Suspense>
+          </section>
+        )}
+        {tab !== 'terminal' && tab !== 'files' && (
           <section key={tab} id="fx-panel" className="fx-page" role="tabpanel" aria-labelledby={`fx-tab-${tab}`}>
             <TabBody tab={tab} teamId={teamId} open={base && !base.leaving ? itemKey(base.item) : null} onOpen={sheets.open} />
           </section>

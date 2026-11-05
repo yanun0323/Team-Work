@@ -2,6 +2,18 @@ package i18n
 
 // en is the English of every text the backend tells the user, by its Chinese. Words follow CONTEXT.md.
 var en = map[string]string{
+	"%s 不是資料夾":        "%s is not a folder",
+	"讀不到資料夾 %s":       "Could not read folder %s",
+	"讀不到檔案 %s":        "Could not read file %s",
+	"寫不進專案資料夾":        "Could not write to the project folder",
+	"名稱不正確：%s":        "Invalid name: %s",
+	"已經有 %s":          "%s already exists",
+	"檔案指紋不正確":         "Invalid file fingerprint",
+	"儲存內容不能超過 1 MiB":  "Saved text cannot exceed 1 MiB",
+	"儲存內容必須是文字":       "Saved content must be text",
+	"檔案已不在，請重新讀取":     "The file is gone. Read it again",
+	"檔案已在別處被修改，請重新讀取": "The file was changed elsewhere. Read it again",
+
 	"同意修改":          "Change agreed",
 	"拒絕修改":          "Change refused",
 	"這次執行已經停止":      "This run has stopped",
