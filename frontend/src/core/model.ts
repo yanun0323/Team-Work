@@ -108,6 +108,17 @@ export function teamAlerts(w: World, teamId: string) {
   }
 }
 
+/** What a company has under way, shown spinning on its name tag: chats being replied to, and tasks with a step
+ * running or a merge started (once each, however many steps run). The airport's chats have an empty `teamId`. */
+export function teamWork(w: World, teamId: string): { chats: number; tasks: number } {
+  return {
+    chats: Object.values(w.chats).filter((c) => c.teamId === teamId && c.replyAt !== undefined).length,
+    tasks: teamTasks(w, teamId).filter((t) =>
+      (t.stage === 'merging' && t.merge?.startedAt !== undefined) ||
+      subsOf(w, t.id).some((s) => s.status === 'progressing' && !s.cancelled)).length,
+  }
+}
+
 /** How many of a company's employees are at work right now: on a task, merging one, or writing a chat reply. Shown on its building. */
 export function teamBusy(w: World, teamId: string): number {
   const busy = busyReplicas(w)

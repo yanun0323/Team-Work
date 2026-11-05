@@ -7,7 +7,7 @@ import { MapControls } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { inTerminal, teamAlerts, teamReplicas } from './core/model'
+import { inTerminal, teamAlerts, teamReplicas, teamWork } from './core/model'
 import { useStore } from './core/store'
 import { LabelLayer, LabelProjector, type LabelSpec } from './core/voxel/labels'
 import { Airport } from './Airport'
@@ -75,6 +75,19 @@ function useRises(n: number) {
   const [last, setLast] = useState({ n, rises: 0 })
   if (n !== last.n) setLast({ n, rises: last.rises + (n > last.n ? 1 : 0) })
   return last.rises + (n > last.n ? 1 : 0)
+}
+
+/** Before a company's name, clear of the alerts on its corner: a grey ring spinning round how many chats and tasks it has under way; nothing while idle. */
+export function TagWork({ chats, tasks }: ReturnType<typeof teamWork>) {
+  const n = chats + tasks
+  if (!n) return null
+  const label = tr('{n} 件工作進行中', { n })
+  return (
+    <span className="fx-tag-work" title={label}>
+      <span aria-hidden="true">{n > 9 ? '9+' : n}</span>
+      <span className="fx-sr">{label}</span>
+    </span>
+  )
 }
 
 /** On a company's tag: its unread chats and the tasks waiting for a reply, apart. */
@@ -268,7 +281,10 @@ export function World() {
 
   // one `id<TAB>name` line per employee of the open company
   // the empty id is the airport's chats
-  const alerts = useStore((s) => ['', ...Object.keys(s.world.teams)].map((id) => { const a = teamAlerts(s.world, id); return `${id}\t${a.unreadChats}\t${a.waitingTasks}` }).join('\n'))
+  const alerts = useStore((s) => ['', ...Object.keys(s.world.teams)].map((id) => {
+    const a = teamAlerts(s.world, id), b = teamWork(s.world, id)
+    return `${id}\t${a.unreadChats}\t${a.waitingTasks}\t${b.chats}\t${b.tasks}`
+  }).join('\n'))
   const crewNames = useStore((s) => (selected ? teamReplicas(s.world, selected).map((r) => `${r.id}\t${r.name}`).join('\n') : ''))
   // the airport's tag is in words, so it changes with the language
   const language = useStore((s) => s.world.language)
@@ -282,7 +298,7 @@ export function World() {
     const airport: LabelSpec = {
       id: 'fusion-airport', at: [ax + AIRPORT_TAG[0], AIRPORT_TAG[1], az + AIRPORT_TAG[2]],
       tone: hovered === AIRPORT_ID && !open && !settingsOpen && !placing && !editing ? 'fusion lifted' : 'fusion',
-      text: <span className="fx-tag">{tr('機場')}<TagAlerts {...teamAlerts(useStore.getState().world, '')} /></span>,
+      text: <span className="fx-tag"><TagWork {...teamWork(useStore.getState().world, '')} />{tr('機場')}<TagAlerts {...teamAlerts(useStore.getState().world, '')} /></span>,
       onClick: selectAirport,
     }
     const tags = town.lots.map((l, i): LabelSpec => {
@@ -292,7 +308,7 @@ export function World() {
         // the slip is an inner element: tilting the button itself would swing it round the screen corner,
         // because its tilt applies after the transform that places it. The tilt goes by the company's place
         // in town, so it doesn't change when the open company's tag leaves
-        text: <span className={i % 2 ? 'fx-tag' : 'fx-tag fx-tag-right'}>{l.name}<TagAlerts {...teamAlerts(useStore.getState().world, l.id)} /></span>,
+        text: <span className={i % 2 ? 'fx-tag' : 'fx-tag fx-tag-right'}><TagWork {...teamWork(useStore.getState().world, l.id)} />{l.name}<TagAlerts {...teamAlerts(useStore.getState().world, l.id)} /></span>,
         // with a company open, another company's tag goes straight to that company
         onClick: () => (helpOpen ? close() : editing ? pickMoving(l.id) : placing ? close() : settingsOpen ? close() : setSelected(l.id)),
       }

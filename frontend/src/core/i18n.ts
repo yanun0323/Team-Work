@@ -482,6 +482,7 @@ const en = {
   '取消釘選': 'Unpin',
   '{n} 則對話未讀': '{n} unread chats',
   '{n} 個任務待回覆': '{n} tasks waiting for review',
+  '{n} 件工作進行中': '{n} in progress',
   '下一步': 'Next step',
   '接自': 'From',
   '退回自': 'Sent back from',

@@ -50,6 +50,9 @@ body { margin: 0; overflow: hidden; }
   transition: box-shadow 200ms ease-out, rotate 200ms ease-out, translate 200ms ease-out;
 }
 .label-fusion .fx-tag-right { rotate: 1.2deg; }
+/* the names over the map read a size up from the corner buttons that share the slip */
+.label-fusion .fx-tag { padding: 7px 15px 6px; font-size: 15px; }
+.label-fusion .fx-tag::before { top: -6px; width: 30px; height: 10px; }
 /* a strip of tape holding it up */
 .fx-tag::before {
   content: ""; position: absolute; left: 50%; top: -5px; width: 26px; height: 9px;
@@ -1238,6 +1241,19 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
 .fx-tag-alerts { position: absolute; top: -12px; inset-inline-end: -10px; display: flex; gap: 4px; }
 .fx-tag-alert { --alert: 211 58 44; position: relative; display: inline-flex; gap: 2px; rotate: none; }
 .fx-tag-alert-chat { --alert: 36 87 158; background: #24579e; }
+/* before the name, clear of the alerts on the slip's corner: a grey ring spinning round how many chats and tasks are under way; it stops with reduced motion */
+/* the count sits on the name's baseline, a hair up to meet the middle of its capitals, and the ring is drawn
+   round the count outside the line box, so the slip keeps its height */
+.fx-tag-work {
+  position: relative; display: inline-block; width: 20px; margin-inline-end: 7px; vertical-align: 1px; text-align: center;
+  color: #5f5d68; font: 800 11px/1 var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: -0.03em;
+}
+.fx-tag-work::before {
+  content: ""; position: absolute; left: 0; top: 50%; width: 20px; height: 20px; translate: 0 -50%; box-sizing: border-box; border-radius: 50%;
+  border: 2px solid rgb(31 29 43 / 0.14); border-top-color: #6f6d78;
+}
+@media (prefers-reduced-motion: no-preference) { .fx-tag-work::before { animation: fx-tag-spin 0.9s linear infinite; } }
+@keyframes fx-tag-spin { to { rotate: 1turn; } }
 /* a new alert, or one more of them, pops in, shakes and sends out a ring; then it keeps a slow glow until it is dealt with */
 @media (prefers-reduced-motion: no-preference) {
   .fx-tag-alert {
