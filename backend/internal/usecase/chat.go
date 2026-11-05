@@ -29,11 +29,8 @@ const chatRules = "You are a company employee chatting with the user to discuss 
 	sharedFilesRule + "\n" +
 	dataRule
 
-// askInChatRule steers choices to ask_user, so the user can answer with a click, and has questions answered first:
-// asked one while a choice is open, an employee is otherwise apt to fold its answer into the same choice asked again.
-const askInChatRule = "When the user asks you something, answer it in your reply first; do not ask again a choice you have not helped them make. " +
-	"When you need the user to choose before going on, such as yes or no, or which of a few ways to go, ask with ask_user instead of ending your reply with a question. " +
-	"To have them type an answer, such as a name, ask in your reply."
+// askInChatRule steers choices to ask_user, so the user can answer with a click.
+const askInChatRule = "When you need the user to choose before going on, such as yes or no, or which of a few ways to go, give the options with ask_user so they can answer with a click."
 
 const airportChatRules = "You are the airport's service staff in Team Work, an app where the user runs companies of AI employees. You chat with the user to answer questions or do work for them on their computer. You do not belong to any company. The working directory is your own folder and stays between chats; it is not a project. Attached files may be read from their supplied paths, but must not be modified. Commands can reach the rest of the computer: change only what was asked, and ask with ask_user before deleting or overwriting anything outside your folder.\n" +
 	"Reply in plain text.\n" +
@@ -610,7 +607,7 @@ func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Att
 	// an option, which is what picking one sends, answers the question; anything else is a new message.
 	answer := ""
 	if c.Question != nil {
-		answer = askSkipped
+		answer = chatAskSkipped
 		if len(images)+len(files) == 0 && slices.Contains(c.Question.Options, strings.TrimSpace(text)) {
 			answer = askPicked + "see their next message"
 		}
@@ -846,28 +843,56 @@ func (e *Engine) chatKeepsImage(in chatRun) func(output string, data []byte) {
 	}
 }
 
-// chatAskUser ends the reply with a question. Picking an option answers it; any other message is a new one.
+// chatAskUser puts options under what the reply has said, and ends it. It has no question of its own: one there
+// is a reply in a box, and employees took it for a way to skip answering. Picking an option answers it; any other
+// message is a new one.
 func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
-	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "End your reply and ask the user to choose; you go on with what they pick. Do not call it together with other tools: call it once their results are in. To have them type an answer, such as a name or an API key, ask in your reply instead. " + askUserHow,
-		Parameters: json.RawMessage(askUserSchema)},
+	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "Put options under your reply for the user to pick from, and end the reply; you go on with what they pick. The options go under what you have written, so write the reply first, question included. Call it alone, once other tools' results are in. To have them type an answer, such as a name or an API key, ask in your reply instead. " + askUserHow,
+		Parameters: json.RawMessage(chatAskUserSchema)},
 		func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
 			var a struct {
-				Prompt  string   `json:"prompt"`
 				Options []string `json:"options"`
 			}
-			if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Prompt) == "" {
-				return toolError("prompt is required")
+			if err := json.Unmarshal(raw, &a); err != nil {
+				return toolError("invalid arguments: %v", err)
 			}
 			options, refused := askOptions(a.Options, "To have them type an answer, such as a name, ask in your reply instead.")
 			if refused != nil {
 				return *refused
 			}
+			asked := false
 			e.applyChat(in, func(c *model.Chat) {
-				e.chatSays(c, a.Prompt)
+				if !saidThisReply(c) {
+					return
+				}
 				c.Question = &model.ChatQuestion{Options: options}
+				asked = true
 			})
+			if !asked {
+				return toolError("this reply has no text yet for the options to go under: write your reply first, then call ask_user")
+			}
 			return model.ToolResult{Stop: true}
 		}}
+}
+
+// chatAskUserSchema is ask_user's in a chat: options alone, as the question is in the reply.
+const chatAskUserSchema = `{"type":"object","properties":{"options":{"type":"array","items":{"type":"string"},"minItems":1,"description":"What the user picks from"}},"required":["options"]}`
+
+// chatAskSkipped is what an open ask_user in a chat gets when the user writes instead of picking.
+const chatAskSkipped = "The user did not pick an option; they wrote a new message instead, which is not an answer to it: see their next message."
+
+// saidThisReply says whether the one replying has written anything since the user last spoke.
+func saidThisReply(c *model.Chat) bool {
+	for i := len(c.Messages) - 1; i >= 0; i-- {
+		m := c.Messages[i]
+		if m.From == "user" {
+			return false
+		}
+		if m.From == "agent" && !m.Failed && m.By == c.Speaker && strings.TrimSpace(m.Text) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // chatMemoryTools let the employee keep and drop notes while chatting. The chat already shows each call.

@@ -159,7 +159,7 @@ func TestChatAskUserWaitsForTheNextMessage(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		calls++
 		if calls == 1 {
-			return call("ask_user", map[string]any{"prompt": "用哪個？", "options": []string{"甲", " ", "乙", "甲"}}), nil
+			return sayAndCall("用哪個？", "ask_user", map[string]any{"options": []string{"甲", " ", "乙", "甲"}}), nil
 		}
 		return say("好"), nil
 	})
@@ -209,7 +209,7 @@ func TestTypingInsteadOfPickingIsANewMessage(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		calls++
 		if calls == 1 {
-			return call("ask_user", map[string]any{"prompt": "用哪個？", "options": []string{"甲", "乙"}}), nil
+			return sayAndCall("用哪個？", "ask_user", map[string]any{"options": []string{"甲", "乙"}}), nil
 		}
 		return say("好"), nil
 	})
@@ -229,7 +229,8 @@ func TestTypingInsteadOfPickingIsANewMessage(t *testing.T) {
 	if n := len(seen); n != 4 || seen[2].Content[0].Type != enum.BlockToolResult || seen[3].Content[0].Text != "哪個比較快？" {
 		t.Fatalf("%+v", seen)
 	}
-	if got := seen[2].Content[0].Text; strings.Contains(got, "answered") || !strings.Contains(got, "did not pick") {
+	// nor nudged to ask the same choice again
+	if got := seen[2].Content[0].Text; strings.Contains(got, "answered") || !strings.Contains(got, "did not pick") || strings.Contains(got, "ask again") {
 		t.Fatalf("told the model the user answered: %q", got)
 	}
 }
@@ -240,7 +241,7 @@ func TestChatAskUserNeedsOptions(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		calls++
 		if calls == 1 {
-			return call("ask_user", map[string]any{"prompt": "API Key 是什麼？"}), nil
+			return sayAndCall("API Key 是什麼？", "ask_user", map[string]any{}), nil
 		}
 		return say("API Key 是什麼？"), nil
 	})
@@ -256,6 +257,56 @@ func TestChatAskUserNeedsOptions(t *testing.T) {
 	if last := seen[len(seen)-1].Content[0]; !last.IsError || !strings.Contains(last.Text, "options") {
 		t.Fatalf("%+v", last)
 	}
+}
+
+// ask_user only puts options under what the reply says, so a reply cannot be a choice alone: the question, and any
+// answer the user asked for, are written out first. Text from an earlier turn of the same reply counts; text from
+// before the user's last message does not.
+func TestChatAskUserNeedsTheReplyWrittenFirst(t *testing.T) {
+	calls := 0
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		calls++
+		switch calls {
+		case 1:
+			return say("好"), nil
+		case 2, 3: // options with nothing written in this reply
+			return call("ask_user", map[string]any{"options": []string{"甲", "乙"}}), nil
+		case 4:
+			return sayAndCall("每層是 4 倍。", "no_such_tool", map[string]any{}), nil
+		default:
+			return call("ask_user", map[string]any{"options": []string{"甲", "乙"}}), nil
+		}
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "開始"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first reply", chatDone(c.ID))
+	if err := r.e.SayInChat(c.ID, "每層是多少？", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("question", func(w *model.World) bool { c := w.Chats[c.ID]; return c.ReplyAt == nil && c.Question != nil })
+	if calls != 5 {
+		t.Fatalf("%d calls", calls)
+	}
+	refused := r.fake.seen[2].Messages
+	if last := refused[len(refused)-1].Content[0]; !last.IsError || !strings.Contains(last.Text, "reply") {
+		t.Fatalf("%+v", last)
+	}
+	got := r.world().Chats[c.ID]
+	texts := []string{}
+	for _, m := range got.Messages[2:] {
+		texts = append(texts, m.From+":"+m.Text)
+	}
+	if !slices.Equal(got.Question.Options, []string{"甲", "乙"}) || !slices.Equal(texts, []string{"user:每層是多少？", "agent:每層是 4 倍。", "tool:no_such_tool {}"}) {
+		t.Fatalf("%+v %q", got.Question, texts)
+	}
+}
+
+func sayAndCall(text, name string, args any) model.ModelReply {
+	reply := call(name, args)
+	reply.Content = append([]model.Block{{Type: enum.BlockText, Text: text}}, reply.Content...)
+	return reply
 }
 
 func TestSearchFilesTakesInWhatGitIgnores(t *testing.T) {
@@ -965,7 +1016,7 @@ func TestForkKeepsAnOpenQuestion(t *testing.T) {
 		if first {
 			first = false
 			<-release
-			return call("ask_user", map[string]any{"prompt": "哪個？", "options": []string{"甲", "乙"}}), nil
+			return sayAndCall("哪個？", "ask_user", map[string]any{"options": []string{"甲", "乙"}}), nil
 		}
 		return say("好"), nil
 	})
