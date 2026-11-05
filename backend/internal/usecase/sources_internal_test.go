@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -224,5 +225,56 @@ func TestAnUpdateAppliedByItselfIsUnseenUntilOpened(t *testing.T) {
 	}
 	if err := e.SeeSource(id); err != nil || unseen() {
 		t.Fatalf("opened: unseen %v, err %v", unseen(), err)
+	}
+}
+
+// latestFails answers every repo with the error held in err.
+type latestFails struct {
+	adapter.Git
+	err error
+}
+
+func (l latestFails) Latest(context.Context, string, string) (string, error) { return "", l.err }
+
+// A check that fails only for now, like no network, keeps the upstream; only a repo or branch that is gone loses it.
+func TestOnlyAGoneRepoLosesItsUpstream(t *testing.T) {
+	gitErr := func(stderr string) error { return fmt.Errorf("git ls-remote: exit status 128: %s", stderr) }
+	for name, c := range map[string]struct {
+		err      error
+		upstream bool
+	}{
+		"no network": {gitErr("fatal: unable to access 'https://github.com/a/b/': Could not resolve host: github.com"), true},
+		"timeout":    {fmt.Errorf("git ls-remote: %w", context.DeadlineExceeded), true},
+		"no repo":    {gitErr("remote: Repository not found."), false},
+		"private":    {gitErr("fatal: could not read Username for 'https://github.com': terminal prompts disabled"), false},
+		"no branch":  {model.Errorf(model.CodeNotFound, "找不到版本 %s", "main"), false},
+	} {
+		data := t.TempDir()
+		store, err := repository.NewStore(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e, err := NewEngine(context.Background(), Options{Store: store, Git: latestFails{err: c.err}, DataDir: data, Log: zerolog.Nop()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { e.Close(); store.Close() })
+		var id string
+		if err := e.doSettings(func() error {
+			s := e.sourceFor(NewSource{Kind: "git", Repo: "https://github.com/a/b"})
+			s.Commit, s.Upstream, id = "c1", true, s.ID
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.CheckSource(context.Background(), id); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		e.mu.Lock()
+		s := clone(e.w.Sources[id])
+		e.mu.Unlock()
+		if s.Upstream != c.upstream || s.Update == nil || s.Update.OK || s.Commit != "c1" {
+			t.Errorf("%s: upstream %v, update %+v, commit %q; want upstream %v, a failed update, c1 kept", name, s.Upstream, s.Update, s.Commit, c.upstream)
+		}
 	}
 }

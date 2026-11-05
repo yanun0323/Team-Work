@@ -375,7 +375,7 @@ func (e *Engine) CheckSource(ctx context.Context, id string) error {
 		if s == nil {
 			return model.Errorf(model.CodeNotFound, "找不到來源")
 		}
-		s.Upstream = err == nil
+		s.Upstream = err == nil || !upstreamGone(err)
 		s.Update = &model.SourceUpdate{At: e.clock(), OK: err == nil}
 		if err != nil {
 			s.Update.Error = sourceProblem(err)

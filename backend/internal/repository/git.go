@@ -391,12 +391,22 @@ func (g *Git) Latest(ctx context.Context, repo, ref string) (string, error) {
 	if ref == "" {
 		ref = "HEAD"
 	}
-	out, err := git(ctx, "", "ls-remote", "--", repo, ref)
+	out, err := git(ctx, "", "ls-remote", "--", repo, ref, ref+"^{}")
 	if err != nil {
 		return "", err
 	}
-	if out == "" {
-		return "", model.Errorf(model.CodeNotFound, "找不到版本 %s", ref)
+	// ls-remote matches the pattern against the tail of every ref, so "main" also lists changeset-release/main;
+	// take the ref named exactly, a branch before a tag, and a tag's commit rather than the tag itself.
+	found := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		if f := strings.Fields(line); len(f) == 2 {
+			found[f[1]] = f[0]
+		}
 	}
-	return strings.Fields(out)[0], nil
+	for _, name := range []string{ref, "refs/heads/" + ref, "refs/tags/" + ref + "^{}", "refs/tags/" + ref} {
+		if sha := found[name]; sha != "" {
+			return sha, nil
+		}
+	}
+	return "", model.Errorf(model.CodeNotFound, "找不到版本 %s", ref)
 }

@@ -107,3 +107,26 @@ func TestFetchClonesOnceAndKeepsEachVersion(t *testing.T) {
 		t.Errorf("offline fetch = %q, %v; want %q", again, err, dirOne)
 	}
 }
+
+// A ref names one branch or tag exactly: another branch ending in the same name, like changeset-release/main next to
+// main, is not it, whichever ls-remote lists first.
+func TestLatestReadsTheRefNamedExactly(t *testing.T) {
+	upstream := t.TempDir()
+	run(t, upstream, "init", "-q", "-b", "main")
+	run(t, upstream, "commit", "-q", "--allow-empty", "-m", "one")
+	release := run(t, upstream, "rev-parse", "HEAD")
+	run(t, upstream, "branch", "changeset-release/main")
+	run(t, upstream, "tag", "-a", "v1", "-m", "v1")
+	run(t, upstream, "commit", "-q", "--allow-empty", "-m", "two")
+	main := run(t, upstream, "rev-parse", "HEAD")
+
+	g := NewGit(t.TempDir())
+	for ref, want := range map[string]string{"main": main, "": main, "refs/heads/main": main, "changeset-release/main": release, "v1": release} {
+		if got, err := g.Latest(context.Background(), upstream, ref); err != nil || got != want {
+			t.Errorf("Latest(%q) = %q, %v; want %q", ref, got, err, want)
+		}
+	}
+	if _, err := g.Latest(context.Background(), upstream, "release/main"); err == nil {
+		t.Error("Latest found a branch that is not there")
+	}
+}

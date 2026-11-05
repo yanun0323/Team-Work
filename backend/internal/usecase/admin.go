@@ -1062,7 +1062,7 @@ func (e *Engine) UpdateBlueprint(ctx context.Context, id string) error {
 	e.mu.Unlock()
 	if own.Kind == "git" {
 		latest, err := e.git.Latest(ctx, own.Repo, own.Ref)
-		own.Upstream = err == nil
+		own.Upstream = err == nil || !upstreamGone(err)
 		own.Update = &model.SourceUpdate{At: e.clock(), OK: err == nil}
 		if err != nil {
 			e.log.Warn().Err(err).Str("repo", own.Repo).Msg("check source")
@@ -1083,6 +1083,17 @@ func (e *Engine) UpdateBlueprint(ctx context.Context, id string) error {
 		}
 	}
 	return e.PinSources(ctx)
+}
+
+// upstreamGone says whether a failed check means the repo or its branch is no longer there to read, rather than a
+// problem that may pass, like no network.
+func upstreamGone(err error) bool {
+	var known *model.Error
+	if errors.As(err, &known) {
+		return known.Code == model.CodeNotFound
+	}
+	text := err.Error()
+	return strings.Contains(text, "Repository not found") || strings.Contains(text, "could not read Username")
 }
 
 // sourceProblem says why a Git source could not be read, in words the user can act on, from what git printed.
