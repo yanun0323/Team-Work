@@ -438,7 +438,8 @@ func (e *Engine) checkSaid(text string, images, files []model.Attachment) error 
 	return e.checkFiles(images, files)
 }
 
-// StopChat interrupts the reply being written; the chat goes on from what is there.
+// StopChat interrupts the reply being written; the chat goes on from what is there. A line says the reply stopped,
+// and it can be tried again.
 func (e *Engine) StopChat(id string) error {
 	return e.do(func() error {
 		c := e.w.Chats[id]
@@ -446,7 +447,11 @@ func (e *Engine) StopChat(id string) error {
 			return model.Errorf(model.CodeNotFound, "找不到對話")
 		}
 		e.stopRun(c.ID)
-		c.ReplyAt, c.Next = nil, nil
+		if c.ReplyAt != nil {
+			c.ReplyAt, c.Next = nil, nil
+			// the user stopped it and has seen it stop, so the chat stays read
+			c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "agent", Text: i18n.T("（已停止回覆）"), By: c.Speaker, Failed: true})
+		}
 		return nil
 	})
 }
@@ -546,13 +551,17 @@ func (e *Engine) endChatsOf(replicaID string) {
 }
 
 // interruptChats runs at start. A reply is not picked up again: it works in the user's own folder, and whatever
-// it was doing may not be safe to repeat.
+// it was doing may not be safe to repeat. It ends as a failed reply, to try again, and the rest of a meeting's round
+// goes on, as they had not started.
 func (e *Engine) interruptChats() {
 	for _, c := range e.w.Chats {
-		if c.ReplyAt != nil {
-			c.ReplyAt, c.Next = nil, nil
-			e.chatSays(c, i18n.T("（伺服器重新啟動，這次回覆中斷了）"))
+		if c.ReplyAt == nil {
+			continue
 		}
+		c.ReplyAt = nil
+		e.chatSays(c, i18n.T("（伺服器重新啟動，這次回覆中斷了）"))
+		c.Messages[len(c.Messages)-1].Failed = true
+		e.nextSpeaker(c)
 	}
 }
 
@@ -883,6 +892,11 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			delete(e.runs, in.id)
 			delete(e.live, in.id)
 			e.clearOutput(in.id)
+			if e.closed {
+				// the server is stopping, not the user: the chat is left replying, so the next start says the
+				// reply was cut off and has the rest of the round go on
+				return
+			}
 			if c := e.w.Chats[in.id]; c != nil {
 				c.ReplyAt = nil
 				// in a meeting the next one replies even if this one failed; a stopped reply stops the round.
@@ -1078,6 +1092,9 @@ func (e *Engine) ChatTaskDraft(ctx context.Context, id string) (ChatDraft, error
 	draftRules := chatDraftRules + "\n" + languageRule(e.w.Language)
 	var transcript strings.Builder
 	for _, m := range c.Messages {
+		if m.Failed { // the app's line that a reply did not come, not anything the employee said
+			continue
+		}
 		switch m.From {
 		case "user":
 			fmt.Fprintf(&transcript, "User: %s", m.Text)

@@ -1,12 +1,14 @@
 package usecase_test
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
@@ -369,5 +371,59 @@ func TestTalkWithSeveralIsAMeeting(t *testing.T) {
 	})
 	if m := w.SubTasks[s.ID].Talk.Messages[5]; m.By != r.owner.ID {
 		t.Fatalf("reply by %s", m.By)
+	}
+}
+
+// A server stopping mid-round is not the user stopping it: after the restart the reply cut off says so, to try
+// again, and the others still reply.
+func TestMeetingGoesOnAfterARestart(t *testing.T) {
+	var beaID string
+	started, release := make(chan struct{}), make(chan struct{})
+	held := false
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if beaID != "" && strings.HasSuffix(req.Session, "-"+beaID) && !held {
+			held = true
+			close(started)
+			<-release
+			return model.ModelReply{}, context.Canceled // as a provider does when the server stops
+		}
+		name, _, _ := strings.Cut(strings.SplitN(req.System+"you are Ada.", "you are ", 2)[1], ".")
+		return say(name + " 的意見"), nil
+	})
+	hire := func(name string) *model.Replica {
+		got, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: name, Model: "fake"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	bea, cy := hire("Bea"), hire("Cy")
+	beaID = bea.ID
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Guests: []string{bea.ID, cy.ID}, Text: "@All 大家怎麼看", Mentions: []string{bea.ID, cy.ID, r.owner.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	closed := make(chan struct{})
+	go func() { r.e.Close(); close(closed) }()
+	for r.e.ReadChat(c.ID) == nil { // closing refuses changes, then cancels the replies
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	<-closed
+	r.store.Close()
+
+	newEngine(t, r)
+	w := r.wait("the rest of the round", func(w *model.World) bool {
+		c := w.Chats[c.ID]
+		return c.ReplyAt == nil && len(c.Messages) == 4
+	})
+	m := w.Chats[c.ID].Messages
+	if m[1].By != bea.ID || m[1].Text != "（伺服器重新啟動，這次回覆中斷了）" || !m[1].Failed {
+		t.Fatalf("%+v", m[1])
+	}
+	if m[2].By != cy.ID || m[2].Text != "Cy 的意見" || m[3].By != r.owner.ID || m[3].Text != "Ada 的意見" {
+		t.Fatalf("%+v", m[2:])
 	}
 }

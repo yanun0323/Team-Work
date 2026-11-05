@@ -229,6 +229,7 @@ var en = map[string]string{
 	"圖片只能是 PNG、JPEG、GIF 或 WebP，單張最大 3.75MB": "Images must be PNG, JPEG, GIF or WebP, up to 3.75MB each",
 	"（伺服器重新啟動，這次回覆中斷了）":                     "(The server restarted, so this reply was interrupted)",
 	"（回覆失敗：%s）":                             "(Reply failed: %s)",
+	"（已停止回覆）":                               "(Reply stopped)",
 	"執行逾時":                                  "Timed out",
 	"整理對話失敗：%s":                             "Could not write up the chat: %s",
 	"模型沒有寫出任務內容":                            "The model did not write the task",

@@ -270,6 +270,10 @@ func TestChatKeepsItsModelAndGoesOnAfterAStop(t *testing.T) {
 	if w := r.world(); w.Chats[c.ID].ReplyAt != nil {
 		t.Fatal("still writing after the stop")
 	}
+	// the chat says the reply stopped, as a reply to try again
+	if m := r.world().Chats[c.ID].Messages; len(m) != 2 || m[1].Text != "（已停止回覆）" || !m[1].Failed || m[1].By != r.owner.ID {
+		t.Fatalf("%+v", m)
+	}
 	if err := r.e.SayInChat(c.ID, "繼續", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -359,6 +363,31 @@ func TestTaskDraftFromAChat(t *testing.T) {
 	}
 	if len(r.world().Tasks) != before {
 		t.Fatal("writing a draft made a task")
+	}
+}
+
+// The app's line that a reply did not come is not part of what the draft is written from.
+func TestTaskDraftLeavesOutFailedReplies(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if len(req.Tools) == 0 {
+			return say("**做登入**"), nil
+		}
+		return model.ModelReply{}, model.Errorf(model.CodeInvalid, "壞了")
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "討論登入"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := r.wait("failed reply", chatDone(c.ID))
+	if m := w.Chats[c.ID].Messages; !m[len(m)-1].Failed {
+		t.Fatalf("%+v", m)
+	}
+	if _, err := r.e.ChatTaskDraft(context.Background(), c.ID); err != nil {
+		t.Fatal(err)
+	}
+	seen := r.fake.seen[len(r.fake.seen)-1].Messages[0].Content[0].Text
+	if !strings.Contains(seen, "討論登入") || strings.Contains(seen, "壞了") || strings.Contains(seen, "Employee") {
+		t.Fatal(seen)
 	}
 }
 
@@ -1438,8 +1467,9 @@ func TestChatQueueWaitsAfterAStopUntilSteeredOrTakenBack(t *testing.T) {
 	if err := r.e.SteerChat(c.ID, q[1].ID); err != nil {
 		t.Fatal(err)
 	}
-	w := r.wait("steered", func(w *model.World) bool { c := w.Chats[c.ID]; return c.ReplyAt == nil && len(c.Messages) == 3 })
-	if got := w.Chats[c.ID]; len(got.Queue) != 0 || got.Messages[1].Text != "三" {
+	// after the line that the reply stopped
+	w := r.wait("steered", func(w *model.World) bool { c := w.Chats[c.ID]; return c.ReplyAt == nil && len(c.Messages) == 4 })
+	if got := w.Chats[c.ID]; len(got.Queue) != 0 || got.Messages[2].Text != "三" {
 		t.Fatalf("%+v %+v", got.Queue, got.Messages)
 	}
 }
