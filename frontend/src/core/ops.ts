@@ -328,6 +328,11 @@ export const sourceItems = (w: World, id: string, signal?: AbortSignal) => (MOCK
   ? Promise.resolve(w.sources[id] ? sim.itemsOf(w.sources[id]) : [])
   : request<SourceItem[]>('GET', `/sources/${id}/items`, undefined, signal))
 
+/** The employee and task blueprint files of a source that could not be read, and why. */
+export const sourceProblems = (id: string, signal?: AbortSignal) => (MOCK
+  ? Promise.resolve<string[]>([])
+  : request<string[]>('GET', `/sources/${id}/problems`, undefined, signal))
+
 /** What putting a source's newest version in use would change, and whom. */
 export const sourceChanges = (w: World, id: string, signal?: AbortSignal) => (MOCK
   ? Promise.resolve(sim.sourceChanges(w, id))

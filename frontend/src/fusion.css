@@ -1200,6 +1200,7 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
 
 /* where a blueprint and its skills come from: one entry per repo or folder, its state after the name */
 .fx-src-list { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.fx-src-problems { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; overflow-wrap: anywhere; }
 .fx-src { display: grid; gap: 6px; }
 .fx-src-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 13px; color: var(--ink-2); }
 .fx-src-head code { overflow-wrap: anywhere; color: var(--ink); }

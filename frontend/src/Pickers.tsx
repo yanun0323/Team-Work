@@ -4,7 +4,8 @@ import { tr } from './core/i18n'
 import { BlueprintIcon } from './BlueprintIcon'
 import { Select } from './Controls'
 import { isPreset } from './core/data/presets'
-import { TOOLS, type Blueprint, type Replica } from './core/domain/types'
+import { TOOLS, type Blueprint, type Replica, type Source } from './core/domain/types'
+import { sourceOfId } from './core/domain/sources'
 import { hireList, unhidden } from './core/model'
 import { useStore } from './core/store'
 import { usePrefs } from './prefs'
@@ -12,7 +13,7 @@ import { blueprintLabel, byBlueprint, mindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
 import { listOf } from './core/i18n'
 import { PixelFace } from './core/voxel/PixelFace'
-import { toolName } from './source'
+import { sourceName, toolName } from './source'
 
 /** What a blueprint's employees can use, as up to four notes, two by two. */
 export function ToolNotes({ bp }: { bp: Blueprint }) {
@@ -120,13 +121,18 @@ export function CrewPicks({ label, value, crew, max, placeholder, onChange }: {
   )
 }
 
-/** Headings for a list with the user's own first: 我的, then 內建. Without any of their own, just 內建. */
-export function mineAndBuiltIn(ids: string[]) {
-  const mine = ids.filter((id) => !isPreset(id)).length
-  const groups = [{ label: tr('我的'), count: mine }, { label: tr('內建'), count: ids.length - mine }]
-  return mine
-    ? { groups, groupOf: (id: string) => (isPreset(id) ? 1 : 0) }
-    : { groups: groups.slice(1), groupOf: () => 0 }
+/**
+ * Headings for a list of blueprints or flows by where they come from: 我的, then each source by its name, then
+ * 內建; a heading with nothing under it is left out. `ids` are in the order `blueprintList` and `flowList` give.
+ */
+export function byOrigin(ids: string[], sources: Record<string, Source>) {
+  const keyOf = (id: string) => (isPreset(id) ? 'preset' : sourceOfId(id) || 'mine')
+  const keys = [...new Set(ids.map(keyOf))]
+  const labelOf = (key: string) => (key === 'mine' ? tr('我的') : key === 'preset' ? tr('內建') : sources[key] ? sourceName(sources[key]) : key)
+  return {
+    groups: keys.map((key) => ({ key, label: labelOf(key), count: ids.filter((id) => keyOf(id) === key).length })),
+    groupOf: (id: string) => keys.indexOf(keyOf(id)),
+  }
 }
 
 /**
@@ -137,7 +143,7 @@ export function BlueprintSelect({ label, value, none, onChange }: { label: strin
   const blueprints = w.blueprints
   const hidden = usePrefs((s) => s.hiddenBlueprints)
   const ids = unhidden(hireList(w), hidden, value).map((b) => b.id)
-  const { groups, groupOf } = mineAndBuiltIn(ids)
+  const { groups, groupOf } = byOrigin(ids, w.sources)
   return (
     <Select
       label={label} value={value} options={none ? ['', ...ids] : ids} onChange={onChange}

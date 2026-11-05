@@ -3,7 +3,7 @@
 
 import data from '../../../../backend/internal/usecase/presets.json'
 import { autoLayout, canSendBack } from '../domain/graph'
-import { sourceFor } from '../domain/sources'
+import { sourceFor, sourceOfId } from '../domain/sources'
 import type { Blueprint, Locale, Look, Tool, Workflow, WorkflowNode, World } from '../domain/types'
 
 type Text = { zh: string; en: string }
@@ -13,6 +13,9 @@ type Pack = { repo: string; ref: string; path?: string }
 
 /** Built-in blueprints and flows have ids of this form; a copy gets an id of its own. */
 export const isPreset = (id: string) => id.startsWith('preset-')
+
+/** Whether a blueprint or flow is kept by something other than the user, built in or read from a source: it cannot be changed, only copied. */
+export const isLocked = (id: string) => isPreset(id) || sourceOfId(id) !== ''
 
 /** The airport staff's blueprint: theirs alone, shown with the others but not hired from. */
 export const AIRPORT_BLUEPRINT = 'preset-airport'

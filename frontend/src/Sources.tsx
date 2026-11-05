@@ -5,8 +5,9 @@
 import { useEffect, useState } from 'react'
 import { tr } from './core/i18n'
 import { useStore } from './core/store'
-import { addSource, applySource, attempt, checkSource, previewSource, seeSource, deleteSource, setSourceAutoApply, sourceChanges } from './core/ops'
-import { sourceUsers } from './core/domain/sources'
+import { addSource, applySource, attempt, checkSource, previewSource, seeSource, deleteSource, setSourceAutoApply, sourceChanges, sourceProblems } from './core/ops'
+import { sourceOfId, sourceUsers } from './core/domain/sources'
+import { blueprintList, flowList } from './core/model'
 import { githubAddress, parseGithub } from './github'
 import { keptState, sourceName } from './source'
 import { BlueprintIcon } from './BlueprintIcon'
@@ -14,7 +15,7 @@ import { CrewRow, crewOrder } from './Pickers'
 import { Switcher, Toggle, WaitBadge } from './Controls'
 import { byCategory, useSourceItems } from './SkillPicker'
 import { DeleteTool, Gone, Heading, itemKey, type Head, type Item } from './DrawerDetail'
-import type { Replica, Source, SourceChanges, SourceItem, SourcePreview } from './core/domain/types'
+import type { Look, Replica, Source, SourceChanges, SourceItem, SourcePreview } from './core/domain/types'
 
 const sorted = (sources: Record<string, Source>) =>
   Object.values(sources).sort((a, b) => (a.kind === b.kind ? sourceName(a).localeCompare(sourceName(b)) : a.kind === 'git' ? -1 : 1))
@@ -75,11 +76,48 @@ function ItemChips({ items, tone }: { items: SourceItem[]; tone?: 'out' }) {
   )
 }
 
+/** Names that come and go: those that come, then those that go struck through. */
+function NameChips({ added, removed = [] }: { added: string[]; removed?: string[] }) {
+  return (
+    <p className="fx-d-chips">
+      {added.map((name) => <span key={`+${name}`}>{name}</span>)}
+      {removed.map((name) => <span key={`-${name}`} className="fx-chip-out">{name}</span>)}
+    </p>
+  )
+}
+
+/** The files of a source that could not be read as blueprints, each with why. */
+function Problems({ list }: { list: string[] }) {
+  if (!list.length) return null
+  return (
+    <Section name={tr('無法讀取')}>
+      <ul className="fx-src-problems">{list.map((p) => <li key={p} className="fx-field-error">{p}</li>)}</ul>
+    </Section>
+  )
+}
+
+/** The blueprints or flows a source brings, by face and name. */
+function Brought({ name, items }: { name: string; items: { id: string; name: string; look?: Look }[] }) {
+  if (!items.length) return null
+  return (
+    <Section name={name}>
+      <ul className="fx-list">
+        {items.map((x) => (
+          <li key={x.id} className="fx-row">
+            {x.look && <span aria-hidden="true"><BlueprintIcon look={x.look} name={x.name} size={26} /></span>}
+            <span className="fx-row-main"><b>{x.name}</b></span>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  )
+}
+
 /**
  * Asks a repo source's upstream now, turning while it waits. It stays focusable while it turns, so the keyboard does
  * not lose its place; a second press then does nothing.
  */
-function CheckTool({ id }: { id: string }) {
+function CheckTool({ id, local }: { id: string; local?: boolean }) {
   const act = useStore((s) => s.act)
   const [checking, setChecking] = useState(false)
   const check = async () => {
@@ -88,7 +126,7 @@ function CheckTool({ id }: { id: string }) {
     await attempt(() => checkSource(act, id))
     setChecking(false)
   }
-  const label = checking ? tr('正在檢查更新') : tr('檢查更新')
+  const label = local ? (checking ? tr('正在重新讀取') : tr('重新讀取')) : checking ? tr('正在檢查更新') : tr('檢查更新')
   return (
     <button type="button" className="fx-tool fx-hit fx-src-check" aria-busy={checking} aria-label={label} title={label} onClick={check}>
       <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
@@ -118,13 +156,25 @@ export function SourceDetail({ id, onGoneSource, ...h }: Head & { id: string; on
     sourceChanges(useStore.getState().world, id, ask.signal).then(setChanges, () => {})
     return () => ask.abort()
   }, [id, s?.kind, s?.commit, s?.latest]) // eslint-disable-line react-hooks/exhaustive-deps
+  // the employee and task blueprints it brings, and the files of those that could not be read
+  const blueprints = blueprintList(w).filter((b) => sourceOfId(b.id) === id)
+  const flows = flowList(w).filter((f) => sourceOfId(f.id) === id)
+  const [problems, setProblems] = useState<string[]>([])
+  const read = `${s?.commit}:${blueprints.map((b) => b.id).join()}:${flows.map((f) => f.id).join()}`
+  useEffect(() => {
+    const ask = new AbortController()
+    sourceProblems(id, ask.signal).then(setProblems, () => {})
+    return () => ask.abort()
+  }, [id, read])
   if (!s) return <Gone {...h} />
   const state = keptState(s, w.now)
   const users = sourceUsers(w, id)
   const crew = (changes?.replicas ?? []).map((r) => w.replicas[r]).filter(Boolean) as Replica[]
+  const kept = (changes?.kept ?? []).map((r) => w.replicas[r]).filter(Boolean) as Replica[]
   return (
     <>
       <div className="fx-tools">
+        {s.kind === 'local' && <CheckTool key={id} id={id} local />}
         <DeleteTool what={tr('來源')} disabled={users.length > 0} why={tr('還有 {length} 個藍圖或員工使用這個來源，無法刪除', { length: users.length })}
           onConfirm={() => { onGoneSource(); act((x) => void deleteSource(x, id)) }} />
       </div>
@@ -147,6 +197,12 @@ export function SourceDetail({ id, onGoneSource, ...h }: Head & { id: string; on
               {changes.added.length > 0 && <><h4>{tr('新增')}</h4><ItemChips items={changes.added} /></>}
               {changes.removed.length > 0 && <><h4>{tr('移除')}</h4><ItemChips items={changes.removed} tone="out" /></>}
               {changes.added.length + changes.removed.length === 0 && <p className="fx-d-muted">{tr('技能沒有增減')}</p>}
+              {changes.addedBlueprints.length + changes.removedBlueprints.length > 0 && (
+                <><h4>{tr('員工藍圖')}</h4><NameChips added={changes.addedBlueprints} removed={changes.removedBlueprints} /></>
+              )}
+              {changes.addedWorkflows.length + changes.removedWorkflows.length > 0 && (
+                <><h4>{tr('任務藍圖')}</h4><NameChips added={changes.addedWorkflows} removed={changes.removedWorkflows} /></>
+              )}
               {changes.blueprints.length > 0 && (
                 <ul className="fx-list">
                   {changes.blueprints.map((b) => w.blueprints[b]).filter((b) => b && !b.owner).map((b) => (
@@ -161,6 +217,14 @@ export function SourceDetail({ id, onGoneSource, ...h }: Head & { id: string; on
                 <ul className="fx-list">
                   {crewOrder(w, crew).map((r) => <li key={r} className="fx-row"><CrewRow r={w.replicas[r]} /></li>)}
                 </ul>
+              )}
+              {kept.length > 0 && (
+                <>
+                  <h4>{tr('改用自訂設定')}</h4>
+                  <ul className="fx-list">
+                    {crewOrder(w, kept).map((r) => <li key={r} className="fx-row"><CrewRow r={w.replicas[r]} /></li>)}
+                  </ul>
+                </>
               )}
               <div className="fx-settings-file-acts">
                 <button type="button" className="fx-save" onClick={() => act((x) => void applySource(x, id))}>{tr('套用更新')}</button>
@@ -179,6 +243,9 @@ export function SourceDetail({ id, onGoneSource, ...h }: Head & { id: string; on
           ))
         )}
       </Section>
+      <Brought name={tr('員工藍圖')} items={blueprints} />
+      <Brought name={tr('任務藍圖')} items={flows} />
+      <Problems list={problems} />
     </>
   )
 }
@@ -211,8 +278,10 @@ export function NewSource({ onDone, ...h }: Head & { onDone: () => void }) {
     return () => { clearTimeout(wait); stop.abort() }
   }, [kind, place, branch, key])
   const shown = kind === 'git' && place && read?.key === key ? read : null
-  const items = shown?.preview?.items
-  const ready = kind === 'local' ? place !== '' : (items?.length ?? 0) > 0
+  const preview = shown?.preview
+  const items = preview?.items
+  const empty = !!preview && preview.items.length + preview.blueprints.length + preview.workflows.length === 0
+  const ready = kind === 'local' ? place !== '' : !!preview && !empty
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!ready) return
@@ -249,19 +318,28 @@ export function NewSource({ onDone, ...h }: Head & { onDone: () => void }) {
         )}
       </div>
       {kind === 'git' && place && (
-        <Section name={tr('技能')}>
-          <div aria-live="polite">
-            {shown?.error ? <p role="alert" className="fx-field-error">{shown.error}</p>
-              : !items ? <p className="fx-d-muted">{tr('讀取中…')}</p>
-                : items.length === 0 ? <p className="fx-field-error">{tr('這個來源沒有技能')}</p>
-                  : [...byCategory(items)].map(([category, list]) => (
-                    <div key={category} className="fx-skill-group">
-                      <h4>{category || tr('最上層')}</h4>
-                      <ItemChips items={list} />
-                    </div>
-                  ))}
-          </div>
-        </Section>
+        <div aria-live="polite">
+          {shown?.error ? <p role="alert" className="fx-field-error">{shown.error}</p>
+            : !items ? <p className="fx-d-muted">{tr('讀取中…')}</p>
+              : empty ? <p className="fx-field-error">{tr('這個來源沒有技能、員工藍圖或任務藍圖')}</p>
+                : (
+                  <>
+                    {items.length > 0 && (
+                      <Section name={tr('技能')}>
+                        {[...byCategory(items)].map(([category, list]) => (
+                          <div key={category} className="fx-skill-group">
+                            <h4>{category || tr('最上層')}</h4>
+                            <ItemChips items={list} />
+                          </div>
+                        ))}
+                      </Section>
+                    )}
+                    {preview!.blueprints.length > 0 && <Section name={tr('員工藍圖')}><NameChips added={preview!.blueprints} /></Section>}
+                    {preview!.workflows.length > 0 && <Section name={tr('任務藍圖')}><NameChips added={preview!.workflows} /></Section>}
+                    <Problems list={preview!.problems} />
+                  </>
+                )}
+        </div>
       )}
       {error && <p role="alert" className="fx-field-error">{error}</p>}
       <button type="submit" className="fx-save" disabled={busy || !ready}>{busy ? tr('讀取中…') : tr('新增')}</button>

@@ -1,7 +1,16 @@
 // Sources as the simulator keeps them: places items are read from, one for each repo and branch or folder, and the
 // updates they get. The prototype reads no repos, so a source's skills are made up from its name and version.
 
-import type { Blueprint, SkillPack, Source, SourceChanges, SourceItem, SourcePreview, World } from './types'
+import type { Blueprint, Replica, SkillPack, Source, SourceChanges, SourceItem, SourcePreview, World } from './types'
+
+/**
+ * The source a blueprint or flow was read from, by its id ('' for one that was not): `src-3--reviewer` is the
+ * file `blueprints/reviewer.yaml` of the source `src-3`. Built-in ones never are.
+ */
+export function sourceOfId(id: string) {
+  const at = id.indexOf('--')
+  return at < 0 || id.startsWith('preset-') ? '' : id.slice(0, at)
+}
 
 /** The agents' own folders, kept as sources to pick skills from. */
 export const AGENT_FOLDERS = ['~/.agents/', '~/.team-work/', '~/.codex/', '~/.claude/']
@@ -93,7 +102,9 @@ export function covers(p: SkillPack, it: SourceItem) {
 /** What moving a source to its newest version would change, and for whom. */
 export function sourceChanges(w: World, id: string): SourceChanges {
   const s = w.sources[id]
-  const out: SourceChanges = { from: s?.commit ?? '', to: s?.latest ?? '', added: [], removed: [], blueprints: [], replicas: [] }
+  const out: SourceChanges = { from: s?.commit ?? '', to: s?.latest ?? '', added: [], removed: [], blueprints: [], replicas: [],
+    addedBlueprints: [], removedBlueprints: [], addedWorkflows: [], removedWorkflows: [], kept: [],
+  }
   if (!s || s.kind !== 'git' || !s.latest || s.latest === s.commit) return out
   const was = itemsOf(s, s.commit)
   const is = itemsOf(s, s.latest)
@@ -120,7 +131,7 @@ export function addSource(w: World, kind: Source['kind'], where: string, ref = '
 export function previewSource(kind: Source['kind'], where: string, ref = ''): SourcePreview {
   const commit = kind === 'git' ? hexOf(`${where.trim()}@${ref.trim()}`) : ''
   const s: Source = { id: '', kind, repo: where, ref, path: where, commit, upstream: true, autoApply: false }
-  return { commit, items: itemsOf(s) }
+  return { commit, items: itemsOf(s), blueprints: [], workflows: [], problems: [] }
 }
 
 /** Asks a repo source's upstream for its newest version; one that applies updates itself moves to it. */
@@ -152,13 +163,21 @@ export function setSourceAutoApply(w: World, id: string, on: boolean) {
   if (s) s.autoApply = on
 }
 
-/** The blueprints and employees' own settings that read a source. */
-export const sourceUsers = (w: World, id: string): Blueprint[] =>
-  Object.values(w.blueprints).filter((bp) => bp.skills.some((p) => p.sourceId === id))
+/**
+ * What keeps a source: the blueprints and employees' own settings that read it, and the employees working by a
+ * blueprint it brings. Its own blueprints go with it.
+ */
+export const sourceUsers = (w: World, id: string): (Blueprint | Replica)[] => [
+  ...Object.values(w.blueprints).filter((bp) => sourceOfId(bp.id) !== id && bp.skills.some((p) => p.sourceId === id)),
+  ...Object.values(w.replicas).filter((r) => sourceOfId(r.blueprintId) === id),
+]
 
-/** Forgets a source nothing reads; false while something does. */
+/** Forgets a source nothing reads, with what it brought; false while something does. */
 export function deleteSource(w: World, id: string): boolean {
   if (!w.sources[id] || sourceUsers(w, id).length) return false
   delete w.sources[id]
+  for (const all of [w.blueprints, w.workflows]) {
+    for (const key of Object.keys(all)) if (sourceOfId(key) === id) delete all[key]
+  }
   return true
 }

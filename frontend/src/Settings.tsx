@@ -13,7 +13,8 @@ import { openOnce, SheetStack, useSheets } from './Drawer'
 import { useOpenedFromNotice } from './notices'
 import { gitSources } from './core/domain/sim'
 import { blueprintList, flowList, waitingTab } from './core/model'
-import { AIRPORT_BLUEPRINT, isPreset } from './core/data/presets'
+import { AIRPORT_BLUEPRINT, isLocked } from './core/data/presets'
+import { byOrigin } from './Pickers'
 import { HideTool, itemKey, type Item } from './DrawerDetail'
 import { FlowNotes, openCard } from './FlowNotes'
 import { keptState, sourceState, sourceText } from './source'
@@ -170,13 +171,15 @@ function Providers({ open, onOpen }: { open: string | null; onOpen: (x: Item) =>
   )
 }
 
-/** The user's own under 我的, when there are any, then the built-in ones under 內建. */
-function MineAndBuiltIn<T extends { id: string }>({ items, render }: { items: T[]; render: (list: T[]) => React.ReactNode }) {
-  const mine = items.filter((x) => !isPreset(x.id))
+/** The items under where they come from: 我的, each source by its name, then 內建, each heading only when it has some. */
+function ByOrigin<T extends { id: string }>({ items, render }: { items: T[]; render: (list: T[]) => React.ReactNode }) {
+  const sources = useStore((s) => s.world.sources)
+  const { groups, groupOf } = byOrigin(items.map((x) => x.id), sources)
   return (
     <>
-      {mine.length > 0 && <section className="fx-d-group fx-owned"><h4>{tr('我的')}</h4>{render(mine)}</section>}
-      <section className="fx-d-group fx-owned"><h4>{tr('內建')}</h4>{render(items.filter((x) => isPreset(x.id)))}</section>
+      {groups.map((g, at) => (
+        <section key={g.key} className="fx-d-group fx-owned"><h4>{g.label}</h4>{render(items.filter((x) => groupOf(x.id) === at))}</section>
+      ))}
     </>
   )
 }
@@ -189,7 +192,7 @@ function Blueprints({ open, onOpen }: { open: string | null; onOpen: (x: Item) =
   return (
     <div className="fx-d-groups">
       <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newBlueprint' })}>{tr('＋ 新增員工藍圖')}</button>
-      <MineAndBuiltIn items={blueprintList(w)} render={(list) => (
+      <ByOrigin items={blueprintList(w)} render={(list) => (
         <ul className="fx-list">
           {list.map((bp) => {
             // a repo that can't be found or failed to update is flagged on the list too
@@ -203,7 +206,7 @@ function Blueprints({ open, onOpen }: { open: string | null; onOpen: (x: Item) =
                   <span aria-hidden="true"><BlueprintIcon look={bp.look} name={bp.name} size={34} /></span>
                   <span className="fx-row-main">
                     <b>{bp.name}</b>
-                    {!isPreset(bp.id) && <span>{sourceText(bp.source)}</span>}
+                    {!isLocked(bp.id) && <span>{sourceText(bp.source)}</span>}
                     {trouble > 0 && <span className="fx-src-note-bad">{tr('{trouble} 個來源有問題', { trouble })}</span>}
                   </span>
                 </button>
@@ -228,7 +231,7 @@ function Flows({ open, onOpen }: { open: string | null; onOpen: (x: Item) => voi
     <div className="fx-flows">
       <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newFlow' })}>{tr('＋ 新增任務藍圖')}</button>
       {/* each flow opens as a whole; its title is the button, stretched over the flow */}
-      <MineAndBuiltIn items={flowList(w)} render={(list) => list.map((wf) => (
+      <ByOrigin items={flowList(w)} render={(list) => list.map((wf) => (
         <section key={wf.id} className={`fx-flow fx-flow-card fx-blueprint fx-hidable${hidden.includes(wf.id) ? ' fx-hidden-item' : ''}`} onClick={openCard}>
           <h3>
             <button className="fx-flow-open" {...opener({ kind: 'flow', id: wf.id })}>{wf.name}</button>

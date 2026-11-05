@@ -98,6 +98,10 @@ export interface SourceItem {
 export interface SourcePreview {
   commit: string
   items: SourceItem[]
+  /** The names of the employee and task blueprints there, and the files of those that could not be read. */
+  blueprints: string[]
+  workflows: string[]
+  problems: string[]
 }
 
 /** What putting a source's newest version in use would change, and whom. */
@@ -108,6 +112,13 @@ export interface SourceChanges {
   removed: SourceItem[]
   blueprints: string[]
   replicas: string[]
+  /** The names of the blueprints and flows the source brings that come and go. */
+  addedBlueprints: string[]
+  removedBlueprints: string[]
+  addedWorkflows: string[]
+  removedWorkflows: string[]
+  /** The employees working by a blueprint that goes, who keep it as their own settings. */
+  kept: string[]
 }
 
 /**

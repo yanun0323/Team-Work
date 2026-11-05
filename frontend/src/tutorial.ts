@@ -3,7 +3,7 @@
 
 import { request } from './core/backend'
 import type { Key } from './core/i18n'
-import { isPreset } from './core/data/presets'
+import { isLocked } from './core/data/presets'
 import type { TutorialState, World } from './core/domain/types'
 import { MOCK } from './core/mode'
 import { attempt } from './core/ops'
@@ -45,7 +45,7 @@ export const STEPS: TutorialStep[] = [
   { id: 'costLimit', text: '設定公司的任務費用上限', after: ['company'], met: (w) => some(w.teams, (t) => t.settings.costLimitUsd !== DEFAULT_COST_LIMIT), goal: { kind: 'company', tab: 'settings' } },
   { id: 'chat', text: '跟員工聊天', after: ['hire'], met: (w) => some(w.chats, (c) => !!c.teamId), goal: { kind: 'company', tab: 'chats' } },
   { id: 'copyBlueprint', text: '複製一個員工藍圖並且修改', after: ['hire'], goal: { kind: 'airport', tab: 'blueprints' } },
-  { id: 'hireCopied', text: '用修改過的藍圖再新增一位員工', after: ['copyBlueprint'], met: (w) => some(w.replicas, (r) => !isPreset(r.blueprintId) && w.blueprints[r.blueprintId]?.source.kind === 'yaml'), goal: { kind: 'company', tab: 'crew' } },
+  { id: 'hireCopied', text: '用修改過的藍圖再新增一位員工', after: ['copyBlueprint'], met: (w) => some(w.replicas, (r) => !isLocked(r.blueprintId) && w.blueprints[r.blueprintId]?.source.kind === 'yaml'), goal: { kind: 'company', tab: 'crew' } },
   { id: 'mention', text: '在對話中用 # 引用一個檔案', after: ['chat'], met: (w) => some(w.chats, (c) => !!c.teamId && c.messages.some((m) => m.from === 'user' && /(^|\s)#\S/.test(m.text))), goal: { kind: 'company', tab: 'chats' } },
   { id: 'attach', text: '在對話中加入附件或貼上截圖', after: ['chat'], met: (w) => some(w.chats, (c) => c.messages.some((m) => m.from === 'user' && !!(m.images?.length || m.files?.length))), goal: { kind: 'company', tab: 'chats' } },
   { id: 'queue', text: '員工回覆時再送一則訊息', after: ['chat'], goal: { kind: 'company', tab: 'chats' } },
@@ -57,7 +57,7 @@ export const STEPS: TutorialStep[] = [
   { id: 'terminal', text: '打開公司的終端機', after: ['task'], goal: { kind: 'company', tab: 'terminal' } },
   { id: 'merge', text: '合併一個任務', after: ['task'], met: (w) => some(w.tasks, (t) => t.stage === 'done'), goal: { kind: 'company', tab: 'tasks' } },
   { id: 'copyFlow', text: '複製一個任務藍圖並且修改', after: ['task'], goal: { kind: 'airport', tab: 'flows' } },
-  { id: 'ownFlowTask', text: '用自己的任務藍圖建立任務', after: ['copyFlow'], met: (w) => some(w.tasks, (t) => !isPreset(t.workflowId)), goal: { kind: 'company', tab: 'tasks' } },
+  { id: 'ownFlowTask', text: '用自己的任務藍圖建立任務', after: ['copyFlow'], met: (w) => some(w.tasks, (t) => !isLocked(t.workflowId)), goal: { kind: 'company', tab: 'tasks' } },
 ]
 
 export const EMPTY_TUTORIAL: TutorialState = { seeded: false, hidden: false, done: [], shown: [], played: [], actions: [] }

@@ -6,7 +6,8 @@ import { combine } from './domain/rollup'
 import { busyReplicas, statusOf, subsOf, TRAVEL } from './domain/sim'
 import type { LogLine, Replica, Status, SubTask, Task, World, Workflow, WorkflowNode } from './domain/types'
 import { appLanguage, colon, trRecorded } from './i18n'
-import { AIRPORT_BLUEPRINT, presetRank } from './data/presets'
+import { AIRPORT_BLUEPRINT, isPreset, presetRank } from './data/presets'
+import { sourceOfId } from './domain/sources'
 import { useStore } from './store'
 
 export const useWorld = () => useStore((s) => s.world)
@@ -67,9 +68,17 @@ export function lastSub(w: World, r: Replica): SubTask | undefined {
 
 const flowNumber = (id: string) => Number(id.match(/\d+$/)?.[0] ?? 0)
 
-/** The user's own in the order they were made, then the built-in ones in their set order. */
-const ownFirst = <T extends { id: string }>(all: Record<string, T>) => Object.values(all).sort((a, b) =>
-  presetRank(a.id) - presetRank(b.id) || flowNumber(a.id) - flowNumber(b.id))
+/** Where a blueprint or flow is listed: the user's own, then those from sources, then the built-in ones. */
+const originRank = (id: string) => (isPreset(id) ? 2 : sourceOfId(id) ? 1 : 0)
+
+/**
+ * The user's own in the order they were made, then those of each source in turn by name, then the built-in ones in
+ * their set order.
+ */
+const ownFirst = <T extends { id: string; name: string }>(all: Record<string, T>) => Object.values(all).sort((a, b) =>
+  originRank(a.id) - originRank(b.id) || presetRank(a.id) - presetRank(b.id)
+  || sourceOfId(a.id).localeCompare(sourceOfId(b.id), undefined, { numeric: true })
+  || (sourceOfId(a.id) ? a.name.localeCompare(b.name) : flowNumber(a.id) - flowNumber(b.id)))
 
 /** Flows in the order they were made. Ids end in a running number; as text, wf-12 would come before wf-9. */
 export const flowList = (w: World) => ownFirst(w.workflows)

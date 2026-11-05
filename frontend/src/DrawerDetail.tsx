@@ -16,7 +16,7 @@ import { useLiveText } from './core/live'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { BlueprintIcon, pinLook } from './BlueprintIcon'
-import { BlueprintSelect, crewOrder, CrewPicks, CrewRow, CrewSelect, mineAndBuiltIn } from './Pickers'
+import { BlueprintSelect, byOrigin, crewOrder, CrewPicks, CrewRow, CrewSelect } from './Pickers'
 import { seedOf } from './People'
 import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
@@ -40,7 +40,8 @@ import { SkillPicker } from './SkillPicker'
 import { NewSource, SourceDetail } from './Sources'
 import { authLabel, makesImages, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
 import { MAX_CHAT_PEOPLE, talking, talkPeople } from './core/domain/sim'
-import { AIRPORT_BLUEPRINT, fixedSteps, isPreset } from './core/data/presets'
+import { AIRPORT_BLUEPRINT, fixedSteps, isLocked } from './core/data/presets'
+import { sourceOfId } from './core/domain/sources'
 import type { SkillText, TalkEnd } from './core/domain/types'
 import { addProvider, fixedContext, providerUsers, updateProvider, type ProviderLogin, DEFAULT_MODEL, RESOLVE_TIME, costLimit, taskTokens } from './core/domain/sim'
 import { handedImageUrl, readHandedFile, request } from './core/backend'
@@ -940,12 +941,12 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
   return (
     <>
       <div className="fx-tools">
-        {!isPreset(id) && <EditTool onClick={onEdit} open={editing} />}
+        {!isLocked(id) && <EditTool onClick={onEdit} open={editing} />}
         <button type="button" className="fx-tool fx-hit" onClick={() => act((x) => void duplicateWorkflow(x, id))} aria-label={tr('複製')} title={tr('複製')}>
           <CopyIcon />
         </button>
         <HideTool hidden={hidden} onChange={(on) => act((x) => hideWorkflow(x, id, on))} />
-        {!isPreset(id) && <DeleteTool what={tr('任務藍圖')} onConfirm={remove} />}
+        {!isLocked(id) && <DeleteTool what={tr('任務藍圖')} onConfirm={remove} />}
       </div>
       <header className="fx-d-head">
         <Heading {...h}>{wf.name}</Heading>
@@ -1329,18 +1330,18 @@ function BlueprintDetail({ id, teamId, editing, copying, onEdit, onCopy, onGoneB
   return (
     <>
       <div className="fx-tools">
-        {!isPreset(id) && <EditTool onClick={onEdit} open={editing} />}
+        {!isLocked(id) && <EditTool onClick={onEdit} open={editing} />}
         <button type="button" className="fx-tool fx-hit" onClick={onCopy} aria-expanded={copying} aria-label={tr('複製')} title={tr('複製')}>
           <CopyIcon />
         </button>
         {id !== AIRPORT_BLUEPRINT && <HideTool hidden={hidden} onChange={(on) => act((x) => hideBlueprint(x, id, on))} />}
-        {!isPreset(id) && <DeleteTool what={tr('藍圖')} onConfirm={remove} disabled={users > 0} why={tr('還有 {users} 位員工使用這個藍圖，無法刪除', { users })} />}
+        {!isLocked(id) && <DeleteTool what={tr('藍圖')} onConfirm={remove} disabled={users > 0} why={tr('還有 {users} 位員工使用這個藍圖，無法刪除', { users })} />}
       </div>
       <header className="fx-d-head fx-d-who">
         <BlueprintIcon look={bp.look} name={bp.name} size={52} />
         <Heading {...h}>{bp.name}</Heading>
       </header>
-      <Section name={tr('來源')}><ul className="fx-src-list"><SourceRow source={bp.source} now={w.now} /></ul></Section>
+      <Section name={tr('來源')}><ul className="fx-src-list"><SourceRow source={sourceOfId(bp.id) ? w.sources[sourceOfId(bp.id)] ?? null : bp.source} now={w.now} /></ul></Section>
       <BlueprintFacts bp={bp} />
       <Section name={tr('使用中的員工')}>
         {crew.length === 0 ? <p className="fx-d-muted">{tr('沒有人')}</p> : (
@@ -1862,7 +1863,7 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
   const { custom } = draft
   // hidden flows are not offered, but the one this draft is on stays
   const flowIds = unhidden(flowList(w), hiddenFlows, custom ? undefined : draft.workflowId).map((x) => x.id)
-  const flowGroups = mineAndBuiltIn(flowIds)
+  const flowGroups = byOrigin(flowIds, w.sources)
   const wf = draftFlow(w, draft)
   const missing = unstaffed(w, draft)
   const unnamed = !!custom?.nodes.some((n) => !n.name.trim())
