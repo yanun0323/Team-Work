@@ -2,6 +2,10 @@
 # Run the backend and the frontend together until Ctrl+C, or until either one stops.
 set -eu
 
+# kept apart from the Mac App's ~/.team-work, so both can run at once
+TEAM_WORK_HOME=${TEAM_WORK_HOME:-$HOME/.team-work-dev}
+export TEAM_WORK_HOME
+
 bin_dir=$(mktemp -d)
 backend=""
 frontend=""

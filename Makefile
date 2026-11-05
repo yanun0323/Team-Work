@@ -10,7 +10,7 @@ help:
 	@sed -n 's/^## //p' Makefile | column -t -s ':' | sed -e 's/^/\t/'
 	@echo ""
 
-## dev: start the backend and the frontend together, Ctrl+C stops both (localhost port 5173)
+## dev: start the backend and the frontend together, Ctrl+C stops both (localhost port 5173, data in ~/.team-work-dev)
 dev: frontend/node_modules
 	@./scripts/dev.sh
 
