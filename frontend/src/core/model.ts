@@ -100,10 +100,11 @@ export function inbox(w: World, teamId: string | null): InboxItem[] {
 }
 
 /** What waits for the user in a company, shown over its building. The airport's chats have no company: `teamId` is empty for them.
+ * A chat counts while the chat list marks it: unread, or waiting on the user's answer even once read.
  * A chat still replying is not counted yet: it says unread once the reply ends. */
 export function teamAlerts(w: World, teamId: string) {
   return {
-    unreadChats: Object.values(w.chats).filter((c) => c.teamId === teamId && c.unread && c.replyAt === undefined).length,
+    waitingChats: Object.values(w.chats).filter((c) => c.teamId === teamId && c.replyAt === undefined && (c.unread || c.question || c.change)).length,
     waitingTasks: teamTasks(w, teamId).filter((t) => t.stage !== 'cancelled' && statusOf(w, t) === 'review').length,
   }
 }

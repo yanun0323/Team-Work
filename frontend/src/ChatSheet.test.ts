@@ -30,19 +30,30 @@ describe('chats', () => {
     const tasks = teamAlerts(w, teamId).waitingTasks
     delete w.chats[chat.id].replyAt
     w.chats[chat.id].unread = true
-    expect(teamAlerts(w, teamId)).toEqual({ unreadChats: 1, waitingTasks: tasks })
+    expect(teamAlerts(w, teamId)).toEqual({ waitingChats: 1, waitingTasks: tasks })
     const task = Object.values(w.tasks).find((x) => x.teamId === teamId && x.stage === 'running')!
     task.stage = 'awaitMerge'
-    expect(teamAlerts(w, teamId)).toEqual({ unreadChats: 1, waitingTasks: tasks + 1 })
+    expect(teamAlerts(w, teamId)).toEqual({ waitingChats: 1, waitingTasks: tasks + 1 })
   })
 
   it('leaves a chat still replying out of the unread count', () => {
     const { w, teamId, chat } = setup()
     w.chats[chat.id].unread = true
     w.chats[chat.id].replyAt = w.now
-    expect(teamAlerts(w, teamId).unreadChats).toBe(0)
+    expect(teamAlerts(w, teamId).waitingChats).toBe(0)
     delete w.chats[chat.id].replyAt
-    expect(teamAlerts(w, teamId).unreadChats).toBe(1)
+    expect(teamAlerts(w, teamId).waitingChats).toBe(1)
+  })
+
+  it('keeps counting a chat already read while it still waits on the user', () => {
+    const { w, teamId, chat } = setup()
+    const c = w.chats[chat.id]
+    delete c.replyAt
+    c.unread = false
+    c.question = { options: ['A', 'B'] }
+    expect(teamAlerts(w, teamId).waitingChats).toBe(1)
+    delete c.question
+    expect(teamAlerts(w, teamId).waitingChats).toBe(0)
   })
 
   it('finds the tab with something waiting, tasks before chats', () => {
@@ -256,10 +267,10 @@ describe('airport chats', () => {
     const { w, chat } = start()
     tick(w, REPLY_TIME)
     expect(chatSign(w.chats[chat.id])).toBe('unread')
-    expect(teamAlerts(w, '')).toEqual({ unreadChats: 1, waitingTasks: 0 })
-    expect(teamAlerts(w, Object.keys(w.teams)[0]).unreadChats).toBe(0)
+    expect(teamAlerts(w, '')).toEqual({ waitingChats: 1, waitingTasks: 0 })
+    expect(teamAlerts(w, Object.keys(w.teams)[0]).waitingChats).toBe(0)
     readChat(w, chat.id)
-    expect(teamAlerts(w, '').unreadChats).toBe(0)
+    expect(teamAlerts(w, '').waitingChats).toBe(0)
   })
 
   it('go on and fork though no employee is behind them', () => {

@@ -93,16 +93,16 @@ export function TagWork({ chats, tasks }: ReturnType<typeof teamWork>) {
 }
 
 /** On a company's tag: its unread chats and the tasks waiting for a reply, apart. */
-export function TagAlerts({ unreadChats, waitingTasks }: ReturnType<typeof teamAlerts>) {
-  const chatRises = useRises(unreadChats), taskRises = useRises(waitingTasks)
-  if (!unreadChats && !waitingTasks) return null
+export function TagAlerts({ waitingChats, waitingTasks }: ReturnType<typeof teamAlerts>) {
+  const chatRises = useRises(waitingChats), taskRises = useRises(waitingTasks)
+  if (!waitingChats && !waitingTasks) return null
   return (
     <span className="fx-tag-alerts">
-      {unreadChats > 0 && (
-        <span key={`chat-${chatRises}`} className="fx-badge fx-tag-alert fx-tag-alert-chat" title={tr('{n} 則對話未讀', { n: unreadChats })}>
+      {waitingChats > 0 && (
+        <span key={`chat-${chatRises}`} className="fx-badge fx-tag-alert fx-tag-alert-chat" title={tr('{n} 則對話待處理', { n: waitingChats })}>
           <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M1.5 2h9v6.5H5L2.5 10.8V8.5h-1z" fill="currentColor" /></svg>
-          <span aria-hidden="true">{count(unreadChats)}</span>
-          <span className="fx-sr">{tr('{n} 則對話未讀', { n: unreadChats })}</span>
+          <span aria-hidden="true">{count(waitingChats)}</span>
+          <span className="fx-sr">{tr('{n} 則對話待處理', { n: waitingChats })}</span>
         </span>
       )}
       {waitingTasks > 0 && (
@@ -294,7 +294,7 @@ export function World() {
   // the empty id is the airport's chats
   const alerts = useStore((s) => ['', ...Object.keys(s.world.teams)].map((id) => {
     const a = teamAlerts(s.world, id), b = teamWork(s.world, id)
-    return `${id}\t${a.unreadChats}\t${a.waitingTasks}\t${b.chats}\t${b.tasks}`
+    return `${id}\t${a.waitingChats}\t${a.waitingTasks}\t${b.chats}\t${b.tasks}`
   }).join('\n'))
   const crewNames = useStore((s) => (selected ? teamReplicas(s.world, selected).map((r) => `${r.id}\t${r.name}`).join('\n') : ''))
   // the airport's tag is in words, so it changes with the language

@@ -481,7 +481,7 @@ const en = {
   '有未讀回覆': 'Unread reply',
   '釘選': 'Pin',
   '取消釘選': 'Unpin',
-  '{n} 則對話未讀': '{n} unread chats',
+  '{n} 則對話待處理': '{n} chats waiting for you',
   '{n} 個任務待回覆': '{n} tasks waiting for review',
   '{n} 件工作進行中': '{n} in progress',
   '下一步': 'Next step',
