@@ -18,6 +18,10 @@ dev: frontend/node_modules
 dev-mock: frontend/node_modules
 	npm --prefix frontend run dev:mock
 
+## help-shots: retake the help page's screenshots in frontend/src/help on mock data (TOPICS="map files" for only those)
+help-shots: frontend/node_modules
+	@./scripts/help-shots.sh $(TOPICS)
+
 ## server: start only the backend (localhost port 8787)
 server:
 	cd backend && go run ./cmd/server

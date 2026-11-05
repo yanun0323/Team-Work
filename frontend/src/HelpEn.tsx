@@ -48,11 +48,9 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: 'The airport open: the airport on the map and its file on the right',
     body: (
       <>
-        <p>The airport holds what all companies share: model providers, blueprints, workflows, sources, usage and settings, and you can chat with the airport staff there. Click the airport or its name tag on the map to open it, and the view zooms in; the plane button at the top right opens it without moving the view.</p>
-        <p className="fx-help-pit">The airport staff can manage tasks, blueprints and providers across companies, and their commands can reach the whole computer, not just one project.</p>
+        <p>The airport holds what all companies share: chats, model providers, blueprints, workflows, sources, usage and settings, each with its own topic under Airport on the left. Click the airport or its name tag on the map to open it, and the view zooms in; the plane button at the top right opens it without moving the view.</p>
+        <p className="fx-help-pit">Blueprints, workflows, sources and providers changed here affect every company.</p>
         <dl>
-          <dt>Chats</dt><dd>Talk with the airport staff, with no employee to pick and no company involved. They work by the built-in Airport Staff blueprint. Type # to pick a file or folder from your home folder one level at a time; everything else works as in a company chat. You can change the model and thinking level in the chat, except during a reply. Their working folder is airport in the data directory. Replies you have not seen and chats waiting for your answer show on the blue mark on the airport's name tag.</dd>
-          <dt>Usage</dt><dd>Model usage over the last 30 days or all time: tokens, cost, cache hit rate and a bar for each day, then each provider and model. Point at a bar and the list below shows that bar's numbers for the moment. Share is each row's part of the list's total tokens, or of that bar's while you point at one. Tokens leave out what was read back from the cache. Cost counts only models with a price; subscriptions and models without one show a dash. Only usage since recording began is counted.</dd>
           <dt>Its place</dt><dd>The airport stays where it is, and no company can be built on it.</dd>
           <dt>Which tab opens</dt><dd>Set by Default airport page and Auto-switch default page in Settings.</dd>
         </dl>
@@ -77,6 +75,23 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <dt>Change company</dt><dd>While one is open, other companies keep their name tags; click one to go straight there.</dd>
           <dt>Which tab opens</dt><dd>Set by Default company page and Auto-switch default page in Airport → Settings.</dd>
           <dt>Building</dt><dd>More finished tasks and employees mean more floors and a bigger footprint (up to 10×10 cells and 10 floors).</dd>
+        </dl>
+      </>
+    ),
+  },
+  airchat: {
+    label: 'Chats',
+    title: 'Airport chats',
+    alt: "The airport's Chats tab: a chat with the airport staff",
+    body: (
+      <>
+        <p>Talk with the airport staff, with no employee to pick and no company involved. Use it to ask how the app works, or for work across companies: viewing, creating or changing tasks in any company, and managing blueprints, workflows and model providers.</p>
+        <p className="fx-help-pit">The airport staff's commands can reach the whole computer, not just one project folder, and they create or change tasks without asking you first.</p>
+        <dl>
+          <dt>How it differs from a company chat</dt><dd>Type # to pick a file or folder from your home folder one level at a time, not from a project folder. You can change the model and thinking level in the chat, except during a reply. Everything else (attachments, queue, editing, handing over…) works as in a company's Chats.</dd>
+          <dt>Blueprint</dt><dd>They work by the built-in Airport Staff blueprint, which gives their role, tools and skills; it cannot be used to add employees.</dd>
+          <dt>Working folder</dt><dd>The airport folder in the data directory.</dd>
+          <dt>Unread mark</dt><dd>Replies you have not seen and chats waiting for your answer show on the blue mark on the airport's name tag on the map.</dd>
         </dl>
       </>
     ),
@@ -129,7 +144,7 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
         <dl>
           <dt>Add</dt><dd>Adding a GitHub source first reads its skills, and it can be added only once some are found. A repo at a branch is downloaded only once.</dd>
           <dt>Listed by themselves</dt><dd><code>~/.agents/</code>, <code>~/.team-work/</code>, <code>~/.codex/</code> and <code>~/.claude/</code> are listed as local sources, stamped Local. So are <code>mattpocock/skills</code> and <code>cursor/plugins</code>, which the built-in Matt Pocock and Poteto blueprints read, checked for updates like the ones you add.</dd>
-          <dt>Check for updates</dt><dd>Sources are checked every 6 hours. When a newer version is out, a red ! shows before the source in the list, and opening it lists the skills added and removed and the blueprints and employees affected.</dd>
+          <dt>Check for updates</dt><dd>Sources are checked every 6 hours; to check now, press the refresh button beside a source's version. When a newer version is out, a red ! shows before the source in the list, and opening it lists the skills added and removed and the blueprints and employees affected.</dd>
           <dt>Apply updates automatically</dt><dd>Off by default. When on, the source is stamped Auto-update, a newer version is used as soon as it is found, and a red dot shows before the source until you open it.</dd>
           <dt>Versions</dt><dd>Everyone using a source uses the same version. Work under way keeps the version it started with, and offline, the versions already downloaded still work.</dd>
           <dt>Delete</dt><dd>A source cannot be deleted while blueprints or employees use it.</dd>
@@ -160,10 +175,26 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
       </>
     ),
   },
+  stats: {
+    label: 'Usage',
+    alt: "The airport's Usage tab: totals, a bar for each day, and a list by provider and model",
+    body: (
+      <>
+        <p>See how much the whole app has used models: tokens, cost and the trend day by day, then each provider and model. Use it to find the model that costs most, or the day usage jumped.</p>
+        <p className="fx-help-pit">Cost counts only models with a price; subscriptions and models without one show a dash. Only usage since recording began is counted.</p>
+        <dl>
+          <dt>Period</dt><dd>The last 30 days or all time.</dd>
+          <dt>Bars</dt><dd>One for each day, coloured by model. Point at one and the list below shows that day's numbers for the moment.</dd>
+          <dt>Share</dt><dd>Each row's part of the list's total tokens, or of that day's while you point at a bar.</dd>
+          <dt>Tokens</dt><dd>Leave out what was read back from the cache. Cache hit rate is the part of all input that was read back.</dd>
+        </dl>
+      </>
+    ),
+  },
   settings: {
     label: 'Settings',
     title: 'Airport settings',
-    alt: "The airport's Settings tab: general, features, game objects and settings files",
+    alt: "The airport's Settings tab: general, controls, features and game objects",
     body: (
       <>
         <p>Preferences for the whole app, applied at once. Language is kept by the backend, and the other options only on this computer.</p>
@@ -300,11 +331,10 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
         <p>Browse the company's project folder to read a file, look at a picture or change a few lines without leaving the app. You can view and edit existing files, but not create, delete, move or rename anything.</p>
         <p className="fx-help-pit">If an employee, the terminal or another editor changed a file after you opened it, saving is refused, so their change is not overwritten. Copy out your changes, then press Reload.</p>
         <dl>
-          <dt>The tree</dt><dd>A folder is read only when you open it, so hidden files, <code>.git</code> and <code>node_modules</code> are all there; what <code>.gitignore</code> leaves out is shown faded. Open folders are read again when you come back to the tab or the app.</dd>
+          <dt>The tree</dt><dd>A folder is read only when you open it, so hidden files, <code>.git</code> and <code>node_modules</code> are all there; what <code>.gitignore</code> leaves out is shown faded. Hover over a folder for a button at its right end that opens it in Finder. Open folders are read again when you come back to the tab or the app.</dd>
           <dt>Opening</dt><dd>Markdown is formatted, code is coloured, and PNG, JPG, GIF and WebP show as pictures. Other files, and text files over 1 MiB, show why they cannot be previewed; you can show them in Finder.</dd>
           <dt>Editing</dt><dd>Press Edit at the top right of a text file. Code is coloured as you type; Markdown uses a plain text box. Save saves and puts it away; Command+S (Ctrl+S) saves and keeps editing. Files with CRLF line endings are saved with CRLF.</dd>
           <dt>Drafts</dt><dd>Put it away unsaved and the draft stays, marked by a red dot in the tree; press Edit again to carry on, or Discard changes to drop it. Drafts last until the app closes. Closing the company file or going to another company asks first when there are unsaved changes.</dd>
-          <dt>Simulator</dt><dd>The simulator has no such tab.</dd>
         </dl>
       </>
     ),
