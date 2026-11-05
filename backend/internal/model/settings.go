@@ -48,6 +48,8 @@ type ProviderConfig struct {
 	Models   []string              `json:"models"`
 	Thinking map[string][]string   `json:"thinking"`
 	Prices   map[string]ModelPrice `json:"prices,omitempty"`
+	// ContextWindow is the size set for a kind with none of its own; 0 when it was never set.
+	ContextWindow int `json:"contextWindow,omitempty"`
 }
 
 func WithoutPresets[T any](all map[string]T) map[string]T {
@@ -72,7 +74,7 @@ func SettingsOf(w *World) Settings {
 		s.Replicas[id] = ReplicaConfig{r.ID, r.TeamID, r.BlueprintID, r.Name, r.Look, r.Model, r.Effort}
 	}
 	for id, p := range w.Providers {
-		s.Providers[id] = ProviderConfig{p.ID, p.Name, p.Kind, p.Auth.Kind, p.BaseURL, p.Models, p.Thinking, p.Prices}
+		s.Providers[id] = ProviderConfig{p.ID, p.Name, p.Kind, p.Auth.Kind, p.BaseURL, p.Models, p.Thinking, p.Prices, p.ContextWindow}
 	}
 	return s
 }
@@ -93,7 +95,7 @@ func (s Settings) Install(w *World) {
 	for id, c := range s.Providers {
 		p := w.Providers[id]
 		p.Name, p.Kind, p.Auth.Kind, p.BaseURL = c.Name, c.Kind, c.AuthKind, c.BaseURL
-		p.Models, p.Thinking, p.Prices = c.Models, c.Thinking, c.Prices
+		p.Models, p.Thinking, p.Prices, p.ContextWindow = c.Models, c.Thinking, c.Prices, c.ContextWindow
 	}
 	w.Blueprints, w.Workflows = s.Blueprints, s.Workflows
 	w.Sources = s.Sources

@@ -312,7 +312,8 @@ func (e *Engine) RewindChat(id string, index int) error {
 		if c.Compact != nil && end < c.Compact.Upto {
 			c.Compact = nil // it summed up what was just taken back
 		}
-		c.Context = 0
+		// what is left, without the instructions and tools, which the next reply counts again
+		c.Context = tokensOf(chatView(e.w.Conversations[c.ID], c.Compact))
 		e.dirty[c.ID] = true
 		return nil
 	})
@@ -403,6 +404,7 @@ func (e *Engine) HandOffChat(id string, index int, replicaID string) (*model.Cha
 		if c.Compact != nil && end >= c.Compact.Upto {
 			fork.Compact = &model.ChatCompact{Upto: c.Compact.Upto, Summary: strings.ReplaceAll(strings.ReplaceAll(c.Compact.Summary, from, to), fromOut, toOut)}
 		}
+		fork.Context = tokensOf(chatView(copied, fork.Compact))
 		e.w.Chats[fork.ID] = fork
 		e.w.Conversations[fork.ID] = copied
 		e.dirty[fork.ID] = true
@@ -612,6 +614,7 @@ func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Att
 		c.Change = nil
 	}
 	e.w.Conversations[c.ID] = append(answerPending(conv, answer), said)
+	c.Context += tokensAbout(said)
 	e.dirty[c.ID] = true
 }
 
@@ -739,9 +742,17 @@ type chatRun struct {
 	// peers are the packs of the others in a meeting: a skill the user names with "$" is everyone's, as the list
 	// they pick it from is, and whoever replies first brings it for the round
 	peers []packRoot
-	// context is how much the model read last time; compact is what stands in for the conversation's start
+	// context is about how much the next call sends; compact is what stands in for the conversation's start
 	context int
 	compact *model.ChatCompact
+	// room is the least anyone in the chat can read, and compactAt the least anyone may be sent before it is summed up
+	room      int
+	compactAt int
+	// chair sums the chat up for everyone, reading chairRoom tokens at most
+	chair     agentSpec
+	chairRoom int
+	// overhead is about what the instructions and tools take besides the conversation, once the run has them
+	overhead int
 	// memory is whether the chat is with an employee, who has notes to keep
 	memory bool
 	// speaker is who replies, "" for the airport staff; actor is whether they may act outside the chat this round
@@ -788,7 +799,13 @@ func (e *Engine) launchChat(c *model.Chat, speaker string, spec agentSpec) {
 			}
 		}
 	}
+	room, at := e.chatRoom(c)
+	chair, chairRoom := spec, e.windowOf(spec.model)
+	if s, err := e.chairSpec(c); err == nil { // the speaker sums it up when the chair's model is gone
+		chair, chairRoom = s, e.windowOf(s.model)
+	}
 	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, team: c.TeamID, said: said, peers: peers, context: c.Context, compact: clone(c.Compact), memory: !c.AtAirport(),
+		room: room, compactAt: at, chair: chair, chairRoom: chairRoom,
 		speaker: speaker, actor: speaker == roundActor(c), actorName: chatNames(c)[roundActor(c)], note: e.roundNote(c, speaker), session: session, names: chatNames(c)})
 }
 
@@ -992,7 +1009,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			return e.applyChat(in, func(c *model.Chat) {
 				delete(e.live, c.ID) // now it is a message
 				c.Tokens += tokensUsed(reply.Usage)
-				c.Context = reply.Usage.Input
+				c.Context = reply.Usage.Input + reply.Usage.Output
 				e.w.Conversations[c.ID] = append(e.w.Conversations[c.ID], model.Message{Role: enum.RoleAssistant, Content: reply.Content, By: in.speaker})
 				e.dirty[c.ID] = true
 				for _, b := range reply.Content {
@@ -1013,12 +1030,15 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		onResults: func(msg model.Message) {
 			msg.By = in.speaker
 			e.applyChat(in, func(c *model.Chat) {
+				c.Context += tokensAbout(msg)
 				e.w.Conversations[c.ID] = append(e.w.Conversations[c.ID], msg)
 				e.dirty[c.ID] = true
 			})
 		},
 	}
+	in.overhead = requestTokens(t.req)
 	t.compact = func(ctx context.Context) ([]model.Message, bool) { return e.compactChat(ctx, in) }
+	t.compactAt = in.compactAt
 	t.steer = func() []model.Message {
 		var heard []model.Message
 		e.applyChat(in, func(c *model.Chat) {
@@ -1034,7 +1054,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		})
 		return heard
 	}
-	if in.context >= chatCompactAt {
+	if in.context >= in.compactAt {
 		if shorter, ok := t.compact(ctx); ok {
 			t.req.Messages = shorter
 		}

@@ -217,3 +217,31 @@ func TestAProviderIsCheckedBeforeItIsAsked(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+// A context window is the user's to set only where the kind has none of its own, and it outlives a restart.
+func TestAProviderKeepsTheContextWindowSetForIt(t *testing.T) {
+	r, _ := manageRig(t)
+	ctx := context.Background()
+	p := providerNamed(r.world(), "p")
+	for _, bad := range []int{7_999, 10_000_001} {
+		if err := r.e.UpdateProvider(ctx, p.ID, usecase.ProviderPatch{ContextWindow: ptrTo(bad)}); err == nil {
+			t.Fatalf("%d was kept", bad)
+		}
+	}
+	if err := r.e.UpdateProvider(ctx, p.ID, usecase.ProviderPatch{ContextWindow: ptrTo(200_000)}); err != nil {
+		t.Fatal(err)
+	}
+	claude, err := r.e.AddProvider(ctx, usecase.NewProvider{Name: "c", Kind: enum.ProviderAnthropic, ContextWindow: 50_000,
+		Login: usecase.ProviderLogin{Kind: "apiKey", APIKey: "sk-ant-0000"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claude.ContextWindow != 0 {
+		t.Fatalf("anthropic kept %d", claude.ContextWindow)
+	}
+	r.e.Close()
+	newEngine(t, r)
+	if got := providerNamed(r.world(), "p").ContextWindow; got != 200_000 {
+		t.Fatalf("after a restart: %d", got)
+	}
+}

@@ -49,10 +49,39 @@ type Preferences struct {
 	// CodexSkills and ClaudeSkills let the built-in blueprints read skills from ~/.codex/ and ~/.claude/.
 	CodexSkills  bool `json:"codexSkills"`
 	ClaudeSkills bool `json:"claudeSkills"`
+	// HiddenBlueprints and HiddenWorkflows are left out of every list to pick from and out of employees' tools; employees
+	// and tasks already on them keep them, and the user can still edit them.
+	HiddenBlueprints []string `json:"hiddenBlueprints"`
+	HiddenWorkflows  []string `json:"hiddenWorkflows"`
+	// Compact1M, Compact256K, Compact128K and CompactSmall are how full, in percent, a chat on a model of that size may
+	// get before it is summed up: 1M tokens or more, 256K or more, 128K or more, and less.
+	Compact1M    int `json:"compact1M"`
+	Compact256K  int `json:"compact256K"`
+	Compact128K  int `json:"compact128K"`
+	CompactSmall int `json:"compactSmall"`
+}
+
+// CompactLeast and CompactMost bound the compaction percentages.
+const (
+	CompactLeast = 10
+	CompactMost  = 100
+)
+
+// CompactShare is the percentage that applies to a model that reads window tokens.
+func (p Preferences) CompactShare(window int) int {
+	switch {
+	case window >= 1_000_000:
+		return p.Compact1M
+	case window >= 256_000:
+		return p.Compact256K
+	case window >= 128_000:
+		return p.Compact128K
+	}
+	return p.CompactSmall
 }
 
 func DefaultPreferences() Preferences {
-	return Preferences{MuteInBackground: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", BusyAnimation: "money", Daylight: "minecraft", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", AutoTab: "chats", CodexSkills: true, ClaudeSkills: true}
+	return Preferences{MuteInBackground: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", BusyAnimation: "money", Daylight: "minecraft", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", AutoTab: "chats", CodexSkills: true, ClaudeSkills: true, HiddenBlueprints: []string{}, HiddenWorkflows: []string{}, Compact1M: 40, Compact256K: 90, Compact128K: 95, CompactSmall: 95}
 }
 
 // MergePreferences accepts only known, non-null fields; omitted fields keep their values.
@@ -78,6 +107,7 @@ func MergePreferences(current Preferences, patch map[string]json.RawMessage) (Pr
 	}
 	if !slices.Contains([]string{"piano", "ambient", "bossa", "chiptune"}, next.MusicStyle) || next.MusicVolume < 0 || next.MusicVolume > 100 || next.EffectsVolume < 0 || next.EffectsVolume > 100 ||
 		next.ZoomSensitivity < 20 || next.ZoomSensitivity > 300 ||
+		slices.ContainsFunc([]int{next.Compact1M, next.Compact256K, next.Compact128K, next.CompactSmall}, func(n int) bool { return n < CompactLeast || n > CompactMost }) ||
 		!slices.Contains([]string{"newestFirst", "newestLast"}, next.LogOrder) ||
 		!slices.Contains([]string{"panZoom", "pan", "off"}, next.AutoView) ||
 		!slices.Contains([]string{"shout", "money", "off"}, next.BusyAnimation) ||

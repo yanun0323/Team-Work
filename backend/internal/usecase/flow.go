@@ -634,6 +634,9 @@ func (e *Engine) taskFlow(in NewTask) (*model.Workflow, string, error) {
 	if wf == nil {
 		return nil, "", model.Errorf(model.CodeNotFound, "找不到任務藍圖")
 	}
+	if e.workflowHidden(in.WorkflowID) {
+		return nil, "", model.Errorf(model.CodeInvalid, "這個任務藍圖已隱藏")
+	}
 	return clone(wf), in.WorkflowID, nil
 }
 
@@ -968,6 +971,9 @@ func (e *Engine) ChangeWorkflow(id, workflowID string) error {
 		wf := e.w.Workflows[workflowID]
 		if wf == nil {
 			return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
+		}
+		if workflowID != t.WorkflowID && e.workflowHidden(workflowID) {
+			return model.Errorf(model.CodeInvalid, "這個任務藍圖已隱藏")
 		}
 		if !t.Paused {
 			return model.Errorf(model.CodeConflict, "任務要先暫停才能更換任務藍圖")

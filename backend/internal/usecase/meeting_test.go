@@ -427,3 +427,53 @@ func TestMeetingGoesOnAfterARestart(t *testing.T) {
 		t.Fatalf("%+v", m[2:])
 	}
 }
+
+// A meeting is summed up once anyone in it is near their limit, by the chair's model, for everyone.
+func TestMeetingCompactsForWhoeverReadsLeast(t *testing.T) {
+	var chat string
+	var summedBy []string
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if strings.Contains(req.System, "Summarize the earlier part") {
+			summedBy = append(summedBy, req.Model)
+			return say("摘要內容"), nil
+		}
+		if chat != "" && strings.Contains(wordsOf(req.Messages), "摘要內容") {
+			// failing leaves what the summing up counted for the next call
+			return model.ModelReply{}, model.Errorf(model.CodeInvalid, "壞了")
+		}
+		reply := say("好")
+		reply.Usage = model.ModelUsage{Input: 150_000, Output: 10} // past 128K's 108,000, short of 1M's 400,000
+		return reply, nil
+	})
+	r.fake.models = []model.ModelSpec{{ID: "big"}}
+	if _, err := r.e.AddProvider(context.Background(), usecase.NewProvider{Name: "claude", Kind: enum.ProviderAnthropic, Login: usecase.ProviderLogin{Kind: "apiKey", APIKey: "sk-ant-1234"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Model: ptrTo("big")}); err != nil {
+		t.Fatal(err)
+	}
+	bea, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bea", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Guests: []string{bea.ID}, Text: strings.Repeat("長", 40_000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("Ada", chatDone(c.ID))
+	r.fake.mu.Lock()
+	chat = c.ID
+	r.fake.mu.Unlock()
+	if err := r.e.SayInChatTo(c.ID, "@Bea 你呢", nil, nil, []string{bea.ID}); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("Bea", chatDone(c.ID))
+	got := r.world().Chats[c.ID]
+	if got.Compact == nil || !slices.Equal(summedBy, []string{"big"}) {
+		t.Fatalf("summed up by %v: %+v", summedBy, got.Compact)
+	}
+	// counted again from the summary and the words kept, not set to nothing
+	if got.Context <= 0 || got.Context >= 108_000 {
+		t.Fatalf("context %d", got.Context)
+	}
+}

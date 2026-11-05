@@ -68,14 +68,14 @@ type SkillPack struct {
 }
 
 type Blueprint struct {
-	ID         string          `json:"id"`
-	Name       string          `json:"name"`
-	Source     BlueprintSource `json:"source"`
-	Prompt     string          `json:"prompt"`
-	Comment    string          `json:"comment"`
-	Skills     []SkillPack     `json:"skills"`
-	Tools      []enum.Tool     `json:"tools"`
-	Look       Look            `json:"look"`
+	ID      string          `json:"id"`
+	Name    string          `json:"name"`
+	Source  BlueprintSource `json:"source"`
+	Prompt  string          `json:"prompt"`
+	Comment string          `json:"comment"`
+	Skills  []SkillPack     `json:"skills"`
+	Tools   []enum.Tool     `json:"tools"`
+	Look    Look            `json:"look"`
 	// Owner is the employee whose own settings these are, made on their sheet rather than picked from the list;
 	// empty for a blueprint anyone can be hired from. From is the blueprint they were copied from, if any.
 	Owner string `json:"owner,omitempty"`
@@ -323,7 +323,8 @@ type Chat struct {
 	// Speaker is who replies, or last replied, to the user's last message; Next are who reply after them.
 	Speaker string   `json:"speaker,omitempty"`
 	Next    []string `json:"next,omitempty"`
-	// Context is how many tokens the model last read, to tell when to compact.
+	// Context is about how many tokens the next call sends: what the model last read and wrote, and what came since.
+	// It tells when to compact and shows how full the chat is.
 	Context int `json:"context,omitempty"`
 	// Queue is what the user said while a reply was being written, in the order it goes: the steered first.
 	Queue     []QueuedMessage `json:"queue,omitempty"`
@@ -493,6 +494,38 @@ type ModelProvider struct {
 	// Thinking lists the levels each model reports it accepts, weakest first. Nil until the provider was asked.
 	Thinking map[string][]string   `json:"thinking"`
 	Prices   map[string]ModelPrice `json:"prices,omitempty"`
+	// ContextWindow is how many tokens its models can read, as the user set it. Only kinds with no fixed size keep one;
+	// 0 when it was never set.
+	ContextWindow int `json:"contextWindow,omitempty"`
+}
+
+const (
+	// ContextAnthropic and ContextOpenAI are the fixed sizes of those kinds' models.
+	ContextAnthropic = 1_000_000
+	ContextOpenAI    = 272_000
+	// ContextUnknown is assumed for a provider whose size was never set.
+	ContextUnknown = 128_000
+	// ContextLeast and ContextMost bound what the user may set.
+	ContextLeast = 8_000
+	ContextMost  = 10_000_000
+)
+
+// ContextWindow is how many tokens a provider's models can read.
+func ContextWindow(p ModelProvider) int {
+	switch {
+	case p.Kind == enum.ProviderAnthropic:
+		return ContextAnthropic
+	case p.Kind == enum.ProviderOpenAI:
+		return ContextOpenAI
+	case p.ContextWindow > 0:
+		return p.ContextWindow
+	}
+	return ContextUnknown
+}
+
+// FixedContext says whether a provider's kind decides its size, so there is none to set.
+func FixedContext(kind enum.ProviderKind) bool {
+	return kind == enum.ProviderAnthropic || kind == enum.ProviderOpenAI
 }
 
 // MakesImages says whether a provider can be the one that draws pictures: only a ChatGPT subscription can.

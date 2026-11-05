@@ -407,8 +407,38 @@ func (e *Engine) DeleteWorkflow(id string) error {
 			return errPreset()
 		}
 		delete(e.w.Workflows, id)
+		e.w.Preferences.HiddenWorkflows = markHidden(e.w.Preferences.HiddenWorkflows, id, false)
 		return nil
 	})
+}
+
+// HideWorkflow leaves a flow out of every list to pick from and out of employees' tools, or puts it back. Tasks
+// already on it keep it.
+func (e *Engine) HideWorkflow(id string, hidden bool) error {
+	return e.doSettings(func() error {
+		if e.w.Workflows[id] == nil {
+			return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
+		}
+		e.w.Preferences.HiddenWorkflows = markHidden(e.w.Preferences.HiddenWorkflows, id, hidden)
+		return nil
+	})
+}
+
+// markHidden adds id to a list of hidden ones, or takes it out.
+func markHidden(list []string, id string, hidden bool) []string {
+	list = slices.DeleteFunc(slices.Clone(list), func(x string) bool { return x == id })
+	if hidden {
+		list = append(list, id)
+	}
+	return list
+}
+
+func (e *Engine) workflowHidden(id string) bool {
+	return slices.Contains(e.w.Preferences.HiddenWorkflows, id)
+}
+
+func (e *Engine) blueprintHidden(id string) bool {
+	return slices.Contains(e.w.Preferences.HiddenBlueprints, id)
 }
 
 // SetLanguage picks the language of the app and of what employees write to the user. It takes effect from their next reply.
@@ -449,6 +479,8 @@ type NewProvider struct {
 	BaseURL string                      `json:"baseUrl"`
 	Login   ProviderLogin               `json:"login"`
 	Prices  map[string]model.ModelPrice `json:"prices"`
+	// ContextWindow is how many tokens its models can read; Anthropic and OpenAI have their own, and 0 leaves it unset.
+	ContextWindow int `json:"contextWindow"`
 	// ImageDefault makes a ChatGPT subscription the one every employee draws pictures with.
 	ImageDefault bool `json:"imageDefault"`
 }
@@ -472,6 +504,9 @@ func checkProvider(p model.ModelProvider) error {
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 			return model.Errorf(model.CodeInvalid, "API 位址要是不含帳密、查詢參數或 # 的 HTTP(S) 網址")
 		}
+	}
+	if p.ContextWindow != 0 && (p.ContextWindow < model.ContextLeast || p.ContextWindow > model.ContextMost) {
+		return model.Errorf(model.CodeInvalid, "Context window 要在 8,000 到 10,000,000 之間")
 	}
 	for m, price := range p.Prices {
 		if price.Input < 0 || price.Output < 0 || price.CacheRead < 0 {
@@ -551,9 +586,12 @@ func (e *Engine) AddProvider(ctx context.Context, in NewProvider) (*model.ModelP
 	if in.Login.Kind != "apiKey" && in.Kind != enum.ProviderAnthropic && in.Kind != enum.ProviderOpenAI {
 		return nil, model.Errorf(model.CodeInvalid, "只有 Anthropic 和 OpenAI 可以用訂閱登入")
 	}
-	p := model.ModelProvider{Name: in.Name, Kind: in.Kind, Auth: authOf(in.Login), BaseURL: strings.TrimSpace(in.BaseURL), Models: []string{}, Prices: in.Prices}
+	p := model.ModelProvider{Name: in.Name, Kind: in.Kind, Auth: authOf(in.Login), BaseURL: strings.TrimSpace(in.BaseURL), Models: []string{}, Prices: in.Prices, ContextWindow: in.ContextWindow}
 	if p.Auth.Kind != "apiKey" {
 		p.BaseURL = ""
+	}
+	if model.FixedContext(p.Kind) {
+		p.ContextWindow = 0
 	}
 	if err := checkProvider(p); err != nil {
 		return nil, err
@@ -587,6 +625,8 @@ type ProviderPatch struct {
 	BaseURL *string                     `json:"baseUrl"`
 	Login   *ProviderLogin              `json:"login"`
 	Prices  map[string]model.ModelPrice `json:"prices"`
+	// ContextWindow sets how many tokens its models can read; 0 unsets it. Kinds with their own size ignore it.
+	ContextWindow *int `json:"contextWindow"`
 	// ImageDefault true makes it the provider that draws pictures; false, when it is that one, leaves none.
 	ImageDefault *bool `json:"imageDefault"`
 }
@@ -641,6 +681,9 @@ func (e *Engine) prepareProvider(ctx context.Context, id string, in ProviderPatc
 	}
 	if in.Prices != nil {
 		next.Prices = in.Prices
+	}
+	if in.ContextWindow != nil && !model.FixedContext(next.Kind) {
+		next.ContextWindow = *in.ContextWindow
 	}
 	if l := in.Login; l != nil && !(l.Kind == "apiKey" && strings.TrimSpace(l.APIKey) == "" && next.Auth.Kind == "apiKey") {
 		if l.Kind != "apiKey" && l.Kind != "subscription" {
@@ -1045,6 +1088,19 @@ func (e *Engine) DeleteBlueprint(id string) error {
 			}
 		}
 		delete(e.w.Blueprints, id)
+		e.w.Preferences.HiddenBlueprints = markHidden(e.w.Preferences.HiddenBlueprints, id, false)
+		return nil
+	})
+}
+
+// HideBlueprint leaves a blueprint out of every list to pick from and out of employees' tools, or puts it back.
+// Employees already made from it keep it. The airport staff's cannot be hidden.
+func (e *Engine) HideBlueprint(id string, hidden bool) error {
+	return e.doSettings(func() error {
+		if b := e.w.Blueprints[id]; b == nil || b.Owner != "" || id == airportBlueprintID {
+			return model.Errorf(model.CodeNotFound, "找不到藍圖")
+		}
+		e.w.Preferences.HiddenBlueprints = markHidden(e.w.Preferences.HiddenBlueprints, id, hidden)
 		return nil
 	})
 }
@@ -1142,6 +1198,9 @@ func (e *Engine) Hire(in NewReplica) (*model.Replica, error) {
 		if e.w.Teams[in.TeamID] == nil || bp == nil {
 			return model.Errorf(model.CodeNotFound, "找不到公司或藍圖")
 		}
+		if in.Custom == nil && e.blueprintHidden(in.BlueprintID) {
+			return model.Errorf(model.CodeInvalid, "這個藍圖已隱藏")
+		}
 		if strings.TrimSpace(in.Name) == "" {
 			return model.Errorf(model.CodeInvalid, "員工要有名字")
 		}
@@ -1203,6 +1262,10 @@ func (e *Engine) UpdateReplica(id string, p ReplicaPatch) error {
 		}
 		if p.BlueprintID != nil && e.hireableBlueprint(*p.BlueprintID, id) == nil {
 			return model.Errorf(model.CodeNotFound, "找不到藍圖")
+		}
+		// one already on a hidden blueprint keeps it, but nobody moves onto one
+		if p.BlueprintID != nil && p.Custom == nil && *p.BlueprintID != r.BlueprintID && e.blueprintHidden(*p.BlueprintID) {
+			return model.Errorf(model.CodeInvalid, "這個藍圖已隱藏")
 		}
 		if p.Custom != nil {
 			try := *p.Custom

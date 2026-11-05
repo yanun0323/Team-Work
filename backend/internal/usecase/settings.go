@@ -155,6 +155,9 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 				return bad(field+".prices."+m, "價格不能是負數")
 			}
 		}
+		if p.ContextWindow != 0 && (p.ContextWindow < model.ContextLeast || p.ContextWindow > model.ContextMost) {
+			return bad(field+".contextWindow", "Context window 要在 8,000 到 10,000,000 之間")
+		}
 	}
 	for id, src := range s.Sources {
 		field := "sources." + id

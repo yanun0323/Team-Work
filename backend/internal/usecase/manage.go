@@ -214,8 +214,8 @@ func (e *Engine) listBlueprints() any {
 	}
 	out := []row{}
 	for _, b := range e.w.Blueprints {
-		// an employee's own settings are theirs, not one to hire from; nor are the airport staff's
-		if b.Owner != "" || b.ID == airportBlueprintID {
+		// an employee's own settings are theirs, not one to hire from; nor are the airport staff's, nor hidden ones
+		if b.Owner != "" || b.ID == airportBlueprintID || e.blueprintHidden(b.ID) {
 			continue
 		}
 		out = append(out, row{b.ID, versionOf(b), b.Name, b.Source.Kind, !model.IsPresetID(b.ID) && b.Source.Kind != "git", b.Prompt, b.Comment, b.Tools, e.writtenPacks(b.Skills)})
@@ -249,6 +249,9 @@ func (e *Engine) listWorkflows() any {
 	}
 	out := []row{}
 	for _, wf := range e.w.Workflows {
+		if e.workflowHidden(wf.ID) {
+			continue
+		}
 		r := row{ID: wf.ID, Version: versionOf(wf), Name: wf.Name, Editable: !model.IsPresetID(wf.ID), Nodes: []node{}, Edges: []edge{}}
 		for _, n := range wf.Nodes {
 			r.Nodes = append(r.Nodes, node{n.ID, n.Kind, n.Name, n.Prompt, n.ReplicaIDs, n.Handoff, n.Join})
@@ -318,10 +321,11 @@ func (e *Engine) listProviders() any {
 		BaseURL  string                      `json:"baseUrl"`
 		Models   []string                    `json:"models"`
 		Prices   map[string]model.ModelPrice `json:"prices,omitempty"`
+		Window   int                         `json:"contextWindow"`
 	}
 	out := []row{}
 	for _, p := range e.w.Providers {
-		out = append(out, row{p.ID, versionOf(p), p.Name, p.Kind, p.Auth.Kind, p.Auth.KeyHint, p.Auth.SignedIn, p.BaseURL, p.Models, p.Prices})
+		out = append(out, row{p.ID, versionOf(p), p.Name, p.Kind, p.Auth.Kind, p.Auth.KeyHint, p.Auth.SignedIn, p.BaseURL, p.Models, p.Prices, model.ContextWindow(*p)})
 	}
 	slices.SortFunc(out, func(a, b row) int { return strings.Compare(a.ID, b.ID) })
 	return out
@@ -386,6 +390,10 @@ func (e *Engine) createTaskTool(m manager) func(context.Context, string, json.Ra
 			if origin.Depth > maxTaskDepth {
 				refused = fmt.Sprintf("refused: this would be %d tasks in a row made by employees, and the limit is %d. Leave it to the user", origin.Depth, maxTaskDepth)
 				return nil
+			}
+			// a hidden flow is one employees do not know of
+			if e.workflowHidden(a.WorkflowID) {
+				return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
 			}
 			if refused = e.staffProblem(teamID, a.WorkflowID, a.Staff, a.OwnerID); refused != "" {
 				return nil
@@ -611,7 +619,7 @@ func (e *Engine) saveBlueprintTool(m manager) func(context.Context, string, json
 		var change *model.PendingChange
 		err := e.act(m, false, func() error {
 			old := e.w.Blueprints[a.ID]
-			if old == nil || old.Owner != "" {
+			if old == nil || old.Owner != "" || e.blueprintHidden(a.ID) {
 				return model.Errorf(model.CodeNotFound, "找不到藍圖")
 			}
 			if model.IsPresetID(a.ID) {
@@ -704,6 +712,7 @@ const saveProviderSchema = `{"type":"object","properties":{"id":{"type":"string"
 	`"login":{"type":"string","enum":["apiKey","subscription"],"description":"Only when adding; apiKey when left out. Subscriptions are for anthropic and openai"},` +
 	`"api_key":{"type":"string","description":"Required when adding with apiKey; when changing, a new key, or leave out to keep the one there is"},` +
 	`"base_url":{"type":"string"},` +
+	`"context_window":{"type":"integer","description":"How many tokens its models can read, 8000 to 10000000; only for google and compatible, as anthropic and openai have their own. 0 unsets it"},` +
 	`"prices":{"type":"object","description":"Model id to its price in USD per million tokens; replaces all prices","additionalProperties":{"type":"object","properties":{"input":{"type":"number"},"output":{"type":"number"},"cacheRead":{"type":"number"}}}}}}`
 
 func (e *Engine) saveProviderTool(m manager) func(context.Context, string, json.RawMessage) model.ToolResult {
@@ -717,6 +726,7 @@ func (e *Engine) saveProviderTool(m manager) func(context.Context, string, json.
 			APIKey  *string                     `json:"api_key"`
 			BaseURL *string                     `json:"base_url"`
 			Prices  map[string]model.ModelPrice `json:"prices"`
+			Window  *int                        `json:"context_window"`
 		}
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return toolError("invalid arguments: %v", err)
@@ -742,6 +752,9 @@ func (e *Engine) saveProviderTool(m manager) func(context.Context, string, json.
 			}
 			if a.APIKey != nil {
 				in.Login.APIKey = *a.APIKey
+			}
+			if a.Window != nil {
+				in.ContextWindow = *a.Window
 			}
 			switch a.Login {
 			case "", "apiKey":
@@ -776,7 +789,7 @@ func (e *Engine) saveProviderTool(m manager) func(context.Context, string, json.
 		if a.Version != versionOf(&before) {
 			return toolError("version does not match: it was changed since; read it again with list_providers")
 		}
-		patch := ProviderPatch{Name: a.Name, BaseURL: a.BaseURL, Prices: a.Prices}
+		patch := ProviderPatch{Name: a.Name, BaseURL: a.BaseURL, Prices: a.Prices, ContextWindow: a.Window}
 		newKey := a.APIKey != nil && strings.TrimSpace(*a.APIKey) != ""
 		if newKey {
 			patch.Login = &ProviderLogin{Kind: "apiKey", APIKey: *a.APIKey}
@@ -1032,7 +1045,7 @@ func (e *Engine) saveWorkflowTool(m manager) func(context.Context, string, json.
 		var change *model.PendingChange
 		err := e.act(m, false, func() error {
 			old := e.w.Workflows[a.ID]
-			if old == nil {
+			if old == nil || e.workflowHidden(a.ID) {
 				return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
 			}
 			if model.IsPresetID(a.ID) {

@@ -104,7 +104,7 @@ func TestPreferencesReloadDefaultsValidationAndConflict(t *testing.T) {
 	}
 	want := model.DefaultPreferences()
 	want.Shadows, want.DefaultAirportTab = false, "about"
-	if r.world().Preferences != want {
+	if !reflect.DeepEqual(r.world().Preferences, want) {
 		t.Fatalf("partial YAML lost defaults: %+v", r.world().Preferences)
 	}
 	for _, invalid := range []string{"shadows: null\n", "shadows: nope\n", "defaultTab: nope\n", "typo: true\n", "null\n"} {
@@ -112,7 +112,7 @@ func TestPreferencesReloadDefaultsValidationAndConflict(t *testing.T) {
 		if err := r.e.ReloadSettings(context.Background()); err == nil {
 			t.Fatalf("accepted %q", invalid)
 		}
-		if r.world().Preferences != want {
+		if !reflect.DeepEqual(r.world().Preferences, want) {
 			t.Fatal("invalid reload changed live preferences")
 		}
 	}

@@ -122,3 +122,42 @@ func TestRemovedWaitingSubIsIgnoredInOldFiles(t *testing.T) {
 		t.Fatal("removed preference accepted in a patch")
 	}
 }
+
+func TestCompactSharesStayInRange(t *testing.T) {
+	var p Preferences
+	if err := json.Unmarshal([]byte(`{"shadows":false}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Compact1M != 40 || p.Compact256K != 90 || p.Compact128K != 95 || p.CompactSmall != 95 {
+		t.Fatalf("defaults for an old file: %+v", p)
+	}
+	for _, c := range []struct{ window, share int }{{1_000_000, 40}, {999_999, 90}, {256_000, 90}, {255_999, 95}, {128_000, 95}, {127_999, 95}} {
+		if got := p.CompactShare(c.window); got != c.share {
+			t.Errorf("CompactShare(%d) = %d", c.window, got)
+		}
+	}
+	for _, bad := range []string{`9`, `101`} {
+		if _, err := MergePreferences(p, map[string]json.RawMessage{"compact1M": json.RawMessage(bad)}); err == nil {
+			t.Fatalf("compact1M %s accepted", bad)
+		}
+	}
+	if next, err := MergePreferences(p, map[string]json.RawMessage{"compactSmall": json.RawMessage(`60`)}); err != nil || next.CompactSmall != 60 {
+		t.Fatalf("%v %+v", err, next)
+	}
+}
+
+func TestContextWindowOfEachKind(t *testing.T) {
+	for _, c := range []struct {
+		p    ModelProvider
+		want int
+	}{
+		{ModelProvider{Kind: "anthropic", ContextWindow: 50_000}, 1_000_000},
+		{ModelProvider{Kind: "openai"}, 272_000},
+		{ModelProvider{Kind: "google", ContextWindow: 200_000}, 200_000},
+		{ModelProvider{Kind: "compatible"}, 128_000},
+	} {
+		if got := ContextWindow(c.p); got != c.want {
+			t.Errorf("%s: %d", c.p.Kind, got)
+		}
+	}
+}

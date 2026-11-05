@@ -94,6 +94,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.PUT("/workflows/:id", s.saveWorkflow)
 	api.POST("/workflows/:id/duplicate", s.duplicateWorkflow)
 	api.DELETE("/workflows/:id", s.deleteWorkflow)
+	api.PUT("/workflows/:id/hidden", s.hideWorkflow)
 
 	api.POST("/providers", s.addProvider)
 	api.PATCH("/providers/:id", s.updateProvider)
@@ -116,6 +117,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/blueprints", s.createBlueprint)
 	api.PUT("/blueprints/:id", s.saveBlueprint)
 	api.DELETE("/blueprints/:id", s.deleteBlueprint)
+	api.PUT("/blueprints/:id/hidden", s.hideBlueprint)
 	api.POST("/blueprints/:id/update", s.updateBlueprint)
 	api.GET("/blueprints/:id/skills", s.blueprintSkills)
 
@@ -433,6 +435,18 @@ func (s *Server) deleteWorkflow(c echo.Context) error {
 	return done(c, s.engine.DeleteWorkflow(c.Param("id")))
 }
 
+type hiddenBody struct {
+	Hidden bool `json:"hidden"`
+}
+
+func (s *Server) hideWorkflow(c echo.Context) error {
+	in, err := bind[hiddenBody](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.HideWorkflow(c.Param("id"), in.Hidden))
+}
+
 func (s *Server) addProvider(c echo.Context) error {
 	in, err := bind[usecase.NewProvider](c)
 	if err != nil {
@@ -576,6 +590,14 @@ func (s *Server) saveBlueprint(c echo.Context) error {
 
 func (s *Server) deleteBlueprint(c echo.Context) error {
 	return done(c, s.engine.DeleteBlueprint(c.Param("id")))
+}
+
+func (s *Server) hideBlueprint(c echo.Context) error {
+	in, err := bind[hiddenBody](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.HideBlueprint(c.Param("id"), in.Hidden))
 }
 
 func (s *Server) updateBlueprint(c echo.Context) error {

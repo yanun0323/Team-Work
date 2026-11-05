@@ -47,6 +47,8 @@ type turn struct {
 	onOutput func(string)
 	// compact, when set, shortens a long conversation and returns what to send instead; false if it could not.
 	compact func(context.Context) ([]model.Message, bool)
+	// compactAt is about how many tokens the next call may send before compact runs.
+	compactAt int
 	// steer, when set, returns what the user said meanwhile that goes right after a round of tool results.
 	steer func() []model.Message
 }
@@ -146,7 +148,7 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 		if t.steer != nil {
 			t.req.Messages = append(t.req.Messages, t.steer()...)
 		}
-		if t.compact != nil && reply.Usage.Input >= chatCompactAt {
+		if t.compact != nil && reply.Usage.Input+reply.Usage.Output+tokensAbout(msg) >= t.compactAt {
 			if shorter, ok := t.compact(ctx); ok {
 				t.req.Messages = shorter
 			}
