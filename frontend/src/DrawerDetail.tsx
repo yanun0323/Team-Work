@@ -512,7 +512,7 @@ function Chat({ sub }: { sub: SubTask }) {
   const writing = talk.replyAt !== undefined
   const live = useLiveText(sub.id)
   // the newest words in view, inside the chat's own scroll, unless the user scrolled up to read
-  const list = useStickToBottom<HTMLOListElement>(`${talk.messages.length}:${writing}:${live.length}`)
+  const [list, pin] = useStickToBottom<HTMLOListElement>(`${talk.messages.length}:${writing}:${live.length}`)
   const node = nodeOf(wf, sub.nodeId)
   const outs = outEdges(wf, sub.nodeId)
   // the step picks one of several next steps: going on names which
@@ -523,6 +523,7 @@ function Chat({ sub }: { sub: SubTask }) {
   const send = () => {
     if (!text.trim() || writing) return
     const mentions = mentionsIn(text)
+    pin()
     act((x) => sayInTalk(x, sub.id, text, mentions))
     setText('')
   }
