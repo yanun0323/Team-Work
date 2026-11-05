@@ -57,6 +57,15 @@ type manager struct {
 	origin func() model.TaskOrigin
 	// pause opens what the user answers, on the task's step or in the chat.
 	pause func(model.PendingChange)
+	// chatID is the chat they are in, where what they create shows; empty on a task.
+	chatID string
+}
+
+// pinMadeBy shows in the chat what the tool created, when they are in one. Call it holding the lock.
+func (e *Engine) pinMadeBy(m manager, tool, kind, id string) {
+	if m.chatID != "" {
+		e.pinMade(m.chatID, tool, kind, id)
+	}
 }
 
 func (e *Engine) managerOfSub(in subRun) manager {
@@ -82,7 +91,7 @@ func (e *Engine) managerOfSub(in subRun) manager {
 }
 
 func (e *Engine) managerOfChat(in chatRun) manager {
-	m := manager{runID: in.id, r: in.r}
+	m := manager{runID: in.id, r: in.r, chatID: in.id}
 	e.mu.Lock()
 	if c := e.w.Chats[in.id]; c != nil {
 		m.teamID = c.TeamID
@@ -718,6 +727,7 @@ func (e *Engine) saveBlueprintTool(m manager) func(context.Context, string, json
 				}
 				b.ID = e.uid("bp")
 				e.w.Blueprints[b.ID] = b
+				e.pinMadeBy(m, toolSaveBlueprint, changeBlueprint, b.ID)
 				made = clone(b)
 				return nil
 			})
@@ -880,6 +890,10 @@ func (e *Engine) saveProviderTool(m manager) func(context.Context, string, json.
 			if err != nil {
 				return toolError("%s", safeText(err))
 			}
+			_ = e.do(func() error {
+				e.pinMadeBy(m, toolSaveProvider, changeProvider, made.ID)
+				return nil
+			})
 			text := fmt.Sprintf("added provider %s, version %s, with models: %s", made.ID, versionOf(made), strings.Join(made.Models, ", "))
 			if made.Auth.Kind == "subscription" {
 				text = fmt.Sprintf("added provider %s; it has no models until the user signs in on the settings page", made.ID)
@@ -1147,6 +1161,7 @@ func (e *Engine) saveWorkflowTool(m manager) func(context.Context, string, json.
 				}
 				wf.ID = e.uid("wf")
 				e.w.Workflows[wf.ID] = wf
+				e.pinMadeBy(m, toolSaveWorkflow, changeWorkflow, wf.ID)
 				made = clone(wf)
 				return nil
 			})

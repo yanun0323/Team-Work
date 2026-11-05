@@ -252,6 +252,14 @@ type ChatMessage struct {
 	SignedOut string `json:"signedOut,omitempty"`
 	// Tasks are the ones made in the chat at this message, by the user or with create_task, oldest first.
 	Tasks []string `json:"tasks,omitempty"`
+	// Made are the blueprints, flows and providers an employee created in the chat with this tool line, oldest first.
+	Made []Made `json:"made,omitempty"`
+}
+
+// Made is something an employee created in a chat: Kind is blueprint, workflow or provider.
+type Made struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
 }
 
 // ChatGuest is someone in a meeting besides the chair. Name and Look keep who it was, for when they have left.

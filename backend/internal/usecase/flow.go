@@ -654,14 +654,37 @@ func (e *Engine) pinToChat(in NewTask, taskID string) {
 	}
 	at := len(c.Messages) - 1
 	if byTool {
-		for i := len(c.Messages) - 1; i >= 0 && c.Messages[i].From != "user"; i-- {
-			m := c.Messages[i]
-			if name, _, _ := strings.Cut(m.Text, " "); m.From == "tool" && strings.HasSuffix(name, toolCreateTask) && len(m.Tasks) == 0 {
-				at = i
-			}
+		if i := toolLineOf(c, toolCreateTask, func(m model.ChatMessage) bool { return len(m.Tasks) == 0 }); i >= 0 {
+			at = i
 		}
 	}
 	c.Messages[at].Tasks = append(c.Messages[at].Tasks, taskID)
+}
+
+// pinMade shows a blueprint, flow or provider an employee created in a chat under the line of the tool that made it,
+// else under the chat's last message. Call it holding the lock.
+func (e *Engine) pinMade(chatID, tool, kind, id string) {
+	c := e.w.Chats[chatID]
+	if c == nil || len(c.Messages) == 0 {
+		return
+	}
+	at := toolLineOf(c, tool, func(m model.ChatMessage) bool { return len(m.Made) == 0 })
+	if at < 0 {
+		at = len(c.Messages) - 1
+	}
+	c.Messages[at].Made = append(c.Messages[at].Made, model.Made{Kind: kind, ID: id})
+}
+
+// toolLineOf is the first line of the tool since the user last spoke that free says has nothing pinned yet, or -1.
+func toolLineOf(c *model.Chat, tool string, free func(model.ChatMessage) bool) int {
+	at := -1
+	for i := len(c.Messages) - 1; i >= 0 && c.Messages[i].From != "user"; i-- {
+		m := c.Messages[i]
+		if name, _, _ := strings.Cut(m.Text, " "); m.From == "tool" && strings.HasSuffix(name, tool) && free(m) {
+			at = i
+		}
+	}
+	return at
 }
 
 // start sets off every step a task's flow starts with; each gets the task as it is.

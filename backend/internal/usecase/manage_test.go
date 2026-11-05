@@ -271,6 +271,13 @@ func TestCreatingABlueprintAndFlowTakesEffectAtOnce(t *testing.T) {
 	if made == nil || len(made.Nodes) != 4 {
 		t.Fatalf("%+v", made)
 	}
+	// each shows under the line of the tool that made it
+	for tool, want := range map[string]model.Made{"save_blueprint ": {Kind: "blueprint", ID: bp.ID}, "save_workflow ": {Kind: "workflow", ID: made.ID}} {
+		pinned := slices.IndexFunc(w.Chats[c.ID].Messages, func(x model.ChatMessage) bool { return slices.Equal(x.Made, []model.Made{want}) })
+		if pinned < 0 || !strings.HasPrefix(w.Chats[c.ID].Messages[pinned].Text, tool) {
+			t.Fatalf("%s: %+v", tool, w.Chats[c.ID].Messages)
+		}
+	}
 	// an old-style start is a step like any other; a new last step that two steps feed cannot send work back
 	for _, n := range made.Nodes {
 		if n.Kind != enum.NodeWork || (n.ID == "z" && (n.SendBack == nil || *n.SendBack)) {

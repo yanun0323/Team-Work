@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -46,6 +47,13 @@ func TestAddingAProviderTakesEffectAtOnce(t *testing.T) {
 	}
 	if got := secretOf(t, r, p.ID); got != "sk-new-9999" {
 		t.Fatalf("key %q", got)
+	}
+	// it shows under the save_provider line
+	pinned := slices.IndexFunc(w.Chats[c.ID].Messages, func(x model.ChatMessage) bool {
+		return slices.Equal(x.Made, []model.Made{{Kind: "provider", ID: p.ID}})
+	})
+	if pinned < 0 || !strings.HasPrefix(w.Chats[c.ID].Messages[pinned].Text, "save_provider ") {
+		t.Fatalf("%+v", w.Chats[c.ID].Messages)
 	}
 
 	inChat(t, r, m, doing("list_providers", map[string]any{}))
