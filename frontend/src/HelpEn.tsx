@@ -1,4 +1,5 @@
-// The help in English, topic by topic. Help.tsx has the same topics in Chinese, and a test keeps the two matched.
+// The help in English, topic by topic. Help.tsx has the same topics in Chinese, and a test keeps the two matched,
+// laid out the same way: what it is for, the pitfall if there is one, then the reference in one <dl>.
 
 import type { ReactNode } from 'react'
 
@@ -13,10 +14,16 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
           <li>In Airport → Model providers, connect at least one provider, so employees have models to use.</li>
           <li>Press ＋ New company, pick a spot on the map, then fill in the project folder, name and target branch.</li>
           <li>On the company's Employees tab, add employees: pick a blueprint and a model. Blueprints and workflows come built in, ready to use.</li>
-          <li>On the Tasks tab, create a task: write what to do, pick a workflow, then choose the task owner and the employees for each step.</li>
-          <li>Employees work through the workflow in turn. Open the task and look at Progress: a step with a red exclamation mark is waiting for you. Open it to reply.</li>
+          <li>For small things, just ask on the Chats tab. For bigger work, create a task on the Tasks tab: pick a workflow, then choose the task owner and the employees for each step.</li>
+          <li>Employees work through the workflow in turn. Open the task and look at Progress: a step with a red exclamation mark is waiting for you. Open it to reply. When the work is done, press Merge to bring the changes back to your project.</li>
         </ol>
-        <p>When something is missing, a stamp on the company's tabs says what to do first. Drag the map to move the view. Press Esc or click the map to put away what is open. To change the language, press the globe at the top right.</p>
+        <p className="fx-help-pit">In a chat, the employee changes your project folder directly. A task works in a separate copy instead: it cannot see changes you have not committed, and its work reaches your project only when merged.</p>
+        <dl>
+          <dt>Something missing</dt><dd>A red stamp above a company's tabs says what to do first; see Company.</dd>
+          <dt>Put away</dt><dd>Press Esc or click an empty part of the map to put away an open company, the airport or the help.</dd>
+          <dt>Language</dt><dd>Press the globe at the top right.</dd>
+          <dt>Tutorial</dt><dd>The list beside the clock shows things to try next; click one to be taken where to do it.</dd>
+        </dl>
       </>
     ),
   },
@@ -25,13 +32,13 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: 'Editing the map: a dashed plot follows the cursor for the selected company',
     body: (
       <>
-        <p>Each building on the island is a company, and you decide where it goes. While you pick a spot, the note at the top middle says what to pick, and the translucent green area beside the dashed frame is the land that would grow.</p>
+        <p>Each building on the island is a company, and you decide where it goes. Use ＋ New company to build one, and Edit map to move one elsewhere.</p>
         <dl>
           <dt>Move the view</dt><dd>Drag the map, or use WASD or the arrow keys (hold Shift to go faster). Scroll to zoom: in toward the cursor, out from the middle of the screen.</dd>
-          <dt>＋ New company</dt><dd>A dashed frame follows the cursor and can go on land or sea. It turns red when it is too crowded or too far from shore. On the sea, land grows to join it to the island. Once placed, you see a preview of the building. Its look is random, and the die picks another.</dd>
-          <dt>Top right buttons</dt><dd>In order: ＋ New company, Edit map, language (globe), help (question mark) and airport (plane). While you pick a spot, only Cancel or Done stays.</dd>
+          <dt>Pick a spot</dt><dd>A dashed frame follows the cursor and can go on land or sea. The whole plot must fit within the current land expanded by 32 cells, without overlapping other companies or the airport; the frame turns red when it cannot, and clicking there shows why in the tip. A white grid over a light tint marks where plots can go, and the translucent green area is the land that would grow.</dd>
+          <dt>Look</dt><dd>Once placed, you see a preview of the building. Its look is random, and the die picks another.</dd>
+          <dt>Move a company</dt><dd>Press Edit map, click a company to select it, then click a new spot to move it; click the same company again to deselect it. Press Done or Esc to finish. The airport cannot move.</dd>
           <dt>After disbanding or moving</dt><dd>Land grown only for that company turns back into sea. Land other companies or the airport still use stays.</dd>
-          <dt>Edit map</dt><dd>New company and Edit map modes show a faint white grid only where a company plot can fit; leaving either mode hides it. The entire plot must fit within the current land expanded by 32 cells, without overlapping other companies or the airport. Click a company to select it, then click a new spot to move it. The translucent green area is the land that would grow. Putting it back changes nothing, and clicking the same company again deselects it. The airport cannot move. Press Done or Esc to finish.</dd>
         </dl>
       </>
     ),
@@ -41,21 +48,13 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: 'The airport open: the airport on the map and its file on the right',
     body: (
       <>
-        <p>The airport is the island's control center and holds what all companies share. Click the airport or its name tag on the map to open it, and the view zooms in on the terminal. The plane button at the top right opens it without moving the view. Click elsewhere on the map or press Esc to put it away. You can choose which tab opens first with Default airport page in Settings.</p>
-        <p>The airport stays where it is, and no company can be built on it. Planes land, taxi to a stand and take off again, and now and then others pass high overhead.</p>
-        <p>While the airport is open, its roof comes off to show the terminal inside: escalators, check-in, security, a duty-free shop, a café and the gates, plus the controllers in the tower. Passengers come up from underground on one escalator, check in, pass security and board at a gate; arriving passengers pass customs and leave down the other. Put it away and the roof returns.</p>
+        <p>The airport holds what all companies share: model providers, blueprints, workflows, sources, usage and settings, and you can chat with the airport staff there. Click the airport or its name tag on the map to open it, and the view zooms in; the plane button at the top right opens it without moving the view.</p>
+        <p className="fx-help-pit">The airport staff can manage tasks, blueprints and providers across companies, and their commands can reach the whole computer, not just one project.</p>
         <dl>
-          <dt>Chats</dt><dd>Talk with the airport staff, with no employee to pick and no company involved. They work by the built-in Airport Staff blueprint, which gives their role, tools and skills; type $ to pick one of their skills, or # to pick a file or folder from your home folder one level at a time, as in an employee chat. You can change the model and thinking level in the chat, except during a reply. They can read and write files, search the web, run commands, and view and manage tasks, blueprints, workflows and model providers across companies. Their working folder is airport in the data directory, but commands can reach the whole computer. Replies you have not seen and chats waiting for your answer show on the blue mark on the airport's name tag.</dd>
-          <dt>Model providers</dt><dd>Where employees' models come from.</dd>
-          <dt>Blueprints</dt><dd>Templates for making employees.</dd>
-          <dt>Workflows</dt><dd>The steps a task goes through.</dd>
-          <dt>Usage</dt><dd>Model usage over the last 30 days or all time: tokens, cost, cache hit rate and a bar for each day, then each provider and model. Bars are split by model; point at one and the list below shows that bar's numbers for the moment. Tokens leave out what was read back from the cache. Cost counts only models with a price; subscriptions and models without one show a dash. Only usage since recording began is counted.</dd>
-          <dt>Settings</dt><dd>Preferences and settings files for the whole app.</dd>
-          <dt>Settings → Controls</dt><dd>Set how fast the wheel zooms, and what the camera does when you open a company or the airport (Auto view).</dd>
-          <dt>Settings → Music</dt><dd>Mute in background is on by default: music and effects stop when you switch to another app or page, and carry on when you return. Turn it off to keep them playing. Choose Bossa nova (default), Retro game, Soft piano or Ambient. Tracks cross-fade when changed, and your selection is saved. Music defaults to 50% and effects to 100%. Separate music and effects volumes; 0 mutes either channel, or tick Mute beside its slider to silence it and keep the level. Toggle or preview aircraft sounds (takeoff, landing and flyover together), interface clicks, notifications, tutorial cues and opening buildings separately. Ocean waves, while on, keeps the sea round the island playing under the music, at the effects volume. Opening a company plays a soft whoosh; opening the airport plays Do Mi So Do rising, like the start of an announcement. Notifications play two quick bubbles, low then high, when a task newly waits for your review or merge, or when a chat turns unread as its reply ends; a chat you have open stays quiet, and existing notifications are not replayed. Audio starts after your first click or key press. Preferences are shared and saved.</dd>
-          <dt>About</dt><dd>Links, the license, the version number and Report an issue.</dd>
-          <dt>Check for updates</dt><dd>The current version shows under the time in the top left of the main screen. The Mac app checks on its own at launch and then daily; when a new version is out, a red ! button appears right of the time. Press it to update, and downloading and installing go on in the window that opens. To check right away, press the version number; a grey ring turns right of the time while it checks. Check for Updates… in the menu checks too. The web version has none of these buttons.</dd>
-          <dt>Quit</dt><dd>In the Mac app, the power button beside the Airport title asks once, then quits the app; Quit Team Work in the menu (⌘Q) asks too. Open terminals end with the app. The web version has no such button.</dd>
+          <dt>Chats</dt><dd>Talk with the airport staff, with no employee to pick and no company involved. They work by the built-in Airport Staff blueprint. Type # to pick a file or folder from your home folder one level at a time; everything else works as in a company chat. You can change the model and thinking level in the chat, except during a reply. Their working folder is airport in the data directory. Replies you have not seen and chats waiting for your answer show on the blue mark on the airport's name tag.</dd>
+          <dt>Usage</dt><dd>Model usage over the last 30 days or all time: tokens, cost, cache hit rate and a bar for each day, then each provider and model. Point at a bar and the list below shows that bar's numbers for the moment. Share is each row's part of the list's total tokens, or of that bar's while you point at one. Tokens leave out what was read back from the cache. Cost counts only models with a price; subscriptions and models without one show a dash. Only usage since recording began is counted.</dd>
+          <dt>Its place</dt><dd>The airport stays where it is, and no company can be built on it.</dd>
+          <dt>Which tab opens</dt><dd>Set by Default airport page and Auto-switch default page in Settings.</dd>
         </dl>
       </>
     ),
@@ -65,18 +64,19 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: 'A company open: the cut-away office on the left and the Tasks tab of its file on the right',
     body: (
       <>
-        <p>A company has one project folder and one target branch. The folder button after the project location opens it in Finder. Click the building, its plot or its name tag to open a company, and click elsewhere on the map or press Esc to put it away. While one is open, other companies keep their name tags; click one to go straight to that company. On the right is the company file. On the left you can see employees in the office: those with work sit at their desks, and the rest walk around, chat with colleagues, sit on the sofa, have coffee or daydream. Every office has a coffee machine and a sofa.</p>
-        <p>The building grows with the company: more finished tasks and employees mean more floors and a bigger footprint (up to 10×10 cells and 10 floors).</p>
-        <p>The company file has Chats, Tasks, Employees, Terminal, Files and Settings tabs. You can choose which one opens first with Default company page in Airport → Settings.</p>
-        <p>The sticky note pinned to the upper right holds the company's notes: open it to read them as Markdown, and click them to edit; they save as you type. They are stored in <code>.team-work/NOTES.md</code> in the project folder, are not committed automatically, and are not given to employees.</p>
-        <p>When something is not ready, a red stamp above the tabs says what is missing, and the matching add button is disabled:</p>
+        <p>A company has one project folder and one target branch. Click the building, its plot or its name tag to open it: on the right is the company file, with Chats, Tasks, Employees, Files, Terminal and Settings tabs; on the left is the office, where those with work sit at their desks.</p>
+        <p className="fx-help-pit">When something is missing, a red stamp shows above the tabs and the matching add button is disabled; do what the stamp says and it comes back.</p>
         <dl>
-          <dt>Model provider</dt><dd>None, or unavailable: add one, sign in or refresh its models at the airport. Affects chats, tasks and employees.</dd>
-          <dt>Employees</dt><dd>The company has none: add one first. Affects chats and tasks. If one employee's model stops working you only get a warning, and the others carry on.</dd>
-          <dt>Project folder</dt><dd>Not found: put it back. Affects chats, tasks and the terminal.</dd>
-          <dt>Git</dt><dd>While this Mac has no git, the whole app stops and greys out under a note. Press Install and install the developer tools in the window Apple opens; the app comes back once they are in.</dd>
-          <dt>Git repo</dt><dd>The folder is not a git repo: run <code>git init</code> in the terminal. Affects tasks.</dd>
-          <dt>Target branch</dt><dd>The branch is gone: change it in the company's Settings. Affects tasks.</dd>
+          <dt>Stamp: model provider</dt><dd>None, or unavailable: add one, sign in or refresh its models at the airport. Affects chats, tasks and employees.</dd>
+          <dt>Stamp: employees</dt><dd>The company has none: add one first. Affects chats and tasks. If one employee's model stops working you only get a warning, and the others carry on.</dd>
+          <dt>Stamp: project folder</dt><dd>Not found: put it back. Affects chats, tasks and the terminal.</dd>
+          <dt>Stamp: git repo</dt><dd>The folder is not a git repo: run <code>git init</code> in the terminal. Affects tasks.</dd>
+          <dt>Stamp: target branch</dt><dd>The branch is gone: change it in the company's Settings. Affects tasks.</dd>
+          <dt>No git</dt><dd>While this Mac has no git, the whole app stops and greys out under a note. Press Install and install the developer tools in the window Apple opens; the app comes back once they are in.</dd>
+          <dt>Company notes</dt><dd>The sticky note pinned to the upper right. Open it to read the notes as Markdown, and click them to edit; they save as you type. They are stored in <code>.team-work/NOTES.md</code> in the project folder, are not committed automatically, and are not given to employees.</dd>
+          <dt>Change company</dt><dd>While one is open, other companies keep their name tags; click one to go straight there.</dd>
+          <dt>Which tab opens</dt><dd>Set by Default company page and Auto-switch default page in Airport → Settings.</dd>
+          <dt>Building</dt><dd>More finished tasks and employees mean more floors and a bigger footprint (up to 10×10 cells and 10 floors).</dd>
         </dl>
       </>
     ),
@@ -86,12 +86,15 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: "A model provider's details: connection, models and the employees using it",
     body: (
       <>
-        <p>Model providers supply the models employees can use. Manage them in Airport → Model providers. The types are Anthropic, OpenAI, Google Gemini and OpenAI compatible (such as DeepSeek or a local Ollama).</p>
+        <p>Model providers supply the models employees can use, and you need at least one before adding employees. The types are Anthropic, OpenAI, Google Gemini and OpenAI compatible (such as DeepSeek or a local Ollama), signed in with an API key or a subscription. Providers list their models, so you do not type them.</p>
+        <p className="fx-help-pit">If a subscription signs out elsewhere or expires, the provider goes back to signed out and replies fail: press Sign in again under the message, then Reply again once signed in.</p>
         <dl>
-          <dt>API key</dt><dd>Enter an API key. The screen shows only the last four characters. The full key is kept in this computer's database, not in the settings files. OpenAI compatible also needs an API address.</dd>
-          <dt>Subscription sign-in</dt><dd>Anthropic and OpenAI can sign in with a Claude or ChatGPT subscription instead of an API key. A Claude subscription works through Claude Code: if this computer does not have it, you are asked to agree to the install, then sign in in the browser. If you sign out elsewhere or the sign-in expires, the provider goes back to signed out: sign in again from the provider at the Airport, where you can also sign out. When a chat reply fails for this, press Sign in again under it, then Reply again once signed in. On the web, start the backend first (<code>make dev</code>).</dd>
+          <dt>API key</dt><dd>The screen shows only the last four characters. The full key is kept in this computer's database, not in the settings files. OpenAI compatible also needs an API address.</dd>
+          <dt>Subscription sign-in</dt><dd>Anthropic and OpenAI can use a Claude or ChatGPT subscription instead of an API key. A Claude subscription works through Claude Code: if this computer does not have it, you are asked to agree to the install, then sign in in the browser. On the web, start the backend first (<code>make dev</code>).</dd>
+          <dt>What is left</dt><dd>Under the clock at the top left of the main screen, each provider shows what is left. A subscription has two rings, 5 hours and weekly: the number is the percentage left, with the time until it resets below. Over half left is green, 20% to 50% yellow, and under 20% red. An API key shows its balance when it can be read, and is left out when it cannot.</dd>
+          <dt>Images</dt><dd>Models that cannot read images may report an error when they receive one.</dd>
+          <dt>Delete</dt><dd>A provider cannot be deleted while employees use its models.</dd>
         </dl>
-        <p>Providers supply the models, so you do not type them. A provider cannot be deleted while employees use its models. Models that cannot read images may report an error when they receive one.</p>
       </>
     ),
   },
@@ -100,17 +103,19 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: "A blueprint's details: source, prompt, skills and tools",
     body: (
       <>
-        <p>A blueprint is a template for employees: a name, a prompt, skills and allowed tools. It has no model, because each employee picks their own. All companies share blueprints. Manage them in Airport → Blueprints, where the list is split into Mine and Built-in. The 18 built-in ones are Generalist, Frontend Engineer, Backend Engineer, Code Reviewer, QA Engineer, Designer, Product Owner, Project Manager, Software Architect, Researcher, Technical Writer, Security Engineer, DevOps Engineer, Data Analyst, Marketing Copywriter, Matt Pocock, Poteto and Airport Staff. When unsure which to use, pick Generalist, which also takes programming work not split into frontend and backend. Matt Pocock and Poteto work by the skills their namesakes publish on GitHub. Airport Staff work only in airport chats and cannot be hired.</p>
-        <p>Built-in blueprints are ready to use but cannot be changed or deleted. To change one, press Copy at the top right: it brings in the text in the language shown, for you to edit and save as your own. Built-in blueprints show in the app's language, but employees always receive the English version plus a rule about which language to reply in. Your own blueprints are given as you wrote them.</p>
+        <p>A blueprint is a template for employees: a prompt, skills and allowed tools. It has no model, because each employee picks their own. All companies share blueprints. When unsure which to use, pick the built-in Generalist; to change a built-in one, press Copy at the top right and edit your own copy.</p>
+        <p className="fx-help-pit">Run commands has no sandbox, so employees can reach the whole computer. Allow it only for blueprints you trust.</p>
         <dl>
-          <dt>Add</dt><dd>Fill in the name, prompt, comment, skills and tools. Blueprints imported from GitHub earlier can still change their name, repo and version.</dd>
-          <dt>Skills</dt><dd>Every source in Airport → Sources is listed with its skills; click a skill to light it up and use it. Ticking a source's name uses all its skills, including ones added later, and a skill you dim is left out. With the name unticked, only the lit skills are used, and ones added later are not. If skills in use from two sources share a name, they turn red; dim one of them. Whatever the blueprint, employees also read the skills in <code>.agents/</code>, <code>.team-work/</code>, <code>.codex/</code> and <code>.claude/</code> in the company's folder, and these win over a blueprint skill with the same name.</dd>
-          <dt>Tools</dt><dd>There are only four: read files, write files, web search and run commands. Reading files also lets employees see PNG, JPEG, GIF and WebP images (up to 3.75MB each). Running commands has no sandbox, so allow it only for blueprints you trust.</dd>
+          <dt>Built-in blueprints</dt><dd>Generalist, Frontend Engineer, Backend Engineer, Code Reviewer, QA Engineer, Designer, Product Owner, Project Manager, Software Architect, Researcher, Technical Writer, Security Engineer, DevOps Engineer, Data Analyst, Marketing Copywriter, Matt Pocock, Poteto and Airport Staff: 18 in all, which cannot be changed or deleted. Matt Pocock and Poteto work by the skills their namesakes publish on GitHub. Airport Staff work only in airport chats and cannot be hired. Built-in blueprints show in the app's language, but employees always receive the English version plus a rule about which language to reply in. Your own blueprints are given as you wrote them.</dd>
+          <dt>Skills</dt><dd>Every source in Airport → Sources is listed with its skills; click a skill to light it up and use it. Ticking a source's name uses all its skills, including ones added later, and a skill you dim is left out. With the name unticked, only the lit skills are used. If skills in use from two sources share a name, they turn red; dim one of them.</dd>
+          <dt>Company folder skills</dt><dd>Whatever the blueprint, employees also read the skills in <code>.agents/</code>, <code>.team-work/</code>, <code>.codex/</code> and <code>.claude/</code> in the company's folder, and these win over a blueprint skill with the same name.</dd>
+          <dt>Tools</dt><dd>Read files, write files, web search and run commands. Reading files also lets employees see PNG, JPEG, GIF and WebP images (up to 3.75MB each).</dd>
           <dt>Managing</dt><dd>Tools also decide whether an employee can manage tasks, blueprints, workflows and model providers. Read files lets them view these, write files or run commands also lets them add and change them, and web search alone allows neither. All built-in blueprints can read and write.</dd>
-          <dt>Added or changed by employees</dt><dd>A blueprint an employee adds can be used at once. Changing one is written only if you agree, even when employees change their own. Built-in blueprints and those from Git cannot be changed. Once you agree, steps under way stay as they are, and later steps use the new blueprint.</dd>
+          <dt>Added or changed by employees</dt><dd>A blueprint an employee adds can be used at once. A change is written only if you agree, even when employees change their own. Once you agree, steps under way stay as they are, and later steps use the new blueprint. Built-in blueprints and those from Git cannot be changed.</dd>
           <dt>Known limit</dt><dd>An employee who can run commands could still edit the settings files directly and reload them, without asking you.</dd>
+          <dt>Older GitHub blueprints</dt><dd>Blueprints imported from GitHub earlier can still change their name, repo and version.</dd>
+          <dt>Delete</dt><dd>A blueprint cannot be deleted while employees use it.</dd>
         </dl>
-        <p>A blueprint cannot be deleted while employees use it.</p>
       </>
     ),
   },
@@ -119,13 +124,16 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: "A source's details: version, what an update changes, and skills",
     body: (
       <>
-        <p>A source is where skills come from: a GitHub repo at a branch, or a folder on this computer. Adding a GitHub source first reads its skills, and it can be added only once some are found. Manage them in Airport → Sources. All blueprints and custom employees share them, and a repo at a branch is downloaded only once. <code>~/.agents/</code>, <code>~/.team-work/</code>, <code>~/.codex/</code> and <code>~/.claude/</code> are listed as local sources by themselves, stamped Local. So are the GitHub repos the built-in Matt Pocock and Poteto blueprints read (<code>mattpocock/skills</code> and <code>cursor/plugins</code>), which are checked and updated like the ones you add.</p>
+        <p>A source is where skills come from: a GitHub repo at a branch, or a folder on this computer. All blueprints and custom employees share them, and a blueprint picks the skills it uses from them.</p>
+        <p className="fx-help-pit">A newer version of a source is not used by default: open it and press Apply update, or turn on Apply updates automatically.</p>
         <dl>
-          <dt>Check for updates</dt><dd>Sources are checked every 6 hours by themselves. When a newer version is out, a red ! shows before the source in the list, and opening it lists the skills added and removed and the blueprints and employees affected. It is used only once you press Apply update.</dd>
-          <dt>Apply updates automatically</dt><dd>Off by default. When on, the source is stamped Auto-update in the list, a newer version is used as soon as it is found, and a red dot shows before the source in the list until you open it.</dd>
+          <dt>Add</dt><dd>Adding a GitHub source first reads its skills, and it can be added only once some are found. A repo at a branch is downloaded only once.</dd>
+          <dt>Listed by themselves</dt><dd><code>~/.agents/</code>, <code>~/.team-work/</code>, <code>~/.codex/</code> and <code>~/.claude/</code> are listed as local sources, stamped Local. So are <code>mattpocock/skills</code> and <code>cursor/plugins</code>, which the built-in Matt Pocock and Poteto blueprints read, checked for updates like the ones you add.</dd>
+          <dt>Check for updates</dt><dd>Sources are checked every 6 hours. When a newer version is out, a red ! shows before the source in the list, and opening it lists the skills added and removed and the blueprints and employees affected.</dd>
+          <dt>Apply updates automatically</dt><dd>Off by default. When on, the source is stamped Auto-update, a newer version is used as soon as it is found, and a red dot shows before the source until you open it.</dd>
           <dt>Versions</dt><dd>Everyone using a source uses the same version. Work under way keeps the version it started with, and offline, the versions already downloaded still work.</dd>
+          <dt>Delete</dt><dd>A source cannot be deleted while blueprints or employees use it.</dd>
         </dl>
-        <p>A source cannot be deleted while blueprints or employees use it.</p>
       </>
     ),
   },
@@ -134,17 +142,21 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: 'Editing a workflow: a row of step notes with a small dot on each arrow, and Add step below',
     body: (
       <>
-        <p>A workflow is the steps for doing the work, drawn left to right as notes and arrows. Every step with no arrow coming in is a start: they all begin when the task starts, each with the task description. Every step with no arrow going out is an end.</p>
-        <p>Each step either has an employee do the work (white, with a prompt) or discusses with an employee (green). A work step has one employee; a discussion step has one, or several who hold it as a meeting. Each step sets its start condition and handoff. A step can branch to several next steps or wait for several previous ones. A dashed arrow means "pick one next step" or "start when any previous step is done".</p>
+        <p>A workflow is the steps a task goes through, drawn left to right as notes and arrows: white steps are work for an employee, green ones are discussions with you. It names no employees; each task decides who does each step. All companies share workflows, and the built-in General task, Bug fix, Feature development and Code review are ready to use.</p>
+        <p className="fx-help-pit">Changing a workflow affects only tasks started later; tasks already under way keep the old one.</p>
         <dl>
-          <dt>Edit a step</dt><dd>Click a note to open the step on a sheet above: its name, kind, prompt, start condition, handoff and next steps. Changes show on the drawing at once. Press Done to close it; the workflow is kept only when you press Save. ＋ Add step opens the new step right away.</dd>
-          <dt>Connect steps</dt><dd>While editing, drag a note onto another to connect them. Drag it to an empty part of the drawing to grow a new next step.</dd>
+          <dt>Starts and ends</dt><dd>Every step with no arrow coming in is a start: they all begin when the task starts, each with the task description. Every step with no arrow going out is an end.</dd>
+          <dt>Branching and waiting</dt><dd>A step can branch to several next steps or wait for several previous ones. A dashed arrow means "pick one next step" or "start when any previous step is done".</dd>
+          <dt>Discussion steps</dt><dd>They have one employee, or several who hold a meeting, the first chairing.</dd>
+          <dt>Edit a step</dt><dd>Click a note to open the step on a sheet above and change its name, kind, prompt, start condition, handoff and next steps. Press Done to close it; the workflow is kept only when you press Save.</dd>
+          <dt>Connect steps</dt><dd>While editing, drag a note onto another to connect them, or to an empty part of the drawing to grow a new next step.</dd>
           <dt>Change arrows</dt><dd>Move the cursor to the small dot in the middle of an arrow: ＋ inserts a step there and × removes the arrow.</dd>
-          <dt>Can send back</dt><dd>When it is on, a step that finds the step before it needs redoing can send the work back, at most twice per task. It is on for a new last step and off for the others. It can be on only when the step has one step before it, which hands on to this step alone. Starts and discussions do not have it.</dd>
-          <dt>When you cannot save</dt><dd>You cannot save with an unnamed step. A workflow cannot loop back to an earlier step.</dd>
+          <dt>Can send back</dt><dd>When it is on, a step that finds the step before it needs redoing can send the work back, at most twice per task. It is on for a new last step. It can be on only when the step has one step before it, which hands on to this step alone. Starts and discussions do not have it.</dd>
+          <dt>When you cannot save</dt><dd>A step has no name, or an arrow loops back to an earlier step.</dd>
+          <dt>Built-in workflows</dt><dd>They cannot be changed or deleted; a copy becomes your own in the language shown.</dd>
+          <dt>On a new task</dt><dd>A new task starts with the workflow this company last chose, or the first one.</dd>
+          <dt>Added or changed by employees</dt><dd>A workflow an employee with permission adds can be used at once, and a change is written only if you agree. Invalid content such as a loop, a built-in workflow, or one you edited after the employee read it are all refused.</dd>
         </dl>
-        <p>A workflow names no employees: each task decides who does the work. All companies share workflows. Manage them in Airport → Workflows, where the list is split into Mine and Built-in. You can add, edit, copy and delete your own. The built-in General task, Bug fix, Feature development and Code review cannot be changed or deleted, and a copy becomes your own in the language shown. Changing a workflow affects only tasks started later. A new task starts with the workflow this company last chose, or the first one.</p>
-        <p>Employees with permission can add and change workflows too. A new one can be used at once, and a change is written only if you agree. Invalid content, such as a loop, is refused. Built-in workflows cannot be changed, and an employee's change is refused if you edited the workflow after they read it.</p>
       </>
     ),
   },
@@ -154,25 +166,25 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: "The airport's Settings tab: general, features, game objects and settings files",
     body: (
       <>
-        <p>Changes here apply at once. Language is kept by the backend, and the other options only on this computer.</p>
+        <p>Preferences for the whole app, applied at once. Language is kept by the backend, and the other options only on this computer.</p>
+        <p className="fx-help-pit">After editing the settings files in <code>~/.team-work</code> outside the app, press Reload settings for them to apply.</p>
         <dl>
-          <dt>Language</dt><dd>Also on the globe button at the top right of the main screen. The language of the interface and of built-in blueprints and workflows, and the one employees reply in. The interface switches at once. Employees switch from their next reply, and old messages stay as they are.</dd>
-          <dt>Default airport page</dt><dd>Which tab the airport opens on. Model providers by default.</dd>
-          <dt>Default company page</dt><dd>Which tab a company opens on. Tasks by default.</dd>
-          <dt>Auto-switch default page</dt><dd>Set to On: unread chats first by default. When you open a company or the airport, a task waiting for your reply opens Tasks, and a chat that is unread or waiting for your answer opens Chats. If both are waiting, the option decides which comes first. With nothing waiting, the default tab opens. The airport only looks at chats. Off always opens the default tab.</dd>
+          <dt>Language</dt><dd>The language of the interface and of built-in blueprints and workflows, and the one employees reply in. Employees switch from their next reply, and old messages stay as they are.</dd>
+          <dt>Default pages</dt><dd>Which tab the airport and a company open on: Model providers and Tasks by default.</dd>
+          <dt>Auto-switch default page</dt><dd>Set to On: unread chats first by default. A task waiting for your reply opens Tasks, and a chat that is unread or waiting for your answer opens Chats; if both are waiting, the option decides. With nothing waiting, the default tab opens. The airport only looks at chats.</dd>
+          <dt>Auto view</dt><dd>What the camera does when you click a company, the airport or a spot for a new company. Pan and zoom (the default) moves there, zooms in and locks the map. Pan only moves there: you can zoom but not pan. Off leaves the camera alone.</dd>
           <dt>Task log order</dt><dd>Newest first or last, for task, sub-task and employee logs.</dd>
-          <dt>Auto view</dt><dd>What the camera does when you click a company, the airport or a spot for a new company. Pan and zoom (the default) moves there and zooms in, and locks the map. Pan only moves there: you can zoom but not pan. Off leaves the camera alone, and you can pan and zoom.</dd>
+          <dt>Music and sounds</dt><dd>Music and effects have separate volumes, each with a mute beside its slider, and each kind of sound can be turned off or previewed on its own. Mute in background is on by default, so sound stops when you switch to another app. Notifications sound when a task waits for your reply or merge, or a chat gets a new reply; a chat you have open stays quiet. Sound starts after your first click or key press.</dd>
           <dt>Keep terminals</dt><dd>Off by default. When on, a terminal keeps running when you leave the company, is there when you return, and ends when the app closes.</dd>
-          <dt>Zoom sensitivity</dt><dd>How fast scrolling zooms the map. 100% by default.</dd>
-          <dt>Terminal startup command</dt><dd>Under Advanced, empty by default. When filled in, each new terminal runs this command as it starts.</dd>
-          <dt>Game objects</dt><dd>Turn off details, shadows, people on the map, plane animation or clouds to make the screen run more smoothly. Time of day sets day and night on the island: real time, Minecraft (a whole day in 20 minutes), always day or always night; at night the windows of people at work light up. Building at work picks what shows off both sides of a company's building while it works: a money toss or bold strokes.</dd>
-          <dt>Use Codex skills / Use Claude skills</dt><dd>Under System, both on by default. They control whether employees from the built-in blueprints read skills from <code>~/.codex/</code> and <code>~/.claude/</code>. Turn one off and the built-in blueprints no longer list or use that folder's skills. The same options also cover <code>.codex/</code> and <code>.claude/</code> in a company's folder, for every blueprint, your own included.</dd>
-          <dt>Global employee rules</dt><dd>Edit it under System. Every employee in every company receives it. It is stored in <code>~/.team-work/AGENTS.md</code>, and edits made outside the app apply from the next run or reply.</dd>
-          <dt>Auto-name chats</dt><dd>Under System, off by default. When on, pick a model and thinking level: the text of each new company or airport chat's first message is sent to that model once to name the chat, and its usage counts toward that chat's tokens. When it is off, fails or has not finished, the list shows the first message. Edit the name at the top of a chat directly; clearing it shows the first message again. A name you give is never replaced by automatic naming.</dd>
-          <dt>Image generation</dt><dd>Under System, pick a ChatGPT subscription and every employee gets the <code>image_gen</code> tool to make or edit pictures, saved as PNG files in the working folder, or as looping GIFs of 2–16 frames when asked for an animation. Chats show them as thumbnails, and pictures in a sub-task's handoff open as pictures. You can also tick Default image generation provider when adding or editing a ChatGPT subscription. Pick None to turn it off.</dd>
-          <dt>Skip tutorial, Restart tutorial</dt><dd>The tutorial is the list beside the clock on the main screen: things to try next. It shows 5 at a time; clicking one takes you where to do it. A step you finish is ticked and goes, and a new step shows once the steps before it are done. Ticks and the Tutorial cues sound wait until you are back on the main screen. On the first run, steps you have already done count as done. Skip tutorial hides the list; Restart tutorial starts over, though steps the app can see you have done still count as done. Progress is kept in tutorial.yaml.</dd>
-          <dt>Settings files</dt><dd>Interface preferences (preferences.yaml), tutorial progress (tutorial.yaml), companies, employees, your own blueprints and workflows, and providers are stored as files under <code>~/.team-work</code>. Built-in ones are not there. After editing them yourself, press Reload settings. They apply only if the whole batch passes its checks; otherwise the current settings stay. Open settings folder shows this location in Finder.</dd>
-          <dt>Reset to defaults</dt><dd>At the bottom of the Settings page; press it twice to apply. Every setting on the page returns to its default, including the language and the terminal startup command. The global employee rules are kept.</dd>
+          <dt>Terminal startup command</dt><dd>Under Advanced. When filled in, each new terminal runs it as it starts.</dd>
+          <dt>Game objects</dt><dd>Turn off details, shadows, people on the map, plane animation or clouds to make the screen run more smoothly. Time of day sets day and night: real time, Minecraft (a whole day in 20 minutes), always day or always night. Building at work picks what shows off both sides of a company's building while it works.</dd>
+          <dt>Auto-name chats</dt><dd>Under System, off by default. When on, pick a model and thinking level: each new chat's first message is sent to that model to name it, and its usage counts toward that chat's tokens. Until it is named, the list shows the first message. Edit the name at the top of a chat directly; clearing it shows the first message again. A name you give is never replaced.</dd>
+          <dt>Image generation</dt><dd>Under System, pick a ChatGPT subscription and every employee gets the <code>image_gen</code> tool to make or edit pictures, saved as PNG files in the working folder, or as GIFs of 2–16 frames for an animation. You can also tick Default image generation provider when adding or editing a ChatGPT subscription. Pick None to turn it off.</dd>
+          <dt>Use Codex skills / Use Claude skills</dt><dd>Under System, both on by default. Turn one off and the built-in blueprints no longer use the skills in <code>~/.codex/</code> or <code>~/.claude/</code>. The same options cover <code>.codex/</code> and <code>.claude/</code> in a company's folder, for every blueprint.</dd>
+          <dt>Global employee rules</dt><dd>Under System. Every employee in every company receives them. They are stored in <code>~/.team-work/AGENTS.md</code>, and edits made outside the app apply from the next run or reply.</dd>
+          <dt>Tutorial</dt><dd>The list beside the clock on the main screen shows 5 things at a time; finished ones are ticked and go, and ones the app can see you have done count as done. Skip tutorial hides the list, and Restart tutorial starts over.</dd>
+          <dt>Settings files</dt><dd>Interface preferences, tutorial progress, companies, employees, your own blueprints and workflows, and providers are stored as files under <code>~/.team-work</code>; built-in ones are not there. A reload applies only if the whole batch passes its checks; otherwise the current settings stay. Open settings folder shows this location in Finder.</dd>
+          <dt>Reset to defaults</dt><dd>At the bottom of the page; press it twice. Every setting on the page returns to its default, including the language and the terminal startup command. The global employee rules are kept.</dd>
         </dl>
       </>
     ),
@@ -180,31 +192,43 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
   about: {
     label: 'About',
     alt: "The airport's About tab: links, license and version number",
-    body: <p>The About tab has links, the license and the current version number. Report an issue, below the version, opens a new GitHub issue with the version already filled in; paste images straight into the issue.</p>,
+    body: (
+      <>
+        <p>The About tab has links, the license, the version number and Report an issue. This topic also covers updating and quitting the app.</p>
+        <dl>
+          <dt>Report an issue</dt><dd>Opens a new GitHub issue with the version already filled in; paste images straight into the issue.</dd>
+          <dt>Check for updates</dt><dd>The version shows under the time at the top left of the main screen. The Mac app checks at launch and then every hour; when a new version is out, a red ! appears right of the time. Press it to update, and downloading and installing go on in the window that opens. To check right away, press the version number, or use Check for Updates… in the menu. The web version has none of these buttons.</dd>
+          <dt>Quit</dt><dd>In the Mac app, the power button beside the Airport title and Quit Team Work in the menu (⌘Q) both ask once first. Open terminals end with the app.</dd>
+        </dl>
+      </>
+    ),
   },
   chat: {
     label: 'Chats',
     alt: 'A chat with an employee: a pencil under your message for editing, then the message box and attach button',
     body: (
       <>
-        <p>Without starting a task, you can discuss things with an employee or have them do simple work. A chat does not take up the employee's task slot. They work directly in the project folder, changes apply at once, and you are warned when the folder has uncommitted changes.</p>
+        <p>Talk with an employee or have them do small work without starting a task: good for questions, small changes, or settling things before a task. You can also bring several employees together in a meeting.</p>
+        <p className="fx-help-pit">In a chat, the employee works right in the project folder: changes apply at once, on no branch of their own, and you are warned when the folder has uncommitted changes. Editing or deleting messages does not undo files the employee changed.</p>
         <dl>
-          <dt>Start</dt><dd>Press ＋ New chat and pick an employee. The default is the employee from this company's last new chat. The model comes with the employee. The chat exists once you send the first message, and after that the employee and model cannot change.</dd>
-          <dt>Meetings</dt><dd>Turn on Meeting next to the employee in a new chat to pick two or more; the first one you pick chairs it. Once a chat is under way, mention someone with @ to bring them in. A meeting holds up to 6, and those who join see the chat so far. Type @ in the chat to mention employees: those mentioned reply in turn, and anyone not there yet is asked in. @All has everyone reply, the chair last. With nobody mentioned, only the chair replies. The To line above the message box shows, as you type, who will reply. Each one sees what the others said before them, and each reply is headed by its writer's face, name and model; press the face to see their details. Only one employee per round may create tasks, change blueprints or workflows, or ask you something: the one mentioned alone, or else the chair. The largest name at the top is the chair's; press Change chair at the top right to hand it to someone else; when the chair leaves the company, the next one takes over.</dd>
-          <dt>Replies</dt><dd>Replies appear word by word, and you can pause while they are being written. Enter sends, Shift+Enter starts a new line, and Tab and Shift+Tab indent and outdent.</dd>
-          <dt>Queue and Steer</dt><dd>You can send a message while the employee replies. It waits above the message box, marked Queue, and goes when the reply ends, in order. Press Steer to send it as soon as the employee's next tool call ends instead, ahead of the queue. The pencil takes a message back to the box to change it. After a pause or a failed reply, queued messages stay unsent until you press Steer, which sends right away. While the box has text, the pause button becomes the send button.</dd>
-          <dt>Skills and files</dt><dd>Type $ to pick from the skills of everyone in the chat, or # to pick a file or folder in the project. Arrow keys move, Tab, Enter or a click picks, and Esc closes the list. A $skill-name in a message hands that skill's instructions to the employee along with it; in a meeting, everyone replying that round gets the same copy, whoever's skill it is. Once sent, the employees, files, folders and skills a message mentions can be clicked: employees, files and skills open alongside, and folders open in Finder. The Description field of a new or edited task also takes #, and Tab and Shift+Tab indent and outdent there too.</dd>
-          <dt>Questions</dt><dd>When an employee needs you to decide, they stop and ask. Pick one of the options they list, or just type your answer, and they carry on. A chat waiting for you is marked in the list.</dd>
-          <dt>Attachments</dt><dd>Press the paper clip to pick images or files, or paste a screenshot. You can send attachments with no text, with images up to 3.75MB, other files up to 25MB, and 6 per message in total. PNG, JPEG, GIF and WebP show previews; other files show a name you can press to download. Employees receive a text preview for text files; PDF, Office and other formats require available tools and may not be readable.</dd>
-          <dt>Edit a message</dt><dd>Press the pencil under your message: it and everything after it disappear, and its text and attachments return to the box for you to change and resend. Pressing it during a reply also stops the reply. There is no undo, and files the employee changed are not restored.</dd>
-          <dt>Hand off to…</dt><dd>Press the branch icon under a message and pick an employee of the company to copy the chat up to there into a new chat and open it. The original stays as it is. Pick the same employee for a plain copy. Pick someone else and a line reading "A handed off to B" appears; they take over from there and know the earlier replies were not theirs. A chat whose employee has left the company can be handed on the same way. You can hand off from your own messages or the last message of an employee's reply. This also works while an employee is replying: the original chat keeps going, and only the reply being written cannot be handed off from. The new chat waits for you to say something, and both chats work in the same project folder. An airport chat is only copied, to the airport staff. A meeting handed to its chair is copied whole; handed to anyone else, it becomes a one-on-one chat with them.</dd>
-          <dt>Create task</dt><dd>When you have discussed enough, press Create task. The employee writes the chat up as a new task for you to edit and start. Employees with permission can also create or change tasks themselves, which applies at once without asking you. A task created in a chat is pinned under the message it was made at; click it to open the task.</dd>
-          <dt>Agree to a change</dt><dd>When an employee wants to change a blueprint or workflow, they stop, and the changes show above the message box, before and after. Press Agree to write it or Refuse to leave it as it is, and the employee carries on either way. Sending a message instead also counts as refusing.</dd>
-          <dt>List marks</dt><dd>While an employee replies, three bouncing dots show on the list. A reply you have not seen shows a round dot until you open the chat. On the map, a company's name tag shows in blue its chats waiting for you (unread, or waiting for your answer even once read) and its tasks waiting for review in red. When a count goes up, its badge pops in and shakes, then glows softly until it is dealt with. While a company or the airport has chats being replied to or tasks under way, a grey ring spins before its name, with the number of them inside, shown as 9+ past nine.</dd>
-          <dt>Message box</dt><dd>It grows with your text, then scrolls inside once it reaches its limit.</dd>
-          <dt>Long chats</dt><dd>When a chat gets too long, the employee sums up the earlier part and carries on, and a line reading auto_compact appears in the chat. All messages stay on screen and can still be edited and handed off, but the employee reads only the summary from then on. The tokens used for this count toward the chat.</dd>
-          <dt>Pin</dt><dd>Press the pin at the top right of a chat, or point at a chat on the list and press the pin at its end, to keep it at the top of the list, the latest pinned first. Press it again to unpin.</dd>
-          <dt>Delete</dt><dd>Delete a chat at the top right. Changes in the folder stay. When an employee leaves the company, their chats stay readable, but you cannot post in them.</dd>
+          <dt>Start</dt><dd>Press ＋ New chat and pick an employee; the default is the one from this company's last new chat. The model comes with the employee. The chat exists once you send the first message, and after that the employee and model cannot change.</dd>
+          <dt>Meetings</dt><dd>Turn on Meeting in a new chat to pick two or more employees; the first one you pick chairs it. Mention someone not there with @ to ask them in, and they see the chat so far. A meeting holds up to 6. The largest name at the top is the chair's; press Change chair to hand it on. When the chair leaves the company, the next one takes over.</dd>
+          <dt>Who replies</dt><dd>Those mentioned with @ reply in turn; @All has everyone reply, the chair last; with nobody mentioned, only the chair replies. The To line above the message box shows who will reply. Each one sees what the others said before them. Only one employee per round may create tasks, change blueprints or workflows, or ask you something: the one mentioned alone, or else the chair. Discussion steps in tasks follow the same rules.</dd>
+          <dt>Keys</dt><dd>Enter sends, Shift+Enter starts a new line, and Tab and Shift+Tab indent and outdent. You can pause a reply.</dd>
+          <dt>Queue and Steer</dt><dd>A message sent while the employee replies waits above the message box, marked Queue, and goes when the reply ends, in order. Press Steer to send it as soon as the employee's next tool call ends instead. The pencil takes it back to the box. After a pause or a failed reply, queued messages stay unsent until you press Steer.</dd>
+          <dt>Skills and files</dt><dd>Type $ to pick from the skills of everyone in the chat, or # to pick a file or folder in the project. A $skill-name in a message hands that skill's instructions to the employee; in a meeting, everyone replying that round gets them. Once sent, the employees, files, folders and skills a message mentions can be opened. The Description field of a task also takes #.</dd>
+          <dt>Questions</dt><dd>When an employee needs you to decide, they stop and ask. Pick an option or type your answer, and they carry on.</dd>
+          <dt>Agree to a change</dt><dd>When an employee wants to change a blueprint or workflow, they stop and show the changes, before and after. Press Agree to write it or Refuse to leave it as it is, and the employee carries on either way. Sending a message instead counts as refusing.</dd>
+          <dt>Attachments</dt><dd>Press the paper clip to pick images or files, or paste a screenshot. Images up to 3.75MB, other files up to 25MB, and 6 per message in total. Employees receive a text preview for text files; PDF, Office and other formats depend on the employee's tools and may not be readable.</dd>
+          <dt>Copy a message</dt><dd>The copy button under a message copies its text.</dd>
+          <dt>Edit a message</dt><dd>Press the pencil under your message: it and everything after it disappear, and its text and attachments return to the box to change and resend. Pressing it during a reply stops the reply. There is no undo.</dd>
+          <dt>Drafts</dt><dd>Text and attachments not yet sent stay in the box when you close the chat, ready when you come back; they are gone once the app closes.</dd>
+          <dt>Hand off to…</dt><dd>Press the branch icon under a message and pick an employee to copy the chat up to there into a new chat; the original stays as it is. Pick the same employee for a plain copy, or someone else to have them take over, knowing the earlier replies were not theirs. The new chat waits for you to say something. A chat whose employee has left can be handed on the same way. A meeting handed to its chair is copied whole; handed to anyone else, it becomes a one-on-one chat. An airport chat is only copied, to the airport staff.</dd>
+          <dt>Create task</dt><dd>Press Create task and the employee writes the chat up as a new task for you to edit and create. Employees with permission can also create or change tasks themselves, which applies at once. A task created in a chat is pinned under the message it was made at.</dd>
+          <dt>List and name tags</dt><dd>While an employee replies, three dots bounce on the list, and a reply you have not seen shows a round dot. On the map, a company's name tag counts chats waiting for you (unread, or waiting for your answer) in blue and tasks waiting for review in red; the grey ring spinning before its name counts chats being replied to and tasks under way.</dd>
+          <dt>Long chats</dt><dd>When a chat gets too long, the employee sums up the earlier part and carries on, and a line reading auto_compact appears. All messages stay on screen, but the employee reads only the summary from then on. The tokens used for this count toward the chat.</dd>
+          <dt>Pin</dt><dd>Press the pin at the top right of a chat or on its row to keep it at the top of the list; press it again to unpin.</dd>
+          <dt>Delete</dt><dd>Delete a chat at the top right; changes in the folder stay. When an employee leaves the company, their chats stay readable, but you cannot post in them.</dd>
         </dl>
       </>
     ),
@@ -214,20 +238,23 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: "A task's details: the workflow drawing and each step's progress",
     body: (
       <>
-        <p>A task is a piece of work you give the company, following one workflow. Each task has a task owner, who answers for the whole task and merges its branch. Who works each step is picked on the task.</p>
-        <p>Each step of the workflow becomes a sub-task for the employees assigned to it. When done, they write a handoff for the next step. Progress in the details lists each sub-task's state, and opening one shows its log and the files handed off.</p>
-        <p>Each task has its own branch, shown under the title in the details. Every step commits its work to this branch.</p>
-        <p>You can attach images and files to a new task: press ＋ to pick them, or paste a screenshot in the text box. Images can be up to 3.75MB and other files up to 25MB, with 6 in total. Press Apply to all steps, to the right of Task owner, to have the task owner alone do every step, when adding or editing a task. With Flow on Use workflow, the chosen flow and its staff sit in a dashed box. Switch Flow to Custom to write this task's flow right on the form: it starts as one blank step, or import a workflow to start from (None goes back to blank), then edit steps and arrows as you would a workflow, and click a step on the drawing to open its settings and staff on a sheet above; changes apply at once. A custom flow belongs to this task alone and leaves workflows unchanged; press Save as workflow to reuse it.</p>
-        <p>For similar work, press Copy at the top right of a task's details. A new task opens with the title, description, attachments, workflow and staff filled in. Change what you need and press Create task.</p>
+        <p>A task is a piece of work you give the company: employees work through a workflow in turn, then it waits for you to merge. Use a task for bigger work, work split among several people, or work that should not touch the files you have open; for small things, a chat is enough.</p>
+        <p className="fx-help-pit">When a task starts, it works in a separate copy of the project made from the target branch's latest commit. Changes in your project folder that are not committed are not there; commit them first if the task needs them.</p>
         <dl>
-          <dt>Four columns</dt><dd>Todo, Progressing, Wait for Review and Complete. A note with a red exclamation mark needs your reply, and a green merge icon is waiting for you to merge.</dd>
+          <dt>Owner and steps</dt><dd>The task owner answers for the whole task and merges its branch. Who works each step is picked on the task. Apply to all steps has the owner alone do every step.</dd>
+          <dt>Sub-tasks and handoffs</dt><dd>Each step becomes a sub-task; when done, its employee writes a handoff for the next step. Progress lists each sub-task's state, and opening one shows its log and the files handed off.</dd>
+          <dt>Branch</dt><dd>Each task has its own branch, shown under the title. Every step commits its work to it.</dd>
+          <dt>Four columns</dt><dd>Todo, Progressing, Wait for Review and Complete. A red exclamation mark needs your reply and a green merge icon waits for you to merge; see Replies and discussions.</dd>
           <dt>Start and pause</dt><dd>A new task waits in To do until you press Start at the top right of its details. The same button then pauses and continues it.</dd>
-          <dt>Tasks from employees</dt><dd>Employees with permission can create tasks without asking you. These also wait in To do until you start them. The details show who created it under the title. Employees can create and change tasks only in their own company, and the airport staff can reach every company. Employees on tasks can create tasks at most 3 levels in a row, and further ones are refused. If a step has nobody, the employee should ask you first.</dd>
-          <dt>Task changes by employees</dt><dd>Employees can change the title, description, owner and each step's employees. It applies at once without asking you, and the old content is overwritten. Work under way is not affected, and later steps see the new content.</dd>
-          <dt>Cost</dt><dd>Sub-tasks record their cost. When a task reaches the company's limit, it stops and asks you.</dd>
-          <dt>Token</dt><dd>Tasks, sub-tasks and chats show the tokens they used, not counting cache reads. Subscriptions are counted too, and the cost limit ignores this number.</dd>
+          <dt>Attachments</dt><dd>Press ＋ to pick them, or paste a screenshot in the text box. Images up to 3.75MB and other files up to 25MB, with 6 in total.</dd>
+          <dt>Custom flow</dt><dd>Switch Flow to Custom to write this task's flow on the form: start from a blank step, or import a workflow and change it, editing as you would a workflow. A custom flow belongs to this task alone; press Save as workflow to reuse it.</dd>
+          <dt>Copy a task</dt><dd>Press Copy at the top right of a task's details to open a new task with the title, description, attachments, workflow and staff filled in.</dd>
+          <dt>Tasks from employees</dt><dd>Employees with permission can create tasks, which also wait in To do until you start them; the details show who created it. Employees can create and change tasks only in their own company, and the airport staff can reach every company. Tasks can be created at most 3 levels in a row.</dd>
+          <dt>Task changes by employees</dt><dd>Employees can change the title, description, owner and each step's employees, applied at once. Work under way is not affected, and later steps see the new content.</dd>
+          <dt>Cost and tokens</dt><dd>Sub-tasks record their cost, and a task that reaches the company's limit stops and asks you. Tokens leave out cache reads, and subscriptions are counted too; the cost limit ignores tokens.</dd>
+          <dt>Done</dt><dd>Once every branch that started is done, the task waits for you to merge. Steps a conditional branch did not pick are not waited for.</dd>
+          <dt>Edit and delete</dt><dd>You can change the title, description, owner and each step's employees; the workflow cannot change once started.</dd>
         </dl>
-        <p>Once every branch that started is done, the task waits for you to merge. Steps a conditional branch did not pick are not waited for. You can edit a task (title, description, owner and each step's employees; the workflow cannot change once started), pause it and delete it.</p>
       </>
     ),
   },
@@ -236,13 +263,14 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: 'A discussion in a sub-task: messages between you and the employee, then the message box and End discussion button',
     body: (
       <>
-        <p>When a decision is yours, the task moves to Wait for Review, and its note and that step in Progress get a badge. A red exclamation mark means reply, which you do inside the sub-task by opening that step. A green merge icon means the work is done and waiting for you to merge.</p>
+        <p>When a decision is yours, the task moves to Wait for Review: a red exclamation mark means reply, and a green merge icon means the work is done and waiting for you to merge. Open the step with the badge in Progress to deal with it.</p>
+        <p className="fx-help-pit">Merging updates the target branch in your project folder; if it has changes that are not committed, the merge fails. Sort them out and press Merge again.</p>
         <dl>
           <dt>Answer a question</dt><dd>When an employee has a question, cannot pick the next step, runs out of retries or hits the cost limit, pick an option, write a reply and press Confirm.</dd>
-          <dt>Agree to a change</dt><dd>When an employee wants to change a blueprint or workflow, that step lists the changes, before and after. Pick Agree to write it or Refuse to leave it as it is, optionally write a reply, and press Confirm. The employee then carries on.</dd>
-          <dt>Discuss with an employee</dt><dd>At a green discussion step, the employee reads the earlier handoffs, then asks you. Replies appear word by word. Enter sends, Shift+Enter starts a new line, and you can go back and forth many times. With several employees it is a meeting: the first chairs and opens it. Those you mention with @ reply in turn, and @All is everyone, the chair last. With no one mentioned, only the chair replies. The To line above the message box shows, as you type, who will reply.</dd>
-          <dt>End discussion</dt><dd>When it is settled, press End discussion and choose Continue to go to the next step, Send back to write what to change, or Stop task (which asks once more).</dd>
-          <dt>Merge</dt><dd>When the task is done, press Merge on the Merge row to have the task owner merge the branch into the target branch, or press Send back to write what to change and have it redone.</dd>
+          <dt>Agree to a change</dt><dd>When an employee wants to change a blueprint or workflow, that step lists the changes, before and after. Pick Agree or Refuse, optionally write a reply, and press Confirm.</dd>
+          <dt>Discuss with an employee</dt><dd>At a green discussion step, the employee reads the earlier handoffs, then asks you, and you can go back and forth many times. With several employees it is a meeting, and who replies works as in Chats.</dd>
+          <dt>End discussion</dt><dd>When it is settled, press End discussion and choose Continue to go to the next step, Send back to write what to change, or Stop task.</dd>
+          <dt>Merge</dt><dd>Press Merge to have the task owner merge the branch into the target branch, resolving any conflicts first; or press Send back to write what to change and have it redone.</dd>
         </dl>
       </>
     ),
@@ -252,24 +280,14 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: 'The Employees tab: grouped by blueprint, with model and thinking level under each name',
     body: (
       <>
-        <p>Employees are the AI agents who work in a company. Each is made from a blueprint, then picks a model and thinking level . The model list is grouped by provider, and models no provider offers but an employee still uses are under Other. The model's provider decides the thinking levels; default leaves it to the provider. You can also roll the die for another look.</p>
-        <p>Under Settings, pick Use blueprint or Custom. With a blueprint, its prompt, skills and tools are listed. With Custom, Import from blueprint brings in a blueprint's settings for you to edit; they then no longer follow the blueprint. None clears the prompt, skills and tools. Custom settings belong to that employee alone: they are not in the blueprint list and are deleted when the employee is dismissed. Custom employees come first in the list, under Custom.</p>
-        <p>In the list, each name has the model and thinking level under it, and while they work, the right side shows which step. In lists for picking people, the white notes are the tools they can use. An employee can work on several sub-tasks at once, and +N on the right counts the others under way. The more they do at once, the faster cost and subscription limits are used up.</p>
-        <p>An employee's details have their work log and memory. Memory stays in this company for later work and leaves out task progress. Employees add and remove notes themselves, and you can edit or delete them here. Before dismissing an employee, pick someone to take over their tasks and steps. A company's only employee cannot be dismissed.</p>
-      </>
-    ),
-  },
-  terminal: {
-    label: 'Terminal',
-    alt: "The company file's Terminal tab: zsh on a black sticky note",
-    body: (
-      <>
-        <p>A real zsh in the project folder. It loads your <code>~/.zshrc</code>, so you can run commands, use vim and press Ctrl+C. It starts the first time you open this tab.</p>
+        <p>Employees are the AI agents who work in a company. Each is made from a blueprint, then picks a model and thinking level. An employee can work on several sub-tasks and chats at once.</p>
+        <p className="fx-help-pit">The more they do at once, the faster cost and subscription limits are used up.</p>
         <dl>
-          <dt>When it ends</dt><dd>It keeps running while you switch tabs, and ends when you close the company file or change company.</dd>
-          <dt>Keep terminals</dt><dd>With this on in Airport → Settings, it keeps running when you leave the company and is there when you return, until the app closes or the company is disbanded. On the web, a refresh counts as closing.</dd>
-          <dt>Employees reading it</dt><dd>In company chats, employees whose blueprint has Read files or Run commands can read the last 5,000 lines the terminal has shown, but cannot type into it. Full-screen programs such as vim are left out. A reopened terminal starts a new record.</dd>
-          <dt>Keyboard</dt><dd>Opening this tab puts the keyboard in the terminal, and typing brings it back from elsewhere, unless you are typing in another field. Press F6 to leave the terminal. Focus returns to the tab. Option works as Alt. Option+←→ moves by word, Command+←→ goes to the start or end of the line, Command+Delete deletes to the start of the line, Shift+Enter adds a line without running it, Command+K clears the screen, and Command+↑↓ scrolls to the top or bottom.</dd>
+          <dt>Model and thinking level</dt><dd>The model list is grouped by provider, and models no provider offers but an employee still uses are under Other. The provider decides the thinking levels; default leaves it to the provider.</dd>
+          <dt>Custom</dt><dd>Set Settings to Custom, then import from a blueprint and change it; it no longer follows the blueprint. None clears it. Custom settings belong to that employee alone, are deleted when they are dismissed, and come first in the list, under Custom.</dd>
+          <dt>List</dt><dd>Each name has the model and thinking level under it; while they work, the right side shows which step, and +N counts the others under way. In lists for picking people, the white notes are the tools they can use.</dd>
+          <dt>Memory</dt><dd>An employee's details have their work log and memory. Memory stays in this company and leaves out task progress. Employees add and remove notes themselves, and you can edit or delete them.</dd>
+          <dt>Dismiss</dt><dd>First pick someone to take over their tasks and steps. A company's only employee cannot be dismissed.</dd>
         </dl>
       </>
     ),
@@ -279,11 +297,29 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: "The company file's Files tab: the project folder's tree",
     body: (
       <>
-        <p>Browse the company's project folder to change a few lines or look at a picture without leaving the app. The tab holds the folder's tree; click a folder to open it. A folder is read only when you open it, so hidden files, <code>.git</code> and <code>node_modules</code> are all there, and a closed folder is never read; what <code>.gitignore</code> leaves out is shown faded. Open folders are read again when you come back to the tab or the app. You can view and edit existing files, but not create, delete, move or rename anything. The simulator has no such tab.</p>
+        <p>Browse the company's project folder to read a file, look at a picture or change a few lines without leaving the app. You can view and edit existing files, but not create, delete, move or rename anything.</p>
+        <p className="fx-help-pit">If an employee, the terminal or another editor changed a file after you opened it, saving is refused, so their change is not overwritten. Copy out your changes, then press Reload.</p>
         <dl>
-          <dt>Opening</dt><dd>Click a file to open it alongside: Markdown is formatted, other text shown as it is, and PNG, JPG, GIF and WebP show as pictures. Other files, and text files over 1 MiB, show why they cannot be previewed; you can show them in Finder.</dd>
-          <dt>Editing</dt><dd>Edit at the top right of a text file opens its edit sheet, a plain text box. Save saves and puts it away; Command+S (Ctrl+S) saves and keeps editing. Put it away unsaved and the draft stays, marked by a red dot in the tree; press Edit again to carry on, or Discard changes to drop it. Drafts last until the app closes. Closing the company file or going to another company asks first when there are unsaved changes. Files with CRLF line endings are saved with CRLF.</dd>
-          <dt>Changed elsewhere</dt><dd>If an employee, the terminal or another editor changed the file after you opened it, saving is refused, so their change is not overwritten. Copy out your changes if you need them, then press Reload.</dd>
+          <dt>The tree</dt><dd>A folder is read only when you open it, so hidden files, <code>.git</code> and <code>node_modules</code> are all there; what <code>.gitignore</code> leaves out is shown faded. Open folders are read again when you come back to the tab or the app.</dd>
+          <dt>Opening</dt><dd>Markdown is formatted, code is coloured, and PNG, JPG, GIF and WebP show as pictures. Other files, and text files over 1 MiB, show why they cannot be previewed; you can show them in Finder.</dd>
+          <dt>Editing</dt><dd>Press Edit at the top right of a text file. Code is coloured as you type; Markdown uses a plain text box. Save saves and puts it away; Command+S (Ctrl+S) saves and keeps editing. Files with CRLF line endings are saved with CRLF.</dd>
+          <dt>Drafts</dt><dd>Put it away unsaved and the draft stays, marked by a red dot in the tree; press Edit again to carry on, or Discard changes to drop it. Drafts last until the app closes. Closing the company file or going to another company asks first when there are unsaved changes.</dd>
+          <dt>Simulator</dt><dd>The simulator has no such tab.</dd>
+        </dl>
+      </>
+    ),
+  },
+  terminal: {
+    label: 'Terminal',
+    alt: "The company file's Terminal tab: zsh on a black sticky note",
+    body: (
+      <>
+        <p>A real zsh in the project folder. It loads your <code>~/.zshrc</code>, so you can run commands, use vim and press Ctrl+C. It starts the first time you open this tab.</p>
+        <p className="fx-help-pit">By default the terminal ends when you close the company file or change company, stopping whatever was running; tick Keep terminals in Airport → Settings to keep it.</p>
+        <dl>
+          <dt>When it ends</dt><dd>It keeps running while you switch tabs. With Keep terminals on, it runs until the app closes or the company is disbanded; on the web, a refresh counts as closing.</dd>
+          <dt>Employees reading it</dt><dd>In company chats, employees whose blueprint has Read files or Run commands can read the last 5,000 lines the terminal has shown, but cannot type into it. Full-screen programs such as vim are left out. A reopened terminal starts a new record.</dd>
+          <dt>Keyboard</dt><dd>Typing brings the keyboard back to the terminal from elsewhere, unless you are typing in another field; press F6 to leave it. Option works as Alt. Option+←→ moves by word, Command+←→ goes to the start or end of the line, Command+Delete deletes to the start of the line, Shift+Enter adds a line without running it, Command+K clears the screen, and Command+↑↓ scrolls to the top or bottom.</dd>
         </dl>
       </>
     ),
@@ -294,10 +330,10 @@ export const HELP_EN: Record<string, { label: string; title?: string; alt: strin
     alt: "The company file's Settings tab: name, target branch, company employee rules and run limits",
     body: (
       <>
-        <p>The company file's Settings tab affects only this company.</p>
+        <p>This company's own rules and limits: shared instructions for its employees, the branch tasks merge into, and how long a sub-task may run or how much it may spend before stopping to ask you.</p>
+        <p className="fx-help-pit">Company employee rules are the AGENTS.md file in the project folder: edits on either side sync, but nothing is committed automatically.</p>
         <dl>
-          <dt>Name</dt><dd>The company's name, also shown on its tag on the map.</dd>
-          <dt>Company employee rules</dt><dd>Shared instructions for every employee of this company, on top of the blueprint's prompt. It is the AGENTS.md file in the project folder, so edits on either side sync, but nothing is committed automatically.</dd>
+          <dt>Company employee rules</dt><dd>Shared instructions for every employee of this company, on top of the blueprint's prompt.</dd>
           <dt>Target branch</dt><dd>The branch finished tasks merge into. The list is saved when the company is created, so branches made later do not appear.</dd>
           <dt>Sub-task timeout</dt><dd>How long one sub-task can run.</dd>
           <dt>Task cost limit</dt><dd>When a task's cost reaches this, it stops and asks you.</dd>

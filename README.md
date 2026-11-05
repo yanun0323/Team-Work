@@ -14,13 +14,32 @@
 
 Team Work is a macOS app that runs a team of AI agents on your own projects. Each project is a company in a building on a pixel-art island. Its employees are AI agents who follow a workflow step by step, each step in its own Git branch, and you review and merge the result.
 
-![A company open: the office on the left and its task board on the right](./frontend/src/help/en/company.jpg)
+![The island: each building is a company, with the airport in the middle and subscription allowances at the top left](./docs/images/island.jpg)
+
+## Highlights
+
+- **Skills that update from GitHub**: paste a GitHub repo and its skills are ready to use, with no files to copy by hand. When the repo has a new version, apply it with one click, or turn on auto-apply. Matt Pocock's skills and poteto's pstack come built in.
+- **One project, one company**: each company has its own settings, employees and tasks, so projects never get in each other's way.
+- **Employees with a specialty**: give each employee their own skills, prompt, tools and model, so every role is good at its one job.
+- **Several employees in one chat**: bring employees on different models and with different specialties into the same chat to work out, change and create requirements together.
+- **AI can run the app for you**: ask an employee in a chat to create or change tasks, employee blueprints, workflows and model providers. Changes to blueprints and providers wait for your OK. Employees can also read the app's terminal.
+- **A terminal inside the app**: so you can use Codex or Claude Code without leaving it.
+- **Your GPT and Claude subscriptions**: sign in with ChatGPT or Claude, and see how much of your allowance is left.
+- **Saves tokens**: employees see only a list of skills and read one in full when they need it, long chats summarize their older parts on their own, steps pass work on through short handoffs, and repeated prompts are cached where the provider supports it.
+
+## Coming Soon
+
+Load and update what others share on GitHub:
+
+- [x] Skills
+- [ ] Employee blueprints
+- [ ] Workflows
 
 ## Features
 
 - **Companies**: one company per project folder and target branch. The building grows as the company finishes tasks and hires employees.
 - **Employees**: made from blueprints (prompt, skills and allowed tools). Each employee picks their own model and thinking level. An employee can also have custom settings instead of a blueprint, written from scratch or copied from a blueprint and adjusted. There are 18 built-in blueprints, such as Backend Engineer, Code Reviewer and Technical Writer, plus Matt Pocock and Poteto, who work by skills published on GitHub.
-- **Workflows**: the steps a task goes through, from Clarify requirements to Acceptance review. Steps can hand work to an employee or open a discussion with you. Six workflows are built in, including Feature development, Bug fix and Refactor.
+- **Workflows**: the steps a task goes through, from Clarify requirements to Acceptance review. Steps can hand work to an employee or open a discussion with you. Four workflows are built in: General task, Feature development, Bug fix and Code review.
 - **Tasks**: each task works in its own Git worktree on a `task/<number>` branch. When an employee has a question, the task waits for your reply. When the work passes review, you merge it into the target branch or send it back.
 - **Chats**: talk with an employee in the project folder. Type `$` to pick a skill and `#` to mention a file. Pick several employees, or `@` mention them, to hold a meeting.
 - **Model providers**: Anthropic, OpenAI, Google Gemini and any OpenAI-compatible API. You can also sign in with a Claude or ChatGPT subscription.

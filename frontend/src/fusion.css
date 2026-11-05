@@ -1292,7 +1292,15 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
 .fx-help-page p, .fx-help-page ol, .fx-help-page dl { margin: 0 0 12px; font-size: 13.5px; line-height: 1.7; color: var(--ink-2); text-wrap: pretty; }
 .fx-help-page ol { padding-inline-start: 1.4em; }
 .fx-help-page li + li { margin-top: 6px; }
-.fx-help-page dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; }
+/* a topic's opening lines and pitfall, on a white note pasted over the page */
+.fx-help-page > .fx-help-note { padding: 14px 16px 2px; border-radius: 2px; background: var(--note-fixed); box-shadow: var(--lift); rotate: 0.3deg; }
+/* the pitfall under a topic's opening lines: a red rule down its side */
+.fx-help-page .fx-help-pit { padding-inline-start: 10px; border-inline-start: 3px solid var(--red); color: var(--ink); }
+/* a topic's reference in a dashed box, as the blueprint's settings are */
+.fx-help-page dl {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; margin-top: 18px;
+  padding: 14px 16px; border-radius: 3px; outline: 1.5px dashed var(--rule); outline-offset: -1px;
+}
 .fx-help-page dt { font-weight: 700; color: var(--ink); }
 .fx-help-page dd { margin: 0; }
 @media (max-width: 640px) {
