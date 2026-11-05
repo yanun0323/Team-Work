@@ -190,6 +190,14 @@ func TestMeetingRepliesInTurn(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 
+	// handed to the chair, it goes on with the chair alone, no one taking over
+	chair, err := r.e.HandOffChat(c.ID, len(got.Messages)-1, bea.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chair.ReplicaID != bea.ID || len(chair.Guests) != 0 || len(chair.Handoffs) != len(got.Handoffs) {
+		t.Fatalf("%+v", chair)
+	}
 	// handed to one of them, it goes on as their chat alone
 	solo, err := r.e.HandOffChat(c.ID, len(got.Messages)-1, cy.ID)
 	if err != nil {

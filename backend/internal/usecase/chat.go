@@ -323,7 +323,8 @@ func (e *Engine) RewindChat(id string, index int) error {
 // company: the one it had, or another who takes over from there. From one of the user's messages it ends there,
 // unanswered; from an employee's it keeps the rest of that reply, as a reply cannot be split in the conversation the
 // model reads. Nothing runs until the user says something in the copy. While a reply is being written the original
-// carries on, and only that unfinished reply cannot be handed off from. An airport chat stays with the airport staff.
+// carries on, and only that unfinished reply cannot be handed off from. A meeting goes on one-on-one, with its chair
+// too. An airport chat stays with the airport staff.
 func (e *Engine) HandOffChat(id string, index int, replicaID string) (*model.Chat, error) {
 	var out *model.Chat
 	err := e.do(func() error {
@@ -364,14 +365,14 @@ func (e *Engine) HandOffChat(id string, index int, replicaID string) (*model.Cha
 		if end <= 0 {
 			return model.Errorf(model.CodeConflict, "這段對話的紀錄對不上，無法複製")
 		}
-		fork := &model.Chat{ID: e.uid("chat"), TeamID: c.TeamID, ReplicaID: c.ReplicaID, Name: c.Name, Look: c.Look, Model: c.Model, Effort: c.Effort, CreatedAt: e.w.Now, Messages: clone(c.Messages[:keep]), Handoffs: clone(c.Handoffs), Guests: clone(c.Guests)}
+		fork := &model.Chat{ID: e.uid("chat"), TeamID: c.TeamID, ReplicaID: c.ReplicaID, Name: c.Name, Look: c.Look, Model: c.Model, Effort: c.Effort, CreatedAt: e.w.Now, Messages: clone(c.Messages[:keep]), Handoffs: clone(c.Handoffs)}
 		for _, j := range c.Joins { // who joined after where it is copied from did so in the original alone
 			if j.Before <= keep {
 				fork.Joins = append(fork.Joins, j)
 			}
 		}
-		if replicaID != c.ReplicaID { // a meeting handed to one of its own or anyone else goes on with them alone
-			fork.Guests = nil
+		// a meeting handed to anyone, its chair too, goes on with them alone
+		if replicaID != c.ReplicaID {
 			// they take over from the user's message, or after the reply it ends with
 			before := keep
 			if c.Messages[index].From == "user" {
