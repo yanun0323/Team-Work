@@ -275,6 +275,21 @@ body { margin: 0; overflow: hidden; }
 .fx-files-note { margin: 0; padding: 3px 6px 3px 28px; color: var(--muted); font-size: 13px; font-style: italic; overflow-wrap: anywhere; }
 .fx-files-note[role="alert"] { color: var(--accent); font-style: normal; }
 .fx-files-unsaved { color: var(--accent); }
+/* a code file being edited: dark and coloured as it is shown, a see-through text box laid over the coloured text; the
+   two share every measure that places a character, and wrap alike */
+.fx-code-edit { display: grid; min-height: 16em; border-radius: 4px; background: #262431; }
+.fx-code-edit:focus-within { box-shadow: 0 0 0 2px #84b8f5; }
+.fx-code-edit > * {
+  grid-area: 1 / 1; box-sizing: border-box; width: 100%; min-width: 0; margin: 0; padding: 12px 14px; border: 0;
+  font: 12.5px/1.6 var(--font-mono); letter-spacing: 0; tab-size: 2; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal;
+}
+.fx-code-edit-view { color: #e8e3d8; pointer-events: none; }
+.fx-code-edit-view > code { font: inherit; }
+.fx-code-edit-box {
+  display: block; overflow: hidden; resize: none; outline: none; background: transparent;
+  color: transparent; caret-color: #e8e3d8; -webkit-text-fill-color: transparent;
+}
+.fx-code-edit-box::selection { background: rgb(255 255 255 / 0.22); -webkit-text-fill-color: transparent; }
 .fx-files-text { min-height: 16em; padding: 12px 14px; font: 12.5px/1.6 var(--font-mono); tab-size: 2; white-space: pre; overflow-x: auto; resize: none; }
 .fx-files-acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .fx-files-leave {
@@ -1585,16 +1600,16 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fx-md hr { border: 0; border-top: 1px solid var(--rule); }
 .fx-md-table { overflow-x: auto; }
 /* code in colour (highlight.js's classes), inks that read on the dark slip: a code file and Markdown's code blocks alike */
-:is(.fx-doc-code, .fx-md pre) :is(.hljs-comment, .hljs-quote) { color: #8f8a9c; font-style: italic; }
-:is(.fx-doc-code, .fx-md pre) :is(.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-doctag, .hljs-meta .hljs-keyword) { color: #f28fb6; }
-:is(.fx-doc-code, .fx-md pre) :is(.hljs-string, .hljs-regexp, .hljs-addition, .hljs-meta .hljs-string) { color: #a9d68a; }
-:is(.fx-doc-code, .fx-md pre) :is(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet, .hljs-variable.language_) { color: #f3b46c; }
-:is(.fx-doc-code, .fx-md pre) :is(.hljs-title, .hljs-section, .hljs-title.function_, .hljs-selector-id, .hljs-selector-class) { color: #84b8f5; }
-:is(.fx-doc-code, .fx-md pre) :is(.hljs-type, .hljs-title.class_, .hljs-attr, .hljs-attribute, .hljs-name, .hljs-property) { color: #c9a3f0; }
-:is(.fx-doc-code, .fx-md pre) :is(.hljs-meta, .hljs-template-tag, .hljs-template-variable, .hljs-subst) { color: #c4bfcf; }
-:is(.fx-doc-code, .fx-md pre) .hljs-deletion { color: #f2836f; }
-:is(.fx-doc-code, .fx-md pre) .hljs-emphasis { font-style: italic; }
-:is(.fx-doc-code, .fx-md pre) .hljs-strong { font-weight: 700; }
+:is(.fx-doc-code, .fx-md pre, .fx-code-edit-view) :is(.hljs-comment, .hljs-quote) { color: #8f8a9c; font-style: italic; }
+:is(.fx-doc-code, .fx-md pre, .fx-code-edit-view) :is(.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-doctag, .hljs-meta .hljs-keyword) { color: #f28fb6; }
+:is(.fx-doc-code, .fx-md pre, .fx-code-edit-view) :is(.hljs-string, .hljs-regexp, .hljs-addition, .hljs-meta .hljs-string) { color: #a9d68a; }
+:is(.fx-doc-code, .fx-md pre, .fx-code-edit-view) :is(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet, .hljs-variable.language_) { color: #f3b46c; }
+:is(.fx-doc-code, .fx-md pre, .fx-code-edit-view) :is(.hljs-title, .hljs-section, .hljs-title.function_, .hljs-selector-id, .hljs-selector-class) { color: #84b8f5; }
+:is(.fx-doc-code, .fx-md pre, .fx-code-edit-view) :is(.hljs-type, .hljs-title.class_, .hljs-attr, .hljs-attribute, .hljs-name, .hljs-property) { color: #c9a3f0; }
+:is(.fx-doc-code, .fx-md pre, .fx-code-edit-view) :is(.hljs-meta, .hljs-template-tag, .hljs-template-variable, .hljs-subst) { color: #c4bfcf; }
+:is(.fx-doc-code, .fx-md pre, .fx-code-edit-view) .hljs-deletion { color: #f2836f; }
+:is(.fx-doc-code, .fx-md pre, .fx-code-edit-view) .hljs-emphasis { font-style: italic; }
+:is(.fx-doc-code, .fx-md pre, .fx-code-edit-view) .hljs-strong { font-weight: 700; }
 /* a project file's own pictures, as its HTML sizes them but never wider than the sheet */
 .fx-md-img { max-width: 100%; height: auto; vertical-align: middle; }
 .fx-md-table table { border-collapse: collapse; font-size: 0.95em; overflow-wrap: normal; }

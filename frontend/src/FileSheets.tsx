@@ -9,7 +9,7 @@ import { ApiError } from './core/backend'
 import { openFolder, openProjectFile, projectImageUrl, saveProjectFile } from './core/ops'
 import { useAutoGrow } from './Controls'
 import { EditTool, Heading, type Head } from './DrawerDetail'
-import { CodeFile } from './Highlight'
+import { CodeEditor, CodeFile } from './Highlight'
 import { Markdown } from './Markdown'
 import {
   draftAt, draftKey, draftOf, dropDraft, editDraftText, forgetClean, isDirty, markSaved, setDraft, textToSave, useFileDrafts,
@@ -21,6 +21,8 @@ export const isImage = (path: string) => /\.(png|jpe?g|gif|webp)$/i.test(path)
 export const parentOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 
 const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
+
+const isMarkdown = (path: string) => /\.mdx?$/i.test(path)
 
 // ---------- reading and writing ----------
 
@@ -111,7 +113,7 @@ export function FileDetail({ teamId, path, editing, onEdit, ...h }: Head & { tea
           <p className="fx-d-text">{state.message}</p>
           <button type="button" className="fx-save fx-plain" onClick={() => openFolder(teamId, parentOf(path))}>{tr('在 Finder 顯示')}</button>
         </>}
-        {state.status === 'ready' && draft && (/\.mdx?$/i.test(path)
+        {state.status === 'ready' && draft && (isMarkdown(path)
           ? <Markdown text={draft.base} project={{ dir: parentOf(path), imageUrl: (p) => projectImageUrl(teamId, p) }} />
           : <CodeFile path={path} text={draft.base} />)}
       </div>
@@ -169,10 +171,11 @@ export function FileEdit({ teamId, path, onDone, ...h }: Head & { teamId: string
       </header>
       {state.status === 'loading' && <p className="fx-d-text">{tr('讀取中…')}</p>}
       {(state.status === 'error' || state.status === 'unsupported') && <p className="fx-d-text" role="alert">{state.message}</p>}
-      {ready && (
-        <textarea ref={box} className="fx-control fx-files-text" value={draft.text} spellCheck={false} aria-label={path}
-          onChange={(e) => editDraftText(teamId, path, e.target.value)} />
-      )}
+      {/* Markdown is written on paper, as it reads; any other text as code, dark as it is shown */}
+      {ready && (isMarkdown(path)
+        ? <textarea ref={box} className="fx-control fx-files-text" value={draft.text} spellCheck={false} aria-label={path}
+            onChange={(e) => editDraftText(teamId, path, e.target.value)} />
+        : <CodeEditor box={box} path={path} value={draft.text} label={path} onChange={(e) => editDraftText(teamId, path, e.target.value)} />)}
       {problem && <p className="fx-field-error" role="alert">{problem.message}</p>}
       {ready && (
         <div className="fx-files-acts">
