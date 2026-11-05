@@ -1,8 +1,12 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { ContextUse } from './ChatSheet'
+import { CompactLine, ContextUse } from './ChatSheet'
 import { useStore } from './core/store'
 import type { Chat } from './core/domain/types'
+
+it('draws where the earlier conversation was summed up as a divider, not a tool line', () => {
+  expect(renderToStaticMarkup(<CompactLine />)).toBe('<li class="fx-room-handoff">已整理較早的對話</li>')
+})
 
 it('shows under the box how much the next call sends, of what the model can read', () => {
   const w = useStore.getState().world

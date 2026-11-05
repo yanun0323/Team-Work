@@ -345,6 +345,7 @@ const en = {
   '交給…': 'Hand off to…',
   '{from} 交給 {to}': '{from} handed off to {to}',
   '{name} 加入對話': '{name} joined the chat',
+  '已整理較早的對話': 'Earlier messages summed up',
   '終端機預設指令': 'Terminal startup command',
   '自動檢視': 'Auto view',
   '位移和縮放': 'Pan and zoom',

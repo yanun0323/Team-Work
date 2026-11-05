@@ -69,6 +69,14 @@ export function SentTo({ people, className, live }: { people: { id: string; name
 }
 
 /** How much the chat's next call sends, of the least anyone in it can read. */
+/** The tool line the backend adds where it summed up the earlier conversation. */
+export const COMPACT_MARK = 'auto_compact'
+
+/** Where the earlier conversation was summed up, drawn like the line where a chat was handed on. */
+export function CompactLine() {
+  return <li className="fx-room-handoff">{tr('已整理較早的對話')}</li>
+}
+
 export function ContextUse({ chat }: { chat: Chat }) {
   const window = useStore((s) => chatWindow(s.world, chat))
   const used = (chat.context ?? 0).toLocaleString('en-US')
@@ -472,7 +480,9 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
       <Prereqs list={needs} />
       <div className="fx-room-scroll">
       <ol ref={log} className="fx-room-log" aria-live="polite" aria-label={tr('和 {name} 的對話', { name: meeting ? listOf(people.map((x) => x.name)) : name })}>
-        {chat?.messages.flatMap((m, i) => [...handoffLines(i), ...joinLines(i), ...turnAt(i), m.from === 'tool'
+        {chat?.messages.flatMap((m, i) => [...handoffLines(i), ...joinLines(i), ...turnAt(i), m.from === 'tool' && m.text === COMPACT_MARK
+          ? <CompactLine key={i} />
+          : m.from === 'tool'
           ? (
             <li key={i} className="fx-room-tool">
               <code>{m.text}</code>
