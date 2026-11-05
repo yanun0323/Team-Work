@@ -814,7 +814,7 @@ func (e *Engine) chatKeepsImage(in chatRun) func(output string, data []byte) {
 
 // chatAskUser ends the reply with a question. The user's next message answers it.
 func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
-	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "End your reply and ask the user something; you go on with their answer. Call it alone, after the results of any other tools. " + askUserHow,
+	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "End your reply and ask the user something; you go on with their answer. Do not call it together with other tools: call it once their results are in. " + askUserHow,
 		Parameters: json.RawMessage(askUserSchema)},
 		func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
 			var a struct {

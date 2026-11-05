@@ -911,8 +911,13 @@ const sendBackCommit = "chore: keep the work before sending it back"
 // askUserHow and askUserSchema are ask_user's, in a task step and in a chat alike.
 const (
 	askUserHow    = "Give options whenever the answer is a choice, such as yes or no, or which of a few ways to go; leave options out only to have them type an answer, such as a name or an API key; they can always type something else."
-	askUserSchema = `{"type":"object","properties":{"prompt":{"type":"string"},"options":{"type":"array","items":{"type":"string"},"description":"Leave out to ask for a typed answer"}},"required":["prompt"]}`
+	askUserSchema = `{"type":"object","properties":{"prompt":{"type":"string","description":"` + askPromptHow + `"},"options":{"type":"array","items":{"type":"string"},"description":"Leave out to ask for a typed answer"}},"required":["prompt"]}`
 )
+
+// askPromptHow is on the prompt itself, where the model writes the question: what it found stays in its thinking otherwise,
+// and the user is left with options that point at reasons they were never told.
+const askPromptHow = "What the user reads before choosing. It must make sense on its own: say what you found, what you suggest and how the options differ, unless you have already written that out. " +
+	"Never point to something you have not written out, such as the reasons above or the plan."
 
 // rememberSpec and forgetSpec are the memory tools, in a task step and in a chat alike.
 var (

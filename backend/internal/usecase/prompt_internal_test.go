@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -13,6 +14,21 @@ func TestEveryEmployeeIsToldTheUserCannotSeeTheirThinking(t *testing.T) {
 		if !strings.Contains(rules, unseenThinkingRule) {
 			t.Errorf("%s rules lack unseenThinkingRule", name)
 		}
+	}
+}
+
+// The model decides what to ask while filling in the prompt, so the reminder to spell out its findings sits on that field.
+func TestAskUserPromptMustMakeSenseOnItsOwn(t *testing.T) {
+	var schema struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(askUserSchema), &schema); err != nil {
+		t.Fatalf("askUserSchema is not valid JSON: %v", err)
+	}
+	if got := schema.Properties["prompt"].Description; got != askPromptHow {
+		t.Errorf("prompt description = %q, want askPromptHow", got)
 	}
 }
 
