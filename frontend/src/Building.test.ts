@@ -3,8 +3,8 @@ import { billAt, litShares, moneyTosses, shoutBursts } from './Building'
 import { SCREEN_RIGHT } from './camera'
 import { CELL, RING_CELLS } from './layout'
 import { seedWorld } from './core/data/seed'
-import { busyReplicas, createChat } from './core/domain/sim'
-import { teamBusy, teamReplicas } from './core/model'
+import { busyReplicas, createAirportChat, createChat, subsOf } from './core/domain/sim'
+import { teamBusy, teamReplicas, teamTasks, teamWork } from './core/model'
 
 describe('litShares', () => {
   it('leaves an idle company dark and lights more windows as more people work', () => {
@@ -35,6 +35,35 @@ describe('teamBusy', () => {
     expect(teamBusy(w, teamId)).toBe(working + 1)
     delete w.chats[chat.id].replyAt
     expect(teamBusy(w, teamId)).toBe(working)
+  })
+})
+
+describe('teamWork', () => {
+  it('counts chats being replied to and tasks with a step running, each task once', () => {
+    const w = seedWorld()
+    w.chats = {}
+    const teamId = Object.keys(w.teams)[0]
+    for (const s of Object.values(w.subTasks)) if (s.status === 'progressing') s.status = 'todo'
+    for (const t of Object.values(w.tasks)) if (t.stage === 'merging') t.stage = 'done'
+    expect(teamWork(w, teamId)).toEqual({ chats: 0, tasks: 0 })
+    const task = teamTasks(w, teamId).find((t) => subsOf(w, t.id).length > 0)!
+    const subs = subsOf(w, task.id)
+    for (const s of subs) s.status = 'progressing'
+    expect(teamWork(w, teamId).tasks).toBe(1)
+    subs.forEach((s) => (s.cancelled = true))
+    expect(teamWork(w, teamId).tasks).toBe(0)
+    const chat = createChat(w, { teamId, replicaId: teamReplicas(w, teamId)[0].id, text: 'hi' })
+    expect(teamWork(w, teamId)).toEqual({ chats: 1, tasks: 0 })
+    delete w.chats[chat.id].replyAt
+    expect(teamWork(w, teamId).chats).toBe(0)
+  })
+
+  it('counts the airport chats being replied to under the empty company id', () => {
+    const w = seedWorld()
+    w.chats = {}
+    createAirportChat(w, { model: 'm', effort: 'default', text: 'hi' })
+    expect(teamWork(w, '').chats).toBe(1)
+    expect(teamWork(w, Object.keys(w.teams)[0]).chats).toBe(0)
   })
 })
 

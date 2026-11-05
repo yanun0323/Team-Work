@@ -1,6 +1,6 @@
 // Read-only helpers shared by all three designs. Nothing here renders.
 
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { depths, inEdges, nodeOf, outEdges, wouldCreateCycle } from './domain/graph'
 import { combine } from './domain/rollup'
 import { busyReplicas, statusOf, subsOf, TRAVEL } from './domain/sim'
@@ -105,6 +105,17 @@ export function teamAlerts(w: World, teamId: string) {
   return {
     unreadChats: Object.values(w.chats).filter((c) => c.teamId === teamId && c.unread && c.replyAt === undefined).length,
     waitingTasks: teamTasks(w, teamId).filter((t) => t.stage !== 'cancelled' && statusOf(w, t) === 'review').length,
+  }
+}
+
+/** What a company has under way, shown spinning on its name tag: chats being replied to, and tasks with a step
+ * running or a merge started (once each, however many steps run). The airport's chats have an empty `teamId`. */
+export function teamWork(w: World, teamId: string): { chats: number; tasks: number } {
+  return {
+    chats: Object.values(w.chats).filter((c) => c.teamId === teamId && c.replyAt !== undefined).length,
+    tasks: teamTasks(w, teamId).filter((t) =>
+      (t.stage === 'merging' && t.merge?.startedAt !== undefined) ||
+      subsOf(w, t.id).some((s) => s.status === 'progressing' && !s.cancelled)).length,
   }
 }
 
@@ -219,8 +230,9 @@ export { inEdges, nodeOf, outEdges }
 
 // ---------- DOM hooks ----------
 
-/** Keeps a scrolled-to-bottom list pinned to the bottom as new lines arrive. */
-export function useStickToBottom<E extends HTMLElement>(dep: unknown) {
+/** Keeps a scrolled-to-bottom list pinned to the bottom as new lines arrive. pin() goes back to the bottom and
+ * stays there, as when the user sends a message after scrolling up to read. */
+export function useStickToBottom<E extends HTMLElement>(dep: unknown): [RefObject<E | null>, () => void] {
   const ref = useRef<E>(null)
   const pinned = useRef(true)
   useEffect(() => {
@@ -240,7 +252,14 @@ export function useStickToBottom<E extends HTMLElement>(dep: unknown) {
     const el = ref.current
     if (el && pinned.current) el.scrollTop = el.scrollHeight
   }, [dep])
-  return ref
+  const pin = useCallback(() => {
+    pinned.current = true
+    const down = () => { const el = ref.current; if (el && pinned.current) el.scrollTop = el.scrollHeight }
+    down()
+    // once what was sent is drawn, such as a message waiting its turn, which leaves dep as it was
+    requestAnimationFrame(down)
+  }, [])
+  return [ref, pin]
 }
 
 /** Whether a scrolled list shows its last line, and a way back there. A list too short to scroll is at the bottom. */

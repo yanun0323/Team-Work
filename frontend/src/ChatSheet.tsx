@@ -145,7 +145,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const writing = chat?.replyAt !== undefined
   const live = useLiveText(chat?.id)
   const output = useLiveOutput(chat?.id)
-  const log = useStickToBottom<HTMLOListElement>(`${chat?.messages.length}:${writing}:${live.length}:${output}`)
+  const [log, pin] = useStickToBottom<HTMLOListElement>(`${chat?.messages.length}:${writing}:${live.length}:${output}`)
   const [atBottom, toBottom] = useAtBottom(log)
   const readId = chat?.unread ? chat.id : undefined
   const said = chat?.messages.length
@@ -233,6 +233,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     const words = text.trim()
     const attachments = splitAttachments(images)
     const mentions = mentionsIn(words)
+    pin()
     if (chat) {
       act((x) => sayInChat(x, chat.id, words, attachments.images, attachments.files, mentions))
       setText('')
