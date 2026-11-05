@@ -218,6 +218,7 @@ type PendingChange struct {
 }
 
 // ChangeLine is one difference, for the user to read. Field says what changed: name, prompt, comment, tools, skills,
+// source (a repo a blueprint brings, kept as a new source at the version in After),
 // or for a flow's step (named by Node) also kind, staff, assignment, handoff, join; node and edge are a whole step or
 // connection added or removed, and condition a connection's. A provider's are name, baseUrl, apiKey, prices and models.
 type ChangeLine struct {

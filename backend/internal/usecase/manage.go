@@ -483,7 +483,8 @@ func (e *Engine) updateTaskTool(m manager) func(context.Context, string, json.Ra
 // ---------- blueprints ----------
 
 const saveBlueprintDescription = "Without id, create a blueprint; it can be used at once. With id and the version from list_blueprints, change one: the fields you leave out stay, " +
-	"and you stop until the user agrees or refuses, which is what this call then returns. Built-in blueprints cannot be changed, so make a new one instead; nor can ones from Git."
+	"and you stop until the user agrees or refuses, which is what this call then returns. Built-in blueprints cannot be changed, so make a new one instead; nor can ones from Git. " +
+	"A skills repo not used before is read first and kept at the version read; one that cannot be read or has no skills is refused."
 
 const saveBlueprintSchema = `{"type":"object","properties":{"id":{"type":"string"},"version":{"type":"string"},"name":{"type":"string"},"prompt":{"type":"string"},"comment":{"type":"string"},` +
 	`"tools":{"type":"array","items":{"type":"string","enum":["readFile","writeFile","webSearch","runCommand"]}},` +
@@ -500,8 +501,9 @@ type blueprintArgs struct {
 	Skills  *[]model.SkillPack `json:"skills"`
 }
 
-// applyTo puts what the model gave over a blueprint. It sets neither id, source kind nor look.
-func (a blueprintArgs) applyTo(e *Engine, b *model.Blueprint) error {
+// applyTo puts what the model gave over a blueprint. It sets neither id, source kind nor look. A repo in read gets
+// the version read there, which the source made for it keeps.
+func (a blueprintArgs) applyTo(e *Engine, b *model.Blueprint, read map[NewSource]string) error {
 	if a.Name != nil {
 		b.Name = *a.Name
 	}
@@ -532,6 +534,10 @@ func (a blueprintArgs) applyTo(e *Engine, b *model.Blueprint) error {
 					return model.Errorf(model.CodeInvalid, "技能要有來源")
 				}
 				source = model.BlueprintSource{Kind: "git", Repo: githubAddress(p.Source.Repo), Ref: strings.TrimSpace(p.Source.Ref), Path: strings.Trim(strings.TrimSpace(p.Source.Path), "/")}
+				if commit := read[NewSource{Kind: "git", Repo: source.Repo, Ref: source.Ref}]; commit != "" {
+					source.Commit, source.Latest, source.Upstream = commit, commit, true
+					source.Update = &model.SourceUpdate{At: e.clock(), OK: true}
+				}
 			default:
 				return model.Errorf(model.CodeInvalid, "技能要有來源")
 			}
@@ -543,6 +549,9 @@ func (a blueprintArgs) applyTo(e *Engine, b *model.Blueprint) error {
 		b.Skills = packs
 	}
 	b.Source = model.BlueprintSource{Kind: "yaml", Text: blueprintYAML(b, e.writtenPacks(b.Skills))}
+	if err := e.checkNewRepos(b); err != nil {
+		return err
+	}
 	return checkBlueprint(b)
 }
 
@@ -558,6 +567,103 @@ func githubAddress(repo string) string {
 		return githubHTTPS + strings.TrimSuffix(repo, ".git")
 	}
 	return repo
+}
+
+// readNewRepos reads each repo the packs name that is not a source yet, as adding a source does, and gives the version
+// read for each. It runs outside the lock and reads no other source. A repo that cannot be read or has no skills is the
+// model's to fix, so it comes back as what to tell it.
+func (e *Engine) readNewRepos(ctx context.Context, a blueprintArgs) (map[NewSource]string, string) {
+	read := map[NewSource]string{}
+	if a.Skills == nil {
+		return read, ""
+	}
+	for _, p := range *a.Skills {
+		if p.Source == nil || p.Source.Kind != "git" {
+			continue
+		}
+		in, err := cleanSource(NewSource{Kind: "git", Repo: p.Source.Repo, Ref: p.Source.Ref})
+		if err != nil {
+			continue // applyTo refuses it
+		}
+		if _, done := read[in]; done || e.keepsSource(in) {
+			continue
+		}
+		got, err := e.PreviewSource(ctx, in)
+		if err != nil {
+			return nil, fmt.Sprintf("nothing was written: the skills repo %s could not be read: %s", in.Repo, safeText(err))
+		}
+		if len(got.Items) == 0 {
+			return nil, fmt.Sprintf("nothing was written: the skills repo %s has no skills", in.Repo)
+		}
+		read[in] = got.Commit
+	}
+	return read, ""
+}
+
+func (e *Engine) keepsSource(in NewSource) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, s := range e.w.Sources {
+		if sameSource(s, in) {
+			return true
+		}
+	}
+	return false
+}
+
+// newRepos are the repos b's packs bring with a version read for them, each once, as the source each will become.
+func newRepos(b *model.Blueprint) []model.BlueprintSource {
+	var out []model.BlueprintSource
+	for _, p := range b.Skills {
+		if p.Source == nil || p.Source.Kind != "git" || p.Source.Commit == "" {
+			continue
+		}
+		if !slices.ContainsFunc(out, func(s model.BlueprintSource) bool { return s.Repo == p.Source.Repo && s.Ref == p.Source.Ref }) {
+			out = append(out, model.BlueprintSource{Kind: "git", Repo: p.Source.Repo, Ref: p.Source.Ref, Commit: p.Source.Commit})
+		}
+	}
+	return out
+}
+
+// checkNewRepos refuses a repo read for b that became a source at another version since, so what is kept is what was
+// read and shown. Call it holding the lock.
+func (e *Engine) checkNewRepos(b *model.Blueprint) error {
+	for _, n := range newRepos(b) {
+		for _, s := range e.w.Sources {
+			if sameSource(s, NewSource{Kind: "git", Repo: n.Repo, Ref: n.Ref}) && s.Commit != n.Commit {
+				return model.Errorf(model.CodeConflict, "技能來源 %s 已經在用別的版本，請重新讀取", n.Repo)
+			}
+		}
+	}
+	return nil
+}
+
+// repoText names a repo source, its branch and version, as the model and the user read it.
+func repoText(s model.BlueprintSource) string {
+	out := s.Repo
+	if s.Ref != "" {
+		out += " " + s.Ref
+	}
+	return out + " @ " + shortCommit(s.Commit)
+}
+
+func shortCommit(c string) string {
+	if len(c) > 7 {
+		return c[:7]
+	}
+	return c
+}
+
+// newReposSaid tells the model which sources saving b added, if any.
+func newReposSaid(b *model.Blueprint) string {
+	var names []string
+	for _, s := range newRepos(b) {
+		names = append(names, repoText(s))
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	return "; new skill sources kept at the version read: " + strings.Join(names, ", ")
 }
 
 var toolYAMLNames = map[enum.Tool]string{enum.ToolReadFile: "read_file", enum.ToolWriteFile: "write_file", enum.ToolWebSearch: "web_search", enum.ToolRunCommand: "run_command"}
@@ -594,16 +700,20 @@ func blueprintYAML(b *model.Blueprint, packs []model.SkillPack) string {
 }
 
 func (e *Engine) saveBlueprintTool(m manager) func(context.Context, string, json.RawMessage) model.ToolResult {
-	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+	return func(ctx context.Context, _ string, raw json.RawMessage) model.ToolResult {
 		var a blueprintArgs
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return toolError("invalid arguments: %v", err)
+		}
+		read, problem := e.readNewRepos(ctx, a)
+		if problem != "" {
+			return toolError("%s", problem)
 		}
 		if a.ID == "" {
 			var made *model.Blueprint
 			err := e.act(m, true, func() error {
 				b := &model.Blueprint{Look: presets.Blueprints[e.w.Seq%len(presets.Blueprints)].Look}
-				if err := a.applyTo(e, b); err != nil {
+				if err := a.applyTo(e, b, read); err != nil {
 					return err
 				}
 				b.ID = e.uid("bp")
@@ -614,7 +724,7 @@ func (e *Engine) saveBlueprintTool(m manager) func(context.Context, string, json
 			if err != nil {
 				return toolError("%s", safeText(err))
 			}
-			return model.ToolResult{Text: fmt.Sprintf("created blueprint %s, version %s", made.ID, versionOf(made))}
+			return model.ToolResult{Text: fmt.Sprintf("created blueprint %s, version %s%s", made.ID, versionOf(made), newReposSaid(made))}
 		}
 		var change *model.PendingChange
 		err := e.act(m, false, func() error {
@@ -632,10 +742,13 @@ func (e *Engine) saveBlueprintTool(m manager) func(context.Context, string, json
 				return model.Errorf(model.CodeConflict, "版本不符，內容已經被改過，請重新讀取")
 			}
 			next := clone(old)
-			if err := a.applyTo(e, next); err != nil {
+			if err := a.applyTo(e, next, read); err != nil {
 				return err
 			}
 			if lines := e.blueprintDiff(old, next); len(lines) > 0 {
+				for _, s := range newRepos(next) {
+					lines = append(lines, model.ChangeLine{Field: "source", After: repoText(s)})
+				}
 				change = &model.PendingChange{Kind: changeBlueprint, TargetID: a.ID, Name: old.Name, Version: a.Version, Lines: lines, Blueprint: next}
 			}
 			return nil
@@ -1164,11 +1277,14 @@ func (e *Engine) settleChange(c *model.PendingChange, agreed bool, note string) 
 	switch c.Kind {
 	case changeBlueprint:
 		now := e.w.Blueprints[c.TargetID]
-		if now == nil || versionOf(now) != c.Version {
+		if now == nil || versionOf(now) != c.Version || c.Blueprint == nil {
 			return staleChange, true
 		}
+		if err := e.checkNewRepos(c.Blueprint); err != nil {
+			return "The user agreed, but nothing was written: " + safeText(err), true
+		}
 		if err = e.saveBlueprint(c.TargetID, *clone(c.Blueprint)); err == nil {
-			version = versionOf(e.w.Blueprints[c.TargetID])
+			version = versionOf(e.w.Blueprints[c.TargetID]) + newReposSaid(c.Blueprint)
 		}
 	case changeWorkflow:
 		now := e.w.Workflows[c.TargetID]

@@ -305,6 +305,7 @@ var en = map[string]string{
 	"模型的回覆太長被截斷":                         "The model's reply was too long and was cut off",
 	"模型呼叫超過 %d 次仍沒有結束":                   "Still not done after %d model calls",
 	"找不到 %s 的藍圖":                         "%s's blueprint was not found",
+	"技能來源 %s 已經在用別的版本，請重新讀取":             "Skill source %s is already in use at another version. Read it again",
 	"技能來源 %s 讀取失敗":                       "Could not read skill source %s",
 	"藍圖來源 %s 讀取失敗":                       "Could not read blueprint source %s",
 	"執行時發生內部錯誤":                          "An internal error happened during the run",
