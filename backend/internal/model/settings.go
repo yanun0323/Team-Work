@@ -52,10 +52,10 @@ type ProviderConfig struct {
 	ContextWindow int `json:"contextWindow,omitempty"`
 }
 
-func WithoutPresets[T any](all map[string]T) map[string]T {
+func WithoutLocked[T any](all map[string]T) map[string]T {
 	out := make(map[string]T, len(all))
 	for id, v := range all {
-		if !IsPresetID(id) {
+		if !IsLockedID(id) {
 			out[id] = v
 		}
 	}
@@ -63,7 +63,7 @@ func WithoutPresets[T any](all map[string]T) map[string]T {
 }
 
 func SettingsOf(w *World) Settings {
-	s := Settings{Version: 1, Preferences: w.Preferences, Tutorial: w.Tutorial, Teams: map[string]TeamConfig{}, Replicas: map[string]ReplicaConfig{}, Providers: map[string]ProviderConfig{}, Blueprints: WithoutPresets(w.Blueprints), Sources: map[string]*Source{}, Workflows: WithoutPresets(w.Workflows)}
+	s := Settings{Version: 1, Preferences: w.Preferences, Tutorial: w.Tutorial, Teams: map[string]TeamConfig{}, Replicas: map[string]ReplicaConfig{}, Providers: map[string]ProviderConfig{}, Blueprints: WithoutLocked(w.Blueprints), Sources: map[string]*Source{}, Workflows: WithoutLocked(w.Workflows)}
 	for id, src := range w.Sources {
 		s.Sources[id] = src
 	}

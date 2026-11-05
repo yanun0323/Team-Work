@@ -348,6 +348,11 @@ var en = map[string]string{
 	"技能來源的資料夾不正確":                        "Invalid folder in the skill source",
 	"必須是 git 或 local":                    "Must be git or local",
 	"找不到來源":                              "Source not found",
-	"這個來源沒有技能":                           "This source has no skills",
+	"這個來源沒有技能、員工藍圖或任務藍圖":                 "This source has no skills, employee blueprints or task blueprints",
+	"來源提供的項目不能修改，請複製後再改":                 "What a source provides cannot be changed; make a copy to change it",
+	"id 不能包含 --，這保留給來源提供的項目":             "Ids cannot contain --, which is kept for what sources provide",
+	"檔案是空的":                              "The file is empty",
+	"技能的資料夾 %s 不在來源裡":                    "The skills folder %s is outside the source",
+	"來源又有新版本，請重新查看更新內容":                  "The source has a newer version again; look at what the update changes once more",
 	"還有藍圖或員工使用這個來源":                      "Blueprints or employees still use this source",
 }

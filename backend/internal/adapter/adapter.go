@@ -144,6 +144,8 @@ type Git interface {
 	ReadImage(ctx context.Context, folder, commit, path string) ([]byte, string, error)
 	// Fetch makes a local copy of repo at commit (or at its default branch) and returns where it is.
 	Fetch(ctx context.Context, repo, commit string) (string, error)
+	// Cached says whether repo at commit is already here, so Fetch would read it without the network.
+	Cached(repo, commit string) bool
 	// Latest reports the commit ref points at upstream.
 	Latest(ctx context.Context, repo, ref string) (string, error)
 }

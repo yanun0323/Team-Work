@@ -138,8 +138,8 @@ func (e *Engine) manageTools(m manager, allowed []enum.Tool, writing bool) []ada
 		}
 		out = append(out,
 			lister(toolListTasks, "List the tasks you can reach, with their steps and who works them.", func() any { return e.listTasks(m) }),
-			lister(toolListBlueprints, "List all blueprints with the version to pass to save_blueprint. Built-in blueprints and ones from Git cannot be changed.", e.listBlueprints),
-			lister(toolListWorkflows, "List all task flows with the version to pass to save_workflow. Built-in flows cannot be changed.", e.listWorkflows),
+			lister(toolListBlueprints, "List all blueprints with the version to pass to save_blueprint. Built-in blueprints, ones from Git and ones a source provides cannot be changed.", e.listBlueprints),
+			lister(toolListWorkflows, "List all task flows with the version to pass to save_workflow. Built-in flows and ones a source provides cannot be changed.", e.listWorkflows),
 			lister(toolListEmployees, "List the employees you can reach.", func() any { return e.listEmployees(m) }),
 			lister(toolListCompanies, "List the companies you can reach.", func() any { return e.listCompanies(m) }),
 			lister(toolListProviders, "List the model providers with the version to pass to save_provider. API keys are never shown, only their last 4 characters.", e.listProviders),
@@ -227,7 +227,7 @@ func (e *Engine) listBlueprints() any {
 		if b.Owner != "" || b.ID == airportBlueprintID || e.blueprintHidden(b.ID) {
 			continue
 		}
-		out = append(out, row{b.ID, versionOf(b), b.Name, b.Source.Kind, !model.IsPresetID(b.ID) && b.Source.Kind != "git", b.Prompt, b.Comment, b.Tools, e.writtenPacks(b.Skills)})
+		out = append(out, row{b.ID, versionOf(b), b.Name, b.Source.Kind, !model.IsLockedID(b.ID) && b.Source.Kind != "git", b.Prompt, b.Comment, b.Tools, e.writtenPacks(b.Skills)})
 	}
 	slices.SortFunc(out, func(a, b row) int { return strings.Compare(a.ID, b.ID) })
 	return out
@@ -261,7 +261,7 @@ func (e *Engine) listWorkflows() any {
 		if e.workflowHidden(wf.ID) {
 			continue
 		}
-		r := row{ID: wf.ID, Version: versionOf(wf), Name: wf.Name, Editable: !model.IsPresetID(wf.ID), Nodes: []node{}, Edges: []edge{}}
+		r := row{ID: wf.ID, Version: versionOf(wf), Name: wf.Name, Editable: !model.IsLockedID(wf.ID), Nodes: []node{}, Edges: []edge{}}
 		for _, n := range wf.Nodes {
 			r.Nodes = append(r.Nodes, node{n.ID, n.Kind, n.Name, n.Prompt, n.ReplicaIDs, n.Handoff, n.Join})
 		}
@@ -492,7 +492,7 @@ func (e *Engine) updateTaskTool(m manager) func(context.Context, string, json.Ra
 // ---------- blueprints ----------
 
 const saveBlueprintDescription = "Without id, create a blueprint; it can be used at once. With id and the version from list_blueprints, change one: the fields you leave out stay, " +
-	"and you stop until the user agrees or refuses, which is what this call then returns. Built-in blueprints cannot be changed, so make a new one instead; nor can ones from Git. " +
+	"and you stop until the user agrees or refuses, which is what this call then returns. Built-in blueprints cannot be changed, so make a new one instead; nor can ones from Git or a source. " +
 	"A skills repo not used before is read first and kept at the version read; one that cannot be read or has no skills is refused."
 
 const saveBlueprintSchema = `{"type":"object","properties":{"id":{"type":"string"},"version":{"type":"string"},"name":{"type":"string"},"prompt":{"type":"string"},"comment":{"type":"string"},` +
@@ -742,8 +742,8 @@ func (e *Engine) saveBlueprintTool(m manager) func(context.Context, string, json
 			if old == nil || old.Owner != "" || e.blueprintHidden(a.ID) {
 				return model.Errorf(model.CodeNotFound, "找不到藍圖")
 			}
-			if model.IsPresetID(a.ID) {
-				return errPreset()
+			if err := errLocked(a.ID); err != nil {
+				return err
 			}
 			if old.Source.Kind == "git" {
 				return model.Errorf(model.CodeConflict, "Git 來源的藍圖不能修改")
@@ -990,7 +990,7 @@ func pricesText(prices map[string]model.ModelPrice) string {
 // ---------- flows ----------
 
 const saveWorkflowDescription = "Without id, create a task flow; it can be used at once. With id and the version from list_workflows, replace one: nodes and edges are the whole new list, " +
-	"and in a node that has an id already what you leave out stays. Then you stop until the user agrees or refuses, which is what this call then returns. Tasks under way keep the flow they started with. Built-in flows cannot be changed, so make a new one instead. " +
+	"and in a node that has an id already what you leave out stays. Then you stop until the user agrees or refuses, which is what this call then returns. Tasks under way keep the flow they started with. Built-in flows and ones a source provides cannot be changed, so make a new one instead. " +
 	"A step nothing leads to is a start: a task starts every start at once, each with the task as given. A step that leads nowhere is a last step, and the task is done once every branch that ran is done. No cycles. Kind task is only in old flows; use work. " +
 	"send_back lets a work step send work back to the one step before it, when that step hands on to it alone; leave it out of other steps. Do not give positions: they are worked out for you. Node ids are yours to choose, unique in the flow."
 
@@ -1176,8 +1176,8 @@ func (e *Engine) saveWorkflowTool(m manager) func(context.Context, string, json.
 			if old == nil || e.workflowHidden(a.ID) {
 				return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
 			}
-			if model.IsPresetID(a.ID) {
-				return errPreset()
+			if err := errLocked(a.ID); err != nil {
+				return err
 			}
 			if a.Version != versionOf(old) {
 				return model.Errorf(model.CodeConflict, "版本不符，內容已經被改過，請重新讀取")

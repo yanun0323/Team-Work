@@ -599,6 +599,25 @@ const (
 
 func IsPresetID(id string) bool { return strings.HasPrefix(id, PresetPrefix) }
 
+// SourcedSep joins a source's id and a file's name into the id of a blueprint or flow read from that source, as in
+// src-3--reviewer for blueprints/reviewer.yaml. The app never makes such an id for anything else.
+const SourcedSep = "--"
+
+func SourcedID(sourceID, name string) string { return sourceID + SourcedSep + name }
+
+// SourceOfID is the source a blueprint or flow was read from, by its id; "" for one that was not.
+func SourceOfID(id string) string {
+	src, _, found := strings.Cut(id, SourcedSep)
+	if !found || IsPresetID(id) {
+		return ""
+	}
+	return src
+}
+
+// IsLockedID says whether a blueprint or flow is kept by something other than the user: built into the app or read
+// from a source. Those cannot be changed or deleted and are not kept in the settings files; copies get ids of their own.
+func IsLockedID(id string) bool { return IsPresetID(id) || SourceOfID(id) != "" }
+
 func NewWorld() *World {
 	return &World{
 		Language: LanguageZh, Preferences: DefaultPreferences(), Tutorial: Tutorial{Done: []string{}, Shown: []string{}, Played: []string{}, Actions: []string{}, Copies: []string{}},

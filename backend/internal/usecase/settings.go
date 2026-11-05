@@ -81,8 +81,8 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 	retirePresets(&s)
 	for _, err := range []error{
 		sameIDs("teams", s.Teams, e.w.Teams), sameIDs("replicas", s.Replicas, e.w.Replicas),
-		sameIDs("providers", s.Providers, e.w.Providers), sameIDs("blueprints", s.Blueprints, model.WithoutPresets(e.w.Blueprints), true),
-		sameIDs("workflows", s.Workflows, model.WithoutPresets(e.w.Workflows), true),
+		sameIDs("providers", s.Providers, e.w.Providers), sameIDs("blueprints", s.Blueprints, model.WithoutLocked(e.w.Blueprints), true),
+		sameIDs("workflows", s.Workflows, model.WithoutLocked(e.w.Workflows), true),
 	} {
 		if err != nil {
 			return s, err
@@ -176,6 +176,9 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 		if model.IsPresetID(id) {
 			return bad(field+".id", "preset- 開頭的 id 保留給內建項目")
 		}
+		if model.SourceOfID(id) != "" {
+			return bad(field+".id", "id 不能包含 --，這保留給來源提供的項目")
+		}
 		if err := checkBlueprint(b); err != nil {
 			return s, settingsError(field, err)
 		}
@@ -200,7 +203,8 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 		if strings.TrimSpace(r.Name) == "" {
 			return bad(field+".name", "不能是空的")
 		}
-		if s.Blueprints[r.BlueprintID] == nil && !isPresetBlueprint(r.BlueprintID) {
+		// one read from a source is there once the source is read, which may be after the settings are
+		if s.Blueprints[r.BlueprintID] == nil && !isPresetBlueprint(r.BlueprintID) && s.Sources[model.SourceOfID(r.BlueprintID)] == nil {
 			return bad(field+".blueprintId", "藍圖不存在")
 		}
 		if probe.providerFor(r.Model) == nil {
@@ -217,6 +221,9 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 		}
 		if model.IsPresetID(id) {
 			return bad(field+".id", "preset- 開頭的 id 保留給內建項目")
+		}
+		if model.SourceOfID(id) != "" {
+			return bad(field+".id", "id 不能包含 --，這保留給來源提供的項目")
 		}
 		if strings.TrimSpace(wf.Name) == "" {
 			return bad(field+".name", "不能是空的")
@@ -283,11 +290,13 @@ func (e *Engine) ReloadSettings(ctx context.Context) error {
 	s.Install(e.w)
 	e.installPresets()
 	e.adoptSources()
+	e.installSourced()
 	e.settingsRaw, e.settingsEncoded = raw, settingsBytes(e.w)
 	// Broadcast the changed entities without advancing the task graph.
 	if err := e.sync(); err != nil {
 		before.Install(e.w)
 		e.installPresets()
+		e.installSourced()
 		e.settingsRaw, e.settingsEncoded = oldRaw, oldEncoded
 		return err
 	}

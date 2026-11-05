@@ -125,6 +125,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/sources/preview", s.previewSource)
 	api.DELETE("/sources/:id", s.deleteSource)
 	api.GET("/sources/:id/items", s.sourceItems)
+	api.GET("/sources/:id/problems", s.sourceProblems)
 	api.POST("/sources/:id/check", s.checkSource)
 	api.GET("/sources/:id/changes", s.sourceChanges)
 	api.POST("/sources/:id/apply", s.applySource)
@@ -872,6 +873,14 @@ func (s *Server) sourceItems(c echo.Context) error {
 	return c.JSON(http.StatusOK, items)
 }
 
+func (s *Server) sourceProblems(c echo.Context) error {
+	problems, err := s.engine.SourceProblems(c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, problems)
+}
+
 func (s *Server) checkSource(c echo.Context) error {
 	return done(c, s.engine.CheckSource(c.Request().Context(), c.Param("id")))
 }
@@ -885,7 +894,7 @@ func (s *Server) sourceChanges(c echo.Context) error {
 }
 
 func (s *Server) applySource(c echo.Context) error {
-	return done(c, s.engine.ApplySource(c.Param("id")))
+	return done(c, s.engine.ApplySource(c.Request().Context(), c.Param("id")))
 }
 
 func (s *Server) seeSource(c echo.Context) error {

@@ -279,6 +279,17 @@ func errPreset() error {
 	return model.Errorf(model.CodeConflict, "內建的項目不能修改，請複製後再改")
 }
 
+// errLocked is why a blueprint or flow by id cannot be changed or deleted, or nil when it can.
+func errLocked(id string) error {
+	if model.IsPresetID(id) {
+		return errPreset()
+	}
+	if model.SourceOfID(id) != "" {
+		return model.Errorf(model.CodeConflict, "來源提供的項目不能修改，請複製後再改")
+	}
+	return nil
+}
+
 // newWorkflow is a flow of one blank step, to be written.
 func (e *Engine) newWorkflow(name string) *model.Workflow {
 	wf := &model.Workflow{ID: e.uid("wf"), Name: name,
@@ -312,8 +323,8 @@ func (e *Engine) saveWorkflow(id string, wf model.Workflow) error {
 	if e.w.Workflows[id] == nil {
 		return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
 	}
-	if model.IsPresetID(id) {
-		return errPreset()
+	if err := errLocked(id); err != nil {
+		return err
 	}
 	wf.ID = id
 	settleStarts(&wf)
@@ -403,8 +414,8 @@ func (e *Engine) DeleteWorkflow(id string) error {
 		if e.w.Workflows[id] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
 		}
-		if model.IsPresetID(id) {
-			return errPreset()
+		if err := errLocked(id); err != nil {
+			return err
 		}
 		delete(e.w.Workflows, id)
 		e.w.Preferences.HiddenWorkflows = markHidden(e.w.Preferences.HiddenWorkflows, id, false)
@@ -1028,8 +1039,8 @@ func (e *Engine) saveBlueprint(id string, b model.Blueprint) error {
 	if e.w.Blueprints[id] == nil {
 		return model.Errorf(model.CodeNotFound, "找不到藍圖")
 	}
-	if model.IsPresetID(id) {
-		return errPreset()
+	if err := errLocked(id); err != nil {
+		return err
 	}
 	if err := checkBlueprint(&b); err != nil {
 		return err
@@ -1079,8 +1090,8 @@ func (e *Engine) DeleteBlueprint(id string) error {
 		if e.w.Blueprints[id] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到藍圖")
 		}
-		if model.IsPresetID(id) {
-			return errPreset()
+		if err := errLocked(id); err != nil {
+			return err
 		}
 		for _, r := range e.w.Replicas {
 			if r.BlueprintID == id {

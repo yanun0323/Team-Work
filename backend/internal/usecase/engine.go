@@ -90,6 +90,9 @@ type Engine struct {
 	// quotas is the last allowance each provider reported, under its own lock, as asking can take seconds
 	quotaMu sync.Mutex
 	quotas  map[string]quotaEntry
+	// sourced is what each source brings besides skills at its version in use, by the source's id; kept here, as
+	// the world's blueprints and flows from sources are put back from it whenever the settings are installed again
+	sourced map[string]sourcedSet
 
 	store     adapter.Store
 	git       adapter.Git
@@ -147,6 +150,7 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	i18n.Set(e.w.Language)
 	e.installPresets()
 	e.adoptSources()
+	e.loadSourced(ctx)
 	for _, t := range e.w.Tasks {
 		settleStaff(&t.Workflow)
 	}

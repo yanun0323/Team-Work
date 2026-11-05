@@ -332,6 +332,20 @@ func checkRepo(repo string) error {
 
 var fullCommit = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 
+// versionDir is where repo at commit, a full commit id, is kept.
+func (g *Git) versionDir(repo, commit string) string {
+	sum := sha256.Sum256([]byte(repo))
+	return filepath.Join(g.cacheDir, hex.EncodeToString(sum[:8]), commit)
+}
+
+func (g *Git) Cached(repo, commit string) bool {
+	if checkRepo(repo) != nil || !fullCommit.MatchString(commit) {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(g.versionDir(repo, commit), ".git"))
+	return err == nil
+}
+
 // Fetch gives a folder holding repo at commit, or at its default branch's newest when commit is empty. Each repo is
 // cloned once, and each version read gets a folder of its own that never changes afterwards, so work under way keeps
 // the version it started with when a newer one is put in place. A version already here is read without the network.
@@ -339,13 +353,10 @@ func (g *Git) Fetch(ctx context.Context, repo, commit string) (string, error) {
 	if err := checkRepo(repo); err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256([]byte(repo))
-	base := filepath.Join(g.cacheDir, hex.EncodeToString(sum[:8]))
-	if fullCommit.MatchString(commit) {
-		if _, err := os.Stat(filepath.Join(base, commit, ".git")); err == nil {
-			return filepath.Join(base, commit), nil
-		}
+	if g.Cached(repo, commit) {
+		return g.versionDir(repo, commit), nil
 	}
+	base := filepath.Dir(g.versionDir(repo, "x"))
 	ctx, cancel := context.WithTimeout(ctx, remoteTimeout)
 	defer cancel()
 	defer g.lock(base)()

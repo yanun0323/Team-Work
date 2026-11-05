@@ -24,11 +24,18 @@ type NewSource struct {
 	Commit string `json:"commit,omitempty"`
 }
 
-// SourcePreview is what a source would bring before it is kept: the version read, and the skills there.
+// SourcePreview is what a source would bring before it is kept: the version read, the skills there, the names of
+// the blueprints and flows there, and the files of those that could not be read.
 type SourcePreview struct {
-	Commit string       `json:"commit"`
-	Items  []SourceItem `json:"items"`
+	Commit     string       `json:"commit"`
+	Items      []SourceItem `json:"items"`
+	Blueprints []string     `json:"blueprints"`
+	Workflows  []string     `json:"workflows"`
+	Problems   []string     `json:"problems"`
 }
+
+// empty says whether a source brings nothing at all.
+func (p SourcePreview) empty() bool { return len(p.Items)+len(p.Blueprints)+len(p.Workflows) == 0 }
 
 // SourceItem is a skill a source has. Path is its folder in the source and Category the folder holding it, as a pack
 // names them; both use slashes, and the source's top is "".
@@ -48,6 +55,13 @@ type SourceChanges struct {
 	Removed    []SourceItem `json:"removed"`
 	Blueprints []string     `json:"blueprints"`
 	Replicas   []string     `json:"replicas"`
+	// The names of the blueprints and flows the source brings that come and go, and the employees working by one
+	// that goes, who keep it as their own settings.
+	AddedBlueprints   []string `json:"addedBlueprints"`
+	RemovedBlueprints []string `json:"removedBlueprints"`
+	AddedWorkflows    []string `json:"addedWorkflows"`
+	RemovedWorkflows  []string `json:"removedWorkflows"`
+	Kept              []string `json:"kept"`
 }
 
 // sameSource says whether s is the place n names.
@@ -95,7 +109,7 @@ func (e *Engine) sourceFor(n NewSource) *model.Source {
 // source, and the folder in it becomes the pack's. Call it holding the lock. When merge is set, sources made by this
 // adoption take the version of whichever pack last updated successfully, and fresh tells which those are.
 func (e *Engine) adoptPacks(b *model.Blueprint, fresh map[string]bool) {
-	if model.IsPresetID(b.ID) {
+	if model.IsLockedID(b.ID) {
 		return
 	}
 	for i := range b.Skills {
@@ -234,8 +248,8 @@ func (e *Engine) AddSource(ctx context.Context, in NewSource) (*model.Source, er
 		if read, err = e.PreviewSource(ctx, in); err != nil {
 			return nil, err
 		}
-		if len(read.Items) == 0 {
-			return nil, model.Errorf(model.CodeInvalid, "這個來源沒有技能")
+		if read.empty() {
+			return nil, model.Errorf(model.CodeInvalid, "這個來源沒有技能、員工藍圖或任務藍圖")
 		}
 	}
 	var id string
@@ -249,6 +263,12 @@ func (e *Engine) AddSource(ctx context.Context, in NewSource) (*model.Source, er
 		return nil
 	})
 	if err != nil {
+		return nil, err
+	}
+	if err := e.refreshSourced(ctx, id); err != nil {
+		e.log.Warn().Err(err).Str("source", id).Msg("read blueprints and flows of a source")
+	}
+	if err := e.PinSources(ctx); err != nil { // repos its blueprints name
 		return nil, err
 	}
 	e.mu.Lock()
@@ -277,7 +297,17 @@ func (e *Engine) PreviewSource(ctx context.Context, in NewSource) (SourcePreview
 	if err != nil {
 		return SourcePreview{}, model.Errorf(model.CodeInvalid, "%s", sourceProblem(err))
 	}
-	return SourcePreview{Commit: commit, Items: itemsAt(src, root)}, nil
+	out := SourcePreview{Commit: commit, Items: itemsAt(src, root), Blueprints: []string{}, Workflows: []string{}, Problems: []string{}}
+	if set, err := e.readSourced(ctx, src, commit); err == nil {
+		for _, b := range set.Blueprints {
+			out.Blueprints = append(out.Blueprints, b.bp.Name)
+		}
+		for _, wf := range set.Workflows {
+			out.Workflows = append(out.Workflows, wf.Name)
+		}
+		out.Problems = append(out.Problems, set.Problems...)
+	}
+	return out, nil
 }
 
 // pinSource reads the newest version of a repo source that has none yet; it is the version used from then on.
@@ -289,25 +319,33 @@ func (e *Engine) pinSource(ctx context.Context, id string) error {
 	if !unpinned {
 		return nil
 	}
-	return e.CheckSource(ctx, id)
+	return e.checkSource(ctx, id)
 }
 
-// PinSources reads the newest version of every repo source that has none yet, as one an employee named would.
+// PinSources reads the newest version of every repo source that has none yet, as one an employee named would. The
+// blueprints a source brings can name repos of their own, which are read too; each source is tried once.
 func (e *Engine) PinSources(ctx context.Context) error {
-	e.mu.Lock()
-	var ids []string
-	for id, s := range e.w.Sources {
-		if s.Kind == "git" && s.Commit == "" {
-			ids = append(ids, id)
+	tried := map[string]bool{}
+	for {
+		e.mu.Lock()
+		var ids []string
+		for id, s := range e.w.Sources {
+			if s.Kind == "git" && s.Commit == "" && !tried[id] {
+				ids = append(ids, id)
+			}
+		}
+		e.mu.Unlock()
+		if len(ids) == 0 {
+			return nil
+		}
+		slices.Sort(ids)
+		for _, id := range ids {
+			tried[id] = true
+			if err := e.pinSource(ctx, id); err != nil {
+				return err
+			}
 		}
 	}
-	e.mu.Unlock()
-	for _, id := range ids {
-		if err := e.pinSource(ctx, id); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // SetSourceAutoApply sets whether a source moves to its newest version by itself once it is found.
@@ -341,34 +379,67 @@ func (e *Engine) DeleteSource(id string) error {
 			return model.Errorf(model.CodeNotFound, "找不到來源")
 		}
 		for _, b := range e.w.Blueprints {
+			if model.SourceOfID(b.ID) == id {
+				continue // goes with it
+			}
 			for _, p := range b.Skills {
 				if p.SourceID == id {
 					return model.Errorf(model.CodeConflict, "還有藍圖或員工使用這個來源")
 				}
 			}
 		}
+		for _, r := range e.w.Replicas {
+			if model.SourceOfID(r.BlueprintID) == id {
+				return model.Errorf(model.CodeConflict, "還有藍圖或員工使用這個來源")
+			}
+		}
 		delete(e.w.Sources, id)
+		e.installSourced()
 		return nil
 	})
 }
 
-// CheckSource asks a repo source's upstream for its newest version. A source with no version yet, or one that applies
-// updates itself, moves to it; others keep theirs until the user applies it. Each attempt is recorded on the source.
+// CheckSource checks a source as checkSource does, then finds a version for the repos its blueprints name.
 func (e *Engine) CheckSource(ctx context.Context, id string) error {
+	count := func() int { e.mu.Lock(); defer e.mu.Unlock(); return len(e.w.Sources) }
+	before := count()
+	if err := e.checkSource(ctx, id); err != nil {
+		return err
+	}
+	if count() == before {
+		return nil
+	}
+	return e.PinSources(ctx)
+}
+
+// checkSource asks a repo source's upstream for its newest version. A source with no version yet, or one that applies
+// updates itself, moves to it; others keep theirs until the user applies it. Each attempt is recorded on the source.
+func (e *Engine) checkSource(ctx context.Context, id string) error {
 	e.mu.Lock()
 	s := e.w.Sources[id]
 	if s == nil {
 		e.mu.Unlock()
 		return model.Errorf(model.CodeNotFound, "找不到來源")
 	}
+	src := *s
 	repo, ref, kind := s.Repo, s.Ref, s.Kind
 	e.mu.Unlock()
 	if kind != "git" {
-		return nil
+		// a folder has no versions: what it brings is read again
+		return e.refreshSourced(ctx, id)
 	}
 	latest, err := e.git.Latest(ctx, repo, ref)
 	if err != nil {
 		e.log.Warn().Err(err).Str("repo", repo).Msg("check source")
+	}
+	// what it would bring there, read before the version moves to it by itself
+	var set *sourcedSet
+	if err == nil && latest != src.Commit && (src.Commit == "" || src.AutoApply) {
+		if read, rerr := e.readSourced(ctx, src, latest); rerr == nil {
+			set = &read
+		} else {
+			e.log.Warn().Err(rerr).Str("source", id).Msg("read blueprints and flows of a source")
+		}
 	}
 	return e.doSettings(func() error {
 		s := e.w.Sources[id]
@@ -387,23 +458,50 @@ func (e *Engine) CheckSource(ctx context.Context, id string) error {
 		}
 		if s.Commit == "" || s.AutoApply {
 			s.Commit = latest
+			if set != nil {
+				e.putSourced(id, *set)
+			}
 		}
 		return nil
 	})
 }
 
-// ApplySource moves a source to the newest version found. Work under way keeps reading the version it started with.
-func (e *Engine) ApplySource(id string) error {
-	return e.doSettings(func() error {
+// ApplySource moves a source to the newest version found, with the blueprints and flows it brings there. Work under
+// way keeps reading the version it started with; employees whose blueprint goes keep it as their own settings.
+func (e *Engine) ApplySource(ctx context.Context, id string) error {
+	e.mu.Lock()
+	s := e.w.Sources[id]
+	var src model.Source
+	if s != nil {
+		src = *s
+	}
+	e.mu.Unlock()
+	if s == nil {
+		return model.Errorf(model.CodeNotFound, "找不到來源")
+	}
+	if src.Latest == "" || src.Latest == src.Commit {
+		return nil
+	}
+	set, err := e.readSourced(ctx, src, src.Latest)
+	if err != nil {
+		return model.Errorf(model.CodeInvalid, "%s", sourceProblem(err))
+	}
+	err = e.doSettings(func() error {
 		s := e.w.Sources[id]
 		if s == nil {
 			return model.Errorf(model.CodeNotFound, "找不到來源")
 		}
-		if s.Latest != "" {
-			s.Commit = s.Latest
+		if s.Latest != src.Latest {
+			return model.Errorf(model.CodeConflict, "來源又有新版本，請重新查看更新內容")
 		}
+		s.Commit = s.Latest
+		e.putSourced(id, set)
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	return e.PinSources(ctx) // repos its blueprints name
 }
 
 // checkSources asks every repo source for its newest version now and then, until the engine stops.
@@ -506,7 +604,10 @@ func (e *Engine) SourceUpdateChanges(ctx context.Context, id string) (SourceChan
 	if s == nil {
 		return SourceChanges{}, model.Errorf(model.CodeNotFound, "找不到來源")
 	}
-	out := SourceChanges{From: src.Commit, To: src.Latest, Added: []SourceItem{}, Removed: []SourceItem{}, Blueprints: []string{}, Replicas: []string{}}
+	out := SourceChanges{
+		From: src.Commit, To: src.Latest, Added: []SourceItem{}, Removed: []SourceItem{}, Blueprints: []string{}, Replicas: []string{},
+		AddedBlueprints: []string{}, RemovedBlueprints: []string{}, AddedWorkflows: []string{}, RemovedWorkflows: []string{}, Kept: []string{},
+	}
 	if src.Kind != "git" || src.Latest == "" || src.Latest == src.Commit {
 		return out, nil
 	}
@@ -519,6 +620,9 @@ func (e *Engine) SourceUpdateChanges(ctx context.Context, id string) (SourceChan
 		return out, model.Errorf(model.CodeInvalid, "%s", sourceProblem(err))
 	}
 	before, after := itemsAt(src, was), itemsAt(src, is)
+	if err := e.sourcedChanges(ctx, src, &out); err != nil {
+		return out, model.Errorf(model.CodeInvalid, "%s", sourceProblem(err))
+	}
 	has := func(list []SourceItem, it SourceItem) bool {
 		return slices.ContainsFunc(list, func(x SourceItem) bool { return x.Path == it.Path && x.Name == it.Name })
 	}

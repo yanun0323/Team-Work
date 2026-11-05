@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -188,6 +189,10 @@ type latestIs struct {
 }
 
 func (l latestIs) Latest(context.Context, string, string) (string, error) { return *l.at, nil }
+
+func (l latestIs) Fetch(context.Context, string, string) (string, error) {
+	return "", errors.New("no copies here")
+}
 
 func TestAnUpdateAppliedByItselfIsUnseenUntilOpened(t *testing.T) {
 	data := t.TempDir()
