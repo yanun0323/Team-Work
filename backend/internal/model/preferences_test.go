@@ -18,6 +18,20 @@ func TestMuteInBackgroundIsOnForOldFiles(t *testing.T) {
 	}
 }
 
+func TestSystemNoticesAreOnForOldFiles(t *testing.T) {
+	var p Preferences
+	if err := json.Unmarshal([]byte(`{"shadows":false}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	if !p.SystemNotices {
+		t.Fatal("a file from before this preference should send system notices")
+	}
+	next, err := MergePreferences(p, map[string]json.RawMessage{"systemNotices": json.RawMessage(`false`)})
+	if err != nil || next.SystemNotices {
+		t.Fatalf("%v %+v", err, next)
+	}
+}
+
 func TestZoomSensitivityStaysInRange(t *testing.T) {
 	var p Preferences
 	if err := json.Unmarshal([]byte(`{"shadows":false}`), &p); err != nil {
