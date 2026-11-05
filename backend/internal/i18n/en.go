@@ -111,6 +111,7 @@ var en = map[string]string{
 	"這次登入沒有說明是哪個 ChatGPT 帳號":                               "This sign-in did not say which ChatGPT account it is",
 	"還沒登入 ChatGPT":                                         "Not signed in to ChatGPT",
 	"ChatGPT 的登入已失效，請重新登入":                                 "The ChatGPT sign-in has expired. Sign in again",
+	"這個 ChatGPT 訂閱還沒開放生成 GIF，請改生成 PNG":                     "This ChatGPT subscription cannot make GIFs yet. Make a PNG instead",
 	"連不上 ChatGPT":                   "Cannot reach ChatGPT",
 	"ChatGPT 無法提供模型清單（%d）":          "ChatGPT could not provide the model list (%d)",
 	"ChatGPT 回了無法讀取的模型清單":           "ChatGPT returned a model list that could not be read",

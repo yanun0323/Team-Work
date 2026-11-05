@@ -5,9 +5,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"image/png"
+	"image"
+	_ "image/gif"
+	_ "image/png"
 	"io"
 	"net/http"
+
+	"github.com/yanun0323/Team-Work/internal/adapter"
 )
 
 // Adapted from mho's codex image tool, which matches the Codex CLI's native Images requests.
@@ -21,7 +25,10 @@ type imageReference struct {
 }
 
 type imageRequest struct {
-	Prompt     string           `json:"prompt"`
+	Prompt string `json:"prompt"`
+	// Format is "gif" for an animation, with its controls as sibling fields, as the Codex CLI sends them.
+	Format string `json:"output_format,omitempty"`
+	*adapter.Gif
 	Model      string           `json:"model"`
 	Background string           `json:"background"`
 	Quality    string           `json:"quality"`
@@ -29,10 +36,13 @@ type imageRequest struct {
 	Images     []imageReference `json:"images,omitempty"`
 }
 
-// MakeImage draws a PNG from prompt, or edits the sources (data URLs) when there are any. It is never retried once
-// the service has it, as each try spends the allowance.
-func (c *Client) MakeImage(ctx context.Context, prompt string, sources []string, transparent bool) ([]byte, error) {
+// MakeImage draws a PNG from prompt, or edits the sources (data URLs) when there are any; with gif, a looping GIF.
+// It is never retried once the service has it, as each try spends the allowance.
+func (c *Client) MakeImage(ctx context.Context, prompt string, sources []string, transparent bool, gif *adapter.Gif) ([]byte, error) {
 	body := imageRequest{Prompt: prompt, Model: imageModel, Background: "opaque", Quality: "auto", Size: "auto"}
+	if gif != nil {
+		body.Format, body.Gif = "gif", gif
+	}
 	if transparent {
 		body.Background = "transparent"
 	}
@@ -78,6 +88,14 @@ func (c *Client) MakeImage(ctx context.Context, prompt string, sources []string,
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
+		if gif != nil && res.StatusCode == http.StatusBadRequest {
+			raw, _ := io.ReadAll(io.LimitReader(res.Body, 4<<10))
+			// the service has GIF output for some accounts only: {"detail":"GIF output is not enabled for this request."}
+			if bytes.Contains(bytes.ToLower(raw), []byte("gif output is not enabled")) {
+				return nil, rejected("這個 ChatGPT 訂閱還沒開放生成 GIF，請改生成 PNG")
+			}
+			res.Body = io.NopCloser(bytes.NewReader(raw))
+		}
 		return nil, statusError(res)
 	}
 	const limit = (maxGeneratedImageBytes+2)/3*4 + (1 << 20)
@@ -97,7 +115,7 @@ func (c *Client) MakeImage(ctx context.Context, prompt string, sources []string,
 	if err != nil || len(data) > maxGeneratedImageBytes {
 		return nil, unavailable("ChatGPT 回傳的圖片無法讀取")
 	}
-	if _, err := png.DecodeConfig(bytes.NewReader(data)); err != nil {
+	if _, format, err := image.DecodeConfig(bytes.NewReader(data)); err != nil || (format != "png" && format != "gif") {
 		return nil, unavailable("ChatGPT 回傳的圖片無法讀取")
 	}
 	return data, nil

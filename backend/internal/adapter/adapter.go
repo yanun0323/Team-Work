@@ -57,9 +57,16 @@ type Providers interface {
 	Images(p model.ModelProvider) (ImageMaker, error)
 }
 
-// ImageMaker draws a PNG from a prompt, or edits the sources (data URLs) when there are any.
+// ImageMaker draws a PNG from a prompt, or edits the sources (data URLs) when there are any. With gif it draws a
+// looping GIF instead.
 type ImageMaker interface {
-	MakeImage(ctx context.Context, prompt string, sources []string, transparent bool) ([]byte, error)
+	MakeImage(ctx context.Context, prompt string, sources []string, transparent bool, gif *Gif) ([]byte, error)
+}
+
+// Gif asks for an animated GIF. A zero field leaves it to the service: 9 frames of 200 ms.
+type Gif struct {
+	Frames  int `json:"frame_count,omitempty"`
+	FrameMS int `json:"frame_duration_ms,omitempty"`
 }
 
 // ClaudeStatus is where Claude Code stands on this computer. Models are ready to be given to a provider.
