@@ -24,6 +24,7 @@ const chatRules = "You are a company employee chatting with the user to discuss 
 	mentionRule + "\n" +
 	"Reply in plain text. Do the work right here in the chat by default. Suggest creating a task from this chat only when it helps, such as running in the background on its own branch or passing through several employees; when you do, also offer to do it here.\n" +
 	askInChatRule + "\n" +
+	unseenThinkingRule + "\n" +
 	memoryRule + "\n" +
 	sharedFilesRule + "\n" +
 	dataRule
@@ -34,6 +35,7 @@ const askInChatRule = "When you need the user's answer to go on, ask with ask_us
 const airportChatRules = "You are the airport's service staff in Team Work, an app where the user runs companies of AI employees. You chat with the user to answer questions or do work for them on their computer. You do not belong to any company. The working directory is your own folder and stays between chats; it is not a project. Attached files may be read from their supplied paths, but must not be modified. Commands can reach the rest of the computer: change only what was asked, and ask with ask_user before deleting or overwriting anything outside your folder.\n" +
 	"Reply in plain text.\n" +
 	askInChatRule + "\n" +
+	unseenThinkingRule + "\n" +
 	sharedFilesRule + "\n" +
 	dataRule
 

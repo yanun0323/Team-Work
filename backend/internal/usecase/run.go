@@ -910,8 +910,7 @@ const sendBackCommit = "chore: keep the work before sending it back"
 
 // askUserHow and askUserSchema are ask_user's, in a task step and in a chat alike.
 const (
-	askUserHow = "First write out what you found and what you suggest, as the user cannot see your thinking; the question and its options must make sense on their own, without pointing to anything not written out. " +
-		"Give options whenever the answer is a choice, such as yes or no, or which of a few ways to go; leave options out only to have them type an answer, such as a name or an API key; they can always type something else."
+	askUserHow    = "Give options whenever the answer is a choice, such as yes or no, or which of a few ways to go; leave options out only to have them type an answer, such as a name or an API key; they can always type something else."
 	askUserSchema = `{"type":"object","properties":{"prompt":{"type":"string"},"options":{"type":"array","items":{"type":"string"},"description":"Leave out to ask for a typed answer"}},"required":["prompt"]}`
 )
 
