@@ -41,6 +41,9 @@ func (e *Engine) CreateTeam(ctx context.Context, in NewTeam) (*model.Team, error
 	if info, err := os.Stat(in.Folder); err != nil || !info.IsDir() {
 		return nil, model.Errorf(model.CodeInvalid, "找不到資料夾")
 	}
+	if !e.git.Tool(ctx).Installed {
+		return nil, model.Errorf(model.CodeUnavailable, "這台 Mac 還沒有 git，請先安裝 Apple 的開發者工具")
+	}
 	branches, initialized, err := e.git.Prepare(ctx, in.Folder)
 	if err != nil {
 		e.log.Error().Err(err).Str("folder", in.Folder).Msg("prepare repo")
@@ -89,6 +92,8 @@ func (e *Engine) TeamFolder(id string) (string, error) {
 
 // TeamHealth is what a company's folder is like now; it can change outside the app at any time.
 type TeamHealth struct {
+	// Git is whether git can run on this computer at all; Repo and TargetBranch cannot be known without it.
+	Git          bool `json:"git"`
 	Folder       bool `json:"folder"`
 	Repo         bool `json:"repo"`
 	TargetBranch bool `json:"targetBranch"`
@@ -104,14 +109,20 @@ func (e *Engine) TeamHealth(ctx context.Context, id string) (TeamHealth, error) 
 	}
 	folder, target := t.Folder, t.TargetBranch
 	e.mu.Unlock()
+	health := TeamHealth{Git: e.git.Tool(ctx).Installed}
 	if info, err := os.Stat(folder); err != nil || !info.IsDir() {
-		return TeamHealth{}, nil
+		return health, nil
+	}
+	health.Folder = true
+	if !health.Git {
+		return health, nil
 	}
 	branches, repo, err := e.git.Branches(ctx, folder)
 	if err != nil {
 		return TeamHealth{}, err
 	}
-	return TeamHealth{Folder: true, Repo: repo, TargetBranch: repo && (len(branches) == 0 || slices.Contains(branches, target))}, nil
+	health.Repo, health.TargetBranch = repo, repo && (len(branches) == 0 || slices.Contains(branches, target))
+	return health, nil
 }
 
 // Branches lists the branches of the repo at folder, without changing anything. A folder that is no repo
@@ -126,6 +137,12 @@ func (e *Engine) Branches(ctx context.Context, folder string) (branches []string
 	}
 	return e.git.Branches(ctx, folder)
 }
+
+// GitStatus says whether git can run on this computer.
+func (e *Engine) GitStatus(ctx context.Context) adapter.GitStatus { return e.git.Tool(ctx) }
+
+// InstallGit opens the system's installer of git. Its caller answers for the user having asked for it.
+func (e *Engine) InstallGit(ctx context.Context) error { return e.git.InstallTool(ctx) }
 
 // HandedFile reads a file a sub-task handed on, as it was at that sub-task's commit.
 func (e *Engine) HandedFile(ctx context.Context, subID, path string) (string, error) {

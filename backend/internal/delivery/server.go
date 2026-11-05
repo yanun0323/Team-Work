@@ -110,6 +110,9 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/claude-code/install", s.claudeInstall)
 	api.POST("/claude-code/login", s.claudeLogin)
 
+	api.GET("/git", s.gitStatus)
+	api.POST("/git/install", s.gitInstall)
+
 	api.POST("/blueprints", s.createBlueprint)
 	api.PUT("/blueprints/:id", s.saveBlueprint)
 	api.DELETE("/blueprints/:id", s.deleteBlueprint)
@@ -528,6 +531,24 @@ func (s *Server) claudeInstall(c echo.Context) error {
 	return done(c, s.claude.Install(c.Request().Context()))
 }
 
+func (s *Server) gitStatus(c echo.Context) error {
+	return c.JSON(http.StatusOK, s.engine.GitStatus(c.Request().Context()))
+}
+
+// gitInstall opens the system's installer, so it refuses to without the user's word.
+func (s *Server) gitInstall(c echo.Context) error {
+	in, err := bind[struct {
+		Consent bool `json:"consent"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	if !in.Consent {
+		return model.Errorf(model.CodeInvalid, "安裝 git 要先取得使用者同意")
+	}
+	return done(c, s.engine.InstallGit(c.Request().Context()))
+}
+
 func (s *Server) claudeLogin(c echo.Context) error {
 	// net/http only notices a client leaving once the body has been read, and this request ends with the client
 	if _, err := io.Copy(io.Discard, c.Request().Body); err != nil {
@@ -696,7 +717,7 @@ func (s *Server) projectFile(c echo.Context) error {
 }
 
 func (s *Server) projectTree(c echo.Context) error {
-	tree, err := s.engine.ProjectTree(c.Param("id"), c.QueryParam("path"))
+	tree, err := s.engine.ProjectTree(c.Request().Context(), c.Param("id"), c.QueryParam("path"))
 	if err != nil {
 		return err
 	}

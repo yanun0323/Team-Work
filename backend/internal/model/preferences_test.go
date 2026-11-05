@@ -66,6 +66,9 @@ func TestBusyAnimation(t *testing.T) {
 	if err != nil || next.BusyAnimation != "shout" {
 		t.Fatalf("shout: %q, err %v", next.BusyAnimation, err)
 	}
+	if next, err := MergePreferences(p, map[string]json.RawMessage{"busyAnimation": json.RawMessage(`"off"`)}); err != nil || next.BusyAnimation != "off" {
+		t.Fatalf("off: %q, err %v", next.BusyAnimation, err)
+	}
 	if _, err := MergePreferences(p, map[string]json.RawMessage{"busyAnimation": json.RawMessage(`"confetti"`)}); err == nil {
 		t.Fatal("unknown busyAnimation accepted")
 	}

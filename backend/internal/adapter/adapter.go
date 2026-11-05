@@ -101,8 +101,19 @@ type Tool interface {
 	Run(ctx context.Context, cwd string, args json.RawMessage) model.ToolResult
 }
 
+// GitStatus is whether git can run on this computer. Installable is whether the app can install it, as on macOS.
+type GitStatus struct {
+	Installed   bool   `json:"installed"`
+	Version     string `json:"version,omitempty"`
+	Installable bool   `json:"installable"`
+}
+
 // Git does what a company's work needs from its repo.
 type Git interface {
+	// Tool says whether git can run here; nothing else works without it.
+	Tool(ctx context.Context) GitStatus
+	// InstallTool opens the system's own installer of git and returns once it is open; ask the user first.
+	InstallTool(ctx context.Context) error
 	// Prepare makes folder a repo when it is not one yet (with branch `master`), and lists its branches.
 	Prepare(ctx context.Context, folder string) (branches []string, initialized bool, err error)
 	// Branches lists a folder's branches without changing anything; repo is false when it is not a repo.
@@ -112,6 +123,9 @@ type Git interface {
 	// Files lists the files under a folder for "#" mentions, relative to it with "/" separators: ignored ones too, but
 	// not .git.
 	Files(ctx context.Context, folder string) []string
+	// Ignored says which of paths (relative, "/" separators, a folder ending in "/") git's ignore rules leave out; none
+	// when folder is no repo.
+	Ignored(ctx context.Context, folder string, paths []string) map[string]bool
 	// Worktree makes, or finds, the task's work tree at dir on a new branch off target.
 	Worktree(ctx context.Context, folder, dir, branch, target string) error
 	// Commit commits everything in the work tree and returns HEAD. Nothing to commit is no failure.

@@ -31,7 +31,7 @@ type Preferences struct {
 	Clouds           bool   `json:"clouds"`
 	KeepTerminals    bool   `json:"keepTerminals"`
 	AutoView         string `json:"autoView"`
-	// BusyAnimation is what a company's building shows while it is at work: shout strokes or money tossed off its sides.
+	// BusyAnimation is what a company's building shows while it is at work: shout strokes, money tossed off its sides, or off for nothing.
 	BusyAnimation string `json:"busyAnimation"`
 	// Daylight is the time of day the town shows: the clock (real), a 20-minute day (minecraft), or always day or night.
 	Daylight          string `json:"daylight"`
@@ -80,7 +80,7 @@ func MergePreferences(current Preferences, patch map[string]json.RawMessage) (Pr
 		next.ZoomSensitivity < 20 || next.ZoomSensitivity > 300 ||
 		!slices.Contains([]string{"newestFirst", "newestLast"}, next.LogOrder) ||
 		!slices.Contains([]string{"panZoom", "pan", "off"}, next.AutoView) ||
-		!slices.Contains([]string{"shout", "money"}, next.BusyAnimation) ||
+		!slices.Contains([]string{"shout", "money", "off"}, next.BusyAnimation) ||
 		!slices.Contains([]string{"real", "minecraft", "day", "night"}, next.Daylight) ||
 		!slices.Contains([]string{"off", "chats", "tasks"}, next.AutoTab) ||
 		!slices.Contains([]string{"chats", "tasks", "crew", "terminal", "settings"}, next.DefaultTab) ||

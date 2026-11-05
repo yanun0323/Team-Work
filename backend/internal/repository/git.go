@@ -56,7 +56,11 @@ func (g *Git) lock(key string) func() {
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	path, err := tool.path(ctx)
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = dir
 	// never stop to ask for a password, and only over transports that cannot run commands
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ALLOW_PROTOCOL=https:ssh:file")
@@ -104,6 +108,10 @@ func listBranches(ctx context.Context, folder string) ([]string, error) {
 }
 
 func (g *Git) Branches(ctx context.Context, folder string) ([]string, bool, error) {
+	// without git no folder can be told to be a repo, and saying it is not one would be wrong
+	if _, err := tool.path(ctx); err != nil {
+		return []string{}, false, err
+	}
 	if _, err := git(ctx, folder, "rev-parse", "--git-dir"); err != nil {
 		return []string{}, false, nil
 	}
@@ -122,8 +130,10 @@ func (g *Git) Uncommitted(ctx context.Context, folder string) (bool, error) {
 // Files lists every file under folder for "#" mentions, ignored ones too: someone may well want to point at a .env
 // or a build output. Only .git is left out. Nothing else lists files this way, so git's ignore rules hold elsewhere.
 func (g *Git) Files(ctx context.Context, folder string) []string {
-	if out, err := exec.CommandContext(ctx, "git", "-C", folder, "ls-files", "--cached", "--others", "-z").Output(); err == nil {
-		return strings.FieldsFunc(string(out), func(r rune) bool { return r == 0 })
+	if path, err := tool.path(ctx); err == nil {
+		if out, err := exec.CommandContext(ctx, path, "-C", folder, "ls-files", "--cached", "--others", "-z").Output(); err == nil {
+			return strings.FieldsFunc(string(out), func(r rune) bool { return r == 0 })
+		}
 	}
 	var files []string
 	_ = filepath.WalkDir(folder, func(p string, d fs.DirEntry, err error) error {
@@ -145,6 +155,24 @@ func (g *Git) Files(ctx context.Context, folder string) []string {
 		return ctx.Err()
 	})
 	return files
+}
+
+// Ignored says which of paths, relative to folder with "/" separators, git's ignore rules leave out; a folder ends in
+// "/" so rules for folders only apply. None are when folder is no repo or git cannot run.
+func (g *Git) Ignored(ctx context.Context, folder string, paths []string) map[string]bool {
+	ignored := map[string]bool{}
+	path, err := tool.path(ctx)
+	if err != nil || len(paths) == 0 {
+		return ignored
+	}
+	cmd := exec.CommandContext(ctx, path, "-C", folder, "check-ignore", "--stdin", "-z")
+	cmd.Stdin = strings.NewReader(strings.Join(paths, "\x00") + "\x00")
+	// exits 1 when none is ignored, and 128 outside a repo: either way what it printed is the answer
+	out, _ := cmd.Output()
+	for _, p := range strings.FieldsFunc(string(out), func(r rune) bool { return r == 0 }) {
+		ignored[p] = true
+	}
+	return ignored
 }
 
 func (g *Git) Worktree(ctx context.Context, folder, dir, branch, target string) error {
@@ -190,7 +218,11 @@ func (g *Git) ReadImage(ctx context.Context, folder, commit, path string) ([]byt
 		return nil, "", model.Errorf(model.CodeInvalid, "%s 太大，請到專案資料夾打開", path)
 	}
 	// git() trims its output, which would cut a picture's bytes
-	cmd := exec.CommandContext(ctx, "git", "cat-file", "blob", object)
+	bin, err := tool.path(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	cmd := exec.CommandContext(ctx, bin, "cat-file", "blob", object)
 	cmd.Dir = folder
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	data, err := cmd.Output()

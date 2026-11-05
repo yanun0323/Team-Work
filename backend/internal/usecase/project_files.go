@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"cmp"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -22,6 +23,8 @@ type ProjectEntry struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
 	Kind string `json:"kind"`
+	// Ignored is set when git's ignore rules leave it out of the repo.
+	Ignored bool `json:"ignored,omitempty"`
 }
 
 type ProjectTree struct {
@@ -52,8 +55,9 @@ func (e *Engine) projectDirectory(teamID, rel string) (string, error) {
 	return at, nil
 }
 
-// ProjectTree reads just this directory, including ignored and hidden entries, never its descendants.
-func (e *Engine) ProjectTree(teamID, rel string) (ProjectTree, error) {
+// ProjectTree reads just this directory, including ignored and hidden entries, never its descendants; ignored ones are
+// marked.
+func (e *Engine) ProjectTree(ctx context.Context, teamID, rel string) (ProjectTree, error) {
 	result := ProjectTree{Entries: []ProjectEntry{}}
 	at, err := e.projectDirectory(teamID, rel)
 	if err != nil {
@@ -89,7 +93,27 @@ func (e *Engine) ProjectTree(teamID, rel string) (ProjectTree, error) {
 		result.Entries = result.Entries[:maxProjectEntries]
 		result.Truncated = true
 	}
+	e.markIgnored(ctx, teamID, result.Entries)
 	return result, nil
+}
+
+// markIgnored marks the entries git's ignore rules leave out, as far as git can tell; the listing stands without it.
+func (e *Engine) markIgnored(ctx context.Context, teamID string, entries []ProjectEntry) {
+	folder, err := e.TeamFolder(teamID)
+	if err != nil || len(entries) == 0 {
+		return
+	}
+	asked := make([]string, len(entries))
+	for i, x := range entries {
+		asked[i] = x.Path
+		if x.Kind == "dir" {
+			asked[i] += "/"
+		}
+	}
+	ignored := e.git.Ignored(ctx, folder, asked)
+	for i := range entries {
+		entries[i].Ignored = ignored[asked[i]]
+	}
 }
 
 // projectWriteParent pins the validated directory to a handle. Root operations also reject

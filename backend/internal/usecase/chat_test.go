@@ -214,14 +214,23 @@ func TestSearchFilesTakesInWhatGitIgnores(t *testing.T) {
 		}
 	}
 	found, err := r.e.SearchFiles(context.Background(), r.team.ID, "notes/")
-	if err != nil || len(found) != 1 || found[0].Path != "notes/plan.md" {
+	if err != nil || len(found) != 1 || found[0].Path != "notes/plan.md" || found[0].Ignored {
 		t.Fatalf("%+v %v", found, err)
 	}
-	// what git ignores can still be mentioned, but .git itself is not offered
+	// what git ignores can still be mentioned, marked as ignored, but .git itself is not offered
 	for query, want := range map[string]string{"secret": "secret.txt", "build/": "build/out.bin"} {
-		if found, _ := r.e.SearchFiles(context.Background(), r.team.ID, query); len(found) != 1 || found[0].Path != want {
+		if found, _ := r.e.SearchFiles(context.Background(), r.team.ID, query); len(found) != 1 || found[0].Path != want || !found[0].Ignored {
 			t.Fatalf("%q: %+v", query, found)
 		}
+	}
+	// a folder only "build/" names is marked as well
+	top, _ := r.e.SearchFiles(context.Background(), r.team.ID, "")
+	marks := map[string]bool{}
+	for _, f := range top {
+		marks[f.Path] = f.Ignored
+	}
+	if !marks["build"] || marks["notes"] || !marks["secret.txt"] {
+		t.Fatalf("%+v", top)
 	}
 	if found, _ := r.e.SearchFiles(context.Background(), r.team.ID, ".git/"); len(found) != 0 {
 		t.Fatalf("%+v", found)

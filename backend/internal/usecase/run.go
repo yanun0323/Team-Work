@@ -593,6 +593,10 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 		}
 	}
 	if err := e.git.Worktree(ctx, in.folder, in.dir, in.branch, in.target); err != nil {
+		if !e.git.Tool(ctx).Installed {
+			stop(model.Errorf(model.CodeUnavailable, "這台 Mac 還沒有 git，請先安裝 Apple 的開發者工具"))
+			return
+		}
 		e.log.Error().Err(err).Str("sub", in.subID).Msg("make work tree")
 		stop(model.Errorf(model.CodeInvalid, "建立 work tree 失敗（分支 %s）", in.branch))
 		return
@@ -906,7 +910,7 @@ const sendBackCommit = "chore: keep the work before sending it back"
 
 // askUserHow and askUserSchema are ask_user's, in a task step and in a chat alike.
 const (
-	askUserHow    = "Give options to have them choose, or leave options out to have them type an answer, such as a name or an API key; they can always type something else."
+	askUserHow    = "Give options whenever the answer is a choice, such as yes or no, or which of a few ways to go; leave options out only to have them type an answer, such as a name or an API key; they can always type something else."
 	askUserSchema = `{"type":"object","properties":{"prompt":{"type":"string"},"options":{"type":"array","items":{"type":"string"},"description":"Leave out to ask for a typed answer"}},"required":["prompt"]}`
 )
 

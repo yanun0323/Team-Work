@@ -1,6 +1,7 @@
 package usecase_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -39,7 +40,7 @@ func TestProjectTreeListsOnlyOneLevelAndIncludesHiddenEntries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	tree, err := r.e.ProjectTree(r.team.ID, "browse")
+	tree, err := r.e.ProjectTree(context.Background(), r.team.ID, "browse")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,22 +55,79 @@ func TestProjectTreeListsOnlyOneLevelAndIncludesHiddenEntries(t *testing.T) {
 	if strings.Join(names, " ") != want || tree.Truncated {
 		t.Fatalf("%+v", tree)
 	}
-	empty, err := r.e.ProjectTree(r.team.ID, "browse/Zdir/nested")
+	empty, err := r.e.ProjectTree(context.Background(), r.team.ID, "browse/Zdir/nested")
 	if err != nil || empty.Entries == nil || len(empty.Entries) != 0 {
 		t.Fatalf("%+v %v", empty, err)
 	}
 	for _, rel := range []string{"../", "browse/../browse", parent, "browse/outside"} {
-		_, err := r.e.ProjectTree(r.team.ID, rel)
+		_, err := r.e.ProjectTree(context.Background(), r.team.ID, rel)
 		projectCode(t, err, model.CodeInvalid)
 	}
-	_, err = r.e.ProjectTree(r.team.ID, "browse/a.txt")
+	_, err = r.e.ProjectTree(context.Background(), r.team.ID, "browse/a.txt")
 	projectCode(t, err, model.CodeInvalid)
-	_, err = r.e.ProjectTree(r.team.ID, "missing")
+	_, err = r.e.ProjectTree(context.Background(), r.team.ID, "missing")
 	projectCode(t, err, model.CodeNotFound)
-	_, err = r.e.ProjectTree("missing", "")
+	_, err = r.e.ProjectTree(context.Background(), "missing", "")
 	projectCode(t, err, model.CodeNotFound)
-	_, err = r.e.ProjectTree("", "")
+	_, err = r.e.ProjectTree(context.Background(), "", "")
 	projectCode(t, err, model.CodeNotFound)
+}
+
+func TestProjectTreeMarksWhatGitIgnores(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	for _, dir := range []string{"build", "src/gen", "logs"} {
+		if err := os.MkdirAll(filepath.Join(r.folder, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{".gitignore": "build/\n*.log\ngen/\nlogs\n", "a.log": "", "main.go": "", "src/gen/x.go": "", "src/keep.go": ""}
+	for name, text := range files {
+		if err := os.WriteFile(filepath.Join(r.folder, name), []byte(text), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	marks := func(rel string) string {
+		tree, err := r.e.ProjectTree(context.Background(), r.team.ID, rel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, x := range tree.Entries {
+			if x.Ignored {
+				out = append(out, x.Name)
+			}
+		}
+		return strings.Join(out, " ")
+	}
+	// "build/" only matches folders, so it is asked about as one
+	if got := marks(""); got != "build logs a.log" {
+		t.Fatalf("root: %q", got)
+	}
+	if got := marks("src"); got != "gen" {
+		t.Fatalf("src: %q", got)
+	}
+}
+
+func TestProjectTreeMarksNothingOutsideARepo(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	if err := os.WriteFile(filepath.Join(r.folder, ".gitignore"), []byte("*.log\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.folder, "a.log"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(r.folder, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := r.e.ProjectTree(context.Background(), r.team.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range tree.Entries {
+		if x.Ignored {
+			t.Fatalf("marked outside a repo: %+v", x)
+		}
+	}
 }
 
 func TestProjectTreeTruncatesAfterSorting(t *testing.T) {
@@ -86,7 +144,7 @@ func TestProjectTreeTruncatesAfterSorting(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(parent, "z-directory"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	got, err := r.e.ProjectTree(r.team.ID, "many")
+	got, err := r.e.ProjectTree(context.Background(), r.team.ID, "many")
 	if err != nil || !got.Truncated || len(got.Entries) != 5000 || got.Entries[0].Name != "z-directory" || got.Entries[4999].Name != "4998" {
 		t.Fatalf("len=%d truncated=%v err=%v", len(got.Entries), got.Truncated, err)
 	}
@@ -269,7 +327,7 @@ func TestProjectBrowserBoundaryAndInRootDirectorySymlink(t *testing.T) {
 	if err != nil || got.Path != "alias/file" {
 		t.Fatalf("%+v %v", got, err)
 	}
-	tree, err := r.e.ProjectTree(r.team.ID, "alias")
+	tree, err := r.e.ProjectTree(context.Background(), r.team.ID, "alias")
 	if err != nil || len(tree.Entries) != 1 || tree.Entries[0].Path != "alias/file" {
 		t.Fatalf("%+v %v", tree, err)
 	}
@@ -306,7 +364,7 @@ func TestProjectTreeDoesNotReadUnexpandedDirectory(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	tree, err := r.e.ProjectTree(r.team.ID, "")
+	tree, err := r.e.ProjectTree(context.Background(), r.team.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}

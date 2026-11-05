@@ -27,6 +27,8 @@ type SkillInfo struct {
 type FileInfo struct {
 	Path string `json:"path"`
 	Dir  bool   `json:"dir"`
+	// Ignored is set when the company's git ignore rules leave it out of the repo.
+	Ignored bool `json:"ignored,omitempty"`
 }
 
 // ReplicaSkills lists the skills of an employee: their company's own, then their blueprint's.
@@ -114,7 +116,21 @@ func (e *Engine) SearchFiles(ctx context.Context, teamID, query string) ([]FileI
 	if folder == "" {
 		return []FileInfo{}, nil
 	}
-	return searchFiles(e.git.Files(ctx, folder), query, mentionLimit), nil
+	found := searchFiles(e.git.Files(ctx, folder), query, mentionLimit)
+	if len(found) > 0 {
+		asked := make([]string, len(found))
+		for i, f := range found {
+			asked[i] = f.Path
+			if f.Dir {
+				asked[i] += "/"
+			}
+		}
+		ignored := e.git.Ignored(ctx, folder, asked)
+		for i := range found {
+			found[i].Ignored = ignored[asked[i]]
+		}
+	}
+	return found, nil
 }
 
 // airportFiles lists what "#" offers in an airport chat: one folder of the user's home folder at a time. "dir/pre"

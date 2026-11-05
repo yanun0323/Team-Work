@@ -587,7 +587,7 @@ func TestTeamHealth(t *testing.T) {
 			}
 		}
 	}
-	expect("a new company", map[string]any{"folder": true, "repo": true, "targetBranch": true})
+	expect("a new company", map[string]any{"git": true, "folder": true, "repo": true, "targetBranch": true})
 	if err := os.RemoveAll(filepath.Join(folder, ".git")); err != nil {
 		t.Fatal(err)
 	}
@@ -596,6 +596,66 @@ func TestTeamHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect("the folder removed", map[string]any{"folder": false, "repo": false, "targetBranch": false})
+}
+
+// noGit is a computer whose git can be taken away, and which counts the times its installer was opened.
+type noGit struct {
+	*repository.Git
+	missing  bool
+	installs int
+}
+
+func (g *noGit) Tool(ctx context.Context) adapter.GitStatus {
+	if g.missing {
+		return adapter.GitStatus{Installable: true}
+	}
+	return g.Git.Tool(ctx)
+}
+
+func (g *noGit) InstallTool(context.Context) error { g.installs++; return nil }
+
+func TestWithoutGit(t *testing.T) {
+	data := t.TempDir()
+	store, err := repository.NewStore(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	git := &noGit{Git: repository.NewGit(data)}
+	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: git, Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(NewServer(e, claude, pickedFolder{}, repository.Terminals{}, []string{origin}, zerolog.Nop()).Handler())
+	defer func() { srv.Close(); e.Close(); store.Close() }()
+	api := srv.URL + "/api/v1"
+	folder := t.TempDir()
+	raw, _ := json.Marshal(folder)
+	code, team := send(t, "POST", api+"/teams", `{"name":"公司","folder":`+string(raw)+`}`)
+	if code != http.StatusCreated {
+		t.Fatal(code, team)
+	}
+
+	git.missing = true
+	if code, body := send(t, "GET", api+"/git", ""); code != http.StatusOK || body["installed"] != false || body["installable"] != true {
+		t.Fatalf("status: %d %v", code, body)
+	}
+	// without git a folder cannot be told to be a repo, so it is not said to be none
+	code, health := send(t, "GET", api+"/teams/"+team["id"].(string)+"/health", "")
+	if code != http.StatusOK || health["git"] != false || health["folder"] != true {
+		t.Fatalf("health: %d %v", code, health)
+	}
+	other, _ := json.Marshal(t.TempDir())
+	code, body := send(t, "POST", api+"/teams", `{"name":"另一間","folder":`+string(other)+`}`)
+	if code != http.StatusBadGateway || !strings.Contains(body["error"].(map[string]any)["message"].(string), "git") {
+		t.Fatalf("create without git: %d %v", code, body)
+	}
+
+	if code, _ := send(t, "POST", api+"/git/install", `{}`); code != http.StatusBadRequest || git.installs != 0 {
+		t.Fatalf("install without consent: %d, installs %d", code, git.installs)
+	}
+	if code, body := send(t, "POST", api+"/git/install", `{"consent":true}`); code != http.StatusNoContent || git.installs != 1 {
+		t.Fatalf("install: %d %v, installs %d", code, body, git.installs)
+	}
 }
 
 func TestUploadedAttachments(t *testing.T) {

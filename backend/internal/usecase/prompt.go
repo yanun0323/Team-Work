@@ -96,7 +96,7 @@ var languageNames = map[string]string{model.LanguageZh: "Traditional Chinese", m
 // languageRule says which language the user reads. Every prompt is in English, so without it replies would be too.
 func languageRule(language string) string {
 	name := languageNames[language]
-	return "Write everything the user reads in " + name + ": replies, ask_user questions and options, and handoffs. " +
+	return "Write everything the user reads in " + name + ": replies, the short notes between tool calls while you work, ask_user questions and options, and handoffs. " +
 		"This applies whatever language these instructions or project files use, unless the user asks for another language. " +
 		"Keep code, identifiers, paths and commands unchanged. Follow the project's conventions for commit messages and project files."
 }
