@@ -6,8 +6,10 @@ export interface TeamInput {
   id: string
   name: string
   members: number
-  /** Tasks it has finished. */
+  /** Tasks it has finished: they dress up the building (`decorOf`). */
   done?: number
+  /** Bytes of the files on its project's target branch: they raise the building (`floorsOf`). */
+  bytes?: number
   /** Where the player put its plot, if they did; otherwise the town hands out a place. */
   at?: Spot
   /** Its building's look, once settled; otherwise looks are handed out in turn. */
@@ -36,10 +38,12 @@ export interface Lot {
   at: Spot
   /** Paved plot, always `PLOT_CELLS` square: the largest building plus a ring of pavement `RING_CELLS` wide. */
   plot: Rect
-  /** Cells under the building, in the middle of the plot; it grows with the company (`growth`). */
+  /** Cells under the building, in the middle of the plot; it is just big enough for everyone (`footprintOf`). */
   building: Rect
-  /** Storeys, 1 to `MAX_FLOORS`. */
+  /** Storeys, 1 to `MAX_FLOORS`, by the project's size. */
   floors: number
+  /** How dressed up the building is, 0 to `DECOR_TASKS.length`, by the tasks finished. */
+  decor: number
   style: BuildingStyle
   /** Seed for the building's colours and lit windows, and, with the head count, its office. */
   seed: number
@@ -111,12 +115,13 @@ export const BUILDING_CELLS = 10
 /** Footprint edges a building goes through as it grows; even, so the two-cell door stays in the middle. */
 export const BUILDING_SIZES = [4, 6, 8, 10] as const
 export const MAX_FLOORS = 10
-/** Growth points for each finished task, and for each employee. */
-const POINTS_PER_TASK = 1
-const POINTS_PER_MEMBER = 2
-/** Points for each storey above the first, and for each step up in footprint. */
-const POINTS_PER_FLOOR = 3
-const POINTS_PER_SIZE = 6
+/** A project this big gets a second storey, and each time it doubles one more. */
+export const FLOOR_BYTES = 128 * 1024
+/**
+ * Finished tasks that bring each dressing to the building, in turn: a blade sign, flags over the entrance, a
+ * billboard on the side, neon along the roof, and the billboard turned into a moving screen.
+ */
+export const DECOR_TASKS = [3, 10, 25, 50, 100] as const
 /** Width of the paved ring round each building, in cells. */
 export const RING_CELLS = 3
 export const PLOT_CELLS = BUILDING_CELLS + RING_CELLS * 2
@@ -156,17 +161,20 @@ const APPROACH_CELLS = RUNWAY_CELLS / 2 + 3
 /** Fixed noise seed for the coast and trees; cells hash by their town position, so growing keeps them. */
 const SEED = 7331
 
-/**
- * How big a company's building is. Finished tasks and employees earn points: every few points add a storey
- * (up to `MAX_FLOORS`), more add a step in footprint (up to `BUILDING_CELLS`). The footprint is never too
- * small to give everyone a desk.
- */
-export function growth(members: number, done: number): { size: number; floors: number } {
-  const points = done * POINTS_PER_TASK + members * POINTS_PER_MEMBER
-  const floors = Math.min(MAX_FLOORS, 1 + Math.floor(points / POINTS_PER_FLOOR))
-  let step = Math.min(BUILDING_SIZES.length - 1, Math.floor(points / POINTS_PER_SIZE))
-  while (step < BUILDING_SIZES.length - 1 && officeCapacity(BUILDING_SIZES[step] * CELL, CELL) < members) step++
-  return { size: BUILDING_SIZES[step], floors }
+/** A building's footprint edge: the smallest that gives every employee a desk, up to `BUILDING_CELLS`. */
+export function footprintOf(members: number): number {
+  return BUILDING_SIZES.find((s) => officeCapacity(s * CELL, CELL) >= members) ?? BUILDING_CELLS
+}
+
+/** Storeys for a project of `bytes`: one below `FLOOR_BYTES`, then one more each time it doubles, up to `MAX_FLOORS`. */
+export function floorsOf(bytes: number): number {
+  if (!(bytes >= FLOOR_BYTES)) return 1
+  return Math.min(MAX_FLOORS, 2 + Math.floor(Math.log2(bytes / FLOOR_BYTES)))
+}
+
+/** How many of `DECOR_TASKS` a company has reached with `done` finished tasks. */
+export function decorOf(done: number): number {
+  return DECOR_TASKS.filter((n) => done >= n).length
 }
 
 /** Deterministic noise in [0, 1). */
@@ -361,7 +369,7 @@ export function layoutTown(teams: TeamInput[]): Town {
   const rows = reach(1) * 2
   const lots: Lot[] = teams.map((t, i) => {
     const plot = plotAt({ cols, rows }, spots[i])
-    const { size, floors } = growth(t.members, t.done ?? 0)
+    const size = footprintOf(t.members)
     const inset = (PLOT_CELLS - size) / 2
     return {
       id: t.id,
@@ -370,7 +378,8 @@ export function layoutTown(teams: TeamInput[]): Town {
       plot,
       building: { x: plot.x + inset, z: plot.z + inset, w: size, d: size },
       props: plotProps(plot),
-      floors,
+      floors: floorsOf(t.bytes ?? 0),
+      decor: decorOf(t.done ?? 0),
       style: t.style ?? BUILDING_STYLES[i % BUILDING_STYLES.length],
       seed: t.seed ?? seedOfId(t.id),
     }

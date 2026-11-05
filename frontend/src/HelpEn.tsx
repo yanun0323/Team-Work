@@ -77,7 +77,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <dt>Company notes</dt><dd>The sticky note pinned to the upper right. Open it to read the notes as Markdown, and click them to edit; they save as you type. They are stored in <code>.team-work/NOTES.md</code> in the project folder, are not committed automatically, and are not given to employees.</dd>
           <dt>Change company</dt><dd>While one is open, other companies keep their name tags; click one to go straight there.</dd>
           <dt>Which tab opens</dt><dd>Set by Default company page and Auto-switch default page in Airport → Settings.</dd>
-          <dt>Building</dt><dd>More finished tasks and employees mean more floors and a bigger footprint (up to 10×10 cells and 10 floors).</dd>
+          <dt>Building</dt><dd>More employees mean a bigger footprint (up to 10×10 cells); a bigger project means more floors (up to 10); more finished tasks dress it up: a sign, flags, a billboard, neon, and at last an LED screen.</dd>
         </dl>
       </>
     ),

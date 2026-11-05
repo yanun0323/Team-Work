@@ -22,7 +22,8 @@ import { Help } from './Help'
 import { Fade, FADE_SECONDS } from './Fade'
 import { Island, useLand } from './Island'
 import { MapGrid } from './MapGrid'
-import { canMove, placeProblem, CELL, cellCenter, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, HALL_LIFT, TERMINAL, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
+import { useProjectBytes, useProjectSizePolling } from './projectSize'
+import { canMove, placeProblem, CELL, cellCenter, floorsOf, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, HALL_LIFT, TERMINAL, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
 import { NewCompanySheet, Placer } from './NewCompany'
 import { request } from './core/backend'
 import { createTeam } from './core/domain/sim'
@@ -68,7 +69,7 @@ const missText = (problem: 'taken' | 'far') =>
 const doneOf = (w: ReturnType<typeof useStore.getState>['world'], teamId: string) =>
   Object.values(w.tasks).filter((t) => t.teamId === teamId && t.stage === 'done').length
 
-/** Only what decides the town's shape: companies in order, their names, and the employees and finished tasks that grow their buildings. */
+/** Only what decides the town's shape: companies in order, their names, and the employees and finished tasks that size and dress their buildings. */
 function townKey(s: ReturnType<typeof useStore.getState>) {
   const w = s.world
   return Object.values(w.teams)
@@ -129,15 +130,23 @@ export function World() {
   const { crowd, planes, clouds, autoView, zoomSensitivity } = usePrefs()
   // the simulation changes the world ten times a second; rebuild the town only when its shape changes
   const key = useStore(townKey)
+  // each project's size, asked again whenever a task is finished; only a change of storeys reshapes the town
+  useProjectSizePolling(
+    useStore((s) => Object.keys(s.world.teams).sort().join('\n')),
+    useStore((s) => String(Object.values(s.world.tasks).filter((t) => t.stage === 'done').length)),
+  )
+  const floorsKey = useProjectBytes((b) => Object.keys(b).sort().map((id) => `${id}:${floorsOf(b[id])}`).join())
   const town = useMemo(() => {
     void key
+    void floorsKey
     const w = useStore.getState().world
+    const bytes = useProjectBytes.getState()
     const list = Object.values(w.teams).sort((a, b) => a.createdAt - b.createdAt)
     const members = (id: string) => Object.values(w.replicas).filter((r) => r.teamId === id).length
-    const lots = list.map((t) => ({ id: t.id, name: t.name, members: members(t.id), done: doneOf(w, t.id), ...t.plot }))
+    const lots = list.map((t) => ({ id: t.id, name: t.name, members: members(t.id), done: doneOf(w, t.id), bytes: bytes[t.id], ...t.plot }))
     // closed companies leave their land behind
     return layoutTown(lots)
-  }, [key])
+  }, [key, floorsKey])
   const land = useLand(town)
 
   // founding a company: first put its plot anywhere on the map, then fill in the company on a sheet

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -596,6 +597,96 @@ func TestTeamHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect("the folder removed", map[string]any{"folder": false, "repo": false, "targetBranch": false})
+}
+
+// countingGit counts the times the files of a commit were added up.
+type countingGit struct {
+	*repository.Git
+	sums int
+}
+
+func (g *countingGit) TreeBytes(ctx context.Context, folder, commit string) (int64, error) {
+	g.sums++
+	return g.Git.TreeBytes(ctx, folder, commit)
+}
+
+// A project's size is what git records for the files on the target branch, added up once per commit.
+func TestProjectSize(t *testing.T) {
+	data := t.TempDir()
+	store, err := repository.NewStore(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	git := &countingGit{Git: repository.NewGit(data)}
+	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: git, Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(NewServer(e, claude, pickedFolder{}, repository.Terminals{}, []string{origin}, zerolog.Nop()).Handler())
+	defer func() { srv.Close(); e.Close(); store.Close() }()
+	api := srv.URL + "/api/v1"
+	if code, _ := send(t, "GET", api+"/teams/nobody/size", ""); code != http.StatusNotFound {
+		t.Fatalf("unknown company: %d", code)
+	}
+	folder := t.TempDir()
+	raw, _ := json.Marshal(folder)
+	code, team := send(t, "POST", api+"/teams", `{"name":"公司","folder":`+string(raw)+`}`)
+	if code != http.StatusCreated {
+		t.Fatal(code, team)
+	}
+	url := api + "/teams/" + team["id"].(string) + "/size"
+	expect := func(what string, want float64) {
+		t.Helper()
+		code, got := send(t, "GET", url, "")
+		if code != http.StatusOK || got["bytes"] != want {
+			t.Fatalf("%s: %d %v, want %v bytes", what, code, got, want)
+		}
+	}
+	gitIn := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		cmd.Dir = folder
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(name string, size int) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(folder, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(folder, name), make([]byte, size), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	expect("a new repo", 0)
+	write("a.txt", 1000)
+	write("sub/b.bin", 234)
+	expect("files not committed", 0)
+	gitIn("add", "-A")
+	gitIn("commit", "-q", "-m", "files")
+	expect("files committed", 1234)
+	sums := git.sums
+	expect("the same commit", 1234)
+	if git.sums != sums {
+		t.Fatal("the same commit was added up again")
+	}
+
+	// only the target branch counts, whichever is checked out
+	gitIn("checkout", "-q", "-b", "side")
+	write("c.txt", 66)
+	gitIn("add", "-A")
+	gitIn("commit", "-q", "-m", "side")
+	expect("a commit on another branch", 1234)
+	gitIn("checkout", "-q", "master")
+	gitIn("merge", "-q", "side")
+	expect("merged into the target", 1300)
+
+	if err := os.RemoveAll(folder); err != nil {
+		t.Fatal(err)
+	}
+	expect("the folder removed", 0)
 }
 
 // noGit is a computer whose git can be taken away, and which counts the times its installer was opened.

@@ -128,6 +128,50 @@ func (g *Git) Uncommitted(ctx context.Context, folder string) (bool, error) {
 	return out != "", err
 }
 
+// Tip is the commit branch points at, or HEAD's when branch is "". It is "" when folder is no repo or has no such commit
+// yet.
+func (g *Git) Tip(ctx context.Context, folder, branch string) (string, error) {
+	if _, err := tool.path(ctx); err != nil {
+		return "", err
+	}
+	if _, err := git(ctx, folder, "rev-parse", "--git-dir"); err != nil {
+		return "", nil
+	}
+	ref := "HEAD"
+	if branch != "" {
+		ref = "refs/heads/" + branch
+	}
+	sha, err := git(ctx, folder, "rev-parse", "-q", "--verify", "--end-of-options", ref+"^{commit}")
+	if err != nil {
+		return "", nil
+	}
+	return sha, nil
+}
+
+// TreeBytes adds up the sizes of the files in a commit, as git records them, without reading any file.
+func (g *Git) TreeBytes(ctx context.Context, folder, commit string) (int64, error) {
+	out, err := git(ctx, folder, "ls-tree", "-r", "-l", "-z", "--end-of-options", commit)
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for entry := range strings.SplitSeq(out, "\x00") {
+		// <mode> <type> <object> <size>\t<path>; the size is "-" for a submodule
+		meta, _, ok := strings.Cut(entry, "\t")
+		if !ok {
+			continue
+		}
+		fields := strings.Fields(meta)
+		if len(fields) < 4 {
+			continue
+		}
+		if n, err := strconv.ParseInt(fields[3], 10, 64); err == nil {
+			total += n
+		}
+	}
+	return total, nil
+}
+
 // Files lists every file under folder for "#" mentions, ignored ones too: someone may well want to point at a .env
 // or a build output. Only .git is left out. Nothing else lists files this way, so git's ignore rules hold elsewhere.
 func (g *Git) Files(ctx context.Context, folder string) []string {

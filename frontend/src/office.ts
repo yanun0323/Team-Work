@@ -60,8 +60,11 @@ const STATION_W = 1.3
 const STATION_D = 1.1
 /** How far the seat is from the station's back edge. */
 const SEAT_BACK = 0.35
-/** Width kept for the meeting table and lounge along the right wall. */
-const RIGHT_ZONE = 3.6
+/**
+ * Width kept for the meeting table and lounge along the right wall: the 2.4-wide table, a little room behind it,
+ * and a walkway to the desks. Any wider takes a whole column of desks from an 8 × 8 building.
+ */
+const RIGHT_ZONE = 2.8
 
 /** How far into the room the entrance is kept clear, from the front wall. */
 const ENTRANCE_DEPTH = 1.8
@@ -169,8 +172,9 @@ export function officePlan(people: number, footprint: number, cell: number, seed
   const reception: Area | undefined = rw >= RECEPTION_MIN ? { x: -doorHalf - rw / 2, z: edge - 0.6, w: rw, d: 0.6 } : undefined
   const meeting: Area | undefined = right ? { x: edge - 1.4, z: -edge + 2.4, w: 2.4, d: 3.6 } : undefined
   const shelfArea: Area | undefined = shelf ? { x: -edge + 2.2, z: -half + 0.25, w: 3.2, d: 0.4 } : undefined
-  // the nook ends short of the meeting table, or of the back corner's plant
-  const nookEnd = meeting ? meeting.x - meeting.w / 2 - 0.3 : edge - 0.6
+  // the nook ends short of the meeting table, with room for someone to stand between them (desks may stand right
+  // in front of it), or short of the back corner's plant
+  const nookEnd = meeting ? meeting.x - meeting.w / 2 - 0.85 : edge - 0.6
   const nook: Area = { x: nookEnd - NOOK_W / 2, z: -half + NOOK_D / 2, w: NOOK_W, d: NOOK_D }
   // walk up to it from open floor: in front of it if the desks leave room, else from either end
   const nf = nook.z + NOOK_D / 2

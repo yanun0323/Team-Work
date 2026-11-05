@@ -16,6 +16,10 @@ describe('fusion office floor', () => {
     expect(caps[0]).toBeGreaterThanOrEqual(1)
     for (let i = 1; i < caps.length; i++) expect(caps[i]).toBeGreaterThan(caps[i - 1])
   })
+  it('seats at least a third more at every step up, so no footprint is all but skipped', () => {
+    const caps = BUILDING_SIZES.map((size) => officeCapacity(size * CELL, CELL))
+    for (let i = 1; i < caps.length; i++) expect(caps[i], JSON.stringify(caps)).toBeGreaterThanOrEqual(caps[i - 1] * 4 / 3)
+  })
   for (const [size, n] of cases) {
     it(`fits ${n} employees in a ${size} × ${size} building without anything overlapping, however it is rolled`, () => {
       const FOOTPRINT = size * CELL

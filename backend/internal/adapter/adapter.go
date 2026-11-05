@@ -120,6 +120,10 @@ type Git interface {
 	Branches(ctx context.Context, folder string) (branches []string, repo bool, err error)
 	// Uncommitted says whether a folder has changes not committed; a folder that is no repo has none.
 	Uncommitted(ctx context.Context, folder string) (bool, error)
+	// Tip is the commit branch points at, or HEAD's when branch is ""; "" when folder is no repo or has no such commit.
+	Tip(ctx context.Context, folder, branch string) (string, error)
+	// TreeBytes adds up the sizes of the files in a commit, as git records them, without reading any file.
+	TreeBytes(ctx context.Context, folder, commit string) (int64, error)
 	// Files lists the files under a folder for "#" mentions, relative to it with "/" separators: ignored ones too, but
 	// not .git.
 	Files(ctx context.Context, folder string) []string

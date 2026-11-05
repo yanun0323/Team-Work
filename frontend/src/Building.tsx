@@ -1,4 +1,5 @@
-// One company's building, 4 × 4 to 10 × 10 cells and one to ten storeys as the company grows. Seven looks,
+// One company's building: 4 × 4 to 10 × 10 cells to seat its people, one to ten storeys by its project's size, and
+// dressed up as it finishes tasks (a blade sign, flags, a billboard, neon, a moving screen). Seven looks,
 // all built the same way: a recessed glass lobby, corner pillars running to the roof, upper floors with
 // pixel window textures (some windows lit), a cornice and parapet, and a roof that differs by style: plant
 // and an antenna, a water tank, a roof garden, a sawtooth roof, a hipped roof, a dome or a helipad.
@@ -20,7 +21,7 @@ import * as THREE from 'three'
 import { activity, teamBusy, teamReplicas } from './core/model'
 import { useStore } from './core/store'
 import { boxOnScreen, ISO_DIR, SCREEN_RIGHT, SCREEN_UP } from './camera'
-import { CELL, FLOOR_CELLS, growth, hash, rectCenter, spotCenter, type BuildingLook, type BuildingStyle, type Lot, type Spot, type Town } from './layout'
+import { CELL, FLOOR_CELLS, floorsOf, footprintOf, hash, rectCenter, spotCenter, type BuildingLook, type BuildingStyle, type Lot, type Spot, type Town } from './layout'
 import { Fade } from './Fade'
 import { usePrefs } from './prefs'
 import { NOOK_COUNTER, NOOK_D, NOOK_W, OFFICE_SCALE, officePlan, WALL, type Area, type OfficePlan } from './office'
@@ -29,7 +30,7 @@ import { headingOf } from './walk'
 import { NO_OUTLINE_LAYER } from './PixelPass'
 import { propBoxes } from './streetProps'
 import { IndoorRoom } from './IndoorLight'
-import { toon, toonMap } from './toon'
+import { toon, toonGlow, toonMap } from './toon'
 import { glowing, light } from './daylight'
 
 // Sizes are given in cells (CELL world units each), the same unit as the ground grid: a person is about one
@@ -434,7 +435,7 @@ export function Building({ lot, town, open, another, hover, onHover, onSelect }:
       onPointerOver={(e) => { e.stopPropagation(); onHover(lot.id, true); document.body.style.cursor = open ? '' : 'pointer' }}
       onPointerOut={() => { onHover(lot.id, false); document.body.style.cursor = '' }}>
       {/* the whole building fades out as the cut-away fades in, and back */}
-      <Fade show={!open && !hidden}><Exterior look={lot} w={lot.building.w * CELL} d={lot.building.d * CELL} floors={lot.floors} busy={busy} /></Fade>
+      <Fade show={!open && !hidden}><Exterior look={lot} w={lot.building.w * CELL} d={lot.building.d * CELL} floors={lot.floors} decor={lot.decor} busy={busy} /></Fade>
       {/* the paved plot and its street furniture count as the building too, for the pointer and the shade */}
       {!hidden && <PlotHit boxes={grounds} />}
       <Shade lot={lot} grounds={grounds} on={hover && !open && !hidden} />
@@ -446,10 +447,10 @@ export function Building({ lot, town, open, another, hover, onHover, onSelect }:
 /** A new company's building as it will first stand, on the plot picked for it, while its sheet is open. */
 export function BuildingPreview({ look, at }: { look: BuildingLook; at: Spot }) {
   const [x, z] = spotCenter(at)
-  const { size, floors } = growth(0, 0)
+  const size = footprintOf(0)
   return (
     <group position={[x, 0, z]}>
-      <Exterior look={look} w={size * CELL} d={size * CELL} floors={floors} />
+      <Exterior look={look} w={size * CELL} d={size * CELL} floors={floorsOf(0)} decor={0} />
     </group>
   )
 }
@@ -461,7 +462,7 @@ export function litShares(busy?: number): { windows: number; lobby: number } {
   return { windows: Math.min(0.12 + 0.12 * busy, 0.72), lobby: Math.min(0.4 + 0.2 * busy, 1) }
 }
 
-function Exterior({ look, w, d, floors, busy }: { look: BuildingLook; w: number; d: number; floors: number; busy?: number }) {
+function Exterior({ look, w, d, floors, decor, busy }: { look: BuildingLook; w: number; d: number; floors: number; decor: number; busy?: number }) {
   const { style, seed } = look
   const pal = paletteOf(look)
   const h = floors * FLOOR
@@ -545,6 +546,7 @@ function Exterior({ look, w, d, floors, busy }: { look: BuildingLook; w: number;
       <B p={[0, 2 * CELL - 0.3, d / 2 - LOBBY_INSET / 2]} s={[2.5 * CELL, 0.16, LOBBY_INSET]} c={pal.awning} />
       {/* sign over the lobby on the other visible side */}
       <B p={[w / 2 - 0.04, FLOOR + 0.5 * CELL, 0]} s={[0.06, 0.5 * CELL, 3 * CELL]} c={pal.sign} />
+      {decor > 0 && <Dressing decor={decor} style={style} pal={pal} seed={seed} w={w} d={d} h={h} />}
       {/* cornice, roof deck, parapet */}
       <B p={[0, h + 0.08, 0]} s={[w, 0.16, d]} c={pal.trim} />
       <B p={[0, h + 0.17, 0]} s={[w - 0.4, 0.02, d - 0.4]} c={pal.roof} />
@@ -1676,6 +1678,160 @@ export function billAt(b: Bill, side: number, t: number): [number, number] {
   const drift = BILL_FALL / BILL_DRAG
   const x = side * b.out * slow + b.sway * Math.sin(b.flip * 0.5 * t + b.phase) * Math.min(1, 2 * t)
   return [x, (b.up + drift) * slow - drift * t]
+}
+
+/** Neon colours, one per building by its seed. */
+const NEONS = ['#ff5ad9', '#5affe0', '#ffe35a', '#7aff7a', '#ff7a5a']
+/** Ad backgrounds and products, picked by the seed. */
+const ADS = ['#ff8a5c', '#5bc0eb', '#ffcf5a', '#9bd77a', '#c58aff', '#f1e8da']
+/** Billboard texture pixels per world unit, as on the facades. */
+const AD_PX = PX / CELL
+/** How far the side billboard stands off the wall, and how thick it is. */
+const BOARD_OFF = 0.15
+const BOARD_T = 0.12
+/** Screen pixels the moving screen scrolls by each second. */
+const SCROLL_PX = 6
+
+/** One ad, `w` × `h` pixels at `x`: a background, a product (a ball, a cup or a star), two lines of text and a border. */
+function drawAd(g: CanvasRenderingContext2D, x: number, w: number, h: number, seed: number, frame: string) {
+  const bg = ADS[Math.floor(hash(seed, 1) * ADS.length)]
+  const ink = ADS.filter((c) => c !== bg)[Math.floor(hash(seed, 2) * (ADS.length - 1))]
+  g.fillStyle = bg
+  g.fillRect(x, 0, w, h)
+  const r = Math.max(2, Math.floor(h * 0.3))
+  const cx = x + Math.floor(w * 0.22)
+  const cy = Math.floor(h / 2)
+  g.fillStyle = ink
+  const kind = Math.floor(hash(seed, 3) * 3)
+  if (kind === 0) {
+    for (let dy = -r; dy <= r; dy++) {
+      const half = Math.round(Math.sqrt(r * r - dy * dy))
+      g.fillRect(cx - half, cy + dy, half * 2 + 1, 1)
+    }
+  } else if (kind === 1) {
+    g.fillRect(cx - r + 1, cy - r + 1, r * 2 - 2, r * 2 - 1)
+    g.fillRect(cx + r - 1, cy - 1, 2, 3)
+  } else {
+    g.fillRect(cx - r, cy - 1, r * 2 + 1, 3)
+    g.fillRect(cx - 1, cy - r, 3, r * 2 + 1)
+  }
+  g.fillStyle = '#2c2a2a'
+  const tx = x + Math.floor(w * 0.45)
+  const tw = Math.floor(w * 0.45)
+  g.fillRect(tx, Math.floor(h * 0.3), tw, 2)
+  g.fillRect(tx, Math.floor(h * 0.6), Math.floor(tw * (0.4 + 0.5 * hash(seed, 4))), 2)
+  g.fillStyle = frame
+  g.fillRect(x, 0, w, 1)
+  g.fillRect(x, h - 1, w, 1)
+  g.fillRect(x, 0, 1, h)
+  g.fillRect(x + w - 1, 0, 1, h)
+}
+
+/**
+ * The billboard's face. A printed ad is lit at night; a moving screen holds three ads side by side and slides
+ * through them, bright day and night.
+ */
+function Billboard({ len, high, seed, frame, moving }: { len: number; high: number; seed: number; frame: string; moving: boolean }) {
+  const pw = Math.max(8, Math.round(len * AD_PX))
+  const ph = Math.max(6, Math.round(high * AD_PX))
+  const ads = moving ? 3 : 1
+  const mat = useMemo(() => {
+    const tex = canvasTexture(pw * ads, ph, (g) => {
+      for (let i = 0; i < ads; i++) drawAd(g, i * pw, pw, ph, seed + i * 31, frame)
+    })
+    if (moving) {
+      tex.wrapS = THREE.RepeatWrapping
+      tex.repeat.set(1 / ads, 1)
+      return new THREE.MeshBasicMaterial({ map: tex })
+    }
+    const m = toonMap('#ffffff', tex)
+    m.emissiveMap = tex
+    m.emissive.set('#9a9a9a')
+    m.emissiveIntensity = light.glow
+    glowing.add(m)
+    return m
+  }, [pw, ph, ads, seed, frame, moving])
+  useEffect(() => () => {
+    mat.map?.dispose()
+    if (mat instanceof THREE.MeshToonMaterial) glowing.delete(mat)
+    mat.dispose()
+  }, [mat])
+  useFrame(({ clock }) => {
+    if (!moving || calm || !mat.map) return
+    // whole pixels at a time, as everything else is drawn
+    mat.map.offset.x = Math.floor(clock.elapsedTime * SCROLL_PX) / (pw * ads)
+  })
+  // the face looks out along +x
+  return (
+    <mesh position={[BOARD_T / 2 + 0.005, 0, 0]} rotation={[0, Math.PI / 2, 0]} scale={[len, high, 1]} material={mat}>
+      <planeGeometry />
+    </mesh>
+  )
+}
+
+/**
+ * What a company earns by finishing tasks, one more at each of `DECOR_TASKS`: a blade sign by the corner of the
+ * entrance; flags over it; a billboard on the side above the sign, on the ground floor when there is no other;
+ * neon along the roof and up the front corner, which shines at night; and the billboard turned into a moving screen.
+ * Everything is on the two sides facing the camera, clear of the roofs, balconies and eaves of every look.
+ */
+function Dressing({ decor, style, pal, seed, w, d, h }: { decor: number; style: BuildingStyle; pal: Palette; seed: number; w: number; d: number; h: number }) {
+  const neon = NEONS[seed % NEONS.length]
+  const lit = decor >= 4
+  const glow = (c: string) => (lit ? toonGlow(c, c) : toon(c))
+  const upper = h > FLOOR
+  // the blade sign hangs under the lobby band, off the front of the right-hand pillar
+  const bladeX = w / 2 - PILLAR / 2
+  // flags lean out over the entrance from just above the lobby band, clear of a villa's balcony rail
+  const flagY = FLOOR + (style === 'villa' && upper ? 0.8 : 0.35)
+  const lean = 0.8
+  const pole = 1.8
+  const tip: [number, number] = [flagY + pole * Math.cos(lean), d / 2 - BODY_INSET + pole * Math.sin(lean)]
+  // the billboard: on the second storey, under any eave or hedge at its top, or on the lobby wall of a one-storey building
+  const [bottom, top] = upper ? [FLOOR + 0.85 * CELL, 2 * FLOOR - 0.15 * CELL] : [0.3 * CELL, 1.7 * CELL]
+  const wall = w / 2 - (upper ? BODY_INSET : LOBBY_INSET)
+  const boardLen = Math.min(d - 2 * PILLAR - 2 * LOBBY_INSET, 2.5 * CELL)
+  const boardHigh = top - bottom
+  return (
+    <>
+      <group position={[bladeX, FLOOR - 0.6 * CELL, d / 2]}>
+        <B p={[0, 0.5 * CELL - 0.05, 0.25 * CELL]} s={[0.06, 0.1, 0.5 * CELL]} c={pal.trim} />
+        <mesh position={[0, 0, 0.3 * CELL]} scale={[0.12, 0.85 * CELL, 0.45 * CELL]} material={glow(pal.sign)} castShadow receiveShadow>
+          <boxGeometry />
+        </mesh>
+        {[0.22, 0, -0.22].map((y, i) => (
+          <B key={i} p={[0, y * CELL, 0.3 * CELL]} s={[0.14, 0.06, 0.3 * CELL]} c={pal.trim} shadow={false} />
+        ))}
+      </group>
+      {decor >= 2 && [-0.75 * CELL, 0, 0.75 * CELL].map((x, i) => (
+        <group key={i} position={[x, 0, 0]}>
+          <B p={[0, flagY + (tip[0] - flagY) / 2, (d / 2 - BODY_INSET + tip[1]) / 2]} s={[0.06, pole, 0.06]} r={[lean, 0, 0]} c="#d5dbe5" />
+          <B p={[0, tip[0] - 0.36, tip[1] - 0.5]} s={[0.04, 0.7, 1.0]} c={i === 1 ? pal.sign : pal.awning} />
+        </group>
+      ))}
+      {decor >= 3 && (
+        <group position={[wall + BOARD_OFF + BOARD_T / 2, (bottom + top) / 2, 0]}>
+          {/* standoff brackets, then the frame */}
+          {[-boardLen / 3, boardLen / 3].map((z, i) => (
+            <B key={i} p={[-BOARD_T / 2 - BOARD_OFF / 2, 0, z]} s={[BOARD_OFF, 0.1, 0.1]} c={pal.trim} />
+          ))}
+          <mesh scale={[BOARD_T, boardHigh + 0.16, boardLen + 0.16]} material={glow(lit ? neon : pal.trim)} castShadow receiveShadow>
+            <boxGeometry />
+          </mesh>
+          <Billboard len={boardLen} high={boardHigh} seed={seed} frame={pal.trim} moving={decor >= 5} />
+        </group>
+      )}
+      {lit && (
+        <>
+          <mesh position={[0, h + 0.16 + PARAPET + 0.04, d / 2 - 0.1]} scale={[w, 0.08, 0.08]} material={toonGlow(neon, neon)}><boxGeometry /></mesh>
+          <mesh position={[w / 2 - 0.1, h + 0.16 + PARAPET + 0.04, 0]} scale={[0.08, 0.08, d]} material={toonGlow(neon, neon)}><boxGeometry /></mesh>
+          {upper && (
+            <mesh position={[w / 2 + 0.02, (FLOOR + h) / 2, d / 2 + 0.02]} scale={[0.08, h - FLOOR, 0.08]} material={toonGlow(neon, neon)}><boxGeometry /></mesh>
+          )}
+        </>
+      )}
+    </>
+  )
 }
 
 /**

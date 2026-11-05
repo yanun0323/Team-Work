@@ -125,6 +125,45 @@ func (e *Engine) TeamHealth(ctx context.Context, id string) (TeamHealth, error) 
 	return health, nil
 }
 
+// ProjectSize is how big a company's project is: the files on its target branch, in bytes as git records them.
+type ProjectSize struct {
+	Bytes int64 `json:"bytes"`
+}
+
+type projectSize struct {
+	commit string
+	bytes  int64
+}
+
+// ProjectSize adds up the files on a company's target branch. A folder that is gone, no repo or without commits is
+// empty; a commit already added up is not read again.
+func (e *Engine) ProjectSize(ctx context.Context, id string) (ProjectSize, error) {
+	e.mu.Lock()
+	t := e.w.Teams[id]
+	if t == nil {
+		e.mu.Unlock()
+		return ProjectSize{}, model.Errorf(model.CodeNotFound, "找不到公司")
+	}
+	folder, target := t.Folder, t.TargetBranch
+	e.mu.Unlock()
+	if info, err := os.Stat(folder); err != nil || !info.IsDir() {
+		return ProjectSize{}, nil
+	}
+	commit, err := e.git.Tip(ctx, folder, target)
+	if err != nil || commit == "" {
+		return ProjectSize{}, err
+	}
+	if last, ok := e.sizes.Load(folder); ok && last.(projectSize).commit == commit {
+		return ProjectSize{Bytes: last.(projectSize).bytes}, nil
+	}
+	bytes, err := e.git.TreeBytes(ctx, folder, commit)
+	if err != nil {
+		return ProjectSize{}, err
+	}
+	e.sizes.Store(folder, projectSize{commit: commit, bytes: bytes})
+	return ProjectSize{Bytes: bytes}, nil
+}
+
 // Branches lists the branches of the repo at folder, without changing anything. A folder that is no repo
 // yet has none, and repo is false.
 func (e *Engine) Branches(ctx context.Context, folder string) (branches []string, repo bool, err error) {

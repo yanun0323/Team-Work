@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { officeCapacity } from './office'
-import { AIRPORT, RUNWAY_CELLS, RUNWAY_LINE, BUILDING_CELLS, BUILDING_SIZES, CELL, canMove, canPlace, growth, landGained, MAX_FLOORS, RING_CELLS, layoutTown, PLOT_CELLS, REACH_CELLS, rectCenter, seedOfId, type Spot, spotCenter, TREE_CELLS, type Rect, type Town } from './layout'
+import { AIRPORT, RUNWAY_CELLS, RUNWAY_LINE, BUILDING_CELLS, BUILDING_SIZES, CELL, canMove, canPlace, DECOR_TASKS, decorOf, FLOOR_BYTES, floorsOf, footprintOf, landGained, MAX_FLOORS, RING_CELLS, layoutTown, PLOT_CELLS, REACH_CELLS, rectCenter, seedOfId, type Spot, spotCenter, TREE_CELLS, type Rect, type Town } from './layout'
 import { findPath, nearestFree, townGrid } from './walk'
 
 const teams = (n: number, members = 3) => Array.from({ length: n }, (_, i) => ({ id: `t${i}`, name: `T${i}`, members }))
@@ -91,27 +91,47 @@ describe('fusion town grid', () => {
     }
   })
 
-  it('grows a building from 4 × 4 and one storey up to 10 × 10 and ten storeys', () => {
-    expect(growth(0, 0)).toEqual({ size: 4, floors: 1 })
-    expect(growth(50, 500)).toEqual({ size: BUILDING_CELLS, floors: MAX_FLOORS })
-    // never shrinks as tasks are finished or people hired
-    let last = growth(0, 0)
-    for (let done = 0; done < 40; done++) {
-      const g = growth(2, done)
-      expect(g.size).toBeGreaterThanOrEqual(last.size)
-      expect(g.floors).toBeGreaterThanOrEqual(last.floors)
-      last = g
-    }
-    expect(growth(4, 0).floors).toBeGreaterThan(growth(1, 0).floors)
-    // always a desk each, up to what the largest building holds
+  it('sizes a footprint by the head count alone: the smallest with a desk each', () => {
+    expect(footprintOf(0)).toBe(BUILDING_SIZES[0])
+    let last = footprintOf(0)
     for (let n = 0; n <= officeCapacity(BUILDING_CELLS * CELL, CELL); n++) {
-      expect(officeCapacity(growth(n, 0).size * CELL, CELL)).toBeGreaterThanOrEqual(n)
+      const size = footprintOf(n)
+      expect(size).toBeGreaterThanOrEqual(last)
+      expect(officeCapacity(size * CELL, CELL)).toBeGreaterThanOrEqual(n)
+      // a step smaller would leave someone without a desk
+      const i = BUILDING_SIZES.indexOf(size as (typeof BUILDING_SIZES)[number])
+      if (i > 0) expect(officeCapacity(BUILDING_SIZES[i - 1] * CELL, CELL)).toBeLessThan(n)
+      last = size
     }
+    expect(footprintOf(500)).toBe(BUILDING_CELLS)
   })
 
-  it('makes larger teams taller', () => {
-    const [small, big] = layoutTown([{ id: 'a', name: 'A', members: 2 }, { id: 'b', name: 'B', members: 6 }]).lots
-    expect(big.floors).toBeGreaterThan(small.floors)
+  it('adds a storey each time the project doubles, from one up to ten', () => {
+    expect(floorsOf(0)).toBe(1)
+    expect(floorsOf(Number.NaN)).toBe(1)
+    expect(floorsOf(FLOOR_BYTES - 1)).toBe(1)
+    expect(floorsOf(FLOOR_BYTES)).toBe(2)
+    expect(floorsOf(FLOOR_BYTES * 2 - 1)).toBe(2)
+    expect(floorsOf(FLOOR_BYTES * 2)).toBe(3)
+    expect(floorsOf(FLOOR_BYTES * 2 ** (MAX_FLOORS - 2))).toBe(MAX_FLOORS)
+    expect(floorsOf(1e15)).toBe(MAX_FLOORS)
+  })
+
+  it('dresses a building up as tasks are finished', () => {
+    expect(decorOf(0)).toBe(0)
+    expect(decorOf(DECOR_TASKS[0] - 1)).toBe(0)
+    DECOR_TASKS.forEach((n, i) => expect(decorOf(n)).toBe(i + 1))
+    expect(decorOf(1e6)).toBe(DECOR_TASKS.length)
+  })
+
+  it('raises a building by its project, widens it by its people and dresses it by its tasks', () => {
+    const [a, b] = layoutTown([
+      { id: 'a', name: 'A', members: 2, bytes: FLOOR_BYTES * 8, done: 0 },
+      { id: 'b', name: 'B', members: 12, bytes: 0, done: 30 },
+    ]).lots
+    expect(a.floors).toBeGreaterThan(b.floors)
+    expect(b.building.w).toBeGreaterThan(a.building.w)
+    expect(b.decor).toBeGreaterThan(a.decor)
   })
 
   it('builds land out to a plot put at sea, as one island, and keeps the others where they were', () => {

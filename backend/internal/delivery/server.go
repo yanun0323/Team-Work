@@ -164,6 +164,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.GET("/chats/:id/skill", s.chatSkill)
 	api.GET("/teams/:id/terminal", s.terminal)
 	api.GET("/teams/:id/health", s.teamHealth)
+	api.GET("/teams/:id/size", s.projectSize)
 	api.POST("/attachments", s.uploadAttachment)
 	api.GET("/attachments/:hash", s.downloadAttachment)
 
@@ -802,6 +803,14 @@ func (s *Server) teamHealth(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, health)
+}
+
+func (s *Server) projectSize(c echo.Context) error {
+	size, err := s.engine.ProjectSize(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, size)
 }
 
 func (s *Server) uncommitted(c echo.Context) error {

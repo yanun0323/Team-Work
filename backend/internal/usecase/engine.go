@@ -93,6 +93,8 @@ type Engine struct {
 	// sourced is what each source brings besides skills at its version in use, by the source's id; kept here, as
 	// the world's blueprints and flows from sources are put back from it whenever the settings are installed again
 	sourced map[string]sourcedSet
+	// sizes is the last project size worked out for each folder, a projectSize; the same commit is not added up twice
+	sizes sync.Map
 
 	store     adapter.Store
 	git       adapter.Git
