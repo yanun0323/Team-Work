@@ -263,7 +263,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             decisionHandler(.download)
             return
         }
-        if url == bootPage || url.absoluteString == "about:blank" || (url.scheme == origin.scheme && url.host == origin.host && url.port == origin.port) {
+        // The startup screen only before the app opens: Backspace outside a text box is Back in WebKit, and going back
+        // to it would leave the window stuck there, as nothing loads the app again.
+        if (url == bootPage && !bootDone) || url.absoluteString == "about:blank" || (url.scheme == origin.scheme && url.host == origin.host && url.port == origin.port) {
             decisionHandler(.allow)
         } else {
             if action.navigationType == .linkActivated, ["https", "http"].contains(url.scheme ?? "") { NSWorkspace.shared.open(url) }
