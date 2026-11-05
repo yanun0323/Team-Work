@@ -6,7 +6,7 @@ import { applyPatches, connect, emptyWorld, type ServerEvent } from './backend'
 import { seedWorld } from './data/seed'
 import { addLive, clearAllLive, clearLive, setOutput } from './live'
 import { tick } from './domain/sim'
-import { setAppLanguage } from './i18n'
+import { htmlLang, setAppLanguage } from './i18n'
 import type { World, WorldEvent } from './domain/types'
 import { MOCK } from './mode'
 import { editing, setFailureHandler } from './ops'
@@ -191,7 +191,7 @@ export function useAppLanguage() {
   const language = useStore((s) => s.world.language)
   setAppLanguage(language)
   useEffect(() => {
-    document.documentElement.lang = language === 'zh' ? 'zh-Hant' : 'en'
+    document.documentElement.lang = htmlLang(language)
     // the Mac app's menus follow too
     ;(window as unknown as { webkit?: { messageHandlers?: { language?: { postMessage: (x: string) => void } } } }).webkit?.messageHandlers?.language?.postMessage(language)
   }, [language])

@@ -2,6 +2,7 @@
 // (the store wraps calls in immer), so tests can use plain objects.
 
 import { makeHandoff, makeScript, roleOf } from './content'
+import { mockText } from '../data/mockText'
 import { installPresets, localizeFlow } from '../data/presets'
 import { canReach, canSendBack, feedsOnly, inEdges, nodeOf, outEdges, startsOf } from './graph'
 import { between, chance, hex, pick, uid } from './rng'
@@ -43,8 +44,11 @@ export const costLimit = (w: World, task: Task) => w.teams[task.teamId].settings
 
 export const statusOf = (w: World, task: Task) => taskStatus(task, subsOf(w, task.id))
 
-/** The sample world's own words, in its language: what the simulator writes that no key translates. */
-const say2 = (w: World, zh: string, en: string) => (w.language === 'en' ? en : zh)
+/** The sample world's own words, in its language: what the simulator writes that no key translates. {holes} take args. */
+const say2 = (w: World, zh: string, en: string, args?: Record<string, string>) =>
+  mockText(w.language, zh, en).replace(/\{(\w+)\}/g, (hole, k: string) => args?.[k] ?? hole)
+/** Names in a sentence of the sample world's language. */
+const listIn = (w: World, names: string[]) => names.join(w.language === 'en' || w.language === 'ko' ? ', ' : '、')
 
 function log(s: SubTask, now: number, kind: LogKind, text: string, key?: string, args?: Record<string, string | number>) {
   s.log.push({ at: now, kind, text, key, args })
@@ -205,13 +209,13 @@ function stepMerge(w: World, task: Task) {
     m.startedAt = w.now
     m.endsAt = w.now + MERGE_TIME + (m.conflict ? RESOLVE_TIME : 0)
     const name = m.replicaId ? w.replicas[m.replicaId]?.name : undefined
-    m.log.push({ at: w.now, kind: 'system', text: say2(w, `${name ? `${name} ` : ''}開始把 ${task.branch} 合併到 ${target}`, `${name ? `${name} ` : ''}Merging ${task.branch} into ${target}`) })
-    if (m.conflict) m.log.push({ at: w.now, kind: 'system', text: say2(w, `和 ${target} 有衝突，先解衝突`, `Conflicts with ${target}; resolving them first`) })
+    m.log.push({ at: w.now, kind: 'system', text: `${name ? `${name} ` : ''}${say2(w, '開始把 {branch} 合併到 {target}', 'Merging {branch} into {target}', { branch: task.branch, target })}` })
+    if (m.conflict) m.log.push({ at: w.now, kind: 'system', text: say2(w, '和 {target} 有衝突，先解衝突', 'Conflicts with {target}; resolving them first', { target }) })
     return
   }
   if (w.now < m.endsAt!) return
   if (m.conflict) m.log.push({ at: w.now, kind: 'system', text: say2(w, '衝突已解決', 'Conflicts resolved') })
-  m.log.push({ at: w.now, kind: 'system', text: say2(w, `已合併回 ${target}，移除 work tree`, `Merged into ${target}; work tree removed`) })
+  m.log.push({ at: w.now, kind: 'system', text: say2(w, '已合併回 {target}，移除 work tree', 'Merged into {target}; work tree removed', { target }) })
   task.stage = 'done'
   task.doneAt = w.now
 }
@@ -272,7 +276,7 @@ export const REPLY_TIME = 4
 function openTalk(w: World, task: Task, sub: SubTask) {
   sub.progress = 1
   sub.talk = { messages: [], speaker: sub.replicaId ?? undefined }
-  say(w, sub, sub.script.talk?.opening ?? say2(w, `關於「${task.title}」，有幾件事想和你討論。`, `A few things to talk over with you about "${task.title}".`))
+  say(w, sub, sub.script.talk?.opening ?? say2(w, '關於「{t}」，有幾件事想和你討論。', 'A few things to talk over with you about "{t}".', { t: task.title }))
   openReview(w, task, sub, { kind: 'talk', options: [] })
 }
 
@@ -721,12 +725,12 @@ export function endTalk(w: World, subId: string, end: TalkEnd) {
   sub.handoff.human.did = said.length ? said.map((x) => `${user}${x}`) : [say2(w, '使用者沒有補充，照原計畫進行', 'The user added nothing; going ahead as planned')]
   if (end.kind === 'back') {
     const reason = end.reason.trim()
-    log(sub, w.now, 'human', say2(w, `結束討論：退回（${reason}）`, `Ended the discussion: sent back (${reason})`))
+    log(sub, w.now, 'human', say2(w, '結束討論：退回（{reason}）', 'Ended the discussion: sent back ({reason})', { reason }))
     sendBack(w, task, sub, [sub], reason)
     return
   }
   const to = end.to ? nodeOf(wf, end.to)?.name : undefined
-  log(sub, w.now, 'human', to ? say2(w, `結束討論：繼續，交給 ${to}`, `Ended the discussion: continue, to ${to}`) : say2(w, '結束討論：繼續', 'Ended the discussion: continue'))
+  log(sub, w.now, 'human', to ? say2(w, '結束討論：繼續，交給 {to}', 'Ended the discussion: continue, to {to}', { to }) : say2(w, '結束討論：繼續', 'Ended the discussion: continue'))
   if (end.to) {
     sub.routedTo = [end.to]
     sub.handoff.agent.next = { nodeId: end.to, reason: say2(w, '使用者在討論後指定', 'Picked by the user after the discussion') }
@@ -747,8 +751,8 @@ function complete(w: World, task: Task, sub: SubTask) {
   const landed = subsOf(w, task.id).filter((o) =>
     o.id !== sub.id && !o.cancelled && !o.skipped && o.handoff?.commit && (o.endedAt ?? -1) > (sub.startedAt ?? w.now))
   if (landed.length) {
-    const names = [...new Set(landed.map((o) => nodeOf(task.workflow, o.nodeId)?.name ?? o.nodeId))].join(say2(w, '、', ', '))
-    log(sub, w.now, 'system', say2(w, `commit 衝突：先合進 ${names} 的 commit，解完衝突再 commit`, `Commit conflict: took in the commits of ${names} first, then committed after resolving it`))
+    const names = [...new Set(landed.map((o) => nodeOf(task.workflow, o.nodeId)?.name ?? o.nodeId))]
+    log(sub, w.now, 'system', say2(w, 'commit 衝突：先合進 {names} 的 commit，解完衝突再 commit', 'Commit conflict: took in the commits of {names} first, then committed after resolving it', { names: listIn(w, names) }))
   }
   log(sub, w.now, 'system', `完成，commit ${sub.handoff.commit}`, 'done', { commit: sub.handoff.commit })
 }
@@ -818,11 +822,11 @@ function sendBack(w: World, task: Task, sub: SubTask, members: SubTask[], reason
     if (u && !u.cancelled && (!u.group || u.group === u.id) && !before.has(u.nodeId)) before.set(u.nodeId, u)
   }
   const to = [...before.keys()]
-  const names = to.map((n) => nodeOf(wf, n)?.name ?? n).join(say2(w, '、', ', '))
+  const names = listIn(w, to.map((n) => nodeOf(wf, n)?.name ?? n))
   for (const m of members) {
     m.routed = true
     m.sentBack = { to, reason }
-    if (m.handoff) m.handoff.human.headline = say2(w, `退回 ${names}：${reason}`, `Sent back to ${names}: ${reason}`)
+    if (m.handoff) m.handoff.human.headline = say2(w, '退回 {names}：{reason}', 'Sent back to {names}: {reason}', { names, reason })
     log(m, w.now, 'system', `退回 ${names} 重做：${reason}`, 'sentBack', { nodes: names, reason })
   }
   const round = (sub.round ?? 0) + 1
@@ -921,7 +925,7 @@ function dispatch(w: World) {
     const task = w.tasks[s.taskId]
     // the task's first run makes the work tree every later step commits to
     if (s.startedAt === undefined && !subsOf(w, task.id).some((o) => o.startedAt !== undefined)) {
-      log(s, w.now, 'system', say2(w, `建立 work tree，分支 ${task.branch}（從 ${w.teams[task.teamId]?.targetBranch ?? 'main'}）`, `Created a work tree on branch ${task.branch} (from ${w.teams[task.teamId]?.targetBranch ?? 'main'})`))
+      log(s, w.now, 'system', say2(w, '建立 work tree，分支 {branch}（從 {from}）', 'Created a work tree on branch {branch} (from {from})', { branch: task.branch, from: w.teams[task.teamId]?.targetBranch ?? 'main' }))
     }
     s.startedAt ??= w.now
   }
@@ -1090,7 +1094,7 @@ export function returnTask(w: World, taskId: string, feedback: string) {
   const review = task?.stage === 'awaitMerge' ? lastReview(w, task) : undefined
   const reason = feedback.trim()
   if (!review || !reason || !review.upstreamIds.length) return
-  log(review, w.now, 'human', say2(w, `退回：${reason}`, `Sent back: ${reason}`))
+  log(review, w.now, 'human', say2(w, '退回：{reason}', 'Sent back: {reason}', { reason }))
   const members = review.group ? subsOf(w, task.id).filter((s) => s.group === review.group && !s.cancelled) : [review]
   task.stage = 'running'
   sendBack(w, task, review, members, reason)
@@ -1279,7 +1283,7 @@ const UPDATE_ERRORS = { zh: ['驗證失敗，沒有讀取權限', '新版本缺�
  * other reasons; a failed update keeps the version in use. Either way the attempt is recorded.
  */
 export function updateSource(w: World, s: GitSource) {
-  const error = !s.upstream ? say2(w, '找不到上游', 'Upstream not found') : chance(w, 0.25) ? pick(w, UPDATE_ERRORS[w.language]) : undefined
+  const error = !s.upstream ? say2(w, '找不到上游', 'Upstream not found') : chance(w, 0.25) ? pick(w, mockText(w.language, UPDATE_ERRORS.zh, UPDATE_ERRORS.en)) : undefined
   s.update = error ? { at: w.now, ok: false, error } : { at: w.now, ok: true }
   if (error) return
   s.commit = s.latest
@@ -1330,7 +1334,7 @@ export function blankSteps(id: (prefix: string) => string, name: string): Pick<W
 }
 
 export function newWorkflow(w: World, name: string): Workflow {
-  const wf: Workflow = { id: uid(w, 'wf'), name, ...blankSteps((p) => uid(w, p), w.language === 'en' ? 'New step 1' : '新步驟1') }
+  const wf: Workflow = { id: uid(w, 'wf'), name, ...blankSteps((p) => uid(w, p), mockText(w.language, '新步驟1', 'New step 1')) }
   w.workflows[wf.id] = wf
   return wf
 }

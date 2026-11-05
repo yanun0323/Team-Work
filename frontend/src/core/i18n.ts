@@ -1,12 +1,18 @@
 // The interface's words. A word's key is its Traditional Chinese, so screens read as they appear and `tsc` refuses any
-// text with no English. `#` tells apart one Chinese word that needs two English ones.
+// text with no English. `#` tells apart one Chinese word that needs two English ones. The other languages are in
+// locales/, one file each, and `tsc` keeps them as complete as the English.
 //
 // `tr` reads the language set here rather than from the store, so pure helpers can call it too; the app sets it and renders
 // again when the language changes (see main.tsx). So call `tr` while rendering, never in a constant outside a component.
 
 import type { Locale } from './domain/types'
+import { ja } from './locales/ja'
+import { ko } from './locales/ko'
+import { zhHans } from './locales/zhHans'
 
 export type Args = Record<string, string | number | undefined>
+/** A word in one language: a text with {holes}, or a function for a language that counts with plurals. */
+export type Text = string | ((args: Args) => string)
 
 let language: Locale = 'zh'
 
@@ -16,9 +22,18 @@ export const setAppLanguage = (next: Locale) => {
   language = next
 }
 
-/** Names in a sentence, and what comes between a name and what it said: Chinese has its own marks for both. */
-export const listOf = (items: string[]) => items.join(language === 'zh' ? '、' : ', ')
-export const colon = () => (language === 'zh' ? '：' : ': ')
+/** The tag dates and times are written in for each language. */
+export const LOCALE_TAGS: Record<Locale, string> = { zh: 'zh-TW', en: 'en-US', 'zh-Hans': 'zh-CN', ja: 'ja-JP', ko: 'ko-KR' }
+
+/** The page's `lang`, so the browser picks a typeface with the right shapes. */
+export const htmlLang = (l: Locale) => (l === 'zh' ? 'zh-Hant' : l)
+
+/** Chinese and Japanese have their own marks for a list and a colon; Korean writes them as English does. */
+const fullWidth = () => language === 'zh' || language === 'zh-Hans' || language === 'ja'
+
+/** Names in a sentence, and what comes between a name and what it said. */
+export const listOf = (items: string[]) => items.join(fullWidth() ? '、' : ', ')
+export const colon = () => (fullWidth() ? '：' : ': ')
 
 /** `n` of something, as English counts it. */
 const count = (n: string | number | undefined, one: string) => `${n} ${n === 1 ? one : `${one}s`}`
@@ -602,52 +617,54 @@ const en = {
   '連不上後端，請先執行 make dev': 'Cannot reach the backend. Run make dev first',
   '連不上後端，請關閉並重新開啟 Team Work': 'Cannot reach the backend. Quit and reopen Team Work',
   '還沒有員工': 'No employees yet',
-} satisfies Record<string, string | ((args: Args) => string)>
+} satisfies Record<string, Text>
 
 export type Key = keyof typeof en
+
+const CATALOGS: Record<Exclude<Locale, 'zh'>, Record<Key, Text>> = { en, 'zh-Hans': zhHans, ja, ko }
 
 const fill = (text: string, args?: Args) => (args ? text.replace(/\{(\w+)\}/g, (_, k) => String(args[k] ?? '')) : text)
 
 export function tr(key: Key, args?: Args): string {
   // a tag is a lowercase word after the last "#", to tell apart keys that read the same in Chinese
   if (language === 'zh') return fill(key.replace(/#[a-z]+$/, ''), args)
-  const text: string | ((a: Args) => string) = en[key]
+  const text: Text = CATALOGS[language][key]
   return typeof text === 'function' ? text(args ?? {}) : fill(text, args)
 }
 
 /** What the backend and simulator record by key: log lines and review options. */
 const RECORDED: Record<string, Record<Locale, string>> = {
-  'option.approve': { zh: '同意', en: 'Agree' },
-  'option.reject': { zh: '拒絕', en: 'Refuse' },
-  'option.retry': { zh: '再試一次', en: 'Try again' },
-  'option.skip': { zh: '略過這個節點', en: 'Skip this node' },
-  'option.addBudget': { zh: '提高上限 50%', en: 'Raise limit by 50%' },
-  'option.pauseTask': { zh: '暫停任務', en: 'Pause task' },
-  'log.queued': { zh: '已排入佇列', en: 'Queued' },
-  'log.start': { zh: '{name} 開始工作', en: '{name} started' },
-  'log.handover': { zh: '{from} 離職，交給 {to}', en: '{from} left; {to} takes over' },
-  'log.done': { zh: '完成，commit {commit}', en: 'Done, commit {commit}' },
-  'log.memory': { zh: '寫入記憶：{text}', en: 'Saved to memory: {text}' },
-  'log.forget': { zh: '移除記憶：{text}', en: 'Removed from memory: {text}' },
-  'log.retro': { zh: '回顧並寫入記憶：{text}', en: 'Retro saved to memory: {text}' },
-  'log.retryTimeout': { zh: '逾時，自動重試 {n}/{max}', en: 'Timed out, retry {n}/{max}' },
-  'log.retryError': { zh: '執行錯誤，自動重試 {n}/{max}', en: 'Error, retry {n}/{max}' },
-  'log.budgetHold': { zh: '費用達到上限，暫停執行', en: 'Cost limit reached, stopped' },
-  'log.paused': { zh: '任務已暫停，中斷工作', en: 'Task paused, work interrupted' },
-  'log.cancelled': { zh: '任務已取消', en: 'Task cancelled' },
-  'log.joinWaiting': { zh: '等待其他上游完成', en: 'Waiting for other upstreams' },
-  'log.joinArrived': { zh: '收到 {node} 的交接', en: 'Handoff received from {node}' },
-  'log.joinReady': { zh: '所有會執行到的上游都已完成', en: 'Every upstream that will run is done' },
-  'log.joinCancelled': { zh: '匯合節點已開始，取消這個分支', en: 'Join already started, branch cancelled' },
-  'log.sentBack': { zh: '退回 {nodes} 重做：{reason}', en: 'Sent back to {nodes} to redo: {reason}' },
-  'log.reworkFrom': { zh: '{node} 退回重做：{reason}', en: '{node} sent this back to redo: {reason}' },
-  'log.review.question': { zh: '等待使用者審核', en: 'Waiting for the user' },
-  'log.review.pickRoute': { zh: '等待使用者選擇下游', en: 'Waiting for the user to pick a route' },
-  'log.review.failed': { zh: '等待使用者決定是否重試', en: 'Waiting for the user to retry or skip' },
-  'log.review.budget': { zh: '等待使用者處理費用上限', en: 'Waiting for the user about the cost limit' },
-  'log.review.change': { zh: '等待使用者確認修改', en: 'Waiting for the user to agree to a change' },
-  'log.review.talk': { zh: '等待使用者討論', en: 'Waiting to talk it over with the user' },
-  'log.empty': { zh: '還沒有紀錄', en: 'Nothing yet' },
+  'option.approve': { zh: '同意', en: 'Agree', 'zh-Hans': '同意', ja: '同意する', ko: '동의' },
+  'option.reject': { zh: '拒絕', en: 'Refuse', 'zh-Hans': '拒绝', ja: '拒否する', ko: '거절' },
+  'option.retry': { zh: '再試一次', en: 'Try again', 'zh-Hans': '再试一次', ja: 'もう一度試す', ko: '다시 시도' },
+  'option.skip': { zh: '略過這個節點', en: 'Skip this node', 'zh-Hans': '跳过这个节点', ja: 'このステップをスキップ', ko: '이 단계 건너뛰기' },
+  'option.addBudget': { zh: '提高上限 50%', en: 'Raise limit by 50%', 'zh-Hans': '提高上限 50%', ja: '上限を 50% 引き上げる', ko: '한도 50% 올리기' },
+  'option.pauseTask': { zh: '暫停任務', en: 'Pause task', 'zh-Hans': '暂停任务', ja: 'タスクを一時停止', ko: '작업 일시 중지' },
+  'log.queued': { zh: '已排入佇列', en: 'Queued', 'zh-Hans': '已加入队列', ja: 'キューに追加しました', ko: '대기열에 추가됨' },
+  'log.start': { zh: '{name} 開始工作', en: '{name} started', 'zh-Hans': '{name} 开始工作', ja: '{name} が作業を開始', ko: '{name} 작업 시작' },
+  'log.handover': { zh: '{from} 離職，交給 {to}', en: '{from} left; {to} takes over', 'zh-Hans': '{from} 离职，交给 {to}', ja: '{from} が退職し、{to} に引き継ぎ', ko: '{from} 퇴사, {to}에게 인계' },
+  'log.done': { zh: '完成，commit {commit}', en: 'Done, commit {commit}', 'zh-Hans': '完成，commit {commit}', ja: '完了、commit {commit}', ko: '완료, commit {commit}' },
+  'log.memory': { zh: '寫入記憶：{text}', en: 'Saved to memory: {text}', 'zh-Hans': '写入记忆：{text}', ja: 'メモリに保存：{text}', ko: '메모리에 저장: {text}' },
+  'log.forget': { zh: '移除記憶：{text}', en: 'Removed from memory: {text}', 'zh-Hans': '移除记忆：{text}', ja: 'メモリから削除：{text}', ko: '메모리에서 삭제: {text}' },
+  'log.retro': { zh: '回顧並寫入記憶：{text}', en: 'Retro saved to memory: {text}', 'zh-Hans': '回顾并写入记忆：{text}', ja: '振り返ってメモリに保存：{text}', ko: '회고 후 메모리에 저장: {text}' },
+  'log.retryTimeout': { zh: '逾時，自動重試 {n}/{max}', en: 'Timed out, retry {n}/{max}', 'zh-Hans': '超时，自动重试 {n}/{max}', ja: 'タイムアウト、自動再試行 {n}/{max}', ko: '시간 초과, 자동 재시도 {n}/{max}' },
+  'log.retryError': { zh: '執行錯誤，自動重試 {n}/{max}', en: 'Error, retry {n}/{max}', 'zh-Hans': '运行出错，自动重试 {n}/{max}', ja: '実行エラー、自動再試行 {n}/{max}', ko: '실행 오류, 자동 재시도 {n}/{max}' },
+  'log.budgetHold': { zh: '費用達到上限，暫停執行', en: 'Cost limit reached, stopped', 'zh-Hans': '费用达到上限，暂停执行', ja: '費用が上限に達したため停止', ko: '비용 한도에 도달해 중지됨' },
+  'log.paused': { zh: '任務已暫停，中斷工作', en: 'Task paused, work interrupted', 'zh-Hans': '任务已暂停，中断工作', ja: 'タスクを一時停止し、作業を中断', ko: '작업 일시 중지, 진행 중인 일 중단' },
+  'log.cancelled': { zh: '任務已取消', en: 'Task cancelled', 'zh-Hans': '任务已取消', ja: 'タスクをキャンセルしました', ko: '작업 취소됨' },
+  'log.joinWaiting': { zh: '等待其他上游完成', en: 'Waiting for other upstreams', 'zh-Hans': '等待其他上游完成', ja: 'ほかの前のステップの完了待ち', ko: '다른 이전 단계가 끝나기를 기다리는 중' },
+  'log.joinArrived': { zh: '收到 {node} 的交接', en: 'Handoff received from {node}', 'zh-Hans': '收到 {node} 的交接', ja: '{node} から引き継ぎを受け取りました', ko: '{node}의 인계를 받음' },
+  'log.joinReady': { zh: '所有會執行到的上游都已完成', en: 'Every upstream that will run is done', 'zh-Hans': '所有会执行到的上游都已完成', ja: '実行される前のステップがすべて完了', ko: '실행될 이전 단계가 모두 끝남' },
+  'log.joinCancelled': { zh: '匯合節點已開始，取消這個分支', en: 'Join already started, branch cancelled', 'zh-Hans': '汇合节点已开始，取消这个分支', ja: '合流ステップが開始済みのため、この分岐をキャンセル', ko: '합류 단계가 이미 시작되어 이 분기를 취소함' },
+  'log.sentBack': { zh: '退回 {nodes} 重做：{reason}', en: 'Sent back to {nodes} to redo: {reason}', 'zh-Hans': '退回 {nodes} 重做：{reason}', ja: '{nodes} に差し戻してやり直し：{reason}', ko: '{nodes}(으)로 되돌려 다시 작업: {reason}' },
+  'log.reworkFrom': { zh: '{node} 退回重做：{reason}', en: '{node} sent this back to redo: {reason}', 'zh-Hans': '{node} 退回重做：{reason}', ja: '{node} から差し戻し：{reason}', ko: '{node}에서 되돌려 보냄: {reason}' },
+  'log.review.question': { zh: '等待使用者審核', en: 'Waiting for the user', 'zh-Hans': '等待用户审核', ja: 'ユーザーの確認待ち', ko: '사용자 확인 대기 중' },
+  'log.review.pickRoute': { zh: '等待使用者選擇下游', en: 'Waiting for the user to pick a route', 'zh-Hans': '等待用户选择下游', ja: 'ユーザーが次のステップを選ぶのを待っています', ko: '사용자가 다음 단계를 고르기를 기다리는 중' },
+  'log.review.failed': { zh: '等待使用者決定是否重試', en: 'Waiting for the user to retry or skip', 'zh-Hans': '等待用户决定是否重试', ja: '再試行するかユーザーの判断待ち', ko: '다시 시도할지 사용자 결정 대기 중' },
+  'log.review.budget': { zh: '等待使用者處理費用上限', en: 'Waiting for the user about the cost limit', 'zh-Hans': '等待用户处理费用上限', ja: '費用上限についてユーザーの対応待ち', ko: '비용 한도에 대한 사용자 결정 대기 중' },
+  'log.review.change': { zh: '等待使用者確認修改', en: 'Waiting for the user to agree to a change', 'zh-Hans': '等待用户确认修改', ja: '変更についてユーザーの確認待ち', ko: '변경 사항에 대한 사용자 확인 대기 중' },
+  'log.review.talk': { zh: '等待使用者討論', en: 'Waiting to talk it over with the user', 'zh-Hans': '等待用户讨论', ja: 'ユーザーとの話し合い待ち', ko: '사용자와 논의 대기 중' },
+  'log.empty': { zh: '還沒有紀錄', en: 'Nothing yet', 'zh-Hans': '还没有记录', ja: 'まだ記録はありません', ko: '아직 기록이 없습니다' },
 }
 
 /** A recorded key's text; one this version does not know shows as it came. */

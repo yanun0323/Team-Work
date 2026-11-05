@@ -1,17 +1,18 @@
 // Fake agent output. Everything here is placeholder content for the prototype.
 
 import { between, chance, hex, pick, rand, sample } from './rng'
-import type { Handoff, Locale, LogKind, Script, Task, World, WorkflowNode } from './types'
+import { mockText } from '../data/mockText'
+import type { Handoff, LogKind, Script, Task, World, WorkflowNode } from './types'
 
 export type Role = 'intake' | 'research' | 'report' | 'dev' | 'review' | 'docs' | 'test' | 'talk' | 'generic'
 
 const KEYWORDS: [Role, RegExp][] = [
-  ['research', /研究|調查|紀錄|research|investigat|log/i],
-  ['report', /報告|report|summary/i],
-  ['dev', /開發|實作|程式|修正|dev|build|implement|code|fix/i],
-  ['review', /驗收|審查|審核|review/i],
-  ['docs', /文件|docs?|writ/i],
-  ['test', /測試|重現|test|qa|reproduc/i],
+  ['research', /研究|調查|紀錄|调查|记录|調査|記録|조사|연구|기록|research|investigat|log/i],
+  ['report', /報告|报告|보고|report|summary/i],
+  ['dev', /開發|實作|程式|修正|开发|实作|程序|開発|実装|개발|구현|수정|dev|build|implement|code|fix/i],
+  ['review', /驗收|審查|審核|验收|审查|审核|レビュー|リビュー|審査|검토|리뷰|review/i],
+  ['docs', /文件|規格|规格|仕様を書く|ドキュメント|명세 작성|문서|docs?|writ/i],
+  ['test', /測試|重現|测试|重现|テスト|再現|테스트|재현|test|qa|reproduc/i],
 ]
 
 export function roleOf(node: WorkflowNode): Role {
@@ -21,8 +22,12 @@ export function roleOf(node: WorkflowNode): Role {
 }
 
 type Line = [LogKind, string]
-/** Each table in both languages, the same length and order, so a world picks the same things in either. */
-type Both<T> = Record<Locale, T>
+/**
+ * Each table in Chinese and English, the same length and order, so a world picks the same things in any language;
+ * the other languages translate the Chinese (see mockText.ts).
+ */
+type Both<T> = { zh: T; en: T }
+const inLanguage = <T>(w: World, t: Both<T>): T => mockText(w.language, t.zh, t.en)
 
 const LINES: Both<Record<Role, Line[]>> = {
   zh: {
@@ -296,26 +301,25 @@ const fill = (s: string, task: Task) =>
   s.replaceAll('{t}', task.title).replaceAll('{slug}', `task-${task.number}`)
 
 export function makeScript(w: World, role: Role, task: Task, override?: Partial<Script>): Script {
-  const l = w.language
   // a discussion only gets ready and opens; the user decides the rest, so nothing goes wrong on its own
   if (role === 'talk') {
-    const raw = LINES[l].talk
+    const raw = inLanguage(w, LINES).talk
     return {
       lines: raw.map(([kind, text], i) => ({ p: (i + 0.5) / raw.length, kind, text: fill(text, task) })),
       duration: between(w, 6, 10),
       costRate: between(w, 0.012, 0.03),
       route: 0,
-      talk: { opening: fill(pick(w, OPENINGS[l]), task), replies: sample(w, REPLIES[l], REPLIES[l].length) },
+      talk: { opening: fill(pick(w, inLanguage(w, OPENINGS)), task), replies: sample(w, inLanguage(w, REPLIES), inLanguage(w, REPLIES).length) },
       ...override,
     }
   }
-  const raw = LINES[l][role]
+  const raw = inLanguage(w, LINES)[role]
   const lines = raw.map(([kind, text], i) => ({
     p: Math.min(0.95, (i + 0.5) / raw.length + between(w, -0.03, 0.03)),
     kind,
     text: fill(text, task),
   }))
-  const asks = ASKS[l][role]
+  const asks = inLanguage(w, ASKS)[role]
   const script: Script = {
     lines,
     duration: between(w, 18, 30),
@@ -327,29 +331,29 @@ export function makeScript(w: World, role: Role, task: Task, override?: Partial<
     script.ask = { p: between(w, 0.35, 0.65), prompt: a.prompt, options: a.options }
   }
   if (chance(w, 0.08)) script.fail = { p: between(w, 0.3, 0.7), reason: chance(w, 0.5) ? 'timeout' : 'error', times: 1 }
-  if (chance(w, 0.35)) script.memory = { p: between(w, 0.3, 0.8), text: pick(w, MEMORY[l][role]) }
-  if (chance(w, 0.5)) script.retro = pick(w, MEMORY[l][role])
-  script.sendBack = { roll: rand(w), reason: pick(w, SEND_BACK[l][role] ?? SEND_BACK_UP[l]) }
+  if (chance(w, 0.35)) script.memory = { p: between(w, 0.3, 0.8), text: pick(w, inLanguage(w, MEMORY)[role]) }
+  if (chance(w, 0.5)) script.retro = pick(w, inLanguage(w, MEMORY)[role])
+  script.sendBack = { roll: rand(w), reason: pick(w, inLanguage(w, SEND_BACK)[role] ?? inLanguage(w, SEND_BACK_UP)) }
   return { ...script, ...override }
 }
 
 export function makeHandoff(w: World, role: Role, task: Task, node: WorkflowNode): Handoff {
-  const en = w.language === 'en'
+  const say = (zh: string, en: string) => mockText(w.language, zh, en)
   const commit = hex(w)
   const outputs = OUTPUTS[role].map((o) => fill(o, task))
-  const done = sample(w, LINES[w.language][role].filter(([k]) => k === 'say').map(([, t]) => fill(t, task)), 2)
+  const done = sample(w, inLanguage(w, LINES)[role].filter(([k]) => k === 'say').map(([, t]) => fill(t, task)), 2)
   return {
     commit,
     agent: {
-      goal: `${task.title}${en ? ' | ' : '｜'}${node.name}`,
-      done: done.length ? done : [en ? `${node.name} done` : `${node.name}完成`],
+      goal: `${task.title}${w.language === 'en' || w.language === 'ko' ? ' | ' : '｜'}${node.name}`,
+      done: done.length ? done : [say('{n}完成', '{n} done').replace('{n}', node.name)],
       outputs: [...outputs, `commit ${commit} @ ${task.branch}`],
-      decisions: chance(w, 0.6) ? [en ? 'Kept the existing components; no new dependencies' : '沿用既有元件，不新增相依套件'] : [],
-      open: chance(w, 0.4) ? [en ? 'Mobile spacing not yet checked page by page' : '行動版的間距還沒有逐頁確認'] : [],
+      decisions: chance(w, 0.6) ? [say('沿用既有元件，不新增相依套件', 'Kept the existing components; no new dependencies')] : [],
+      open: chance(w, 0.4) ? [say('行動版的間距還沒有逐頁確認', 'Mobile spacing not yet checked page by page')] : [],
     },
     human: {
-      headline: pick(w, HEADLINE[w.language][role]),
-      did: done.length ? done : [en ? `Finished ${node.name}` : `完成${node.name}`],
+      headline: pick(w, inLanguage(w, HEADLINE)[role]),
+      did: done.length ? done : [say('完成{n}', 'Finished {n}').replace('{n}', node.name)],
       outputs,
     },
   }

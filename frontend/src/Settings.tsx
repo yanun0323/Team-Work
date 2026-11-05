@@ -20,7 +20,7 @@ import { FlowNotes, openCard } from './FlowNotes'
 import { keptState, sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, makesImages, PROVIDER_KINDS } from './providers'
-import { Select, Switcher, Toggle, useAutoGrow } from './Controls'
+import { Select, Toggle, useAutoGrow } from './Controls'
 import { hideBlueprint, hideWorkflow, setLanguage } from './core/ops'
 import { Chats, TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
 import { airportTabOr, AIRPORT_TABS, AUTO_TABS, AUTO_VIEWS, BUSY_ANIMATIONS, DAYLIGHTS, DEFAULT_PREFS, type AirportTab, type AutoTab, type AutoView, type BusyAnimation, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY, COMPACT_DEFAULTS, COMPACT_SHARE } from './prefs'
@@ -34,6 +34,7 @@ import { Stats } from './Stats'
 import { SourcesTab } from './Sources'
 import { VERSION } from './update'
 import type { Daylight } from './daylight'
+import type { Locale } from './core/domain/types'
 
 const LINKS = [
   { label: 'GitHub', href: 'https://github.com/yanun0323/Team-Work' },
@@ -480,8 +481,8 @@ export function PrefsPage() {
       <section className="fx-d-group" aria-labelledby="fx-prefs-general">
         <h4 id="fx-prefs-general">{tr('一般')}</h4>
         <div className="fx-fields">
-          <Switcher label={tr('語言')} value={language} options={LANGUAGES} labelOf={(l) => LANGUAGE_NAMES[l]}
-            onChange={(l) => act((x) => void setLanguage(x, l))} />
+          <Select label={tr('語言')} value={language} options={[...LANGUAGES]} labelOf={(l) => LANGUAGE_NAMES[l as Locale]}
+            onChange={(l) => act((x) => void setLanguage(x, l as Locale))} />
           <Select label={tr('預設機場頁面')} value={airportTabOr(prefs.defaultAirportTab)} options={AIRPORT_TABS.map((x) => x.id)}
             labelOf={(id) => tr(AIRPORT_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultAirportTab: v as AirportTab })} />
           <Select label={tr('預設公司頁面')} value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.filter((x) => x.id !== 'files').map((x) => x.id)}

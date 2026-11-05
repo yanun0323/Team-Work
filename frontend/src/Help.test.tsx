@@ -3,6 +3,9 @@ import { expect, it } from 'vitest'
 import type { ReactNode } from 'react'
 import { Help, helpBodiesForTest, helpTopicIdsForTest } from './Help'
 import { HELP_EN } from './HelpEn'
+import { HELP_JA } from './HelpJa'
+import { HELP_KO } from './HelpKo'
+import { HELP_ZH_HANS } from './HelpZhHans'
 
 it('lists the main topics first, then the airport and the company', () => {
   const html = renderToStaticMarkup(<Help leaving={false} onGone={() => {}} />)
@@ -22,6 +25,15 @@ it('has every topic in English, with no Chinese left', () => {
   for (const t of Object.values(HELP_EN)) {
     expect(`${t.label} ${t.title ?? ''} ${t.alt} ${textOf(t.body)}`, t.label).not.toMatch(/\p{Script=Han}/u)
   }
+})
+
+it('has every topic in Simplified Chinese, Japanese and Korean, with no Traditional Chinese left in Korean', () => {
+  for (const help of [HELP_ZH_HANS, HELP_JA, HELP_KO]) expect(Object.keys(help).sort()).toEqual(helpTopicIdsForTest().sort())
+  for (const t of Object.values(HELP_KO)) {
+    expect(`${t.label} ${t.title ?? ''} ${t.alt} ${textOf(t.body)}`, t.label).not.toMatch(/\p{Script=Han}/u)
+  }
+  // a few characters that differ between the two Chinese scripts
+  for (const t of Object.values(HELP_ZH_HANS)) expect(`${t.label} ${t.alt} ${textOf(t.body)}`, t.label).not.toMatch(/[們個這對務員設說藍圖機場]/)
 })
 
 /** The tags a body is made of, at its top level. */

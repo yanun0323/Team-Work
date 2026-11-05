@@ -6,7 +6,9 @@ import { autoLayout, canSendBack } from '../domain/graph'
 import { sourceFor, sourceOfId } from '../domain/sources'
 import type { Blueprint, Locale, Look, Tool, Workflow, WorkflowNode, World } from '../domain/types'
 
-type Text = { zh: string; en: string }
+type Text = Record<Locale, string>
+/** Whether s is this text in any language. */
+const is = (t: Text, s: string) => Object.values(t).includes(s)
 type Step = { name: Text; prompt?: Text; talk?: boolean }
 /** The folder (none: the whole repo) of a repo at a branch that a built-in blueprint reads its skills from. */
 type Pack = { repo: string; ref: string; path?: string }
@@ -53,7 +55,7 @@ export function localizeFlow(wf: Workflow, language: Locale) {
   for (const n of wf.nodes) {
     const s = steps.get(n.id)
     // a task's copy from before the flow changed may hold another step at this place, so the name must match too
-    if (s && (n.name === s.name.zh || n.name === s.name.en)) {
+    if (s && is(s.name, n.name)) {
       n.name = s.name[language]
       if (s.prompt) n.prompt = s.prompt[language]
     }
@@ -63,8 +65,8 @@ export function localizeFlow(wf: Workflow, language: Locale) {
     }
     if (n.kind === 'task') n.prompt = data.start.prompt[language]
     for (const fixed of [data.start, data.end]) {
-      if (n.prompt === fixed.prompt.zh || n.prompt === fixed.prompt.en) n.prompt = fixed.prompt[language]
-      if (n.name === fixed.name.zh || n.name === fixed.name.en) n.name = fixed.name[language]
+      if (is(fixed.prompt, n.prompt)) n.prompt = fixed.prompt[language]
+      if (is(fixed.name, n.name)) n.name = fixed.name[language]
     }
   }
 }

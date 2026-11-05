@@ -2,7 +2,8 @@ import type { Prefs } from '../../prefs'
 import type { BuildingLook, Spot } from '../../layout'
 // Domain types. Names follow CONTEXT.md at the repo root.
 
-export type Locale = 'zh' | 'en'
+/** zh is Traditional Chinese, the language the interface's words are keyed by; zh-Hans is Simplified Chinese. */
+export type Locale = 'zh' | 'en' | 'zh-Hans' | 'ja' | 'ko'
 
 export type Status = 'todo' | 'progressing' | 'review' | 'complete'
 export type HandoffMode = 'pickOne' | 'all'

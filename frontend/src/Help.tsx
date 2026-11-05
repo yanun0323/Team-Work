@@ -9,10 +9,18 @@
 
 import { Children, isValidElement, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { appLanguage, tr } from './core/i18n'
-import { HELP_EN } from './HelpEn'
+import { HELP_EN, type HelpTopic } from './HelpEn'
+import { HELP_JA } from './HelpJa'
+import { HELP_KO } from './HelpKo'
+import { HELP_ZH_HANS } from './HelpZhHans'
+import type { Locale } from './core/domain/types'
 
-/** Each topic's screenshot, one set per language: help/<language>/<topic>.jpg. */
+/** Each topic's screenshot: help/<set>/<topic>.jpg, the Chinese set or the English one, whichever reads closer. */
 const SHOTS = import.meta.glob<string>('./help/*/*.jpg', { eager: true, query: '?url', import: 'default' })
+const SHOT_SET: Record<Locale, 'zh' | 'en'> = { zh: 'zh', 'zh-Hans': 'zh', en: 'en', ja: 'en', ko: 'en' }
+
+/** The help in every language but the Chinese below. */
+const HELP: Record<Exclude<Locale, 'zh'>, Record<string, HelpTopic>> = { en: HELP_EN, 'zh-Hans': HELP_ZH_HANS, ja: HELP_JA, ko: HELP_KO }
 
 const GROUPS = ['機場', '公司'] as const
 type Group = (typeof GROUPS)[number]
@@ -446,12 +454,16 @@ const TOPICS: Topic[] = [
 const indexOf = (t: Topic) => TOPICS.indexOf(t)
 
 /** A topic in the language picked. */
-const inLanguage = (t: Topic): Topic => (appLanguage() === 'en' ? { ...t, title: undefined, ...HELP_EN[t.id] } : t)
+const inLanguage = (t: Topic): Topic => {
+  const language = appLanguage()
+  return language === 'zh' ? t : { ...t, title: undefined, ...HELP[language][t.id] }
+}
 
 export const helpTopicIdsForTest = () => TOPICS.map((t) => t.id)
 
-/** Every topic's body in both languages, to check how they are laid out. */
-export const helpBodiesForTest = () => TOPICS.flatMap((t) => [{ id: t.id, body: t.body }, { id: `${t.id} (en)`, body: HELP_EN[t.id]?.body }])
+/** Every topic's body in every language, to check how they are laid out. */
+export const helpBodiesForTest = () =>
+  TOPICS.flatMap((t) => [{ id: t.id, body: t.body }, ...Object.entries(HELP).map(([l, help]) => ({ id: `${t.id} (${l})`, body: help[t.id]?.body }))])
 
 /** A topic's opening lines and pitfall on a white note, then its reference in the dashed box. */
 function TopicBody({ body }: { body: ReactNode }) {
@@ -519,7 +531,7 @@ export function Help({ leaving, onGone }: {
           {/* keyed, so each topic turns in like a fresh page */}
           <section key={current.id} id="fx-help-panel" className="fx-page fx-help-page" aria-labelledby="fx-help-page-title">
             <h2 id="fx-help-page-title">{shown.title ?? shown.label}</h2>
-            {SHOTS[`./help/${appLanguage()}/${current.id}.jpg`] && <img className="fx-help-shot" src={SHOTS[`./help/${appLanguage()}/${current.id}.jpg`]} alt={shown.alt} />}
+            {SHOTS[`./help/${SHOT_SET[appLanguage()]}/${current.id}.jpg`] && <img className="fx-help-shot" src={SHOTS[`./help/${SHOT_SET[appLanguage()]}/${current.id}.jpg`]} alt={shown.alt} />}
             <TopicBody body={shown.body} />
           </section>
         </div>

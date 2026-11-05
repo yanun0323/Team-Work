@@ -3,7 +3,10 @@
 
 import type { ReactNode } from 'react'
 
-export const HELP_EN: Record<string, { label: string; title?: string; alt: string; body: ReactNode }> = {
+/** One topic in one language: its name in the list, its title when that is unclear, its screenshot's text and its body. */
+export interface HelpTopic { label: string; title?: string; alt: string; body: ReactNode }
+
+export const HELP_EN: Record<string, HelpTopic> = {
   start: {
     label: 'Quick start',
     alt: 'Two companies and the airport on the island; at the top right, the new company, edit map, language, help and settings (plane) buttons',

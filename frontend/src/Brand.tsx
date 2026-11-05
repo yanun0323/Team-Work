@@ -6,12 +6,12 @@ import { create } from 'zustand'
 import { useStore } from './core/store'
 import { request } from './core/backend'
 import { MOCK } from './core/mode'
-import { tr } from './core/i18n'
+import { LOCALE_TAGS, tr } from './core/i18n'
 import type { Locale, ModelProvider } from './core/domain/types'
 import { CAN_CHECK, checkForUpdate, checkNow, useUpdateState, VERSION } from './update'
 
 export function clockText(now: Date, locale: Locale) {
-  const tag = locale === 'zh' ? 'zh-TW' : 'en-US'
+  const tag = LOCALE_TAGS[locale]
   return {
     time: new Intl.DateTimeFormat(tag, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now),
     date: new Intl.DateTimeFormat(tag, { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' }).format(now),

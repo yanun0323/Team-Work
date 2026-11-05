@@ -5,7 +5,7 @@ import { depths, inEdges, nodeOf, outEdges, wouldCreateCycle } from './domain/gr
 import { combine } from './domain/rollup'
 import { busyReplicas, statusOf, subsOf, TRAVEL } from './domain/sim'
 import type { LogLine, Replica, Status, SubTask, Task, World, Workflow, WorkflowNode } from './domain/types'
-import { appLanguage, colon, trRecorded } from './i18n'
+import { appLanguage, colon, LOCALE_TAGS, trRecorded } from './i18n'
 import { AIRPORT_BLUEPRINT, isPreset, presetRank } from './data/presets'
 import { sourceOfId } from './domain/sources'
 import { useStore } from './store'
@@ -21,7 +21,7 @@ export const fmtTokens = (n: number) => (n > 0 ? n.toLocaleString('en-US') : 'â€
 /** Simulated seconds as m:ss. */
 export const fmtClock = (sec: number) => {
   // the backend's clock is real time; the simulator's counts up from zero
-  if (sec >= 1e9) return new Date(sec * 1000).toLocaleTimeString(appLanguage() === 'zh' ? 'zh-TW' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+  if (sec >= 1e9) return new Date(sec * 1000).toLocaleTimeString(LOCALE_TAGS[appLanguage()], { hour: '2-digit', minute: '2-digit', hour12: false })
   const s = Math.max(0, Math.floor(sec))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }

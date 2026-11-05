@@ -3,6 +3,7 @@
 import { autoLayout } from '../domain/graph'
 import { mockThinking } from '../../providers'
 import { fixedSteps, installPresets } from './presets'
+import { mockText } from './mockText'
 import {
   adoptSources, AIRPORT_STAFF_LOOK, createTask, createTeam, hire, mergeTask, newWorkflow, pauseTask, remember, resumeTask, REPLY_TIME, sayInTalk, tick,
 } from '../domain/sim'
@@ -20,7 +21,7 @@ const git = (repo: string, ref: string, commit: string, extra: Partial<GitSource
 
 /** The sample world's words in one of its languages: every text below comes in both. */
 type Pick = <T>(zh: T, en: T) => T
-const inLanguage = (language: Locale): Pick => (zh, en) => (language === 'en' ? en : zh)
+const inLanguage = (language: Locale): Pick => (zh, en) => mockText(language, zh, en)
 
 const providers = (L: Pick): ModelProvider[] => ([
   { id: 'mp-anthropic', name: L('Claude 訂閱', 'Claude subscription'), kind: 'anthropic', auth: { kind: 'subscription', signedIn: true }, baseUrl: '', models: ['claude-opus-5-5', 'claude-sonnet-5', 'claude-haiku-5'] },

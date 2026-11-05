@@ -2,14 +2,14 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Check } from './Controls'
-import { tr } from './core/i18n'
+import { htmlLang, tr } from './core/i18n'
 import type { Locale } from './core/domain/types'
 import { setLanguage } from './core/ops'
 import { useStore } from './core/store'
 
-export const LANGUAGES = ['zh', 'en'] as const
+export const LANGUAGES = ['zh', 'zh-Hans', 'en', 'ja', 'ko'] as const satisfies readonly Locale[]
 /** Each language in its own words, whichever is showing. */
-export const LANGUAGE_NAMES: Record<Locale, string> = { zh: '繁體中文', en: 'English' }
+export const LANGUAGE_NAMES: Record<Locale, string> = { zh: '繁體中文', 'zh-Hans': '简体中文', en: 'English', ja: '日本語', ko: '한국어' }
 
 export function LanguageMenu() {
   const language = useStore((s) => s.world.language)
@@ -58,7 +58,7 @@ export function LanguageMenu() {
       {open && (
         <div role="menu" aria-label={tr('語言')} className="fx-slip fx-language-menu">
           {LANGUAGES.map((l, i) => (
-            <button key={l} ref={(el) => { items.current[i] = el }} type="button" role="menuitemradio" aria-checked={l === language} lang={l === 'zh' ? 'zh-Hant' : 'en'}
+            <button key={l} ref={(el) => { items.current[i] = el }} type="button" role="menuitemradio" aria-checked={l === language} lang={htmlLang(l)}
               onClick={() => { if (l !== language) act((x) => void setLanguage(x, l)); close() }}>
               <span className="fx-slip-check">{l === language && <Check />}</span>
               {LANGUAGE_NAMES[l]}

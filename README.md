@@ -46,7 +46,7 @@ Load and update what others share on GitHub:
 - **Skills**: blueprints load skills from local folders or GitHub repos.
 - **Terminal**: each company has a zsh terminal in its project folder.
 - **Files**: browse a company's project folder, edit text files and preview images.
-- **Languages**: Traditional Chinese and English.
+- **Languages**: Traditional Chinese, Simplified Chinese, English, Japanese and Korean.
 
 ## Installation
 
