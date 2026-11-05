@@ -231,7 +231,7 @@ func TestMissingSettingsFailClosed(t *testing.T) {
 
 func TestReloadKeepsTaskSnapshotAndConversation(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
-		return call("ask_user", map[string]any{"prompt": "wait", "options": []any{}}), nil
+		return call("ask_user", map[string]any{"prompt": "wait", "options": []string{"ok"}}), nil
 	})
 	task := r.task(r.flow.ID)
 	r.wait("review", func(w *model.World) bool {

@@ -363,6 +363,62 @@ func TestQuestionResumesWithTheAnswer(t *testing.T) {
 	}
 }
 
+// Writing to a step's question without picking an option is a new message, not an answer.
+func TestQuestionAnsweredInWordsIsANewMessage(t *testing.T) {
+	asked := false
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if !asked {
+			asked = true
+			return call("ask_user", map[string]any{"prompt": "用哪個？", "options": []string{"A", "B"}}), nil
+		}
+		return call("submit_handoff", handoff), nil
+	})
+	task := r.task(r.flow.ID)
+	w := r.wait("question", func(w *model.World) bool {
+		s := subAt(w, task.ID, "整理需求")
+		return s != nil && s.Review != nil
+	})
+	if err := r.e.ResolveReview(subAt(w, task.ID, "整理需求").ID, "", "差在哪？"); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	for _, req := range r.fake.seen {
+		for i, m := range req.Messages {
+			for _, b := range m.Content {
+				if b.Type != enum.BlockToolResult || b.Name != "ask_user" {
+					continue
+				}
+				if strings.Contains(b.Text, "answered") || !strings.Contains(b.Text, "did not pick") {
+					t.Fatalf("told the model the user answered: %q", b.Text)
+				}
+				if i+1 >= len(req.Messages) || req.Messages[i+1].Content[0].Text != "差在哪？" {
+					t.Fatalf("the words did not follow as a message: %+v", req.Messages[i+1:])
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("the question never got a result")
+}
+
+// A step's question has something to pick, as anything the user only writes is a new message.
+func TestStepAskUserNeedsOptions(t *testing.T) {
+	calls := 0
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		calls++
+		if calls == 1 {
+			return call("ask_user", map[string]any{"prompt": "API Key 是什麼？"}), nil
+		}
+		return call("submit_handoff", handoff), nil
+	})
+	task := r.task(r.flow.ID)
+	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	seen := r.fake.seen[1].Messages
+	if last := seen[len(seen)-1].Content[0]; !last.IsError || !strings.Contains(last.Text, "options") {
+		t.Fatalf("%+v", last)
+	}
+}
+
 func TestPickOneAskingAndFailureReview(t *testing.T) {
 	var fail bool
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {

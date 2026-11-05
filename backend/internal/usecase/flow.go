@@ -827,11 +827,16 @@ func (e *Engine) resolveReview(subID, optionID, note string) error {
 	switch r.Kind {
 	case enum.ReviewQuestion:
 		s.Status = enum.StatusTodo
+		if option == nil { // words alone are a new message, not an answer
+			e.w.Conversations[s.ID] = append(answerPending(e.w.Conversations[s.ID], askSkipped, ""), userText(note))
+			e.dirty[s.ID] = true
+			break
+		}
 		answer := label
-		if option != nil && note != "" {
+		if note != "" {
 			answer += "（" + note + "）"
 		}
-		e.w.Conversations[s.ID] = answerPending(e.w.Conversations[s.ID], answer)
+		e.w.Conversations[s.ID] = answerPending(e.w.Conversations[s.ID], askPicked+answer, answer)
 		e.dirty[s.ID] = true
 	case enum.ReviewPickRoute:
 		s.Status = enum.StatusComplete
@@ -1135,7 +1140,7 @@ func (e *Engine) SayInTalk(subID, text string, mentions []string) error {
 		}
 		s.Talk.Messages = append(s.Talk.Messages, model.ChatMessage{At: e.w.Now, From: "user", Text: text, Mentions: slices.Clone(mentions)})
 		e.logLine(s, enum.LogHuman, text, "", nil)
-		e.w.Conversations[s.ID] = append(answerPending(e.w.Conversations[s.ID], ""), userText(text))
+		e.w.Conversations[s.ID] = append(answerPending(e.w.Conversations[s.ID], "", ""), userText(text))
 		e.dirty[s.ID] = true
 		s.Talk.Next = speakers[1:]
 		e.startTalkReply(t, s, speakers[0])

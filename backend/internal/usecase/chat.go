@@ -29,8 +29,11 @@ const chatRules = "You are a company employee chatting with the user to discuss 
 	sharedFilesRule + "\n" +
 	dataRule
 
-// askInChatRule steers questions to ask_user, so the user can answer with a click instead of typing.
-const askInChatRule = "When you need the user's answer to go on, ask with ask_user instead of ending your reply with a question, and give options whenever the answer is a choice, such as yes or no, or which of a few ways to go."
+// askInChatRule steers choices to ask_user, so the user can answer with a click, and has questions answered first:
+// asked one while a choice is open, an employee is otherwise apt to fold its answer into the same choice asked again.
+const askInChatRule = "When the user asks you something, answer it in your reply first; do not ask again a choice you have not helped them make. " +
+	"When you need the user to choose before going on, such as yes or no, or which of a few ways to go, ask with ask_user instead of ending your reply with a question. " +
+	"To have them type an answer, such as a name, ask in your reply."
 
 const airportChatRules = "You are the airport's service staff in Team Work, an app where the user runs companies of AI employees. You chat with the user to answer questions or do work for them on their computer. You do not belong to any company. The working directory is your own folder and stays between chats; it is not a project. Attached files may be read from their supplied paths, but must not be modified. Commands can reach the rest of the computer: change only what was asked, and ask with ask_user before deleting or overwriting anything outside your folder.\n" +
 	"Reply in plain text.\n" +
@@ -484,7 +487,7 @@ func (e *Engine) RetryChat(id string) error {
 		keepMarks(c, len(c.Messages))
 		// a call the failed reply left without a result is closed, as the model refuses it otherwise
 		conv := e.w.Conversations[c.ID]
-		closed := answerPending(conv, "")
+		closed := answerPending(conv, "", "")
 		if len(closed) > len(conv) {
 			closed[len(closed)-1].By = speaker
 		}
@@ -603,10 +606,14 @@ func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Att
 		}
 	}
 	said.Content = append(said.Content, e.fileBlocks(c.ID, files)...)
-	// the answer goes as a message of its own, so it can hold attachments and be taken back like any other
+	// the answer goes as a message of its own, so it can hold attachments and be taken back like any other. Only
+	// an option, which is what picking one sends, answers the question; anything else is a new message.
 	answer := ""
 	if c.Question != nil {
-		answer = "see their next message"
+		answer = askSkipped
+		if len(images)+len(files) == 0 && slices.Contains(c.Question.Options, strings.TrimSpace(text)) {
+			answer = askPicked + "see their next message"
+		}
 		c.Question = nil
 	}
 	conv := e.w.Conversations[c.ID]
@@ -614,7 +621,7 @@ func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Att
 		conv = answerChange(conv, "The user did not agree, so nothing was written; see their next message", true)
 		c.Change = nil
 	}
-	e.w.Conversations[c.ID] = append(answerPending(conv, answer), said)
+	e.w.Conversations[c.ID] = append(answerPending(conv, answer, ""), said)
 	c.Context += tokensAbout(said)
 	e.dirty[c.ID] = true
 }
@@ -839,9 +846,9 @@ func (e *Engine) chatKeepsImage(in chatRun) func(output string, data []byte) {
 	}
 }
 
-// chatAskUser ends the reply with a question. The user's next message answers it.
+// chatAskUser ends the reply with a question. Picking an option answers it; any other message is a new one.
 func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
-	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "End your reply and ask the user something; you go on with their answer. Do not call it together with other tools: call it once their results are in. " + askUserHow,
+	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "End your reply and ask the user to choose; you go on with what they pick. Do not call it together with other tools: call it once their results are in. To have them type an answer, such as a name or an API key, ask in your reply instead. " + askUserHow,
 		Parameters: json.RawMessage(askUserSchema)},
 		func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
 			var a struct {
@@ -851,11 +858,9 @@ func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
 			if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Prompt) == "" {
 				return toolError("prompt is required")
 			}
-			options := []string{}
-			for _, o := range a.Options {
-				if o = strings.TrimSpace(o); o != "" && !slices.Contains(options, o) {
-					options = append(options, o)
-				}
+			options, refused := askOptions(a.Options, "To have them type an answer, such as a name, ask in your reply instead.")
+			if refused != nil {
+				return *refused
 			}
 			e.applyChat(in, func(c *model.Chat) {
 				e.chatSays(c, a.Prompt)

@@ -202,6 +202,62 @@ func TestChatAskUserWaitsForTheNextMessage(t *testing.T) {
 	}
 }
 
+// Typing instead of picking an option is a new message, not an answer: the employee is told so, and is not left
+// thinking the user chose.
+func TestTypingInsteadOfPickingIsANewMessage(t *testing.T) {
+	calls := 0
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		calls++
+		if calls == 1 {
+			return call("ask_user", map[string]any{"prompt": "用哪個？", "options": []string{"甲", "乙"}}), nil
+		}
+		return say("好"), nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "開始"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("question", func(w *model.World) bool { c := w.Chats[c.ID]; return c.ReplyAt == nil && c.Question != nil })
+	if err := r.e.SayInChat(c.ID, "哪個比較快？", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", func(w *model.World) bool { c := w.Chats[c.ID]; return c.ReplyAt == nil && len(c.Messages) == 4 })
+	if r.world().Chats[c.ID].Question != nil {
+		t.Fatal("the question stayed open")
+	}
+	seen := r.fake.seen[len(r.fake.seen)-1].Messages
+	if n := len(seen); n != 4 || seen[2].Content[0].Type != enum.BlockToolResult || seen[3].Content[0].Text != "哪個比較快？" {
+		t.Fatalf("%+v", seen)
+	}
+	if got := seen[2].Content[0].Text; strings.Contains(got, "answered") || !strings.Contains(got, "did not pick") {
+		t.Fatalf("told the model the user answered: %q", got)
+	}
+}
+
+// In a chat the user answers ask_user by picking, so a question with nothing to pick is sent back to be asked in words.
+func TestChatAskUserNeedsOptions(t *testing.T) {
+	calls := 0
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		calls++
+		if calls == 1 {
+			return call("ask_user", map[string]any{"prompt": "API Key 是什麼？"}), nil
+		}
+		return say("API Key 是什麼？"), nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "開始"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	if q := r.world().Chats[c.ID].Question; q != nil {
+		t.Fatalf("asked with nothing to pick: %+v", q)
+	}
+	seen := r.fake.seen[len(r.fake.seen)-1].Messages
+	if last := seen[len(seen)-1].Content[0]; !last.IsError || !strings.Contains(last.Text, "options") {
+		t.Fatalf("%+v", last)
+	}
+}
+
 func TestSearchFilesTakesInWhatGitIgnores(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	for name, body := range map[string]string{".gitignore": "secret.txt\nbuild/\n", "secret.txt": "x", "build/out.bin": "x", "notes/plan.md": "x"} {

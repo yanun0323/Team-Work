@@ -166,15 +166,12 @@ func TestANewAddressGetsTheStoredKeyOnlyOnceAgreed(t *testing.T) {
 	}
 }
 
+// A typed answer, such as an API key, is asked for in the reply: ask_user is only for picking.
 func TestAskingForATypedAnswerInAChat(t *testing.T) {
 	r, m := manageRig(t)
-	c := inChat(t, r, m, doing("ask_user", map[string]any{"prompt": "API Key 是什麼？"}))
-	w := r.wait("question", func(w *model.World) bool { return w.Chats[c.ID].Question != nil })
-	if q := w.Chats[c.ID].Question; len(q.Options) != 0 {
-		t.Fatalf("%+v", q)
-	}
+	inChat(t, r, m)
 	for _, s := range r.fake.requests()[0].Tools {
-		if s.Name == "ask_user" && !strings.Contains(s.Description, "type an answer") {
+		if s.Name == "ask_user" && !strings.Contains(s.Description, "type an answer, such as a name or an API key, ask in your reply") {
 			t.Fatalf("%s", s.Description)
 		}
 	}

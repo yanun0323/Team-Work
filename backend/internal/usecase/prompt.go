@@ -254,12 +254,20 @@ func userText(text string) model.Message {
 	return model.Message{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: text}}}
 }
 
+// What an open ask_user gets: the user picked one of its options, or wrote something else, which is no answer.
+// Taking the words as an answer leads the employee to fold its reply into the same question asked again.
+const (
+	askPicked  = "The user picked an option: "
+	askSkipped = "The user did not pick an option and wrote something else instead: see their next message. " +
+		"It is a new message, not an answer: take it up first, and ask again only if the choice is still needed."
+)
+
 // answerPending makes a conversation ready for the next model call. Tool calls without a result get one:
-// an open ask_user gets the user's answer, anything else was interrupted.
-func answerPending(conv []model.Message, answer string) []model.Message {
-	return closeCalls(conv, answer, func(b model.Block) (string, bool, bool) {
-		if b.Name == toolAskUser && answer != "" {
-			return "The user answered: " + answer, false, true
+// an open ask_user gets result, anything else was interrupted. With no call open, plain is said instead, if anything.
+func answerPending(conv []model.Message, result, plain string) []model.Message {
+	return closeCalls(conv, plain, func(b model.Block) (string, bool, bool) {
+		if b.Name == toolAskUser && result != "" {
+			return result, false, true
 		}
 		return "", false, false
 	})

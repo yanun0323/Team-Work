@@ -165,7 +165,7 @@ func (e *Engine) nextSpeaker(c *model.Chat) bool {
 		}
 		// what the one before left unfinished is closed, as the model refuses a call without a result
 		conv := e.w.Conversations[c.ID]
-		closed := answerPending(conv, "")
+		closed := answerPending(conv, "", "")
 		if len(closed) > len(conv) {
 			closed[len(closed)-1].By = c.Speaker
 		}

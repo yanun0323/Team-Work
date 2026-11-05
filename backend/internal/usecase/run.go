@@ -357,7 +357,7 @@ func (e *Engine) startSub(t *model.Task, s *model.SubTask) {
 	if len(conv) == 0 {
 		conv = []model.Message{e.firstMessage(t, s)}
 	} else {
-		conv = answerPending(conv, "")
+		conv = answerPending(conv, "", "")
 		if conv[len(conv)-1].Role == enum.RoleAssistant {
 			conv = append(conv, userText("Please continue."))
 		}
@@ -884,7 +884,7 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 		`},"required":["goal","done","headline","did","commit_message"]}`
 	out := []adapter.Tool{
 		funcTool{model.ToolSpec{Name: "submit_handoff", Description: "Finish this step: commit the work and hand off to the next step.", Parameters: json.RawMessage(handoffSchema)}, e.submitHandoff(in)},
-		funcTool{model.ToolSpec{Name: toolAskUser, Description: "Stop and ask the user something. Work resumes with their answer. " + askUserHow,
+		funcTool{model.ToolSpec{Name: toolAskUser, Description: "Stop and ask the user to choose. Work resumes with what they pick. " + askUserHow,
 			Parameters: json.RawMessage(askUserSchema)}, e.askUser(in)},
 		funcTool{rememberSpec, e.rememberTool(in)},
 		funcTool{forgetSpec, e.forgetTool(in)},
@@ -910,11 +910,27 @@ const commitMessageHow = "The git commit message for this step's work, written t
 // sendBackCommit is the message for a send-back's changes when the employee wrote none.
 const sendBackCommit = "chore: keep the work before sending it back"
 
-// askUserHow and askUserSchema are ask_user's, in a task step and in a chat alike.
+// askUserHow and askUserSchema are ask_user's, in a task step and in a chat alike. The user answers by picking an
+// option; what they write instead is a new message, so a question with nothing to pick is refused.
 const (
-	askUserHow    = "Give options whenever the answer is a choice, such as yes or no, or which of a few ways to go; leave options out only to have them type an answer, such as a name or an API key; they can always type something else."
-	askUserSchema = `{"type":"object","properties":{"prompt":{"type":"string","description":"` + askPromptHow + `"},"options":{"type":"array","items":{"type":"string"},"description":"Leave out to ask for a typed answer"}},"required":["prompt"]}`
+	askUserHow    = "The user answers by picking one of the options, so give at least one, each a whole answer. Anything they write instead comes to you as a new message, not an answer."
+	askUserSchema = `{"type":"object","properties":{"prompt":{"type":"string","description":"` + askPromptHow + `"},"options":{"type":"array","items":{"type":"string"},"minItems":1,"description":"What the user picks from"}},"required":["prompt","options"]}`
 )
+
+// askOptions is the options of an ask_user call, trimmed and each once; an error when none are left.
+func askOptions(given []string, typed string) ([]string, *model.ToolResult) {
+	options := []string{}
+	for _, o := range given {
+		if o = strings.TrimSpace(o); o != "" && !slices.Contains(options, o) {
+			options = append(options, o)
+		}
+	}
+	if len(options) == 0 {
+		res := toolError("options are required: the user answers by picking one. %s", typed)
+		return nil, &res
+	}
+	return options, nil
+}
 
 // askPromptHow is on the prompt itself, where the model writes the question: what it found stays in its thinking otherwise,
 // and the user is left with options that point at reasons they were never told.
@@ -1032,9 +1048,13 @@ func (e *Engine) askUser(in subRun) func(context.Context, string, json.RawMessag
 		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Prompt) == "" {
 			return toolError("prompt is required")
 		}
+		labels, refused := askOptions(a.Options, "For something only they can type, such as an API key, still give an option, such as having set it; they can write it instead.")
+		if refused != nil {
+			return *refused
+		}
 		e.apply(in, func(t *model.Task, s *model.SubTask) {
-			options := make([]model.ReviewOption, len(a.Options))
-			for i, label := range a.Options {
+			options := make([]model.ReviewOption, len(labels))
+			for i, label := range labels {
 				options[i] = model.ReviewOption{ID: fmt.Sprintf("opt%d", i), Label: label}
 			}
 			e.openReview(t, s, model.Review{Kind: enum.ReviewQuestion, Prompt: a.Prompt, Options: options})

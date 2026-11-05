@@ -79,7 +79,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 ## 安全
 
 - API 沒有登入。所以只聽本機，並檢查 `Host` 與 `Origin`，別的網站不能透過使用者的瀏覽器連進來。
-- API Key 和 ChatGPT Token 只存在 `data.db`（權限 `0600`）的 `secrets` 表，不會出現在任何回應或事件裡，API Key 對外只有最後 4 碼。工具紀錄（對話、任務和合併的工具列）裡，名稱含 `api_key`、`token`、`secret`、`password` 的參數只顯示最後 4 碼。例外是使用者在對話裡打給員工的 Key（例如 `ask_user` 的回答），它和其他訊息一樣留在紀錄裡；模型自己的對話歷史也保留完整參數。
+- API Key 和 ChatGPT Token 只存在 `data.db`（權限 `0600`）的 `secrets` 表，不會出現在任何回應或事件裡，API Key 對外只有最後 4 碼。工具紀錄（對話、任務和合併的工具列）裡，名稱含 `api_key`、`token`、`secret`、`password` 的參數只顯示最後 4 碼。例外是使用者在對話裡打給員工的 Key，它和其他訊息一樣留在紀錄裡；模型自己的對話歷史也保留完整參數。
 - `read_file`、`write_file`、`edit_file` 限制在任務的 work tree 內（技能資料夾可讀），符號連結也擋。有寫入檔案權限就同時有 `edit_file`（只替換檔案中一段唯一的文字，保留 BOM 和 CRLF）。`read_file` 依行讀取（一次最多 2000 行或 50KB，用 `offset`、`limit` 續讀），也能讀 PNG、JPEG、GIF、WebP 圖片（最大 3.75MB、2000 萬像素，壞掉的圖檔會被拒絕），圖片會交給模型看。
 - `run_command` 優先用 `bash`，輸出超過 2000 行或 50KB 時只回最後一段，完整輸出存到資料目錄的 `outputs/<task-or-chat-id>/` 並附上路徑，員工可用 `read_file` 讀取。
 - `web_search` 使用 Exa 免金鑰的公開服務，有使用額度。所有員工共用一個佇列，一次只送一個請求；Exa 回報額度用完（HTTP 429 或免費額度提示）時，工具回傳 `rate_limited` 錯誤，並依 `Retry-After` 暫停，沒有給時暫停 30 秒；暫停期限存在 `search-cooldown.json`，重啟後沿用。每次嘗試、限流和被暫停擋下都會寫進伺服器 log，不記搜尋內容。有網路搜尋權限就同時有 `web_fetch`：把公開網頁轉成編號段落（一次最多 100 段，用 `offset`、`limit` 續讀），只支援 HTML 和純文字、最大 2MB，不執行 JavaScript。連線前會檢查實際 IP，擋掉內網、本機和非 80、443 的連接埠，轉址也一樣檢查。
@@ -130,7 +130,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `GET /replicas/:id/skills` | 員工藍圖的技能（`name`、`description`），對話輸入框的 `$` 選單用 |
 | `GET /blueprints/:id/skills` | 藍圖每個技能來源實際讀到的技能名稱，依來源順序；讀不到的來源是 `null`。藍圖詳情用 |
 | `GET /teams/:id/files?q=` | 公司資料夾裡符合 `q` 的檔案和資料夾（`path`、`dir`，最多 50 筆，git 忽略的也列，只略過 `.git`），對話輸入框和任務說明的 `#` 選單用 |
-| 對話裡的 `ask_user` | 員工可隨時用這個工具提問：`chat.question.options` 是選項（可為空），問題本身是一則員工訊息；下一則 `say` 就是回答 |
+| 對話裡的 `ask_user` | 員工可隨時用這個工具請使用者選擇：`chat.question.options` 是選項（至少一個，沒有選項的呼叫會被退回），問題本身是一則員工訊息。下一則 `say` 的文字剛好是其中一個選項（不帶附件）才算回答；其他訊息都是新訊息，問題一樣結束，模型會被告知使用者沒有選 |
 | `POST /airport/chats` | 開始機場對話（`model`、可選的 `effort`、`text`、`images`、`files`）：對象固定是機場服務人員，回傳的 `teamId` 為空。工作資料夾是資料目錄的 `airport/`，可用讀寫檔案、網路搜尋和執行指令；指令沒有沙盒。指示只有固定規則和全域 `AGENTS.md`。`say`、`stop`、`read`、`rewind`、`handoff`、刪除和公司對話共用，`task-draft` 會拒絕 |
 | `POST /chats/:id/change` | 回答對話的修改確認（`approve`、可選的 `note`；內容在 `chat.change`），員工接著回覆。等待確認時改用 `say` 發言視為拒絕 |
 | `PATCH /chats/:id/title` | 改對話名稱（`title`）：多個空白合成一個，最多 80 字，空字串清除名稱、改回顯示第一則訊息。手動取的名字不會被自動命名蓋掉 |
@@ -172,7 +172,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 - **`save_blueprint`**：模型不能設定外觀，新藍圖取自內建藍圖之一。技能用 Git 來源時不會在儲存當下解析 commit，執行時才取 `origin/HEAD`，也不會套用 `ref`；要固定版本請呼叫 `POST /blueprints/:id/update`。
 - **`save_workflow`**：`nodes`、`edges` 是完整的新清單，已存在的節點 id 沒帶的欄位保留原值。模型不指定座標，新節點由後端排版。有迴圈等無效內容會被拒絕。
 - **`save_provider`**：新增時帶 `name`、`kind`、`api_key`（`compatible` 另帶 `base_url`），和介面新增一樣先向供應商查模型清單，Key 或網址錯誤就失敗。修改可改 `name`、`base_url`、`api_key`、`prices`（`prices` 是整份取代），不能改 `kind` 和登入方式；查模型清單在送出確認卡之前做；但只改 `base_url` 而沿用已存的 Key 時，確認前不連新網址，同意寫入後才用已存的 Key 到新網址重新讀模型清單。確認卡列出名稱、網址、Key 最後 4 碼、價格和模型清單的差異。新的 Key 在等待確認期間只放在記憶體，不寫進確認卡和狀態檔，所以重新啟動後同意會失敗並告知模型。訂閱登入要開瀏覽器，工具做不到：可用 `login: subscription` 新增，再請使用者到設定頁登入。`list_providers` 只回傳 Key 最後 4 碼。
-- **`ask_user` 問答案**：不帶 `options` 就是請使用者直接輸入答案（例如名字、API Key）。輸入的內容和一般訊息一樣，會留在對話紀錄並交給模型；員工呼叫 `save_provider` 時，對話裡顯示的工具參數也包含 Key。
+- **請使用者輸入答案**：`ask_user` 一定要有選項，所以需要使用者打字的答案（例如名字、API Key），員工會在回覆裡直接問。輸入的內容和一般訊息一樣，會留在對話紀錄並交給模型；員工呼叫 `save_provider` 時，對話裡顯示的工具參數也包含 Key。
 
 ## 訂閱登入
 
