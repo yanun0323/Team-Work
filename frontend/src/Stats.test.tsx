@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { addTotals, barProviders, bars, fmtCacheRate, fmtCount, fmtUsd, partKey, rangeStart, usageColors, UsageReport, type UsageStats, type UsageTotals } from './Stats'
+import { addTotals, barProviders, bars, fmtCacheRate, fmtCount, fmtShare, fmtUsd, partKey, rangeStart, usageColors, UsageReport, type UsageStats, type UsageTotals } from './Stats'
 
 const totals = (o: Partial<UsageTotals>): UsageTotals => ({ calls: 1, input: 0, output: 0, cacheRead: 0, tokens: 0, costUsd: 0, unpriced: 0, ...o })
 
@@ -17,6 +17,13 @@ test('cost is a dash when nothing was priced', () => {
   expect(fmtUsd(totals({ calls: 2, unpriced: 1, costUsd: 1.5 }))).toBe('$1.50')
   expect(fmtCacheRate(totals({ input: 1000, cacheRead: 600 }))).toBe('60%')
   expect(fmtCount(1_234_567)).toBe('1.2M')
+})
+
+test('a share is a percentage of the whole, never rounded away', () => {
+  expect(fmtShare(250, 1000)).toBe('25%')
+  expect(fmtShare(1, 1000)).toBe('<1%')
+  expect(fmtShare(0, 1000)).toBe('0%')
+  expect(fmtShare(0, 0)).toBe('—')
 })
 
 test('long periods are drawn a week to a bar', () => {
@@ -54,6 +61,7 @@ test('the report lists each provider over its models', () => {
   expect(html).toContain('Claude')
   expect(html).toContain('claude-opus')
   expect(html).toContain('60%')
+  expect(html).toContain('<td>100%</td>')
   expect(html.indexOf('Claude')).toBeLessThan(html.indexOf('claude-opus'))
   // a swatch before each row, and the day's bar in the model's colour
   expect(html.match(/fx-stats-swatch/g)).toHaveLength(2)

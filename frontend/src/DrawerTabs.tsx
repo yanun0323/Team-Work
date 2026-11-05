@@ -28,7 +28,7 @@ export const TABS: { id: Tab; label: Key }[] = [
   { id: 'crew', label: '員工#tab' },
   // the simulator has no computer to run a shell on
   // the simulator has no folder to browse either
-  ...(MOCK ? [] : [{ id: 'terminal' as const, label: '終端機' as const }, { id: 'files' as const, label: '檔案瀏覽' as const }]),
+  ...(MOCK ? [] : [{ id: 'files' as const, label: '檔案瀏覽' as const }, { id: 'terminal' as const, label: '終端機' as const }]),
   { id: 'settings', label: '設定' },
 ]
 

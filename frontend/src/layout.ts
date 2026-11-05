@@ -306,6 +306,15 @@ export function canMove(town: PlacementTown, id: string, at: Spot): boolean {
   return canPlace(town, at, id)
 }
 
+/** Why a plot can't go here: on another company or the airport, or too far from the land. Null when it can. */
+export function placeProblem(town: PlacementTown, at: Spot, moved?: string): 'taken' | 'far' | null {
+  if (canPlace(town, at, moved)) return null
+  const plot = { x: at[0], z: at[1], w: PLOT_CELLS, d: PLOT_CELLS }
+  if (overlaps(plot, AIRPORT, GAP_CELLS)) return 'taken'
+  if (town.lots.some((l) => l.id !== moved && overlaps(plot, { x: l.at[0], z: l.at[1], w: PLOT_CELLS, d: PLOT_CELLS }))) return 'taken'
+  return 'far'
+}
+
 export const sameSpot = (a: Spot, b: Spot) => a[0] === b[0] && a[1] === b[1]
 
 /** Closer than `gap` cells on both axes; with no gap, sharing a cell. */

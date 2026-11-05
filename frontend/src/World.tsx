@@ -21,7 +21,7 @@ import { Help } from './Help'
 import { Fade, FADE_SECONDS } from './Fade'
 import { Island, useLand } from './Island'
 import { MapGrid } from './MapGrid'
-import { canMove, CELL, cellCenter, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, HALL_LIFT, TERMINAL, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
+import { canMove, placeProblem, CELL, cellCenter, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, HALL_LIFT, TERMINAL, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
 import { NewCompanySheet, Placer } from './NewCompany'
 import { request } from './core/backend'
 import { createTeam } from './core/domain/sim'
@@ -55,6 +55,12 @@ const PAN_KEYS: Record<string, [number, number]> = {
 }
 /** A press that moved further than this, in pixels, was a pan, not a click. */
 const CLICK_SLOP = 5
+/** How long the tip says why a plot can't go where it was clicked. */
+const MISS_SHOWN_MS = 3000
+
+/** The tip's words for a click where a new company's plot can't go. */
+const missText = (problem: 'taken' | 'far') =>
+  problem === 'taken' ? tr('這裡已經有公司或機場，試試旁邊的海上') : tr('離島太遠了，請在格線範圍內挑選')
 
 
 /** Finished tasks per company. */
@@ -141,6 +147,18 @@ export function World() {
     setLook(randomLook())
     setSpot(s)
   }
+  // a click where the plot can't go says why in the tip for a while, rather than doing nothing
+  // an object, so the same reason twice in a row still starts the timer again
+  const [missed, setMissed] = useState<{ problem: 'taken' | 'far' } | null>(null)
+  const missSpot = (s: Spot) => setMissed({ problem: placeProblem(town, s) ?? 'far' })
+  useEffect(() => {
+    if (!missed) return
+    const t = setTimeout(() => setMissed(null), MISS_SHOWN_MS)
+    return () => clearTimeout(t)
+  }, [missed])
+  useEffect(() => {
+    if (!placing) setMissed(null)
+  }, [placing])
   const act = useStore((s) => s.act)
   // editing the map: pick a company, then put its plot somewhere else
   const [editing, setEditing] = useState(false)
@@ -401,7 +419,7 @@ export function World() {
       ))}
       <Airport town={town} open={panel === 'settings'} calm={calm || !planes} still={editing} onSelect={selectAirport} onHover={(on) => hover(AIRPORT_ID, on)}
         hover={hovered === AIRPORT_ID && !selected && !settingsOpen && !placing && !editing && !helpOpen} />
-      {placing && <Placer town={town} picked={spot} onPick={pickSpot} />}
+      {placing && <Placer town={town} picked={spot} onPick={pickSpot} onMiss={missSpot} />}
       {spot && <BuildingPreview look={look} at={spot} />}
       {moving && <Placer key={moving} town={town} picked={null} onPick={moveTo} moved={moving} can={(s) => canMove(town, moving, s)} />}
       <Ambient town={town} calm={calm} clouds={clouds} planes={planes} />
@@ -430,7 +448,7 @@ export function World() {
       {(placing || editing) && (
         <div className="fx-map-tip">
           <p className="fx-corner-note fx-tag" role="status">
-            {placing ? tr('挑選建立公司的地點') : moving ? tr('選取公司新地點') : tr('選取想要移動的公司')}
+            {placing && missed ? missText(missed.problem) : placing ? tr('在格線範圍內挑選地點，海上也可以') : moving ? tr('選取公司新地點') : tr('選取想要移動的公司')}
           </p>
         </div>
       )}

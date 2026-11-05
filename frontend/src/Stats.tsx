@@ -72,6 +72,13 @@ export function fmtUsd(t: UsageTotals) {
 /** How much of the input was read back from the cache. */
 export const fmtCacheRate = (t: UsageTotals) => (t.input > 0 ? `${Math.round((t.cacheRead / t.input) * 100)}%` : '—')
 
+/** What part of the whole these tokens are; a share too small to round to 1% still shows it is there. */
+export function fmtShare(tokens: number, whole: number) {
+  if (whole <= 0) return '—'
+  const pct = (tokens / whole) * 100
+  return tokens > 0 && pct < 1 ? '<1%' : `${Math.round(pct)}%`
+}
+
 /** More than this many days are drawn a week to a bar, so each stays wide enough to see. */
 const DAILY_BARS = 60
 
@@ -177,6 +184,8 @@ export function UsageReport({ stats }: { stats: UsageStats }) {
   const list = bars(stats.days)
   const [shown, setShown] = useState<number | null>(null)
   const rows = shown !== null && list[shown] ? barProviders(stats.providers, list[shown]) : stats.providers
+  // the share is of what the table shows: the whole period, or the bar under the pointer
+  const whole = rows.reduce((a, p) => a + p.tokens, 0)
   return (
     <>
       <dl className="fx-stats-sum">
@@ -187,16 +196,16 @@ export function UsageReport({ stats }: { stats: UsageStats }) {
       <DailyChart list={list} providers={stats.providers} colors={colors} shown={shown} onShow={setShown} />
       <table className="fx-stats-table" data-bar={shown !== null ? '' : undefined}>
         <thead>
-          <tr><th scope="col">{tr('供應商與模型')}</th><th scope="col">Token</th><th scope="col">{tr('快取命中率')}</th><th scope="col">{tr('費用')}</th></tr>
+          <tr><th scope="col">{tr('供應商與模型')}</th><th scope="col">Token</th><th scope="col">{tr('佔比')}</th><th scope="col">{tr('快取命中率')}</th><th scope="col">{tr('費用')}</th></tr>
         </thead>
         {rows.map((p) => (
           <tbody key={p.id}>
             <tr className="fx-stats-provider">
-              <th scope="row"><Swatch color={colors.get(p.id)} />{p.name}</th><td>{fmtCount(p.tokens)}</td><td>{fmtCacheRate(p)}</td><td>{fmtUsd(p)}</td>
+              <th scope="row"><Swatch color={colors.get(p.id)} />{p.name}</th><td>{fmtCount(p.tokens)}</td><td>{fmtShare(p.tokens, whole)}</td><td>{fmtCacheRate(p)}</td><td>{fmtUsd(p)}</td>
             </tr>
             {p.models.map((m) => (
               <tr key={m.model}>
-                <th scope="row"><Swatch color={colors.get(partKey(p.id, m.model))} />{m.model}</th><td>{fmtCount(m.tokens)}</td><td>{fmtCacheRate(m)}</td><td>{fmtUsd(m)}</td>
+                <th scope="row"><Swatch color={colors.get(partKey(p.id, m.model))} />{m.model}</th><td>{fmtCount(m.tokens)}</td><td>{fmtShare(m.tokens, whole)}</td><td>{fmtCacheRate(m)}</td><td>{fmtUsd(m)}</td>
               </tr>
             ))}
           </tbody>

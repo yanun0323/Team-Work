@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
-import { CELL, PLOT_CELLS, REACH_CELLS, canPlace, canMove, layoutTown, type Town } from './layout'
-import { mapGridPositions } from './MapGrid'
+import { AIRPORT, CELL, PLOT_CELLS, REACH_CELLS, canPlace, canMove, layoutTown, placeProblem, type Town } from './layout'
+import { mapGridFill, mapGridPositions } from './MapGrid'
 
 const expandedLand = (town: Town, x: number, z: number) => {
   for (let dz = -32; dz <= 32; dz++) for (let dx = -32; dx <= 32; dx++) {
@@ -93,4 +93,36 @@ it('draws exactly the union of legal footprints, excluding occupied and unusable
     expect(covered.has('-8,-8')).toBe(!!moved)
     expect(covered.has('-20,-30')).toBe(false)
   }
+})
+
+it('fills exactly the union of legal footprints, each cell once', () => {
+  const town = layoutTown([{ id: 'a', name: 'A', members: 0, at: [-8, -8] }])
+  const covered = new Set<string>()
+  for (let z = -town.rows / 2 - REACH_CELLS; z < town.rows / 2 + REACH_CELLS; z++) {
+    for (let x = -town.cols / 2 - REACH_CELLS; x < town.cols / 2 + REACH_CELLS; x++) {
+      if (!canPlace(town, [x, z])) continue
+      for (let dz = 0; dz < PLOT_CELLS; dz++) for (let dx = 0; dx < PLOT_CELLS; dx++) covered.add(`${x + dx},${z + dz}`)
+    }
+  }
+  const fill = mapGridFill(town)
+  const filled = new Set<string>()
+  for (let i = 0; i < fill.length; i += 18) {
+    const xs = [fill[i], fill[i + 6], fill[i + 12]].map((n) => n / CELL), zs = [fill[i + 2], fill[i + 8], fill[i + 14]].map((n) => n / CELL)
+    for (let z = Math.min(...zs); z < Math.max(...zs); z++) for (let x = Math.min(...xs); x < Math.max(...xs); x++) {
+      expect(filled.has(`${x},${z}`)).toBe(false)
+      filled.add(`${x},${z}`)
+    }
+  }
+  expect(filled).toEqual(covered)
+})
+
+it('says why a plot cannot go somewhere', () => {
+  const town = layoutTown([{ id: 'a', name: 'A', members: 0, at: [40, 20] }])
+  expect(placeProblem(town, [40 + PLOT_CELLS, 20])).toBeNull()
+  expect(placeProblem(town, [44, 24])).toBe('taken')
+  expect(placeProblem(town, [AIRPORT.x + 4, AIRPORT.z + 2])).toBe('taken')
+  expect(placeProblem(town, [200, 20])).toBe('far')
+  // the company being moved doesn't stand in its own way
+  expect(placeProblem(town, [44, 24], 'a')).toBeNull()
+  for (let z = -60; z < 60; z += 3) for (let x = -60; x < 80; x += 3) expect(placeProblem(town, [x, z]) === null).toBe(canPlace(town, [x, z]))
 })

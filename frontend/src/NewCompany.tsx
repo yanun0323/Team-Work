@@ -33,10 +33,12 @@ const GROUND = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
  * A plot outline that follows the pointer over the map, snapped to the cells; a click puts it there. Where it
  * can't go (too close to another plot, or too far out at sea) it turns red. Once `picked`, it stays there.
  */
-export function Placer({ town, picked, onPick, moved, can = (s) => canPlace(town, s) }: {
+export function Placer({ town, picked, onPick, onMiss, moved, can = (s) => canPlace(town, s) }: {
   town: Town
   picked: Spot | null
   onPick: (s: Spot) => void
+  /** A click where the plot can't go. */
+  onMiss?: (s: Spot) => void
   /** The company being moved, whose old land won't count. */
   moved?: string
   /** Whether a plot may go there; a new company's rules unless given (moving one has its own). */
@@ -56,6 +58,8 @@ export function Placer({ town, picked, onPick, moved, can = (s) => canPlace(town
   }
   const pick = useRef(onPick)
   pick.current = onPick
+  const miss = useRef(onMiss)
+  miss.current = onMiss
   const allowed = useRef(can)
   allowed.current = can
 
@@ -71,9 +75,12 @@ export function Placer({ town, picked, onPick, moved, can = (s) => canPlace(town
       if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > CLICK_SLOP || e.target !== el) return
       down = null
       const s = under(e.clientX, e.clientY)
-      if (!s || !allowed.current(s)) return
+      if (!s) return
+      const ok = allowed.current(s)
+      if (!ok && !miss.current) return
       e.stopPropagation()
-      pick.current(s)
+      if (ok) pick.current(s)
+      else miss.current?.(s)
     }
     el.addEventListener('pointermove', move)
     el.addEventListener('pointerleave', leave)

@@ -183,13 +183,13 @@ it('knows the folder a path is in', () => {
   expect(parentOf('c.txt')).toBe('')
 })
 
-it('puts the tab right after the terminal, outside the simulator', async () => {
+it('puts the tab right before the terminal, outside the simulator', async () => {
   vi.resetModules()
   vi.doMock('./core/mode', () => ({ MOCK: false }))
   try {
     const { TABS } = await import('./DrawerTabs')
     const ids = TABS.map((x) => x.id)
-    expect(ids.indexOf('files')).toBe(ids.indexOf('terminal') + 1)
+    expect(ids.indexOf('terminal')).toBe(ids.indexOf('files') + 1)
     expect(TABS.find((x) => x.id === 'files')?.label).toBe('檔案瀏覽')
   } finally {
     vi.doUnmock('./core/mode')
