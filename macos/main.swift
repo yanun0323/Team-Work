@@ -25,8 +25,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     // The task or chat of a clicked notification, kept until the app's page can open it.
     private var asked: [String: String]?
     // The page reports the app's language; it is remembered for what shows before the page loads.
-    private var english: Bool { UserDefaults.standard.string(forKey: "language") == "en" }
-    private func say(_ zh: String, _ en: String) -> String { english ? en : zh }
+    private var language: String { UserDefaults.standard.string(forKey: "language") ?? "zh" }
+    /// A text in the app's language, given in Traditional Chinese, English, Simplified Chinese, Japanese and Korean.
+    private func say(_ zh: String, _ en: String, _ zhHans: String, _ ja: String, _ ko: String) -> String {
+        switch language {
+        case "en": return en
+        case "zh-Hans": return zhHans
+        case "ja": return ja
+        case "ko": return ko
+        default: return zh
+        }
+    }
 
     // Set before launch ends, so a click that launched the app still arrives.
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -63,7 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         window.center()
         // The window opens once this page has painted (see didFinish), so it never flashes white.
         if let boot = bootPage { webView.loadFileURL(boot, allowingReadAccessTo: boot.deletingLastPathComponent()) } else { bootFinished() }
-        do { try startBackend() } catch { fail(say("無法啟動後端：\(error.localizedDescription)", "Could not start the backend: \(error.localizedDescription)")) }
+        do { try startBackend() } catch { fail(say("無法啟動後端：\(error.localizedDescription)", "Could not start the backend: \(error.localizedDescription)", "无法启动后端：\(error.localizedDescription)", "バックエンドを起動できません：\(error.localizedDescription)", "백엔드를 시작할 수 없습니다: \(error.localizedDescription)")) }
     }
 
     private func bootFinished() {
@@ -83,18 +92,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private func buildMenu() {
         let menu = NSMenu()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: say("關於 Team Work", "About Team Work"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
-        appMenu.addItem(withTitle: say("檢查更新…", "Check for Updates…"), action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "").target = updater
+        appMenu.addItem(withTitle: say("關於 Team Work", "About Team Work", "关于 Team Work", "Team Work について", "Team Work 정보"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: say("檢查更新…", "Check for Updates…", "检查更新…", "アップデートを確認…", "업데이트 확인…"), action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "").target = updater
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: say("結束 Team Work", "Quit Team Work"), action: #selector(confirmQuit(_:)), keyEquivalent: "q").target = self
+        appMenu.addItem(withTitle: say("結束 Team Work", "Quit Team Work", "退出 Team Work", "Team Work を終了", "Team Work 종료"), action: #selector(confirmQuit(_:)), keyEquivalent: "q").target = self
         let appItem = NSMenuItem()
         appItem.submenu = appMenu
         menu.addItem(appItem)
-        let edit = NSMenu(title: say("編輯", "Edit"))
-        for (title, action, key) in [(say("復原", "Undo"), "undo:", "z"), (say("剪下", "Cut"), "cut:", "x"), (say("拷貝", "Copy"), "copy:", "c"), (say("貼上", "Paste"), "paste:", "v"), (say("全選", "Select All"), "selectAll:", "a")] {
+        let edit = NSMenu(title: say("編輯", "Edit", "编辑", "編集", "편집"))
+        for (title, action, key) in [(say("復原", "Undo", "撤销", "取り消す", "실행 취소"), "undo:", "z"), (say("剪下", "Cut", "剪切", "カット", "잘라내기"), "cut:", "x"), (say("拷貝", "Copy", "复制", "コピー", "복사"), "copy:", "c"), (say("貼上", "Paste", "粘贴", "ペースト", "붙여넣기"), "paste:", "v"), (say("全選", "Select All", "全选", "すべてを選択", "전체 선택"), "selectAll:", "a")] {
             edit.addItem(withTitle: title, action: Selector(action), keyEquivalent: key)
         }
-        let editItem = NSMenuItem(title: say("編輯", "Edit"), action: nil, keyEquivalent: "")
+        let editItem = NSMenuItem(title: say("編輯", "Edit", "编辑", "編集", "편집"), action: nil, keyEquivalent: "")
         editItem.submenu = edit
         menu.addItem(editItem)
         NSApp.mainMenu = menu
@@ -103,10 +112,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     // ⌘Q asks first; the airport's power button asks on the page instead.
     @objc private func confirmQuit(_ sender: Any?) {
         let alert = NSAlert()
-        alert.messageText = say("要結束 Team Work 嗎？", "Quit Team Work?")
-        alert.informativeText = say("進行中的工作會中斷，開著的終端機也會一起結束。", "Running work will be interrupted, and open terminals will end too.")
-        alert.addButton(withTitle: say("結束", "Quit"))
-        alert.addButton(withTitle: say("取消", "Cancel"))
+        alert.messageText = say("要結束 Team Work 嗎？", "Quit Team Work?", "要退出 Team Work 吗？", "Team Work を終了しますか？", "Team Work를 종료할까요?")
+        alert.informativeText = say("進行中的工作會中斷，開著的終端機也會一起結束。", "Running work will be interrupted, and open terminals will end too.", "进行中的工作会中断，打开的终端也会一起结束。", "進行中の作業は中断され、開いているターミナルも終了します。", "진행 중인 작업이 중단되고, 열린 터미널도 함께 종료됩니다.")
+        alert.addButton(withTitle: say("結束", "Quit", "退出", "終了", "종료"))
+        alert.addButton(withTitle: say("取消", "Cancel", "取消", "キャンセル", "취소"))
         if alert.runModal() == .alertFirstButtonReturn { NSApp.terminate(nil) }
     }
 
@@ -154,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             DispatchQueue.main.async {
                 guard let self else { return }
                 if self.stopping { NSApp.reply(toApplicationShouldTerminate: true) }
-                else { self.fail(self.say("後端已停止。請查看 \(logURL.path)。若連接埠 18787 已被使用，請先關閉另一個 Team Work。", "The backend stopped. See \(logURL.path). If port 18787 is in use, quit the other Team Work first.")) }
+                else { self.fail(self.say("後端已停止。請查看 \(logURL.path)。若連接埠 18787 已被使用，請先關閉另一個 Team Work。", "The backend stopped. See \(logURL.path). If port 18787 is in use, quit the other Team Work first.", "后端已停止。请查看 \(logURL.path)。若端口 18787 已被占用，请先关闭另一个 Team Work。", "バックエンドが停止しました。\(logURL.path) を確認してください。ポート 18787 が使用中なら、先にもう一つの Team Work を終了してください。", "백엔드가 멈췄습니다. \(logURL.path)을(를) 확인하세요. 포트 18787이 사용 중이면 다른 Team Work를 먼저 종료하세요.")) }
             }
         }
         backend = process
@@ -174,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
         startupTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: false) { [weak self] _ in
             guard let self else { return }
-            self.fail(self.say("後端啟動逾時，請重新開啟 App。", "The backend took too long to start. Reopen the app."))
+            self.fail(self.say("後端啟動逾時，請重新開啟 App。", "The backend took too long to start. Reopen the app.", "后端启动超时，请重新打开 App。", "バックエンドの起動がタイムアウトしました。アプリを開き直してください。", "백엔드 시작 시간이 초과되었습니다. 앱을 다시 여세요."))
         }
     }
 
@@ -185,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             fputs("SMOKE FAILED: \(message)\n", stderr)
         } else {
             let alert = NSAlert()
-            alert.messageText = say("Team Work 無法執行", "Team Work cannot run")
+            alert.messageText = say("Team Work 無法執行", "Team Work cannot run", "Team Work 无法运行", "Team Work を実行できません", "Team Work를 실행할 수 없습니다")
             alert.informativeText = message
             alert.runModal()
         }
@@ -289,7 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = say("選擇專案資料夾", "Choose the project folder")
+        panel.message = say("選擇專案資料夾", "Choose the project folder", "选择项目文件夹", "プロジェクトフォルダを選択", "프로젝트 폴더 선택")
         panel.beginSheetModal(for: window) { result in
             replyHandler(result == .OK ? panel.url?.path ?? "" : "", nil)
         }
