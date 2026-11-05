@@ -53,7 +53,7 @@ Load and update what others share on GitHub:
 1. Download `Team-Work-macOS.zip` from [Releases](https://github.com/yanun0323/Team-Work/releases).
 2. Unzip it and move `Team Work.app` to Applications.
 
-The app needs macOS 12 or later and runs on Apple Silicon and Intel. The app needs Git: on a Mac without it, the app stops until you install Apple's Command Line Tools, which include it, and offers to start the install. A project folder that is not a Git repo yet becomes one when you start its company.
+The app needs macOS 13.3 or later and runs on Apple Silicon and Intel. The app needs Git: on a Mac without it, the app stops until you install Apple's Command Line Tools, which include it, and offers to start the install. A project folder that is not a Git repo yet becomes one when you start its company.
 
 ## Getting Started
 

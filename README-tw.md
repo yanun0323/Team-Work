@@ -53,7 +53,7 @@ Team Work 是一個 macOS App，讓一群 AI Agent 在你自己的專案裡工�
 1. 從 [Releases](https://github.com/yanun0323/Team-Work/releases) 下載 `Team-Work-macOS.zip`。
 2. 解壓縮後，把 `Team Work.app` 移到「應用程式」資料夾。
 
-需要 macOS 12 以上，支援 Apple Silicon 和 Intel。App 需要 Git：Mac 上沒有的話，App 會停下來，等你安裝 Apple 的 Command Line Tools（裡面就有 Git），並可以直接開始安裝。專案資料夾還不是 Git repo 的話，建立公司時會自動初始化。
+需要 macOS 13.3 以上，支援 Apple Silicon 和 Intel。App 需要 Git：Mac 上沒有的話，App 會停下來，等你安裝 Apple 的 Command Line Tools（裡面就有 Git），並可以直接開始安裝。專案資料夾還不是 Git repo 的話，建立公司時會自動初始化。
 
 ## 開始使用
 

@@ -14,7 +14,7 @@
     <key>SUPublicEDKey</key><string>2KZT31UtCHLeQS6k5rM66HNBITk5BAlfNQYaHxZaBPg=</string>
     <key>SUEnableAutomaticChecks</key><true/>
     <key>SUScheduledCheckInterval</key><integer>3600</integer>
-    <key>LSMinimumSystemVersion</key><string>12.0</string>
+    <key>LSMinimumSystemVersion</key><string>13.3</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>

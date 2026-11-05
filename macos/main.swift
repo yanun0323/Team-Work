@@ -40,6 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         configuration.userContentController.add(self, name: "checkUpdate")
         configuration.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "pickFolder")
         webView = WKWebView(frame: .zero, configuration: configuration)
+        // Lets Safari's Web Inspector attach to a signed release, where WebKit problems are otherwise invisible.
+        webView.isInspectable = true
         webView.navigationDelegate = self
         webView.uiDelegate = self
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)

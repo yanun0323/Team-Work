@@ -53,7 +53,7 @@ Team Work는 AI 에이전트 팀이 내 프로젝트에서 일하게 해 주는 
 1. [Releases](https://github.com/yanun0323/Team-Work/releases)에서 `Team-Work-macOS.zip`을 내려받습니다.
 2. 압축을 풀고 `Team Work.app`을 응용 프로그램 폴더로 옮깁니다.
 
-macOS 12 이상이 필요하며 Apple Silicon과 Intel을 지원합니다. 작업에는 Git이 필요하고, 프로젝트 폴더는 Git 저장소여야 합니다.
+macOS 13.3 이상이 필요하며 Apple Silicon과 Intel을 지원합니다. 작업에는 Git이 필요하고, 프로젝트 폴더는 Git 저장소여야 합니다.
 
 ## 시작하기
 
