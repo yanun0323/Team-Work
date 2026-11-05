@@ -17,13 +17,28 @@ it('lists every source, the agents\' folders among them', () => {
   expect(html).toContain('<b>~/.claude/</b>')
 })
 
-it('shows a repo source with its update switch off, and cannot delete one in use', () => {
+it('shows a repo source with its update switch off and a button to check it now, and cannot delete one in use', () => {
   const s = sources().find((x) => x.kind === 'git')!
   const html = renderToStaticMarkup(<SourceDetail id={s.id} onGoneSource={() => {}} {...h} />)
   expect(html).toContain(sourceName(s))
-  expect(html).not.toContain('檢查更新')
+  expect(html).toMatch(/<button type="button" class="fx-tool fx-hit fx-src-check" aria-busy="false" aria-label="檢查更新"/)
   expect(html).toContain('自動套用更新')
   expect(html).not.toMatch(/type="checkbox"[^>]*checked/)
+})
+
+it('has nothing to check on a folder source', () => {
+  const s = sources().find((x) => x.kind === 'local')!
+  const html = renderToStaticMarkup(<SourceDetail id={s.id} onGoneSource={() => {}} {...h} />)
+  expect(html).not.toContain('檢查更新')
+})
+
+it('checks a repo source now, recording the attempt on it', async () => {
+  const { checkSource } = await import('./core/ops')
+  const s = sources().find((x) => x.kind === 'git' && x.upstream)!
+  const before = s.update?.at
+  useStore.setState((st) => ({ world: { ...st.world, now: (before ?? 0) + 60 } }))
+  await checkSource(useStore.getState().act, s.id)
+  expect(useStore.getState().world.sources[s.id].update).toMatchObject({ at: (before ?? 0) + 60, ok: true })
 })
 
 it('asks for a repo and a branch, or a folder', () => {

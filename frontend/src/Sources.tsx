@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react'
 import { tr } from './core/i18n'
 import { useStore } from './core/store'
-import { addSource, applySource, previewSource, seeSource, deleteSource, setSourceAutoApply, sourceChanges } from './core/ops'
+import { addSource, applySource, attempt, checkSource, previewSource, seeSource, deleteSource, setSourceAutoApply, sourceChanges } from './core/ops'
 import { sourceUsers } from './core/domain/sources'
 import { githubAddress, parseGithub } from './github'
 import { keptState, sourceName } from './source'
@@ -75,6 +75,29 @@ function ItemChips({ items, tone }: { items: SourceItem[]; tone?: 'out' }) {
   )
 }
 
+/**
+ * Asks a repo source's upstream now, turning while it waits. It stays focusable while it turns, so the keyboard does
+ * not lose its place; a second press then does nothing.
+ */
+function CheckTool({ id }: { id: string }) {
+  const act = useStore((s) => s.act)
+  const [checking, setChecking] = useState(false)
+  const check = async () => {
+    if (checking) return
+    setChecking(true)
+    await attempt(() => checkSource(act, id))
+    setChecking(false)
+  }
+  const label = checking ? tr('正在檢查更新') : tr('檢查更新')
+  return (
+    <button type="button" className="fx-tool fx-hit fx-src-check" aria-busy={checking} aria-label={label} title={label} onClick={check}>
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+        <path d="M13 8a5 5 0 1 1-1.46-3.54M12.8 2v3h-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  )
+}
+
 /** One source: its state, what a newer version would change and for whom, and its skills by folder. */
 export function SourceDetail({ id, onGoneSource, ...h }: Head & { id: string; onGoneSource: () => void }) {
   const w = useStore((s) => s.world)
@@ -112,6 +135,7 @@ export function SourceDetail({ id, onGoneSource, ...h }: Head & { id: string; on
             <p className="fx-src-head">
               <code>{(s.commit ?? '').slice(0, 7) || tr('沒有')}</code>
               {state && <span className={`fx-src-state fx-src-${state.tone}`}>{state.label}</span>}
+              <CheckTool key={id} id={id} />
             </p>
             {state?.note && <p className={state.tone === 'bad' ? 'fx-src-note fx-src-note-bad' : 'fx-src-note'}>{state.note}</p>}
           </Section>

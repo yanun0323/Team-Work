@@ -151,6 +151,16 @@ describe('the tab', () => {
     expect(['README.md', 'Makefile', 'main.go', 'sh'].map(fileKind)).toEqual(['text', 'text', 'text', 'text'])
   })
 
+  it('gives each folder, and no file, a button to open it in Finder', () => {
+    const html = level({ '': { status: 'ok', entries: [
+      { name: 'src', path: 'src', kind: 'dir' }, { name: 'docs', path: 'docs', kind: 'dir' }, { name: 'a.go', path: 'a.go', kind: 'file' },
+    ], truncated: false } })
+    expect(html.match(/class="fx-files-finder"/g)).toHaveLength(2)
+    const rowOf = (path: string) => html.slice(html.indexOf(`data-path="${path}"`)).split('</li>')[0]
+    expect(rowOf('src')).toContain('aria-label="在 Finder 打開"')
+    expect(rowOf('a.go')).not.toContain('fx-files-finder')
+  })
+
   it('does not read a folder that is closed', () => {
     const html = level({ '': { status: 'ok', entries: [{ name: 'node_modules', path: 'node_modules', kind: 'dir' }], truncated: false } })
     expect(html).toContain('aria-expanded="false"')

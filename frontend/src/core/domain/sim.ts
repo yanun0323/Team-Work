@@ -2,7 +2,7 @@
 // (the store wraps calls in immer), so tests can use plain objects.
 
 import { makeHandoff, makeScript, roleOf } from './content'
-import { fixedSteps, installPresets, localizeFlow } from '../data/presets'
+import { installPresets, localizeFlow } from '../data/presets'
 import { canReach, canSendBack, feedsOnly, inEdges, nodeOf, outEdges, startsOf } from './graph'
 import { between, chance, hex, pick, uid } from './rng'
 import { taskStatus } from './rollup'
@@ -42,6 +42,9 @@ export const taskTokens = (w: World, task: Task) =>
 export const costLimit = (w: World, task: Task) => w.teams[task.teamId].settings.costLimitUsd + task.budgetBonus
 
 export const statusOf = (w: World, task: Task) => taskStatus(task, subsOf(w, task.id))
+
+/** The sample world's own words, in its language: what the simulator writes that no key translates. */
+const say2 = (w: World, zh: string, en: string) => (w.language === 'en' ? en : zh)
 
 function log(s: SubTask, now: number, kind: LogKind, text: string, key?: string, args?: Record<string, string | number>) {
   s.log.push({ at: now, kind, text, key, args })
@@ -132,9 +135,6 @@ function start(w: World, task: Task) {
   for (const n of startsOf(task.workflow)) spawn(w, task, n.id, [], null, w.now)
 }
 
-/** The 整理需求 and 驗收 templates and what every 和員工討論 step is told, in Chinese, for the sample tasks. */
-export const { startPrompt: START_PROMPT, endPrompt: END_PROMPT, talkPrompt: TALK_PROMPT } = fixedSteps('zh')
-
 function spawn(
   w: World, task: Task, nodeId: string, upstreamIds: string[], parentId: string | null, arrivedAt: number, waiting = false,
   round = 0,
@@ -205,13 +205,13 @@ function stepMerge(w: World, task: Task) {
     m.startedAt = w.now
     m.endsAt = w.now + MERGE_TIME + (m.conflict ? RESOLVE_TIME : 0)
     const name = m.replicaId ? w.replicas[m.replicaId]?.name : undefined
-    m.log.push({ at: w.now, kind: 'system', text: `${name ? `${name} ` : ''}開始把 ${task.branch} 合併到 ${target}` })
-    if (m.conflict) m.log.push({ at: w.now, kind: 'system', text: `和 ${target} 有衝突，先解衝突` })
+    m.log.push({ at: w.now, kind: 'system', text: say2(w, `${name ? `${name} ` : ''}開始把 ${task.branch} 合併到 ${target}`, `${name ? `${name} ` : ''}Merging ${task.branch} into ${target}`) })
+    if (m.conflict) m.log.push({ at: w.now, kind: 'system', text: say2(w, `和 ${target} 有衝突，先解衝突`, `Conflicts with ${target}; resolving them first`) })
     return
   }
   if (w.now < m.endsAt!) return
-  if (m.conflict) m.log.push({ at: w.now, kind: 'system', text: '衝突已解決' })
-  m.log.push({ at: w.now, kind: 'system', text: `已合併回 ${target}，移除 work tree` })
+  if (m.conflict) m.log.push({ at: w.now, kind: 'system', text: say2(w, '衝突已解決', 'Conflicts resolved') })
+  m.log.push({ at: w.now, kind: 'system', text: say2(w, `已合併回 ${target}，移除 work tree`, `Merged into ${target}; work tree removed`) })
   task.stage = 'done'
   task.doneAt = w.now
 }
@@ -272,7 +272,7 @@ export const REPLY_TIME = 4
 function openTalk(w: World, task: Task, sub: SubTask) {
   sub.progress = 1
   sub.talk = { messages: [], speaker: sub.replicaId ?? undefined }
-  say(w, sub, sub.script.talk?.opening ?? `關於「${task.title}」，有幾件事想和你討論。`)
+  say(w, sub, sub.script.talk?.opening ?? say2(w, `關於「${task.title}」，有幾件事想和你討論。`, `A few things to talk over with you about "${task.title}".`))
   openReview(w, task, sub, { kind: 'talk', options: [] })
 }
 
@@ -293,7 +293,7 @@ function answer(w: World, sub: SubTask) {
   talk.replyAt = undefined
   const n = talk.messages.filter((m) => m.from === 'agent').length - 1
   const replies = sub.script.talk?.replies ?? []
-  say(w, sub, replies[n] ?? '好的，記下來了。')
+  say(w, sub, replies[n] ?? say2(w, '好的，記下來了。', 'OK, noted.'))
   const next = talk.next?.find((id) => w.replicas[id])
   talk.next = next ? talk.next!.slice(talk.next!.indexOf(next) + 1) : undefined
   if (next) {
@@ -459,7 +459,7 @@ export function resolveChatChange(w: World, id: string, approve: boolean) {
   const chat = w.chats[id]
   if (!chat?.change) return
   delete chat.change
-  chat.messages.push({ at: w.now, from: 'tool', text: approve ? '同意修改' : '拒絕修改', by: chat.speaker })
+  chat.messages.push({ at: w.now, from: 'tool', text: approve ? say2(w, '同意修改', 'Change approved') : say2(w, '拒絕修改', 'Change refused'), by: chat.speaker })
   chat.replyAt = w.now + REPLY_TIME
 }
 
@@ -483,14 +483,40 @@ export function blueprintSkills(w: World, id: string): (string[] | null)[] {
 }
 
 const MOCK_FILES: FileInfo[] = [
-  { path: 'docs', dir: true }, { path: 'src', dir: true }, { path: 'README.md', dir: false }, { path: 'my notes.txt', dir: false },
-  { path: 'docs/design.md', dir: false }, { path: 'src/app.ts', dir: false }, { path: 'src/app.test.ts', dir: false },
+  { path: 'docs', dir: true }, { path: 'node_modules', dir: true, ignored: true }, { path: 'src', dir: true },
+  { path: '.gitignore', dir: false }, { path: 'package.json', dir: false }, { path: 'README.md', dir: false }, { path: 'my notes.txt', dir: false },
+  { path: 'docs/design.md', dir: false }, { path: 'src/components', dir: true }, { path: 'src/app.ts', dir: false }, { path: 'src/app.test.ts', dir: false },
+  { path: 'src/components/Menu.tsx', dir: false }, { path: 'src/components/Menu.test.tsx', dir: false },
 ]
 
-/** The prototype reads no files: one a mention opens says what it is. */
+/** What the sample project's files hold. */
+const MOCK_TEXT: Record<string, string> = {
+  '.gitignore': 'node_modules/\ndist/\n.env\n',
+  'package.json': '{\n  "name": "acme-shop",\n  "private": true,\n  "scripts": {\n    "dev": "vite",\n    "test": "vitest run"\n  }\n}\n',
+  'README.md': '# Acme Shop\n\nThe online store.\n\n## Run\n\n```sh\nnpm install\nnpm run dev\n```\n',
+  'my notes.txt': 'Check the banner on mobile.\n',
+  'docs/design.md': '# Design\n\nThe menu opens from the top bar and closes on Escape.\n',
+  'src/app.ts': "import { Menu } from './components/Menu'\n\nexport function start(root: HTMLElement) {\n  root.append(Menu({ items: ['Home', 'Shop', 'Cart'] }))\n}\n",
+  'src/app.test.ts': "import { expect, it } from 'vitest'\nimport { start } from './app'\n\nit('shows the menu', () => {\n  const root = document.createElement('div')\n  start(root)\n  expect(root.textContent).toContain('Shop')\n})\n",
+  'src/components/Menu.tsx': "export interface MenuProps {\n  items: string[]\n}\n\nexport function Menu({ items }: MenuProps) {\n  const nav = document.createElement('nav')\n  for (const item of items) {\n    const link = document.createElement('a')\n    link.textContent = item\n    nav.append(link)\n  }\n  return nav\n}\n",
+  'src/components/Menu.test.tsx': "import { expect, it } from 'vitest'\nimport { Menu } from './Menu'\n\nit('lists every item', () => {\n  expect(Menu({ items: ['a', 'b'] }).children).toHaveLength(2)\n})\n",
+}
+
+/** The prototype's project: what a file holds, or an error for one it does not have. */
 export function projectFile(path: string): string {
   if (!MOCK_FILES.some((f) => f.path === path && !f.dir)) throw new Error(`專案資料夾裡沒有 ${path}`)
-  return /\.mdx?$/i.test(path) ? `# ${path}\n\n原型不讀檔案，這裡只是示意。` : `// ${path}\n`
+  return MOCK_TEXT[path] ?? ''
+}
+
+/** One level of the prototype's project, as the backend lists it: folders first, then by name, case aside. */
+export function projectTree(path: string): { entries: { name: string; path: string; kind: 'dir' | 'file'; ignored?: boolean }[]; truncated: boolean } {
+  if (path && !MOCK_FILES.some((f) => f.path === path && f.dir)) throw new Error(`專案資料夾裡沒有 ${path}`)
+  const prefix = path ? `${path}/` : ''
+  const entries = MOCK_FILES
+    .filter((f) => f.path.startsWith(prefix) && !f.path.slice(prefix.length).includes('/'))
+    .map((f) => ({ name: f.path.slice(prefix.length), path: f.path, kind: f.dir ? 'dir' as const : 'file' as const, ...(f.ignored && { ignored: true }) }))
+    .sort((a, b) => a.kind.localeCompare(b.kind) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
+  return { entries, truncated: false }
 }
 
 /** The blueprint the airport staff work by. */
@@ -640,9 +666,9 @@ function answerChat(w: World, chat: Chat) {
   const asked = chat.messages.findLast((m) => m.from === 'user')?.text ?? ''
   // a question gets one back from whoever may ask this round, to show what an employee asking looks like
   if (/[?？]$/.test(asked) && (chat.speaker ?? '') === roundActor(chat)) {
-    chat.messages.push({ at: w.now, from: 'agent', text: '你想先做哪一個？', ...by })
-    chat.question = { options: ['先做前端', '先做後端'] }
-  } else chat.messages.push({ at: w.now, from: 'agent', text: '收到。這是模擬的回覆，要實際對話請接上後端。', ...by })
+    chat.messages.push({ at: w.now, from: 'agent', text: say2(w, '你想先做哪一個？', 'Which do you want first?'), ...by })
+    chat.question = { options: [say2(w, '先做前端', 'The frontend first'), say2(w, '先做後端', 'The backend first')] }
+  } else chat.messages.push({ at: w.now, from: 'agent', text: say2(w, '收到。這是模擬的回覆，要實際對話請接上後端。', 'Got it. This is a simulated reply; connect the backend for a real chat.'), ...by })
   // the next one in the round replies, unless the chat now waits on the user
   const next = (chat.next ?? []).filter((id) => w.replicas[id])
   if (next.length && !chat.question) {
@@ -681,7 +707,7 @@ export function endTalk(w: World, subId: string, end: TalkEnd) {
   sub.review = undefined
 
   if (end.kind === 'stop') {
-    log(sub, w.now, 'human', '結束討論：停止任務')
+    log(sub, w.now, 'human', say2(w, '結束討論：停止任務', 'Ended the discussion: stopped the task'))
     sub.status = 'complete'
     sub.endedAt = w.now
     stopTask(w, task.id)
@@ -690,19 +716,20 @@ export function endTalk(w: World, subId: string, end: TalkEnd) {
   sub.status = 'complete'
   sub.endedAt = w.now
   sub.handoff = makeHandoff(w, roleOf(node), task, node)
-  sub.handoff.agent.decisions = said.map((x) => `使用者：${x}`)
-  sub.handoff.human.did = said.length ? said.map((x) => `使用者：${x}`) : ['使用者沒有補充，照原計畫進行']
+  const user = say2(w, '使用者：', 'User: ')
+  sub.handoff.agent.decisions = said.map((x) => `${user}${x}`)
+  sub.handoff.human.did = said.length ? said.map((x) => `${user}${x}`) : [say2(w, '使用者沒有補充，照原計畫進行', 'The user added nothing; going ahead as planned')]
   if (end.kind === 'back') {
     const reason = end.reason.trim()
-    log(sub, w.now, 'human', `結束討論：退回（${reason}）`)
+    log(sub, w.now, 'human', say2(w, `結束討論：退回（${reason}）`, `Ended the discussion: sent back (${reason})`))
     sendBack(w, task, sub, [sub], reason)
     return
   }
   const to = end.to ? nodeOf(wf, end.to)?.name : undefined
-  log(sub, w.now, 'human', to ? `結束討論：繼續，交給 ${to}` : '結束討論：繼續')
+  log(sub, w.now, 'human', to ? say2(w, `結束討論：繼續，交給 ${to}`, `Ended the discussion: continue, to ${to}`) : say2(w, '結束討論：繼續', 'Ended the discussion: continue'))
   if (end.to) {
     sub.routedTo = [end.to]
-    sub.handoff.agent.next = { nodeId: end.to, reason: '使用者在討論後指定' }
+    sub.handoff.agent.next = { nodeId: end.to, reason: say2(w, '使用者在討論後指定', 'Picked by the user after the discussion') }
   }
   log(sub, w.now, 'system', `完成，commit ${sub.handoff.commit}`, 'done', { commit: sub.handoff.commit })
 }
@@ -720,8 +747,8 @@ function complete(w: World, task: Task, sub: SubTask) {
   const landed = subsOf(w, task.id).filter((o) =>
     o.id !== sub.id && !o.cancelled && !o.skipped && o.handoff?.commit && (o.endedAt ?? -1) > (sub.startedAt ?? w.now))
   if (landed.length) {
-    const names = [...new Set(landed.map((o) => nodeOf(task.workflow, o.nodeId)?.name ?? o.nodeId))].join('、')
-    log(sub, w.now, 'system', `commit 衝突：先合進 ${names} 的 commit，解完衝突再 commit`)
+    const names = [...new Set(landed.map((o) => nodeOf(task.workflow, o.nodeId)?.name ?? o.nodeId))].join(say2(w, '、', ', '))
+    log(sub, w.now, 'system', say2(w, `commit 衝突：先合進 ${names} 的 commit，解完衝突再 commit`, `Commit conflict: took in the commits of ${names} first, then committed after resolving it`))
   }
   log(sub, w.now, 'system', `完成，commit ${sub.handoff.commit}`, 'done', { commit: sub.handoff.commit })
 }
@@ -791,11 +818,11 @@ function sendBack(w: World, task: Task, sub: SubTask, members: SubTask[], reason
     if (u && !u.cancelled && (!u.group || u.group === u.id) && !before.has(u.nodeId)) before.set(u.nodeId, u)
   }
   const to = [...before.keys()]
-  const names = to.map((n) => nodeOf(wf, n)?.name ?? n).join('、')
+  const names = to.map((n) => nodeOf(wf, n)?.name ?? n).join(say2(w, '、', ', '))
   for (const m of members) {
     m.routed = true
     m.sentBack = { to, reason }
-    if (m.handoff) m.handoff.human.headline = `退回 ${names}：${reason}`
+    if (m.handoff) m.handoff.human.headline = say2(w, `退回 ${names}：${reason}`, `Sent back to ${names}: ${reason}`)
     log(m, w.now, 'system', `退回 ${names} 重做：${reason}`, 'sentBack', { nodes: names, reason })
   }
   const round = (sub.round ?? 0) + 1
@@ -894,7 +921,7 @@ function dispatch(w: World) {
     const task = w.tasks[s.taskId]
     // the task's first run makes the work tree every later step commits to
     if (s.startedAt === undefined && !subsOf(w, task.id).some((o) => o.startedAt !== undefined)) {
-      log(s, w.now, 'system', `建立 work tree，分支 ${task.branch}（從 ${w.teams[task.teamId]?.targetBranch ?? 'main'}）`)
+      log(s, w.now, 'system', say2(w, `建立 work tree，分支 ${task.branch}（從 ${w.teams[task.teamId]?.targetBranch ?? 'main'}）`, `Created a work tree on branch ${task.branch} (from ${w.teams[task.teamId]?.targetBranch ?? 'main'})`))
     }
     s.startedAt ??= w.now
   }
@@ -934,7 +961,7 @@ export function resolveReview(w: World, subId: string, optionId: string, note = 
     case 'pickRoute': {
       sub.status = 'complete'
       sub.routedTo = [optionId]
-      if (sub.handoff) sub.handoff.agent.next = { nodeId: optionId, reason: note || '使用者指定' }
+      if (sub.handoff) sub.handoff.agent.next = { nodeId: optionId, reason: note || say2(w, '使用者指定', 'Picked by the user') }
       break
     }
     case 'failed':
@@ -944,8 +971,8 @@ export function resolveReview(w: World, subId: string, optionId: string, note = 
         sub.endedAt = w.now
         sub.handoff = {
           commit: '',
-          agent: { goal: task.title, done: [], outputs: [], decisions: ['使用者略過此節點'], open: ['此節點沒有產出'] },
-          human: { headline: '此節點已略過，沒有產出。', did: [], outputs: [] },
+          agent: { goal: task.title, done: [], outputs: [], decisions: [say2(w, '使用者略過此節點', 'The user skipped this step')], open: [say2(w, '此節點沒有產出', 'This step has no output')] },
+          human: { headline: say2(w, '此節點已略過，沒有產出。', 'This step was skipped and has no output.'), did: [], outputs: [] },
         }
       } else {
         sub.status = 'todo'
@@ -1051,7 +1078,7 @@ export function mergeTask(w: World, taskId: string) {
   if (task?.stage !== 'awaitMerge') return
   const by = (task.ownerId && w.replicas[task.ownerId] ? task.ownerId : lastReview(w, task)?.replicaId) ?? null
   task.stage = 'merging'
-  task.merge = { replicaId: by, conflict: task.mergeConflict, log: [{ at: w.now, kind: 'human', text: '合併' }] }
+  task.merge = { replicaId: by, conflict: task.mergeConflict, log: [{ at: w.now, kind: 'human', text: say2(w, '合併', 'Merge') }] }
 }
 
 /**
@@ -1063,7 +1090,7 @@ export function returnTask(w: World, taskId: string, feedback: string) {
   const review = task?.stage === 'awaitMerge' ? lastReview(w, task) : undefined
   const reason = feedback.trim()
   if (!review || !reason || !review.upstreamIds.length) return
-  log(review, w.now, 'human', `退回：${reason}`)
+  log(review, w.now, 'human', say2(w, `退回：${reason}`, `Sent back: ${reason}`))
   const members = review.group ? subsOf(w, task.id).filter((s) => s.group === review.group && !s.cancelled) : [review]
   task.stage = 'running'
   sendBack(w, task, review, members, reason)
@@ -1240,14 +1267,14 @@ export function gitSources(bp: Blueprint): GitSource[] {
 }
 
 /** Why an update can fail, besides a missing upstream. */
-const UPDATE_ERRORS = ['驗證失敗，沒有讀取權限', '新版本缺少 SKILL.md', '下載逾時']
+const UPDATE_ERRORS = { zh: ['驗證失敗，沒有讀取權限', '新版本缺少 SKILL.md', '下載逾時'], en: ['Authentication failed: no read access', 'The new version has no SKILL.md', 'The download timed out'] }
 
 /**
  * Move a Git source to its newest version. It fails when the upstream can't be found, and now and then for
  * other reasons; a failed update keeps the version in use. Either way the attempt is recorded.
  */
 export function updateSource(w: World, s: GitSource) {
-  const error = !s.upstream ? '找不到上游' : chance(w, 0.25) ? pick(w, UPDATE_ERRORS) : undefined
+  const error = !s.upstream ? say2(w, '找不到上游', 'Upstream not found') : chance(w, 0.25) ? pick(w, UPDATE_ERRORS[w.language]) : undefined
   s.update = error ? { at: w.now, ok: false, error } : { at: w.now, ok: true }
   if (error) return
   s.commit = s.latest

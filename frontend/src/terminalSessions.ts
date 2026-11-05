@@ -5,13 +5,15 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal as XTerm } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
+import { MOCK } from './core/mode'
 import { useStore } from './core/store'
+import { mockShell, type ShellSocket } from './mockShell'
 import { usePrefs } from './prefs'
 import { terminalKey } from './terminalKeys'
 
 interface Session {
   term: XTerm
-  socket: WebSocket
+  socket: ShellSocket
   /** What xterm draws into; moved in and out of the page whole. */
   el: HTMLDivElement
   fit: FitAddon
@@ -38,7 +40,9 @@ function start(teamId: string, host: HTMLElement): Session {
   term.loadAddon(fit)
   term.open(el)
   fit.fit()
-  const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/teams/${teamId}/terminal?cols=${term.cols}&rows=${term.rows}`)
+  const socket: ShellSocket = MOCK
+    ? mockShell()
+    : new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/teams/${teamId}/terminal?cols=${term.cols}&rows=${term.rows}`)
   socket.binaryType = 'arraybuffer'
   const s: Session = { term, socket, el, fit, shown: true, ended: false, onEnded: () => {}, onLeave: () => {} }
   socket.onmessage = (m) => term.write(new Uint8Array(m.data as ArrayBuffer))

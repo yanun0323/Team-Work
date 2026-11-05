@@ -3,6 +3,7 @@
 
 import { useEffect, type ReactNode } from 'react'
 import { tr } from './core/i18n'
+import { openFolder } from './core/ops'
 import type { Item } from './DrawerDetail'
 import { dirAt, draftKey, isDirty, loadDir, toggleFolder, useFileDrafts, viewOf } from './fileDrafts'
 import { FileIcon, fileKind, FolderIcon, FolderOpenIcon } from './FileIcons'
@@ -63,10 +64,18 @@ export function Level(p: Opens & { path: string; expanded: string[]; onToggle: (
     const isOpen = p.expanded.includes(x.path)
     return (
       <li key={x.path}>
-        <button type="button" className={`fx-files-row fx-files-folder${x.ignored ? ' fx-files-ignored' : ''}`} data-path={x.path} aria-expanded={isOpen} onClick={() => p.onToggle(x.path)}>
-          {isOpen ? <FolderOpenIcon /> : <FolderIcon />}
-          <span className="fx-files-name">{x.name}</span>
-        </button>
+        <div className="fx-files-line">
+          <button type="button" className={`fx-files-row fx-files-folder${x.ignored ? ' fx-files-ignored' : ''}`} data-path={x.path} aria-expanded={isOpen} onClick={() => p.onToggle(x.path)}>
+            {isOpen ? <FolderOpenIcon /> : <FolderIcon />}
+            <span className="fx-files-name">{x.name}</span>
+          </button>
+          {/* shown while the row is hovered or focused */}
+          <button type="button" className="fx-files-finder" aria-label={tr('在 Finder 打開')} title={tr('在 Finder 打開')} onClick={() => openFolder(teamId, x.path)}>
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path d="M1.75 12.5v-9h4.2l1.5 1.75h6.8v7.25z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
         {isOpen && <Level {...p} path={x.path} />}
       </li>
     )

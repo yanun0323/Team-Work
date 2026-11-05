@@ -3,6 +3,7 @@
 // otherwise it asks the backend, and the answer comes back as a change to the world.
 
 import { request } from './backend'
+import { seedWorld } from './data/seed'
 import * as sim from './domain/sim'
 import type { Attachment, Blueprint, Chat, Source, SourceChanges, SourceItem, SourcePreview, Effort, FileInfo, Locale, Look, MemoryEntry, Replica, SkillInfo, SkillText, TalkEnd, Team, Workflow, World } from './domain/types'
 import { MOCK } from './mode'
@@ -30,7 +31,10 @@ type Sim = typeof sim
 
 const pick = <K extends keyof Sim>(name: K, real: (...args: never[]) => unknown) => (MOCK ? sim[name] : real) as Sim[K]
 
-export const setLanguage = pick('setLanguage', (_w: World, language: Locale) => fire_('PUT', '/settings/language', { language }))
+/** The sample world is written in each language, so under `make dev-mock` a new language starts it again in that one. */
+export const setLanguage = MOCK
+  ? (w: World, language: Locale) => { if (w.language !== language) Object.assign(w, seedWorld(language)) }
+  : (_w: World, language: Locale) => fire_('PUT', '/settings/language', { language })
 
 // ---------- tasks ----------
 
@@ -212,18 +216,28 @@ export interface TreeEntry { name: string; path: string; kind: 'dir' | 'file'; /
 
 const projectBase = (teamId: string) => `/teams/${encodeURIComponent(teamId)}`
 
+/**
+ * Under `make dev-mock` the file browser shows the simulator's sample project, and what is saved stays in the browser,
+ * by company and path. Tests drive the real requests with a fake fetch, so there it is off.
+ */
+const SAMPLE_PROJECT = import.meta.env.MODE === 'mock'
+const mockSaved = new Map<string, string>()
+
 /** One level of a folder in a company's project ('' is the project itself), straight from disk; at most 5000 entries. */
-export const listProjectTree = (teamId: string, path: string, signal?: AbortSignal) =>
-  request<{ entries: TreeEntry[] | null; truncated: boolean }>('GET', `${projectBase(teamId)}/tree?path=${encodeURIComponent(path)}`, undefined, signal)
-    .then((r) => ({ entries: r.entries ?? [], truncated: r.truncated }))
+export const listProjectTree = (teamId: string, path: string, signal?: AbortSignal) => (SAMPLE_PROJECT
+  ? Promise.resolve().then(() => sim.projectTree(path))
+  : request<{ entries: TreeEntry[] | null; truncated: boolean }>('GET', `${projectBase(teamId)}/tree?path=${encodeURIComponent(path)}`, undefined, signal)
+    .then((r) => ({ entries: r.entries ?? [], truncated: r.truncated })))
 
 /** A text file in a company's project to edit, with the fingerprint (sha256) of its content to save against. */
-export const openProjectFile = (teamId: string, path: string, signal?: AbortSignal) =>
-  request<{ text: string; hash: string }>('GET', `${projectBase(teamId)}/file?path=${encodeURIComponent(path)}`, undefined, signal)
+export const openProjectFile = (teamId: string, path: string, signal?: AbortSignal) => (SAMPLE_PROJECT
+  ? Promise.resolve().then(() => ({ text: mockSaved.get(`${teamId}/${path}`) ?? sim.projectFile(path), hash: 'mock' }))
+  : request<{ text: string; hash: string }>('GET', `${projectBase(teamId)}/file?path=${encodeURIComponent(path)}`, undefined, signal))
 
 /** Writes a text file in a company's project, only if it still has the content `hash` was taken of; answers the new hash. */
-export const saveProjectFile = (teamId: string, path: string, text: string, hash: string) =>
-  request<{ hash: string }>('PUT', `${projectBase(teamId)}/file`, { path, text, hash }).then((r) => r.hash)
+export const saveProjectFile = (teamId: string, path: string, text: string, hash: string) => (SAMPLE_PROJECT
+  ? Promise.resolve(void mockSaved.set(`${teamId}/${path}`, text)).then(() => 'mock')
+  : request<{ hash: string }>('PUT', `${projectBase(teamId)}/file`, { path, text, hash }).then((r) => r.hash))
 
 /** Where an `<img>` loads a picture in a company's folder, or at home with no company, as it is now. */
 export const projectImageUrl = (teamId: string, path: string) => `/api/v1${mentionBase(teamId)}/image?path=${encodeURIComponent(path)}`
@@ -308,6 +322,13 @@ export const sourceItems = (w: World, id: string, signal?: AbortSignal) => (MOCK
 export const sourceChanges = (w: World, id: string, signal?: AbortSignal) => (MOCK
   ? Promise.resolve(sim.sourceChanges(w, id))
   : request<SourceChanges>('GET', `/sources/${id}/changes`, undefined, signal))
+
+/** Asks a repo source's upstream for its newest version now; settles once the check is recorded on the source. */
+export function checkSource(act: (fn: (w: World) => void) => void, id: string): Promise<void> {
+  if (!MOCK) return request('POST', `/sources/${id}/check`).then(() => undefined)
+  act((x) => sim.checkSource(x, id))
+  return Promise.resolve()
+}
 
 export const applySource = pick('applySource', (_w: World, id: string) => fire_('POST', `/sources/${id}/apply`))
 export const seeSource = pick('seeSource', (_w: World, id: string) => fire_('POST', `/sources/${id}/seen`))

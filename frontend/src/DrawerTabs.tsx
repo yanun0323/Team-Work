@@ -6,7 +6,6 @@ import { nodeOf } from './core/domain/graph'
 import { statusOf } from './core/domain/sim'
 import type { Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
-import { MOCK } from './core/mode'
 import { byBlueprint, chatMindOf, chatPeople, chatPreview, chatOrder, chatSign, chatWho, mindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
 import { activity, fmtTokens, teamReplicas, teamTasks } from './core/model'
@@ -26,13 +25,12 @@ export const TABS: { id: Tab; label: Key }[] = [
   { id: 'chats', label: '對話#tab' },
   { id: 'tasks', label: '任務#tab' },
   { id: 'crew', label: '員工#tab' },
-  // the simulator has no computer to run a shell on
-  // the simulator has no folder to browse either
-  ...(MOCK ? [] : [{ id: 'files' as const, label: '檔案瀏覽' as const }, { id: 'terminal' as const, label: '終端機' as const }]),
+  { id: 'files', label: '檔案瀏覽' },
+  { id: 'terminal', label: '終端機' },
   { id: 'settings', label: '設定' },
 ]
 
-/** The tab to open on: the wanted one, or 任務 where it does not exist, as with 終端機 in the simulator. */
+/** The tab to open on: the wanted one, or 任務 where it does not exist, as with one an older version had. */
 export const tabOr = (wanted: Tab): Tab => (TABS.some((x) => x.id === wanted) ? wanted : 'tasks')
 
 const COLUMNS: { status: Status; label: Key }[] = [
