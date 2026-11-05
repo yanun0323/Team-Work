@@ -244,7 +244,13 @@ func (e *Engine) installPresets() {
 }
 
 // retiredPresets maps a built-in blueprint that is gone to the one that took over its work.
-var retiredPresets = map[string]string{model.PresetPrefix + "fullstack": model.PresetPrefix + "assistant"}
+var retiredPresets = map[string]string{
+	model.PresetPrefix + "fullstack": model.PresetPrefix + "assistant",
+	model.PresetPrefix + "security":  model.PresetPrefix + "reviewer",
+	model.PresetPrefix + "analyst":   model.PresetPrefix + "researcher",
+	model.PresetPrefix + "marketing": model.PresetPrefix + "writer",
+	model.PresetPrefix + "pm":        model.PresetPrefix + "architect",
+}
 
 // retirePresets moves employees, and the blueprints copied from one, off built-in blueprints that are gone.
 func retirePresets(s *model.Settings) {

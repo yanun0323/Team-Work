@@ -34,7 +34,7 @@ func TestPresets(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"專案經理", "產品負責人", "設計師", "後端工程師", "前端工程師", "測試工程師", "研究員", "程式審查員", "技術架構師", "資安工程師", "DevOps 工程師", "技術文件寫手", "資料分析師", "行銷文案", "通才"} {
+	for _, want := range []string{"技術規劃", "產品規劃", "設計師", "後端工程師", "前端工程師", "測試工程師", "研究員", "程式審查員", "DevOps 工程師", "寫手", "通才"} {
 		if names[want] == "" {
 			t.Fatalf("no blueprint %s: %v", want, names)
 		}
@@ -86,7 +86,7 @@ func TestPresets(t *testing.T) {
 func TestPresetsCannotChangeButCanBeCopied(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	w := r.world()
-	bp, wf := *w.Blueprints["preset-pm"], *presetFlowOf(t, w, "preset-feature")
+	bp, wf := *w.Blueprints["preset-architect"], *presetFlowOf(t, w, "preset-feature")
 	for what, err := range map[string]error{
 		"save blueprint":   r.e.SaveBlueprint(bp.ID, bp),
 		"delete blueprint": r.e.DeleteBlueprint(bp.ID),
@@ -118,14 +118,14 @@ func TestPresetsCannotChangeButCanBeCopied(t *testing.T) {
 	if got := presetFlowOf(t, w, wf.ID); got.Name != "Feature development" || got.Nodes[0].Name != "Write spec" {
 		t.Fatalf("%+v", got)
 	}
-	if got := w.Blueprints[bp.ID]; got.Name != "Project Manager" || strings.Contains(got.Prompt, "你是") {
+	if got := w.Blueprints[bp.ID]; got.Name != "Technical Planner" || strings.Contains(got.Prompt, "你是") {
 		t.Fatalf("%+v", got)
 	}
 	// the files hold only what the user made, and a restart brings the built-in ones back in the language picked
 	r.e.Close()
 	newEngine(t, r)
 	w = r.world()
-	if w.Blueprints[bp.ID].Name != "Project Manager" || w.Workflows[wf.ID].Name != "Feature development" {
+	if w.Blueprints[bp.ID].Name != "Technical Planner" || w.Workflows[wf.ID].Name != "Feature development" {
 		t.Fatal("restart lost the presets")
 	}
 	if err := r.e.ReloadSettings(context.Background()); err != nil {
@@ -139,7 +139,7 @@ func TestPresetsCannotChangeButCanBeCopied(t *testing.T) {
 // Whatever the user sees, employees are told a built-in blueprint and flow in English, with the language to reply in.
 func TestEmployeesAreToldPresetsInEnglish(t *testing.T) {
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
-	pm, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: "preset-pm", Name: "Pam", Model: "fake"})
+	pm, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: "preset-architect", Name: "Pam", Model: "fake"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,12 +150,12 @@ func TestEmployeesAreToldPresetsInEnglish(t *testing.T) {
 	}
 	r.wait("the second step", func(*model.World) bool { return len(r.fake.requests()) > 1 })
 	got := r.fake.requests()[1]
-	for _, want := range []string{"company's project manager", "# This step: Fix", "user reads in Traditional Chinese", "- Reproduce: "} {
+	for _, want := range []string{"company's technical planner", "# This step: Fix", "user reads in Traditional Chinese", "- Reproduce: "} {
 		if !strings.Contains(got.System, want) {
 			t.Errorf("no %q in:\n%s", want, got.System)
 		}
 	}
-	if strings.Contains(got.System, "專案經理") || strings.Contains(got.System, "修正") {
+	if strings.Contains(got.System, "技術規劃") || strings.Contains(got.System, "修正") {
 		t.Errorf("Chinese in:\n%s", got.System)
 	}
 	if !strings.Contains(got.Messages[0].Content[0].Text, `Handoff from "Reproduce"`) {
@@ -278,7 +278,7 @@ func TestPresetsUseTheAgentFolders(t *testing.T) {
 			t.Fatalf("%s: %v", b.Name, paths)
 		}
 	}
-	if found != 16 {
+	if found != 12 {
 		t.Fatalf("%d presets", found)
 	}
 }
@@ -375,7 +375,7 @@ func TestPresetSkillFoldersFollowPreferences(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	folders := func() []string {
 		var out []string
-		for _, p := range r.world().Blueprints["preset-pm"].Skills {
+		for _, p := range r.world().Blueprints["preset-architect"].Skills {
 			out = append(out, p.Source.Path)
 		}
 		return out

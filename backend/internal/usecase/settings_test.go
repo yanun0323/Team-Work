@@ -313,24 +313,37 @@ func TestImportYAMLAndKeepEditsAcrossRestart(t *testing.T) {
 	}
 }
 
-func TestEmployeesOfARetiredPresetMoveToTheGeneralist(t *testing.T) {
-	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
-	s := readSettings(t, r)
-	rep := s.Replicas[r.owner.ID]
-	rep.BlueprintID = "preset-fullstack"
-	s.Replicas[rep.ID] = rep
-	b := *s.Blueprints[r.owner.BlueprintID]
-	b.ID, b.From = "bp-copy", "preset-fullstack"
-	s.Blueprints[b.ID] = &b
-	writeSettings(t, r, s)
-	r.e.Close()
-	newEngine(t, r)
-	w := r.world()
-	if got := w.Replicas[r.owner.ID].BlueprintID; got != "preset-assistant" {
-		t.Fatalf("still on %s", got)
-	}
-	if got := w.Blueprints["bp-copy"].From; got != "preset-assistant" {
-		t.Fatalf("copied from %s", got)
+func TestEmployeesOfARetiredPresetMoveToTheOneThatTookOver(t *testing.T) {
+	for gone, to := range map[string]string{
+		"preset-fullstack": "preset-assistant",
+		"preset-security":  "preset-reviewer",
+		"preset-analyst":   "preset-researcher",
+		"preset-marketing": "preset-writer",
+		"preset-pm":        "preset-architect",
+	} {
+		t.Run(gone, func(t *testing.T) {
+			r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
+			s := readSettings(t, r)
+			rep := s.Replicas[r.owner.ID]
+			rep.BlueprintID = gone
+			s.Replicas[rep.ID] = rep
+			b := *s.Blueprints[r.owner.BlueprintID]
+			b.ID, b.From = "bp-copy", gone
+			s.Blueprints[b.ID] = &b
+			writeSettings(t, r, s)
+			r.e.Close()
+			newEngine(t, r)
+			w := r.world()
+			if _, ok := w.Blueprints[gone]; ok {
+				t.Fatalf("%s is still built in", gone)
+			}
+			if got := w.Replicas[r.owner.ID].BlueprintID; got != to {
+				t.Fatalf("still on %s", got)
+			}
+			if got := w.Blueprints["bp-copy"].From; got != to {
+				t.Fatalf("copied from %s", got)
+			}
+		})
 	}
 }
 
