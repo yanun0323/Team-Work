@@ -1,8 +1,9 @@
 import { expect, it } from 'vitest'
 import { terminalKey, typesIntoTerminal } from './terminalKeys'
 
-const press = (key: string, held: { shift?: boolean; alt?: boolean; meta?: boolean; ctrl?: boolean; composing?: boolean } = {}) => terminalKey({
+const press = (key: string, held: { shift?: boolean; alt?: boolean; meta?: boolean; ctrl?: boolean; composing?: boolean; keyCode?: number } = {}) => terminalKey({
   key, shiftKey: !!held.shift, altKey: !!held.alt, metaKey: !!held.meta, ctrlKey: !!held.ctrl, isComposing: !!held.composing,
+  keyCode: held.keyCode ?? 0,
 })
 
 it('sends what a shell understands for the Mac editing combinations', () => {
@@ -31,6 +32,11 @@ it('leaves everything else to xterm.js and the browser', () => {
   expect(press('ArrowLeft', { meta: true, shift: true })).toBeUndefined()
   expect(press('ArrowLeft', { alt: true, ctrl: true })).toBeUndefined()
   expect(press('Enter', { shift: true, composing: true })).toBeUndefined()
+})
+
+it('leaves the key that ends a composition to the input method, though WebKit already reports it as not composing', () => {
+  expect(press('Enter', { shift: true, keyCode: 229 })).toBeUndefined()
+  expect(press('ArrowLeft', { alt: true, keyCode: 229 })).toBeUndefined()
 })
 
 it('moves the keyboard into the terminal for text typed where nothing else wants it', () => {

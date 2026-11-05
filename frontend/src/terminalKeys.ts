@@ -1,6 +1,8 @@
 // What the Mac's modifier combinations do in a company terminal, for the ones xterm.js leaves out or sends in a
 // form a stock shell ignores. Sequences follow the "natural text editing" preset of iTerm2.
 
+import { composing } from './ime'
+
 export type TerminalAction = 'clear' | 'scrollTop' | 'scrollBottom'
 
 const KEYS: Record<string, { send: string } | { run: TerminalAction }> = {
@@ -21,12 +23,12 @@ const KEYS: Record<string, { send: string } | { run: TerminalAction }> = {
   'meta+ArrowDown': { run: 'scrollBottom' },
 }
 
-type Combo = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'altKey' | 'metaKey' | 'ctrlKey' | 'isComposing'>
+type Combo = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'altKey' | 'metaKey' | 'ctrlKey' | 'isComposing' | 'keyCode'>
 
 /** What this key combination does, or undefined to let xterm.js and the browser have it. */
 export function terminalKey(e: Combo) {
   // a shift held while picking a candidate belongs to the input method
-  if (e.isComposing || e.ctrlKey) return undefined
+  if (composing(e) || e.ctrlKey) return undefined
   const held = [e.shiftKey && 'shift', e.altKey && 'alt', e.metaKey && 'meta'].filter(Boolean)
   if (held.length !== 1) return undefined
   return KEYS[`${held[0]}+${e.key}`]
