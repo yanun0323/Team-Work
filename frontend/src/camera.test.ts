@@ -1,7 +1,7 @@
 import { CELL, layoutTown } from './layout'
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { boxOnScreen, drawerWidth, focusTarget, focusView, groundReach, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot, seaCoverZoom, SEA_SIZE } from './camera'
+import { boxOnScreen, drawerWidth, focusTarget, focusView, groundReach, hidesPoint, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot, seaCoverZoom, SEA_SIZE } from './camera'
 
 /** Screen position (pixels from the canvas centre, y up) of a world point, for a camera looking at `target`. */
 const project = (p: THREE.Vector3, target: THREE.Vector3, zoom: number) => {
@@ -218,4 +218,14 @@ describe('focusView, tight', () => {
     expect((Math.max(...xs) + Math.min(...xs)) / 2).toBeCloseTo(free / 2, 5)
     expect((Math.max(...ys) + Math.min(...ys)) / 2).toBeCloseTo(view.height / 2, 5)
   })
+})
+
+it('tells a building hides someone standing behind it from the camera, not someone in front or beside it', () => {
+  const tower = { x: 0, z: 0, w: 10, d: 10, height: 20 }
+  // the camera looks from the +x/+z corner: behind is towards -x/-z
+  expect(hidesPoint(tower, new THREE.Vector3(-7, 0.5, -7))).toBe(true)
+  expect(hidesPoint(tower, new THREE.Vector3(7, 0.5, 7))).toBe(false)
+  expect(hidesPoint(tower, new THREE.Vector3(-7, 0.5, 9))).toBe(false)
+  // a low shed far in front of someone further back doesn't reach up into the line of sight
+  expect(hidesPoint({ x: 0, z: 0, w: 2, d: 2, height: 1 }, new THREE.Vector3(-20, 0.5, -20))).toBe(false)
 })

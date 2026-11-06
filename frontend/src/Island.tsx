@@ -1,7 +1,7 @@
 // The island body traced from the land cells: a checkered grass top with a lip, two soil bands,
 // and a sandy beach running into the sea. Also bakes the sea's distance-to-shore texture.
 
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { area, contours, landField, type Field, type Loop } from './land'
 import { CELL, type Town } from './layout'
@@ -10,7 +10,8 @@ import { toon, toonChecker } from './toon'
 export const SEA_LEVEL = -0.62
 /** The beach reaches this far past the grass edge, in world units. */
 export const BEACH = 1.1
-const BEACH_TOP = -0.5
+/** Height of the sand's top, in world units. */
+export const BEACH_TOP = -0.5
 const LIP = 0.22
 const BOTTOM = -2
 
@@ -29,7 +30,7 @@ export interface SeaMap {
 export function useLand(town: Town) {
   // only the ground decides the land; buildings growing on their plots leave it as it is
   const ground = `${town.cols}x${town.rows}:${town.ground.join()}`
-  return useMemo(() => {
+  const land = useMemo(() => {
     void ground
     const field = landField(town)
     const grass = biggest(contours(field, field.land, 0.5, true))
@@ -37,6 +38,8 @@ export function useLand(town: Town) {
     return { field, grass, beach, sea: seaMap(field) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ground])
+  useEffect(() => () => land.sea.texture.dispose(), [land])
+  return land
 }
 
 function biggest(loops: Loop[]) {
@@ -56,7 +59,7 @@ function seaMap(field: Field): SeaMap {
 
 /** A loop raised from `bottom` to `top`; shape y is world -z, so after the turn it lies on the ground. */
 function useSlab(loop: Loop, bottom: number, top: number) {
-  return useMemo(() => {
+  const geometry = useMemo(() => {
     if (loop.length < 3) return null
     const shape = new THREE.Shape(loop.map(([x, z]) => new THREE.Vector2(x, -z)))
     const g = new THREE.ExtrudeGeometry(shape, { depth: top - bottom, bevelEnabled: false, curveSegments: 1 })
@@ -64,6 +67,8 @@ function useSlab(loop: Loop, bottom: number, top: number) {
     g.translate(0, bottom, 0)
     return g
   }, [loop, bottom, top])
+  useEffect(() => () => geometry?.dispose(), [geometry])
+  return geometry
 }
 
 export function Island({ town, land }: { town: Town; land: ReturnType<typeof useLand> }) {
@@ -73,6 +78,7 @@ export function Island({ town, land }: { town: Town; land: ReturnType<typeof use
   const beach = useSlab(land.beach, BOTTOM, BEACH_TOP)
   // extruded geometry: group 0 is the caps, group 1 the sides
   const grassTop = useMemo(() => toonChecker('#8fd16a', '#84c862', [town.cols / 2, town.rows / 2], CELL), [town.cols, town.rows])
+  useEffect(() => () => grassTop.dispose(), [grassTop])
   return (
     <group>
       {lip && <mesh geometry={lip} material={[grassTop, toon('#6aa84f')]} receiveShadow />}

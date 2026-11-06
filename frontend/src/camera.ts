@@ -85,6 +85,13 @@ export function boxOnScreen(box: FocusBox, center: THREE.Vector3, zoom: number, 
   return maxX > u - halfW && minX < u + halfW && maxY > v - halfH && minY < v + halfH
 }
 
+/** Whether the box stands between the point and the camera: a line from the point towards the camera goes through it. */
+export function hidesPoint(box: FocusBox, p: THREE.Vector3): boolean {
+  const min = new THREE.Vector3(box.x - box.w / 2, 0, box.z - box.d / 2)
+  const max = new THREE.Vector3(box.x + box.w / 2, box.height, box.z + box.d / 2)
+  return new THREE.Ray(p, ISO_DIR).intersectsBox(new THREE.Box3(min, max))
+}
+
 /** Width of the right-hand drawer for a given canvas width: half, but never cramped. */
 export const drawerWidth = (width: number) => Math.min(width, Math.max(width / 2, 380))
 

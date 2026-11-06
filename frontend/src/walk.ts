@@ -46,10 +46,10 @@ const DIRS: Array<[number, number, number]> = [
 ]
 
 /**
- * Shortest path between two free cells, as cell centres from start to goal. Moves eight ways but never
- * cuts the corner of a blocked cell. `null` when the goal can't be reached.
+ * Least-cost path between two free cells, as cell centres from start to goal. Optional nonnegative
+ * per-cell penalties represent traffic; without them this is shortest distance. Never cuts blocked corners.
  */
-export function findPath(g: Grid, from: P, to: P): P[] | null {
+export function findPath(g: Grid, from: P, to: P, penalties?: Float64Array): P[] | null {
   if (!isFree(g, ...from) || !isFree(g, ...to)) return null
   const n = g.cols * g.rows
   const cost = new Float64Array(n).fill(Infinity)
@@ -98,10 +98,11 @@ export function findPath(g: Grid, from: P, to: P): P[] | null {
       if (!isFree(g, nx, nz)) continue
       if (dx && dz && (!isFree(g, x + dx, z) || !isFree(g, x, z + dz))) continue
       const j = nz * g.cols + nx
-      if (c + step < cost[j]) {
-        cost[j] = c + step
+      const next = c + step * (1 + ((penalties?.[i] ?? 0) + (penalties?.[j] ?? 0)) / 2)
+      if (next < cost[j]) {
+        cost[j] = next
         prev[j] = i
-        push([c + step, j])
+        push([next, j])
       }
     }
   }
@@ -112,7 +113,7 @@ export function findPath(g: Grid, from: P, to: P): P[] | null {
 }
 
 /** True when a straight walk between two points only crosses free cells. */
-function clear(g: Grid, a: P, b: P) {
+export function clearWalk(g: Grid, a: P, b: P) {
   const steps = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (g.step * 0.25))
   for (let k = 0; k <= steps; k++) {
     const t = steps ? k / steps : 0
@@ -126,14 +127,30 @@ function clear(g: Grid, a: P, b: P) {
   return true
 }
 
-/** Drops the corners a straight line can cut, so people walk in long lines instead of cell by cell. */
-export function smooth(g: Grid, path: P[]): P[] {
+/** Travel cost along a segment, also used so smoothing cannot erase a less-crowded detour. */
+export function walkCost(g: Grid, a: P, b: P, penalties?: Float64Array) {
+  const length = Math.hypot(b[0] - a[0], b[1] - a[1])
+  if (!penalties) return length
+  const n = Math.max(1, Math.ceil(length / (g.step * 0.25)))
+  let cost = 0
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n
+    const [x, z] = cellOf(g, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+    cost += 1 + (penalties[z * g.cols + x] ?? 0)
+  }
+  return length * cost / n
+}
+
+/** Drops unnecessary corners, but never shortcuts through a more expensive crowded area. */
+export function smooth(g: Grid, path: P[], penalties?: Float64Array): P[] {
   if (path.length <= 2) return path
   const out: P[] = [path[0]]
+  const costs = [0]
+  for (let k = 1; k < path.length; k++) costs.push(costs[k - 1] + walkCost(g, path[k - 1], path[k], penalties))
   let i = 0
   while (i < path.length - 1) {
     let j = path.length - 1
-    while (j > i + 1 && !clear(g, path[i], path[j])) j--
+    while (j > i + 1 && (!clearWalk(g, path[i], path[j]) || (penalties && walkCost(g, path[i], path[j], penalties) > costs[j] - costs[i] + 1e-6))) j--
     out.push(path[j])
     i = j
   }
@@ -141,12 +158,12 @@ export function smooth(g: Grid, path: P[]): P[] {
 }
 
 /** A route over the grid between two points, smoothed; empty when there is none. */
-export function route(g: Grid, from: P, to: P): P[] {
+export function route(g: Grid, from: P, to: P, penalties?: Float64Array): P[] {
   const a = nearestFree(g, ...from)
   const b = nearestFree(g, ...to)
   if (!a || !b) return []
-  const path = findPath(g, a, b)
-  return path ? smooth(g, path) : []
+  const path = findPath(g, a, b, penalties)
+  return path ? smooth(g, path, penalties) : []
 }
 
 /** The way to sit on a bench seat, through its front cell; empty when the seat can't be reached from here. */
@@ -256,17 +273,26 @@ export interface Stroller extends Walker {
  * The land changed: a building grew or a company moved, perhaps over someone or their way. Nobody stays on what is
  * now blocked, and every route is worked out again, so that none crosses the new building.
  */
-export function resettle(people: Stroller[], g: Grid, seats: BenchSeat[]) {
+export function resettle(people: Stroller[], g: Grid, seats: BenchSeat[], diameter = 0) {
+  const placed: Stroller[] = people.filter((p) => p.mode === 'sitting' && seats.some((s) => `${s.at}` === `${p.seat?.at}`))
+  const positions = diameter > 0 ? freeCells(g).map(([x, z]) => cellPos(g, x, z)) : []
   const sameSeat = (s: BenchSeat | null) => seats.find((x) => s && `${x.at}` === `${s.at}`) ?? null
   for (const p of people) {
     p.seat = sameSeat(p.seat)
     if (p.mode === 'sitting' && p.seat) continue
     if (p.mode === 'sitting') p.mode = 'standing'
     if (!p.seat) p.toSeat = false
-    if (!isFree(g, ...cellOf(g, p.x, p.z))) {
-      const near = nearestFree(g, p.x, p.z)
-      if (near) [p.x, p.z] = cellPos(g, ...near)
+    const available = ([x, z]: P) => placed.every((q) => Math.hypot(q.x - x, q.z - z) >= diameter)
+    if (!isFree(g, ...cellOf(g, p.x, p.z)) || !available([p.x, p.z])) {
+      if (diameter > 0) {
+        const at = positions.filter(available).sort((a, b) => Math.hypot(a[0] - p.x, a[1] - p.z) - Math.hypot(b[0] - p.x, b[1] - p.z))[0]
+        if (at) [p.x, p.z] = at
+      } else {
+        const near = nearestFree(g, p.x, p.z)
+        if (near) [p.x, p.z] = cellPos(g, ...near)
+      }
     }
+    placed.push(p)
     if (p.mode !== 'walking') continue
     if (p.toSeat && p.seat) {
       p.route = seatRoute(g, [p.x, p.z], p.seat)

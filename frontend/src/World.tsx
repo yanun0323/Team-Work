@@ -14,14 +14,14 @@ import { useStore } from './core/store'
 import { LabelLayer, LabelProjector, type LabelSpec } from './core/voxel/labels'
 import { Airport } from './Airport'
 import { Ambient, shadowHalf } from './Ambient'
-import { fitSunShadow, seenPoints, SHADOW_MAP, sunNormalBias } from './sunShadow'
+import { fitSunShadow, seenPoints, SHADOW_MAP, sunDepthBias, sunNormalBias } from './sunShadow'
 import { Building, BuildingPreview, CUT, FLOOR, ROOF_TOP } from './Building'
-import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, seaCoverZoom, shotAt, type FocusBox, type Shot } from './camera'
+import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, hidesPoint, islandView, ISO_DIR, SCREEN_RIGHT, MAX_ZOOM, MIN_ZOOM, seaCoverZoom, shotAt, type FocusBox, type Shot } from './camera'
 import { Drawer, putAwaySheets } from './Drawer'
 import { putAwaySampleSheet } from './HelpLooks'
 import { Settings } from './Settings'
 import { Help } from './Help'
-import { Fade, FADE_SECONDS } from './Fade'
+import { FADE_SECONDS } from './Fade'
 import { Island, useLand } from './Island'
 import { MapGrid } from './MapGrid'
 import { useProjectBytes, useProjectSizePolling } from './projectSize'
@@ -33,7 +33,9 @@ import type { Team } from './core/domain/types'
 import { MOCK } from './core/mode'
 import { attempt } from './core/ops'
 import { Ocean } from './Ocean'
-import { Strollers } from './People'
+import { followed, pickFollowTarget, Strollers, type FollowTarget } from './People'
+import { crowdSize } from './walk'
+import { watchIdle } from './idleFollow'
 import { NO_OUTLINE_LAYER, PixelPass } from './PixelPass'
 import { toonInstanced } from './toon'
 import { usePrefs } from './prefs'
@@ -129,7 +131,7 @@ export function World() {
   useSound()
   useSystemNotices()
   useQuotaPolling()
-  const { crowd, planes, clouds, autoView, zoomSensitivity } = usePrefs()
+  const { crowd, planes, clouds, autoView, zoomSensitivity, idleFollowTarget } = usePrefs()
   // the simulation changes the world ten times a second; rebuild the town only when its shape changes
   const key = useStore(townKey)
   // each project's size, asked again whenever a task is finished; only a change of storeys reshapes the town
@@ -176,6 +178,33 @@ export function World() {
   // editing the map: pick a company, then put its plot somewhere else
   const [editing, setEditing] = useState(false)
   const [moving, setMoving] = useState<string | null>(null)
+  // the camera following someone, once the map is left alone a while: one of the people out on the island, or an
+  // employee in their office. A different one each time, until the next click, drag, wheel or key
+  const strollers = crowd ? crowdSize(town) : 0
+  // every employee of a company on the map, as `id<TAB>teamId<TAB>name` lines
+  const crewLines = useStore((s) => Object.values(s.world.replicas).filter((r) => s.world.teams[r.teamId])
+    .map((r) => `${r.id}\t${r.teamId}\t${r.name}`).sort().join('\n'))
+  const staff = useMemo(() => crewLines.split('\n').filter(Boolean).map((line) => {
+    const [id, teamId, name] = line.split('\t')
+    return { id, teamId, name }
+  }), [crewLines])
+  const [following, setFollowing] = useState<FollowTarget | null>(null)
+  const lastFollowed = useRef<FollowTarget | null>(null)
+  // a press that stopped following: it may click whatever it is on, but doesn't drag the map until it ends
+  const pressHeld = useRef(false)
+  useEffect(() => {
+    followed.stroller = following?.kind === 'stroller' ? following.index : -1
+    followed.crew = following?.kind === 'crew' ? following.id : ''
+    followed.seen = false
+    if (!following) return
+    // someone never drawn (an office with no seat left for them) isn't waited for
+    const t = setTimeout(() => {
+      if (!followed.seen) setFollowing(null)
+    }, FOLLOW_SEEN_MS)
+    return () => clearTimeout(t)
+  }, [following])
+  // the buildings standing in front of the person followed, cut away so they show
+  const [cutAway, setCutAway] = useState<string[]>([])
 
   // a drawer over the right half that belongs to no company: the settings
   const [panel, setPanel] = useState<'settings' | null>(null)
@@ -284,6 +313,37 @@ export function World() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open, settingsOpen, placing, editing, helpOpen, close])
+  // the watch reads the latest of these, as it outlives renders
+  const idle = useRef({ main: false, following: false, strollers: 0, staff })
+  idle.current = { main: !selected && !panel && !placing && !editing && !helpOpen, following: following !== null, strollers, staff }
+  useEffect(() => {
+    const watch = watchIdle(window, {
+      seconds: () => usePrefs.getState().idleFollow,
+      canStart: () => idle.current.main && (idle.current.strollers > 0 || (usePrefs.getState().idleFollowTarget === 'all' && idle.current.staff.length > 0)),
+      following: () => idle.current.following,
+      start: () => {
+        const next = pickFollowTarget(idle.current.strollers, idle.current.staff, lastFollowed.current, usePrefs.getState().idleFollowTarget)
+        if (!next) return
+        lastFollowed.current = next
+        idle.current.following = true
+        setFollowing(next)
+      },
+      stop: (e) => {
+        if (e.type === 'pointerdown') pressHeld.current = true
+        idle.current.following = false
+        setFollowing(null)
+      },
+      onMap: (e) => e.target instanceof Element && !!e.target.closest('.fusion-canvas'),
+    })
+    return watch.dispose
+  }, [])
+  // anything else taking the view, or the person no longer being about, lets them go
+  const gone = following?.kind === 'stroller' ? following.index >= strollers : following?.kind === 'crew' && (idleFollowTarget !== 'all' || !staff.some((r) => r.id === following.id))
+  useEffect(() => {
+    if (selected || panel || placing || editing || helpOpen || gone) setFollowing(null)
+  }, [selected, panel, placing, editing, helpOpen, gone])
+  // an employee followed: their office stays cut away the whole time, and their name shows over them
+  const followedCrew = following?.kind === 'crew' ? staff.find((r) => r.id === following.id) : undefined
   // a company closed while it was being moved is let go
   useEffect(() => {
     if (moving && !useStore.getState().world.teams[moving]) setMoving(null)
@@ -367,6 +427,9 @@ export function World() {
       const [id, name] = line.split('\t')
       return { id: `fusion-crew-${id}`, tone: 'fusion-crew', text: name }
     })
+    if (followedCrew && !crew.some((c) => c.id === `fusion-crew-${followedCrew.id}`)) {
+      crew.push({ id: `fusion-crew-${followedCrew.id}`, tone: 'fusion-crew', text: followedCrew.name })
+    }
     const [ax, az] = rectCenter(town, town.airport)
     const airport: LabelSpec = {
       id: 'fusion-airport', at: [ax + AIRPORT_TAG[0], AIRPORT_TAG[1], az + AIRPORT_TAG[2]],
@@ -389,7 +452,7 @@ export function World() {
     // the open company's own name is in the drawer, and its roof is cut away
     return [...(panel === 'settings' ? [] : [airport]), ...tags.filter((t) => t.id !== `fusion-${open?.id}`), ...crew]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [town, open, crewNames, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language, alerts])
+  }, [town, open, crewNames, followedCrew, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language, alerts])
 
   const shownLabels = useFadingLabels(labels)
   const help = useLingering(helpOpen ? 'help' : null)
@@ -456,10 +519,12 @@ export function World() {
       <Pavement town={town} />
       {(placing || editing) && <MapGrid town={town} moved={moving ?? undefined} />}
       <StreetProps town={town} />
-      {crowd && <Fade show><Strollers town={town} /></Fade>}
+      {/* each person fades in on their own (see Strollers): a Fade round them all would fight theirs over the same meshes */}
+      {crowd && <Strollers town={town} field={land.field} />}
       <Trees town={town} />
+      {following !== null && <FollowCut town={town} onChange={setCutAway} />}
       {town.lots.map((lot) => (
-        <Building key={lot.id} lot={lot} town={town} open={lot.id === selected} another={!!open && lot !== open}
+        <Building key={lot.id} lot={lot} town={town} open={lot.id === selected} cut={following !== null && (cutAway.includes(lot.id) || followedCrew?.teamId === lot.id)} another={!!open && lot !== open}
           hover={!selected && !settingsOpen && !placing && (hovered === lot.id || moving === lot.id)} onHover={hover} onSelect={select} />
       ))}
       <Airport town={town} open={panel === 'settings'} calm={calm || !planes} still={editing} onSelect={selectAirport} onHover={(on) => hover(AIRPORT_ID, on)}
@@ -471,7 +536,8 @@ export function World() {
       <MapControls makeDefault enableRotate={false} enableDamping dampingFactor={0.12} screenSpacePanning={false}
         minZoom={MIN_ZOOM} maxZoom={MAX_ZOOM} zoomSpeed={ZOOM_SPEED * zoomSensitivity / 100} />
       <CameraRig town={town} radius={town.radius} span={span} top={town.top} focus={focus} focusKey={!focus ? null : airportShown ? 'airport' : selected ?? (spot ? `spot:${spot}` : null)}
-        panOnly={autoView === 'pan'} blocked={(settingsOpen && (autoView === 'panZoom' || !airportShown)) || helpOpen} wide={(placing || editing) && !selected ? town.middle : null} />
+        panOnly={autoView === 'pan'} blocked={(settingsOpen && (autoView === 'panZoom' || !airportShown)) || helpOpen} wide={(placing || editing) && !selected ? town.middle : null}
+        following={following !== null} held={pressHeld} />
       <LabelProjector />
       <PixelPass pixel={2} />
     </Canvas>
@@ -534,6 +600,41 @@ export function World() {
     )}
     </div>
   )
+}
+
+/** How long to wait for the person picked to follow to be drawn before giving up on them, in milliseconds. */
+const FOLLOW_SEEN_MS = 3000
+
+/** How long a building stays cut away after the person followed comes out from behind it, in seconds. */
+const CUT_LINGER = 1.5
+/** Points on a stroller checked for being hidden: feet and head, either side, in world units. */
+const FOLLOW_PROBES: Array<[number, number]> = [[0.2, -0.35], [0.2, 0.35], [1.6, -0.35], [1.6, 0.35]]
+
+/** Tells which buildings hide the person followed, each frame; one stays listed a moment after, so it doesn't flicker. */
+function FollowCut({ town, onChange }: { town: Town; onChange: (ids: string[]) => void }) {
+  const boxes = useMemo(() => town.lots.map((l) => {
+    const [x, z] = rectCenter(town, l.building)
+    return { id: l.id, box: { x, z, w: l.building.w * CELL, d: l.building.d * CELL, height: l.floors * FLOOR + ROOF_TOP } }
+  }), [town])
+  const seen = useRef(new Map<string, number>())
+  const shown = useRef('')
+  useEffect(() => () => onChange([]), [onChange])
+  useFrame(({ clock }) => {
+    if (!followed.seen) return
+    const now = clock.elapsedTime
+    const p = new THREE.Vector3()
+    for (const { id, box } of boxes) {
+      const hit = FOLLOW_PROBES.some(([up, side]) => hidesPoint(box, p.copy(followed.at).addScaledVector(SCREEN_RIGHT, side).setY(followed.at.y + up)))
+      if (hit) seen.current.set(id, now)
+    }
+    const ids = boxes.filter(({ id }) => now - (seen.current.get(id) ?? -Infinity) < CUT_LINGER).map(({ id }) => id)
+    const key = ids.join()
+    if (key !== shown.current) {
+      shown.current = key
+      onChange(ids)
+    }
+  })
+  return null
 }
 
 /** The airport's id among hovered things, and where its name tag sits: above the middle of the terminal roof. */
@@ -632,7 +733,7 @@ function Sun({ reach, top }: { reach: number; top: number }) {
       <color ref={background} attach="background" args={[light.sky]} />
       <hemisphereLight ref={sky} args={[light.above, light.below, light.fill]} />
       <directionalLight ref={sun} position={light.toSun.clone().multiplyScalar(distance).toArray()} intensity={light.strength} color={light.sun} castShadow={shadows}
-        shadow-mapSize={[SHADOW_MAP, SHADOW_MAP]} shadow-bias={-0.0007} shadow-normalBias={sunNormalBias(half)}
+        shadow-mapSize={[SHADOW_MAP, SHADOW_MAP]} shadow-bias={sunDepthBias(1, distance + depth)} shadow-normalBias={sunNormalBias(half)}
         shadow-camera-left={-half} shadow-camera-right={half} shadow-camera-top={half} shadow-camera-bottom={-half}
         shadow-camera-near={1} shadow-camera-far={distance + depth} />
     </>
@@ -651,11 +752,23 @@ const FLY_SECONDS = 0.9
 /** An open office fills a bit more than the free area: its empty outer floor corners may be cut off. */
 const OFFICE_ZOOM = 1.14
 
+/** Following someone on the island: zoomed in at least this far, the view catching up at this rate per second. */
+const FOLLOW_ZOOM = MAX_ZOOM
+const FOLLOW_RATE = 5
+/** How long the camera takes to get to the person it starts following, in seconds. */
+const FOLLOW_ENTER_SECONDS = 2.5
+/** The height on a stroller kept in the middle of the screen, in world units: about their waist. */
+const FOLLOW_AIM = 0.8
 
-function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked, wide }: {
+
+function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked, wide, following, held }: {
   town: Town; radius: number; span: number; top: number; focus: FocusBox | null; focusKey: string | null; panOnly: boolean; blocked: boolean
   /** Placing a new company: the middle of the town, which is shown with the sea a new plot may go on. */
   wide: [number, number] | null
+  /** The camera stays on `followed`, and the player can neither pan nor zoom. */
+  following: boolean
+  /** Set by a press that stopped following: the map isn't dragged until the press ends. */
+  held: { current: boolean }
 }) {
   const controls = useThree((s) => s.controls) as unknown as (THREE.EventDispatcher<{ start: object }> & { target: THREE.Vector3; update: () => void; enabled: boolean; enablePan: boolean; zoomToCursor: boolean; minZoom: number }) | null
   const gl = useThree((s) => s.gl)
@@ -731,7 +844,9 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
     if (!controls) return
     if (focus) {
       // remember the player's view only when coming from the map, not when switching companies
-      if (!home.current) home.current = { target: controls.target.clone(), zoom: camera.zoom }
+      // mid-flight (say, back from following someone), the view being flown to is the one to come back to
+      if (!home.current) home.current = fly.current && !fly.current.intro ? { target: fly.current.to.target.clone(), zoom: fly.current.to.zoom }
+        : { target: controls.target.clone(), zoom: camera.zoom }
       const view = { width: size.width, height: size.height, coverRight: drawerWidth(size.width) }
       if (panOnly) {
         fly.current = null
@@ -749,15 +864,56 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey, panOnly, controls])
+  // the zoom to settle at while following someone, or null when not
+  const followZoom = useRef<number | null>(null)
+  // getting to the person followed: from where the view was, and how far in, in seconds
+  const followEnter = useRef<{ from: Shot | null; time: number }>({ from: null, time: 0 })
+  // the view before following someone, gone back to when it stops
+  const beforeFollow = useRef<Shot | null>(null)
   useEffect(() => {
-    locked.current = !!focus || blocked
-    panLocked.current = !!focus && panOnly && !blocked
+    if (!following) {
+      followZoom.current = null
+      const back = beforeFollow.current
+      beforeFollow.current = null
+      if (!back) return
+      // a company or the airport opening took over the view: closing it comes back here instead
+      if (focus) {
+        if (home.current) home.current = back
+      } else flyTo(back)
+      return
+    }
+    // mid-flight, the view being flown to is the one to come back to
+    beforeFollow.current = fly.current && !fly.current.intro ? { target: fly.current.to.target.clone(), zoom: fly.current.to.zoom }
+      : controls ? { target: controls.target.clone(), zoom: camera.zoom } : null
+    fly.current = null
+    pan.current = null
+    followZoom.current = Math.max(camera.zoom, FOLLOW_ZOOM)
+    followEnter.current = { from: null, time: 0 }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [following, camera])
+  useEffect(() => {
+    locked.current = !!focus || blocked || following
+    panLocked.current = !!focus && panOnly && !blocked && !following
     if (controls) {
-      controls.enabled = !locked.current || panLocked.current
+      controls.enabled = !held.current && (!locked.current || panLocked.current)
       controls.enablePan = !panLocked.current
     }
     if (locked.current) keys.current.clear()
-  }, [focus, panOnly, blocked, controls])
+  }, [focus, panOnly, blocked, following, controls, held])
+  useEffect(() => {
+    if (!controls) return
+    const up = () => {
+      if (!held.current) return
+      held.current = false
+      controls.enabled = !locked.current || panLocked.current
+    }
+    window.addEventListener('pointerup', up, true)
+    window.addEventListener('pointercancel', up, true)
+    return () => {
+      window.removeEventListener('pointerup', up, true)
+      window.removeEventListener('pointercancel', up, true)
+    }
+  }, [controls, held])
   useEffect(() => {
     if (!controls) return
     const cancel = () => void (fly.current = null)
@@ -846,6 +1002,30 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
         fly.current = null
         if (f.intro && controls) controls.minZoom = Math.min(MIN_ZOOM, f.to.zoom)
       }
+    }
+    if (followZoom.current !== null && followed.seen) {
+      // the person's waist, slid along the line of sight down to the ground the camera looks at
+      const goal = followed.at.clone().setY(followed.at.y + FOLLOW_AIM)
+      goal.addScaledVector(ISO_DIR, -goal.y / ISO_DIR.y)
+      const offset = camera.position.clone().sub(t)
+      const enter = followEnter.current
+      if (!enter.from) enter.from = { target: t.clone(), zoom: camera.zoom }
+      enter.time += Math.min(delta, 0.05)
+      const p = calm ? 1 : Math.min(1, enter.time / FOLLOW_ENTER_SECONDS)
+      if (p < 1) {
+        // on the way there, easing in and out; the goal moves with the person, so the flight bends to meet them
+        const u = p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2
+        const shot = shotAt(enter.from, { target: goal, zoom: followZoom.current }, u)
+        t.copy(shot.target)
+        camera.zoom = shot.zoom
+      } else {
+        // there: keep up with them, a little softly
+        const k = calm ? 1 : 1 - Math.exp(-FOLLOW_RATE * Math.min(delta, 0.05))
+        t.lerp(goal, k)
+        camera.zoom = followZoom.current
+      }
+      camera.position.copy(t).add(offset)
+      camera.updateProjectionMatrix()
     }
     // the view's center stays over the island, so it can't be lost at sea; not while flying or with a
     // building open, whose view may sit a little past it (pulling it back would bend the flight)

@@ -1,5 +1,6 @@
 // The airport: a fixed field behind the town (layout.ts `AIRPORT`). A terminal and a control tower along the
-// far side, an apron (停機坪) in front of them with a parked plane and a helipad beside it, two taxiways down
+// far side, an apron (停機坪) in front of them with a parked plane being serviced by ground vehicles, a row of
+// parked equipment, and a helipad beside it, two taxiways down
 // to a runway along x on the town side. A plane keeps landing, taxiing to its stand, waiting, and taking off
 // again. Clicking anywhere on it opens the settings; while they are open the terminal and the tower's cab are
 // shown from inside (AirportInterior.tsx).
@@ -7,6 +8,7 @@
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
+import { aloft, IN_THE_AIR } from './aloft'
 import { AirportInterior } from './AirportInterior'
 import { Fade } from './Fade'
 import { AIRPORT, CELL, rectCenter, RUNWAY_CELLS, RUNWAY_LINE, BRIDGE_DX, HALL_LIFT, STAND_Z, STANDS, TERMINAL, TOWER, type Town } from './layout'
@@ -51,35 +53,89 @@ const APRON = { x0: -10, x1: TERMINAL.x1, z0: TERMINAL.z1, z1: 1.5 }
 const LANE_Z = 0
 const HELIPAD = { x: -28, z: -8, r: 3.4 }
 
-/** A short airliner, nose along +x, wheels on y = 0: about four cells long. */
-/** `gear` false: wheels up, for a plane cruising past. */
+/**
+ * Swept wing in three steps, root to tip, each `[x of its middle, chord, z from, z to]`; the span stays 8.4
+ * (±4.2). The engines hang under the middle step.
+ */
+const WING: Array<[number, number, number, number]> = [[0.15, 1.7, 0, 1.45], [-0.15, 1.3, 1.45, 2.9], [-0.5, 0.9, 2.9, 4.2]]
+const BELLY = '#c9ced8'
+/** Doors, `[x, y, height, width]` on both sides: the front ones by the jet bridge and the catering truck, the rear ones for passengers; and the rear hold, on the -z side, for the belt loader. */
+const DOORS: Array<[number, number, number, number]> = [[2.9, 1.3, 0.78, 0.42], [-2.6, 1.3, 0.78, 0.42]]
+/** Cabin windows, one by one between the doors, about as far apart as they are wide. */
+const WINDOWS = Array.from({ length: 15 }, (_, i) => -2.25 + i * (4.8 / 14))
+
+/**
+ * A short airliner, nose along +x, wheels on y = 0: about four cells long. White over a grey belly with a
+ * stripe in the airline's colour, the wing swept back with winglets. Jet bridge and ground vehicles are
+ * placed against its size, doors and wings, so keep its length, span and door heights.
+ * `gear` false: wheels up, for a plane cruising past.
+ */
 export function Plane({ body, tail, gear = true }: { body: string; tail: string; gear?: boolean }) {
+  // less detail: no doors or navigation lights
+  const detail = usePrefs((s) => s.detail)
   return (
     <>
-      {/* fuselage, nose and tail cone */}
-      <B p={[0, 1.25, 0]} s={[6.4, 1.1, 1.1]} c={body} />
-      <B p={[3.6, 1.15, 0]} s={[0.8, 0.85, 0.85]} c={body} />
-      <B p={[4.15, 1.05, 0]} s={[0.4, 0.5, 0.55]} c={body} />
-      <B p={[-3.7, 1.45, 0]} s={[1.0, 0.7, 0.7]} c={body} />
-      {/* cockpit windows, a window line and a stripe in the airline's colour */}
-      <B p={[3.75, 1.42, 0]} s={[0.5, 0.18, 0.88]} c="#2c3f52" shadow={false} />
-      <B p={[0.3, 1.45, 0]} s={[5.4, 0.14, 1.12]} c="#3b5670" shadow={false} />
+      {/* fuselage: two crossed boxes for a rounder section, the nose and tail cone tapering in steps */}
+      <B p={[0, 1.25, 0]} s={[6.4, 1.1, 0.9]} c={body} />
+      <B p={[0, 1.25, 0]} s={[6.4, 0.9, 1.1]} c={body} />
+      <B p={[3.5, 1.22, 0]} s={[0.6, 0.95, 0.95]} c={body} />
+      <B p={[3.975, 1.15, 0]} s={[0.35, 0.72, 0.75]} c={body} />
+      <B p={[4.25, 1.08, 0]} s={[0.2, 0.42, 0.45]} c={body} />
+      <B p={[-3.5, 1.35, 0]} s={[0.6, 0.9, 0.9]} c={body} />
+      <B p={[-4.05, 1.5, 0]} s={[0.5, 0.6, 0.6]} c={body} />
+      {/* grey belly under a stripe in the airline's colour */}
+      <B p={[0.1, 0.86, 0]} s={[6.2, 0.12, 1.12]} c={BELLY} shadow={false} />
+      <B p={[0.1, 0.69, 0]} s={[6.2, 0.02, 0.88]} c={BELLY} shadow={false} />
       <B p={[0.3, 1.0, 0]} s={[6.2, 0.16, 1.12]} c={tail} shadow={false} />
-      {/* wings, engines under them */}
-      <B p={[0.1, 0.95, 0]} s={[1.6, 0.14, 8.4]} c={body} />
-      <B p={[-0.5, 0.97, 0]} s={[0.5, 0.1, 8.0]} c="#c9ced8" shadow={false} />
-      {[-1.9, 1.9].map((z) => (
-        <group key={z}>
-          <B p={[0.55, 0.6, z]} s={[1.3, 0.55, 0.55]} c="#c9ced8" />
-          <B p={[1.22, 0.6, z]} s={[0.06, 0.42, 0.42]} c="#3a3f4a" shadow={false} />
+      {/* cockpit windows and the cabin's windows; with less detail, a single window line */}
+      <B p={[3.95, 1.445, 0]} s={[0.3, 0.17, 0.78]} c="#2c3f52" shadow={false} />
+      {detail
+        ? WINDOWS.map((x) => <B key={x} p={[x, 1.45, 0]} s={[0.18, 0.16, 1.12]} c="#3b5670" shadow={false} />)
+        : <B p={[0.15, 1.45, 0]} s={[5.3, 0.14, 1.12]} c="#3b5670" shadow={false} />}
+      {detail && DOORS.map(([x, y, h, w]) => <B key={x} p={[x, y, 0]} s={[w, h, 1.14]} c={BELLY} shadow={false} />)}
+      {detail && <B p={[-2.4, 0.92, -0.2]} s={[0.6, 0.36, 0.74]} c="#aeb5c2" shadow={false} />}
+      {/* wings: three swept steps a side, a flap strip along each trailing edge and a winglet in the airline's colour */}
+      <B p={[WING[0][0], 0.95, 0]} s={[WING[0][1], 0.14, WING[0][3] * 2]} c={body} />
+      {[-1, 1].map((side) => (
+        <group key={side}>
+          {WING.slice(1).map(([x, chord, z0, z1]) => (
+            <B key={x} p={[x, 0.95, side * (z0 + z1) / 2]} s={[chord, 0.14, z1 - z0]} c={body} />
+          ))}
+          {WING.map(([x, chord, z0, z1]) => {
+            // clear of the fuselage at the root, short of each step's ends
+            const from = Math.max(z0, 0.55) + 0.02
+            const to = z1 - 0.02
+            return <B key={x} p={[x - chord / 2 + 0.11, 0.98, side * (from + to) / 2]} s={[0.24, 0.1, to - from]} c={BELLY} shadow={false} />
+          })}
+          <B p={[-0.7, 1.24, side * 4.16]} s={[0.45, 0.5, 0.1]} c={tail} />
+          {/* navigation lights: red on the left wingtip, green on the right, lit after dark */}
+          {detail && <B p={[-0.05, 0.98, side * 4.08]} s={[0.18, 0.16, 0.18]} c={side < 0 ? '#d84a3a' : '#4caf6a'} glow={side < 0 ? '#ff6a55' : '#6fe08f'} shadow={false} />}
+          {/* engine: nacelle on a pylon, a wider intake lip with a dark fan, an exhaust cone behind */}
+          <group position={[0, 0, side * 1.9]}>
+            <B p={[0.25, 0.85, 0]} s={[0.5, 0.2, 0.12]} c={BELLY} />
+            <B p={[0.5, 0.6, 0]} s={[1.2, 0.55, 0.55]} c={BELLY} />
+            <B p={[1.1, 0.6, 0]} s={[0.3, 0.64, 0.64]} c="#dfe3ea" />
+            <B p={[1.255, 0.6, 0]} s={[0.02, 0.46, 0.46]} c="#3a3f4a" shadow={false} />
+            <B p={[-0.2, 0.6, 0]} s={[0.2, 0.34, 0.34]} c="#6b7280" />
+          </group>
         </group>
       ))}
-      {/* tail fin and stabilisers */}
-      <B p={[-3.5, 2.5, 0]} s={[1.3, 1.6, 0.14]} c={tail} />
-      <B p={[-3.9, 1.6, 0]} s={[0.9, 0.12, 3.2]} c={body} />
-      {/* landing gear */}
-      {gear && <B p={[2.8, 0.35, 0]} s={[0.14, 0.7, 0.14]} c="#3a3f4a" />}
-      {gear && [-0.7, 0.7].map((z) => <B key={z} p={[-0.4, 0.3, z]} s={[0.4, 0.6, 0.2]} c="#2a2e36" />)}
+      {/* tail fin, swept in two steps, and the stabilisers */}
+      <B p={[-3.45, 2.1, 0]} s={[1.3, 0.8, 0.14]} c={tail} />
+      <B p={[-3.75, 2.9, 0]} s={[0.9, 0.8, 0.14]} c={tail} />
+      <B p={[-3.85, 1.6, 0]} s={[0.9, 0.12, 1.6]} c={body} />
+      {[-1, 1].map((side) => <B key={side} p={[-4.05, 1.6, side * 1.2]} s={[0.6, 0.12, 0.8]} c={body} />)}
+      {/* landing gear: a nose leg on twin wheels, a main leg with twin wheels under each wing root */}
+      {gear && <>
+        <B p={[2.8, 0.45, 0]} s={[0.12, 0.5, 0.12]} c="#3a3f4a" />
+        {[-1, 1].map((side) => <B key={side} p={[2.8, 0.15, side * 0.12]} s={[0.3, 0.3, 0.12]} c="#2a2e36" />)}
+        {[-1, 1].map((side) => (
+          <group key={side} position={[-0.4, 0, side * 0.7]}>
+            <B p={[0, 0.5, 0]} s={[0.12, 0.4, 0.12]} c="#3a3f4a" />
+            {[-1, 1].map((w) => <B key={w} p={[0, 0.2, w * 0.13]} s={[0.4, 0.4, 0.14]} c="#2a2e36" />)}
+          </group>
+        ))}
+      </>}
     </>
   )
 }
@@ -160,8 +216,11 @@ function Flight({ calm }: { calm: boolean }) {
   const [shown, setShown] = useState(true)
   useEffect(() => {
     if (calm) { stopSound('soundLanding'); stopSound('soundTakeoff') }
-    return () => { stopSound('soundLanding'); stopSound('soundTakeoff') }
+    // standing still at its stand, it is in nobody's sky
+    aloft.delete('flight')
+    return () => { stopSound('soundLanding'); stopSound('soundTakeoff'); aloft.delete('flight') }
   }, [calm])
+  const world = useMemo(() => new THREE.Vector3(), [])
   useLayoutEffect(() => {
     if (calm) {
       clock.current = STAND_AT
@@ -179,6 +238,10 @@ function Flight({ calm }: { calm: boolean }) {
     poseAt(t, ref.current)
     const on = t >= SHOWN[0] && t < SHOWN[1]
     if (on !== shown) setShown(on)
+    // coming in or climbing away: something for the people on the island to watch
+    ref.current.getWorldPosition(world)
+    if (on && world.y > IN_THE_AIR) aloft.set('flight', { x: world.x, y: world.y, z: world.z })
+    else aloft.delete('flight')
   })
   return (
     <group ref={ref}>
@@ -265,6 +328,204 @@ function JetBridge({ x }: { x: number }) {
   )
 }
 
+// Ground vehicles, nose along +x, wheels on y = 0, about the size of the plane's engine.
+const TIRE = '#2a2e36'
+const DARK = '#3a3f4a'
+const WHITE = '#f4f4f0'
+const BLUE = '#3b6fb0'
+const GLASS = '#2c3f52'
+const CONE = '#ff8a3c'
+
+function Wheels({ xs, w, r = 0.36 }: { xs: number[]; w: number; r?: number }) {
+  return <>{xs.flatMap((x) => [-1, 1].map((side) => <B key={`${x}${side}`} p={[x, r / 2, side * w / 2]} s={[r, r, 0.14]} c={TIRE} shadow={false} />))}</>
+}
+
+/** The orange light on a vehicle's roof, lit after dark. */
+const Beacon = ({ p }: { p: V3 }) => <B p={p} s={[0.16, 0.14, 0.16]} c="#e58a2b" glow="#ffb347" shadow={false} />
+
+/** Baggage tractor: a low yellow body, a windscreen and a roof on posts. */
+function Tractor() {
+  return (
+    <>
+      <B p={[0, 0.4, 0]} s={[1.3, 0.4, 0.9]} c={YELLOW} />
+      <B p={[0.12, 0.85, 0]} s={[0.04, 0.45, 0.75]} c={GLASS} shadow={false} />
+      {[-1, 1].map((side) => <B key={side} p={[-0.55, 0.85, side * 0.38]} s={[0.06, 0.5, 0.06]} c={DARK} />)}
+      <B p={[-0.2, 1.13, 0]} s={[0.8, 0.08, 0.9]} c={DARK} />
+      <Beacon p={[-0.2, 1.24, 0]} />
+      <Wheels xs={[-0.4, 0.4]} w={0.9} />
+    </>
+  )
+}
+
+const BAGS = ['#c8643f', '#3b6fb0', '#5f8f5a', '#3a3f4a']
+
+/** Baggage cart: a bed under a canopy on four posts, its tow bar to +x; `loaded`, with suitcases on it. */
+function Cart({ loaded = false }: { loaded?: boolean }) {
+  return (
+    <>
+      <B p={[0, 0.35, 0]} s={[1.5, 0.1, 0.9]} c={DARK} />
+      {[-0.7, 0.7].flatMap((x) => [-0.4, 0.4].map((z) => <B key={`${x}${z}`} p={[x, 0.75, z]} s={[0.06, 0.8, 0.06]} c={DARK} />))}
+      <B p={[0, 1.15, 0]} s={[1.5, 0.06, 0.9]} c={BLUE} />
+      <B p={[0.9, 0.3, 0]} s={[0.3, 0.05, 0.08]} c={DARK} shadow={false} />
+      {loaded && BAGS.map((c, i) => <B key={c} p={[-0.45 + (i % 2) * 0.8, 0.58 + Math.floor(i / 2) * 0.3, (i % 2 ? 0.15 : -0.15)]} s={[0.6, 0.3, 0.45]} c={c} />)}
+      <Wheels xs={[-0.5, 0.5]} w={0.9} r={0.28} />
+    </>
+  )
+}
+
+/** A tractor pulling carts: the tractor at x 0, its carts behind it towards -x. */
+function Train({ carts }: { carts: boolean[] }) {
+  return (
+    <>
+      <Tractor />
+      {carts.map((loaded, i) => <group key={i} position={[-1.75 - i * 1.85, 0, 0]}><Cart loaded={loaded} /></group>)}
+    </>
+  )
+}
+
+/** Belt loader: a sloping belt up to +x, its top end at x 1.7, the driver's seat beside its low end. */
+function BeltLoader() {
+  const tilt: V3 = [0, 0, 0.14]
+  return (
+    <>
+      <B p={[0, 0.3, 0]} s={[2.6, 0.3, 0.9]} c={YELLOW} />
+      <B p={[-0.4, 0.7, -0.3]} s={[0.6, 0.5, 0.3]} c={WHITE} />
+      <Beacon p={[-0.4, 1.02, -0.3]} />
+      <B p={[0.1, 0.73, 0.15]} s={[3.25, 0.1, 0.55]} r={tilt} c={TIRE} />
+      {[-1, 1].map((side) => <B key={side} p={[0.1, 0.8, 0.15 + side * 0.3]} s={[3.25, 0.08, 0.05]} r={tilt} c={YELLOW} shadow={false} />)}
+      <Wheels xs={[-0.9, 0.9]} w={0.9} />
+    </>
+  )
+}
+
+/** Fuel truck: a cab at +x, a tank with a band of the airport colour, a hose reel at the back. */
+function FuelTruck() {
+  return (
+    <>
+      <B p={[0, 0.3, 0]} s={[4, 0.25, 1.0]} c={DARK} />
+      <B p={[1.5, 0.75, 0]} s={[1.0, 1.1, 1.1]} c={WHITE} />
+      <B p={[2.01, 0.95, 0]} s={[0.04, 0.4, 0.95]} c={GLASS} shadow={false} />
+      <Beacon p={[1.5, 1.38, 0]} />
+      <B p={[-0.55, 0.95, 0]} s={[2.8, 1.0, 1.05]} c="#e8ebf0" />
+      <B p={[-0.55, 0.95, 0]} s={[2.82, 0.16, 1.07]} c={BLUE} shadow={false} />
+      <B p={[-2.0, 0.7, 0]} s={[0.2, 0.5, 0.8]} c={DARK} />
+      <Wheels xs={[-1.4, -0.4, 1.4]} w={1.0} />
+    </>
+  )
+}
+
+/** Catering truck: its box lifted on a scissor up to a door at +x, the cab at -x. */
+function CateringTruck() {
+  return (
+    <>
+      <B p={[0, 0.3, 0]} s={[3.6, 0.25, 1.0]} c={DARK} />
+      <B p={[-1.3, 0.75, 0]} s={[0.9, 0.9, 1.0]} c={WHITE} />
+      <B p={[-1.76, 0.9, 0]} s={[0.04, 0.35, 0.85]} c={GLASS} shadow={false} />
+      <Beacon p={[-1.3, 1.25, 0]} />
+      {[-1, 1].map((side) => <B key={side} p={[0.6, 0.6, side * 0.42]} s={[2.0, 0.08, 0.06]} r={[0, 0, side * 0.2]} c={DARK} />)}
+      <B p={[0.6, 1.4, 0]} s={[2.2, 1.2, 1.0]} c={WHITE} />
+      <B p={[0.6, 1.85, 0]} s={[2.22, 0.14, 1.02]} c={BLUE} shadow={false} />
+      <B p={[1.85, 0.83, 0]} s={[0.3, 0.06, 0.9]} c={DARK} />
+      <Wheels xs={[-1.2, 1.2]} w={1.0} />
+    </>
+  )
+}
+
+/** Apron bus: white with a band of the airport colour, its windows lit after dark. */
+function Bus() {
+  return (
+    <>
+      <B p={[0, 0.95, 0]} s={[3.6, 1.3, 1.3]} c={WHITE} />
+      <B p={[0, 1.15, 0]} s={[3.4, 0.4, 1.32]} c={GLASS} glow={LIT_GLASS} shadow={false} />
+      <B p={[1.81, 1.0, 0]} s={[0.04, 0.7, 1.1]} c={GLASS} glow={LIT_GLASS} shadow={false} />
+      <B p={[0, 0.6, 0]} s={[3.62, 0.14, 1.32]} c={BLUE} shadow={false} />
+      <B p={[-0.4, 1.7, 0]} s={[1.2, 0.2, 0.8]} c="#c9ced8" />
+      <Wheels xs={[-1.2, 1.2]} w={1.3} r={0.42} />
+    </>
+  )
+}
+
+/** Stair truck: stairs from the back up to a platform over the cab. */
+function StairTruck() {
+  const tilt: V3 = [0, 0, 0.478]
+  return (
+    <>
+      <B p={[0, 0.3, 0]} s={[3.4, 0.25, 1.1]} c={DARK} />
+      <B p={[1.15, 0.75, 0]} s={[0.9, 0.85, 1.1]} c={WHITE} />
+      <B p={[1.61, 0.85, 0]} s={[0.04, 0.35, 0.95]} c={GLASS} shadow={false} />
+      <B p={[-0.15, 1.2, 0]} s={[3.04, 0.12, 0.8]} r={tilt} c={YELLOW} />
+      {[-1, 1].map((side) => <B key={side} p={[-0.15, 1.65, side * 0.42]} s={[3.04, 0.05, 0.05]} r={tilt} c={WHITE} shadow={false} />)}
+      <B p={[1.5, 1.9, 0]} s={[0.7, 0.08, 0.8]} c={YELLOW} />
+      {[-1, 1].map((side) => <B key={side} p={[1.5, 2.2, side * 0.42]} s={[0.7, 0.05, 0.05]} c={WHITE} shadow={false} />)}
+      <Wheels xs={[-1.1, 1.1]} w={1.1} />
+    </>
+  )
+}
+
+/** Pushback tug: low, wide and yellow, a small cab on top. */
+function Tug() {
+  return (
+    <>
+      <B p={[0, 0.4, 0]} s={[2.4, 0.5, 1.4]} c={YELLOW} />
+      <B p={[0.6, 0.85, 0]} s={[0.8, 0.45, 1.0]} c={WHITE} />
+      <B p={[1.01, 0.88, 0]} s={[0.04, 0.3, 0.85]} c={GLASS} shadow={false} />
+      <B p={[1.25, 0.35, 0]} s={[0.12, 0.25, 1.3]} c={DARK} />
+      <Beacon p={[0.6, 1.15, 0]} />
+      <Wheels xs={[-0.75, 0.75]} w={1.4} />
+    </>
+  )
+}
+
+function Cone() {
+  return (
+    <>
+      <B p={[0, 0.03, 0]} s={[0.42, 0.06, 0.42]} c={CONE} shadow={false} />
+      <B p={[0, 0.28, 0]} s={[0.26, 0.46, 0.26]} c={CONE} />
+      <B p={[0, 0.3, 0]} s={[0.28, 0.1, 0.28]} c={WHITE} shadow={false} />
+    </>
+  )
+}
+
+/** Equipment parking: a row of stalls between the tower and the first stand, clear of the planes' wings as they taxi. */
+const STALL = { x0: -9.4, w: 2.6, n: 5, z0: -10.4, d: 4 }
+const stallX = (i: number) => STALL.x0 + (i + 0.5) * STALL.w
+const STALL_Z = STALL.z0 + STALL.d / 2
+
+/**
+ * Ground vehicles, shown with detail on: a turnaround at the parked plane (stand 30, nose to -z, its wings
+ * along x at z ≈ -5) and the equipment parked in the stalls, noses out. All clear of where the other plane
+ * taxis: east of x 20 and z < -5 west of x 4.
+ */
+function GroundCrew() {
+  const S = STANDS[1]
+  const out = -PI / 2
+  return (
+    <group position={[0, PAVE, 0]}>
+      {/* belt loader up to the rear hold, the baggage train beside its foot */}
+      <group position={[S - 2.3, 0, -2.6]}><BeltLoader /></group>
+      <group position={[S - 8.2, 0, -2.6]} rotation={[0, PI, 0]}><Train carts={[true, true]} /></group>
+      {/* catering at the front door opposite the jet bridge */}
+      <group position={[S - 2.5, 0, -7.9]}><CateringTruck /></group>
+      {/* fuel truck behind the far wing, its hose up to the wing */}
+      <group position={[S + 3.6, 0, -2.9]}><FuelTruck /></group>
+      <B p={[S + 2, 0.55, -3.9]} s={[0.1, 0.1, 1.0]} c={TIRE} shadow={false} />
+      <B p={[S + 2, 0.72, -4.4]} s={[0.1, 0.36, 0.1]} c={TIRE} shadow={false} />
+      {/* cones at the nose, the wingtips and the tail */}
+      {([[S, -10.2], [S - 4.7, -5.1], [S + 4.7, -5.1], [S, 0]] as const).map(([cx, cz]) => <group key={`${cx}${cz}`} position={[cx, 0, cz]}><Cone /></group>)}
+
+      {/* the parked equipment */}
+      <group position={[stallX(0), 0, STALL_Z]} rotation={[0, out, 0]}><Bus /></group>
+      <group position={[stallX(1), 0, STALL_Z]} rotation={[0, out, 0]}><StairTruck /></group>
+      <group position={[stallX(2), 0, STALL_Z + 0.8]} rotation={[0, out, 0]}><Train carts={[false]} /></group>
+      <group position={[stallX(3), 0, STALL_Z]} rotation={[0, out, 0]}>
+        <group position={[0.9, 0, 0]}><Cart /></group>
+        <group position={[-0.95, 0, 0]}><Cart /></group>
+      </group>
+      <group position={[stallX(4), 0, STALL_Z]} rotation={[0, out, 0]}><Tug /></group>
+    </group>
+  )
+}
+
 /** Flat markings: never casting a shadow, just over what they are painted on. */
 const paint = (x: number, z: number, w: number, d: number, c = MARK, y = PAVE + 0.005): { p: V3; s: V3; c: string } => ({ p: [x, y, z], s: [w, 0.01, d], c })
 
@@ -300,6 +561,11 @@ export function Airport({ town, open, hover, still, calm, onHover, onSelect }: {
       out.push(paint(sx, STAND_Z - 4.6, 1.8, 0.3, YELLOW))
     }
     out.push(paint((APRON.x0 + APRON.x1) / 2, LANE_Z, APRON.x1 - APRON.x0 - 1, 0.3, YELLOW))
+    // equipment stalls: dividers and a back line
+    if (detail) {
+      for (let i = 0; i <= STALL.n; i++) out.push(paint(STALL.x0 + i * STALL.w, STALL_Z, 0.15, STALL.d))
+      out.push(paint(STALL.x0 + STALL.n * STALL.w / 2, STALL.z0, STALL.n * STALL.w + 0.15, 0.15))
+    }
     // runway edge lights
     if (detail) for (let rx = -RUNWAY_HALF + 1; rx <= RUNWAY_HALF - 1; rx += 6) for (const side of [-1, 1]) {
       out.push({ p: [rx, PAVE + 0.1, RUNWAY_Z + side * (RUNWAY_W / 2 + 0.3)], s: [0.22, 0.2, 0.22], c: '#ffe7a3' })
@@ -375,6 +641,7 @@ export function Airport({ town, open, hover, still, calm, onHover, onSelect }: {
       <group position={[STANDS[1], 0, STAND_Z]} rotation={[0, PI / 2, 0]}>
         <Plane body="#f4f4f0" tail="#c8643f" />
       </group>
+      {detail && <GroundCrew />}
       <Flight calm={calm} />
       <Fade show={open}><AirportInterior /></Fade>
       <Shade on={hover} />

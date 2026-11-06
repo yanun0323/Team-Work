@@ -6,7 +6,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useLayoutEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import type { Look } from './core/domain/types'
-import { Figure, newRig } from './People'
+import { Figure, LEG_SWING, newRig } from './People'
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -38,7 +38,7 @@ function Posed({ look, seed, pose, at }: { look: Look; seed: number; pose: Pose;
 }
 
 function swing(rig: ReturnType<typeof newRig>, s: number) {
-  rig.legs.forEach((l, i) => l && (l.rotation.x = s * 0.55 * (i ? -1 : 1)))
+  rig.legs.forEach((l, i) => l && (l.rotation.x = s * LEG_SWING * rig.stride * (i ? -1 : 1)))
   rig.arms.forEach((a, i) => a && (a.rotation.x = s * 0.45 * (i ? 1 : -1)))
   if (rig.root) rig.root.position.y = Math.abs(s) * 0.03
 }

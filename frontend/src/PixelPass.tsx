@@ -78,21 +78,29 @@ export function PixelPass({ pixel = 2, fps = 30 }: { pixel?: number; fps?: numbe
 
   // The canvas runs on demand: ask for a frame at most `fps` times a second, which is plenty for the ambient
   // motion. Camera moves and prop changes ask for their own frames, so panning and flights stay at full rate.
-  // While another app has focus, BACKGROUND_FPS frames a second is enough to save power; a hidden window gets none anyway.
+  // R3F schedules the actual drawing on requestAnimationFrame. Wake only when another ambient frame is due,
+  // rather than polling at the display's refresh rate even while drawing just five background frames a second.
   useEffect(() => {
-    let id = 0
-    let last = -Infinity
-    const tick = (t: number) => {
-      const rate = document.hasFocus() ? fps : BACKGROUND_FPS
-      // a little slack, so a frame that lands a hair early isn't put off by a whole vsync
-      if (t - last >= 1000 / rate - 4) {
-        last = t
-        invalidate()
-      }
-      id = requestAnimationFrame(tick)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const tick = () => {
+      if (document.hidden) return
+      invalidate()
+      timer = setTimeout(tick, 1000 / (document.hasFocus() ? fps : BACKGROUND_FPS))
     }
-    id = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(id)
+    const restart = () => {
+      clearTimeout(timer)
+      tick()
+    }
+    window.addEventListener('focus', restart)
+    window.addEventListener('blur', restart)
+    document.addEventListener('visibilitychange', restart)
+    restart()
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('focus', restart)
+      window.removeEventListener('blur', restart)
+      document.removeEventListener('visibilitychange', restart)
+    }
   }, [fps, invalidate])
 
   const res = useMemo(() => {
@@ -121,7 +129,7 @@ export function PixelPass({ pixel = 2, fps = 30 }: { pixel?: number; fps?: numbe
     quad.frustumCulled = false
     const quadScene = new THREE.Scene()
     quadScene.add(quad)
-    return { color, normal, material, quadScene, quadCamera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), normals: new THREE.MeshNormalMaterial() }
+    return { color, normal, material, quad, quadScene, quadCamera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), normals: new THREE.MeshNormalMaterial() }
   }, [])
 
   useEffect(() => () => {
@@ -129,6 +137,7 @@ export function PixelPass({ pixel = 2, fps = 30 }: { pixel?: number; fps?: numbe
     res.normal.dispose()
     res.material.dispose()
     res.normals.dispose()
+    res.quad.geometry.dispose()
   }, [res])
 
   const target = useMemo(() => {

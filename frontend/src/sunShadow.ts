@@ -14,6 +14,19 @@ const MARGIN = 2
  */
 export const sunNormalBias = (half: number) => Math.max(0.02, ((half * 2) / SHADOW_MAP) * 1.5)
 
+/**
+ * How far, in world units, a surface may stand behind the nearest caster in the map and still count as lit. Far less
+ * than a wall is thick (0.2): more, and the low morning sun shines through the corner of two walls and along the
+ * foot of a wall. Faces turned from the sun are shaded outright (toon.ts), so they need none.
+ */
+export const SUN_DEPTH_BIAS = 0.05
+
+/**
+ * The sun's depth bias for a shadow camera reaching from `near` to `far`. three.js counts it in the map's depth, 0 to 1
+ * over that reach, so a fixed number grows with the town (its reach does); this keeps it SUN_DEPTH_BIAS in the world.
+ */
+export const sunDepthBias = (near: number, far: number) => -SUN_DEPTH_BIAS / (far - near)
+
 export interface SunShadow {
   /** Where the light looks, on the plane through the origin across the sunlight. */
   center: THREE.Vector3

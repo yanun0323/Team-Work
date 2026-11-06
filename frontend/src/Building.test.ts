@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { billAt, litShares, moneyTosses, shoutBursts } from './Building'
+import { billAt, litShares, LOUNGE_SEAT_D, loungeSeats, moneyTosses, NOOK_SEAT_FRONT, nookPlaces, shoutBursts } from './Building'
+import { NOOK_D, officePlan } from './office'
+import { SHIN_REACH } from './People'
 import { SCREEN_RIGHT } from './camera'
 import { CELL, RING_CELLS } from './layout'
 import { seedWorld } from './core/data/seed'
@@ -115,6 +117,30 @@ describe('moneyTosses', () => {
           expect(y).toBeLessThan(billAt(bill, t.side, 0.3)[1])
         }
       }
+    }
+  })
+})
+
+describe('sofa seats', () => {
+  // where the backs of a seated person's shins hang, from the wall behind them, along the way they face
+  const shins = (at: number) => at + SHIN_REACH
+
+  it('sits people far enough forward on the nook sofa that their legs hang clear of the seat', () => {
+    for (const mirror of [false, true]) {
+      const plan = { ...officePlan(6, 10 * CELL, CELL), mirror }
+      const wall = plan.nook.z - NOOK_D / 2
+      for (const s of nookPlaces(plan).sofa) expect(shins(s.at[1] - wall)).toBeGreaterThan(NOOK_SEAT_FRONT)
+    }
+  })
+
+  it('does the same on both arms of the lounge sofa, mirrored or not', () => {
+    const a = { x: 0, z: 0, w: 3.4, d: 3 }
+    for (const mirror of [false, true]) {
+      const m = mirror ? -1 : 1
+      const seats = loungeSeats(a, mirror)
+      // the side seats face across the room, the back seats face the front
+      for (const s of seats.slice(0, 2)) expect(shins(m * (s.at[0] - a.x) + a.w / 2)).toBeGreaterThan(LOUNGE_SEAT_D)
+      for (const s of seats.slice(2)) expect(shins(s.at[1] - a.z + a.d / 2)).toBeGreaterThan(LOUNGE_SEAT_D)
     }
   })
 })

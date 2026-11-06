@@ -205,3 +205,16 @@ describe('inSteps', () => {
     expect(steps).toEqual([1 / 30])
   })
 })
+
+
+it('resettles overlapping starting positions into distinct free places, leaving seats occupied', () => {
+  const g = grid(['.....', '.....', '.....'])
+  const people: Stroller[] = Array.from({ length: 5 }, () => ({ x: 2, z: 1, heading: 0, route: [], mode: 'standing', wait: 1, seat: null, toSeat: false }))
+  const seat = { at: [0, 0] as P, front: [0, 1] as P, heading: 0 }
+  people.push({ x: 0, z: 0, heading: 0, route: [], mode: 'sitting', wait: 10, seat, toSeat: false })
+  resettle(people, g, [seat], 0.96)
+  expect([people[5].x, people[5].z, people[5].mode]).toEqual([0, 0, 'sitting'])
+  for (let i = 0; i < people.length; i++) for (let j = i + 1; j < people.length; j++) {
+    expect(Math.hypot(people[i].x - people[j].x, people[i].z - people[j].z)).toBeGreaterThanOrEqual(0.96)
+  }
+})

@@ -2,7 +2,8 @@ import * as THREE from 'three'
 import { expect, it } from 'vitest'
 import { shadowHalf } from './Ambient'
 import { ISO_DIR } from './camera'
-import { fitSunShadow, seenPoints, SHADOW_MAP, sunNormalBias } from './sunShadow'
+import { fitSunShadow, seenPoints, SHADOW_MAP, SUN_DEPTH_BIAS, sunDepthBias, sunNormalBias } from './sunShadow'
+import { WALL } from './office'
 
 const toSun = new THREE.Vector3(-0.4, 0.8, 0.45).normalize()
 
@@ -30,6 +31,13 @@ it('keeps the sun normal bias above a shadow texel, but small enough for thin ca
   for (const half of [5, 40, 120]) expect(sunNormalBias(half)).toBeGreaterThan((half * 2) / SHADOW_MAP)
   expect(sunNormalBias(120)).toBeGreaterThan(sunNormalBias(40))
   expect(sunNormalBias(10)).toBeLessThan(0.07)
+})
+
+it('keeps the sun depth bias a fixed world distance, well inside a wall, however big the town', () => {
+  // a bias of -0.0007 in map depth was 0.24 world units over a 345-unit reach, and more in a bigger town: the low
+  // morning sun then lit a seam down the corner of an office's two back walls, through the 0.2 thick wall
+  for (const far of [100, 345, 900]) expect(-sunDepthBias(1, far) * (far - 1)).toBeCloseTo(SUN_DEPTH_BIAS)
+  expect(SUN_DEPTH_BIAS).toBeLessThan(WALL / 2)
 })
 
 it('shrinks the shadow box to the view when zoomed in, holding everything seen', () => {

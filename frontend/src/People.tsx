@@ -1,22 +1,31 @@
 // People who move: employees inside an opened office, who leave their desks when idle (to wander, chat,
-// rest on the sofa, have a coffee or stare into space) and come back when work arrives, and people out on the island, who stroll about and sit on the benches.
+// rest on the sofa, have a coffee or stare into space) and come back when work arrives, and people out on the island,
+// who stroll about, sit on the benches, chat, wave, watch the planes and go to the beach (what they do is in crowd.ts).
 //
 // One figure for both, in office units (about 1.15 tall standing), seated or standing with a walk cycle.
 // Movement is driven per frame from refs; React only renders the figures once.
 
 import { useFrame } from '@react-three/fiber'
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
+import type { IdleFollowTarget } from './prefs'
 import type { Look } from './core/domain/types'
 import { anchors } from './core/voxel/labels'
+import { aloft } from './aloft'
+import { BODY_SHARE, coordinateTraffic, walkingRoute, beginAvoidance, openSpot, separate, spotTaken, UNHINDERED, walkAround, type Avoider } from './avoid'
+import { benchMate, indoors, islandPlaces, ISLAND_GAP, ISLAND_SPEED, stepCrowd, townsfolk, type Scene, type Townsfolk } from './crowd'
+import { Fade, FADE_SECONDS } from './Fade'
+import { light } from './daylight'
 import { isSwimwear, seedOf, styleOf, type Style } from './figureStyle'
+import { BEACH, BEACH_TOP } from './Island'
+import { sample, type Field } from './land'
 import { hash, type Town } from './layout'
 import { OFFICE_SCALE, type OfficePlan } from './office'
 import { MAX_FRAME } from './PixelPass'
 import { toon } from './toon'
 import {
-  advance, benchSeats, cellPos, crowdSize, freeCells, headingOf, inSteps, isFree, officeGrid, resettle, route, seatRoute, townGrid,
-  type BenchSeat, type P, type Stroller as WalkStroller, type Walker,
+  benchSeats, cellPos, crowdSize, freeCells, headingOf, inSteps, isFree, officeGrid, resettle, townGrid,
+  type BenchSeat, type P, type Walker,
 } from './walk'
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -57,10 +66,12 @@ export interface Rig {
   mug: THREE.Group | null
   /** How far the seated shins already reach below the feet (`Figure`'s `drop`). */
   drop: number
+  /** How long a stride the clothes allow, as a share of a full one (`strideOf`). */
+  stride: number
 }
 
 export const newRig = (): Rig => ({
-  root: null, seated: null, standing: null, legs: [null, null], arms: [null, null], shins: [null, null], feet: [null, null], mug: null, drop: 0,
+  root: null, seated: null, standing: null, legs: [null, null], arms: [null, null], shins: [null, null], feet: [null, null], mug: null, drop: 0, stride: 1,
 })
 
 export { seedOf } from './figureStyle'
@@ -73,6 +84,29 @@ const INK = '#1f1d2b'
 const COAT = '#f4f4f0'
 /** Flip-flops, worn with swimwear. */
 const FLIPFLOP = '#f2a93b'
+
+/** How far a leg swings either way at a full stride, in radians. */
+export const LEG_SWING = 0.55
+/** Where a standing leg hangs from (either side by `x`), and its box below that hip. */
+export const HIP: V3 = [0.1, 0.44, 0]
+export const LEG: [V3, V3] = [[0, -0.2, 0], [0.15, 0.4, 0.17]]
+/** A short skirt or a dress is fixed to the waist while the legs swing inside it: short steps keep the knees in. */
+const SKIRT_STRIDE = 0.5
+
+/** How long a stride someone can take in what they wear: shorter in a short skirt or a dress. A long skirt draws no legs. */
+export const strideOf = (st: Style) => (st.bottom === 'skirt' || st.bottom === 'dress' ? SKIRT_STRIDE : 1)
+
+/** The belt, and a skirt from the waist to its hem flaring out at the bottom, of someone standing. */
+export function waist(look: Look, st: Style): Array<[V3, V3, string]> {
+  const swim = isSwimwear(st.bottom)
+  const skirt = st.bottom === 'dress' ? look.shirt : look.pants
+  const suit = st.bottom === 'bikini' ? look.shirt : look.pants
+  const parts: Array<[V3, V3, string]> = [[[0, 0.46, 0], [0.41, 0.05, 0.23], swim ? suit : tone(skirt, st.bottom === 'dress' ? 0.8 : 0.7)]]
+  if (swim || st.bottom === 'pants') return parts
+  const hem = st.bottom === 'longskirt' ? 0.07 : 0.25
+  parts.push([[0, (0.47 + hem) / 2, 0], [0.42, 0.47 - hem, 0.27], skirt], [[0, hem + 0.02, 0], [0.48, 0.06, 0.31], tone(skirt, 0.9)])
+  return parts
+}
 const SHOE = '#2a2a30'
 
 /** Head, face, hair and headwear, centred at height `y`; the face looks towards -z. */
@@ -229,6 +263,8 @@ function head(y: number, look: Look, st: Style) {
 
 /** The head's boxes, as [centre, size, colour], for checking how they fit together. */
 export const headBoxesForTest = (look: Look, st: Style) => head(0, look, st)
+/** A standing figure's body as drawn, for checking the legs stay inside what hangs over them. */
+export const standingBodyForTest = (look: Look, st: Style) => torso(0.48, 0.82, 0.4, look, st, true)
 
 /** Upper body between heights `y0` and `y1`, `w` wide, front towards -z; `tails` hangs a long coat's tails below `y0`. */
 function torso(y0: number, y1: number, w: number, look: Look, st: Style, tails = false) {
@@ -261,12 +297,13 @@ function torso(y0: number, y1: number, w: number, look: Look, st: Style, tails =
     for (const k of [0.3, 0.7]) parts.push([[0, y0 + h * k, 0], [w + 0.006, 0.03, 0.226], st.accent])
     for (const x of [-w / 4, w / 4]) parts.push([[x, y, 0], [0.03, h - 0.004, 0.226], st.accent])
   }
-  // a long white coat, open over the shirt, with lapels and pockets; its tails hang below the waist when standing
+  // a long white coat, open over the shirt, with lapels and pockets; its tails hang below the waist when standing, short
+  // and deep enough that the legs swing inside them
   if (st.top === 'labcoat') {
     parts.push([[0, y1 - 0.08, front], [0.1, 0.16, 0.01], look.shirt])
     parts.push([[-0.06, y1 - 0.07, front - 0.004], [0.05, 0.12, 0.01], tone(COAT, 0.88)], [[0.06, y1 - 0.07, front - 0.004], [0.05, 0.12, 0.01], tone(COAT, 0.88)])
     for (const k of [-1, 1]) parts.push([[k * 0.11, y0 + 0.07, front], [0.08, 0.06, 0.01], tone(COAT, 0.9)])
-    if (tails) parts.push([[0, y0 - 0.1, 0], [w + 0.02, 0.2, 0.24], COAT])
+    if (tails) parts.push([[0, y0 - 0.06, 0], [w + 0.02, 0.12, 0.3], COAT])
   }
   // a high collar round the neck, under the chin, and a ribbed hem
   if (st.top === 'turtleneck') parts.push([[0, y1 - 0.01, -0.02], [0.32, 0.06, 0.3], tone(body, 0.85)], [[0, y0 + 0.025, 0], [w + 0.01, 0.05, 0.23], tone(body, 0.85)])
@@ -316,13 +353,13 @@ export const Figure = memo(function Figure({ look, rig, seed, drop = 0, scale = 
   // a skirt in the trousers' colour, a dress in the shirt's; bare legs below either, but a long skirt hides them
   const skirt = st.bottom === 'dress' ? look.shirt : look.pants
   const legs = st.bottom === 'pants' || st.bottom === 'longskirt' ? look.pants : look.skin
-  const hem = st.bottom === 'longskirt' ? 0.07 : st.bottom === 'pants' ? 0.47 : 0.25
   // swimwear: bare arms and legs, trunks in the trousers' colour or a bikini in the shirt's, and flip-flops
   const swim = isSwimwear(st.bottom)
   const suit = st.bottom === 'bikini' ? look.shirt : look.pants
   const arm = swim ? look.skin : sleeve
   const lower = swim ? look.skin : forearm
   rig.drop = drop
+  rig.stride = strideOf(st)
   return (
     <group ref={(g) => void (rig.root = g)} scale={scale}>
       {/* seated at a desk or on a bench: thighs forward, hands reaching to the lap or keyboard */}
@@ -340,7 +377,7 @@ export const Figure = memo(function Figure({ look, rig, seed, drop = 0, scale = 
             <M p={[0, 0.3, -0.17]} s={[0.38, 0.12, 0.38]} c={skirt} />
             <M p={[0, st.bottom === 'longskirt' ? 0.15 : 0.2, -0.37]} s={[0.38, st.bottom === 'longskirt' ? 0.22 : 0.1, 0.02]} c={skirt} />
           </>}
-        {[-1, 1].map((k, i) => <M key={`s${k}`} r={(m) => void (rig.shins[i] = m)} p={[k * 0.09, (0.24 - drop) / 2, -0.28]} s={[0.12, 0.24 + drop, 0.12]} c={legs} />)}
+        {[-1, 1].map((k, i) => <M key={`s${k}`} r={(m) => void (rig.shins[i] = m)} p={[k * 0.09, (0.24 - drop) / 2, -SHIN_Z]} s={[0.12, 0.24 + drop, SHIN_D]} c={legs} />)}
         {[-1, 1].map((k, i) => <M key={`f${k}`} r={(m) => void (rig.feet[i] = m)} p={[k * 0.09, 0.035 - drop, -0.31]} s={[0.14, 0.07, 0.2]} c={swim ? FLIPFLOP : SHOE} />)}
         {boxes(torso(0.35, 0.69, 0.42, look, st), 't')}
         {[-1, 1].map((k) => (
@@ -355,8 +392,9 @@ export const Figure = memo(function Figure({ look, rig, seed, drop = 0, scale = 
       {/* standing: legs and arms hang from hips and shoulders so they can swing */}
       <group ref={(g) => void (rig.standing = g)} visible={false}>
         {[-1, 1].map((k, i) => (
-          <group key={`l${k}`} ref={(g) => void (rig.legs[i] = g)} position={[k * 0.1, 0.44, 0]}>
-            <M p={[0, -0.2, 0]} s={[0.15, 0.4, 0.17]} c={legs} />
+          <group key={`l${k}`} ref={(g) => void (rig.legs[i] = g)} position={[k * HIP[0], HIP[1], HIP[2]]}>
+            {/* under a long skirt only the feet show, stepping out from under the hem */}
+            {st.bottom !== 'longskirt' && <M p={LEG[0]} s={LEG[1]} c={legs} />}
             {swim
               ? <>
                 {/* the trunks' legs, or a bikini's sides, swinging with the leg; bare feet on flip-flops */}
@@ -367,14 +405,7 @@ export const Figure = memo(function Figure({ look, rig, seed, drop = 0, scale = 
               : <M p={[0, -0.405, -0.03]} s={[0.16, 0.07, 0.23]} c={SHOE} />}
           </group>
         ))}
-        <M p={[0, 0.46, 0]} s={[0.41, 0.05, 0.23]} c={swim ? suit : tone(skirt, st.bottom === 'dress' ? 0.8 : 0.7)} />
-        {!swim && st.bottom !== 'pants' && (
-          <>
-            {/* the skirt from the waist to its hem, flaring out at the bottom */}
-            <M p={[0, (0.47 + hem) / 2, 0]} s={[0.42, 0.47 - hem, 0.27]} c={skirt} />
-            <M p={[0, hem + 0.02, 0]} s={[0.48, 0.06, 0.31]} c={tone(skirt, 0.9)} />
-          </>
-        )}
+        {boxes(waist(look, st), 'w')}
         {boxes(torso(0.48, 0.82, 0.4, look, st, true), 't')}
         {[-1, 1].map((k, i) => (
           <group key={`r${k}`} ref={(g) => void (rig.arms[i] = g)} position={[k * 0.25, 0.8, 0]}>
@@ -411,7 +442,7 @@ export function pose(rig: Rig, w: Walker & { phase: number }, seated: boolean, m
   root.rotation.y += seated ? turn : turn * Math.min(1, TURN * dt)
   w.phase = moved > 0 ? w.phase + moved * STRIDE : 0
   const swing = moved > 0 ? Math.sin(w.phase) : 0
-  rig.legs.forEach((l, i) => l && (l.rotation.x = swing * 0.55 * (i ? -1 : 1)))
+  rig.legs.forEach((l, i) => l && (l.rotation.x = swing * LEG_SWING * rig.stride * (i ? -1 : 1)))
   rig.arms.forEach((a, i) => a && (a.rotation.x = swing * 0.45 * (i ? 1 : -1)))
   root.position.set(w.x, y + (seated ? lift : 0) + Math.abs(swing) * 0.03, w.z)
   const reach = rig.drop + (seated ? lift : 0)
@@ -445,13 +476,15 @@ const NO_AMENITIES: Amenities = { sofa: [], coffee: [] }
 type Act = 'wander' | 'chat' | 'sofa' | 'coffee' | 'daze'
 type Mode = 'seated' | 'walking' | 'standing' | 'lounging'
 
-interface Worker extends Walker {
+interface Worker extends Avoider {
   phase: number
   mode: Mode
   /** Seconds until the next decision. */
   wait: number
   /** Heading home to sit down. */
   home: boolean
+  /** Retry a blocked return to the desk; unrelated activities never delay new work. */
+  retry: number
   act: Act
   /** Chatting: who with. */
   partner: string | null
@@ -467,8 +500,20 @@ interface Worker extends Walker {
 
 /** Height of a sofa seat over a chair's, in office units: someone on it sits this much higher. */
 const SOFA_LIFT = 0.36 - 0.23
+/** Where a seated figure's shins hang, in front of where they sit, and how deep they are. */
+const SHIN_Z = 0.28
+const SHIN_D = 0.12
+/**
+ * How far in front of where someone sits the backs of their shins hang: a seat's front edge must be no further out
+ * than this, or their legs go down into it.
+ */
+export const SHIN_REACH = SHIN_Z - SHIN_D / 2
 /** How far apart two people stand to talk. */
 const TALK_GAP = 0.8
+/** The room each person keeps about them, in office units: a shoulder's width either side, so nobody walks through anyone. */
+const OFFICE_GAP = 0.8
+/** On their feet, so in others' way: at a desk or on the sofa they are out of it. */
+const afoot = (w: Worker) => w.mode === 'walking' || w.mode === 'standing'
 
 /** A speech bubble (`kind` 'talk') or a thought bubble ('think'), turned to the camera; placed per frame. */
 function Bubble({ bind, kind }: { bind: (g: THREE.Group | null) => void; kind: 'talk' | 'think' }) {
@@ -502,6 +547,24 @@ function tick(sim: OfficeSim, crewNow: CrewMember[], dt: number) {
   const { plan, grid, spots, amenities, states } = sim
   // seats and spots already held, so two people never go for the same one
   const held = (act: Act) => new Set([...states.values()].filter((o) => o.act === act).map((o) => o.spot))
+  // everyone here now, to keep out of each other's way
+  const about = crewNow.flatMap((c) => states.get(c.id) ?? [])
+  const visible = () => true
+  beginAvoidance(about)
+  coordinateTraffic(about, grid, OFFICE_GAP, visible,
+    (w) => w.mode === 'standing' && !w.home && !crewNow.some((c) => c.busy && states.get(c.id) === w),
+    (w) => {
+      const partner = w.partner ? states.get(w.partner) : undefined
+      if (partner) { partner.partner = null; partner.act = 'wander'; partner.wait = Math.min(partner.wait, 1) }
+      w.partner = null
+      w.act = 'wander'
+      w.spot = -1
+      w.mode = 'walking'
+    })
+  /** Somewhere on the open floor nobody else is standing on or going to; null when the few tried are all taken. */
+  const openFloor = (me: Worker) => openSpot(() => pick(spots), about, me, OFFICE_GAP * 1.5, visible)
+  /** Nobody else (but `besides`) is standing at `at`, or on their way there. */
+  const open = (me: Worker, at: P, besides?: Worker) => !spotTaken(about, me, at, OFFICE_GAP * 1.5, (q) => q !== besides)
   crewNow.forEach((c, i) => {
     const seat = plan.seats[i]
     if (!seat) return
@@ -510,8 +573,9 @@ function tick(sim: OfficeSim, crewNow: CrewMember[], dt: number) {
     let w = states.get(c.id)
     if (!w) {
       // everyone starts at their desk; idle people get up at different times
-      w = { x: seat[0], z: seat[1], route: [], heading: 0, phase: 0, moved: 0, mode: 'seated', wait: rand(0.6, 5), home: false, act: 'wander', partner: null, lead: false, spot: -1, t: 0 }
+      w = { x: seat[0], z: seat[1], route: [], heading: 0, phase: 0, moved: 0, mode: 'seated', wait: rand(0.6, 5), home: false, retry: 0, act: 'wander', partner: null, lead: false, spot: -1, t: 0, ...UNHINDERED }
       states.set(c.id, w)
+      about.push(w)
     }
     const me = w
     /** Off the sofa, or away from a tucked-away coffee machine, first: by the way in backwards. */
@@ -535,16 +599,18 @@ function tick(sim: OfficeSim, crewNow: CrewMember[], dt: number) {
       me.spot = -1
     }
     const goHome = () => {
+      me.yielding = null
       const out = leaving()
       stopAct()
-      me.route = [...out, ...route(grid, out.length ? out[out.length - 1] : [me.x, me.z], aisle), seat]
+      me.route = [...out, ...walkingRoute(grid, out.length ? out[out.length - 1] : [me.x, me.z], aisle, about, me, OFFICE_GAP, visible, i, false), seat]
       me.mode = 'walking'
       me.home = true
     }
     const walkTo = (to: P, act: Act) => {
+      me.yielding = null
       const out = leaving()
       stopAct()
-      me.route = [...out, ...route(grid, out.length ? out[out.length - 1] : [me.x, me.z], to)]
+      me.route = [...out, ...walkingRoute(grid, out.length ? out[out.length - 1] : [me.x, me.z], to, about, me, OFFICE_GAP, visible, i, act === 'wander' || act === 'daze')]
       me.act = act
       me.mode = 'walking'
       me.home = false
@@ -567,6 +633,8 @@ function tick(sim: OfficeSim, crewNow: CrewMember[], dt: number) {
         const side = me.x - me.z > s.x - s.z ? 1 : -1
         const off = (TALK_GAP / Math.SQRT2) * side
         const to: P = [s.x + off, s.z - off]
+        // somewhere free beside them: not where anyone else stands
+        if (!open(me, to, s)) return void (me.wait = rand(0.5, 1.5))
         walkTo(to, 'chat')
         if (!me.route.length) return stopAct()
         // the grid gets us near; the last step to the exact spot, when it is open floor
@@ -580,44 +648,82 @@ function tick(sim: OfficeSim, crewNow: CrewMember[], dt: number) {
         s.wait = 30
         return
       }
-      if (r < 0.5 && sofa.length) {
-        const k = pick(sofa)
+      // nobody standing in the way in to it, or at the machine
+      const seats = sofa.filter((k) => open(me, amenities.sofa[k].way.at(-1) as P))
+      if (r < 0.5 && seats.length) {
+        const k = pick(seats)
         const place = amenities.sofa[k]
         walkTo(place.way[0], 'sofa')
         me.route.push(...place.way, place.at)
         me.spot = k
         return
       }
-      if (r < 0.7 && coffee.length) {
-        const k = pick(coffee)
+      const cups = coffee.filter((k) => open(me, amenities.coffee[k].at))
+      if (r < 0.7 && cups.length) {
+        const k = pick(cups)
         const cup = amenities.coffee[k]
         walkTo(cup.way?.[0] ?? cup.at, 'coffee')
         me.route.push(...(cup.way ?? []), cup.at)
         me.spot = k
         return
       }
-      walkTo(pick(spots), r < 0.85 ? 'daze' : 'wander')
+      const floor = openFloor(me)
+      // nowhere free to go: stay a while longer
+      if (!floor) return void (me.wait = rand(1, 3))
+      walkTo(floor, r < 0.85 ? 'daze' : 'wander')
+    }
+    /** Cancel an obstructed activity; a required return to the desk retries after a short wait. */
+    const cantGetThere = () => {
+      me.yielding = null
+      if (me.home) {
+        me.route = []
+        me.mode = 'standing'
+        me.home = false
+        me.wait = me.retry = rand(1, 2)
+        return
+      }
+      // anywhere on the floor will do: stop here, and arrive
+      if (me.act === 'wander' || me.act === 'daze') {
+        me.route = []
+        return
+      }
+      // somebody at the sofa, the machine or beside whoever they were going to talk to: give it up
+      stopAct()
+      me.route = []
+      me.mode = 'standing'
+      me.wait = rand(0.5, 1.5)
+      me.t = 0
     }
 
     me.moved = 0
     {
       me.wait -= dt
+      me.retry = Math.max(0, me.retry - dt)
       me.t += dt
       if (me.mode === 'seated') {
-        if (!c.busy && me.wait <= 0) {
+        const floor = !c.busy && me.wait <= 0 ? openFloor(me) : null
+        // nowhere free on the floor: stay sat a while longer
+        if (!c.busy && me.wait <= 0 && !floor) me.wait = rand(2, 5)
+        if (floor) {
           // stand up and head somewhere
           me.route = [aisle]
           me.mode = 'walking'
           me.home = false
           me.act = 'wander'
-          me.route.push(...route(grid, aisle, pick(spots)))
+          me.route.push(...walkingRoute(grid, aisle, floor, about, me, OFFICE_GAP, visible, i, true))
         }
-      } else if (c.busy && !me.home) {
+      } else if (c.busy && !me.home && me.retry <= 0) {
         // work came in: go straight back
         goHome()
       } else if (me.mode === 'walking') {
-        me.moved = advance(me, SPEED * dt)
-        if (!me.route.length) {
+        // round everyone else, but straight up to whoever they are going to talk to
+        const to = me.act === 'chat' && me.partner ? states.get(me.partner) ?? null : null
+        me.moved = walkAround(about, me, grid, SPEED * dt, dt, OFFICE_GAP, visible, to)
+        if (me.blocked) {
+          me.blocked = false
+          cantGetThere()
+        }
+        if (me.mode === 'walking' && !me.route.length && !me.yielding) {
           me.t = 0
           if (me.home) {
             me.mode = 'seated'
@@ -657,11 +763,31 @@ function tick(sim: OfficeSim, crewNow: CrewMember[], dt: number) {
           stopAct()
           me.wait = Math.min(me.wait, rand(0.5, 1.5))
         }
+        // standing on top of someone, with nowhere to be eased to: move off
+        if (me.blocked) {
+          me.blocked = false
+          me.wait = 0
+        }
         if (me.wait <= 0) next()
       }
     }
   })
+  // anyone still too close is eased apart, taking a step for it
+  separate(about, grid, OFFICE_GAP, dt, visible, (w, d) => (w.moved += d), afoot)
 }
+
+/** Runs an office for `seconds`, handing `each` everyone (in `crew`'s order) after every step: for tests. */
+export function officeForTest(plan: OfficePlan, crew: CrewMember[], seconds: number, each: (people: Array<Pick<Worker, 'x' | 'z' | 'mode' | 'act' | 'home'>>) => void, amenities = NO_AMENITIES) {
+  const grid = officeGrid(plan)
+  const sim: OfficeSim = { plan, grid, spots: freeCells(grid).map(([x, z]) => cellPos(grid, x, z)), amenities, states: new Map() }
+  for (let t = 0; t < seconds; t += 0.1) {
+    tick(sim, crew, 0.1)
+    each(crew.flatMap((c) => sim.states.get(c.id) ?? []))
+  }
+}
+
+/** The room each person keeps about them in an office, for tests. */
+export const OFFICE_GAP_FOR_TEST = OFFICE_GAP
 
 /** Offices' idle state by company, so people carry on from where they were when it opens again. */
 const sims = new Map<string, { seed: number; sim: OfficeSim; closedAt: number }>()
@@ -754,6 +880,10 @@ export function OfficeCrew({ teamId, seed, plan, crew, floor, amenities = NO_AME
         // clear above the name tag, a little to the right of the screen
         if (on) g.position.set(me.x + 0.25, floor + 2.55 + Math.sin(me.t * 3) * 0.03, me.z - 0.25)
       }
+      if (c.id === followed.crew && rig.root) {
+        rig.root.getWorldPosition(followed.at)
+        followed.seen = true
+      }
       // the name tag follows, a little higher over someone standing
       if (rig.root) {
         rig.root.updateWorldMatrix(true, false)
@@ -801,96 +931,216 @@ const CHAIR_TOP = 0.23
 /** A seated figure on a bench: its feet sit this far up, so its shins reach down this much further. */
 const BENCH_LIFT = BENCH_TOP / OFFICE_SCALE - CHAIR_TOP
 
-interface Stroller extends WalkStroller {
-  phase: number
-}
+/** Who the camera follows: one of the people out on the island, by index, or an employee in their office. */
+export type FollowTarget = { kind: 'stroller'; index: number } | { kind: 'crew'; id: string; teamId: string }
 
 /**
- * A few people out on the island, two to five per building: they walk between spots on the paving and
- * grass, stop for a moment, and sometimes sit on a free bench for a while.
+ * Who the camera follows, set by the map: `stroller` (-1 for none) or `crew` (empty for none). Each frame `Strollers`
+ * or `OfficeCrew` writes where that person stands into `at`, in world units, with `seen` true once it has.
  */
-export function Strollers({ town }: { town: Town }) {
+export const followed = { stroller: -1, crew: '', at: new THREE.Vector3(), seen: false }
+
+const sameTarget = (a: FollowTarget, b: FollowTarget | null) =>
+  !!b && (a.kind === 'stroller' ? b.kind === 'stroller' && a.index === b.index : b.kind === 'crew' && a.id === b.id)
+
+/**
+ * Map people by default; `all` includes employees in `crew`. Among eligible groups, first the island or the
+ * offices, as likely as each other, then anyone there, never `last` while there is anyone else. Null with nobody about.
+ */
+export function pickFollowTarget(strollers: number, crew: Array<{ id: string; teamId: string }>, last: FollowTarget | null, target: IdleFollowTarget = 'map', random = Math.random): FollowTarget | null {
+  const all: FollowTarget[][] = [
+    Array.from({ length: strollers }, (_, index) => ({ kind: 'stroller', index })),
+    target === 'all' ? crew.map((c) => ({ kind: 'crew', id: c.id, teamId: c.teamId })) : [],
+  ]
+  const fresh = all.map((g) => g.filter((t) => !sameTarget(t, last))).filter((g) => g.length)
+  const groups = fresh.length ? fresh : all.filter((g) => g.length)
+  if (!groups.length) return null
+  const group = groups[Math.min(groups.length - 1, Math.floor(random() * groups.length))]
+  return group[Math.min(group.length - 1, Math.floor(random() * group.length))]
+}
+
+/** How long each of two on a bench talks before the other answers, in seconds. */
+const BENCH_TURN = 1.6
+/** Where a bubble floats over someone on the island, in office units above their feet: standing, and seated. */
+const BUBBLE_STANDING = 2
+const BUBBLE_SEATED = 1.7
+/** How far past the grass edge, in world units, someone has stepped all the way down onto the sand. */
+const STEP_DOWN = 0.35
+
+/** How fast a gesture comes and goes, per second: an arm goes up, or comes down again, in about a quarter of a second. */
+const GESTURE = 12
+/** How fast someone on a bench turns towards whoever sits beside them, per second. */
+const BENCH_TURN_SPEED = 3
+
+/**
+ * People out on the island, two to five per building. They walk about the paving and the grass and sit on the
+ * benches, talking with whoever sits beside them; stop to chat, and sometimes walk on together; wave at someone
+ * passing; stop to point at a plane; look out to sea, or paddle on the beach in their swimwear; and look up at a
+ * company's front door. After dark some go indoors and the rest stand about under the lamps; by day they come out
+ * again. `field` is the land's, for the beach. With reduced motion they stand where they are.
+ */
+export function Strollers({ town, field }: { town: Town; field?: Field }) {
   const grid = useMemo(() => townGrid(town), [town])
   const seats = useMemo(() => benchSeats(town, grid), [town, grid])
   const cells = useMemo(() => freeCells(grid), [grid])
   const paved = useMemo(() => cells.filter(([x, z]) => town.ground[z * town.cols + x] === 'pave'), [cells, town])
+  const places = useMemo(() => islandPlaces(town, grid, field && ((x, z) => {
+    // well onto the sand, short of the water
+    const d = sample(field, field.sdf, x, z)
+    return d > 0.25 && d < BEACH - 0.25
+  })), [town, grid, field])
   const n = useMemo(() => crowdSize(town), [town])
   const looks = useMemo(() => Array.from({ length: n }, (_, i) => lookOf(i)), [n])
   const rigs = useMemo(() => looks.map(newRig), [looks])
+  const swim = useMemo(() => looks.map((look, i) => isSwimwear(styleOf(i * 7 + 3, look.wardrobe, true).bottom)), [looks])
+  const bubbles = useMemo(() => looks.map(() => ({ talk: null as THREE.Group | null, think: null as THREE.Group | null })), [looks])
+  // how far each one's gesture has got, on top of the walk: left arm raised and swung out, right arm raised, leaning back
+  const bends = useMemo(() => looks.map(() => ({ left: 0, out: 0, right: 0, lean: 0 })), [looks])
 
   const people = useMemo(() => {
     const taken = new Set<BenchSeat>()
-    return looks.map((_, i): Stroller => {
+    const initial = looks.map((_, i): Townsfolk => {
       // about a third start on a bench, the rest standing somewhere on the paving
       const seat = i % 3 === 0 ? seats.find((s, k) => !taken.has(s) && hash(i, k, 5) < 0.4) ?? null : null
       if (seat) {
         taken.add(seat)
-        return { x: seat.at[0], z: seat.at[1], route: [], heading: seat.heading, phase: 0, mode: 'sitting', wait: rand(3, 14), seat, toSeat: false }
+        return townsfolk({ x: seat.at[0], z: seat.at[1], route: [], heading: seat.heading, mode: 'sitting', wait: rand(3, 14), seat, toSeat: false })
       }
       const [x, z] = cellPos(grid, ...(paved.length ? paved : cells)[Math.floor(hash(i, 6) * (paved.length || cells.length))])
-      return { x, z, route: [], heading: hash(i, 7) * Math.PI * 2, phase: 0, mode: 'standing', wait: rand(0.2, 3), seat: null, toSeat: false }
+      return townsfolk({ x, z, route: [], heading: hash(i, 7) * Math.PI * 2, mode: 'standing', wait: rand(0.2, 3), seat: null, toSeat: false })
     })
+    resettle(initial, grid, seats, ISLAND_GAP * BODY_SHARE)
+    return initial
     // only a new crowd starts over: when a building grows the grid changes, and people carry on from where they are
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [looks])
-  useEffect(() => resettle(people, grid, seats), [grid, seats, people])
+  useEffect(() => {
+    resettle(people.filter((p) => !p.home), grid, seats, ISLAND_GAP * BODY_SHARE)
+    for (const p of people) Object.assign(p, UNHINDERED)
+  }, [grid, seats, people])
+  const clock = useRef(0)
+  // who is out of sight, indoors or going in: they fade out at the door and fade in again coming out
+  const [inside, setInside] = useState<boolean[]>([])
+  const insideNow = useRef<boolean[]>([])
+  // the figure each one was last drawn as: one put back on coming out faces their way at once, rather than turning
+  const drawn = useMemo(() => looks.map((): THREE.Group | null => null), [looks])
 
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, MAX_FRAME)
-    // benches are told apart by where they are, as the seat list is rebuilt with the grid
-    const spot = (s: BenchSeat) => `${s.at}`
-    const held = new Set(people.flatMap((p) => (p.seat ? [spot(p.seat)] : [])))
+    clock.current += dt
+    const scene: Scene = {
+      grid, seats, cells, paved, places, swim, night: light.glow, planes: [...aloft.values()], followed: followed.stroller,
+    }
     const moved = people.map(() => 0)
-    if (!calm) inSteps(dt, (dt) => people.forEach((p, i) => {
-      p.wait -= dt
-      if (p.mode === 'sitting' && p.wait <= 0) {
-        // get up, step off the bench and carry on
-        p.route = [(p.seat as BenchSeat).front]
-        p.seat = null
-        p.mode = 'walking'
-      } else if (p.mode === 'walking') {
-        moved[i] += advance(p, SPEED * OFFICE_SCALE * dt)
-        if (!p.route.length) {
-          if (p.toSeat && p.seat) {
-            p.mode = 'sitting'
-            p.heading = p.seat.heading
-            p.wait = rand(8, 20)
-            p.toSeat = false
-          } else {
-            p.mode = 'standing'
-            p.wait = rand(1, 4)
-          }
-        }
-      } else if (p.mode === 'standing' && p.wait <= 0) {
-        const free = seats.filter((s) => !held.has(spot(s)))
-        const seat = free.length && Math.random() < 0.3 ? pick(free) : null
-        const toBench = seat ? seatRoute(grid, [p.x, p.z], seat) : []
-        if (seat && toBench.length) {
-          held.add(spot(seat))
-          p.seat = seat
-          p.toSeat = true
-          p.route = toBench
-        } else {
-          // mostly along the paving round the buildings, sometimes out on the grass
-          const [x, z] = Math.random() < 0.7 && paved.length ? pick(paved) : pick(cells)
-          p.route = route(grid, [p.x, p.z], cellPos(grid, x, z))
-        }
-        p.mode = 'walking'
-      }
-    }))
-    people.forEach((p, i) => {
-      const sitting = p.mode === 'sitting'
-      // feet on the paving, or on the grass just below it
-      const [cx, cz] = [Math.round((p.x - grid.x0) / grid.step), Math.round((p.z - grid.z0) / grid.step)]
-      const ground = town.ground[cz * town.cols + cx] === 'pave' ? 0.08 : 0
-      pose(rigs[i], p, sitting, moved[i] / OFFICE_SCALE, sitting ? BENCH_TOP - CHAIR_TOP * OFFICE_SCALE : ground, dt)
+    if (!calm) inSteps(dt, (step) => {
+      stepCrowd(people, scene, step)
+      people.forEach((p, i) => (moved[i] += p.moved))
     })
+    people.forEach((p, i) => {
+      const rig = rigs[i]
+      const sitting = p.mode === 'sitting'
+      // two on one bench, most pairs of them: turned a little towards each other, taking turns to talk
+      const mate = sitting && !p.home ? benchMate(people, i) : -1
+      const chatty = mate >= 0 && hash(Math.min(i, mate), Math.max(i, mate), 31) < 0.75
+      if (sitting && p.seat) {
+        const toward = chatty ? headingOf(people[mate].x - p.x, people[mate].z - p.z) - p.seat.heading : 0
+        const turn = p.seat.heading + Math.atan2(Math.sin(toward), Math.cos(toward)) * 0.35 - p.heading
+        p.heading += Math.atan2(Math.sin(turn), Math.cos(turn)) * (calm ? 1 : 1 - Math.exp(-BENCH_TURN_SPEED * dt))
+      }
+      // feet on the paving, or on the grass just below it, or down on the sand past the grass edge
+      const [cx, cz] = [Math.round((p.x - grid.x0) / grid.step), Math.round((p.z - grid.z0) / grid.step)]
+      const under = cx >= 0 && cz >= 0 && cx < town.cols && cz < town.rows ? town.ground[cz * town.cols + cx] : null
+      let ground = under === 'pave' ? 0.08 : 0
+      if (field && (under === 'shore' || under === null)) {
+        const past = THREE.MathUtils.clamp(sample(field, field.sdf, p.x, p.z) / STEP_DOWN, 0, 1)
+        ground += (BEACH_TOP - ground) * past * past * (3 - 2 * past)
+      }
+      pose(rig, p, sitting, moved[i] / OFFICE_SCALE, sitting ? BENCH_TOP - CHAIR_TOP * OFFICE_SCALE : ground, dt)
+      if (rig.root && rig.root !== drawn[i]) {
+        rig.root.rotation.y = p.heading
+        drawn[i] = rig.root
+      }
+
+      // what the arms and the bubbles show
+      const [left, right] = rig.arms
+      const standing = p.mode === 'standing' && !p.home
+      const o = people[p.partner]
+      const talking = standing && p.doing === 'chat' && !!o && o.partner === i && o.doing === 'chat' && o.mode === 'standing'
+      const speaking = (talking && (Math.floor(p.t / 1.5) % 2 === 0) === p.lead)
+        || (chatty && (Math.floor(clock.current / BENCH_TURN) % 2 === 0) === i < mate)
+      const dazing = standing && p.doing === 'daze'
+      // where the gesture is heading; it eases there, and back to nothing once it is over
+      const want = { left: 0, out: 0, right: 0, lean: 0 }
+      if (!calm && standing) {
+        if (speaking) want.left = 0.5 + Math.sin(p.t * 6) * 0.35
+        if (p.doing === 'wave') {
+          want.left = 2.7
+          want.out = -Math.sin(p.t * 12) * 0.35
+        }
+        if (p.doing === 'sky') {
+          // pointing up at it, leaning back a little to look
+          want.left = 2.3
+          want.lean = 0.07
+        }
+        // looking up at the building
+        if (p.doing === 'door') want.lean = 0.1
+        if (p.doing === 'sea') {
+          // paddling: arms up, kicking at the water, bobbing
+          const k = Math.sin(p.t * 5)
+          want.left = 2.5 + k * 0.4
+          want.right = 2.5 - k * 0.4
+          rig.legs.forEach((l, j) => l && (l.rotation.x = Math.sin(p.t * 7) * 0.3 * rig.stride * (j ? 1 : -1)))
+          if (rig.root) rig.root.position.y += Math.abs(k) * 0.06
+        }
+        // staring, looking out to sea or standing under a lamp: turning slowly one way, then the other
+        if (p.doing === 'daze' || p.doing === 'view' || p.doing === 'lamp') p.heading += Math.sin(p.t * 0.6) * (p.doing === 'daze' ? 0.25 : 0.15) * dt
+      }
+      const bend = bends[i]
+      const ease = calm ? 1 : 1 - Math.exp(-GESTURE * dt)
+      for (const k of ['left', 'out', 'right', 'lean'] as const) bend[k] += (want[k] - bend[k]) * ease
+      // on top of the arms' swing as they walk
+      if (left) {
+        left.rotation.x += bend.left
+        left.rotation.z = bend.out
+      }
+      if (right) right.rotation.x += bend.right
+      if (rig.standing) rig.standing.rotation.x = bend.lean
+      const b = bubbles[i]
+      for (const [g, on] of [[b.talk, !calm && speaking], [b.think, !calm && dazing]] as const) {
+        if (!g) continue
+        g.visible = on
+        // clear above the head, a little to the right of the screen
+        if (on && rig.root) {
+          const at = rig.root.position
+          g.position.set(at.x + 0.25 * OFFICE_SCALE, at.y + ((sitting ? BUBBLE_SEATED : BUBBLE_STANDING) + Math.sin(clock.current * 3) * 0.03) * OFFICE_SCALE, at.z - 0.25 * OFFICE_SCALE)
+        }
+      }
+      if (i === followed.stroller && rig.root) {
+        followed.at.copy(rig.root.position)
+        followed.seen = true
+      }
+    })
+    // fading out over the last steps in, so they are gone just as they reach the doors
+    const now = people.map((p) => indoors(p, ISLAND_SPEED * FADE_SECONDS))
+    if (now.some((v, i) => v !== !!insideNow.current[i])) {
+      insideNow.current = now
+      setInside(now)
+    }
   })
 
+  const big = (g: THREE.Group | null) => g?.scale.setScalar(OFFICE_SCALE)
   return (
     <>
       {/* figures are built in office units */}
-      {looks.map((look, i) => <Figure key={i} look={look} rig={rigs[i]} seed={i * 7 + 3} drop={BENCH_LIFT} scale={OFFICE_SCALE} beach />)}
+      {looks.map((look, i) => (
+        <group key={i}>
+          <Fade show={!inside[i]}>
+            <Figure look={look} rig={rigs[i]} seed={i * 7 + 3} drop={BENCH_LIFT} scale={OFFICE_SCALE} beach />
+          </Fade>
+          <Bubble kind="talk" bind={(g) => void ((bubbles[i].talk = g), big(g))} />
+          <Bubble kind="think" bind={(g) => void ((bubbles[i].think = g), big(g))} />
+        </group>
+      ))}
     </>
   )
 }

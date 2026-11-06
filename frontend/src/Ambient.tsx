@@ -5,6 +5,7 @@ import { useFrame } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { Plane } from './Airport'
+import { aloft } from './aloft'
 import { Fade } from './Fade'
 import { CELL, hash, type Town } from './layout'
 import { MAX_FRAME, NO_OUTLINE_LAYER } from './PixelPass'
@@ -158,7 +159,10 @@ const between = (a: number, b: number) => a + Math.random() * (b - a)
  * None with reduced motion.
  */
 function Overflights({ ring }: { ring: number }) {
-  useEffect(() => () => stopSound('soundFlyover'), [])
+  useEffect(() => () => {
+    stopSound('soundFlyover')
+    aloft.delete('overflight')
+  }, [])
   const ref = useRef<THREE.Group>(null)
   // seconds until the next pass; the first comes soon after the page opens
   const wait = useRef(between(8, 20))
@@ -170,6 +174,7 @@ function Overflights({ ring }: { ring: number }) {
   useFrame((_, delta) => {
     const dt = Math.min(delta, MAX_FRAME)
     if (!pass) {
+      aloft.delete('overflight')
       wait.current -= dt
       if (wait.current <= 0) {
         setPass({ t: 0, way: between(0, Math.PI * 2), side: between(-0.4, 0.4) * ring, y: between(40, 48), speed: between(16, 22), livery: LIVERIES[Math.floor(Math.random() * LIVERIES.length)] })
@@ -187,9 +192,13 @@ function Overflights({ ring }: { ring: number }) {
       return
     }
     const [dx, dz] = [Math.cos(pass.way), Math.sin(pass.way)]
-    ref.current?.position.set(dx * along - dz * pass.side, pass.y, dz * along + dx * pass.side)
+    const [x, z] = [dx * along - dz * pass.side, dz * along + dx * pass.side]
+    ref.current?.position.set(x, pass.y, z)
     const on = Math.abs(along) < seen
     if (on !== shown) setShown(on)
+    // the town's middle is the world's origin, so this is where it is in the sky
+    if (on) aloft.set('overflight', { x, y: pass.y, z })
+    else aloft.delete('overflight')
   })
   if (!pass) return null
   return (

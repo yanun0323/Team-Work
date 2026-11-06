@@ -2,7 +2,7 @@
 // (no foam or ripples with less detail).
 
 import { useFrame, useThree } from '@react-three/fiber'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { FIELD_RES } from './land'
 import { SEA_D0, SEA_DSPAN, SEA_LEVEL, type SeaMap } from './Island'
@@ -106,6 +106,7 @@ export function Ocean({ map, calm }: { map: SeaMap; calm: boolean }) {
     m.customProgramCacheKey = () => 'fusion-sea'
     return { m, uniforms }
   }, [map])
+  useEffect(() => () => material.m.dispose(), [material])
 
   useFrame(({ camera, size }, dt) => {
     if (!calm) material.uniforms.uTime.value += Math.min(dt, MAX_FRAME)

@@ -1,7 +1,13 @@
-import { expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import type { Look } from './core/domain/types'
-import { FACIALS, HAIR_CUTS } from './figureStyle'
-import { headBoxesForTest } from './People'
+import { BOTTOMS, FACIALS, HAIR_CUTS, SWIMWEAR, TOPS, type Style } from './figureStyle'
+import { nookPlaces } from './Building'
+import { CELL } from './layout'
+import { officePlan } from './office'
+import { stuckCheck } from './stuckCheck'
+import { headBoxesForTest, HIP, LEG, LEG_SWING, OFFICE_GAP_FOR_TEST, officeForTest, standingBodyForTest, strideOf, waist, pickFollowTarget, type FollowTarget } from './People'
+
+afterEach(() => vi.restoreAllMocks())
 
 const EXTRAS: Look['extra'][] = [
   'none', 'glasses', 'cap', 'headset', 'sunglasses', 'beanie', 'bow', 'strawhat', 'beret', 'bandana', 'headband', 'hairclip', 'flower',
@@ -41,4 +47,123 @@ it('wears every hat, pair of glasses and headset clear of the hair and face, nev
     for (const f of fighting(worn, rest)) bad.push(`${hair} + ${facial} + ${extra}: ${f}`)
   }
   expect(bad).toEqual([])
+})
+
+const stroller = (index: number): FollowTarget => ({ kind: 'stroller', index })
+const worker = (id: string, teamId = 't1'): FollowTarget => ({ kind: 'crew', id, teamId })
+/** Dice that come up with these numbers in turn. */
+const dice = (...rolls: number[]) => () => rolls.shift() ?? 0
+
+it('picks a stroller or an employee, about half and half, never the last one followed', () => {
+  const crew = [{ id: 'a', teamId: 't1' }, { id: 'b', teamId: 't2' }]
+  // the first roll picks the group, the second who in it
+  expect(pickFollowTarget(5, crew, null, 'all', dice(0.2, 0.5))).toEqual(stroller(2))
+  expect(pickFollowTarget(5, crew, null, 'all', dice(0.7, 0.6))).toEqual(worker('b', 't2'))
+  // the last one is left out of its group
+  expect(pickFollowTarget(5, crew, worker('a'), 'all', dice(0.7, 0))).toEqual(worker('b', 't2'))
+  expect(pickFollowTarget(2, [], stroller(0), 'all', dice(0, 0))).toEqual(stroller(1))
+  // a group of only the last one is passed over for the other
+  expect(pickFollowTarget(5, [crew[0]], worker('a'), 'all', dice(0.9, 0))).toEqual(stroller(0))
+  expect(pickFollowTarget(1, crew, stroller(0), 'all', dice(0.1, 0))).toEqual(worker('a'))
+})
+
+it('follows whoever there is, even the last one when nobody else is about, and nobody when nobody is', () => {
+  expect(pickFollowTarget(0, [{ id: 'a', teamId: 't1' }], null, 'all', dice(0.9, 0.9))).toEqual(worker('a'))
+  expect(pickFollowTarget(3, [], null, 'all', dice(0.9, 0.5))).toEqual(stroller(1))
+  expect(pickFollowTarget(1, [], stroller(0), 'all', dice(0.5, 0.5))).toEqual(stroller(0))
+  expect(pickFollowTarget(0, [], null)).toBeNull()
+})
+
+/** Points over the surface of a box, `n` steps along each edge. */
+function surface([c, size]: [number[], number[]], n = 12) {
+  const out: number[][] = []
+  for (let i = 0; i <= n; i++) for (let j = 0; j <= n; j++) for (let k = 0; k <= n; k++) {
+    if (i > 0 && i < n && j > 0 && j < n && k > 0 && k < n) continue
+    out.push([c[0] + size[0] * (i / n - 0.5), c[1] + size[1] * (j / n - 0.5), c[2] + size[2] * (k / n - 0.5)])
+  }
+  return out
+}
+
+it('keeps the legs inside a skirt, a dress or a coat\'s tails at every point of a stride', () => {
+  const bad: string[] = []
+  for (const bottom of [...BOTTOMS, ...SWIMWEAR]) for (const top of TOPS) {
+    const st: Style = { hair: 'short', top, bottom, facial: 'none', accent: '#ffcf5a' }
+    // under a long skirt only the feet are drawn
+    if (bottom === 'longskirt') continue
+    const covers = [...waist(LOOK, st), ...standingBodyForTest(LOOK, st)]
+    // what hangs lowest over the legs: below it they show, above it they must stay inside
+    const low = Math.min(...covers.map(([c, sz]) => c[1] - sz[1] / 2))
+    const within = (p: number[]) => covers.some(([c, sz]) => [0, 1, 2].every((a) => Math.abs(p[a] - c[a]) <= sz[a] / 2 + EPS))
+    const most = LEG_SWING * strideOf(st)
+    for (let step = -4; step <= 4; step++) {
+      const a = (most * step) / 4
+      for (const side of [-1, 1]) for (const [x, y, z] of surface(LEG)) {
+        // turned about the hip, as the walk turns the leg's group
+        const p = [side * HIP[0] + x, HIP[1] + y * Math.cos(a) - z * Math.sin(a), HIP[2] + y * Math.sin(a) + z * Math.cos(a)]
+        if (p[1] >= low && !within(p)) { bad.push(`${top} + ${bottom} at ${a.toFixed(2)}`); break }
+      }
+    }
+  }
+  expect([...new Set(bad)]).toEqual([])
+})
+
+it('never leaves people in a crowded office on top of each other, nor anyone going nowhere', () => {
+  for (const seed of [5, 7, 11, 23, 71]) {
+    let random = seed
+    const rng = vi.spyOn(Math, 'random').mockImplementation(() => ((random = (Math.imul(random, 1664525) + 1013904223) >>> 0) / 2 ** 32))
+    const plan = officePlan(16, 10 * CELL, CELL, seed)
+    const nook = nookPlaces(plan)
+    const crew = Array.from({ length: 16 }, (_, i) => ({ id: `p${i}`, look: LOOK, busy: false }))
+    const gap = OFFICE_GAP_FOR_TEST
+    const check = stuckCheck(gap * 0.5, gap)
+    let t = 0
+    let up = 0
+    officeForTest(plan, crew, 900, (people) => {
+      t += 0.1
+      // now and then work comes in for some of them, and they go back to their desks around the others
+      crew.forEach((c, i) => (c.busy = Math.floor(t / 60 + i) % 5 === 0))
+      up += people.filter((p) => p.mode === 'walking' || p.mode === 'standing').length
+      check.step(people.map((p) => ({ x: p.x, z: p.z, walking: p.mode === 'walking', solid: true })), 0.1)
+    }, { sofa: nook.sofa, coffee: [nook.coffee] })
+    // plenty of them up and about
+    expect(up / (t / 0.1)).toBeGreaterThan(5)
+    rng.mockRestore()
+    expect(check.minimum).toBeGreaterThanOrEqual(gap * 0.8 - 1e-6)
+    expect(check.overlap).toBe(0)
+    // held up, they go round, wait or give up within a few seconds
+    expect(check.frozen).toBeLessThan(10)
+  }
+})
+
+
+it('returns every busy employee to their own desk without passing through colleagues or seated people', () => {
+  let seed = 71
+  vi.spyOn(Math, 'random').mockImplementation(() => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32))
+  const plan = officePlan(16, 10 * CELL, CELL, 7)
+  const nook = nookPlaces(plan)
+  const crew = Array.from({ length: 16 }, (_, i) => ({ id: `p${i}`, look: LOOK, busy: false }))
+  const check = stuckCheck(OFFICE_GAP_FOR_TEST * 0.8, OFFICE_GAP_FOR_TEST)
+  let t = 0, away = 0
+  let final: Array<{ x: number; z: number; mode: string }> = []
+  officeForTest(plan, crew, 300, (people) => {
+    t += 0.1
+    if (t > 120) crew.forEach((c) => (c.busy = true))
+    else away = Math.max(away, people.filter((p) => p.mode !== 'seated').length)
+    check.step(people.map((p) => ({ x: p.x, z: p.z, walking: p.mode === 'walking', solid: true })), 0.1)
+    final = people
+  }, { sofa: nook.sofa, coffee: [nook.coffee] })
+  expect(away).toBeGreaterThan(5)
+  expect(check.minimum).toBeGreaterThanOrEqual(OFFICE_GAP_FOR_TEST * 0.8 - 1e-6)
+  expect(final.every((p) => p.mode === 'seated')).toBe(true)
+  expect(final.map((p) => [p.x, p.z])).toEqual(plan.seats)
+})
+
+
+it('follows only map people by default, without falling back to employees', () => {
+  const crew = [{ id: 'a', teamId: 't1' }]
+  expect(pickFollowTarget(1, crew, null)).toEqual(stroller(0))
+  expect(pickFollowTarget(1, crew, stroller(0))).toEqual(stroller(0))
+  expect(pickFollowTarget(2, crew, stroller(0), 'map')).toEqual(stroller(1))
+  expect(pickFollowTarget(0, crew, null)).toBeNull()
+  expect(pickFollowTarget(0, crew, null, 'all')).toEqual(worker('a'))
 })

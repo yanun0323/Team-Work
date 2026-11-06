@@ -25,7 +25,7 @@ import { CELL, FLOOR_CELLS, floorsOf, footprintOf, hash, rectCenter, spotCenter,
 import { Fade } from './Fade'
 import { usePrefs } from './prefs'
 import { NOOK_COUNTER, NOOK_D, NOOK_W, OFFICE_SCALE, officePlan, WALL, type Area, type OfficePlan } from './office'
-import { OfficeCrew, type Amenities, type CrewMember } from './People'
+import { OfficeCrew, SHIN_REACH, type Amenities, type CrewMember } from './People'
 import { headingOf } from './walk'
 import { NO_OUTLINE_LAYER } from './PixelPass'
 import { LANTERN, propBoxes } from './streetProps'
@@ -546,10 +546,12 @@ function Part({ p, c, children }: { p: V3; c: string; children: ReactNode }) {
   return <mesh position={p} material={toon(c)} castShadow receiveShadow>{children}</mesh>
 }
 
-export function Building({ lot, town, open, another, hover, onHover, onSelect }: {
+export function Building({ lot, town, open, cut = false, another, hover, onHover, onSelect }: {
   lot: Lot
   town: Town
   open: boolean
+  /** Not open, but cut away all the same, as when it stands in front of the person the camera follows. */
+  cut?: boolean
   /** Another company is open. This building then fades out once its plot leaves the screen, as it may still rise into view. */
   another: boolean
   /** Under the pointer while no company is open: shaded to show it can be clicked. */
@@ -579,11 +581,11 @@ export function Building({ lot, town, open, another, hover, onHover, onSelect }:
       onPointerOver={(e) => { e.stopPropagation(); onHover(lot.id, true); document.body.style.cursor = open ? '' : 'pointer' }}
       onPointerOut={() => { onHover(lot.id, false); document.body.style.cursor = '' }}>
       {/* the whole building fades out as the cut-away fades in, and back */}
-      <Fade show={!open && !hidden}><Exterior look={lot} w={lot.building.w * CELL} d={lot.building.d * CELL} floors={lot.floors} decor={lot.decor} busy={busy} /></Fade>
+      <Fade show={!open && !cut && !hidden}><Exterior look={lot} w={lot.building.w * CELL} d={lot.building.d * CELL} floors={lot.floors} decor={lot.decor} busy={busy} /></Fade>
       {/* the paved plot and its street furniture count as the building too, for the pointer and the shade */}
       {!hidden && <PlotHit boxes={grounds} />}
-      <Shade lot={lot} grounds={grounds} on={hover && !open && !hidden} />
-      <Fade show={open}><CutAway lot={lot} /></Fade>
+      <Shade lot={lot} grounds={grounds} on={hover && !open && !cut && !hidden} />
+      <Fade show={open || cut}><CutAway lot={lot} /></Fade>
     </group>
   )
 }
@@ -1492,7 +1494,7 @@ function Gym({ a, k }: { a: Area; k: Decor }) {
  * Seats on `Lounge`'s sofa for idle people, with the way in: from the open front, up the gap between the
  * side sofa and the table, then across in front of the back sofa. `a` is the lounge as placed in the room.
  */
-function loungeSeats(a: Area, mirror: boolean): Amenities['sofa'] {
+export function loungeSeats(a: Area, mirror: boolean): Amenities['sofa'] {
   const m = mirror ? -1 : 1
   const at = (lx: number, lz: number): [number, number] => [a.x + m * lx, a.z + lz]
   const gap = -a.w / 2 + 0.95
@@ -1500,11 +1502,20 @@ function loungeSeats(a: Area, mirror: boolean): Amenities['sofa'] {
   const stand = -a.d / 2 + 0.95
   return [
     // the side sofa, facing across to the table
-    ...[0.1, 0.8].map((lz) => ({ at: at(-a.w / 2 + 0.3, lz), heading: headingOf(m, 0), way: [entry, at(gap, lz)] })),
+    ...[0.1, 0.8].map((lz) => ({ at: at(-a.w / 2 + sitBack(LOUNGE_SEAT_D), lz), heading: headingOf(m, 0), way: [entry, at(gap, lz)] })),
     // the back sofa, facing the front
-    ...[1.15, 1.85].map((dx) => ({ at: at(-a.w / 2 + dx, -a.d / 2 + 0.3), heading: headingOf(0, 1), way: [entry, at(gap, stand), at(-a.w / 2 + dx, stand)] })),
+    ...[1.15, 1.85].map((dx) => ({ at: at(-a.w / 2 + dx, -a.d / 2 + sitBack(LOUNGE_SEAT_D)), heading: headingOf(0, 1), way: [entry, at(gap, stand), at(-a.w / 2 + dx, stand)] })),
   ]
 }
+
+/** Where to sit on a seat whose front edge is `front` out from its back: far enough forward that the shins hang clear of it. */
+export const sitBack = (front: number) => front - SHIN_REACH + 0.02
+/** How deep the lounge sofa's seats are, from the wall. */
+export const LOUNGE_SEAT_D = 0.7
+/** The nook sofa's seat, out from the wall: where it starts and how deep it is. */
+const NOOK_SEAT_FROM = 0.05
+const NOOK_SEAT_D = 0.62
+export const NOOK_SEAT_FRONT = NOOK_SEAT_FROM + NOOK_SEAT_D
 
 /** Nook layout, about its middle before mirroring: the counter at the left end, then the sofa and its two seats. */
 const NOOK_SOFA_X = -NOOK_W / 2 + NOOK_COUNTER + 0.1
@@ -1512,13 +1523,13 @@ const NOOK_SOFA_W = NOOK_W / 2 - NOOK_SOFA_X
 const NOOK_SEATS = [NOOK_SOFA_X + NOOK_SOFA_W * 0.27, NOOK_SOFA_X + NOOK_SOFA_W * 0.73]
 
 /** Where in the nook to sit or stand, in office units: the way in goes from its entry to just in front. */
-function nookPlaces(plan: OfficePlan) {
+export function nookPlaces(plan: OfficePlan) {
   const m = plan.mirror ? -1 : 1
   const wall = plan.nook.z - NOOK_D / 2
   const front = wall + NOOK_D + 0.35
   const x = (lx: number) => plan.nook.x + m * lx
   return {
-    sofa: NOOK_SEATS.map((lx) => ({ at: [x(lx), wall + 0.38] as [number, number], heading: headingOf(0, 1), way: [plan.nookEntry, [x(lx), front] as [number, number]] })),
+    sofa: NOOK_SEATS.map((lx) => ({ at: [x(lx), wall + sitBack(NOOK_SEAT_FRONT)] as [number, number], heading: headingOf(0, 1), way: [plan.nookEntry, [x(lx), front] as [number, number]] })),
     coffee: { at: [x(-NOOK_W / 2 + NOOK_COUNTER / 2), front] as [number, number], heading: headingOf(0, -1), way: [plan.nookEntry] },
   }
 }
@@ -1539,9 +1550,9 @@ function Lounge({ a, k }: { a: Area; k: Decor }) {
   return (
     <>
       {/* seat along the back, then along the left */}
-      <B p={[a.x + 0.2, y + 0.18, z0 + 0.35]} s={[a.w - 0.4, 0.36, 0.7]} c={k.sofa[0]} />
+      <B p={[a.x + 0.2, y + 0.18, z0 + LOUNGE_SEAT_D / 2]} s={[a.w - 0.4, 0.36, LOUNGE_SEAT_D]} c={k.sofa[0]} />
       <B p={[a.x + 0.2, y + 0.45, z0 + 0.1]} s={[a.w - 0.4, 0.5, 0.2]} c={k.sofa[1]} />
-      <B p={[x0 + 0.35, y + 0.18, a.z + 0.35]} s={[0.7, 0.36, a.d - 0.7]} c={k.sofa[0]} />
+      <B p={[x0 + LOUNGE_SEAT_D / 2, y + 0.18, a.z + LOUNGE_SEAT_D / 2]} s={[LOUNGE_SEAT_D, 0.36, a.d - LOUNGE_SEAT_D]} c={k.sofa[0]} />
       <B p={[x0 + 0.1, y + 0.45, a.z + 0.25]} s={[0.2, 0.5, a.d - 0.5]} c={k.sofa[1]} />
       {/* cushions */}
       <B p={[a.x + 0.9, y + 0.44, z0 + 0.3]} s={[0.4, 0.3, 0.12]} c={k.cushions[0]} />
@@ -1785,7 +1796,7 @@ function Nook({ z, k }: { z: number; k: Decor }) {
       <B p={[cx - 0.22, y + 1.08, wall + 0.375]} s={[0.04, 0.04, 0.01]} c="#62e07a" shadow={false} />
       {[0.14, 0.27].map((dx) => <B key={dx} p={[cx + dx, y + 0.81, wall + 0.34]} s={[0.09, 0.1, 0.09]} c="#f5f5f0" />)}
       {/* sofa: seat, back against the wall, arms, two cushions */}
-      <B p={[sx, y + 0.18, wall + 0.36]} s={[NOOK_SOFA_W, 0.36, 0.62]} c={k.sofa[0]} />
+      <B p={[sx, y + 0.18, wall + NOOK_SEAT_FROM + NOOK_SEAT_D / 2]} s={[NOOK_SOFA_W, 0.36, NOOK_SEAT_D]} c={k.sofa[0]} />
       <B p={[sx, y + 0.45, wall + 0.11]} s={[NOOK_SOFA_W, 0.5, 0.2]} c={k.sofa[1]} />
       {[-1, 1].map((e) => <B key={e} p={[sx + e * (NOOK_SOFA_W / 2 - 0.07), y + 0.3, wall + 0.36]} s={[0.14, 0.5, 0.62]} c={k.sofa[1]} />)}
       {NOOK_SEATS.map((lx, i) => <B key={lx} p={[lx + (i ? 0.12 : -0.12), y + 0.48, wall + 0.27]} s={[0.36, 0.28, 0.12]} c={k.cushions[i]} />)}
@@ -2664,6 +2675,7 @@ const SAMPLE_WALL_H = 2.3
  * One piece of furniture on a patch of tiled floor, with the two back walls behind it so what hangs on a wall has one,
  * drawn in office units and scaled as in an office. `room` is the floor patch; the walls stand on its back and left edges.
  */
+
 export function FurnitureSample({ kind }: { kind: Furniture }) {
   const k: Decor = { ...SAMPLE_DECOR }
   let room: Area = { x: 0, z: 0, w: 3, d: 2.4 }
