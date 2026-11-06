@@ -9,7 +9,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from 
 import { useStore } from './core/store'
 import LICENSE from '../../LICENSE?raw'
 import { BlueprintIcon } from './BlueprintIcon'
-import { openOnce, SheetStack, useSheets } from './Drawer'
+import { openOnce, SheetStack, useMapClickSheets, useSheets } from './Drawer'
 import { useOpenedFromNotice } from './notices'
 import { gitSources } from './core/domain/sim'
 import { blueprintList, flowList, waitingTab } from './core/model'
@@ -23,7 +23,7 @@ import { authLabel, makesImages, PROVIDER_KINDS } from './providers'
 import { Select, Toggle, useAutoGrow } from './Controls'
 import { hideBlueprint, hideWorkflow, setLanguage } from './core/ops'
 import { Chats, TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
-import { airportTabOr, AIRPORT_TABS, AUTO_TABS, AUTO_VIEWS, BUSY_ANIMATIONS, DAYLIGHTS, DEFAULT_PREFS, type AirportTab, type AutoTab, type AutoView, type BusyAnimation, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY, COMPACT_DEFAULTS, COMPACT_SHARE } from './prefs'
+import { airportTabOr, AIRPORT_TABS, AUTO_TABS, AUTO_VIEWS, BUSY_ANIMATIONS, DAYLIGHTS, DEFAULT_PREFS, MAP_CLICKS, type AirportTab, type AutoTab, type AutoView, type MapClick, type BusyAnimation, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY, COMPACT_DEFAULTS, COMPACT_SHARE } from './prefs'
 import { request } from './core/backend'
 import { MusicSection, Volume } from './SoundPage'
 import { MOCK } from './core/mode'
@@ -87,6 +87,7 @@ export function Settings({ leaving, onGone }: {
   const title = useRef<HTMLHeadingElement>(null)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const sheets = useSheets()
+  useMapClickSheets(sheets, leaving)
   useEffect(() => {
     title.current?.focus({ preventScroll: true })
     if (tab === 'terminal') setTerminalFocus((n) => n + 1)
@@ -496,7 +497,7 @@ export function PrefsPage() {
   const prefs = usePrefs()
   const language = useStore((s) => s.world.language)
   const act = useStore((s) => s.act)
-  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView' | 'busyAnimation' | 'autoTab' | 'daylight' | 'hiddenBlueprints' | 'hiddenWorkflows' | keyof typeof COMPACT_DEFAULTS>, label: string) => (
+  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView' | 'mapClick' | 'busyAnimation' | 'autoTab' | 'daylight' | 'hiddenBlueprints' | 'hiddenWorkflows' | keyof typeof COMPACT_DEFAULTS>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
   return (
@@ -520,6 +521,8 @@ export function PrefsPage() {
           <Volume label={tr('縮放靈敏度')} value={prefs.zoomSensitivity} {...ZOOM_SENSITIVITY} onChange={(zoomSensitivity) => prefs.set({ zoomSensitivity })} />
           <Select label={tr('自動檢視')} value={prefs.autoView} options={Object.keys(AUTO_VIEWS)} labelOf={(o) => tr(AUTO_VIEWS[o as AutoView])}
             onChange={(v) => prefs.set({ autoView: v as AutoView })} />
+          <Select label={tr('點選地圖')} value={prefs.mapClick} options={Object.keys(MAP_CLICKS)} labelOf={(o) => tr(MAP_CLICKS[o as MapClick])}
+            onChange={(v) => prefs.set({ mapClick: v as MapClick })} />
         </div>
       </section>
       <section className="fx-d-group" aria-labelledby="fx-prefs-use">

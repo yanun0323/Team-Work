@@ -2,7 +2,7 @@
 // opens and turned away like a page when it closes. The head names the company, its folder and target
 // branch; the tabs below hold its tasks, flows, employees (grouped under their blueprints) and settings. Anything in them that
 // opens shows its detail on a sheet over the upper left of the map (DrawerDetail). There is no close
-// button: a click on the map puts the detail sheets away, or the company file once none are open.
+// button: a click on the map puts everything away, or, with the preference off, the detail sheets first.
 
 import { tr } from './core/i18n'
 import { openFolder } from './core/ops'
@@ -149,8 +149,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const sheets = useSheets()
   const { back } = sheets
-  const sheetsOpen = sheets.top >= 0 && !leaving
-  useEffect(() => (sheetsOpen ? holdSheets(() => back(-1)) : undefined), [sheetsOpen, back])
+  useMapClickSheets(sheets, leaving)
   const bytes = useProjectBytes((b) => b[teamId] ?? 0)
   // a new company: move focus to its name, and put away the last company's sheet
   useEffect(() => {
@@ -301,10 +300,10 @@ export function useSheets() {
   return { layers, top, open, push, back, gone }
 }
 
-// what a click on the map calls first while the open company has detail sheets
+// what a click on the map calls first while the open company or airport has detail sheets
 let sheetsAway: (() => void) | null = null
 
-/** Lets a click on the map put away the open company's detail sheets; returns the release. */
+/** Lets a click on the map put away the open drawer's detail sheets; returns the release. */
 export function holdSheets(away: () => void) {
   sheetsAway = away
   return () => {
@@ -312,9 +311,18 @@ export function holdSheets(away: () => void) {
   }
 }
 
-/** Puts away the open company's detail sheets; false when none are open. */
+/** While the drawer is open with sheets on it, a click on the map may put them away (see putAwaySheets). */
+export function useMapClickSheets({ top, back }: Sheets, leaving: boolean) {
+  const open = top >= 0 && !leaving
+  useEffect(() => (open ? holdSheets(() => back(-1)) : undefined), [open, back])
+}
+
+/**
+ * A click on the map puts away the open drawer's detail sheets, unless the preference has the click close the
+ * drawer at once; false when it should close the drawer.
+ */
 export function putAwaySheets() {
-  if (!sheetsAway) return false
+  if (!sheetsAway || usePrefs.getState().mapClick !== 'sheets') return false
   sheetsAway()
   return true
 }

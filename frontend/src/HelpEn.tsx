@@ -23,7 +23,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
         <p className="fx-help-pit">In a chat, the employee changes your project folder directly. A task works in a separate copy instead: it cannot see changes you have not committed, and its work reaches your project only when merged.</p>
         <dl>
           <dt>Something missing</dt><dd>A red stamp above a company's tabs says what to do first; see Company.</dd>
-          <dt>Put away</dt><dd>Press Esc or click an empty part of the map to put away an open company, the airport or the help. While a company has detail sheets open, a click on the map puts all of them away first; click again to put away the company.</dd>
+          <dt>Put away</dt><dd>Press Esc or click an empty part of the map to put away an open company, the airport or the help.</dd>
           <dt>Language</dt><dd>Press the globe at the top right.</dd>
           <dt>Tutorial</dt><dd>The list beside the clock shows things to try next; click one to be taken where to do it.</dd>
         </dl>
@@ -229,6 +229,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <dt>Default pages</dt><dd>Which tab the airport and a company open on: Model providers and Tasks by default.</dd>
           <dt>Auto-switch default page</dt><dd>Set to On: unread chats first by default. A task waiting for your reply opens Tasks, and a chat that is unread or waiting for your answer opens Chats; if both are waiting, the option decides. With nothing waiting, the default tab opens. The airport only looks at chats.</dd>
           <dt>Auto view</dt><dd>What the camera does when you click a company, the airport or a spot for a new company. Pan and zoom (the default) moves there, zooms in and locks the map. Pan only moves there: you can zoom but not pan. Off leaves the camera alone.</dd>
+          <dt>Clicking the map</dt><dd>What a click on the map does while a company or the airport is open. Goes back to the main screen (the default) puts it away, detail sheets and all. Closes pages first puts away any open detail sheets first; click again to put away the company or airport.</dd>
           <dt>Task log order</dt><dd>Newest first or last, for task, sub-task and employee logs.</dd>
           <dt>Music and sounds</dt><dd>Music and effects have separate volumes, each with a mute beside its slider, and each kind of sound can be turned off or previewed on its own. Mute in background is on by default, so sound stops when you switch to another app. Notifications sound when a task waits for your reply or merge, or a chat gets a new reply; a chat you have open stays quiet. Sound starts after your first click or key press.</dd>
           <dt>System notifications</dt><dd>Mac app only, on by default. While the app is in the background, a task waiting for your reply or merge, or a chat with a new reply, shows a macOS notification; click it to open that task or chat. The number on the Dock icon is everything waiting. macOS asks once for permission; if you said no, turn it on in System Settings → Notifications.</dd>

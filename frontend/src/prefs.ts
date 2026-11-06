@@ -37,6 +37,10 @@ export const AUTO_VIEWS = { panZoom: '位移和縮放', pan: '位移', off: '關
 /** panZoom flies there, zooms in and locks the view; pan goes there at the same zoom and locks only panning; off leaves the camera alone. */
 export type AutoView = keyof typeof AUTO_VIEWS
 
+export const MAP_CLICKS = { home: '直接回到主畫面', sheets: '先關閉頁面' } as const
+/** What a click on the map does while a company or the airport is open: close it at once, or first put away its open detail sheets. */
+export type MapClick = keyof typeof MAP_CLICKS
+
 export const AUTO_TABS = { off: '關#switch', chats: '開：未讀對話優先', tasks: '開：待處理任務優先' } as const
 /** Opens a company or the airport on a tab with something waiting, the one named first when both are; off always opens the default tab. */
 export type AutoTab = keyof typeof AUTO_TABS
@@ -88,6 +92,7 @@ export interface Prefs {
   daylight: Daylight
   /** A company's terminal runs on when the company closes, until the app does. */
   keepTerminals: boolean
+  mapClick: MapClick
   /** What the camera does on opening a company or the airport, or picking a plot. */
   autoView: AutoView
   /** What a company's building shows while it is at work. */
@@ -124,7 +129,7 @@ export interface Prefs {
 export const COMPACT_DEFAULTS = { compact1M: 40, compact256K: 90, compact128K: 95, compactSmall: 95 } satisfies Partial<Prefs>
 export const COMPACT_SHARE = { min: 10, max: 100 }
 
-export const DEFAULT_PREFS: Prefs = { muteInBackground: true, systemNotices: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], ...COMPACT_DEFAULTS }
+export const DEFAULT_PREFS: Prefs = { muteInBackground: true, systemNotices: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, mapClick: 'home', autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], ...COMPACT_DEFAULTS }
 
 /** The range of `zoomSensitivity`; the backend checks the same. */
 export const ZOOM_SENSITIVITY = { min: 20, max: 300 }

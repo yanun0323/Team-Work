@@ -268,6 +268,8 @@ export function World() {
       if (key) setPlacing(false)
       return
     }
+    // a click on the map may put away the drawer's detail sheets first (Esc does so on its own)
+    if (!key && putAwaySheets()) return
     setSelected(null)
     if (panel === 'settings') settingsClosed.current = true
     setPanel(null)
@@ -396,7 +398,7 @@ export function World() {
   // while one is open, a click on any building, its own office included, closes it as the land and sea do
   // and while the settings are open, the click only puts them away
   const select = useCallback((id: string) => (helpOpen || settingsOpen || placing ? close() : editing ? pickMoving(id)
-    : selected && putAwaySheets() ? undefined : setSelected((cur) => (cur ? null : id))),
+    : selected ? close() : setSelected(id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [settingsOpen, placing, editing, helpOpen, close, selected])
 
@@ -424,7 +426,7 @@ export function World() {
     }
   }
 
-  // clicks on empty land or sea put away the company's detail sheets, or the drawer once none are open; a drag that pans the map doesn't
+  // clicks on empty land or sea close the drawer (see close); a drag that pans the map doesn't
   const down = useRef<[number, number]>([0, 0])
   const span = town.span
   return (
@@ -436,8 +438,7 @@ export function World() {
       gl={{ antialias: false, depth: false, stencil: false }}
       camera={{ position: ISO_DIR.clone().multiplyScalar(CAMERA_DISTANCE).toArray(), zoom: 20, near: 1, far: 600 }}
       onPointerMissed={(e) => {
-        if (e.type !== 'click' || Math.hypot(e.clientX - down.current[0], e.clientY - down.current[1]) > CLICK_SLOP) return
-        if (!(selected && !helpOpen && putAwaySheets())) close()
+        if (e.type === 'click' && Math.hypot(e.clientX - down.current[0], e.clientY - down.current[1]) <= CLICK_SLOP) close()
       }}
       onCreated={({ gl, raycaster }) => {
         gl.toneMapping = THREE.NoToneMapping
