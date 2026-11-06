@@ -810,3 +810,26 @@ func TestFileAttachmentEndpoints(t *testing.T) {
 	post("/chats/"+id+"/say", map[string]any{"files": bad}, http.StatusBadRequest)
 	post("/tasks", map[string]any{"teamId": team["id"], "title": "bad", "workflowId": flow["id"], "ownerId": employee["id"], "files": bad}, http.StatusBadRequest)
 }
+
+func TestHireKeepsTheWardrobe(t *testing.T) {
+	api := setup(t).URL + "/api/v1"
+	post := func(path string, input any) map[string]any {
+		t.Helper()
+		raw, _ := json.Marshal(input)
+		code, body := send(t, "POST", api+path, string(raw))
+		if code != http.StatusCreated {
+			t.Fatalf("%s: %d %v", path, code, body)
+		}
+		return body
+	}
+	team := post("/teams", map[string]any{"name": "looks", "folder": t.TempDir()})
+	post("/providers", map[string]any{"name": "fake", "kind": "compatible", "login": map[string]any{"kind": "apiKey", "apiKey": "test"}})
+	bp := post("/blueprints", map[string]any{"name": "dresser", "prompt": "dress"})
+	look := map[string]any{"skin": "#f1c7a5", "hair": "#5a3a24", "shirt": "#3f7fd0", "pants": "#34405a", "extra": "flower", "style": 7, "wardrobe": 2}
+	hired := post("/replicas", map[string]any{"teamId": team["id"], "blueprintId": bp["id"], "name": "Ada", "model": "m", "look": look})
+	_, w := send(t, "GET", api+"/world", "")
+	got := w["replicas"].(map[string]any)[hired["id"].(string)].(map[string]any)["look"].(map[string]any)
+	if got["wardrobe"] != float64(2) || got["extra"] != "flower" {
+		t.Fatalf("%v", got)
+	}
+}

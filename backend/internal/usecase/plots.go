@@ -7,7 +7,11 @@ import (
 	"github.com/yanun0323/Team-Work/internal/model"
 )
 
-var buildingStyles = []string{"tower", "brick", "studio", "loft", "timber", "classic", "tech", "pagoda", "deco", "eco", "villa"}
+// Keep these in step with BUILDING_STYLES in frontend/src/layout.ts.
+var buildingStyles = []string{
+	"tower", "brick", "studio", "loft", "timber", "classic", "tech", "pagoda", "deco", "eco", "villa",
+	"lighthouse", "hut", "castle", "canal", "glasshouse", "sweets",
+}
 
 // Keep these cell dimensions in step with frontend/src/layout.ts.
 const plotCells = 16

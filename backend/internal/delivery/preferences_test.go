@@ -37,6 +37,12 @@ func TestCompanyPlotEndpoints(t *testing.T) {
 	if code, body := send(t, "PATCH", api+"/teams/"+id, `{"plot":{"at":[10,10],"style":"brick","seed":321}}`); code != http.StatusNoContent {
 		t.Fatalf("%d %v", code, body)
 	}
+	// the looks added later are accepted too; it ends on brick again, which the checks below expect
+	for _, style := range []string{"lighthouse", "hut", "castle", "canal", "glasshouse", "sweets", "brick"} {
+		if code, body := send(t, "PATCH", api+"/teams/"+id, `{"plot":{"at":[10,10],"style":"`+style+`","seed":321}}`); code != http.StatusNoContent {
+			t.Fatalf("%s: %d %v", style, code, body)
+		}
+	}
 	for _, plot := range []string{
 		`{"at":[],"style":"villa","seed":1}`,
 		`{"at":[1,2,3],"style":"villa","seed":1}`,

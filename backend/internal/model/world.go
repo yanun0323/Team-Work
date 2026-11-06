@@ -15,6 +15,9 @@ type Look struct {
 	Pants string `json:"pants"`
 	Extra string `json:"extra"`
 	Style *int   `json:"style,omitempty"`
+	// Wardrobe is which set of clothes and cuts Style picks from; 0 is the first, which everyone hired before the
+	// second keeps, so their looks never change.
+	Wardrobe int `json:"wardrobe,omitempty"`
 }
 
 // BlueprintSource is a Git repo pinned to a commit, or a blueprint written by hand as YAML.
