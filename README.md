@@ -18,7 +18,7 @@ Team Work is a macOS app that runs a team of AI agents on your own projects. Eac
 
 ## Highlights
 
-- **Skills that update from GitHub**: paste a GitHub repo and its skills are ready to use, with no files to copy by hand. When the repo has a new version, apply it with one click, or turn on auto-apply. Matt Pocock's skills and poteto's pstack come built in.
+- **Skills that update from GitHub**: paste a GitHub repo and its skills are ready to use, with no files to copy by hand. When the repo has a new version, apply it with one click, or turn on auto-apply. Matt Pocock's skills and poteto's pstack are ready to use.
 - **One project, one company**: each company has its own settings, employees and tasks, so projects never get in each other's way.
 - **Employees with a specialty**: give each employee their own skills, prompt, tools and model, so every role is good at its one job.
 - **Several employees in one chat**: bring employees on different models and with different specialties into the same chat to work out, change and create requirements together.
@@ -39,7 +39,7 @@ Load and update what others share on GitHub:
 
 - **Companies**: one company per project folder and target branch. The building grows as the company finishes tasks and hires employees.
 - **Employees**: made from blueprints (prompt, skills and allowed tools). Each employee picks their own model and thinking level. An employee can also have custom settings instead of a blueprint, written from scratch or copied from a blueprint and adjusted. There are 14 built-in blueprints, such as Backend Engineer, Code Reviewer and Writer, plus Matt Pocock and Poteto, who work by skills published on GitHub.
-- **Workflows**: the steps a task goes through, from Clarify requirements to Acceptance review. Steps can hand work to an employee or open a discussion with you. Four workflows are built in: General task, Feature development, Bug fix and Code review.
+- **Workflows**: the steps a task goes through, from Clarify requirements to Acceptance review. Steps can hand work to an employee or open a discussion with you. Four workflows are ready to use: General task, Feature development, Bug fix and Code review. They and the ready-made employee blueprints live in the official source, [Team-Work-Source](https://github.com/yanun0323/Team-Work-Source), which the app downloads the first time you use it and keeps up to date.
 - **Tasks**: each task works in its own Git worktree on a `task/<number>` branch. When an employee has a question, the task waits for your reply. When the work passes review, you merge it into the target branch or send it back.
 - **Chats**: talk with an employee in the project folder. Type `$` to pick a skill and `#` to mention a file. Pick several employees, or `@` mention them, to hold a meeting.
 - **Model providers**: Anthropic, OpenAI, Google Gemini and any OpenAI-compatible API. You can also sign in with a Claude or ChatGPT subscription.
