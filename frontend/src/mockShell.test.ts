@@ -37,4 +37,14 @@ describe('the shell under dev-mock', () => {
     expect(out).toContain('zsh: command not found: nope')
     expect(out.match(/acme-shop % /g)).toHaveLength(3)
   })
+
+  it('stands at home for the airport', async () => {
+    expect(answer('pwd', true)).toBe('~')
+    expect(answer('git status', true)).toContain('not a git repository')
+    const shell = mockShell(true)
+    let out = ''
+    shell.onmessage = (m) => { out += new TextDecoder().decode(m.data as ArrayBuffer) }
+    await new Promise((r) => setTimeout(r, 10))
+    expect(out).toContain('me@mac\x1b[0m ~ % ')
+  })
 })

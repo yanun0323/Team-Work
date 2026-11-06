@@ -15,6 +15,7 @@ export const AIRPORT_TABS = [
   { id: 'flows', label: '任務藍圖#tab' },
   { id: 'sources', label: '來源#tab' },
   { id: 'stats', label: '統計' },
+  { id: 'terminal', label: '終端機' },
   { id: 'prefs', label: '設定' },
   { id: 'about', label: '關於' },
 ] as const

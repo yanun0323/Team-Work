@@ -24,6 +24,10 @@ const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 const isMarkdown = (path: string) => /\.mdx?$/i.test(path)
 
+// SVG is text, read and edited like any other, but looked at drawn. As an <img>, any script in it never runs.
+const isSvg = (path: string) => /\.svg$/i.test(path)
+const svgUrl = (text: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(text)}`
+
 // ---------- reading and writing ----------
 
 /** A file as far as it has been read. */
@@ -100,24 +104,43 @@ export function FileDetail({ teamId, path, editing, onEdit, ...h }: Head & { tea
       {state.status === 'ready' && <div className="fx-tools"><EditTool onClick={onEdit} open={editing} /></div>}
       <header className="fx-d-head">
         <Heading {...h}>{name}</Heading>
-        <p className="fx-d-meta"><code>{path}</code>{unsaved && <span className="fx-files-unsaved">{tr('有未儲存的修改')}</span>}</p>
+        <p className="fx-d-meta">
+          <span className="fx-folder">
+            <code>{path}</code>
+            <button type="button" className="fx-tool fx-hit fx-folder-open" aria-label={tr('在 Finder 顯示')} title={tr('在 Finder 顯示')} onClick={() => openFolder(teamId, parentOf(path))}>
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                <path d="M1.75 12.5v-9h4.2l1.5 1.75h6.8v7.25z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </span>
+          {unsaved && <span className="fx-files-unsaved">{tr('有未儲存的修改')}</span>}
+        </p>
       </header>
-      <div className="fx-doc-note">
-        {state.status === 'loading' && <p className="fx-d-text">{tr('讀取中…')}</p>}
-        {state.status === 'error' && <p className="fx-d-text" role="alert">{state.message}</p>}
-        {state.status === 'image' && (
-          <img className="fx-d-image" src={projectImageUrl(teamId, path)} alt={path}
-            onError={() => setState({ status: 'error', message: tr('{name} 讀不到，請到專案資料夾打開', { name }) })} />
-        )}
-        {state.status === 'unsupported' && <>
-          <p className="fx-d-text">{state.message}</p>
-          <button type="button" className="fx-save fx-plain" onClick={() => openFolder(teamId, parentOf(path))}>{tr('在 Finder 顯示')}</button>
-        </>}
-        {state.status === 'ready' && draft && (isMarkdown(path)
-          ? <Markdown text={draft.base} project={{ dir: parentOf(path), imageUrl: (p) => projectImageUrl(teamId, p) }} />
-          : <CodeFile path={path} text={draft.base} />)}
-      </div>
+      <FileBody teamId={teamId} path={path} state={state} text={draft?.base}
+        onImageError={() => setState({ status: 'error', message: tr('{name} 讀不到，請到專案資料夾打開', { name }) })} />
     </>
+  )
+}
+
+/**
+ * What a file sheet shows under its heading. A file that cannot be shown gets one quiet line, not a sheet of paper:
+ * the path and the Finder button are already in the heading.
+ */
+export function FileBody({ teamId, path, state, text, onImageError }: {
+  teamId: string; path: string; state: FileState; text?: string; onImageError?: () => void
+}) {
+  if (state.status === 'unsupported') return <p className="fx-empty">{tr('無法預覽這個檔案')}</p>
+  return (
+    <div className="fx-doc-note">
+      {state.status === 'loading' && <p className="fx-d-text">{tr('讀取中…')}</p>}
+      {state.status === 'error' && <p className="fx-d-text" role="alert">{state.message}</p>}
+      {state.status === 'image' && <img className="fx-d-image" src={projectImageUrl(teamId, path)} alt={path} onError={onImageError} />}
+      {state.status === 'ready' && text !== undefined && (isMarkdown(path)
+        ? <Markdown text={text} project={{ dir: parentOf(path), imageUrl: (p) => projectImageUrl(teamId, p) }} />
+        : isSvg(path)
+          ? <img className="fx-d-image" src={svgUrl(text)} alt={path} />
+          : <CodeFile path={path} text={text} />)}
+    </div>
   )
 }
 

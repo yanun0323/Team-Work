@@ -328,6 +328,11 @@ export const sourceItems = (w: World, id: string, signal?: AbortSignal) => (MOCK
   ? Promise.resolve(w.sources[id] ? sim.itemsOf(w.sources[id]) : [])
   : request<SourceItem[]>('GET', `/sources/${id}/items`, undefined, signal))
 
+/** One of a source's skills, by its path among the source's items, at the version in use. */
+export const readSourceSkill = (w: World, id: string, path: string, signal?: AbortSignal) => (MOCK
+  ? Promise.resolve().then(() => sim.sourceSkill(w, id, path))
+  : request<SkillText>('GET', `/sources/${id}/skill?path=${encodeURIComponent(path)}`, undefined, signal))
+
 /** The employee and task blueprint files of a source that could not be read, and why. */
 export const sourceProblems = (id: string, signal?: AbortSignal) => (MOCK
   ? Promise.resolve<string[]>([])

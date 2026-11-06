@@ -420,6 +420,8 @@ export interface ChatHandoff {
   before: number
   replicaId: string
   name: string
+  /** The chat it was copied from there; handoffs kept before this was recorded have none. Handed to the same employee, `replicaId` is also whoever comes next. */
+  chatId?: string
 }
 
 /** Waits for the reply being written to end; a steered one goes as soon as a tool call ends instead. */
@@ -505,6 +507,8 @@ export interface SubTask {
   /** A 使用者討論 step's conversation, once the employee has opened it. */
   talk?: Talk
   handoff?: Handoff
+  /** The work tree's commit when this sub-task first ran: what its handed files are compared against. */
+  baseCommit?: string
   log: LogLine[]
   script: Script
 }

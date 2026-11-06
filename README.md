@@ -44,7 +44,7 @@ Load and update what others share on GitHub:
 - **Chats**: talk with an employee in the project folder. Type `$` to pick a skill and `#` to mention a file. Pick several employees, or `@` mention them, to hold a meeting.
 - **Model providers**: Anthropic, OpenAI, Google Gemini and any OpenAI-compatible API. You can also sign in with a Claude or ChatGPT subscription.
 - **Skills**: blueprints load skills from local folders or GitHub repos.
-- **Terminal**: each company has a zsh terminal in its project folder.
+- **Terminal**: each company has a zsh terminal in its project folder, and the airport has one in your home folder.
 - **Files**: browse a company's project folder, edit text files and preview images.
 - **Languages**: Traditional Chinese, Simplified Chinese, English, Japanese and Korean.
 

@@ -5,7 +5,7 @@ import { useStore } from './core/store'
 import { describe, expect, it } from 'vitest'
 import { attachable, splitAttachments } from './attachments'
 import { seedWorld } from './core/data/seed'
-import { airportSkills, canHandOff, chatSkill, chatTaskDraft, createAirportChat, createChat, deleteTeam, handOffChat, readChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, steerChat, stopChat, tick, unqueueChat } from './core/domain/sim'
+import { airportSkills, canHandOff, chatSkill, chatTaskDraft, createAirportChat, createChat, deleteTeam, handOffChat, readChat, renameChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, steerChat, stopChat, tick, unqueueChat } from './core/domain/sim'
 import { chatMindOf, chatSign, chatWho } from './crew'
 import { prereqsOf } from './prereqs'
 import { teamAlerts, teamReplicas, waitingTab } from './core/model'
@@ -139,6 +139,21 @@ describe('chats', () => {
     for (let i = 0; i < 60; i++) tick(w, 0.1)
     const fork = handOffChat(w, chat.id, 1, chat.replicaId)!
     expect(fork.id).not.toBe(chat.id)
+    // a copy for the same employee still marks the chat it came from
+    expect(fork.handoffs).toEqual([{ before: 2, replicaId: chat.replicaId, name: chat.name, chatId: chat.id }])
+    // named after the first message, marked once as handed off, and not pinned with the original
+    // a name is one line, so the message's line breaks become spaces
+    expect(fork.title).toBe(`交接：${chat.messages[0].text.split(/\s+/).join(' ')}`)
+    chat.pinnedAt = 1
+    renameChat(w, chat.id, '寫登入頁')
+    const named = handOffChat(w, chat.id, 1, chat.replicaId)!
+    expect([named.title, named.pinnedAt]).toEqual(['交接：寫登入頁', undefined])
+    expect(handOffChat(w, named.id, 1, chat.replicaId)!.title).toBe('交接：寫登入頁')
+    renameChat(w, chat.id, '長'.repeat(80))
+    const cut = handOffChat(w, chat.id, 1, chat.replicaId)!.title!
+    expect([[...cut].length, cut.startsWith('交接：長'), cut.endsWith('…')]).toEqual([80, true, true])
+    delete chat.pinnedAt
+    renameChat(w, chat.id, '')
     expect(fork.messages.map((m) => m.from)).toEqual(['user', 'agent'])
     expect(fork.replyAt).toBeUndefined()
     expect(chat.messages).toHaveLength(4)
@@ -169,7 +184,7 @@ describe('chats', () => {
     expect(handOffChat(w, chat.id, 2, 'nobody')).toBeUndefined()
     // from the user's message: the other one answers it
     const got = handOffChat(w, chat.id, 2, other.id)!
-    expect(got).toMatchObject({ replicaId: other.id, name: other.name, model: other.model, handoffs: [{ before: 2, replicaId: r.id, name: r.name }] })
+    expect(got).toMatchObject({ replicaId: other.id, name: other.name, model: other.model, handoffs: [{ before: 2, replicaId: r.id, name: r.name, chatId: chat.id }] })
     expect(got.effort).toBeUndefined()
     expect(chat.handoffs).toBeUndefined()
     // and handed back after Bea's reply, the line goes after it

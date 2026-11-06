@@ -68,6 +68,10 @@ describe('where a chat sits on the list', () => {
     expect(chatSortAt(chat({ replyAt: 2 }))).toBe(1)
   })
 
+  it('puts a copy made later above, though its messages are older', () => {
+    expect(chatSortAt(chat({ messages: [{ at: 5, from: 'user', text: 'hi' }], createdAt: 20 }))).toBe(20)
+  })
+
   it('puts the pinned on top, the latest pinned first, whatever moved since', () => {
     const fresh = chat({ id: 'fresh', createdAt: 50 })
     const old = chat({ id: 'old', createdAt: 1, pinnedAt: 10 })

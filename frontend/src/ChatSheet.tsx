@@ -16,7 +16,7 @@ import { ALL, answerMentions, mentionedPeople, withAll } from './mentions'
 import { Gone, Heading, DeleteTool, PinTool, type Head } from './DrawerDetail'
 import { composing } from './ime'
 import { fmtClock, fmtTokens, teamReplicas, useAtBottom, useStickToBottom } from './core/model'
-import type { Attachment, Chat, Look, Made, QueuedMessage } from './core/domain/types'
+import type { Attachment, Chat, ChatHandoff, Look, Made, QueuedMessage } from './core/domain/types'
 import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, openFolder, readChat, renameChat, resolveChatChange, retryChat, rewindChat, sayInChat, setChatChair, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
 import { AIRPORT_STAFF_LOOK, canHandOff, MAX_CHAT_PEOPLE, roundActor } from './core/domain/sim'
 import { HandOffIcon, HandOffMenu } from './HandOffMenu'
@@ -157,9 +157,20 @@ function ChatTitle({ chat }: { chat: Chat }) {
   )
 }
 
+/** A line where a chat was handed to the next: from the chat it was copied from, which it opens unless deleted; one kept before that was recorded says who had it. */
+export function HandoffLine({ handoff: h, to, gone, open, onOpen }: { handoff: ChatHandoff; to: string; gone: boolean; open: boolean; onOpen: (id: string) => void }) {
+  if (!h.chatId) return <li className="fx-room-handoff">{tr('{from} 交給 {to}', { from: h.name, to })}</li>
+  const text = tr('從 {chat} 交給 {to}', { chat: h.chatId, to })
+  return (
+    <li className="fx-room-handoff">
+      {gone ? text : <button type="button" className="fx-hit" aria-expanded={open} onClick={() => onOpen(h.chatId!)}>{text}</button>}
+    </li>
+  )
+}
+
 export interface ChatTaskSeed { title: string; description: string; ownerId: string | null; chatId: string }
 
-export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFile, onSkill, image, onImage, onTask, onHandOff, task: taskOpen, onOpenTask, made: madeOpen, onOpenMade, onProvider, onGoneChat, ...h }: Head & {
+export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFile, onSkill, image, onImage, onTask, onHandOff, chat: chatOpen, onOpenChat, task: taskOpen, onOpenTask, made: madeOpen, onOpenMade, onProvider, onGoneChat, ...h }: Head & {
   /** The chat to open; none starts a new one. */
   id?: string
   teamId: string
@@ -175,8 +186,11 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   image: string | null
   onImage: (key: string, image: Attachment, chat?: string) => void
   onTask: (seed: ChatTaskSeed) => void
-  /** Opens the copy just made of this chat. */
+  /** Opens the copy just made of this chat in its place, so the list marks the chat on screen. */
   onHandOff: (id: string) => void
+  /** The chat this one was handed off from that is open on the sheet above, and how to open one. */
+  chat: string | null
+  onOpenChat: (id: string) => void
   /** The task made in this chat that is open on the sheet above, and how to open one. */
   task: string | null
   onOpenTask: (id: string) => void
@@ -399,10 +413,12 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     }
     return <button type="button" className="fx-chat-act fx-hit" onClick={() => act((x) => retryChat(x, chat.id))}>{tr('重新回覆')}</button>
   }
-  // a line where one employee handed the chat to the next
-  const handoffLines = (i: number) => (chat?.handoffs ?? []).flatMap((h, k, all) => (h.before === i || (i === chat?.messages.length && h.before > i))
-    ? [<li key={`handoff-${k}`} className="fx-room-handoff">{tr('{from} 交給 {to}', { from: h.name, to: all[k + 1]?.name ?? chat?.name ?? '' })}</li>]
-    : [])
+  // a line where the chat was handed to the next
+  const handoffLines = (i: number) => (chat?.handoffs ?? []).flatMap((h, k, all) => {
+    if (h.before !== i && !(i === chat?.messages.length && h.before > i)) return []
+    return [<HandoffLine key={`handoff-${k}`} handoff={h} to={all[k + 1]?.name ?? chat?.name ?? ''} gone={!!h.chatId && !w.chats[h.chatId]}
+      open={!!h.chatId && chatOpen === h.chatId} onOpen={onOpenChat} />]
+  })
   // a line where an employee joined the chat
   const joinLines = (i: number) => (chat?.joins ?? []).flatMap((j, k) => (j.before === i || (i === chat?.messages.length && j.before > i))
     ? [<li key={`join-${k}`} className="fx-room-handoff">{tr('{name} 加入對話', { name: j.name })}</li>]

@@ -12,7 +12,7 @@ it('shows how many tokens a provider\'s models can read: its own, the one set, o
     Object.assign(useStore.getInitialState(), useStore.getState())
     const noop = () => {}
     return renderToStaticMarkup(<Detail item={{ kind: 'provider', id: p.id }} teamId="" depth={0} covered={false} leaving={false}
-      onGone={noop} onBack={noop} onDone={noop} onClear={noop} onPush={noop} />)
+      onGone={noop} onBack={noop} onDone={noop} onClear={noop} onPush={noop} onOpen={noop} />)
   }
   const base = { name: 'P', baseUrl: '', auth: { kind: 'apiKey' as const, keyHint: 'x' }, models: [] }
   try {

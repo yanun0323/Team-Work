@@ -57,7 +57,7 @@ it('lists the user\'s own first, then each source under its name, then the built
 
 it('shows what a source brings on its sheet', () => {
   const { src } = withSourced()
-  const html = renderToStaticMarkup(<SourceDetail id={src} onGoneSource={() => {}} {...h} />)
+  const html = renderToStaticMarkup(<SourceDetail id={src} open={null} onSkill={() => {}} onGoneSource={() => {}} {...h} />)
   expect(html).toContain('<h3>員工藍圖</h3>')
   expect(html).toContain('<b>Reviewer</b>')
   expect(html).toContain('<h3>任務藍圖</h3>')

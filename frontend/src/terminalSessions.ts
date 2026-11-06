@@ -1,4 +1,4 @@
-// The shells of the company terminals. A session belongs here rather than to the screen, so that with 保留終端機
+// The shells of the company terminals, and the airport's (teamId ''). A session belongs here rather than to the screen, so that with 保留終端機
 // on it runs while nothing shows it, and goes on where it was when its company opens again. Closing the app
 // closes the connections, which ends the shells.
 
@@ -25,6 +25,9 @@ interface Session {
 
 const sessions = new Map<string, Session>()
 
+/** Where a company's shell is asked for; the airport's (teamId '') starts at home and has its own. */
+export const terminalPath = (teamId: string) => (teamId ? `/api/v1/teams/${teamId}/terminal` : '/api/v1/airport/terminal')
+
 function start(teamId: string, host: HTMLElement): Session {
   const el = document.createElement('div')
   el.className = 'fx-terminal-xterm'
@@ -41,8 +44,8 @@ function start(teamId: string, host: HTMLElement): Session {
   term.open(el)
   fit.fit()
   const socket: ShellSocket = MOCK
-    ? mockShell()
-    : new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/teams/${teamId}/terminal?cols=${term.cols}&rows=${term.rows}`)
+    ? mockShell(!teamId)
+    : new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${terminalPath(teamId)}?cols=${term.cols}&rows=${term.rows}`)
   socket.binaryType = 'arraybuffer'
   const s: Session = { term, socket, el, fit, shown: true, ended: false, onEnded: () => {}, onLeave: () => {} }
   socket.onmessage = (m) => term.write(new Uint8Array(m.data as ArrayBuffer))
@@ -96,7 +99,8 @@ function watch() {
   watching = true
   useStore.subscribe((state, before) => {
     if (state.world.teams === before.world.teams) return
-    for (const id of [...sessions.keys()]) if (!state.world.teams[id]) close(id)
+    // the airport's ('') is no company and stays
+    for (const id of [...sessions.keys()]) if (id && !state.world.teams[id]) close(id)
   })
   usePrefs.subscribe((prefs) => {
     if (prefs.keepTerminals) return

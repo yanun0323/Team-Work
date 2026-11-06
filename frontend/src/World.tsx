@@ -16,7 +16,7 @@ import { Airport } from './Airport'
 import { Ambient, shadowHalf } from './Ambient'
 import { Building, BuildingPreview, CUT, FLOOR, ROOF_TOP } from './Building'
 import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, seaCoverZoom, shotAt, type FocusBox, type Shot } from './camera'
-import { Drawer } from './Drawer'
+import { Drawer, putAwaySheets } from './Drawer'
 import { Settings } from './Settings'
 import { Help } from './Help'
 import { Fade, FADE_SECONDS } from './Fade'
@@ -395,9 +395,10 @@ export function World() {
   // while one company is open, a click anywhere else on the map closes it
   // while one is open, a click on any building, its own office included, closes it as the land and sea do
   // and while the settings are open, the click only puts them away
-  const select = useCallback((id: string) => (helpOpen || settingsOpen || placing ? close() : editing ? pickMoving(id) : setSelected((cur) => (cur ? null : id))),
+  const select = useCallback((id: string) => (helpOpen || settingsOpen || placing ? close() : editing ? pickMoving(id)
+    : selected && putAwaySheets() ? undefined : setSelected((cur) => (cur ? null : id))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [settingsOpen, placing, editing, helpOpen, close])
+    [settingsOpen, placing, editing, helpOpen, close, selected])
 
   // the tutorial counts opening the help; the company used last is where its steps go
   useEffect(() => { if (helpOpen) learn('help') }, [helpOpen])
@@ -423,7 +424,7 @@ export function World() {
     }
   }
 
-  // clicks on empty land or sea close the drawer; a drag that pans the map doesn't
+  // clicks on empty land or sea put away the company's detail sheets, or the drawer once none are open; a drag that pans the map doesn't
   const down = useRef<[number, number]>([0, 0])
   const span = town.span
   return (
@@ -435,7 +436,8 @@ export function World() {
       gl={{ antialias: false, depth: false, stencil: false }}
       camera={{ position: ISO_DIR.clone().multiplyScalar(CAMERA_DISTANCE).toArray(), zoom: 20, near: 1, far: 600 }}
       onPointerMissed={(e) => {
-        if (e.type === 'click' && Math.hypot(e.clientX - down.current[0], e.clientY - down.current[1]) <= CLICK_SLOP) close()
+        if (e.type !== 'click' || Math.hypot(e.clientX - down.current[0], e.clientY - down.current[1]) > CLICK_SLOP) return
+        if (!(selected && !helpOpen && putAwaySheets())) close()
       }}
       onCreated={({ gl, raycaster }) => {
         gl.toneMapping = THREE.NoToneMapping

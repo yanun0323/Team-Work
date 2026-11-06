@@ -27,7 +27,7 @@ import { changeAsk, ChangeLines } from './ChangeCard'
 import { FlowNotes, openCard } from './FlowNotes'
 import { copyDraft, customFlow, draftFlow, draftStaff, editCustom, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
 import { blueprintLabel, chatPreview, CONTEXT_UNKNOWN, providerWindow, DEFAULT_EFFORT, effortsOf, isCustom, mindOf, modelGroups, modelsOf, randomLook } from './crew'
-import { docOf, outputFile, type Doc } from './doc'
+import { docDiffOf, docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
 import { githubAddress, parseGithub, shortRepo, wholeRef } from './github'
 import { blueprintToYaml } from './blueprintYaml'
@@ -44,8 +44,10 @@ import { AIRPORT_BLUEPRINT, fixedSteps, isLocked } from './core/data/presets'
 import { sourceOfId } from './core/domain/sources'
 import type { SkillText, TalkEnd } from './core/domain/types'
 import { addProvider, fixedContext, providerUsers, updateProvider, type ProviderLogin, DEFAULT_MODEL, RESOLVE_TIME, costLimit, taskTokens } from './core/domain/sim'
-import { handedImageUrl, readHandedFile, request } from './core/backend'
-import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fire, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
+import { handedImageUrl, readHandedDiff, readHandedFile, request } from './core/backend'
+import { DiffNote, useDocView, useRoomForSplit, ViewSwitch } from './HandedDiff'
+import { tally, type DiffLine } from './diffView'
+import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fire, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { NotesSheet } from './Notes'
 import { FileDetail, FileEdit } from './FileSheets'
@@ -91,23 +93,25 @@ export type Item =
   /** The company's notes, from the note pinned to its file. */
   | { kind: 'notes' }
   | { kind: 'source'; id: string }
+  /** One of a source's skills, by its path among the source's items. */
+  | { kind: 'sourceSkill'; source: string; path: string }
   | { kind: 'newSource' }
 
 export const itemKey = (x: Item) =>
-  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' || x.kind === 'newSource' ? x.kind : x.kind === 'staff' || x.kind === 'flowStep' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' || x.kind === 'fileEdit' ? `${x.kind}:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
+  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' || x.kind === 'newSource' ? x.kind : x.kind === 'staff' || x.kind === 'flowStep' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' || x.kind === 'fileEdit' ? `${x.kind}:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'sourceSkill' ? `sourceSkill:${x.source}:${x.path}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 const HANDOFF = { pickOne: '交給其中一個下一步', all: '交給所有下一步' } as const
 const JOIN = { any: '任一個前一步完成就開始', all: '所有前一步都完成才開始' } as const
 /** What a step in the middle of a flow can be. */
-const KINDS = { work: '交給員工執行工作', talk: '和員工討論' } as const
+const KINDS = { work: '員工執行', talk: '開會討論' } as const
 /** The last lines of a log worth showing on a sheet this size. */
 const LOG_LINES = 40
 
 /** How far across each sheet in the stack sits, from the left (0) to right beside the company file (1). */
 const SHEET_ACROSS = [0, 1, 1 / 3, 2 / 3]
 
-export function Detail({ item, teamId, depth, covered, above, leaving, onGone, onBack, onDone, onClear, onPush }: {
+export function Detail({ item, teamId, depth, covered, above, leaving, onGone, onBack, onDone, onClear, onPush, onOpen }: {
   item: Item
   /** The open company; empty when opened from the settings, which belong to no company. */
   teamId: string
@@ -127,6 +131,8 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
   onClear: () => void
   /** Tape another sheet on top. */
   onPush: (x: Item) => void
+  /** Put every sheet away and open this one alone, as from the list. */
+  onOpen: (x: Item) => void
 }) {
   const title = useRef<HTMLHeadingElement>(null)
   const sheet = useRef<HTMLElement>(null)
@@ -168,7 +174,14 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
                 onEdit={() => onPush({ kind: 'fileEdit', path: item.path })} />
             : <ProjectFileDetail teamId={teamId} path={item.path} title={title} tid={id} />)}
           {item.kind === 'fileEdit' && <FileEdit teamId={teamId} path={item.path} title={title} tid={id} onDone={onDone} />}
-          {item.kind === 'skill' && <SkillDetail chat={item.chat} name={item.name} title={title} tid={id} />}
+          {item.kind === 'skill' && (
+            <SkillDetail name={`$${item.name}`} at={`${item.chat}:${item.name}`} title={title} tid={id}
+              read={(signal) => readChatSkill(useStore.getState().world, item.chat, item.name, signal)} />
+          )}
+          {item.kind === 'sourceSkill' && (
+            <SkillDetail name={item.path.split('/').pop() ?? item.path} at={`${item.source}:${item.path}`} title={title} tid={id}
+              read={(signal) => readSourceSkill(useStore.getState().world, item.source, item.path, signal)} />
+          )}
           {item.kind === 'taskEdit' && (
             <TaskEdit id={item.id} teamId={teamId} title={title} tid={id} open={above?.kind === 'staff' ? above.node : null}
               onOpen={(node) => onPush({ kind: 'staff', node })} onDone={onDone} />
@@ -201,7 +214,10 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
             <BlueprintEdit id={item.kind === 'blueprintEdit' ? item.id : null} copyOf={item.kind === 'newBlueprint' ? item.copyOf : undefined}
               title={title} tid={id} onDone={onDone} />
           )}
-          {item.kind === 'source' && <SourceDetail id={item.id} title={title} tid={id} onGoneSource={onDone} />}
+          {item.kind === 'source' && (
+            <SourceDetail id={item.id} title={title} tid={id} open={above?.kind === 'sourceSkill' ? above.path : null}
+              onSkill={(path) => onPush({ kind: 'sourceSkill', source: item.id, path })} onGoneSource={onDone} />
+          )}
           {item.kind === 'newSource' && <NewSource title={title} tid={id} onDone={onDone} />}
           {(item.kind === 'crewEdit' || item.kind === 'newCrew') && (
             <CrewEdit id={item.kind === 'crewEdit' ? item.id : null} teamId={teamId} title={title} tid={id} onDone={onDone} />
@@ -217,7 +233,8 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               crewOpen={above?.kind === 'crew'} onCrew={(x) => onPush({ kind: 'crew', id: x })}
               onFile={(path) => onPush({ kind: 'file', path })} onSkill={(chat, name) => onPush({ kind: 'skill', chat, name })}
               image={above?.kind === 'image' ? above.key : null} onImage={(key, image, chat) => onPush({ kind: 'image', key, image, chat })}
-              onTask={(seed) => onPush({ kind: 'newTask', seed })} onHandOff={(x) => onPush({ kind: 'chat', id: x })}
+              onTask={(seed) => onPush({ kind: 'newTask', seed })} onHandOff={(x) => onOpen({ kind: 'chat', id: x })}
+              chat={above?.kind === 'chat' ? above.id : null} onOpenChat={(x) => onPush({ kind: 'chat', id: x })}
               task={above?.kind === 'task' ? above.id : null} onOpenTask={(x) => onPush({ kind: 'task', id: x })}
               made={above?.kind === 'blueprint' || above?.kind === 'provider' ? above : above?.kind === 'flow' ? { kind: 'workflow', id: above.id } : null}
               onOpenMade={(x) => onPush({ kind: x.kind === 'workflow' ? 'flow' : x.kind, id: x.id })}
@@ -2157,30 +2174,61 @@ function FileIcon() {
   )
 }
 
-/** A file an employee handed on, as it reads. */
+/**
+ * A file an employee handed on, as it reads, or compared with how it was when the step began, when it was there
+ * then.
+ */
 function DocDetail({ sub: subId, path, ...h }: Head & { sub: string; path: string }) {
   const w = useStore((s) => s.world)
+  const [view, setView] = useDocView()
+  const note = useRef<HTMLDivElement>(null)
+  const room = useRoomForSplit(note)
+  const fetched = useHandedDiff(subId, path)
   const sub = w.subTasks[subId]
   const task = sub && w.tasks[sub.taskId]
   if (!sub || !task) return <Gone {...h} />
   const step = stepName(task.workflow, sub.nodeId)
   const r = sub.replicaId ? w.replicas[sub.replicaId] : undefined
+  const doc = MOCK ? docOf(task, step, sub, path) : undefined
+  const lines = doc ? docDiffOf(doc) : fetched
+  const compare = lines?.length ? lines : null
+  const shown = !compare ? 'read' : view === 'split' && !room ? 'stacked' : view
+  const change = compare && tally(compare)
   return (
     <>
+      {compare && <ViewSwitch view={shown} onView={setView} split={room} />}
       <header className="fx-d-head">
         <Heading {...h}>{path.split('/').pop()}</Heading>
         <p className="fx-d-meta">
           <code>{path}</code>
           <span>{step}{r ? ` · ${r.name}` : ''}</span>
           {sub.handoff && <code>{sub.handoff.commit}</code>}
+          {change && <span className="fx-diff-tally"><ins>+{change.added}</ins> <del>−{change.removed}</del></span>}
         </p>
       </header>
       {/* the file itself, on a white sticky note */}
-      <div className="fx-doc-note">
-        {MOCK ? <MockDoc doc={docOf(task, step, sub, path)} /> : <RealDoc sub={subId} path={path} />}
+      <div ref={note} className="fx-doc-note">
+        {compare && shown !== 'read' ? <DiffNote lines={compare} split={shown === 'split'} />
+          : doc ? <MockDoc doc={doc} /> : <RealDoc sub={subId} path={path} />}
       </div>
     </>
   )
+}
+
+/**
+ * A handed file compared with how it was when its step began; null while it is read, and when it cannot be compared
+ * (new, a picture, or unreadable), as reading it then is all there is.
+ */
+function useHandedDiff(sub: string, path: string) {
+  const [lines, setLines] = useState<DiffLine[] | null>(null)
+  useEffect(() => {
+    setLines(null)
+    if (MOCK || /\.(png|jpe?g|gif|webp)$/i.test(path)) return
+    const stop = new AbortController()
+    readHandedDiff(sub, path, stop.signal).then(setLines, () => { /* reading the file says what is wrong */ })
+    return () => stop.abort()
+  }, [sub, path])
+  return lines
 }
 
 function MockDoc({ doc }: { doc: Doc }) {
@@ -2254,23 +2302,26 @@ function ProjectFileDetail({ teamId, path, ...h }: Head & { teamId: string; path
   )
 }
 
-/** A skill a message names: what it is for, where it is, and its instructions. */
-function SkillDetail({ chat, name, ...h }: Head & { chat: string; name: string }) {
+/**
+ * A skill, as a message names it or a source has it: what it is for, where it is, and its instructions. It is read
+ * again whenever at, what it is read by, changes.
+ */
+function SkillDetail({ name, at, read, ...h }: Head & { name: string; at: string; read: (signal: AbortSignal) => Promise<SkillText> }) {
   const [skill, setSkill] = useState<{ found?: SkillText; error?: string }>({})
   useEffect(() => {
     const stop = new AbortController()
     setSkill({})
-    readChatSkill(useStore.getState().world, chat, name, stop.signal).then(
+    read(stop.signal).then(
       (found) => setSkill({ found }),
       (e: Error) => { if (e.name !== 'AbortError') setSkill({ error: e.message }) },
     )
     return () => stop.abort()
-  }, [chat, name])
+  }, [at]) // eslint-disable-line react-hooks/exhaustive-deps
   const found = skill.found
   return (
     <>
       <header className="fx-d-head">
-        <Heading {...h}>{`$${name}`}</Heading>
+        <Heading {...h}>{name}</Heading>
         {found && <p className="fx-d-meta"><code>{found.path}</code></p>}
         {found?.description && <p className="fx-d-text">{found.description}</p>}
       </header>

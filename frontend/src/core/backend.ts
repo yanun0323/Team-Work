@@ -4,6 +4,7 @@
 import type { Locale, World } from './domain/types'
 import { tr } from './i18n'
 import { DEFAULT_PREFS, type Prefs } from '../prefs'
+import type { DiffLine } from '../diffView'
 
 export const unreachable = () => tr(import.meta.env.MODE === 'desktop'
   ? '連不上後端，請關閉並重新開啟 Team Work'
@@ -50,6 +51,10 @@ export function applyPatches(w: World, ev: { upserts?: Patch[]; deletes?: Patch[
 /** A file a sub-task handed on, as it was at that sub-task's commit. */
 export const readHandedFile = (subId: string, path: string, signal: AbortSignal) =>
   request<{ text: string }>('GET', `/subtasks/${subId}/file?path=${encodeURIComponent(path)}`, undefined, signal).then((r) => r.text)
+
+/** A handed file against how it was when its sub-task began; null when there is nothing to compare it with. */
+export const readHandedDiff = (subId: string, path: string, signal: AbortSignal) =>
+  request<{ lines: DiffLine[] | null }>('GET', `/subtasks/${subId}/diff?path=${encodeURIComponent(path)}`, undefined, signal).then((r) => r.lines)
 
 /** Where an `<img>` loads a picture a sub-task handed over, as committed. */
 export const handedImageUrl = (subId: string, path: string) => `/api/v1/subtasks/${subId}/image?path=${encodeURIComponent(path)}`

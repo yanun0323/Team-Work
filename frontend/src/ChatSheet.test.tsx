@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { AskBox, ChatFoot, ChatId, CompactLine, ContextUse } from './ChatSheet'
+import { AskBox, ChatFoot, ChatId, CompactLine, ContextUse, HandoffLine } from './ChatSheet'
 import { useStore } from './core/store'
 import type { Chat } from './core/domain/types'
 
@@ -13,6 +13,15 @@ it('shows the chat id as a button that copies it', () => {
 
 it('draws where the earlier conversation was summed up as a divider, not a tool line', () => {
   expect(renderToStaticMarkup(<CompactLine />)).toBe('<li class="fx-room-handoff">已整理較早的對話</li>')
+})
+
+it('draws a handoff as a divider that opens the chat it came from, unless that is gone', () => {
+  const h = { before: 2, replicaId: 'r', name: 'Ada', chatId: 'chat-7' }
+  const line = (gone: boolean) => renderToStaticMarkup(<HandoffLine handoff={h} to="Bea" gone={gone} open={false} onOpen={() => {}} />)
+  expect(line(false)).toBe('<li class="fx-room-handoff"><button type="button" class="fx-hit" aria-expanded="false">從 chat-7 交給 Bea</button></li>')
+  expect(line(true)).toBe('<li class="fx-room-handoff">從 chat-7 交給 Bea</li>')
+  // one kept from before the chat it came from was recorded says who had it
+  expect(renderToStaticMarkup(<HandoffLine handoff={{ ...h, chatId: undefined }} to="Bea" gone={false} open={false} onOpen={() => {}} />)).toBe('<li class="fx-room-handoff">Ada 交給 Bea</li>')
 })
 
 it('shows under the box how much the next call sends, of what the model can read', () => {

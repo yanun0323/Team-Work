@@ -14,10 +14,13 @@ export interface ShellSocket {
   close(): void
 }
 
-/** The shell's answer to a command line, or null for one it does not know. */
-export function answer(line: string): string | null {
+/** The shell's answer to a command line, or null for one it does not know; `home` is the airport's, at ~. */
+export function answer(line: string, home = false): string | null {
   const cmd = line.trim().replace(/\s+/g, ' ')
   if (cmd === '') return ''
+  if (home && cmd === 'pwd') return '~'
+  if (home && cmd === 'ls') return 'Desktop  Documents  Downloads  code'
+  if (home && cmd.startsWith('git ')) return 'fatal: not a git repository (or any of the parent directories): .git'
   if (cmd === 'pwd') return '~/code/acme-shop'
   if (cmd === 'ls') return projectTree('').entries.filter((e) => !e.name.startsWith('.')).map((e) => e.name).join('  ')
   if (cmd === 'git status') return 'On branch main\r\nYour branch is up to date with \'origin/main\'.\r\n\r\nnothing to commit, working tree clean'
@@ -27,9 +30,8 @@ export function answer(line: string): string | null {
   return null
 }
 
-const PROMPT = '\x1b[1mme@mac\x1b[0m acme-shop % '
-
-export function mockShell(): ShellSocket {
+export function mockShell(home = false): ShellSocket {
+  const PROMPT = `\x1b[1mme@mac\x1b[0m ${home ? '~' : 'acme-shop'} % `
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
   let line = ''
@@ -46,7 +48,7 @@ export function mockShell(): ShellSocket {
       let out = ''
       for (const c of decoder.decode(data)) {
         if (c === '\r') {
-          const said = answer(line)
+          const said = answer(line, home)
           out += '\r\n'
           if (said === null) out += `zsh: command not found: ${line.trim().split(' ')[0]}\r\n`
           else if (said) out += `${said}\r\n`

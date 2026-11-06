@@ -2,7 +2,7 @@
 // opens and turned away like a page when it closes. The head names the company, its folder and target
 // branch; the tabs below hold its tasks, flows, employees (grouped under their blueprints) and settings. Anything in them that
 // opens shows its detail on a sheet over the upper left of the map (DrawerDetail). There is no close
-// button: a click on the map puts everything away.
+// button: a click on the map puts the detail sheets away, or the company file once none are open.
 
 import { tr } from './core/i18n'
 import { openFolder } from './core/ops'
@@ -149,6 +149,8 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const sheets = useSheets()
   const { back } = sheets
+  const sheetsOpen = sheets.top >= 0 && !leaving
+  useEffect(() => (sheetsOpen ? holdSheets(() => back(-1)) : undefined), [sheetsOpen, back])
   const bytes = useProjectBytes((b) => b[teamId] ?? 0)
   // a new company: move focus to its name, and put away the last company's sheet
   useEffect(() => {
@@ -180,9 +182,8 @@ export function Drawer({ teamId, look, leaving, onGone }: {
     pick(TABS[j].id)
     tabs.current[j]?.focus()
   }
-  // the sheet belongs to the tab it was opened from; the notes belong to none
+  // the detail sheets stay open across tabs, until the company closes
   const pick = (next: Tab) => {
-    if (next !== tab && base?.item.kind !== 'notes') back(-1, false)
     if (next === 'terminal') setTerminalTeam(teamId)
     setTab(next)
   }
@@ -300,6 +301,24 @@ export function useSheets() {
   return { layers, top, open, push, back, gone }
 }
 
+// what a click on the map calls first while the open company has detail sheets
+let sheetsAway: (() => void) | null = null
+
+/** Lets a click on the map put away the open company's detail sheets; returns the release. */
+export function holdSheets(away: () => void) {
+  sheetsAway = away
+  return () => {
+    if (sheetsAway === away) sheetsAway = null
+  }
+}
+
+/** Puts away the open company's detail sheets; false when none are open. */
+export function putAwaySheets() {
+  if (!sheetsAway) return false
+  sheetsAway()
+  return true
+}
+
 /** Opens a task or chat as the only sheet; one already showing it stays, where opening it again would close it. */
 export function openOnce(sheets: Sheets, x: OpenTarget) {
   const item: Item = x.kind === 'task' ? { kind: 'task', id: x.id } : { kind: 'chat', id: x.id }
@@ -313,6 +332,6 @@ export function SheetStack({ sheets, teamId, leaving }: { sheets: Sheets; teamId
   return layers.map((l, i) => (
     <Detail key={`${i}:${itemKey(l.item)}`} item={l.item} teamId={teamId} depth={i}
       covered={i < top} above={i < top ? layers[i + 1]?.item : undefined} leaving={leaving || l.leaving}
-      onGone={() => sheets.gone(i)} onBack={() => back(i)} onDone={() => back(i - 1)} onClear={() => back(i - 2)} onPush={sheets.push} />
+      onGone={() => sheets.gone(i)} onBack={() => back(i)} onDone={() => back(i - 1)} onClear={() => back(i - 2)} onPush={sheets.push} onOpen={sheets.open} />
   ))
 }

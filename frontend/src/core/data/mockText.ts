@@ -109,6 +109,7 @@ const TEXT: Record<string, Record<Other, string>> = {
   '使用者沒有補充，照原計畫進行': { 'zh-Hans': '用户没有补充，照原计划进行', ja: 'ユーザーからの補足はなく、計画どおり進めます', ko: '사용자가 덧붙인 내용이 없어 원래 계획대로 진행합니다' },
   '結束討論：退回（{reason}）': { 'zh-Hans': '结束讨论：退回（{reason}）', ja: 'ディスカッションを終了：差し戻し（{reason}）', ko: '논의 종료: 되돌려 보냄({reason})' },
   '結束討論：繼續，交給 {to}': { 'zh-Hans': '结束讨论：继续，交给 {to}', ja: 'ディスカッションを終了：続行、{to} へ', ko: '논의 종료: 계속, {to}(으)로 넘김' },
+  '交接：{name}': { 'zh-Hans': '交接：{name}', ja: '引き継ぎ：{name}', ko: '인계: {name}' },
   '結束討論：繼續': { 'zh-Hans': '结束讨论：继续', ja: 'ディスカッションを終了：続行', ko: '논의 종료: 계속' },
   '使用者在討論後指定': { 'zh-Hans': '用户在讨论后指定', ja: 'ディスカッションのあとユーザーが指定', ko: '논의 후 사용자가 지정함' },
   'commit 衝突：先合進 {names} 的 commit，解完衝突再 commit': { 'zh-Hans': 'commit 冲突：先合进 {names} 的 commit，解完冲突再 commit', ja: 'commit の競合：先に {names} の commit を取り込み、競合を解決してから commit しました', ko: 'commit 충돌: {names}의 commit을 먼저 가져오고 충돌을 해결한 뒤 commit했습니다' },

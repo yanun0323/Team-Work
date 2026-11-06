@@ -545,6 +545,14 @@ export function chatSkill(w: World, chatId: string, name: string): SkillText {
   return { name, description: '', path: `skills/${name}/SKILL.md`, text: `# ${name}\n\n原型不讀檔案，這裡只是示意。` }
 }
 
+/** One of a source's skills, by its path among the source's items. */
+export function sourceSkill(w: World, sourceId: string, path: string): SkillText {
+  const s = w.sources[sourceId]
+  const it = s && itemsOf(s).find((x) => x.path === path)
+  if (!it) throw new Error(`找不到技能 ${path}`)
+  return { name: it.name, description: it.description, path: `${path}/SKILL.md`, text: `# ${it.name}\n\n原型不讀檔案，這裡只是示意。` }
+}
+
 export function searchFiles(query: string): FileInfo[] {
   const at = query.lastIndexOf('/')
   const folder = query.slice(0, at + 1)
@@ -621,6 +629,16 @@ export function canHandOff(messages: Chat['messages'], index: number, replying =
   return m?.from === 'agent' && messages.slice(index + 1).find((x) => x.from !== 'tool')?.from !== 'agent'
 }
 
+/** What a copy handed off from a chat is named: its name, or the first message it shows without one, after a mark in the sample world's language; a name already marked is not marked again, and it is cut to what the user may give. */
+function handOffTitle(w: World, chat: Chat) {
+  let base = chat.title || (chat.messages[0]?.text ?? '').split(/\s+/).filter(Boolean).join(' ') || chat.id
+  const prefix = say2(w, '交接：{name}', 'Handoff: {name}', { name: '' })
+  if (base.startsWith(prefix)) base = base.slice(prefix.length)
+  const room = 80 - [...prefix].length - 1
+  if ([...base].length > room) base = [...base].slice(0, room).join('') + '…'
+  return prefix + base
+}
+
 /** Copies a chat up to a message into a new chat, with the employee it had or another of the company who takes over. Nobody replies until the user says something in it. */
 export function handOffChat(w: World, id: string, index: number, replicaId: string): Chat | undefined {
   const chat = w.chats[id]
@@ -631,16 +649,17 @@ export function handOffChat(w: World, id: string, index: number, replicaId: stri
   if (chat.replyAt !== undefined && !chat.messages.slice(index).some((x) => x.from === 'user')) return undefined
   const next = m.from === 'user' ? -1 : chat.messages.findIndex((x, i) => i > index && x.from === 'user')
   const keep = m.from === 'user' ? index + 1 : next < 0 ? chat.messages.length : next
-  const fork: Chat = { ...chat, id: uid(w, 'chat'), messages: chat.messages.slice(0, keep).map((x) => ({ ...x })), handoffs: chat.handoffs?.map((h) => ({ ...h })), tokens: 0, createdAt: w.now }
+  const fork: Chat = { ...chat, id: uid(w, 'chat'), messages: chat.messages.slice(0, keep).map((x) => ({ ...x })), handoffs: chat.handoffs?.map((h) => ({ ...h })), title: handOffTitle(w, chat), tokens: 0, createdAt: w.now }
+  // it keeps the name marked as handed off, but not the pin
+  delete fork.pinnedAt
   // a meeting handed to anyone, its chair too, goes on with them alone
   delete fork.guests
+  // they take over from the user's message, or after the reply it ends with; handed to the same employee it is still marked, so the copy shows where it came from
+  fork.handoffs = [...fork.handoffs ?? [], { before: m.from === 'user' ? index : keep, replicaId: chat.replicaId, name: chat.name, chatId: chat.id }]
   if (taker && replicaId !== chat.replicaId) {
-    // they take over from the user's message, or after the reply it ends with
-    fork.handoffs = [...fork.handoffs ?? [], { before: m.from === 'user' ? index : keep, replicaId: chat.replicaId, name: chat.name }]
     Object.assign(fork, { replicaId, name: taker.name, look: taker.look, model: taker.model })
     delete fork.effort
   }
-  if (!fork.handoffs) delete fork.handoffs
   // who joined after where it is copied from did so in the original alone
   fork.joins = chat.joins?.filter((j) => j.before <= keep).map((j) => ({ ...j }))
   if (!fork.joins?.length) delete fork.joins

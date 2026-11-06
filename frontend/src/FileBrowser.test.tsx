@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
 import { Files, Level } from './FileBrowser'
 import { fileKind } from './FileIcons'
-import { FileDetail, FileEdit, loadFile, parentOf, saveDraft } from './FileSheets'
+import { FileBody, FileDetail, FileEdit, loadFile, parentOf, saveDraft } from './FileSheets'
 import { draftAt, draftOf, editDraftText, setDraft, useFileDrafts, type DirState } from './fileDrafts'
 
 // rendered to a string, a store is read at its initial state: these renders show the state set up for them
@@ -175,12 +175,26 @@ describe('the sheets', () => {
     expect(html).toContain('<code>docs/a.md</code>')
     expect(html).toContain('讀取中…')
     expect(html).not.toContain('aria-label="編輯"')
+    // the Finder button sits by the path, for every file
+    expect(html).toMatch(/<code>docs\/a\.md<\/code><button[^>]*aria-label="在 Finder 顯示"/)
+  })
+
+  it('say in one quiet line that a file cannot be shown, without a sheet or its path again', () => {
+    const html = render(<FileBody teamId="t" path="out/final.mp4" state={{ status: 'unsupported', message: 'out/final.mp4 太大' }} />)
+    expect(html).toBe('<p class="fx-empty">無法預覽這個檔案</p>')
   })
 
   it('show a picture without reading it as text', () => {
     const html = render(<FileDetail {...head} teamId="t" path="p/x.png" editing={false} onEdit={() => {}} />)
     expect(html).toContain('讀取中…')
     expect(html).not.toContain('fx-files-text')
+  })
+
+  it('draw an SVG as a picture from the text it was read as, not as its source', () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4"/></svg>'
+    const html = render(<FileBody teamId="t" path="art/fish.SVG" state={{ status: 'ready' }} text={svg} />)
+    expect(html).toContain(`<img class="fx-d-image" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg).replace(/&/g, '&amp;')}"`)
+    expect(html).not.toContain('&lt;rect')
   })
 
   it('edit a file in a text box once it is read', () => {

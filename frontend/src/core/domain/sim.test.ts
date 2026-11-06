@@ -512,7 +512,7 @@ describe('meetings', () => {
     expect(chat.replicaId).toBe(bea.id)
     expect(chat.guests?.map((g) => g.name)).toEqual(['Cy', ada.name])
     const chair = handOffChat(w, chat.id, 3, bea.id)!
-    expect([chair.replicaId, chair.guests, chair.handoffs]).toEqual([bea.id, undefined, undefined])
+    expect([chair.replicaId, chair.guests, chair.handoffs?.map((h) => [h.replicaId, h.chatId])]).toEqual([bea.id, undefined, [[bea.id, chat.id]]])
     const alone = handOffChat(w, chat.id, 3, ada.id)!
     expect([alone.replicaId, alone.guests]).toEqual([ada.id, undefined])
   })

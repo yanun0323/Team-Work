@@ -41,6 +41,12 @@ export function logText(l: LogLine): string {
 export const teamTasks = (w: World, teamId: string) =>
   Object.values(w.tasks).filter((x) => x.teamId === teamId).sort((a, b) => b.number - a.number)
 
+/** A board lane's tasks: 完成 shows the latest first, the lanes still in hand the oldest first. */
+export const laneTasks = (w: World, teamId: string, status: Status) => {
+  const list = teamTasks(w, teamId).filter((x) => x.stage !== 'cancelled' && statusOf(w, x) === status)
+  return status === 'complete' ? list : list.sort((a, b) => a.createdAt - b.createdAt || a.number - b.number)
+}
+
 export const teamReplicas = (w: World, teamId: string) =>
   Object.values(w.replicas).filter((r) => r.teamId === teamId).sort((a, b) => a.hiredAt - b.hiredAt || a.name.localeCompare(b.name))
 

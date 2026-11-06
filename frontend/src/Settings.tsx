@@ -5,7 +5,7 @@
 
 import { LANGUAGE_NAMES, LANGUAGES } from './LanguageMenu'
 import { tr } from './core/i18n'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useStore } from './core/store'
 import LICENSE from '../../LICENSE?raw'
 import { BlueprintIcon } from './BlueprintIcon'
@@ -35,6 +35,8 @@ import { SourcesTab } from './Sources'
 import { VERSION } from './update'
 import type { Daylight } from './daylight'
 import type { Locale } from './core/domain/types'
+
+const Terminal = lazy(() => import('./Terminal'))
 
 const LINKS = [
   { label: 'GitHub', href: 'https://github.com/yanun0323/Team-Work' },
@@ -79,11 +81,18 @@ export function Settings({ leaving, onGone }: {
     // the airport has no tasks, so only its chats can be waiting
     return autoTab !== 'off' && waitingTab(useStore.getState().world, '') === 'chats' ? 'chats' : airportTabOr(defaultAirportTab)
   })
+  // the shell at home starts the first time its tab shows, and then runs until the airport closes
+  const [terminalOpened, setTerminalOpened] = useState(tab === 'terminal')
+  const [terminalFocus, setTerminalFocus] = useState(0)
   const title = useRef<HTMLHeadingElement>(null)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const sheets = useSheets()
-  const { back } = sheets
-  useEffect(() => title.current?.focus({ preventScroll: true }), [])
+  useEffect(() => {
+    title.current?.focus({ preventScroll: true })
+    if (tab === 'terminal') setTerminalFocus((n) => n + 1)
+    // only on opening
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   // the airport has only chats to open
   useOpenedFromNotice('', leaving, (x) => {
     setTab('chats')
@@ -92,9 +101,9 @@ export function Settings({ leaving, onGone }: {
   const base = sheets.layers[0]
   const open = base && !base.leaving ? itemKey(base.item) : null
 
-  // the sheet belongs to the tab it was opened from
+  // the detail sheets stay open across tabs, until the airport closes
   const pick = (next: AirportTab) => {
-    if (next !== tab) back(-1, false)
+    if (next === 'terminal') setTerminalOpened(true)
     setTab(next)
   }
   // arrow keys move between tabs, as in any tab list
@@ -128,13 +137,17 @@ export function Settings({ leaving, onGone }: {
             {AIRPORT_TABS.map((x, i) => (
               <button key={x.id} ref={(el) => void (tabs.current[i] = el)} type="button" role="tab"
                 id={`fx-settings-tab-${x.id}`} aria-controls="fx-settings-panel" aria-selected={tab === x.id}
-                tabIndex={tab === x.id ? 0 : -1} onClick={() => pick(x.id)}>
+                tabIndex={tab === x.id ? 0 : -1} onClick={() => {
+                  pick(x.id)
+                  if (x.id === 'terminal') setTerminalFocus((n) => n + 1)
+                }}>
                 {tr(x.label)}
               </button>
             ))}
           </div>
         </header>
-        {/* keyed, so each tab turns in like a fresh page */}
+        {/* keyed, so each tab turns in like a fresh page; the terminal is kept apart, so it outlasts a change of tab */}
+        {tab !== 'terminal' && (
         <section key={tab} id="fx-settings-panel" className="fx-page" role="tabpanel" aria-labelledby={`fx-settings-tab-${tab}`}>
           {tab === 'chats' && <Chats teamId="" open={open} onOpen={sheets.open} />}
           {tab === 'providers' && <Providers open={open} onOpen={sheets.open} />}
@@ -145,6 +158,16 @@ export function Settings({ leaving, onGone }: {
           {tab === 'stats' && <Stats />}
           {tab === 'about' && <About />}
         </section>
+        )}
+        {terminalOpened && (
+          <section id={tab === 'terminal' ? 'fx-settings-panel' : undefined} className="fx-page fx-page-terminal" role="tabpanel"
+            aria-labelledby="fx-settings-tab-terminal" hidden={tab !== 'terminal'}>
+            <Suspense fallback={null}>
+              <Terminal teamId="" focusRequest={terminalFocus}
+                onLeave={() => tabs.current[AIRPORT_TABS.findIndex((x) => x.id === 'terminal')]?.focus()} />
+            </Suspense>
+          </section>
+        )}
       </div>
     </aside>
     <SheetStack sheets={sheets} teamId="" leaving={leaving} />

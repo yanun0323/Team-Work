@@ -68,10 +68,13 @@ function Section({ name, className, children }: { name: string; className?: stri
   return <section className={className ? `fx-d-sec ${className}` : 'fx-d-sec'}><h3>{name}</h3>{children}</section>
 }
 
-function ItemChips({ items, tone }: { items: SourceItem[]; tone?: 'out' }) {
+/** Skills by name; with onOpen, each opens its own sheet, the one open (by path) pressed. */
+export function ItemChips({ items, tone, open, onOpen }: { items: SourceItem[]; tone?: 'out'; open?: string | null; onOpen?: (path: string) => void }) {
   return (
     <p className="fx-d-chips">
-      {items.map((it) => <span key={it.path} className={tone === 'out' ? 'fx-chip-out' : undefined} title={it.description || undefined}>{it.name}</span>)}
+      {items.map((it) => (onOpen
+        ? <button key={it.path} type="button" aria-expanded={open === it.path} title={it.description || undefined} onClick={() => onOpen(it.path)}>{it.name}</button>
+        : <span key={it.path} className={tone === 'out' ? 'fx-chip-out' : undefined} title={it.description || undefined}>{it.name}</span>))}
     </p>
   )
 }
@@ -155,8 +158,14 @@ function RepoTool({ href }: { href: string }) {
   )
 }
 
-/** One source: its state, what a newer version would change and for whom, and its skills by folder. */
-export function SourceDetail({ id, onGoneSource, ...h }: Head & { id: string; onGoneSource: () => void }) {
+/** One source: its state, what a newer version would change and for whom, and its skills by folder, each opening its own sheet. */
+export function SourceDetail({ id, open, onSkill, onGoneSource, ...h }: Head & {
+  id: string
+  /** The path of the skill open on the sheet above, if any. */
+  open: string | null
+  onSkill: (path: string) => void
+  onGoneSource: () => void
+}) {
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const s = w.sources[id]
@@ -259,7 +268,7 @@ export function SourceDetail({ id, onGoneSource, ...h }: Head & { id: string; on
           [...byCategory(items)].map(([category, list]) => (
             <div key={category} className="fx-skill-group">
               <h4>{category || tr('最上層')}</h4>
-              <ItemChips items={list} />
+              <ItemChips items={list} open={open} onOpen={onSkill} />
             </div>
           ))
         )}

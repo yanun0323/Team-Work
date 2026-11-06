@@ -2,10 +2,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createRef } from 'react'
 import { expect, it } from 'vitest'
 import { useStore } from './core/store'
-import { NewSource, SourceDetail, SourceRow, SourceSign, SourcesTab, repoPage } from './Sources'
+import { ItemChips, NewSource, SourceDetail, SourceRow, SourceSign, SourcesTab, repoPage } from './Sources'
 import type { Source } from './core/domain/types'
 import { SkillPicker } from './SkillPicker'
 import { sourceName } from './source'
+import { itemsOf } from './core/domain/sources'
+import { sourceSkill } from './core/domain/sim'
 
 const h = { title: createRef<HTMLHeadingElement>(), tid: 't' }
 const sources = () => Object.values(useStore.getState().world.sources)
@@ -19,7 +21,7 @@ it('lists every source, the agents\' folders among them', () => {
 
 it('shows a repo source with its update switch off and a button to check it now, and cannot delete one in use', () => {
   const s = sources().find((x) => x.kind === 'git')!
-  const html = renderToStaticMarkup(<SourceDetail id={s.id} onGoneSource={() => {}} {...h} />)
+  const html = renderToStaticMarkup(<SourceDetail id={s.id} open={null} onSkill={() => {}} onGoneSource={() => {}} {...h} />)
   expect(html).toContain(sourceName(s))
   expect(html).toMatch(/<button type="button" class="fx-tool fx-hit fx-src-check" aria-busy="false" aria-label="檢查更新"/)
   expect(html).toContain('自動套用更新')
@@ -33,15 +35,15 @@ it('links a repo source to its page on GitHub, at its branch, and a folder sourc
   expect(repoPage(git('https://gitlab.com/a/b'))).toBeNull()
   expect(repoPage({ id: 'src-y', kind: 'local', path: '~/.claude/', upstream: false, autoApply: false })).toBeNull()
   const s = sources().find((x) => x.kind === 'git')!
-  const html = renderToStaticMarkup(<SourceDetail id={s.id} onGoneSource={() => {}} {...h} />)
+  const html = renderToStaticMarkup(<SourceDetail id={s.id} open={null} onSkill={() => {}} onGoneSource={() => {}} {...h} />)
   expect(html).toContain(`href="${repoPage(s)}" target="_blank" rel="noreferrer" aria-label="在 GitHub 開啟"`)
   const local = sources().find((x) => x.kind === 'local')!
-  expect(renderToStaticMarkup(<SourceDetail id={local.id} onGoneSource={() => {}} {...h} />)).not.toContain('在 GitHub 開啟')
+  expect(renderToStaticMarkup(<SourceDetail id={local.id} open={null} onSkill={() => {}} onGoneSource={() => {}} {...h} />)).not.toContain('在 GitHub 開啟')
 })
 
 it('has nothing to check on a folder source', () => {
   const s = sources().find((x) => x.kind === 'local')!
-  const html = renderToStaticMarkup(<SourceDetail id={s.id} onGoneSource={() => {}} {...h} />)
+  const html = renderToStaticMarkup(<SourceDetail id={s.id} open={null} onSkill={() => {}} onGoneSource={() => {}} {...h} />)
   expect(html).not.toContain('檢查更新')
 })
 
@@ -104,4 +106,15 @@ it('turns skills of one name taken from two sources red, asking nothing', () => 
   const html = renderToStaticMarkup(<SkillPicker packs={[{ sourceId: a.id, include: null, exclude: [] }, { sourceId: b.id, include: null, exclude: [] }]} onChange={() => {}} />)
   expect(html).not.toContain('alertdialog')
   // the skills are read after the first paint, so only the absence of a dialog shows here; the clash itself is tested in blueprintForm
+})
+
+it('opens each of a source\'s skills on the next sheet, the open one pressed', () => {
+  const w = useStore.getState().world
+  const s = sources().find((x) => itemsOf(x).length > 1)!
+  const [a, b] = itemsOf(s)
+  const html = renderToStaticMarkup(<ItemChips items={[a, b]} open={b.path} onOpen={() => {}} />)
+  expect(html).toContain(`<button type="button" aria-expanded="false"`)
+  expect(html).toMatch(new RegExp(`aria-expanded="true"[^>]*>${b.name}</button>`))
+  expect(sourceSkill(w, s.id, a.path).name).toBe(a.name)
+  expect(() => sourceSkill(w, s.id, 'nowhere')).toThrow()
 })

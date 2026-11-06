@@ -103,10 +103,10 @@ export function chatSign(c: Chat) {
   return c.replyAt !== undefined ? 'replying' : c.question || c.change ? 'question' : c.unread ? 'unread' : undefined
 }
 
-/** When a chat last moved up the list: a reply under way waits to finish, so only the user's own message counts. */
+/** When a chat last moved up the list: a reply under way waits to finish, so only the user's own message counts; a copy made of a chat starts on top, though its messages are older. */
 export function chatSortAt(c: Chat) {
   const counted = c.replyAt === undefined ? c.messages : c.messages.filter((m) => m.from === 'user')
-  return counted[counted.length - 1]?.at ?? c.createdAt
+  return Math.max(counted[counted.length - 1]?.at ?? c.createdAt, c.createdAt)
 }
 
 /** The chat list's order: the pinned first, the latest pinned on top, then the rest by their latest activity. */

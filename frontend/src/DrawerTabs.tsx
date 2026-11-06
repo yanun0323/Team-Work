@@ -3,12 +3,11 @@
 import { listOf, tr, type Key } from './core/i18n'
 import { useEffect } from 'react'
 import { nodeOf } from './core/domain/graph'
-import { statusOf } from './core/domain/sim'
 import type { Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
 import { byBlueprint, chatMindOf, chatPeople, chatPreview, chatOrder, chatSign, chatWho, mindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
-import { activity, fmtTokens, teamReplicas, teamTasks } from './core/model'
+import { activity, fmtTokens, laneTasks, teamReplicas } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { Select, Stepper, WaitBadge } from './Controls'
@@ -112,14 +111,13 @@ export function Chats(p: Opens) {
 export function Tasks(p: Opens) {
   const { teamId } = p
   const w = useStore((s) => s.world)
-  const tasks = teamTasks(w, teamId).filter((x) => x.stage !== 'cancelled')
   const needs = usePrereqs(teamId, 'tasks')
   return (
     <>
     <Prereqs list={needs} />
     <div className="fx-board">
       {COLUMNS.map((c) => {
-        const list = tasks.filter((x) => statusOf(w, x) === c.status)
+        const list = laneTasks(w, teamId, c.status)
         return (
           <section key={c.status} className={`fx-lane fx-lane-${c.status}`} aria-label={tr(c.label)}>
             <h3>{tr(c.label)}<span className="fx-count">{list.length}</span></h3>

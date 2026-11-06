@@ -89,10 +89,9 @@ export function Fade({ show, children }: { show: boolean; children: ReactNode })
       return
     }
     if (!show && k === 0) {
-      // gone: hide at once and let React drop it; the copies go with it
+      // Hide at once, but restore before dropping: show may turn true before React removes the meshes.
       g.visible = false
-      for (const s of saved.current.values()) dispose(s.copy)
-      saved.current.clear()
+      restore()
       setMounted(false)
       return
     }

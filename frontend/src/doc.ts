@@ -2,6 +2,7 @@
 // only: it has no real files, so each is written from what the sub-task knows, and always reads the same.
 
 import type { SubTask, Task } from './core/domain/types'
+import type { DiffLine } from './diffView'
 
 export type Doc = { lang: 'md' | 'code'; text: string }
 
@@ -26,6 +27,19 @@ export function docOf(task: Task, step: string, sub: SubTask, path: string): Doc
     `## 交給下一步\n${h?.agent.next?.reason ?? '照任務藍圖交給下一步。'}`,
   ]
   return { lang: 'md', text: parts.filter(Boolean).join('\n\n') }
+}
+
+/**
+ * What the simulator's step changed in a file: a written-up document is new, so there is nothing to compare; code had
+ * its menu button made accessible and its list keyed.
+ */
+export function docDiffOf(doc: Doc): DiffLine[] | null {
+  if (doc.lang !== 'code') return null
+  return doc.text.replace(/\n$/, '').split('\n').flatMap((text): DiffLine[] => {
+    if (text.includes(' aria-expanded={open}')) return [{ op: 'del', text: text.replace(' aria-expanded={open}', '') }, { op: 'add', text }]
+    if (/^\/\/ #\d+/.test(text)) return [{ op: 'add', text }]
+    return [{ op: 'same', text }]
+  })
 }
 
 const component = (name: string) => name.replace(/\..*$/, '')

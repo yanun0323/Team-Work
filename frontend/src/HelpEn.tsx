@@ -23,7 +23,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
         <p className="fx-help-pit">In a chat, the employee changes your project folder directly. A task works in a separate copy instead: it cannot see changes you have not committed, and its work reaches your project only when merged.</p>
         <dl>
           <dt>Something missing</dt><dd>A red stamp above a company's tabs says what to do first; see Company.</dd>
-          <dt>Put away</dt><dd>Press Esc or click an empty part of the map to put away an open company, the airport or the help.</dd>
+          <dt>Put away</dt><dd>Press Esc or click an empty part of the map to put away an open company, the airport or the help. While a company has detail sheets open, a click on the map puts all of them away first; click again to put away the company.</dd>
           <dt>Language</dt><dd>Press the globe at the top right.</dd>
           <dt>Tutorial</dt><dd>The list beside the clock shows things to try next; click one to be taken where to do it.</dd>
         </dl>
@@ -51,7 +51,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
     alt: 'The airport open: the airport on the map and its file on the right',
     body: (
       <>
-        <p>The airport holds what all companies share: chats, model providers, blueprints, workflows, sources, usage and settings, each with its own topic under Airport on the left. Click the airport or its name tag on the map to open it, and the view zooms in; the plane button at the top right opens it without moving the view.</p>
+        <p>The airport holds what all companies share: chats, model providers, blueprints, workflows, sources, usage, terminal and settings, each with its own topic under Airport on the left. Click the airport or its name tag on the map to open it, and the view zooms in; the plane button at the top right opens it without moving the view.</p>
         <p className="fx-help-pit">Blueprints, workflows, sources and providers changed here affect every company.</p>
         <dl>
           <dt>Its place</dt><dd>The airport stays where it is, and no company can be built on it.</dd>
@@ -152,6 +152,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <dt>Listed by themselves</dt><dd><code>~/.agents/</code>, <code>~/.team-work/</code>, <code>~/.codex/</code> and <code>~/.claude/</code> are listed as local sources, stamped Local. So are <code>mattpocock/skills</code> and <code>cursor/plugins</code>, which the built-in Matt Pocock and Poteto blueprints read, checked for updates like the ones you add.</dd>
           <dt>Check for updates</dt><dd>Sources are checked every 6 hours; to check now, press the refresh button beside a source's version. When a newer version is out, a red ! shows before the source in the list, and opening it lists the skills, employee blueprints and task blueprints added and removed, and the blueprints and employees affected. A folder has no versions: after changing its files, press Reload at the top right.</dd>
           <dt>When a blueprint is removed</dt><dd>If a newer version drops a blueprint employees are using, they switch to their own settings when it is applied, keeping what they had. They are listed under Switch to their own settings before you apply it.</dd>
+          <dt>Skills</dt><dd>A source's page lists its skills by folder. Click a skill to open it on the next sheet, with what it is for, where its file is and its full text.</dd>
           <dt>Apply updates automatically</dt><dd>Off by default. When on, the source is stamped Auto-update, a newer version is used as soon as it is found, and a red dot shows before the source until you open it.</dd>
           <dt>Versions</dt><dd>Everyone using a source uses the same version. Work under way keeps the version it started with, and offline, the versions already downloaded still work.</dd>
           <dt>Delete</dt><dd>A source cannot be deleted while blueprints or employees use it, employees working by a blueprint it brings included. Its own blueprints do not count; they go with it.</dd>
@@ -200,6 +201,21 @@ export const HELP_EN: Record<string, HelpTopic> = {
       </>
     ),
   },
+  airterminal: {
+    label: 'Terminal',
+    title: 'Airport terminal',
+    alt: "The airport's Terminal tab: zsh in the home folder",
+    body: (
+      <>
+        <p>A real zsh in your home folder, belonging to no company: for things outside any project, such as signing in to a command-line tool or installing software. It starts the first time you open this tab.</p>
+        <p className="fx-help-pit">By default the terminal ends when you close the airport, stopping whatever was running; tick Keep terminals in Settings to keep it.</p>
+        <dl>
+          <dt>Employees reading it</dt><dd>In airport chats, the airport staff can read the last 5,000 lines this terminal has shown, but cannot type into it. Company chats read their own company's terminal.</dd>
+          <dt>Everything else</dt><dd>The keyboard, when it ends and the terminal startup command work as in a company's Terminal.</dd>
+        </dl>
+      </>
+    ),
+  },
   settings: {
     label: 'Settings',
     title: 'Airport settings',
@@ -216,7 +232,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <dt>Task log order</dt><dd>Newest first or last, for task, sub-task and employee logs.</dd>
           <dt>Music and sounds</dt><dd>Music and effects have separate volumes, each with a mute beside its slider, and each kind of sound can be turned off or previewed on its own. Mute in background is on by default, so sound stops when you switch to another app. Notifications sound when a task waits for your reply or merge, or a chat gets a new reply; a chat you have open stays quiet. Sound starts after your first click or key press.</dd>
           <dt>System notifications</dt><dd>Mac app only, on by default. While the app is in the background, a task waiting for your reply or merge, or a chat with a new reply, shows a macOS notification; click it to open that task or chat. The number on the Dock icon is everything waiting. macOS asks once for permission; if you said no, turn it on in System Settings → Notifications.</dd>
-          <dt>Keep terminals</dt><dd>Off by default. When on, a terminal keeps running when you leave the company, is there when you return, and ends when the app closes.</dd>
+          <dt>Keep terminals</dt><dd>Off by default. When on, a terminal keeps running when you leave the company or the airport, is there when you return, and ends when the app closes.</dd>
           <dt>Terminal startup command</dt><dd>Under Advanced. When filled in, each new terminal runs it as it starts.</dd>
           <dt>Game objects</dt><dd>Turn off details, shadows, people on the map, plane animation or clouds to make the screen run more smoothly. Time of day sets day and night: real time, Minecraft (a whole day in 20 minutes), always day or always night. Building at work picks what shows off both sides of a company's building while it works.</dd>
           <dt>Auto-name chats</dt><dd>Under System, off by default. When on, pick a model and thinking level: each new chat's first message is sent to that model to name it, and its usage counts toward that chat's tokens. Until it is named, the list shows the first message. Edit the name at the top of a chat directly; clearing it shows the first message again. A name you give is never replaced.</dd>
@@ -264,7 +280,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <dt>Copy a message</dt><dd>The copy button under a message copies its text.</dd>
           <dt>Edit a message</dt><dd>Press the pencil under your message: it and everything after it disappear, and its text and attachments return to the box to change and resend. Pressing it during a reply stops the reply. There is no undo.</dd>
           <dt>Drafts</dt><dd>Text and attachments not yet sent stay in the box when you close the chat, ready when you come back; they are gone once the app closes.</dd>
-          <dt>Hand off to…</dt><dd>Press the branch icon under a message and pick an employee to copy the chat up to there into a new chat; the original stays as it is. Pick the same employee for a plain copy, or someone else to have them take over, knowing the earlier replies were not theirs. The new chat waits for you to say something. A chat whose employee has left can be handed on the same way. A meeting handed to anyone, its chair too, becomes a one-on-one chat with them. An airport chat is only copied, to the airport staff.</dd>
+          <dt>Hand off to…</dt><dd>Press the branch icon under a message and pick an employee to copy the chat up to there into a new chat; the original stays as it is, and the new one takes its place on screen. Pick the same employee for a plain copy, or someone else to have them take over, knowing the earlier replies were not theirs. The new chat keeps the name with "Handoff: " in front, not the pin, goes to the top of the list, and waits for you to say something; the dashed line in it says which chat ID it was handed off from and to whom, and pressing it opens the original chat on top. A chat whose employee has left can be handed on the same way. A meeting handed to anyone, its chair too, becomes a one-on-one chat with them. An airport chat is only copied, to the airport staff.</dd>
           <dt>Create task</dt><dd>Press Create task and the employee writes the chat up as a new task for you to edit and create. Employees with permission can also create or change tasks themselves, which applies at once. A task created in a chat, and a blueprint, workflow or provider an employee creates there, is pinned under the message it was made at; click it to open it.</dd>
           <dt>List and name tags</dt><dd>While an employee replies, three dots bounce on the list, and a reply you have not seen shows a round dot. On the map, a company's name tag counts chats waiting for you (unread, or waiting for your answer) in blue and tasks waiting for review in red; the grey ring spinning before its name counts chats being replied to and tasks under way.</dd>
           <dt>Long chats</dt><dd>When a chat gets too long, the employee sums up the earlier part and carries on, and a divider reading "Earlier messages summed up" appears. All messages stay on screen, but the employee reads only the summary from then on. The tokens used for this count toward the chat. The numbers under the box are about how much the next call sends, and the most the model can read. Set the limit for Google and compatible APIs on the provider; left empty it counts as 128K, and setting it too high lets a chat fail before it is summed up. How full a chat may get before it is summed up is set by the size of the limit under Auto compact in the airport's Settings, and 20K always stays free for the next reply. A meeting is summed up as soon as anyone in it reaches their point, with the chair's model writing the summary.</dd>
@@ -283,7 +299,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
         <p className="fx-help-pit">When a task starts, it works in a separate copy of the project made from the target branch's latest commit. Changes in your project folder that are not committed are not there; commit them first if the task needs them.</p>
         <dl>
           <dt>Owner and steps</dt><dd>The task owner answers for the whole task and merges its branch. Who works each step is picked on the task. Apply to all steps has the owner alone do every step.</dd>
-          <dt>Sub-tasks and handoffs</dt><dd>Each step becomes a sub-task; when done, its employee writes a handoff for the next step. Progress lists each sub-task's state, and opening one shows its log and the files handed off.</dd>
+          <dt>Sub-tasks and handoffs</dt><dd>Each step becomes a sub-task; when done, its employee writes a handoff for the next step. Progress lists each sub-task's state, and opening one shows its log and the files handed off; a file the step changed can be compared with how it was before the step, unified or split.</dd>
           <dt>Branch</dt><dd>Each task has its own branch, shown under the title. Every step commits its work to it.</dd>
           <dt>Four columns</dt><dd>Todo, Progressing, Wait for Review and Complete. A red exclamation mark needs your reply and a green merge icon waits for you to merge; see Replies and discussions.</dd>
           <dt>Start and pause</dt><dd>A new task waits in To do until you press Start at the top right of its details. The same button then pauses and continues it.</dd>
@@ -309,7 +325,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
         <dl>
           <dt>Answer a question</dt><dd>When an employee has a question, cannot pick the next step, runs out of retries or hits the cost limit, pick an option, write a reply and press Confirm.</dd>
           <dt>Agree to a change</dt><dd>When an employee wants to change a blueprint or workflow, that step lists the changes, before and after. Pick Agree or Refuse, optionally write a reply, and press Confirm.</dd>
-          <dt>Discuss with an employee</dt><dd>At a green discussion step, the employee reads the earlier handoffs, then asks you, and you can go back and forth many times. With several employees it is a meeting, and who replies works as in Chats.</dd>
+          <dt>Meeting</dt><dd>At a green discussion step, the employee reads the earlier handoffs, then asks you, and you can go back and forth many times. With several employees it is a meeting, and who replies works as in Chats.</dd>
           <dt>End discussion</dt><dd>When it is settled, press End discussion and choose Continue to go to the next step, Send back to write what to change, or Stop task.</dd>
           <dt>Merge</dt><dd>Press Merge to have the task owner merge the branch into the target branch, resolving any conflicts first; or press Send back to write what to change and have it redone.</dd>
         </dl>
@@ -342,7 +358,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
         <p className="fx-help-pit">If an employee, the terminal or another editor changed a file after you opened it, saving is refused, so their change is not overwritten. Copy out your changes, then press Reload.</p>
         <dl>
           <dt>The tree</dt><dd>A folder is read only when you open it, so hidden files, <code>.git</code> and <code>node_modules</code> are all there; what <code>.gitignore</code> leaves out is shown faded. Hover over a folder for a button at its right end that opens it in Finder. Open folders are read again when you come back to the tab or the app.</dd>
-          <dt>Opening</dt><dd>Markdown is formatted, code is coloured, and PNG, JPG, GIF and WebP show as pictures. Other files, and text files over 1 MiB, show why they cannot be previewed; you can show them in Finder.</dd>
+          <dt>Opening</dt><dd>Markdown is formatted, code is coloured, and PNG, JPG, GIF and WebP show as pictures. SVG shows as a picture too, and as its source when you edit it. Other files, and text files over 1 MiB, show why they cannot be previewed; you can show them in Finder.</dd>
           <dt>Editing</dt><dd>Press Edit at the top right of a text file. Code is coloured as you type; Markdown uses a plain text box. Save saves and puts it away; Command+S (Ctrl+S) saves and keeps editing. Files with CRLF line endings are saved with CRLF.</dd>
           <dt>Drafts</dt><dd>Put it away unsaved and the draft stays, marked by a red dot in the tree; press Edit again to carry on, or Discard changes to drop it. Drafts last until the app closes. Closing the company file or going to another company asks first when there are unsaved changes.</dd>
         </dl>

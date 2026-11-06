@@ -523,8 +523,8 @@ body { margin: 0; overflow: hidden; }
   box-shadow: var(--lift), inset 0 0 0 100vmax var(--shade);
 }
 
-/* the detail sheets: taped over the upper left of the map, three quarters of the stage tall. Each sheet stacked on
-   top sits a step lower. Across, the first is on the left and the second as far right as it goes beside the company
+/* the detail sheets: taped over the upper left of the map, reaching down to the same bottom margin as the company
+   file. Each sheet stacked on top sits a step lower, so it is a step shorter. Across, the first is on the left and the second as far right as it goes beside the company
    file; the third and fourth (Drawer.tsx MAX_SHEETS) split the distance between them (DrawerDetail.tsx SHEET_ACROSS).
    All are the same width, so part of each sheet below still shows, and it clicks. */
 .fx-detail {
@@ -535,7 +535,7 @@ body { margin: 0; overflow: hidden; }
   --right: calc(50% + 18px - 8px - var(--sheet));
   position: absolute; z-index: 6;
   top: calc(18px + var(--depth, 0) * var(--step)); left: calc(18px + (var(--right) - 18px) * var(--across, 0));
-  width: var(--sheet); height: min(calc(75% - 18px), calc(100% - 36px - var(--depth, 0) * var(--step)));
+  width: var(--sheet); height: calc(100% - 36px - var(--depth, 0) * var(--step));
   transform-origin: 50% 0;
   transition: translate 320ms cubic-bezier(0.3, 0.7, 0.4, 1);
   animation: fx-paste 560ms cubic-bezier(0.25, 1.4, 0.4, 1) backwards;
@@ -585,12 +585,14 @@ a.fx-tool { text-decoration: none; }
 .fx-md pre { padding: 12px 14px; border-radius: 4px; background: #262431; color: #e8e3d8; }
 :is(.fx-doc-code, .fx-md pre) ::selection { background: rgb(255 255 255 / 0.22); }
 .fx-doc-raw { white-space: pre-wrap; overflow-wrap: anywhere; }
-/* the file itself: a white sticky note stuck flat on the sheet, a touch askew */
+/* the file itself: a white sticky note stuck flat on the sheet, a touch askew. Tilted by skewing, not rotating, as the
+   chat bubbles are: a rotated note drifts sideways in proportion to its height, so a long file's top and bottom ran
+   past the sheet's edges and were cut off; a skewed one only moves up and down. */
 .fx-doc-note {
   position: relative; padding: 20px;
   background: linear-gradient(to bottom, transparent 90%, rgb(0 0 0 / 0.035)), #fff;
   box-shadow: 0 1px 1px rgb(31 29 43 / 0.12), 3px 8px 12px -6px rgb(31 29 43 / 0.3);
-  transform: rotate(-0.4deg);
+  transform: skewY(-0.4deg);
 }
 /* a whole code file: the note itself is dark, as an editor shows it */
 .fx-doc-note:has(> .fx-doc-code) { background: linear-gradient(to bottom, transparent 90%, rgb(0 0 0 / 0.2)), #262431; }
@@ -598,6 +600,40 @@ a.fx-tool { text-decoration: none; }
 /* the notes on their sheet: the same flat yellow as the note on the file, with no shading; a click anywhere on it
    writes */
 .fx-doc-note.fx-notes { background: var(--note); }
+/* a handed file compared with how its step found it: the note goes dark as the code note does, each line on a row */
+.fx-doc-views .fx-tool[aria-pressed="true"] { color: var(--ink); font-weight: 700; }
+.fx-detail-body:has(> .fx-doc-views) > .fx-d-head h2 { padding-inline-end: 125px; }
+.fx-detail-body:has(> .fx-doc-views > :nth-child(3)) > .fx-d-head h2 { padding-inline-end: 175px; }
+.fx-diff-tally { font: 12.5px var(--font-mono); font-variant-numeric: tabular-nums; }
+.fx-diff-tally ins { color: #3d8a4a; text-decoration: none; }
+.fx-diff-tally del { color: var(--accent); text-decoration: none; }
+.fx-doc-note:has(> .fx-diff) { padding: 12px 0; background: linear-gradient(to bottom, transparent 90%, rgb(0 0 0 / 0.2)), #262431; }
+.fx-diff {
+  display: grid; grid-template-columns: auto auto auto minmax(max-content, 1fr); overflow-x: auto;
+  font: 12.5px/1.6 var(--font-mono); color: #e8e3d8; tab-size: 2;
+}
+/* side by side, each half the note and long lines wrapping, so the new side is never pushed out of sight */
+.fx-diff-split { grid-template-columns: auto auto minmax(0, 1fr) auto auto minmax(0, 1fr); }
+.fx-diff-row { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; }
+.fx-diff-row > span { white-space: pre; }
+.fx-diff-split .fx-diff-row > .fx-diff-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.fx-diff-no { padding-inline: 12px 6px; text-align: end; color: #8f8a9c; user-select: none; }
+.fx-diff-sign { padding-inline-end: 8px; user-select: none; }
+.fx-diff-text { padding-inline-end: 16px; }
+.fx-diff-split .fx-diff-no:nth-child(4) { border-inline-start: 1px solid rgb(255 255 255 / 0.12); }
+.fx-diff-add { background: rgb(120 200 110 / 0.16); }
+.fx-diff-add.fx-diff-sign { color: #a9d68a; }
+.fx-diff-del { background: rgb(214 64 43 / 0.24); }
+.fx-diff-del.fx-diff-sign { color: #f2836f; }
+.fx-diff-none { background: rgb(0 0 0 / 0.18); }
+.fx-diff-row.fx-diff-add > .fx-diff-sign { color: #a9d68a; }
+.fx-diff-row.fx-diff-del > .fx-diff-sign { color: #f2836f; }
+.fx-diff-fold {
+  position: sticky; left: 0; grid-column: 1 / -1; justify-self: start; margin: 2px 0; padding: 2px 12px;
+  border: 0; background: none; color: #8f8a9c; font: inherit; text-align: start; cursor: pointer;
+}
+.fx-diff-fold:hover { color: #e8e3d8; background: rgb(255 255 255 / 0.08); }
+.fx-diff ::selection { background: rgb(255 255 255 / 0.22); }
 .fx-notes-read { min-height: 180px; cursor: text; }
 .fx-notes-read a { cursor: pointer; }
 .fx-notes .fx-notes-empty { color: var(--muted); }
@@ -673,7 +709,8 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-save:hover { background: var(--ink-2); }
 a.fx-save { text-decoration: none; }
 .fx-save:disabled { opacity: 0.4; cursor: default; }
-.fx-detail-body { flex: 1; overflow-y: auto; padding: 24px 28px 28px; display: grid; align-content: start; gap: 22px; }
+/* one column as wide as the sheet, so a wide code block or table scrolls in its own box instead of widening the page */
+.fx-detail-body { flex: 1; overflow-y: auto; padding: 24px 28px 28px; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 22px; }
 .fx-detail h2 { padding-inline-end: 36px; font-size: 22px; line-height: 1.3; font-weight: 700; overflow-wrap: anywhere; }
 .fx-detail h2:focus { outline: none; }
 .fx-d-head { display: grid; gap: 8px; }
@@ -801,6 +838,9 @@ a.fx-save { text-decoration: none; }
 .fx-d-facts dd { margin: 0; }
 .fx-d-chips { display: flex; flex-wrap: wrap; gap: 6px 8px; }
 .fx-d-chips span { padding: 1px 8px; background: var(--clip); box-shadow: var(--lift); font-size: 12.5px; }
+/* a chip that opens what it names on the next sheet */
+.fx-d-chips button { padding: 1px 8px; border: 0; font: inherit; font-size: 12.5px; color: inherit; background: var(--clip); box-shadow: var(--lift); cursor: pointer; }
+.fx-d-chips button:is(:hover, [aria-expanded="true"]) { box-shadow: var(--lift), inset 0 0 0 100vmax var(--shade); }
 .fx-d-mono span { font-family: var(--font-mono); font-size: 12px; }
 /* every skill a source has; and the ones it leaves out, struck through */
 .fx-d-chips .fx-chip-all { background: none; box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink-2); }
@@ -1562,6 +1602,8 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fx-handoff-menu svg { flex: none; border-radius: 2px; }
 .fx-room-log .fx-room-handoff { flex: none; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
 .fx-room-handoff::before, .fx-room-handoff::after { content: ""; flex: 1; border-top: 1px dashed currentColor; opacity: 0.5; }
+/* the chat it was handed off from, cut to one line */
+.fx-room-handoff button { flex: 0 1 auto; min-width: 0; max-width: 80%; padding: 2px 6px; border-radius: 3px; background: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-room-say textarea { flex: 1; min-width: 0; }
 /* a box that grows with its text, up to here, then scrolls */
 :is(.fx-room-say, .fx-chat-say) textarea { max-height: 200px; resize: none; }
