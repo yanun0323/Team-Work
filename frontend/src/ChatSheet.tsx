@@ -77,6 +77,34 @@ export function CompactLine() {
   return <li className="fx-room-handoff">{tr('已整理較早的對話')}</li>
 }
 
+/** A question's options under who asked. The heading folds them away to read the log above;
+    the message box below still answers by typing while they are folded. */
+export function AskBox({ to, options, folded, onFold, onPick }: {
+  to?: { name: string; look: Look }
+  options: string[]
+  folded: boolean
+  onFold: () => void
+  onPick: (option: string) => void
+}) {
+  return (
+    <div className="fx-room-answer" role="group" aria-label={tr('選項')}>
+      <button type="button" className="fx-room-to fx-room-fold" aria-expanded={!folded} onClick={onFold}>
+        {to
+          ? <>{tr('直接回答')}<span className="fx-room-to-one"><span aria-hidden="true"><PixelFace look={to.look} name={to.name} size={18} /></span>{to.name}</span></>
+          : tr('選項')}
+        <svg className="fx-room-fold-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <path d="M4 6.5L8 10l4-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {!folded && (
+        <div className="fx-d-choices">
+          {options.map((o) => <button key={o} type="button" className="fx-choice" onClick={() => onPick(o)}>{o}</button>)}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ContextUse({ chat }: { chat: Chat }) {
   const window = useStore((s) => chatWindow(s.world, chat))
   const used = (chat.context ?? 0).toLocaleString('en-US')
@@ -186,6 +214,8 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const [drafting, setDrafting] = useState(false)
   const [handingOff, setHandingOff] = useState(false)
   const [uncommitted, setUncommitted] = useState(false)
+  // the question whose options are folded away; a new one, or another chat, opens again
+  const [foldedAsk, setFoldedAsk] = useState('')
   const writing = chat?.replyAt !== undefined
   const live = useLiveText(chat?.id)
   const output = useLiveOutput(chat?.id)
@@ -219,6 +249,8 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const nameOf = (id?: string) => people.find((x) => x.id === (id || chat?.replicaId))?.name ?? name
   // who the question waiting on the user is from, to answer them by typing
   const askerFace = chat?.question ? people.find((x) => x.id === (chat.speaker || chat.replicaId)) ?? (look ? { name, look } : undefined) : undefined
+  // which question that is: the chat, and how far it had come when it was asked
+  const askKey = chat?.question ? `${chat.id}:${chat.messages.length}` : ''
   const speaking = nameOf(chat?.speaker)
   // "@" offers those in the chat first, then the company, who join when mentioned, while there is room
   const full = people.length >= MAX_CHAT_PEOPLE
@@ -583,14 +615,9 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
       )}
       </div>
       {!left && !writing && !!chat?.question?.options.length && (
-        <div className="fx-room-answer" role="group" aria-label={tr('選項')}>
-          {askerFace && <p className="fx-room-to">{tr('直接回答')}<span className="fx-room-to-one"><span aria-hidden="true"><PixelFace look={askerFace.look} name={askerFace.name} size={18} /></span>{askerFace.name}</span></p>}
-          <div className="fx-d-choices">
-            {chat.question.options.map((o) => (
-              <button key={o} type="button" className="fx-choice" onClick={() => act((x) => sayInChat(x, chat.id, o, [], [], answerMentions([], asker)))}>{o}</button>
-            ))}
-          </div>
-        </div>
+        <AskBox to={askerFace} options={chat.question.options} folded={foldedAsk === askKey}
+          onFold={() => setFoldedAsk(foldedAsk === askKey ? '' : askKey)}
+          onPick={(o) => act((x) => sayInChat(x, chat.id, o, [], [], answerMentions([], asker)))} />
       )}
       {!left && !writing && chat?.change && (
         <section className="fx-d-change-card" aria-label={changeAsk(chat.change)}>

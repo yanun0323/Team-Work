@@ -1523,6 +1523,11 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 /* long options scroll inside the box, under who asked, so the log above keeps its room */
 .fx-room-answer .fx-d-choices { flex: 0 1 auto; min-height: 0; margin: -3px; padding: 3px; overflow-y: auto; overscroll-behavior: contain; }
 .fx-room-answer .fx-choice { text-align: start; text-wrap: pretty; }
+/* who asked is the switch that folds the options away: the whole line, the mark at its end */
+.fx-room-fold { flex: none; width: 100%; padding: 0; border: 0; background: none; font-family: inherit; text-align: start; cursor: pointer; }
+.fx-room-fold:hover { color: var(--ink); }
+.fx-room-fold-mark { flex: none; margin-inline-start: auto; transition: rotate 0.15s; }
+.fx-room-fold[aria-expanded="false"] .fx-room-fold-mark { rotate: -90deg; }
 .fx-room-attach { flex: none; display: grid; place-items: center; width: 32px; height: 40px; color: var(--muted); cursor: pointer; }
 .fx-room-attach:hover { color: var(--ink); }
 .fx-room-attach:focus-within { outline: 2px solid rgb(31 29 43 / 0.3); }

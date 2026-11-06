@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { ChatFoot, ChatId, CompactLine, ContextUse } from './ChatSheet'
+import { AskBox, ChatFoot, ChatId, CompactLine, ContextUse } from './ChatSheet'
 import { useStore } from './core/store'
 import type { Chat } from './core/domain/types'
 
@@ -30,4 +30,16 @@ it('shows under the box how much the next call sends, of what the model can read
   } finally {
     delete w.providers.ctx
   }
+})
+
+it('folds a question\'s options away under who asked, and opens them again', () => {
+  const look = Object.values(useStore.getState().world.replicas)[0].look
+  const open = renderToStaticMarkup(<AskBox to={{ name: 'Ann', look }} options={['A', 'B']} folded={false} onFold={() => {}} onPick={() => {}} />)
+  expect(open).toMatch(/<button type="button" class="fx-room-to fx-room-fold" aria-expanded="true">直接回答.*Ann/)
+  expect(open).toContain('<button type="button" class="fx-choice">A</button><button type="button" class="fx-choice">B</button>')
+  const folded = renderToStaticMarkup(<AskBox to={{ name: 'Ann', look }} options={['A', 'B']} folded onFold={() => {}} onPick={() => {}} />)
+  expect(folded).toContain('aria-expanded="false"')
+  expect(folded).not.toContain('fx-choice')
+  // with nobody to name, the switch still says what it folds
+  expect(renderToStaticMarkup(<AskBox options={['A']} folded={false} onFold={() => {}} onPick={() => {}} />)).toContain('aria-expanded="true">選項<svg')
 })
