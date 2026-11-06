@@ -32,7 +32,10 @@ type Preferences struct {
 	Planes        bool   `json:"planes"`
 	Clouds        bool   `json:"clouds"`
 	KeepTerminals bool   `json:"keepTerminals"`
-	AutoView      string `json:"autoView"`
+	// MapClick is what a click on the map does while a company or the airport is open: close it at once (home), or first
+	// put away its open detail sheets (sheets).
+	MapClick string `json:"mapClick"`
+	AutoView string `json:"autoView"`
 	// BusyAnimation is what a company's building shows while it is at work: shout strokes, money tossed off its sides, or off for nothing.
 	BusyAnimation string `json:"busyAnimation"`
 	// Daylight is the time of day the town shows: the clock (real), a 20-minute day (minecraft), or always day or night.
@@ -83,7 +86,7 @@ func (p Preferences) CompactShare(window int) int {
 }
 
 func DefaultPreferences() Preferences {
-	return Preferences{MuteInBackground: true, SystemNotices: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, AutoView: "panZoom", BusyAnimation: "money", Daylight: "minecraft", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", AutoTab: "chats", CodexSkills: true, ClaudeSkills: true, HiddenBlueprints: []string{}, HiddenWorkflows: []string{}, Compact1M: 40, Compact256K: 90, Compact128K: 95, CompactSmall: 95}
+	return Preferences{MuteInBackground: true, SystemNotices: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, MapClick: "home", AutoView: "panZoom", BusyAnimation: "money", Daylight: "minecraft", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", AutoTab: "chats", CodexSkills: true, ClaudeSkills: true, HiddenBlueprints: []string{}, HiddenWorkflows: []string{}, Compact1M: 40, Compact256K: 90, Compact128K: 95, CompactSmall: 95}
 }
 
 // MergePreferences accepts only known, non-null fields; omitted fields keep their values.
@@ -112,6 +115,7 @@ func MergePreferences(current Preferences, patch map[string]json.RawMessage) (Pr
 		slices.ContainsFunc([]int{next.Compact1M, next.Compact256K, next.Compact128K, next.CompactSmall}, func(n int) bool { return n < CompactLeast || n > CompactMost }) ||
 		!slices.Contains([]string{"newestFirst", "newestLast"}, next.LogOrder) ||
 		!slices.Contains([]string{"panZoom", "pan", "off"}, next.AutoView) ||
+		!slices.Contains([]string{"home", "sheets"}, next.MapClick) ||
 		!slices.Contains([]string{"shout", "money", "off"}, next.BusyAnimation) ||
 		!slices.Contains([]string{"real", "minecraft", "day", "night"}, next.Daylight) ||
 		!slices.Contains([]string{"off", "chats", "tasks"}, next.AutoTab) ||
@@ -143,6 +147,13 @@ func (p *Preferences) UnmarshalJSON(raw []byte) error {
 		delete(patch, "openWaitingTab")
 		if _, set := patch["autoTab"]; !set && string(old) == "false" {
 			patch["autoTab"] = json.RawMessage(`"off"`)
+		}
+	}
+	// Files written while this was a checkbox.
+	if old, ok := patch["mapClickLeaves"]; ok {
+		delete(patch, "mapClickLeaves")
+		if _, set := patch["mapClick"]; !set && string(old) == "false" {
+			patch["mapClick"] = json.RawMessage(`"sheets"`)
 		}
 	}
 	// Files written while opening a waiting task could also open its sub-task.

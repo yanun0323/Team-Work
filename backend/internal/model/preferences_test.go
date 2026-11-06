@@ -32,6 +32,30 @@ func TestSystemNoticesAreOnForOldFiles(t *testing.T) {
 	}
 }
 
+func TestMapClick(t *testing.T) {
+	for raw, want := range map[string]string{
+		`{"shadows":false}`:                          "home",
+		`{"mapClickLeaves":true}`:                    "home",
+		`{"mapClickLeaves":false}`:                   "sheets",
+		`{"mapClickLeaves":false,"mapClick":"home"}`: "home",
+	} {
+		var p Preferences
+		if err := json.Unmarshal([]byte(raw), &p); err != nil || p.MapClick != want {
+			t.Fatalf("%s: %v %q", raw, err, p.MapClick)
+		}
+	}
+	next, err := MergePreferences(DefaultPreferences(), map[string]json.RawMessage{"mapClick": json.RawMessage(`"sheets"`)})
+	if err != nil || next.MapClick != "sheets" {
+		t.Fatalf("%v %+v", err, next)
+	}
+	if _, err := MergePreferences(DefaultPreferences(), map[string]json.RawMessage{"mapClick": json.RawMessage(`"off"`)}); err == nil {
+		t.Fatal("mapClick off accepted")
+	}
+	if _, err := MergePreferences(DefaultPreferences(), map[string]json.RawMessage{"mapClickLeaves": json.RawMessage(`false`)}); err == nil {
+		t.Fatal("the old field is only read from files")
+	}
+}
+
 func TestZoomSensitivityStaysInRange(t *testing.T) {
 	var p Preferences
 	if err := json.Unmarshal([]byte(`{"shadows":false}`), &p); err != nil {
