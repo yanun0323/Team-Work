@@ -1373,6 +1373,49 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
 }
 .fx-help-page dt { font-weight: 700; }
 .fx-help-page dd { margin: 0; }
+/* the galleries of looks: a grid of sticky notes as the about page's links are, each with its picture; the one
+   pressed opens large on a sheet over the help. Pictures are pixel art at twice the note's size: halved, or whole
+   on the sheet, every texel stays sharp */
+.fx-samples { max-width: 64ch; }
+/* a gallery split into parts: a small heading over each part's grid, as the help's list headings */
+.fx-sample-group + .fx-sample-group { margin-top: 26px; }
+.fx-sample-group > h3 { margin: 0 0 10px; color: var(--muted); }
+.fx-sample-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 18px 16px; margin: 0; padding: 6px 2px 4px; list-style: none; }
+.fx-sample {
+  --note: #fff1a8;
+  display: grid; justify-items: center; gap: 6px; width: 100%; padding: 6px 6px 8px; border: 0; box-sizing: border-box;
+  background: linear-gradient(to bottom, transparent 82%, rgb(0 0 0 / 0.05)), var(--note);
+  box-shadow: 0 1px 1px rgb(31 29 43 / 0.12), 3px 6px 8px -4px rgb(31 29 43 / 0.3);
+  color: var(--ink); font: 600 12.5px/1.25 var(--font-sans); text-align: center; cursor: pointer;
+  transform: rotate(var(--tilt, -1.5deg));
+  transition: transform 160ms ease-out, box-shadow 160ms ease-out;
+}
+.fx-sample-grid li:nth-child(5n + 2) .fx-sample { --note: #ffd3dc; --tilt: 1.2deg; }
+.fx-sample-grid li:nth-child(5n + 3) .fx-sample { --note: #cfe8ff; --tilt: -0.6deg; }
+.fx-sample-grid li:nth-child(5n + 4) .fx-sample { --note: #d4f2c4; --tilt: 1.8deg; }
+.fx-sample-grid li:nth-child(5n + 5) .fx-sample { --note: #ffdcb4; --tilt: -2deg; }
+.fx-sample:hover, .fx-sample:focus-visible, .fx-sample[aria-expanded="true"] {
+  transform: rotate(0deg) translateY(-3px);
+  box-shadow: 0 1px 1px rgb(31 29 43 / 0.12), 4px 12px 14px -6px rgb(31 29 43 / 0.35);
+}
+.fx-sample:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.fx-sample-pic { display: block; width: 120px; height: 120px; image-rendering: pixelated; }
+/* a picture not taken yet */
+.fx-sample-wait { border-radius: 2px; background: rgb(31 29 43 / 0.06); }
+/* where the pictures are taken: drawn, never seen */
+.fx-sample-studio { position: fixed; top: 0; left: -10000px; width: 240px; height: 240px; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .fx-sample { transition: none; } }
+/* a sample opened from a gallery: a detail sheet taped over the help a step lower, to the same bottom margin, against
+   its right edge; what shows of the help on the left is its cover, which puts this sheet away */
+.fx-detail.fx-sample-sheet {
+  --help-block: max(18px, calc((100% - 680px) / 2));
+  --help-inline: max(18px, calc((100% - 980px) / 2));
+  z-index: 7;
+  top: calc(var(--help-block) + var(--step)); bottom: var(--help-block); height: auto;
+  left: auto; right: calc(var(--help-inline) + 18px);
+  width: min(420px, calc(100% - 2 * var(--help-inline) - 18px - var(--room)));
+}
+.fx-sample-big { display: block; width: 240px; height: 240px; max-width: 100%; margin-inline: auto; image-rendering: pixelated; object-fit: contain; }
 @media (max-width: 640px) {
   .fx-help-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .fx-help-nav { flex-direction: row; overflow-x: auto; padding-block: 10px; border-inline-end: 0; border-bottom: 1px solid var(--rule); }

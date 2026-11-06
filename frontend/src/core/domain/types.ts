@@ -15,8 +15,14 @@ export interface Look {
   shirt: string
   pants: string
   extra: 'none' | 'glasses' | 'cap' | 'headset' | 'sunglasses' | 'beanie' | 'bow'
+    | 'strawhat' | 'beret' | 'bandana' | 'headband' | 'hairclip' | 'flower'
   /** Seeds what the 3D figure wears beyond these colours (hair cut, top); without it the id does. */
   style?: number
+  /**
+   * Which wardrobe `style` picks from: none (or 1) is the first, which everyone hired before it grew keeps, so their
+   * looks never change; 2 adds skirts, dresses and more cuts and clothes.
+   */
+  wardrobe?: number
 }
 
 /** How hard an employee thinks before answering. */

@@ -18,6 +18,7 @@ import { fitSunShadow, seenPoints, SHADOW_MAP, sunNormalBias } from './sunShadow
 import { Building, BuildingPreview, CUT, FLOOR, ROOF_TOP } from './Building'
 import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, seaCoverZoom, shotAt, type FocusBox, type Shot } from './camera'
 import { Drawer, putAwaySheets } from './Drawer'
+import { putAwaySampleSheet } from './HelpLooks'
 import { Settings } from './Settings'
 import { Help } from './Help'
 import { Fade, FADE_SECONDS } from './Fade'
@@ -248,6 +249,8 @@ export function World() {
   // picking a plot, and picking stops only on Esc or its own button, since the map is still being explored
   const close = useCallback((key = false) => {
     if (helpOpen) {
+      // a click on the map may put away the sheet over the help first, as with a drawer's detail sheets
+      if (!key && putAwaySampleSheet()) return
       setHelpOpen(false)
       helpClosed.current = true
       return

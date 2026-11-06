@@ -6,6 +6,7 @@ import { AIRPORT_STAFF_LOOK } from './core/domain/sim'
 import type { Blueprint, Chat, Look, ModelProvider, Replica, World } from './core/domain/types'
 import { tr } from './core/i18n'
 import { blueprintList } from './core/model'
+import { softLean, WARDROBE } from './figureStyle'
 
 /** The groups, `bp` null for those with settings of their own. */
 export function byBlueprint(w: World, crew: Replica[]): { bp: Blueprint | null; list: Replica[] }[] {
@@ -120,14 +121,20 @@ export const SHIRTS = [
   '#f08a5d', '#6c8ebf', '#b5c96a', '#4a4a52', '#e86f8a',
 ]
 const PANTS = ['#2f3542', '#3b4a6b', '#5b4a3a', '#6b6f78', '#1f2a36', '#7a6a52', '#4f6a4a', '#c8b48a', '#8a3b3b']
-const EXTRAS: Look['extra'][] = ['none', 'none', 'none', 'glasses', 'cap', 'headset', 'sunglasses', 'beanie', 'bow']
+/** What people wear on their heads, by which way their look leans (`softLean`); most wear nothing. */
+const SOFT_EXTRAS: Look['extra'][] = ['none', 'none', 'none', 'none', 'glasses', 'sunglasses', 'beanie', 'bow', 'strawhat', 'beret', 'headband', 'hairclip', 'flower', 'headset']
+const SHARP_EXTRAS: Look['extra'][] = ['none', 'none', 'none', 'none', 'glasses', 'cap', 'headset', 'sunglasses', 'beanie', 'strawhat', 'beret', 'bandana']
 
-/** A fresh face and figure: colours for the icon and the 3D model, plus the seed for its cut and clothes. */
+/**
+ * A fresh face and figure: colours for the icon and the 3D model, plus the seed for its cut and clothes, from the
+ * newest wardrobe.
+ */
 export function randomLook(rand: () => number = Math.random): Look {
   const of = <T,>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)]
+  const style = Math.floor(rand() * 2 ** 31)
   return {
-    skin: of(SKINS), hair: of(HAIRS), shirt: of(SHIRTS), pants: of(PANTS), extra: of(EXTRAS),
-    style: Math.floor(rand() * 2 ** 31),
+    skin: of(SKINS), hair: of(HAIRS), shirt: of(SHIRTS), pants: of(PANTS), extra: of(softLean(style) ? SOFT_EXTRAS : SHARP_EXTRAS),
+    style, wardrobe: WARDROBE,
   }
 }
 

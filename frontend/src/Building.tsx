@@ -28,7 +28,8 @@ import { NOOK_COUNTER, NOOK_D, NOOK_W, OFFICE_SCALE, officePlan, WALL, type Area
 import { OfficeCrew, type Amenities, type CrewMember } from './People'
 import { headingOf } from './walk'
 import { NO_OUTLINE_LAYER } from './PixelPass'
-import { propBoxes } from './streetProps'
+import { LANTERN, propBoxes } from './streetProps'
+import { shade } from './figureStyle'
 import { IndoorRoom } from './IndoorLight'
 import { toon, toonGlow, toonMap } from './toon'
 import { glowing, light } from './daylight'
@@ -128,6 +129,42 @@ const PALETTES: Record<BuildingStyle, Palette[]> = {
     { wall: '#f4f0e6', trim: '#2f6fb0', glass: '#4f7fa8', roof: '#c8643f', awning: '#2f6fb0', sign: '#ffcf5a', inside: '#f6f2ea' },
     { wall: '#f2e6d2', trim: '#2f8a7a', glass: '#4b7a8a', roof: '#b8583a', awning: '#2f8a7a', sign: '#f4f0e6', inside: '#f6eee2' },
     { wall: '#f6ecec', trim: '#a8402f', glass: '#5b7fa0', roof: '#d0784a', awning: '#d9a13b', sign: '#f6ecec', inside: '#f8f0f0' },
+  ],
+  // white walls banded in red, round windows, a little lighthouse on the roof
+  lighthouse: [
+    { wall: '#f4f0e6', trim: '#a8322a', glass: '#4f7fa8', roof: '#8f8a80', awning: '#a8322a', sign: '#ffcf5a', inside: '#f6f2ea' },
+    { wall: '#f2ece0', trim: '#2f4f7a', glass: '#4b6c8a', roof: '#8f8a80', awning: '#2f4f7a', sign: '#f1e8da', inside: '#f5f0e6' },
+    { wall: '#efe5d0', trim: '#2f8f8a', glass: '#6b97b3', roof: '#a09a8c', awning: '#2f8f8a', sign: '#ff8a5c', inside: '#f3ecdd' },
+  ],
+  // woven bamboo, rolled-up blinds, a thatched roof and a coconut palm
+  hut: [
+    { wall: '#d9b78a', trim: '#6b4a33', glass: '#5b7fa0', roof: '#c9a35a', awning: '#3f8a5a', sign: '#ffcf5a', inside: '#f2e6d4' },
+    { wall: '#c8b48e', trim: '#5b3a26', glass: '#4f7090', roof: '#b8924a', awning: '#2f8f8a', sign: '#ff8a5c', inside: '#f4ecdc' },
+    { wall: '#e3c294', trim: '#7d5a3c', glass: '#6b8aa0', roof: '#d4b06a', awning: '#c8643f', sign: '#f1e8da', inside: '#f5eee2' },
+  ],
+  // grey stone, arched windows, battlements and a turret at every corner
+  castle: [
+    { wall: '#a8a49a', trim: '#6b6a64', glass: '#3f5f7a', roof: '#5e504a', awning: '#7a2f3a', sign: '#e5b33a', inside: '#e8e6e0' },
+    { wall: '#b9b1a3', trim: '#7d6a62', glass: '#4b6c8a', roof: '#4a3a5a', awning: '#2f4f7a', sign: '#e5b33a', inside: '#ecebe6' },
+    { wall: '#c4c2bc', trim: '#5b5a50', glass: '#4f6f8f', roof: '#2f4a3a', awning: '#3f6a4a', sign: '#f1e8da', inside: '#f0ede4' },
+  ],
+  // brick, tall white-framed windows, a stepped gable at the front
+  canal: [
+    { wall: '#8f4a3c', trim: '#f5efe2', glass: '#3f5f7a', roof: '#a8402f', awning: '#2f4f7a', sign: '#f5efe2', inside: '#ede0d0' },
+    { wall: '#5e504a', trim: '#efe6d6', glass: '#4b6c8a', roof: '#8a3a2a', awning: '#3f6a4a', sign: '#ffcf5a', inside: '#ebe4da' },
+    { wall: '#c98a5a', trim: '#f4f0e6', glass: '#4f7090', roof: '#a8402f', awning: '#7a2f3a', sign: '#f4f0e6', inside: '#f2e6d6' },
+  ],
+  // glass all over in thin frames, plants inside, an arched glass roof
+  glasshouse: [
+    { wall: '#e8ecf0', trim: '#f4f0e6', glass: '#8fc8c0', roof: '#b8d8d0', awning: '#3f8a5a', sign: '#b8e07a', inside: '#f0f3f6' },
+    { wall: '#e4ead9', trim: '#2f3438', glass: '#7fb8b0', roof: '#a8c8c0', awning: '#2f3438', sign: '#ffcf5a', inside: '#eef2e6' },
+    { wall: '#f2ece0', trim: '#3f6a4a', glass: '#9fd0c8', roof: '#c0dcd4', awning: '#3f6a4a', sign: '#ff8a5c', inside: '#f5f0e6' },
+  ],
+  // pastel stripes, an awning over every floor, a giant cupcake on the roof
+  sweets: [
+    { wall: '#ffd3dc', trim: '#f4f0e6', glass: '#6b97b3', roof: '#f3e3dc', awning: '#ff8ab0', sign: '#ffcf5a', inside: '#f8f0f0' },
+    { wall: '#cfe8ff', trim: '#f4f0e6', glass: '#5b7fa0', roof: '#e3e8f2', awning: '#3b6fb0', sign: '#ff8a5c', inside: '#f0f3f6' },
+    { wall: '#d4f2c4', trim: '#f4f0e6', glass: '#6b8aa0', roof: '#e4efe6', awning: '#3f8a5a', sign: '#ff8ab0', inside: '#eef2e6' },
   ],
 }
 
@@ -322,6 +359,100 @@ const TILES: Record<BuildingStyle, Paint> = {
     g.fillRect(x + 5, y + 26, 2, 1)
     g.fillRect(x + 9, y + 26, 2, 1)
   },
+  // a red band at the top of every floor, a round porthole framed in it
+  lighthouse: (g, x, y, p, lit) => {
+    g.fillStyle = p.wall
+    g.fillRect(x, y, PX, PY)
+    g.fillStyle = p.trim
+    g.fillRect(x, y, PX, 6)
+    g.fillRect(x + 4, y + 13, 8, 10)
+    g.fillRect(x + 3, y + 14, 10, 8)
+    g.fillStyle = lit ? LIT[0] : p.glass
+    g.fillRect(x + 5, y + 14, 6, 8)
+    g.fillRect(x + 4, y + 15, 8, 6)
+  },
+  // woven bamboo, a window under a rolled-up blind
+  hut: (g, x, y, p, lit) => {
+    g.fillStyle = p.wall
+    g.fillRect(x, y, PX, PY)
+    g.fillStyle = 'rgb(0 0 0 / 0.14)'
+    for (let k = 3; k < PY; k += 4) g.fillRect(x, y + k, PX, 1)
+    for (let k = 1; k < PX; k += 4) g.fillRect(x + k, y + 1, 1, 2)
+    g.fillStyle = p.trim
+    g.fillRect(x + 2, y + 9, 12, 16)
+    g.fillStyle = lit ? LIT[0] : p.glass
+    g.fillRect(x + 3, y + 10, 10, 14)
+    g.fillStyle = p.roof
+    g.fillRect(x + 2, y + 7, 12, 4)
+    g.fillStyle = p.trim
+    g.fillRect(x + 2, y + 11, 12, 1)
+  },
+  // dressed grey stone, a narrow arched window and its sill
+  castle: (g, x, y, p, lit) => {
+    g.fillStyle = p.wall
+    g.fillRect(x, y, PX, PY)
+    g.fillStyle = 'rgb(0 0 0 / 0.1)'
+    for (let k = 0; k < PY; k += 8) {
+      g.fillRect(x, y + k, PX, 1)
+      g.fillRect(x + ((k / 8) % 2 ? 4 : 12), y + k, 1, 8)
+    }
+    g.fillStyle = p.trim
+    g.fillRect(x + 4, y + 11, 8, 16)
+    g.fillRect(x + 5, y + 9, 6, 2)
+    g.fillRect(x + 6, y + 8, 4, 1)
+    g.fillStyle = lit ? LIT[0] : p.glass
+    g.fillRect(x + 5, y + 12, 6, 14)
+    g.fillRect(x + 6, y + 10, 4, 2)
+    g.fillRect(x + 7, y + 9, 2, 1)
+    g.fillStyle = p.trim
+    g.fillRect(x + 4, y + 26, 8, 2)
+  },
+  // brick, a tall narrow window in a white frame under a white lintel
+  canal: (g, x, y, p, lit, seed) => {
+    g.fillStyle = p.wall
+    g.fillRect(x, y, PX, PY)
+    g.fillStyle = 'rgb(0 0 0 / 0.16)'
+    for (let k = 0; k < 14; k++) g.fillRect(x + Math.floor(hash(seed, k) * PX), y + Math.floor(hash(seed, k, 1) * PY), 2, 1)
+    g.fillStyle = p.trim
+    g.fillRect(x + 3, y + 2, 10, 2)
+    g.fillRect(x + 4, y + 5, 8, 23)
+    g.fillStyle = lit ? LIT[0] : p.glass
+    g.fillRect(x + 5, y + 6, 6, 21)
+    g.fillStyle = p.trim
+    g.fillRect(x + 5, y + 14, 6, 1)
+    g.fillRect(x + 7.5, y + 6, 1, 21)
+  },
+  // glass from floor to floor in thin frames, plants growing inside
+  glasshouse: (g, x, y, p, lit, seed) => {
+    g.fillStyle = lit ? LIT[0] : p.glass
+    g.fillRect(x, y, PX, PY)
+    g.fillStyle = 'rgb(255 255 255 / 0.22)'
+    g.fillRect(x + 3, y + 3, 1, 10)
+    for (let k = 0; k < 3; k++) {
+      if (hash(seed, k, 6) < 0.25) continue
+      const px = x + 1 + Math.floor(hash(seed, k, 7) * 11)
+      const h = 4 + Math.floor(hash(seed, k, 8) * 5)
+      g.fillStyle = k % 2 ? '#62b955' : '#4fa848'
+      g.fillRect(px, y + 31 - h, 4, h)
+    }
+    g.fillStyle = p.trim
+    g.fillRect(x, y, 1, PY)
+    g.fillRect(x + PX - 1, y, 1, PY)
+    g.fillRect(x, y, PX, 1)
+    g.fillRect(x, y + 16, PX, 1)
+  },
+  // pastel and cream stripes, a framed window
+  sweets: (g, x, y, p, lit) => {
+    g.fillStyle = p.wall
+    g.fillRect(x, y, PX, PY)
+    g.fillStyle = p.trim
+    for (let k = 2; k < PX; k += 4) g.fillRect(x + k, y, 2, PY)
+    g.fillRect(x + 2, y + 11, 12, 16)
+    g.fillStyle = lit ? LIT[0] : p.glass
+    g.fillRect(x + 3, y + 12, 10, 14)
+    g.fillStyle = p.trim
+    g.fillRect(x + 7.5, y + 12, 1, 14)
+  },
 }
 
 function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void) {
@@ -389,6 +520,19 @@ function glowingWindows(m: THREE.MeshToonMaterial) {
 }
 
 type V3 = [number, number, number]
+
+/** A sloping awning along a wall, `len` long, sticking out from `at`; `turn` faces it along +z (0) or +x (a quarter turn). Cream scallops along its edge. */
+function Awning({ len, at, turn, pal }: { len: number; at: V3; turn: number; pal: Palette }) {
+  const n = Math.max(2, Math.floor(len / 0.5))
+  return (
+    <group position={at} rotation={[0, turn, 0]}>
+      <B p={[0, 0, 0.32]} s={[len, 0.08, 0.7]} r={[0.35, 0, 0]} c={pal.awning} />
+      {Array.from({ length: n }, (_, i) => (
+        <B key={i} p={[-len / 2 + (i + 0.5) * (len / n), -0.17, 0.64]} s={[0.24, 0.14, 0.06]} c={i % 2 ? pal.awning : pal.trim} shadow={false} />
+      ))}
+    </group>
+  )
+}
 
 function B({ p, s, c, r, shadow = true }: { p: V3; s: V3; c: string; r?: V3; shadow?: boolean }) {
   return (
@@ -539,6 +683,17 @@ function Exterior({ look, w, d, floors, decor, busy }: { look: BuildingLook; w: 
           {Array.from({ length: 11 }, (_, i) => <B key={i} p={[-1.3 * CELL + i * 0.26 * CELL, 0.2, 0.68]} s={[0.05, 0.4, 0.05]} c={pal.trim} />)}
         </group>
       )}
+      {/* glasshouse: a thin frame at every floor */}
+      {style === 'glasshouse' && Array.from({ length: upper - 1 }, (_, f) => (
+        <B key={f} p={[0, FLOOR * (f + 2), 0]} s={[w - BODY_INSET * 2 + 0.06, 0.08, d - BODY_INSET * 2 + 0.06]} c={pal.trim} />
+      ))}
+      {/* sweets: a striped awning over the windows of every floor, on both sides facing the camera, but not across the billboard */}
+      {style === 'sweets' && Array.from({ length: upper }, (_, f) => (
+        <group key={f} position={[0, FLOOR * (f + 2) - 0.3 * FLOOR, 0]}>
+          <Awning len={w - BODY_INSET * 2 - PILLAR * 2} at={[0, 0, d / 2 - BODY_INSET]} turn={0} pal={pal} />
+          {!(f === 0 && decor >= 3) && <Awning len={d - BODY_INSET * 2 - PILLAR * 2} at={[w / 2 - BODY_INSET, 0, 0]} turn={Math.PI / 2} pal={pal} />}
+        </group>
+      ))}
       {/* entrance on the side facing the camera */}
       {/* entrance: two cells wide, glass doors just under the lobby band */}
       <B p={[0, (2 * CELL - 0.3) / 2, d / 2 - LOBBY_INSET + 0.03]} s={[2 * CELL, 2 * CELL - 0.3, 0.06]} c="#2c3f52" />
@@ -726,17 +881,20 @@ interface Decor {
   paint: string | null
   pot: string
   books: string[]
-  /** What stands against the back wall in a room big enough: books, a coffee bar, a whiteboard, lockers, a fish tank or servers. */
+  /**
+   * What stands against the back wall in a room big enough: books, a coffee bar, a whiteboard, lockers, a fish tank,
+   * servers, a trophy cabinet, vending machines, a living wall or a record wall.
+   */
   back: BackKind
-  /** The front corner: a sofa, a ping-pong table, café tables or arcade machines. */
+  /** The front corner: a sofa, a ping-pong table, café tables, arcade machines, a foosball table, a game corner or a gym corner. */
   corner: CornerKind
-  /** The back corner: a long meeting table, a round one, or two phone booths. */
+  /** The back corner: a long meeting table, a round one, a standing table or a tatami tea room. */
   meet: MeetKind
 }
 
-const BACK_KINDS = ['books', 'coffee', 'whiteboard', 'lockers', 'aquarium', 'server'] as const
-const CORNER_KINDS = ['sofa', 'games', 'cafe', 'arcade'] as const
-const MEET_KINDS = ['long', 'round', 'booths'] as const
+const BACK_KINDS = ['books', 'coffee', 'whiteboard', 'lockers', 'aquarium', 'server', 'trophies', 'vending', 'greenwall', 'records'] as const
+const CORNER_KINDS = ['sofa', 'games', 'cafe', 'arcade', 'foosball', 'tv', 'gym'] as const
+const MEET_KINDS = ['long', 'round', 'standing', 'tatami'] as const
 type BackKind = (typeof BACK_KINDS)[number]
 type CornerKind = (typeof CORNER_KINDS)[number]
 type MeetKind = (typeof MEET_KINDS)[number]
@@ -1040,7 +1198,8 @@ function Reception({ a, trim, k }: { a: Area; trim: string; k: Decor }) {
 
 function Meeting({ a, k }: { a: Area; k: Decor }) {
   if (k.meet === 'round') return <RoundTable a={a} k={k} />
-  if (k.meet === 'booths') return <Booths a={a} k={k} />
+  if (k.meet === 'standing') return <StandingTable a={a} k={k} />
+  if (k.meet === 'tatami') return <Tatami a={a} k={k} />
   const y = FLOOR_TOP
   const tw = a.w - 0.8
   const chairs: Array<[number, number]> = []
@@ -1074,27 +1233,74 @@ function RoundTable({ a, k }: { a: Area; k: Decor }) {
   )
 }
 
-/** Two phone booths, one behind the other: walls on three sides and a roof, a seat and a shelf inside, open towards the room. */
-function Booths({ a, k }: { a: Area; k: Decor }) {
+/** A tall table to stand round, two high stools along each side, and a whiteboard on a stand at the far end. */
+function StandingTable({ a, k }: { a: Area; k: Decor }) {
   const y = FLOOR_TOP
-  const bd = a.d / 2 - 0.15
+  const detail = usePrefs((s) => s.detail)
+  const tw = a.w - 0.8
+  const td = a.d - 1.2
+  const tz = a.z + 0.3
+  const bz = a.z - a.d / 2 + 0.2
   return (
     <>
-      {[-1, 1].map((side) => {
-        const z = a.z + side * (bd / 2 + 0.075)
-        return (
-          <group key={side} position={[a.x, y, z]}>
-            <B p={[a.w / 2 - 0.05, 0.75, 0]} s={[0.1, 1.5, bd]} c={k.sofa[1]} />
-            <B p={[0, 0.75, -bd / 2 + 0.05]} s={[a.w - 0.2, 1.5, 0.1]} c={k.sofa[1]} />
-            <B p={[0, 0.75, bd / 2 - 0.05]} s={[a.w - 0.2, 1.5, 0.1]} c={k.sofa[1]} />
-            <B p={[0, 1.52, 0]} s={[a.w - 0.1, 0.06, bd]} c={k.sofa[0]} />
-            {/* a padded seat against the back, and a shelf with a laptop */}
-            <B p={[a.w / 2 - 0.35, 0.2, 0]} s={[0.4, 0.4, bd - 0.4]} c={k.sofa[0]} />
-            <B p={[a.w / 2 - 0.9, 0.45, 0]} s={[0.4, 0.05, bd - 0.5]} c={k.desk[0]} />
-            <B p={[a.w / 2 - 0.9, 0.49, 0]} s={[0.24, 0.02, 0.3]} c="#b8bec8" />
-          </group>
-        )
-      })}
+      <B p={[a.x, y + 0.5, tz]} s={[0.3, 1.0, td * 0.4]} c={k.desk[1]} />
+      <B p={[a.x, y + 1.05, tz]} s={[tw, 0.06, td]} c={k.desk[0]} />
+      {[-1, 1].flatMap((side) => [-0.5, 0.5].map((dz) => (
+        <group key={`${side}${dz}`} position={[a.x + side * (tw / 2 + 0.3), y, tz + dz]}>
+          <Part p={[0, 0.3, 0]} c="#2f3438"><cylinderGeometry args={[0.03, 0.1, 0.6, 6]} /></Part>
+          <Part p={[0, 0.63, 0]} c={k.chair}><cylinderGeometry args={[0.17, 0.17, 0.06, 10]} /></Part>
+        </group>
+      )))}
+      {[-0.75, 0.75].map((dx) => <B key={dx} p={[a.x + dx, y + 0.8, bz]} s={[0.05, 1.6, 0.05]} c="#d8dce2" />)}
+      <B p={[a.x, y + 1.25, bz]} s={[1.64, 1.04, 0.04]} c="#d8dce2" />
+      <B p={[a.x, y + 1.25, bz + 0.01]} s={[1.56, 0.96, 0.04]} c="#f7f7f4" />
+      {detail && (
+        <>
+          {[[-0.45, 1.5, 0.5, '#3b6fb0'], [-0.5, 1.38, 0.4, '#3b6fb0'], [-0.4, 1.24, 0.6, '#c23b3b'], [0.1, 1.0, 0.5, '#2f8f5b']].map(([dx, dy, w, c], i) => (
+            <B key={i} p={[a.x + (dx as number), y + (dy as number), bz + 0.035]} s={[w as number, 0.03, 0.01]} c={c as string} shadow={false} />
+          ))}
+          {[[0.35, 1.5, '#ffe08a'], [0.6, 1.45, '#ff8ab0'], [0.45, 1.22, '#8fd0c8']].map(([dx, dy, c], i) => (
+            <B key={`n${i}`} p={[a.x + (dx as number), y + (dy as number), bz + 0.035]} s={[0.16, 0.16, 0.01]} c={c as string} shadow={false} />
+          ))}
+        </>
+      )}
+    </>
+  )
+}
+
+/** Four tatami mats edged in green, a low table with tea on it and a cushion at each side, a paper lamp at the back that glows after dark. */
+function Tatami({ a, k }: { a: Area; k: Decor }) {
+  const y = FLOOR_TOP
+  const detail = usePrefs((s) => s.detail)
+  const mw = a.w / 2 - 0.02
+  const md = a.d / 2 - 0.02
+  // the mats are a little raised: what stands on them stands on this
+  const t = y + 0.044
+  return (
+    <>
+      {[-1, 1].flatMap((sx) => [-1, 1].map((sz) => (
+        <group key={`${sx}${sz}`} position={[a.x + (sx * a.w) / 4, 0, a.z + (sz * a.d) / 4]}>
+          <B p={[0, y + 0.021, 0]} s={[mw, 0.042, md]} c="#3f6a4a" />
+          <B p={[0, y + 0.022, 0]} s={[mw - 0.12, 0.044, md - 0.02]} c="#c9c48a" />
+        </group>
+      )))}
+      {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => <B key={i} p={[a.x + sx * 0.32, t + 0.14, a.z + sz * 0.52]} s={[0.08, 0.28, 0.08]} c={k.desk[1]} />)}
+      <B p={[a.x, t + 0.32, a.z]} s={[0.8, 0.08, 1.2]} c={k.desk[0]} />
+      {[[-0.75, -0.3], [-0.75, 0.3], [0.75, -0.3], [0.75, 0.3]].map(([dx, dz], i) => (
+        <B key={i} p={[a.x + dx, t + 0.04, a.z + dz]} s={[0.45, 0.08, 0.45]} c={k.cushions[i % 2]} />
+      ))}
+      {detail && (
+        <>
+          <B p={[a.x, t + 0.41, a.z - 0.15]} s={[0.12, 0.1, 0.12]} c="#3c4253" />
+          <B p={[a.x - 0.18, t + 0.395, a.z + 0.2]} s={[0.07, 0.07, 0.07]} c="#f5f5f0" />
+          <B p={[a.x + 0.18, t + 0.395, a.z + 0.2]} s={[0.07, 0.07, 0.07]} c="#f5f5f0" />
+        </>
+      )}
+      <group position={[a.x, t, a.z - a.d / 2 + 0.3]}>
+        <mesh position={[0, 0.4, 0]} scale={[0.3, 0.5, 0.3]} material={toonGlow('#f3e6c4', LANTERN)} castShadow receiveShadow><boxGeometry /></mesh>
+        <B p={[0, 0.67, 0]} s={[0.34, 0.04, 0.34]} c={k.desk[1]} />
+        <B p={[0, 0.08, 0]} s={[0.34, 0.16, 0.34]} c={k.desk[1]} />
+      </group>
     </>
   )
 }
@@ -1104,6 +1310,9 @@ function Corner({ a, k }: { a: Area; k: Decor }) {
   if (k.corner === 'games') return <PingPong a={a} k={k} />
   if (k.corner === 'cafe') return <Cafe a={a} k={k} />
   if (k.corner === 'arcade') return <Arcade a={a} k={k} />
+  if (k.corner === 'foosball') return <Foosball a={a} k={k} />
+  if (k.corner === 'tv') return <GameCorner a={a} k={k} />
+  if (k.corner === 'gym') return <Gym a={a} k={k} />
   return <Lounge a={a} k={k} />
 }
 
@@ -1186,6 +1395,99 @@ function Arcade({ a, k }: { a: Area; k: Decor }) {
   )
 }
 
+/** A foosball table with its rods and two teams, and a bean bag to watch from. */
+function Foosball({ a, k }: { a: Area; k: Decor }) {
+  const y = FLOOR_TOP
+  const detail = usePrefs((s) => s.detail)
+  const cx = a.x + 0.2
+  const cz = a.z - 0.1
+  const players = [1, 2, 3, 2, 2, 3, 2, 1]
+  return (
+    <>
+      {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => <B key={i} p={[cx + sx * 0.7, y + 0.3, cz + sz * 0.37]} s={[0.08, 0.6, 0.08]} c="#2f3438" />)}
+      <B p={[cx, y + 0.72, cz]} s={[1.6, 0.25, 0.9]} c={k.desk[0]} />
+      <B p={[cx, y + 0.85, cz]} s={[1.48, 0.01, 0.78]} c="#2f7d5a" />
+      <B p={[cx, y + 0.856, cz]} s={[0.02, 0.004, 0.78]} c="#f5f5f0" shadow={false} />
+      {players.map((n, i) => {
+        const rx = cx - 0.63 + i * 0.18
+        return (
+          <group key={i}>
+            <B p={[rx, y + 0.94, cz]} s={[0.03, 0.03, 1.2]} c="#d8dce2" />
+            <B p={[rx, y + 0.94, cz + (i % 2 ? 0.67 : -0.67)]} s={[0.06, 0.06, 0.14]} c="#2f3438" />
+            {detail && Array.from({ length: n }, (_, j) => (
+              <B key={j} p={[rx, y + 0.91, cz + (j - (n - 1) / 2) * 0.24]} s={[0.05, 0.1, 0.05]} c={[0, 1, 3, 5].includes(i) ? k.chair : k.sofa[0]} />
+            ))}
+          </group>
+        )
+      })}
+      <BeanBag x={a.x - a.w / 2 + 0.5} z={a.z + a.d / 2 - 0.45} c={k.sofa[0]} />
+    </>
+  )
+}
+
+/** A TV on a low stand against the wall with a console beside it, a rug, and two bean bags facing it. */
+function GameCorner({ a, k }: { a: Area; k: Decor }) {
+  const y = FLOOR_TOP
+  const detail = usePrefs((s) => s.detail)
+  const x0 = a.x - a.w / 2
+  const cz = a.z - 0.1
+  const rugW = Math.min(1.8, a.w - 0.7)
+  const rugX = x0 + 0.6 + rugW / 2
+  const seatX = x0 + 0.6 + rugW * 0.62
+  return (
+    <>
+      <Rug a={{ x: rugX, z: cz, w: rugW, d: 1.6 }} y={RUG_Y} colors={k.rug} />
+      <B p={[x0 + 0.25, y + 0.225, cz]} s={[0.4, 0.45, 1.6]} c={k.desk[1]} />
+      <B p={[x0 + 0.2, y + 0.85, cz]} s={[0.05, 0.75, 1.3]} c="#1c2430" />
+      <mesh position={[x0 + 0.23, y + 0.85, cz]} scale={[0.02, 0.67, 1.22]} material={screen('#8fe3ff')}><boxGeometry /></mesh>
+      <B p={[x0 + 0.35, y + 0.48, cz + 0.6]} s={[0.2, 0.06, 0.3]} c="#f5f5f0" />
+      {[-0.45, 0.45].map((dz, i) => (
+        <group key={i}>
+          <BeanBag x={seatX} z={cz + dz} c={i ? k.cushions[0] : k.sofa[0]} />
+          {detail && <B p={[seatX - 0.15, y + 0.3, cz + dz - 0.1]} s={[0.12, 0.04, 0.08]} c="#2f3438" />}
+        </group>
+      ))}
+    </>
+  )
+}
+
+/** A treadmill along the back with its screen lit, a yoga mat, and a rack of dumbbells against the wall. */
+function Gym({ a, k }: { a: Area; k: Decor }) {
+  const y = FLOOR_TOP
+  const detail = usePrefs((s) => s.detail)
+  const x0 = a.x - a.w / 2
+  const z0 = a.z - a.d / 2
+  const tx = a.x + 0.3
+  const tz = z0 + 0.45
+  return (
+    <>
+      <B p={[tx, y + 0.075, tz]} s={[1.4, 0.15, 0.6]} c="#2f3438" />
+      <B p={[tx, y + 0.16, tz]} s={[1.3, 0.02, 0.5]} c="#4a4f5c" />
+      {[-0.25, 0.25].map((dz) => <B key={dz} p={[tx + 0.62, y + 0.6, tz + dz]} s={[0.05, 1.0, 0.05]} c="#d8dce2" />)}
+      <B p={[tx + 0.62, y + 1.12, tz]} s={[0.1, 0.25, 0.55]} r={[0, 0, 0.4]} c="#2f3438" />
+      <mesh position={[tx + 0.57, y + 1.14, tz]} rotation={[0, 0, 0.4]} scale={[0.02, 0.08, 0.2]} material={screen('#7affb0')}><boxGeometry /></mesh>
+      <B p={[a.x + 0.35, y + 0.01, a.z + 0.55]} s={[1.4, 0.02, 0.6]} c={k.cushions[1]} />
+      {detail && (
+        <group position={[x0 + 0.2, y, a.z + 0.3]}>
+          {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => <B key={i} p={[sx * 0.12, 0.3, sz * 0.42]} s={[0.04, 0.6, 0.04]} c="#3c4253" />)}
+          {[0.25, 0.55].map((h) => (
+            <group key={h}>
+              <B p={[0, h, 0]} s={[0.3, 0.04, 0.9]} c="#3c4253" />
+              {[-0.28, 0, 0.28].map((dz) => (
+                <group key={dz} position={[0, h + 0.07, dz]}>
+                  <B p={[0, 0, 0]} s={[0.04, 0.04, 0.18]} c="#d8dce2" />
+                  <B p={[0, 0, -0.09]} s={[0.1, 0.1, 0.05]} c="#2f3438" />
+                  <B p={[0, 0, 0.09]} s={[0.1, 0.1, 0.05]} c="#2f3438" />
+                </group>
+              ))}
+            </group>
+          ))}
+        </group>
+      )}
+    </>
+  )
+}
+
 /**
  * Seats on `Lounge`'s sofa for idle people, with the way in: from the open front, up the gap between the
  * side sofa and the table, then across in front of the back sofa. `a` is the lounge as placed in the room.
@@ -1256,8 +1558,112 @@ function Lounge({ a, k }: { a: Area; k: Decor }) {
 function BackWall({ a, k }: { a: Area; k: Decor }) {
   const y = FLOOR_TOP
   const wallZ = a.z - a.d / 2
+  // less detail: no trophies, flowers or records, only what holds them
+  const detail = usePrefs((s) => s.detail)
+  const front = a.z + a.d / 2
   let body: ReactNode
-  if (k.back === 'coffee') {
+  if (k.back === 'trophies') {
+    // an open cabinet of trophies on two shelves, and two framed certificates above it
+    const levels = [0.1, 0.47, 0.92]
+    body = (
+      <>
+        <B p={[a.x, y + 0.65, wallZ + 0.02]} s={[a.w, 1.3, 0.04]} c={k.desk[1]} />
+        {[-1, 1].map((side) => <B key={side} p={[a.x + side * (a.w / 2 - 0.03), y + 0.65, a.z]} s={[0.06, 1.3, a.d]} c={k.desk[1]} />)}
+        <B p={[a.x, y + 0.05, a.z]} s={[a.w, 0.1, a.d]} c={k.desk[1]} />
+        {[0.45, 0.9].map((h) => <B key={h} p={[a.x, y + h, a.z]} s={[a.w - 0.12, 0.04, a.d - 0.04]} c={k.desk[1]} />)}
+        <B p={[a.x, y + 1.32, a.z]} s={[a.w + 0.04, 0.04, a.d + 0.04]} c={k.desk[0]} />
+        {detail && levels.flatMap((h, row) => [-0.3, -0.1, 0.1, 0.3].map((t, i) => (
+          <group key={`${row}${i}`} position={[a.x + t * a.w, y + h + 0.02, a.z + 0.02]}>
+            <B p={[0, 0.03, 0]} s={[0.16, 0.06, 0.16]} c="#3c4253" />
+            <B p={[0, 0.17, 0]} s={[0.14, 0.22, 0.14]} c={(row + i) % 3 === 1 ? '#d8dce2' : '#e5b33a'} />
+          </group>
+        )))}
+        {[-0.7, 0.2].map((dx) => (
+          <group key={dx} position={[a.x + dx, y + 1.55, wallZ]}>
+            <B p={[0, 0, 0.015]} s={[0.58, 0.44, 0.03]} c={k.desk[0]} />
+            <B p={[0, 0, 0.025]} s={[0.5, 0.36, 0.03]} c="#f5f5f0" shadow={false} />
+          </group>
+        ))}
+      </>
+    )
+  } else if (k.back === 'vending') {
+    // two vending machines, their windows of drinks and snacks lit
+    body = (
+      <>
+        {[-0.55, 0.55].map((dx, m) => {
+          const cx = a.x + dx
+          return (
+            <group key={m}>
+              <B p={[cx, y + 0.8, a.z]} s={[0.9, 1.6, a.d]} c={m ? '#3b6fb0' : '#c8643f'} />
+              <mesh position={[cx - 0.1, y + 1.05, front + 0.005]} scale={[0.6, 0.9, 0.02]} material={screen('#e8eef5')}><boxGeometry /></mesh>
+              {Array.from({ length: 12 }, (_, i) => (
+                <B key={i} p={[cx - 0.32 + (i % 4) * 0.146, y + 1.35 - Math.floor(i / 4) * 0.28, front + 0.02]} s={[0.1, 0.12, 0.02]} c={k.books[(i + m * 3) % k.books.length]} shadow={false} />
+              ))}
+              <B p={[cx + 0.33, y + 1.05, front + 0.01]} s={[0.16, 0.5, 0.02]} c="#2f3438" shadow={false} />
+              <B p={[cx - 0.1, y + 0.3, front + 0.01]} s={[0.6, 0.15, 0.02]} c="#2a2f38" shadow={false} />
+            </group>
+          )
+        })}
+      </>
+    )
+  } else if (k.back === 'greenwall') {
+    // a living wall of leaves on a dark board, in uneven tufts, over a long planter
+    const cols = Math.floor(a.w / 0.4)
+    const cw = a.w / cols
+    body = (
+      <>
+        <B p={[a.x, y + 0.95, wallZ + 0.04]} s={[a.w, 1.3, 0.08]} c="#5b3a26" />
+        <B p={[a.x, y + 0.15, a.z]} s={[a.w, 0.3, a.d]} c={k.pot} />
+        <B p={[a.x, y + 0.31, a.z]} s={[a.w - 0.1, 0.04, a.d - 0.1]} c="#6b4a33" />
+        {Array.from({ length: cols * 3 }, (_, i) => {
+          const c = i % cols
+          const r = Math.floor(i / cols)
+          const v = hash(c, r, 61)
+          const deep = 0.1 + v * 0.08
+          const px = a.x - a.w / 2 + cw * (c + 0.5)
+          const py = y + 0.55 + r * 0.4
+          return (
+            <group key={i}>
+              <B p={[px, py, wallZ + 0.08 + deep / 2]} s={[cw - 0.04, 0.36, deep]} c={[PLANT, '#62b955', '#3e8f55'][Math.floor(v * 3)]} />
+              {detail && hash(c, r, 62) < 0.18 && (
+                <B p={[px + 0.06, py + 0.05, wallZ + 0.08 + deep + 0.02]} s={[0.08, 0.08, 0.04]} c={['#ff8a5c', '#ffd34a', '#e56a9a'][Math.floor(hash(c, r, 63) * 3)]} shadow={false} />
+              )}
+            </group>
+          )
+        })}
+      </>
+    )
+  } else if (k.back === 'records') {
+    // a low cabinet with a turntable and two speakers, sleeves and a record on the wall above
+    const disc = (x: number, z: number, r: number, c: string) => (
+      <mesh position={[x, 0, z]} rotation={[Math.PI / 2, 0, 0]} material={toon(c)} castShadow><cylinderGeometry args={[r, r, 0.02, 14]} /></mesh>
+    )
+    body = (
+      <>
+        <B p={[a.x, y + 0.35, a.z]} s={[a.w, 0.7, a.d]} c={k.desk[1]} />
+        <B p={[a.x, y + 0.72, a.z]} s={[a.w + 0.04, 0.04, a.d + 0.04]} c={k.desk[0]} />
+        <B p={[a.x - 0.5, y + 0.78, a.z]} s={[0.5, 0.08, 0.36]} c="#2f3438" />
+        <Part p={[a.x - 0.55, y + 0.83, a.z]} c="#1c2430"><cylinderGeometry args={[0.14, 0.14, 0.02, 14]} /></Part>
+        <B p={[a.x - 0.38, y + 0.85, a.z + 0.06]} s={[0.2, 0.02, 0.03]} r={[0, 0.5, 0]} c="#d8dce2" />
+        {[-1, 1].map((side) => (
+          <group key={side} position={[a.x + side * (a.w / 2 - 0.2), y + 0.99, 0]}>
+            <B p={[0, 0, a.z]} s={[0.3, 0.5, 0.3]} c="#2f3438" />
+            <group position={[0, 0.07, 0]}>{disc(0, a.z + 0.16, 0.09, '#4a4f5c')}</group>
+            <group position={[0, -0.12, 0]}>{disc(0, a.z + 0.16, 0.06, '#4a4f5c')}</group>
+          </group>
+        ))}
+        {detail && [1.15, 1.5].flatMap((h, row) => Array.from({ length: 5 }, (_, i) => {
+          const x = a.x - 1.0 + i * 0.45
+          return i === 2 ? (
+            <group key={`${row}${i}`} position={[0, y + h, 0]}>
+              {disc(x, wallZ + 0.02, 0.15, '#1c2430')}
+              {disc(x, wallZ + 0.03, 0.05, k.cushions[row])}
+            </group>
+          ) : <B key={`${row}${i}`} p={[x, y + h, wallZ + 0.02]} s={[0.3, 0.3, 0.02]} c={k.books[(i + row * 2) % k.books.length]} shadow={false} />
+        }))}
+      </>
+    )
+  } else if (k.back === 'coffee') {
     // a counter with a coffee machine and cups, and a fridge at one end
     const cw = a.w - 0.7
     const cx = a.x - a.w / 2 + cw / 2
@@ -1408,8 +1814,9 @@ function Shelf({ a, k }: { a: Area; k: Decor }) {
   return (
     <>
       <B p={[a.x, y + 0.55, a.z]} s={[a.w, 1.1, a.d]} c={k.desk[1]} />
+      {/* the spines stand a little proud of the case: flush with its front, the two faces flickered and the books vanished */}
       {detail && [0.35, 0.8].flatMap((h, row) => Array.from({ length: Math.floor((a.w - 0.5) / 0.5) }, (_, i) => (
-        <B key={`${row}-${i}`} p={[a.x - a.w / 2 + 0.35 + i * 0.5 + row * 0.1, y + h, a.z + a.d / 2 - 0.02]} s={[0.36, 0.26, 0.04]} c={books[(i + row * 2) % books.length]} shadow={false} />
+        <B key={`${row}-${i}`} p={[a.x - a.w / 2 + 0.35 + i * 0.5 + row * 0.1, y + h, a.z + a.d / 2 + 0.01]} s={[0.36, 0.26, 0.04]} c={books[(i + row * 2) % books.length]} shadow={false} />
       )))}
     </>
   )
@@ -1899,7 +2306,157 @@ function MoneyToss({ w, d, h, seed }: { w: number; d: number; h: number; seed: n
 /** Height of the tallest roof item, so labels can sit above it. */
 export const ROOF_TOP = 1.7 * KIT
 
+/** See-through glass for a glasshouse's roof, by colour. */
+const glassRoofs = new Map<string, THREE.MeshToonMaterial>()
+function glassRoof(c: string) {
+  let m = glassRoofs.get(c)
+  if (!m) {
+    m = toon(c).clone()
+    m.transparent = true
+    m.opacity = 0.6
+    m.depthWrite = false
+    m.side = THREE.DoubleSide
+    glassRoofs.set(c, m)
+  }
+  return m
+}
+
+/** Drawn on the outline pass's layer too only when it should be inked: see-through glass is left off it. */
+function NoOutline({ children }: { children: ReactNode }) {
+  const ref = useRef<THREE.Group>(null)
+  useLayoutEffect(() => ref.current?.traverse((o) => o.layers.set(NO_OUTLINE_LAYER)), [])
+  return <group ref={ref}>{children}</group>
+}
+
 function Roof({ style, w, d, pal }: { style: BuildingStyle; w: number; d: number; pal: Palette }) {
+  if (style === 'lighthouse') {
+    // a little lighthouse in the back corner: banded tower, a gallery, a lantern lit after dark, a cap
+    return (
+      <group position={[-w / 2 + 1.3, 0, -d / 2 + 1.3]}>
+        <Part p={[0, 0.4, 0]} c={pal.wall}><cylinderGeometry args={[0.5, 0.55, 0.8, 12]} /></Part>
+        <Part p={[0, 0.45, 0]} c={pal.trim}><cylinderGeometry args={[0.535, 0.545, 0.2, 12]} /></Part>
+        <Part p={[0, 0.83, 0]} c="#3c4253"><cylinderGeometry args={[0.65, 0.65, 0.06, 12]} /></Part>
+        <mesh position={[0, 1.06, 0]} material={toonGlow('#ffe7a3', LANTERN)} castShadow receiveShadow>
+          <cylinderGeometry args={[0.38, 0.38, 0.4, 12]} />
+        </mesh>
+        <Part p={[0, 1.46, 0]} c={pal.trim}><coneGeometry args={[0.52, 0.4, 12]} /></Part>
+      </group>
+    )
+  }
+  if (style === 'hut') {
+    // thick thatch past the walls in two tiers, so its pitch shows, a grass fringe, and a coconut palm in the back corner
+    const top: V3 = [0.24, 1.5, 0]
+    const tier = (y: number, k: number, h: number, c: string) => (
+      <mesh position={[0, y, 0]} rotation={[0, Math.PI / 4, 0]} scale={[((w + 0.6) / 2) * k * Math.SQRT2, 1, ((d + 0.6) / 2) * k * Math.SQRT2]}
+        material={toon(c)} castShadow receiveShadow>
+        <coneGeometry args={[1, h, 4]} />
+      </mesh>
+    )
+    return (
+      <>
+        {tier(0.45, 1, 0.9, pal.roof)}
+        {tier(0.95, 0.6, 1.0, shade(pal.roof, 0.88))}
+        <B p={[0, 0.04, 0]} s={[w + 0.7, 0.1, d + 0.7]} c={pal.awning} />
+        <group position={[w / 2 - 0.9, 0, -d / 2 + 0.9]}>
+          {[0, 1, 2].map((i) => <B key={i} p={[i * 0.08, 0.25 + i * 0.5, 0]} s={[0.14, 0.52, 0.14]} c="#8a5a36" />)}
+          <group position={top}>
+            {[0, 1, 2, 3, 4].map((i) => (
+              <group key={i} rotation={[0, (i * 2 * Math.PI) / 5, 0]}>
+                <B p={[0.4, -0.1, 0]} s={[0.9, 0.06, 0.28]} r={[0, 0, -0.4]} c={i % 2 ? '#62b955' : '#4fa848'} />
+              </group>
+            ))}
+            <B p={[0.08, -0.12, 0.08]} s={[0.14, 0.14, 0.14]} c="#6b4a33" />
+            <B p={[-0.06, -0.14, -0.06]} s={[0.14, 0.14, 0.14]} c="#6b4a33" />
+          </group>
+        </group>
+      </>
+    )
+  }
+  if (style === 'castle') {
+    // battlements round the parapet, a turret with a pointed roof at each corner, a flag on the back one
+    const tx = w / 2 - 0.35
+    const tz = d / 2 - 0.35
+    const merlons = (len: number) => Array.from({ length: Math.max(0, Math.floor((len - 1.4) / 0.5)) }, (_, i) => -len / 2 + 0.95 + i * 0.5)
+    return (
+      <>
+        {merlons(w).flatMap((x) => [d / 2 - 0.05, -d / 2 + 0.05].map((z) => <B key={`x${x}${z}`} p={[x, 0.36, z]} s={[0.24, 0.22, 0.1]} c={pal.wall} />))}
+        {merlons(d).flatMap((z) => [w / 2 - 0.05, -w / 2 + 0.05].map((x) => <B key={`z${z}${x}`} p={[x, 0.36, z]} s={[0.1, 0.22, 0.24]} c={pal.wall} />))}
+        {[[tx, tz], [-tx, tz], [tx, -tz], [-tx, -tz]].map(([x, z], i) => (
+          <group key={i} position={[x, 0, z]}>
+            <Part p={[0, 0.4, 0]} c={pal.wall}><cylinderGeometry args={[0.42, 0.45, 0.8, 10]} /></Part>
+            <Part p={[0, 1.1, 0]} c={pal.roof}><coneGeometry args={[0.55, 0.6, 10]} /></Part>
+          </group>
+        ))}
+        <group position={[-tx, 0, -tz]}>
+          <B p={[0, 1.55, 0]} s={[0.04, 0.3, 0.04]} c="#d5dbe5" />
+          <B p={[0.16, 1.62, 0]} s={[0.3, 0.16, 0.02]} c={pal.awning} />
+        </group>
+      </>
+    )
+  }
+  if (style === 'canal') {
+    // a stepped gable along the front, a red roof running back from its top, and a hoist beam
+    const steps = [1, 0.75, 0.5, 0.25]
+    const rise = 0.35
+    const ridge = steps.length * rise
+    const len = d - 0.35
+    const cz = -0.075
+    const slope = Math.atan2(ridge, w / 2)
+    const run = Math.hypot(ridge, w / 2)
+    return (
+      <>
+        {steps.map((k, i) => (
+          <group key={i}>
+            <B p={[0, i * rise + rise / 2, d / 2 - 0.12]} s={[w * k, rise, 0.25]} c={pal.wall} />
+            <B p={[0, (i + 1) * rise, d / 2 - 0.12]} s={[w * k + 0.04, 0.06, 0.3]} c={pal.trim} />
+          </group>
+        ))}
+        {[-1, 1].map((side) => (
+          <B key={side} p={[(side * w) / 4, ridge / 2, cz]} s={[run, 0.08, len]} r={[0, 0, -side * slope]} c={pal.roof} />
+        ))}
+        <B p={[0, ridge - 0.1, d / 2 + 0.1]} s={[0.06, 0.06, 0.5]} c="#3c4253" />
+      </>
+    )
+  }
+  if (style === 'glasshouse') {
+    // an arched glass roof along the building, framed by ribs, with plants growing under it; no taller than the other roofs
+    const r = Math.max(0.6, d / 2 - 0.3)
+    const len = w - 0.6
+    const ribs = Math.max(2, Math.round(len))
+    return (
+      <group scale={[1, Math.min(r, 1.3) / r, 1]}>
+        <NoOutline>
+          <mesh rotation={[0, 0, Math.PI / 2]} material={glassRoof(pal.roof)}>
+            <cylinderGeometry args={[r, r, len, 16, 1, false, 0, Math.PI]} />
+          </mesh>
+        </NoOutline>
+        {Array.from({ length: ribs + 1 }, (_, i) => (
+          <mesh key={i} position={[-len / 2 + (i * len) / ribs, 0, 0]} rotation={[0, Math.PI / 2, 0]} material={toon(pal.trim)} castShadow>
+            <torusGeometry args={[r, 0.04, 4, 16, Math.PI]} />
+          </mesh>
+        ))}
+        <B p={[-len / 4, 0.25, 0]} s={[0.6, 0.5, 0.6]} c="#4fa848" />
+        <B p={[len / 5, 0.2, -0.3]} s={[0.5, 0.4, 0.5]} c="#62b955" />
+      </group>
+    )
+  }
+  if (style === 'sweets') {
+    // a giant cupcake: a striped cup, three tiers of cream and a cherry
+    return (
+      <group position={[0, 0, -d / 4]}>
+        <Part p={[0, 0.3, 0]} c={pal.awning}><cylinderGeometry args={[0.9, 0.7, 0.6, 16]} /></Part>
+        {Array.from({ length: 8 }, (_, i) => {
+          const t = (i / 8) * Math.PI * 2
+          return <B key={i} p={[Math.cos(t) * 0.81, 0.3, Math.sin(t) * 0.81]} s={[0.06, 0.6, 0.06]} r={[0, -t, 0]} c={pal.trim} shadow={false} />
+        })}
+        {[[0.95, 0.725], [0.7, 0.975], [0.4, 1.225]].map(([r, y]) => (
+          <Part key={y} p={[0, y, 0]} c="#f1e8da"><cylinderGeometry args={[r * 0.92, r, 0.25, 16]} /></Part>
+        ))}
+        <B p={[0, 1.45, 0]} s={[0.22, 0.22, 0.22]} c="#d22b1f" />
+        <B p={[0.04, 1.62, 0]} s={[0.04, 0.16, 0.04]} r={[0, 0, -0.4]} c="#3e8f55" />
+      </group>
+    )
+  }
   if (style === 'pagoda') {
     // two tiers of hipped roof, the lower one flaring past the walls, and a golden finial
     const hip = (y: number, sx: number, sz: number, h: number, c: string) => (
@@ -2069,5 +2626,96 @@ function Roof({ style, w, d, pal }: { style: BuildingStyle; w: number; d: number
         <B key={i} p={[-w / 2 + 0.75, 0.3, sz + 0.3]} s={[0.9, 0.06, 0.55]} r={[0.5, 0, 0]} c="#33507a" />
       ))}
     </>
+  )
+}
+
+// ---------------------------------------------------------------- samples for the help
+
+/** Every piece of office furniture the help shows, in the order it lists them. */
+export const FURNITURE = [
+  'desk', 'reception', 'nook', 'cooler', 'plants',
+  'long', 'round', 'standing', 'tatami',
+  'sofa', 'games', 'cafe', 'arcade', 'foosball', 'tv', 'gym',
+  'books', 'coffee', 'whiteboard', 'lockers', 'aquarium', 'server', 'trophies', 'vending', 'greenwall', 'records',
+] as const
+export type Furniture = (typeof FURNITURE)[number]
+
+/** The first seed that gives a style its first colourway, the original one. */
+const firstColours = (style: BuildingStyle) => {
+  let seed = 0
+  while (Math.floor(hash(seed, 5) * PALETTES[style].length) !== 0) seed++
+  return seed
+}
+
+/** A building of this style in its original colours, three storeys on the smallest footprint, standing at the origin. */
+export function BuildingSample({ style }: { style: BuildingStyle }) {
+  const look = useMemo(() => ({ style, seed: firstColours(style) }), [style])
+  const size = footprintOf(0) * CELL
+  return <Exterior look={look} w={size} d={size} floors={3} decor={0} />
+}
+
+/** The colours every furniture sample shares; the seed was picked for a warm, varied room. */
+const SAMPLE_DECOR = decorOf(7)
+const SAMPLE_TRIM = PALETTES.tower[0].trim
+const SAMPLE_WALL = PALETTES.tower[0].inside
+const SAMPLE_WALL_H = 2.3
+
+/**
+ * One piece of furniture on a patch of tiled floor, with the two back walls behind it so what hangs on a wall has one,
+ * drawn in office units and scaled as in an office. `room` is the floor patch; the walls stand on its back and left edges.
+ */
+export function FurnitureSample({ kind }: { kind: Furniture }) {
+  const k: Decor = { ...SAMPLE_DECOR }
+  let room: Area = { x: 0, z: 0, w: 3, d: 2.4 }
+  let body: ReactNode
+  switch (kind) {
+    case 'desk':
+      room = { x: 0, z: 0, w: 2, d: 2 }
+      body = <Station x={0} z={0.4} busy k={k} setup={3} detail />
+      break
+    case 'reception':
+      body = <Reception a={{ x: 0, z: 0.2, w: 2.4, d: 0.6 }} trim={SAMPLE_TRIM} k={k} />
+      break
+    case 'nook':
+      room = { x: 0, z: 0.6, w: 3, d: 1.9 }
+      body = <Nook z={-0.35 + NOOK_D / 2} k={k} />
+      break
+    case 'cooler':
+      room = { x: 0, z: 0, w: 1.4, d: 1.4 }
+      body = <Cooler x={0} z={0} />
+      break
+    case 'plants':
+      room = { x: 0, z: 0, w: 3.4, d: 1.2 }
+      body = [0, 1, 2, 3, 4].map((i) => <Plant key={i} x={-1.3 + i * 0.65} z={0} pot={k.pot} kind={i} />)
+      break
+    case 'long': case 'round': case 'standing': case 'tatami':
+      room = { x: 0, z: 0, w: 3, d: 4.2 }
+      body = <Meeting a={{ x: 0, z: 0, w: 2.4, d: 3.6 }} k={{ ...k, meet: kind }} />
+      break
+    case 'sofa': case 'games': case 'cafe': case 'arcade': case 'foosball': case 'tv': case 'gym':
+      // the lounge backs onto the walls at its back and left edges
+      room = { x: 0.2, z: 0.2, w: 3.4, d: 3 }
+      body = (
+        <>
+          {kind === 'sofa' && <Rug a={{ x: 0, z: 0, w: 3, d: 2.6 }} y={RUG_Y} colors={k.rug} />}
+          <Corner a={{ x: 0, z: 0, w: 3, d: 2.6 }} k={{ ...k, corner: kind }} />
+        </>
+      )
+      break
+    default:
+      // against the back wall, which stands at the shelf's back edge
+      room = { x: 0, z: 0.8, w: 3.6, d: 2 }
+      body = <BackWall a={{ x: 0, z: 0, w: 3.2, d: 0.4 }} k={{ ...k, back: kind }} />
+  }
+  const back = room.z - room.d / 2
+  const left = room.x - room.w / 2
+  return (
+    <group scale={OFFICE_SCALE}>
+      <B p={[room.x, FLOOR_TOP / 2, room.z]} s={[room.w, FLOOR_TOP, room.d]} c={SAMPLE_WALL} />
+      <Floor kind="tile" variant={k.tile} a={room} y={FLOOR_TOP + 0.001} perUnit={OFFICE_SCALE} />
+      <B p={[room.x, SAMPLE_WALL_H / 2, back - WALL / 2]} s={[room.w + WALL, SAMPLE_WALL_H, WALL]} c={SAMPLE_WALL} />
+      <B p={[left - WALL / 2, SAMPLE_WALL_H / 2, room.z]} s={[WALL, SAMPLE_WALL_H, room.d]} c={SAMPLE_WALL} />
+      {body}
+    </group>
   )
 }

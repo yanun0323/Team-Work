@@ -14,7 +14,9 @@ const MARGIN = 0.75
 const FEATURE = new Set<FacePart>(['eye', 'mouth', 'shades', 'shine'])
 
 /** Which shape a part belongs to: dashes run only between different shapes, and hair is solid blue. */
-const SHAPE: Partial<Record<FacePart, string>> = { curl: 'hair', mustache: 'hair', beardLip: 'hair', beanieBand: 'beanie', bowKnot: 'bow' }
+const SHAPE: Partial<Record<FacePart, string>> = {
+  curl: 'hair', mustache: 'hair', beardLip: 'hair', tie: 'hair', beanieBand: 'beanie', bowKnot: 'bow', strawBand: 'straw', flowerMid: 'flower',
+}
 
 /**
  * The look with its face fixed: one without a `style` (drawn from the name) gets the name's seed as its
@@ -47,7 +49,7 @@ function outlineOf(shapes: Shapes) {
 }
 
 export function BlueprintIcon({ look, name, size = 40 }: { look: Look; name: string; size?: number }) {
-  const pixels = facePixels(look.extra, styleOf(look.style ?? seedOf(name)))
+  const pixels = facePixels(look.extra, styleOf(look.style ?? seedOf(name), look.wardrobe))
   const shapes: Shapes = Array.from({ length: 10 }, () => Array(10).fill(undefined))
   const features = new Set<string>()
   for (const [x, y, w, h, part] of pixels) {

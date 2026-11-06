@@ -57,9 +57,14 @@ export interface Prop extends Rect {
   face?: [number, number]
 }
 
-/** Building looks, handed out in turn so neighbours differ. */
-export const BUILDING_STYLES = ['tower', 'brick', 'studio', 'loft', 'timber', 'classic', 'tech', 'pagoda', 'deco', 'eco', 'villa'] as const
+/** Building looks, handed out in turn so neighbours differ. Keep in step with backend/internal/usecase/plots.go. */
+export const BUILDING_STYLES = [
+  'tower', 'brick', 'studio', 'loft', 'timber', 'classic', 'tech', 'pagoda', 'deco', 'eco', 'villa',
+  'lighthouse', 'hut', 'castle', 'canal', 'glasshouse', 'sweets',
+] as const
 export type BuildingStyle = (typeof BUILDING_STYLES)[number]
+/** The looks there were before the list grew: a company that never saved one keeps the one it was handed from these. */
+const LEGACY_STYLES = BUILDING_STYLES.slice(0, 11)
 
 /** A building's look: its style, and a seed for everything else about it. */
 export interface BuildingLook {
@@ -383,7 +388,7 @@ export function layoutTown(teams: TeamInput[]): Town {
       props: plotProps(plot),
       floors: floorsOf(t.bytes ?? 0),
       decor: decorOf(t.done ?? 0),
-      style: t.style ?? BUILDING_STYLES[i % BUILDING_STYLES.length],
+      style: t.style ?? LEGACY_STYLES[i % LEGACY_STYLES.length],
       seed: t.seed ?? seedOfId(t.id),
     }
   })

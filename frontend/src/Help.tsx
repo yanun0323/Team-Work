@@ -7,12 +7,13 @@
 // reference, one <dl> drawn in a dashed box. Leave out what the screen already makes plain and what is only decoration, and write a
 // rule in one topic only.
 
-import { Children, isValidElement, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Children, isValidElement, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { appLanguage, tr } from './core/i18n'
 import { HELP_EN, type HelpTopic } from './HelpEn'
 import { HELP_JA } from './HelpJa'
 import { HELP_KO } from './HelpKo'
 import { HELP_ZH_HANS } from './HelpZhHans'
+import { GALLERIES, GALLERY_NAMES, Looks, SampleSheet, type Gallery, type Sample } from './HelpLooks'
 import type { Locale } from './core/domain/types'
 
 /** Each topic's screenshot: help/<set>/<topic>.jpg, the Chinese set or the English one, whichever reads closer. */
@@ -469,8 +470,11 @@ const TOPICS: Topic[] = [
   },
 ]
 
-/** A topic's place in the list, for the arrow keys. */
-const indexOf = (t: Topic) => TOPICS.indexOf(t)
+const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** Everything in the list in order, for the arrow keys: the topics, then the galleries of looks at the bottom. */
+const ORDER = [...TOPICS.map((t) => t.id), ...GALLERIES]
+const isGallery = (id: string): id is Gallery => (GALLERIES as readonly string[]).includes(id)
 
 /** A topic in the language picked. */
 const inLanguage = (t: Topic): Topic => {
@@ -502,59 +506,96 @@ export function Help({ leaving, onGone }: {
   /** Called when the sheet has come off. */
   onGone: () => void
 }) {
-  const [topic, setTopic] = useState(TOPICS[0].id)
+  const [topic, setTopic] = useState<string>(TOPICS[0].id)
   const title = useRef<HTMLHeadingElement>(null)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   useEffect(() => title.current?.focus({ preventScroll: true }), [])
+  const gallery = isGallery(topic) ? topic : null
   const current = TOPICS.find((t) => t.id === topic) ?? TOPICS[0]
   const shown = inLanguage(current)
 
+  // a sample opened from a gallery, on a sheet over this one; it stays for its fade-out once put away, but with
+  // reduced motion there is none, so it goes at once. Focus goes back to its note once the help is uncovered.
+  const [sample, setSample] = useState<(Sample & { leaving: boolean }) | null>(null)
+  const note = useRef<HTMLElement | null>(null)
+  const covered = !!sample && !sample.leaving
+  useEffect(() => {
+    if (covered) return
+    note.current?.focus({ preventScroll: true })
+    note.current = null
+  }, [covered])
+  const openSample = (id: string) => {
+    if (!gallery) return
+    note.current = document.activeElement as HTMLElement | null
+    setSample({ gallery, id, leaving: false })
+  }
+  const putAway = useCallback(() => setSample((s) => (!s ? s : calm ? null : { ...s, leaving: true })), [])
+
   // up and down move between topics too
   const onTabKey = (e: KeyboardEvent) => {
-    const i = TOPICS.findIndex((t) => t.id === topic)
-    const next = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: TOPICS.length - 1 }[e.key]
+    const i = ORDER.indexOf(topic)
+    const next = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: ORDER.length - 1 }[e.key]
     if (next === undefined) return
     e.preventDefault()
-    const j = (next + TOPICS.length) % TOPICS.length
-    setTopic(TOPICS[j].id)
+    const j = (next + ORDER.length) % ORDER.length
+    setTopic(ORDER[j])
     tabs.current[j]?.focus()
   }
 
-  const link = (t: Topic) => (
-    <button key={t.id} ref={(el) => void (tabs.current[indexOf(t)] = el)} type="button"
-      aria-current={topic === t.id ? 'page' : undefined} aria-controls="fx-help-panel" onClick={() => setTopic(t.id)}>
-      {inLanguage(t).label}
+  const link = (id: string, label: string) => (
+    <button key={id} ref={(el) => void (tabs.current[ORDER.indexOf(id)] = el)} type="button"
+      aria-current={topic === id ? 'page' : undefined} aria-controls="fx-help-panel" onClick={() => setTopic(id)}>
+      {label}
     </button>
   )
+  const topicLink = (t: Topic) => link(t.id, inLanguage(t).label)
 
   return (
+    <>
     <aside className={leaving ? 'fx-drawer fx-help leaving' : 'fx-drawer fx-help'} role="dialog" aria-modal="true" aria-labelledby="fx-help-title"
       aria-hidden={leaving || undefined} inert={leaving || undefined}
       onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
-      <div className="fx-sheet">
+      <div className="fx-sheet" inert={covered || undefined}>
         <header className="fx-head fx-head-rule fx-help-head">
           <h1 id="fx-help-title" ref={title} tabIndex={-1}>{tr('使用說明')}</h1>
         </header>
         <div className="fx-help-body">
           <nav className="fx-help-nav" aria-label={tr('說明項目')} onKeyDown={onTabKey}>
-            {TOPICS.filter((t) => !t.group).map(link)}
+            {TOPICS.filter((t) => !t.group).map(topicLink)}
             {GROUPS.map((g) => (
               <section key={g} aria-labelledby={`fx-help-group-${g}`}>
                 <h2 id={`fx-help-group-${g}`}>{tr(g)}</h2>
-                {TOPICS.filter((t) => t.group === g).map(link)}
+                {TOPICS.filter((t) => t.group === g).map(topicLink)}
               </section>
             ))}
+            <section aria-labelledby="fx-help-group-looks">
+              <h2 id="fx-help-group-looks">{tr('外觀')}</h2>
+              {GALLERIES.map((g) => link(g, tr(GALLERY_NAMES[g])))}
+            </section>
           </nav>
           {/* keyed, so each topic turns in like a fresh page */}
-          <section key={current.id} id="fx-help-panel" className="fx-page fx-help-page" aria-labelledby="fx-help-page-title">
-            <h2 id="fx-help-page-title">{shown.title ?? shown.label}</h2>
-            {SHOTS[`./help/${SHOT_SET[appLanguage()]}/${current.id}.jpg`] && <img className="fx-help-shot" src={SHOTS[`./help/${SHOT_SET[appLanguage()]}/${current.id}.jpg`]} alt={shown.alt} />}
-            <TopicBody body={shown.body} />
-          </section>
+          {gallery ? (
+            <section key={gallery} id="fx-help-panel" className="fx-page fx-help-page" aria-labelledby="fx-help-page-title">
+              <h2 id="fx-help-page-title">{tr(GALLERY_NAMES[gallery])}</h2>
+              <Looks gallery={gallery} open={sample && !sample.leaving && sample.gallery === gallery ? sample.id : null} onOpen={openSample} />
+            </section>
+          ) : (
+            <section key={current.id} id="fx-help-panel" className="fx-page fx-help-page" aria-labelledby="fx-help-page-title">
+              <h2 id="fx-help-page-title">{shown.title ?? shown.label}</h2>
+              {SHOTS[`./help/${SHOT_SET[appLanguage()]}/${current.id}.jpg`] && <img className="fx-help-shot" src={SHOTS[`./help/${SHOT_SET[appLanguage()]}/${current.id}.jpg`]} alt={shown.alt} />}
+              <TopicBody body={shown.body} />
+            </section>
+          )}
         </div>
       </div>
+      {covered && !leaving && <button type="button" className="fx-detail-cover" aria-label={tr('收起上面那張，回到這張')} onClick={putAway} />}
     </aside>
+    {sample && (
+      <SampleSheet key={`${sample.gallery}/${sample.id}`} sample={sample} leaving={leaving || sample.leaving} onBack={putAway}
+        onGone={() => setSample((s) => (s?.leaving ? null : s))} />
+    )}
+    </>
   )
 }

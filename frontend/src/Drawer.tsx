@@ -62,6 +62,12 @@ function crownOf(style: BuildingLook['style'], p: ReturnType<typeof paletteOf>):
     case 'deco': return [[7, 0, 2, 1, p.sign], [5, 1, 6, 1, p.wall], [5, 2, 6, 1, p.sign]]
     case 'eco': return [[1, 0, 3, 1, '#4fa848'], [6, 0, 2, 1, '#62b955'], [11, 0, 3, 1, '#4fa848']]
     case 'villa': return pyramid(p.roof)
+    case 'lighthouse': return [[2, 0, 4, 1, p.trim], [3, 1, 2, 1, '#ffe7a3'], [2, 2, 4, 1, p.wall]]
+    case 'hut': return [[4, 0, 8, 1, p.roof], [1, 1, 14, 1, p.roof], [0, 2, 16, 1, p.roof], [13, 0, 2, 1, '#4fa848']]
+    case 'castle': return [[0, 0, 3, 3, p.roof], [13, 0, 3, 3, p.roof], [4, 2, 2, 1, p.wall], [7, 2, 2, 1, p.wall], [10, 2, 2, 1, p.wall]]
+    case 'canal': return [[6, 0, 4, 1, p.wall], [4, 1, 8, 1, p.wall], [2, 2, 12, 1, p.wall], [7, 0, 2, 1, p.trim]]
+    case 'glasshouse': return [[4, 0, 8, 1, p.roof], [2, 1, 12, 1, p.roof], [1, 2, 14, 1, p.roof], [7, 0, 2, 3, p.trim]]
+    case 'sweets': return [[7, 0, 2, 1, '#d22b1f'], [5, 1, 6, 1, '#f1e8da'], [5, 2, 6, 1, p.awning]]
   }
 }
 

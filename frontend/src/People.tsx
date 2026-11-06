@@ -9,7 +9,7 @@ import { memo, useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import type { Look } from './core/domain/types'
 import { anchors } from './core/voxel/labels'
-import { seedOf, styleOf, type Style } from './figureStyle'
+import { isSwimwear, seedOf, styleOf, type Style } from './figureStyle'
 import { hash, type Town } from './layout'
 import { OFFICE_SCALE, type OfficePlan } from './office'
 import { MAX_FRAME } from './PixelPass'
@@ -69,6 +69,10 @@ export { seedOf } from './figureStyle'
 const tone = (c: string, k: number) => `#${new THREE.Color(c).multiplyScalar(k).getHexString()}`
 
 const INK = '#1f1d2b'
+/** A lab coat's white. */
+const COAT = '#f4f4f0'
+/** Flip-flops, worn with swimwear. */
+const FLIPFLOP = '#f2a93b'
 const SHOE = '#2a2a30'
 
 /** Head, face, hair and headwear, centred at height `y`; the face looks towards -z. */
@@ -84,8 +88,10 @@ function head(y: number, look: Look, st: Style) {
   ]
   const h = look.hair
   const cap = look.extra === 'cap'
-  // a cap or a beanie covers the crown: nothing that sits on top of the head shows
-  const covered = cap || look.extra === 'beanie'
+  // a cap, a beanie or a straw hat covers the crown: nothing that sits on top of the head shows
+  const covered = cap || look.extra === 'beanie' || look.extra === 'strawhat'
+  // a beret sits on the crown, so buns, spikes and the like give way to it, but the crown stays
+  const topped = covered || look.extra === 'beret'
   // the crown and back of the head, by cut
   if (st.hair === 'buzz' || st.hair === 'mohawk') parts.push([[0, y + 0.155, -0.02], [0.31, 0.04, 0.31], h], [[0, y + 0.06, 0.125], [0.31, 0.14, 0.03], h])
   else if (st.hair !== 'bald') {
@@ -94,8 +100,8 @@ function head(y: number, look: Look, st: Style) {
   }
   if (st.hair === 'long') parts.push([[0, y - 0.1, 0.13], [0.34, 0.3, 0.06], h], [[-0.165, y - 0.04, 0.03], [0.04, 0.26, 0.2], h], [[0.165, y - 0.04, 0.03], [0.04, 0.26, 0.2], h])
   if (st.hair === 'fringe') parts.push([[0, y + 0.1, -0.165], [0.32, 0.07, 0.03], h])
-  if (st.hair === 'bun' && !covered) parts.push([[0, y + 0.25, 0.07], [0.14, 0.12, 0.14], h])
-  if (st.hair === 'spiky' && !covered) for (const x of [-0.09, 0, 0.09]) parts.push([[x, y + 0.24, -0.02 + x * 0.4], [0.08, 0.08, 0.08], h])
+  if (st.hair === 'bun' && !topped) parts.push([[0, y + 0.25, 0.07], [0.14, 0.12, 0.14], h])
+  if (st.hair === 'spiky' && !topped) for (const x of [-0.09, 0, 0.09]) parts.push([[x, y + 0.24, -0.02 + x * 0.4], [0.08, 0.08, 0.08], h])
   // a tail down the back, held by a band
   if (st.hair === 'ponytail') parts.push([[0, y + 0.06, 0.17], [0.1, 0.08, 0.06], tone(h, 0.7)], [[0, y - 0.1, 0.19], [0.1, 0.26, 0.08], h])
   // to the jaw all round, with a straight fringe
@@ -105,9 +111,40 @@ function head(y: number, look: Look, st: Style) {
     parts.push([[0, y + 0.08, 0.04], [0.42, 0.3, 0.38], h], [[-0.19, y - 0.02, 0.03], [0.06, 0.2, 0.3], h], [[0.19, y - 0.02, 0.03], [0.06, 0.2, 0.3], h])
     if (!covered) parts.push([[0, y + 0.22, -0.01], [0.38, 0.1, 0.34], h])
   }
-  if (st.hair === 'mohawk' && !covered) parts.push([[0, y + 0.23, -0.0], [0.08, 0.12, 0.34], h])
+  if (st.hair === 'mohawk' && !topped) parts.push([[0, y + 0.23, -0.0], [0.08, 0.12, 0.34], h])
   // a side parting: the fringe swept to one side
   if (st.hair === 'side') parts.push([[0.05, y + 0.11, -0.165], [0.22, 0.06, 0.03], h], [[0.13, y + 0.06, -0.165], [0.06, 0.06, 0.03], h])
+  // a tail either side, or one, held by bands
+  if (st.hair === 'twintails' || st.hair === 'sidetail') {
+    for (const k of st.hair === 'twintails' ? [-1, 1] : [-1]) {
+      parts.push([[k * 0.2, y + 0.08, 0.05], [0.1, 0.06, 0.1], tone(h, 0.7)], [[k * 0.21, y - 0.08, 0.05], [0.08, 0.26, 0.08], h], [[k * 0.22, y - 0.23, 0.05], [0.06, 0.06, 0.06], h])
+    }
+  }
+  // long and full, past the shoulders, the ends curling out
+  if (st.hair === 'waves') {
+    parts.push([[0, y - 0.14, 0.14], [0.38, 0.38, 0.07], h], [[-0.18, y - 0.06, 0.03], [0.05, 0.32, 0.22], h], [[0.18, y - 0.06, 0.03], [0.05, 0.32, 0.22], h])
+    parts.push([[-0.2, y - 0.2, -0.03], [0.06, 0.07, 0.1], h], [[0.2, y - 0.2, -0.03], [0.06, 0.07, 0.1], h])
+  }
+  // two buns on top, one each side
+  if (st.hair === 'buns' && !topped) parts.push([[-0.11, y + 0.24, 0.02], [0.12, 0.11, 0.12], h], [[0.11, y + 0.24, 0.02], [0.12, 0.11, 0.12], h])
+  // one plait down over the right shoulder, in front of the chest, tied at the end
+  if (st.hair === 'braid') {
+    parts.push([[0.15, y - 0.04, -0.12], [0.07, 0.14, 0.07], h], [[0.13, y - 0.15, -0.16], [0.08, 0.09, 0.08], h], [[0.12, y - 0.24, -0.165], [0.075, 0.09, 0.075], h])
+    parts.push([[0.13, y - 0.32, -0.16], [0.07, 0.08, 0.07], h], [[0.13, y - 0.38, -0.16], [0.06, 0.04, 0.06], tone(h, 0.7)])
+  }
+  // long hair with the top half tied back in a small knot
+  if (st.hair === 'halfup') {
+    parts.push([[0, y - 0.1, 0.13], [0.34, 0.3, 0.06], h], [[-0.165, y - 0.04, 0.03], [0.04, 0.26, 0.2], h], [[0.165, y - 0.04, 0.03], [0.04, 0.26, 0.2], h])
+    parts.push([[0, y + 0.13, 0.18], [0.12, 0.1, 0.07], h])
+  }
+  // short curls: lumps on top and over the ears
+  if (st.hair === 'curly') {
+    if (!topped) for (const x of [-0.1, 0, 0.1]) parts.push([[x, y + 0.235, -0.03 + Math.abs(x) * 0.5], [0.1, 0.06, 0.1], h])
+    parts.push([[-0.18, y + 0.1, -0.05], [0.05, 0.08, 0.08], h], [[0.18, y + 0.1, -0.05], [0.05, 0.08, 0.08], h], [[0, y + 0.12, -0.17], [0.26, 0.04, 0.03], h])
+  }
+  // combed up high at the front and back over the crown
+  if (st.hair === 'quiff' && !topped) parts.push([[0, y + 0.22, -0.12], [0.3, 0.1, 0.12], h], [[0, y + 0.27, -0.14], [0.24, 0.05, 0.1], h])
+  if (st.facial === 'goatee') parts.push([[0, y - 0.12, -0.17], [0.08, 0.06, 0.03], h])
   if (st.facial === 'mustache') parts.push([[0, y - 0.045, -0.168], [0.14, 0.03, 0.012], h])
   if (st.facial === 'beard' || st.facial === 'stubble') {
     // chin and jaw, below the mouth; stubble is a shadow of one
@@ -117,15 +154,61 @@ function head(y: number, look: Look, st: Style) {
     parts.push([[-0.135, y - 0.06, -0.15 - deep / 2 + 0.006], [0.03, 0.12, deep], c], [[0.135, y - 0.06, -0.15 - deep / 2 + 0.006], [0.03, 0.12, deep], c])
     if (st.facial === 'beard') parts.push([[0, y - 0.045, -0.168], [0.14, 0.03, 0.012], h])
   }
+  // Hats are sized to sit over the hair, never level with it: two faces in one plane flicker between their colours.
+  // An afro is wider and taller than the head, so a hat is pulled down over it, bigger and higher.
+  const afro = st.hair === 'afro'
   if (cap) {
     const c = tone(look.shirt, 0.8)
-    parts.push([[0, y + 0.18, -0.02], [0.34, 0.1, 0.34], c], [[0, y + 0.135, -0.22], [0.3, 0.03, 0.14], c])
+    if (afro) parts.push([[0, y + 0.25, 0.02], [0.44, 0.1, 0.44], c], [[0, y + 0.22, -0.26], [0.34, 0.03, 0.14], c])
+    else parts.push([[0, y + 0.18, -0.02], [0.34, 0.1, 0.36], c], [[0, y + 0.135, -0.23], [0.33, 0.03, 0.14], c])
   }
   if (look.extra === 'beanie') {
     // a knitted hat with a folded band and a bobble
-    parts.push([[0, y + 0.19, -0.02], [0.34, 0.14, 0.34], st.accent], [[0, y + 0.12, -0.02], [0.35, 0.05, 0.35], tone(st.accent, 0.82)], [[0, y + 0.29, -0.02], [0.08, 0.07, 0.08], tone(st.accent, 1.15)])
+    const [hy, hz, hw] = afro ? [0.26, 0.02, 0.44] : [0.19, -0.02, 0.34]
+    parts.push([[0, y + hy, hz], [hw, 0.14, hw + 0.02], st.accent], [[0, y + hy - 0.07, hz], [hw + 0.01, 0.05, hw + 0.03], tone(st.accent, 0.82)], [[0, y + hy + 0.1, hz], [0.08, 0.07, 0.08], tone(st.accent, 1.15)])
   }
-  if (look.extra === 'bow') parts.push([[0.07, y + 0.22, -0.04], [0.08, 0.08, 0.05], '#e5484d'], [[0.17, y + 0.22, -0.04], [0.08, 0.08, 0.05], '#e5484d'], [[0.12, y + 0.22, -0.045], [0.04, 0.05, 0.05], '#b8323a'])
+  if (look.extra === 'bow') {
+    // between two buns it sits in front of them, in the middle
+    const [bx, by, bz] = st.hair === 'buns' ? [-0.05, y + 0.22, -0.1] : [0.07, y + (afro ? 0.3 : 0.22), -0.04]
+    parts.push([[bx, by, bz], [0.08, 0.08, 0.05], '#e5484d'], [[bx + 0.1, by, bz], [0.08, 0.08, 0.05], '#e5484d'], [[bx + 0.05, by, bz - 0.005], [0.04, 0.05, 0.05], '#b8323a'])
+  }
+  // how high the hair reaches, and how far out at the sides, for what sits on or beside it
+  const crown = st.hair === 'bald' ? 0.14 : st.hair === 'buzz' || st.hair === 'mohawk' ? 0.175 : afro ? 0.27 : 0.21
+  const side = afro ? 0.22 : st.hair === 'waves' || st.hair === 'curly' ? 0.205 : st.hair === 'buzz' || st.hair === 'mohawk' || st.hair === 'bald' ? 0.15
+    : st.hair === 'long' || st.hair === 'bob' || st.hair === 'halfup' ? 0.185 : 0.18
+  if (look.extra === 'strawhat') {
+    // a wide brim with a red band round the crown
+    const [hy, hw] = afro ? [0.29, 0.44] : [0.21, 0.34]
+    parts.push([[0, y + hy - 0.065, -0.02], [hw + 0.22, 0.03, hw + 0.22], '#e3c27a'], [[0, y + hy, -0.02], [hw, 0.1, hw], '#e3c27a'])
+    parts.push([[0, y + hy - 0.03, -0.02], [hw + 0.01, 0.035, hw + 0.01], '#c0453a'])
+  }
+  if (look.extra === 'beret') {
+    // flat, pulled over to the left, with a stalk on top
+    const w = afro ? 0.46 : 0.38
+    parts.push([[-0.05, y + crown + 0.025, -0.02], [w, 0.06, w - 0.02], st.accent], [[-0.05, y + crown + 0.07, -0.02], [0.03, 0.03, 0.03], tone(st.accent, 0.8)])
+  }
+  if (look.extra === 'bandana') {
+    // a band round the forehead, knotted at the back
+    const [w, z, d] = afro ? [0.45, 0.04, 0.42] : [0.38, -0.02, 0.36]
+    parts.push([[0, y + 0.092, z], [w, 0.06, d], st.accent], [[0.07, y + 0.092, z + d / 2 + 0.02], [0.06, 0.06, 0.05], tone(st.accent, 0.8)])
+    parts.push([[0.09, y + 0.03, z + d / 2 + 0.015], [0.05, 0.1, 0.02], tone(st.accent, 0.8)])
+  }
+  if (look.extra === 'headband') {
+    // a thin band over the top, from ear to ear
+    const ex = afro ? 0.235 : side === 0.15 ? 0.165 : 0.175
+    const top = y + crown + 0.018
+    parts.push([[0, top, -0.04], [ex * 2 - 0.02, 0.03, 0.05], st.accent])
+    for (const k of [-1, 1]) parts.push([[k * ex, (top + y + 0.03) / 2, -0.04], [0.03, top - y - 0.03, 0.05], st.accent])
+  }
+  if (look.extra === 'hairclip') {
+    // two clips above the left ear, the side the map sees
+    parts.push([[-side - 0.012, y + 0.1, -0.07], [0.03, 0.025, 0.09], '#ffcf5a'], [[-side - 0.012, y + 0.05, -0.07], [0.03, 0.025, 0.09], '#e86f8a'])
+  }
+  if (look.extra === 'flower') {
+    // over the left ear, the side the map sees: four petals round a yellow middle
+    const cx = -side - 0.02
+    parts.push([[cx, y + 0.1, -0.04], [0.05, 0.12, 0.05], '#f28bb0'], [[cx, y + 0.1, -0.04], [0.05, 0.05, 0.12], '#f28bb0'], [[cx - 0.005, y + 0.1, -0.04], [0.05, 0.06, 0.06], '#ffcf5a'])
+  }
   if (look.extra === 'glasses') {
     parts.push([[-0.075, y + 0.02, -0.17], [0.11, 0.09, 0.01], '#2a2a33'], [[0.075, y + 0.02, -0.17], [0.11, 0.09, 0.01], '#2a2a33'])
     parts.push([[-0.075, y + 0.02, -0.176], [0.07, 0.05, 0.01], '#cfe3ef'], [[0.075, y + 0.02, -0.176], [0.07, 0.05, 0.01], '#cfe3ef'])
@@ -135,19 +218,58 @@ function head(y: number, look: Look, st: Style) {
     parts.push([[0, y + 0.045, -0.172], [0.06, 0.02, 0.012], '#16161c'])
   }
   if (look.extra === 'headset') {
-    parts.push([[0, y + 0.2, -0.02], [0.36, 0.04, 0.06], '#2a2a33'], [[-0.18, y, -0.02], [0.05, 0.11, 0.11], '#2a2a33'], [[0.18, y, -0.02], [0.05, 0.11, 0.11], '#2a2a33'])
-    parts.push([[-0.15, y - 0.07, -0.12], [0.02, 0.02, 0.14], '#2a2a33'])
+    // over an afro: a wider band above the hair, straps down its sides and the cups outside it
+    const ex = afro ? 0.235 : side > 0.2 ? 0.225 : 0.18
+    parts.push([[0, y + (afro ? 0.29 : 0.2), -0.02], [ex * 2, 0.04, 0.06], '#2a2a33'], [[-ex, y, -0.02], [0.05, 0.11, 0.11], '#2a2a33'], [[ex, y, -0.02], [0.05, 0.11, 0.11], '#2a2a33'])
+    if (afro) parts.push([[-ex, y + 0.155, -0.02], [0.03, 0.23, 0.04], '#2a2a33'], [[ex, y + 0.155, -0.02], [0.03, 0.23, 0.04], '#2a2a33'])
+    parts.push([[-ex + (afro ? 0.03 : 0.035), y - 0.07, -0.12], [0.02, 0.02, 0.14], '#2a2a33'])
   }
   return parts
 }
 
-/** Upper body between heights `y0` and `y1`, `w` wide, front towards -z. */
-function torso(y0: number, y1: number, w: number, look: Look, st: Style) {
+/** The head's boxes, as [centre, size, colour], for checking how they fit together. */
+export const headBoxesForTest = (look: Look, st: Style) => head(0, look, st)
+
+/** Upper body between heights `y0` and `y1`, `w` wide, front towards -z; `tails` hangs a long coat's tails below `y0`. */
+function torso(y0: number, y1: number, w: number, look: Look, st: Style, tails = false) {
   const y = (y0 + y1) / 2
   const h = y1 - y0
   const front = -0.115
-  const body = st.top === 'jacket' || st.top === 'vest' ? st.accent : look.shirt
+  if (isSwimwear(st.bottom)) {
+    // bare, with a bikini top across the chest and straps over the shoulders
+    const bare: Array<[V3, V3, string]> = [[[0, y, 0], [w, h, 0.22], look.skin]]
+    if (st.bottom === 'bikini') {
+      bare.push([[0, y1 - h * 0.38, 0], [w + 0.006, 0.07, 0.226], look.shirt])
+      for (const k of [-1, 1]) bare.push([[k * 0.09, y1 - h * 0.14, front - 0.002], [0.03, h * 0.28, 0.01], look.shirt])
+    }
+    return bare
+  }
+  const body = st.top === 'jacket' || st.top === 'vest' || st.top === 'cardigan' ? st.accent : st.top === 'labcoat' ? COAT : look.shirt
   const parts: Array<[V3, V3, string]> = [[[0, y, 0], [w, h, 0.22], body]]
+  // an open cardigan: the shirt (or dress) down the front, a ribbed hem and buttons
+  if (st.top === 'cardigan') {
+    parts.push([[0, y, front], [0.1, h, 0.01], look.shirt], [[0, y0 + 0.025, 0], [w + 0.01, 0.05, 0.23], tone(body, 0.85)])
+    for (const k of [0.35, 0.65]) parts.push([[-0.065, y0 + h * k, front - 0.002], [0.025, 0.025, 0.01], tone(body, 0.7)])
+  }
+  // a blouse: a white collar with a bow at the neck
+  if (st.top === 'bowshirt') {
+    parts.push([[0, y1 - 0.02, front], [0.2, 0.04, 0.01], '#f4f4f0'])
+    parts.push([[-0.035, y1 - 0.05, front - 0.004], [0.05, 0.04, 0.012], st.accent], [[0.035, y1 - 0.05, front - 0.004], [0.05, 0.04, 0.012], st.accent], [[0, y1 - 0.05, front - 0.006], [0.02, 0.03, 0.012], tone(st.accent, 0.8)])
+  }
+  // checks: bands round and down, in one colour
+  if (st.top === 'plaid') {
+    for (const k of [0.3, 0.7]) parts.push([[0, y0 + h * k, 0], [w + 0.006, 0.03, 0.226], st.accent])
+    for (const x of [-w / 4, w / 4]) parts.push([[x, y, 0], [0.03, h - 0.004, 0.226], st.accent])
+  }
+  // a long white coat, open over the shirt, with lapels and pockets; its tails hang below the waist when standing
+  if (st.top === 'labcoat') {
+    parts.push([[0, y1 - 0.08, front], [0.1, 0.16, 0.01], look.shirt])
+    parts.push([[-0.06, y1 - 0.07, front - 0.004], [0.05, 0.12, 0.01], tone(COAT, 0.88)], [[0.06, y1 - 0.07, front - 0.004], [0.05, 0.12, 0.01], tone(COAT, 0.88)])
+    for (const k of [-1, 1]) parts.push([[k * 0.11, y0 + 0.07, front], [0.08, 0.06, 0.01], tone(COAT, 0.9)])
+    if (tails) parts.push([[0, y0 - 0.1, 0], [w + 0.02, 0.2, 0.24], COAT])
+  }
+  // a high collar round the neck, under the chin, and a ribbed hem
+  if (st.top === 'turtleneck') parts.push([[0, y1 - 0.01, -0.02], [0.32, 0.06, 0.3], tone(body, 0.85)], [[0, y0 + 0.025, 0], [w + 0.01, 0.05, 0.23], tone(body, 0.85)])
   if (st.top === 'jacket') {
     // open jacket over a light shirt, with lapels
     parts.push([[0, y, front], [0.12, h, 0.01], '#eef0f2'], [[-0.07, y1 - 0.06, front - 0.004], [0.05, 0.1, 0.01], tone(body, 0.8)], [[0.07, y1 - 0.06, front - 0.004], [0.05, 0.1, 0.01], tone(body, 0.8)])
@@ -182,24 +304,49 @@ const boxes = (parts: Array<[V3, V3, string]>, key: string) => parts.map(([p, sz
  * (positions stay in the parent's units). `drop` lengthens the seated shins below the feet, for seats
  * higher than an office chair. `seed` picks the hairstyle and clothes.
  */
-export const Figure = memo(function Figure({ look, rig, seed, drop = 0, scale = 1 }: { look: Look; rig: Rig; seed: number; drop?: number; scale?: number }) {
-  const st = useMemo(() => styleOf(seed), [seed])
-  const sleeve = st.top === 'jacket' ? st.accent : look.shirt
-  // short sleeves on a tee, a polo or a striped top, so the forearms show
-  const forearm = st.top === 'tee' || st.top === 'polo' || st.top === 'stripes' ? look.skin : sleeve
+export const Figure = memo(function Figure({ look, rig, seed, drop = 0, scale = 1, beach = false }: {
+  look: Look; rig: Rig; seed: number; drop?: number; scale?: number
+  /** Out on the island: more often in swimwear. */
+  beach?: boolean
+}) {
+  const st = useMemo(() => styleOf(seed, look.wardrobe, beach), [seed, look.wardrobe, beach])
+  const sleeve = st.top === 'jacket' || st.top === 'cardigan' ? st.accent : st.top === 'labcoat' ? COAT : look.shirt
+  // short sleeves on a tee, a polo, a striped top or a blouse, so the forearms show
+  const forearm = st.top === 'tee' || st.top === 'polo' || st.top === 'stripes' || st.top === 'bowshirt' ? look.skin : sleeve
+  // a skirt in the trousers' colour, a dress in the shirt's; bare legs below either, but a long skirt hides them
+  const skirt = st.bottom === 'dress' ? look.shirt : look.pants
+  const legs = st.bottom === 'pants' || st.bottom === 'longskirt' ? look.pants : look.skin
+  const hem = st.bottom === 'longskirt' ? 0.07 : st.bottom === 'pants' ? 0.47 : 0.25
+  // swimwear: bare arms and legs, trunks in the trousers' colour or a bikini in the shirt's, and flip-flops
+  const swim = isSwimwear(st.bottom)
+  const suit = st.bottom === 'bikini' ? look.shirt : look.pants
+  const arm = swim ? look.skin : sleeve
+  const lower = swim ? look.skin : forearm
   rig.drop = drop
   return (
     <group ref={(g) => void (rig.root = g)} scale={scale}>
       {/* seated at a desk or on a bench: thighs forward, hands reaching to the lap or keyboard */}
       <group ref={(g) => void (rig.seated = g)}>
-        <M p={[0, 0.3, -0.16]} s={[0.34, 0.12, 0.34]} c={look.pants} />
-        {[-1, 1].map((k, i) => <M key={`s${k}`} r={(m) => void (rig.shins[i] = m)} p={[k * 0.09, (0.24 - drop) / 2, -0.28]} s={[0.12, 0.24 + drop, 0.12]} c={look.pants} />)}
-        {[-1, 1].map((k, i) => <M key={`f${k}`} r={(m) => void (rig.feet[i] = m)} p={[k * 0.09, 0.035 - drop, -0.31]} s={[0.14, 0.07, 0.2]} c={SHOE} />)}
+        {swim
+          ? <>
+            {/* bare thighs, the trunks or bikini over the hips */}
+            <M p={[0, 0.3, -0.16]} s={[0.34, 0.12, 0.34]} c={look.skin} />
+            <M p={[0, 0.3, st.bottom === 'trunks' ? -0.08 : -0.05]} s={[0.35, 0.13, st.bottom === 'trunks' ? 0.19 : 0.13]} c={suit} />
+          </>
+          : st.bottom === 'pants'
+          ? <M p={[0, 0.3, -0.16]} s={[0.34, 0.12, 0.34]} c={look.pants} />
+          : <>
+            {/* a skirt over the lap, its hem falling over the knees */}
+            <M p={[0, 0.3, -0.17]} s={[0.38, 0.12, 0.38]} c={skirt} />
+            <M p={[0, st.bottom === 'longskirt' ? 0.15 : 0.2, -0.37]} s={[0.38, st.bottom === 'longskirt' ? 0.22 : 0.1, 0.02]} c={skirt} />
+          </>}
+        {[-1, 1].map((k, i) => <M key={`s${k}`} r={(m) => void (rig.shins[i] = m)} p={[k * 0.09, (0.24 - drop) / 2, -0.28]} s={[0.12, 0.24 + drop, 0.12]} c={legs} />)}
+        {[-1, 1].map((k, i) => <M key={`f${k}`} r={(m) => void (rig.feet[i] = m)} p={[k * 0.09, 0.035 - drop, -0.31]} s={[0.14, 0.07, 0.2]} c={swim ? FLIPFLOP : SHOE} />)}
         {boxes(torso(0.35, 0.69, 0.42, look, st), 't')}
         {[-1, 1].map((k) => (
           <group key={`a${k}`}>
-            <M p={[k * 0.26, 0.58, -0.02]} s={[0.1, 0.18, 0.14]} c={sleeve} />
-            <M p={[k * 0.26, 0.48, -0.15]} s={[0.1, 0.1, 0.22]} c={forearm} />
+            <M p={[k * 0.26, 0.58, -0.02]} s={[0.1, 0.18, 0.14]} c={arm} />
+            <M p={[k * 0.26, 0.48, -0.15]} s={[0.1, 0.1, 0.22]} c={lower} />
             <M p={[k * 0.25, 0.48, -0.28]} s={[0.09, 0.08, 0.08]} c={look.skin} />
           </group>
         ))}
@@ -209,16 +356,30 @@ export const Figure = memo(function Figure({ look, rig, seed, drop = 0, scale = 
       <group ref={(g) => void (rig.standing = g)} visible={false}>
         {[-1, 1].map((k, i) => (
           <group key={`l${k}`} ref={(g) => void (rig.legs[i] = g)} position={[k * 0.1, 0.44, 0]}>
-            <M p={[0, -0.2, 0]} s={[0.15, 0.4, 0.17]} c={look.pants} />
-            <M p={[0, -0.405, -0.03]} s={[0.16, 0.07, 0.23]} c={SHOE} />
+            <M p={[0, -0.2, 0]} s={[0.15, 0.4, 0.17]} c={legs} />
+            {swim
+              ? <>
+                {/* the trunks' legs, or a bikini's sides, swinging with the leg; bare feet on flip-flops */}
+                <M p={[0, st.bottom === 'trunks' ? -0.075 : -0.03, 0]} s={[0.16, st.bottom === 'trunks' ? 0.14 : 0.05, 0.18]} c={suit} />
+                <M p={[0, -0.405, -0.03]} s={[0.16, 0.07, 0.23]} c={look.skin} />
+                <M p={[0, -0.432, -0.03]} s={[0.17, 0.02, 0.24]} c={FLIPFLOP} />
+              </>
+              : <M p={[0, -0.405, -0.03]} s={[0.16, 0.07, 0.23]} c={SHOE} />}
           </group>
         ))}
-        <M p={[0, 0.46, 0]} s={[0.41, 0.05, 0.23]} c={tone(look.pants, 0.7)} />
-        {boxes(torso(0.48, 0.82, 0.4, look, st), 't')}
+        <M p={[0, 0.46, 0]} s={[0.41, 0.05, 0.23]} c={swim ? suit : tone(skirt, st.bottom === 'dress' ? 0.8 : 0.7)} />
+        {!swim && st.bottom !== 'pants' && (
+          <>
+            {/* the skirt from the waist to its hem, flaring out at the bottom */}
+            <M p={[0, (0.47 + hem) / 2, 0]} s={[0.42, 0.47 - hem, 0.27]} c={skirt} />
+            <M p={[0, hem + 0.02, 0]} s={[0.48, 0.06, 0.31]} c={tone(skirt, 0.9)} />
+          </>
+        )}
+        {boxes(torso(0.48, 0.82, 0.4, look, st, true), 't')}
         {[-1, 1].map((k, i) => (
           <group key={`r${k}`} ref={(g) => void (rig.arms[i] = g)} position={[k * 0.25, 0.8, 0]}>
-            <M p={[0, -0.09, 0]} s={[0.1, 0.18, 0.13]} c={sleeve} />
-            <M p={[0, -0.26, 0]} s={[0.1, 0.16, 0.12]} c={forearm} />
+            <M p={[0, -0.09, 0]} s={[0.1, 0.18, 0.13]} c={arm} />
+            <M p={[0, -0.26, 0]} s={[0.1, 0.16, 0.12]} c={lower} />
             <M p={[0, -0.38, 0]} s={[0.09, 0.08, 0.1]} c={look.skin} />
             {/* a mug in the right hand, held out in front */}
             {k === 1 && (
@@ -628,8 +789,9 @@ export const lookOf = (i: number): Look => ({
   hair: HAIR[Math.floor(hash(i, 2) * HAIR.length)],
   shirt: SHIRT[Math.floor(hash(i, 3) * SHIRT.length)],
   pants: PANTS[Math.floor(hash(i, 4) * PANTS.length)],
-  // a few in glasses or a cap
-  extra: hash(i, 8) < 0.2 ? 'glasses' : hash(i, 8) < 0.35 ? 'cap' : 'none',
+  // a few in glasses or a hat
+  extra: hash(i, 8) < 0.2 ? 'glasses' : hash(i, 8) < 0.3 ? 'cap' : hash(i, 8) < 0.38 ? 'strawhat' : 'none',
+  wardrobe: 2,
 })
 
 /** Height of a bench seat's top, in world units; matches the bench drawn in World. */
@@ -728,7 +890,7 @@ export function Strollers({ town }: { town: Town }) {
   return (
     <>
       {/* figures are built in office units */}
-      {looks.map((look, i) => <Figure key={i} look={look} rig={rigs[i]} seed={i * 7 + 3} drop={BENCH_LIFT} scale={OFFICE_SCALE} />)}
+      {looks.map((look, i) => <Figure key={i} look={look} rig={rigs[i]} seed={i * 7 + 3} drop={BENCH_LIFT} scale={OFFICE_SCALE} beach />)}
     </>
   )
 }

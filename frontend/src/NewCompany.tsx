@@ -191,9 +191,10 @@ function PlotOutline({ x, z, size, on, bad }: { x: number; z: number; size: numb
 
 const basename = (path: string) => path.split(/[/\\]/).filter(Boolean).pop() ?? ''
 
-const STYLE_NAMES = {
+export const STYLE_NAMES = {
   tower: '玻璃大樓', brick: '紅磚樓', studio: '工作室', loft: '工業倉庫', timber: '木屋', classic: '石造', tech: '科技大樓',
   pagoda: '東方樓閣', deco: '裝飾藝術', eco: '垂直森林', villa: '地中海別墅',
+  lighthouse: '燈塔', hut: '海島草屋', castle: '城堡', canal: '運河屋', glasshouse: '溫室', sweets: '甜點店',
 } as const satisfies Record<BuildingStyle, string>
 
 /** The sheet for the company itself: name, folder and target branch. Founding it hands back its id. */
