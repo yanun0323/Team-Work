@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { tr } from './core/i18n'
 import { useStore } from './core/store'
 import { addSource, applySource, attempt, checkSource, previewSource, seeSource, deleteSource, setSourceAutoApply, sourceChanges, sourceProblems } from './core/ops'
-import { sourceOfId, sourceUsers } from './core/domain/sources'
+import { OFFICIAL_SOURCE, sourceOfId, sourceUsers } from './core/domain/sources'
 import { blueprintList, flowList } from './core/model'
 import { githubAddress, parseGithub } from './github'
 import { keptState, sourceName } from './source'
@@ -15,7 +15,7 @@ import { CrewRow, crewOrder } from './Pickers'
 import { Switcher, Toggle, WaitBadge } from './Controls'
 import { byCategory, useSourceItems } from './SkillPicker'
 import { DeleteTool, Gone, Heading, itemKey, type Head, type Item } from './DrawerDetail'
-import type { Look, Replica, Source, SourceChanges, SourceItem, SourcePreview } from './core/domain/types'
+import type { Blueprint, Look, Replica, Source, SourceChanges, SourceItem, SourcePreview } from './core/domain/types'
 
 const sorted = (sources: Record<string, Source>) =>
   Object.values(sources).sort((a, b) => (a.kind === b.kind ? sourceName(a).localeCompare(sourceName(b)) : a.kind === 'git' ? -1 : 1))
@@ -34,30 +34,58 @@ export function SourceSign({ s }: { s: Source }) {
   )
 }
 
-/** A source's row in the list: its mark, its name with what went wrong, and a stamp: 本地 for a folder, 自動更新 for a repo that updates itself. */
-export function SourceRow({ s, now }: { s: Source; now: number }) {
+/**
+ * A source's row in the list: its mark, its name with what it brings and what went wrong, and 自動更新 stamped on a
+ * repo that updates itself. Whether it is a repo or a folder its name already says (owner/repo, or a path).
+ */
+export function SourceRow({ s, now, brings = [] }: { s: Source; now: number; brings?: string[] }) {
   const state = keptState(s, now)
   return (
     <>
       <SourceSign s={s} />
       <span className="fx-row-main">
         <b>{sourceName(s)}</b>
+        {/* each count kept whole, so a narrow sheet breaks between them, not inside one */}
+        {brings.length > 0 && (
+          <span className="fx-src-brings">
+            {brings.map((x, i) => <span key={x}>{i > 0 && ' · '}<span>{x}</span></span>)}
+          </span>
+        )}
         {state?.tone === 'bad' && <span className={`fx-src-state fx-src-${state.tone}`}>{state.label}</span>}
       </span>
-      {s.kind === 'git' ? s.autoApply && <span className="fx-pill">{tr('自動更新')}</span> : <span className="fx-pill">{tr('本地')}</span>}
+      {s.kind === 'git' && s.autoApply && <span className="fx-pill">{tr('自動更新')}</span>}
     </>
   )
 }
 
+/**
+ * What a source brings: its skills, then the employee and task blueprints it has, then how many blueprints and
+ * employees use it (what keeps it from being deleted); nothing until its skills are read.
+ */
+export function bringsText(skills: number | undefined, blueprints: number, flows: number, users = 0): string[] {
+  if (skills === undefined) return []
+  const parts = [
+    skills > 0 && tr('{length} 個技能', { length: skills }),
+    blueprints > 0 && tr('{length} 個員工藍圖', { length: blueprints }),
+    flows > 0 && tr('{length} 個任務藍圖', { length: flows }),
+  ].filter((x): x is string => !!x)
+  return [...(parts.length ? parts : [tr('沒有技能')]), ...(users > 0 ? [tr('用在 {length} 處', { length: users })] : [])]
+}
+
 export function SourcesTab({ open, onOpen }: { open: string | null; onOpen: (x: Item) => void }) {
   const w = useStore((s) => s.world)
+  const items = useSourceItems(Object.keys(w.sources))
+  const blueprints = blueprintList(w).map((b) => sourceOfId(b.id))
+  const flows = flowList(w).map((f) => sourceOfId(f.id))
+  const brings = (id: string) =>
+    bringsText(items[id]?.length, blueprints.filter((x) => x === id).length, flows.filter((x) => x === id).length, sourceUsers(w, id).length)
   const opener = (x: Item) => ({ type: 'button' as const, 'aria-expanded': open === itemKey(x), 'aria-controls': 'fx-detail', onClick: () => onOpen(x) })
   return (
     <div className="fx-d-groups">
       <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newSource' })}>{tr('＋ 新增來源')}</button>
       <ul className="fx-list">
         {sorted(w.sources).map((s) => (
-          <li key={s.id}><button className="fx-row fx-src-row fx-hit" {...opener({ kind: 'source', id: s.id })}><SourceRow s={s} now={w.now} /></button></li>
+          <li key={s.id}><button className="fx-row fx-src-row fx-hit" {...opener({ kind: 'source', id: s.id })}><SourceRow s={s} now={w.now} brings={brings(s.id)} /></button></li>
         ))}
       </ul>
     </div>
@@ -99,16 +127,24 @@ function Problems({ list }: { list: string[] }) {
   )
 }
 
-/** The blueprints or flows a source brings, by face and name. */
-function Brought({ name, items }: { name: string; items: { id: string; name: string; look?: Look }[] }) {
+/** The blueprints or flows a source brings, by face and name, each opening its own sheet, the one open pressed. */
+function Brought({ name, kind, items, open, onOpen }: {
+  name: string
+  kind: 'blueprint' | 'flow'
+  items: { id: string; name: string; look?: Look }[]
+  open: string | null
+  onOpen: (x: Item) => void
+}) {
   if (!items.length) return null
   return (
     <Section name={name}>
       <ul className="fx-list">
         {items.map((x) => (
-          <li key={x.id} className="fx-row">
-            {x.look && <span aria-hidden="true"><BlueprintIcon look={x.look} name={x.name} size={26} /></span>}
-            <span className="fx-row-main"><b>{x.name}</b></span>
+          <li key={x.id}>
+            <button type="button" className="fx-row fx-hit" aria-expanded={open === itemKey({ kind, id: x.id })} onClick={() => onOpen({ kind, id: x.id })}>
+              {x.look && <span aria-hidden="true"><BlueprintIcon look={x.look} name={x.name} size={26} /></span>}
+              <span className="fx-row-main"><b>{x.name}</b></span>
+            </button>
           </li>
         ))}
       </ul>
@@ -159,11 +195,14 @@ function RepoTool({ href }: { href: string }) {
 }
 
 /** One source: its state, what a newer version would change and for whom, and its skills by folder, each opening its own sheet. */
-export function SourceDetail({ id, open, onSkill, onGoneSource, ...h }: Head & {
+export function SourceDetail({ id, open, onSkill, openItem = null, onItem = () => {}, onGoneSource, ...h }: Head & {
   id: string
   /** The path of the skill open on the sheet above, if any. */
   open: string | null
   onSkill: (path: string) => void
+  /** The blueprint or flow it brings open on the sheet above, by `itemKey`, if any. */
+  openItem?: string | null
+  onItem?: (x: Item) => void
   onGoneSource: () => void
 }) {
   const w = useStore((s) => s.world)
@@ -199,14 +238,18 @@ export function SourceDetail({ id, open, onSkill, onGoneSource, ...h }: Head & {
   const users = sourceUsers(w, id)
   const crew = (changes?.replicas ?? []).map((r) => w.replicas[r]).filter(Boolean) as Replica[]
   const kept = (changes?.kept ?? []).map((r) => w.replicas[r]).filter(Boolean) as Replica[]
+  // a company's own copy of a blueprint is not listed: its employees are
+  const touched = (changes?.blueprints ?? []).map((b) => w.blueprints[b]).filter((b) => b && !b.owner) as Blueprint[]
   const page = repoPage(s)
   return (
     <>
       <div className="fx-tools">
         {page && <RepoTool href={page} />}
-        {s.kind === 'local' && <CheckTool key={id} id={id} local />}
-        <DeleteTool what={tr('來源')} disabled={users.length > 0} why={tr('還有 {length} 個藍圖或員工使用這個來源，無法刪除', { length: users.length })}
-          onConfirm={() => { onGoneSource(); act((x) => void deleteSource(x, id)) }} />
+        <CheckTool key={id} id={id} local={s.kind === 'local'} />
+        {id !== OFFICIAL_SOURCE && (
+          <DeleteTool what={tr('來源')} disabled={users.length > 0} why={tr('還有 {length} 個藍圖或員工使用這個來源，無法刪除', { length: users.length })}
+            onConfirm={() => { onGoneSource(); act((x) => void deleteSource(x, id)) }} />
+        )}
       </div>
       <header className="fx-d-head"><Heading {...h}>{sourceName(s)}</Heading></header>
       {s.kind === 'git' && (
@@ -215,7 +258,6 @@ export function SourceDetail({ id, open, onSkill, onGoneSource, ...h }: Head & {
             <p className="fx-src-head">
               <code>{(s.commit ?? '').slice(0, 7) || tr('沒有')}</code>
               {state && <span className={`fx-src-state fx-src-${state.tone}`}>{state.label}</span>}
-              <CheckTool key={id} id={id} />
             </p>
             {state?.note && <p className={state.tone === 'bad' ? 'fx-src-note fx-src-note-bad' : 'fx-src-note'}>{state.note}</p>}
           </Section>
@@ -233,20 +275,26 @@ export function SourceDetail({ id, open, onSkill, onGoneSource, ...h }: Head & {
               {changes.addedWorkflows.length + changes.removedWorkflows.length > 0 && (
                 <><h4>{tr('任務藍圖')}</h4><NameChips added={changes.addedWorkflows} removed={changes.removedWorkflows} /></>
               )}
-              {changes.blueprints.length > 0 && (
-                <ul className="fx-list">
-                  {changes.blueprints.map((b) => w.blueprints[b]).filter((b) => b && !b.owner).map((b) => (
-                    <li key={b!.id} className="fx-row">
-                      <span aria-hidden="true"><BlueprintIcon look={b!.look} name={b!.name} size={26} /></span>
-                      <span className="fx-row-main"><b>{b!.name}</b></span>
-                    </li>
-                  ))}
-                </ul>
+              {touched.length > 0 && (
+                <>
+                  <h4>{tr('受影響的員工藍圖')}</h4>
+                  <ul className="fx-list">
+                    {touched.map((b) => (
+                      <li key={b.id} className="fx-row">
+                        <span aria-hidden="true"><BlueprintIcon look={b.look} name={b.name} size={26} /></span>
+                        <span className="fx-row-main"><b>{b.name}</b></span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
               {crew.length > 0 && (
-                <ul className="fx-list">
-                  {crewOrder(w, crew).map((r) => <li key={r} className="fx-row"><CrewRow r={w.replicas[r]} /></li>)}
-                </ul>
+                <>
+                  <h4>{tr('受影響的員工')}</h4>
+                  <ul className="fx-list">
+                    {crewOrder(w, crew).map((r) => <li key={r} className="fx-row"><CrewRow r={w.replicas[r]} /></li>)}
+                  </ul>
+                </>
               )}
               {kept.length > 0 && (
                 <>
@@ -273,8 +321,8 @@ export function SourceDetail({ id, open, onSkill, onGoneSource, ...h }: Head & {
           ))
         )}
       </Section>
-      <Brought name={tr('員工藍圖')} items={blueprints} />
-      <Brought name={tr('任務藍圖')} items={flows} />
+      <Brought name={tr('員工藍圖')} kind="blueprint" items={blueprints} open={openItem} onOpen={onItem} />
+      <Brought name={tr('任務藍圖')} kind="flow" items={flows} open={openItem} onOpen={onItem} />
       <Problems list={problems} />
     </>
   )

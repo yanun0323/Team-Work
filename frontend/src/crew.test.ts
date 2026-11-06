@@ -177,6 +177,19 @@ describe('byBlueprint', () => {
     expect(blueprintLabel(w, b)).toBe('自訂')
     expect(blueprintLabel(w, a)).toBe(bp.name)
   })
+
+  it('keeps those whose blueprint is gone, first, so another can be picked', () => {
+    const w = seedWorld()
+    const [a, b, c] = Object.values(w.replicas)
+    w.blueprints.own = { ...w.blueprints[a.blueprintId], id: 'own', owner: b.id }
+    b.blueprintId = 'own'
+    c.blueprintId = 'preset-assistant'
+    const groups = byBlueprint(w, [a, b, c])
+    expect(groups[0]).toEqual({ bp: null, gone: true, list: [c] })
+    expect(groups[1]).toEqual({ bp: null, list: [b] })
+    expect(groups.flatMap((g) => g.list)).toHaveLength(3)
+    expect(blueprintLabel(w, c)).toBe('藍圖已不存在')
+  })
 })
 
 describe('how much a chat can read', () => {

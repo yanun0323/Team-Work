@@ -27,7 +27,7 @@ it('is a drawer headed as the airport, its model providers listed under the firs
 })
 
 it('starts with every preference on and the newest log line first', () => {
-  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, systemNotices: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, mapClick: 'sheets', autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], compact1M: 40, compact256K: 90, compact128K: 95, compactSmall: 95 })
+  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, systemNotices: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, mapClick: 'sheets', autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, idleFollow: 15, idleFollowTarget: 'map', terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], compact1M: 40, compact256K: 90, compact128K: 95, compactSmall: 95 })
   expect(ordered([1, 2, 3], 'newestFirst')).toEqual([3, 2, 1])
   expect(ordered([1, 2, 3], 'newestLast')).toEqual([1, 2, 3])
 })
@@ -170,7 +170,7 @@ it('fades a hidden blueprint in its place, with an eye on each row to hide or sh
     // the airport staff's always looks hidden, and has no eye: it cannot be hidden or shown
     expect(shown.match(/fx-hidden-item/g)).toHaveLength(1)
     expect(shown.match(/aria-pressed="false" aria-label="隱藏"/g)).toHaveLength(rows - 1)
-    set({ hiddenBlueprints: ['preset-assistant'] })
+    set({ hiddenBlueprints: ['team-work--assistant'] })
     const after = html()
     // the same rows in the same order, one of them faded and its eye struck through
     expect(after.match(/class="fx-hidable( fx-hidden-item)?"/g)).toHaveLength(rows)
@@ -197,4 +197,31 @@ it('sets how full a chat may get by the size of its model, and offers the defaul
   } finally {
     Object.assign(usePrefs.getInitialState(), { compact1M: 40 })
   }
+})
+
+it('opens the first group of task blueprints and folds the rest, each closed one saying how many it holds', () => {
+  const set = (p: Partial<typeof DEFAULT_PREFS>) => { usePrefs.setState(p); Object.assign(usePrefs.getInitialState(), usePrefs.getState()) }
+  set({ defaultAirportTab: 'flows', autoTab: 'off' })
+  try {
+    const html = renderToStaticMarkup(<Settings leaving={false} onGone={() => {}} />)
+    const heads = [...html.matchAll(/<button type="button" class="fx-fold" aria-expanded="(true|false)"[^>]*>(.*?)<\/button>/g)]
+    expect(heads.length).toBeGreaterThan(1)
+    expect(heads.map((m) => m[1])).toEqual(['true', ...heads.slice(1).map(() => 'false')])
+    expect(heads[0][2]).not.toContain('fx-fold-count')
+    for (const m of heads.slice(1)) expect(m[2]).toMatch(/<span class="fx-fold-count">\d+<\/span>/)
+    // a folded group draws none of its flows
+    expect(html.match(/class="fx-fold-body" hidden=""><\/div>/g)).toHaveLength(heads.length - 1)
+  } finally {
+    set({ defaultAirportTab: 'providers', autoTab: 'chats' })
+  }
+})
+
+
+it('offers the idle camera target next to the idle delay, defaulting to map people only', () => {
+  const html = renderToStaticMarkup(<PrefsPage />)
+  const at = html.indexOf('閒置鏡頭跟隨目標')
+  expect(at).toBeGreaterThan(html.indexOf('閒置時跟隨民眾'))
+  expect(at).toBeLessThan(html.indexOf('點選地圖'))
+  expect(html).toContain('僅地圖人物')
+  expect(DEFAULT_PREFS.idleFollowTarget).toBe('map')
 })

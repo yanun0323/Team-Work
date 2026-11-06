@@ -562,9 +562,33 @@ body { margin: 0; overflow: hidden; }
   display: grid; place-items: center; min-width: 34px; height: 34px; padding: 0; border: 0; border-radius: 17px;
   background: none; color: var(--ink-2); font: 600 12.5px/1 var(--font-sans); cursor: pointer;
 }
+/* scrolled down, a strip of paper across the top holds the tools, and what scrolls by fades out under it. Hidden at
+   the top, where the title keeps clear of the tools by itself */
+.fx-detail .fx-sheet:where(:has(> .fx-detail-body > .fx-tools))::before {
+  /* the sheet's own paper, laid over the whole sheet so its grain lines up, and cut down to the strip */
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: inherit; border-radius: inherit;
+  mask-image: linear-gradient(#000 50px, transparent 64px);
+  opacity: 0; transition: opacity 140ms ease;
+}
+.fx-detail .fx-sheet.fx-scrolled::before { opacity: 1; }
+/* what the keyboard reaches is scrolled clear of the strip */
+.fx-detail-body:has(> .fx-tools) { scroll-padding-top: 64px; }
+@media (prefers-reduced-motion: reduce) { .fx-detail .fx-sheet::before { transition: none; } }
 .fx-tool:hover { color: var(--ink); }
 a.fx-tool { text-decoration: none; }
 .fx-tool:disabled { opacity: 0.35; cursor: default; box-shadow: none; }
+/* a delete that cannot be done now: looks as disabled, but stays reachable and says why on a slip under it */
+.fx-tool-why-at { position: relative; display: inline-flex; }
+.fx-tool.fx-tool-off { opacity: 0.35; cursor: default; }
+.fx-tool-off:hover { color: var(--ink-2); }
+.fx-tool-why {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: 220px; padding: 8px 10px;
+  background: var(--clip); box-shadow: var(--lift); color: var(--ink-2); font: 500 12.5px/1.45 var(--font-sans);
+  opacity: 0; pointer-events: none; transition: opacity 120ms ease;
+}
+.fx-tool-why-at:hover > .fx-tool-why, .fx-tool-off:focus-visible + .fx-tool-why, .fx-tool-why-on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .fx-tool-why { transition: none; } }
 /* asking before a delete: the button says so, in the accent */
 .fx-tool-ask { padding: 0 12px; color: var(--accent); }
 .fx-tool-ask:hover { color: var(--accent); }
@@ -602,6 +626,10 @@ a.fx-tool { text-decoration: none; }
 .fx-doc-note.fx-notes { background: var(--note); }
 /* a handed file compared with how its step found it: the note goes dark as the code note does, each line on a row */
 .fx-doc-views .fx-tool[aria-pressed="true"] { color: var(--ink); font-weight: 700; }
+/* a long title wraps before the sheet's tools, room kept for each of them (36px a tool) */
+.fx-detail-body:has(> .fx-tools > :where(:nth-child(2))) > .fx-d-head h2 { padding-inline-end: 72px; }
+.fx-detail-body:has(> .fx-tools > :where(:nth-child(3))) > .fx-d-head h2 { padding-inline-end: 108px; }
+.fx-detail-body:has(> .fx-tools > :where(:nth-child(4))) > .fx-d-head h2 { padding-inline-end: 144px; }
 .fx-detail-body:has(> .fx-doc-views) > .fx-d-head h2 { padding-inline-end: 125px; }
 .fx-detail-body:has(> .fx-doc-views > :nth-child(3)) > .fx-d-head h2 { padding-inline-end: 175px; }
 .fx-diff-tally { font: 12.5px var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -689,6 +717,8 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-hide-on-hover { position: absolute; top: 50%; right: -4px; z-index: 3; translate: 0 -50%; opacity: 0; }
 .fx-flow-card > .fx-hide-on-hover { top: 4px; right: 4px; translate: none; }
 .fx-hidable:hover > .fx-hide-on-hover, .fx-hide-on-hover:focus-visible { opacity: 1; }
+/* a hidden one keeps its struck eye in sight: it says why the item is faded, and how to bring it back */
+.fx-hidden-item > .fx-hide-on-hover { opacity: 1; }
 @media (hover: none) { .fx-hide-on-hover { opacity: 1; } }
 .fx-check { width: 1em; font-weight: 700; color: var(--ink); text-align: center; }
 /* the slot for a new task: a blank slip, dashed where the next card goes */
@@ -721,6 +751,8 @@ a.fx-save { text-decoration: none; }
 .fx-d-who > svg { padding: 3px; background: var(--clip); box-shadow: var(--lift); transform: rotate(-2deg); }
 .fx-d-who > div { display: grid; gap: 6px; }
 .fx-d-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 13px; color: var(--ink-2); }
+/* a long owner/repo wraps rather than pushing the sheet wider */
+.fx-d-origin { min-width: 0; overflow-wrap: anywhere; }
 .fx-d-sec { display: grid; gap: 10px; }
 .fx-d-muted { color: var(--muted); font-size: 13px; }
 .fx-d-text { font-size: 14px; color: var(--ink-2); white-space: pre-wrap; }
@@ -956,6 +988,18 @@ a.fx-save { text-decoration: none; }
 .fx-select-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-chevron { flex: none; color: var(--ink-2); transition: transform 160ms ease; }
 [aria-expanded="true"] > .fx-chevron { transform: rotate(180deg); }
+/* a group heading that opens and closes it: the chevron points at the items when open, to the side when closed */
+.fx-fold {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; margin: -4px -6px; padding: 4px 6px;
+  border: 0; border-radius: 3px; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer;
+}
+.fx-fold:hover { background: var(--shade); }
+.fx-fold > .fx-chevron { transform: rotate(-90deg); }
+.fx-fold[aria-expanded="true"] > .fx-chevron { transform: none; }
+.fx-fold-name { min-width: 0; overflow-wrap: anywhere; }
+.fx-fold-count { font-size: 12.5px; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fx-fold-body { display: grid; gap: inherit; min-width: 0; }
+.fx-fold-body[hidden] { display: none; }
 .fx-slip {
   position: absolute; z-index: 3; inset-inline: 0; top: calc(100% + 6px);
   max-height: 220px; overflow: auto; margin: 0; padding: 5px; list-style: none;
@@ -1258,6 +1302,11 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
 .fx-src-local { color: var(--muted); font-weight: 500; }
 .fx-src-note { font-size: 12.5px; color: var(--muted); }
 .fx-src-note-bad { font-size: 12.5px; color: var(--accent); }
+/* in a list row, what went wrong stays red over the row's muted second line */
+.fx-row-main .fx-src-bad, .fx-row-main .fx-src-note-bad { color: var(--accent); }
+.fx-src-brings > span > span { white-space: nowrap; }
+/* an employee whose blueprint is gone, waiting for another to be picked */
+.fx-bp-gone, .fx-row-main .fx-crew-head .fx-crew-bp.fx-bp-gone { color: var(--accent); }
 
 /* a titled block: the title runs the full width, everything under it sits a step in. A first column does the
    indenting, so rows keep their own margins (the ones their hover shade reaches out with). */
@@ -1578,7 +1627,7 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 /* whose a note is, when others in the chat share its colour */
 .fx-chat-name { display: block; color: var(--muted); font-size: 11.5px; }
 .fx-room-tool { flex: none; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
-.fx-room-tool-images { justify-content: flex-start; margin-top: 4px; }
+.fx-chat-images.fx-room-tool-images { justify-content: flex-start; }
 /* the tasks made at the message above: the same clippings as on the task board */
 .fx-room-log .fx-chat-tasks { flex: none; display: flex; flex-wrap: wrap; gap: 10px; padding-block: 2px; }
 .fx-room-log .fx-chat-tasks-user { justify-content: flex-end; }

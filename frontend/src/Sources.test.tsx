@@ -2,11 +2,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createRef } from 'react'
 import { expect, it } from 'vitest'
 import { useStore } from './core/store'
-import { ItemChips, NewSource, SourceDetail, SourceRow, SourceSign, SourcesTab, repoPage } from './Sources'
+import { bringsText, ItemChips, NewSource, SourceDetail, SourceRow, SourceSign, SourcesTab, repoPage } from './Sources'
 import type { Source } from './core/domain/types'
 import { SkillPicker } from './SkillPicker'
+import { itemKey } from './DrawerDetail'
 import { sourceName } from './source'
-import { itemsOf } from './core/domain/sources'
+import { itemsOf, sourceOfId } from './core/domain/sources'
 import { sourceSkill } from './core/domain/sim'
 
 const h = { title: createRef<HTMLHeadingElement>(), tid: 't' }
@@ -95,9 +96,45 @@ it('stamps a source that applies updates itself', () => {
   expect(renderToStaticMarkup(<SourceRow s={{ ...s, autoApply: false }} now={0} />)).not.toContain('fx-pill')
 })
 
-it('stamps a folder as local', () => {
+it('stamps no folder: its path already says it is one, so only 自動更新 is ever stamped', () => {
   const s: Source = { id: 'src-2', kind: 'local', path: '~/.agents/', upstream: false, autoApply: false }
-  expect(renderToStaticMarkup(<SourceRow s={s} now={0} />)).toContain('<span class="fx-pill">本地</span>')
+  expect(renderToStaticMarkup(<SourceRow s={s} now={0} />)).not.toContain('fx-pill')
+})
+
+it('says how many blueprints and employees use a source, last, and only when some do', () => {
+  expect(bringsText(3, 0, 0, 2)).toEqual(['3 個技能', '用在 2 處'])
+  expect(bringsText(0, 0, 0, 1)).toEqual(['沒有技能', '用在 1 處'])
+  expect(bringsText(undefined, 0, 0, 4)).toEqual([])
+})
+
+it('checks a source for updates, or reads a folder again, from the same place: the sheet\'s tools', () => {
+  for (const kind of ['git', 'local'] as const) {
+    const s = sources().find((x) => x.kind === kind)!
+    const html = renderToStaticMarkup(<SourceDetail id={s.id} open={null} onSkill={() => {}} onGoneSource={() => {}} {...h} />)
+    const tools = html.slice(html.indexOf('<div class="fx-tools">'), html.indexOf('</div>', html.indexOf('<div class="fx-tools">')))
+    expect(tools).toContain(kind === 'git' ? 'aria-label="檢查更新"' : 'aria-label="重新讀取"')
+    expect(html.match(/fx-src-check/g)).toHaveLength(1)
+  }
+})
+
+it('opens the blueprints and flows a source brings on the next sheet, the open one pressed', () => {
+  const w = useStore.getState().world
+  const bp = Object.values(w.blueprints).find((b) => sourceOfId(b.id) && w.sources[sourceOfId(b.id)])!
+  const html = renderToStaticMarkup(<SourceDetail id={sourceOfId(bp.id)} open={null} onSkill={() => {}} openItem={itemKey({ kind: 'blueprint', id: bp.id })}
+    onItem={() => {}} onGoneSource={() => {}} {...h} />)
+  expect(html).toMatch(new RegExp(`<button type="button" class="fx-row fx-hit" aria-expanded="true">.*?<b>${bp.name}</b>`))
+})
+
+it('says under a source\'s name what it brings, once its skills are read', () => {
+  const s: Source = { id: 'src-2', kind: 'local', path: '~/.agents/', upstream: false, autoApply: false }
+  const brings = bringsText(12, 2, 0)
+  expect(brings).toEqual(['12 個技能', '2 個員工藍圖'])
+  expect(renderToStaticMarkup(<SourceRow s={s} now={0} brings={brings} />))
+    .toContain('<b>~/.agents/</b><span class="fx-src-brings"><span><span>12 個技能</span></span><span> · <span>2 個員工藍圖</span></span></span>')
+  expect(bringsText(0, 0, 1)).toEqual(['1 個任務藍圖'])
+  expect(bringsText(0, 0, 0)).toEqual(['沒有技能'])
+  // not read yet: nothing, rather than a count that is wrong
+  expect(bringsText(undefined, 2, 0)).toEqual([])
 })
 
 it('turns skills of one name taken from two sources red, asking nothing', () => {

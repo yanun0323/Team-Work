@@ -12,6 +12,9 @@ export function sourceOfId(id: string) {
   return at < 0 || id.startsWith('preset-') ? '' : id.slice(0, at)
 }
 
+/** The official source: the blueprints and flows the app comes with. Every world keeps it, by this id. */
+export const OFFICIAL_SOURCE = 'team-work'
+
 /** The agents' own folders, kept as sources to pick skills from. */
 export const AGENT_FOLDERS = ['~/.agents/', '~/.team-work/', '~/.codex/', '~/.claude/']
 
@@ -174,7 +177,7 @@ export const sourceUsers = (w: World, id: string): (Blueprint | Replica)[] => [
 
 /** Forgets a source nothing reads, with what it brought; false while something does. */
 export function deleteSource(w: World, id: string): boolean {
-  if (!w.sources[id] || sourceUsers(w, id).length) return false
+  if (!w.sources[id] || id === OFFICIAL_SOURCE || sourceUsers(w, id).length) return false
   delete w.sources[id]
   for (const all of [w.blueprints, w.workflows]) {
     for (const key of Object.keys(all)) if (sourceOfId(key) === id) delete all[key]

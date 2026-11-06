@@ -20,10 +20,10 @@ import { FlowNotes, openCard } from './FlowNotes'
 import { keptState, sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, makesImages, PROVIDER_KINDS } from './providers'
-import { Select, Toggle, useAutoGrow } from './Controls'
+import { Chevron, Select, Toggle, useAutoGrow } from './Controls'
 import { hideBlueprint, hideWorkflow, setLanguage } from './core/ops'
 import { Chats, TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
-import { airportTabOr, AIRPORT_TABS, AUTO_TABS, AUTO_VIEWS, BUSY_ANIMATIONS, DAYLIGHTS, DEFAULT_PREFS, MAP_CLICKS, type AirportTab, type AutoTab, type AutoView, type MapClick, type BusyAnimation, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY, COMPACT_DEFAULTS, COMPACT_SHARE } from './prefs'
+import { airportTabOr, AIRPORT_TABS, AUTO_TABS, AUTO_VIEWS, BUSY_ANIMATIONS, DAYLIGHTS, DEFAULT_PREFS, IDLE_FOLLOW_TARGETS, type IdleFollowTarget, IDLE_FOLLOWS, MAP_CLICKS, type AirportTab, type AutoTab, type AutoView, type MapClick, type BusyAnimation, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY, COMPACT_DEFAULTS, COMPACT_SHARE } from './prefs'
 import { request } from './core/backend'
 import { MusicSection, Volume } from './SoundPage'
 import { MOCK } from './core/mode'
@@ -196,15 +196,53 @@ function Providers({ open, onOpen }: { open: string | null; onOpen: (x: Item) =>
   )
 }
 
-/** The items under where they come from: 我的, each source by its name, then 內建, each heading only when it has some. */
-function ByOrigin<T extends { id: string }>({ items, render }: { items: T[]; render: (list: T[]) => React.ReactNode }) {
+/** Which groups were opened or closed by hand, kept on this computer under `key`; the rest follow the default. */
+function useFolds(key: string | undefined) {
+  const [folds, setFolds] = useState<Record<string, boolean>>(() => {
+    if (!key) return {}
+    try {
+      const v: unknown = JSON.parse(localStorage.getItem(key) ?? '{}')
+      return v && typeof v === 'object' ? (v as Record<string, boolean>) : {}
+    } catch { return {} } // private mode, or not JSON
+  })
+  const set = (group: string, open: boolean) => {
+    const next = { ...folds, [group]: open }
+    setFolds(next)
+    if (key) try { localStorage.setItem(key, JSON.stringify(next)) } catch { /* private mode */ }
+  }
+  return [folds, set] as const
+}
+
+/**
+ * The items under where they come from: 我的, each source by its name, then 內建, each heading only when it has some.
+ * With `fold`, each heading opens and closes its group, and how they were left is kept under that key; the first group
+ * starts open and the rest closed, so a long list of others' blueprints does not bury your own. A closed group says how
+ * many it holds.
+ */
+function ByOrigin<T extends { id: string }>({ items, render, fold }: { items: T[]; render: (list: T[]) => React.ReactNode; fold?: string }) {
   const sources = useStore((s) => s.world.sources)
   const { groups, groupOf } = byOrigin(items.map((x) => x.id), sources)
+  const [folds, setFold] = useFolds(fold)
   return (
     <>
-      {groups.map((g, at) => (
-        <section key={g.key} className="fx-d-group fx-owned"><h4>{g.label}</h4>{render(items.filter((x) => groupOf(x.id) === at))}</section>
-      ))}
+      {groups.map((g, at) => {
+        const list = render(items.filter((x) => groupOf(x.id) === at))
+        if (!fold) return <section key={g.key} className="fx-d-group fx-owned"><h4>{g.label}</h4>{list}</section>
+        const shown = folds[g.key] ?? at === 0
+        const body = `fx-origin-${fold}-${at}`
+        return (
+          <section key={g.key} className="fx-d-group fx-owned">
+            <h4>
+              <button type="button" className="fx-fold" aria-expanded={shown} aria-controls={body} onClick={() => setFold(g.key, !shown)}>
+                <Chevron />
+                <span className="fx-fold-name">{g.label}</span>
+                {!shown && <span className="fx-fold-count">{g.count}</span>}
+              </button>
+            </h4>
+            <div id={body} className="fx-fold-body" hidden={!shown}>{shown && list}</div>
+          </section>
+        )
+      })}
     </>
   )
 }
@@ -256,7 +294,7 @@ function Flows({ open, onOpen }: { open: string | null; onOpen: (x: Item) => voi
     <div className="fx-flows">
       <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newFlow' })}>{tr('＋ 新增任務藍圖')}</button>
       {/* each flow opens as a whole; its title is the button, stretched over the flow */}
-      <ByOrigin items={flowList(w)} render={(list) => list.map((wf) => (
+      <ByOrigin items={flowList(w)} fold="fx-flow-groups" render={(list) => list.map((wf) => (
         <section key={wf.id} className={`fx-flow fx-flow-card fx-blueprint fx-hidable${hidden.includes(wf.id) ? ' fx-hidden-item' : ''}`} onClick={openCard}>
           <h3>
             <button className="fx-flow-open" {...opener({ kind: 'flow', id: wf.id })}>{wf.name}</button>
@@ -493,11 +531,15 @@ function TutorialActs() {
   )
 }
 
+/** A wait in seconds as the settings show it: off, or in seconds, minutes or hours. */
+export const idleFollowLabel = (s: number) =>
+  s === 0 ? tr('關閉#view') : s < 60 ? tr('{a} 秒', { a: s }) : s < 3600 ? tr('{a} 分鐘', { a: s / 60 }) : tr('{a} 小時', { a: s / 3600 })
+
 export function PrefsPage() {
   const prefs = usePrefs()
   const language = useStore((s) => s.world.language)
   const act = useStore((s) => s.act)
-  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'terminalCommand' | 'autoView' | 'mapClick' | 'busyAnimation' | 'autoTab' | 'daylight' | 'hiddenBlueprints' | 'hiddenWorkflows' | keyof typeof COMPACT_DEFAULTS>, label: string) => (
+  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'idleFollow' | 'idleFollowTarget' | 'terminalCommand' | 'autoView' | 'mapClick' | 'busyAnimation' | 'autoTab' | 'daylight' | 'hiddenBlueprints' | 'hiddenWorkflows' | keyof typeof COMPACT_DEFAULTS>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
   return (
@@ -521,6 +563,10 @@ export function PrefsPage() {
           <Volume label={tr('縮放靈敏度')} value={prefs.zoomSensitivity} {...ZOOM_SENSITIVITY} onChange={(zoomSensitivity) => prefs.set({ zoomSensitivity })} />
           <Select label={tr('自動檢視')} value={prefs.autoView} options={Object.keys(AUTO_VIEWS)} labelOf={(o) => tr(AUTO_VIEWS[o as AutoView])}
             onChange={(v) => prefs.set({ autoView: v as AutoView })} />
+          <Select label={tr('閒置時跟隨民眾')} value={String(prefs.idleFollow)} options={IDLE_FOLLOWS.map(String)}
+            labelOf={(o) => idleFollowLabel(Number(o))} onChange={(v) => prefs.set({ idleFollow: Number(v) })} />
+          <Select label={tr('閒置鏡頭跟隨目標')} value={prefs.idleFollowTarget} options={Object.keys(IDLE_FOLLOW_TARGETS)}
+            labelOf={(o) => tr(IDLE_FOLLOW_TARGETS[o as IdleFollowTarget])} onChange={(v) => prefs.set({ idleFollowTarget: v as IdleFollowTarget })} />
           <Select label={tr('點選地圖')} value={prefs.mapClick} options={Object.keys(MAP_CLICKS)} labelOf={(o) => tr(MAP_CLICKS[o as MapClick])}
             onChange={(v) => prefs.set({ mapClick: v as MapClick })} />
         </div>

@@ -9,7 +9,7 @@ import { sourceOfId } from './core/domain/sources'
 import { hireList, unhidden } from './core/model'
 import { useStore } from './core/store'
 import { usePrefs } from './prefs'
-import { blueprintLabel, byBlueprint, mindOf } from './crew'
+import { blueprintGone, blueprintLabel, byBlueprint, mindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
 import { listOf } from './core/i18n'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -49,7 +49,7 @@ export function CrewRow({ r, on = false, chair, mind }: { r: Replica; on?: boole
       <span className="fx-row-main">
         <b className="fx-crew-head">
           <span className="fx-crew-name">{r.name}</span>
-          {bp && <span className="fx-crew-bp">{bp}</span>}
+          <span className={blueprintGone(w, r) ? 'fx-crew-bp fx-bp-gone' : 'fx-crew-bp'}>{bp}</span>
           {chair && <span className="fx-pill fx-chair">{tr('主持人')}</span>}
         </b>
         <span>{mind ?? mindOf(r)}</span>

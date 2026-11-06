@@ -8,19 +8,27 @@ import { tr } from './core/i18n'
 import { blueprintList } from './core/model'
 import { softLean, WARDROBE } from './figureStyle'
 
-/** The groups, `bp` null for those with settings of their own. */
-export function byBlueprint(w: World, crew: Replica[]): { bp: Blueprint | null; list: Replica[] }[] {
+/**
+ * The groups, `bp` null for those with settings of their own; those whose blueprint is gone come first, `gone`, as
+ * they wait for another to be picked.
+ */
+export function byBlueprint(w: World, crew: Replica[]): { bp: Blueprint | null; gone?: true; list: Replica[] }[] {
+  const gone = { bp: null, gone: true as const, list: crew.filter((r) => blueprintGone(w, r)) }
   const custom = { bp: null, list: crew.filter((r) => isCustom(w, r)) }
-  return [custom, ...blueprintList(w).map((bp) => ({ bp, list: crew.filter((r) => r.blueprintId === bp.id) }))]
+  return [gone, custom, ...blueprintList(w).map((bp) => ({ bp, list: crew.filter((r) => r.blueprintId === bp.id) }))]
     .filter((g) => g.list.length > 0)
 }
 
 /** Whether an employee works by settings of their own rather than a blueprint. */
 export const isCustom = (w: World, r: Replica) => w.blueprints[r.blueprintId]?.owner === r.id
 
-/** What an employee works by, as shown beside their name: their blueprint, or 自訂. */
-export function blueprintLabel(w: World, r: Replica): string | undefined {
-  return isCustom(w, r) ? tr('自訂') : w.blueprints[r.blueprintId]?.name
+/** Whether an employee's blueprint is gone, so they work no more until another is picked. */
+export const blueprintGone = (w: World, r: Replica) => !w.blueprints[r.blueprintId]
+
+/** What an employee works by, as shown beside their name: their blueprint, 自訂, or that it is gone. */
+export function blueprintLabel(w: World, r: Replica): string {
+  if (blueprintGone(w, r)) return tr('藍圖已不存在')
+  return isCustom(w, r) ? tr('自訂') : w.blueprints[r.blueprintId].name
 }
 
 /**

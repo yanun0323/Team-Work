@@ -143,14 +143,14 @@ function Crew(p: Opens) {
       <Prereqs list={needs} />
       <button className="fx-task fx-task-new fx-flow-new fx-hit" disabled={blocked(needs)} {...opener({ kind: 'newCrew' }, p)}>{tr('＋ 新增員工')}</button>
       {!crew.length && <Empty>{tr('還沒有員工')}</Empty>}
-      {byBlueprint(w, crew).map(({ bp, list }) => (
-        <section key={bp?.id ?? ''} className="fx-d-group" aria-label={bp?.name ?? tr('自訂')}>
+      {byBlueprint(w, crew).map(({ bp, gone, list }) => (
+        <section key={bp?.id ?? (gone ? 'gone' : '')} className="fx-d-group" aria-label={bp?.name ?? (gone ? tr('藍圖已不存在') : tr('自訂'))}>
           {/* the group's title is its blueprint, which opens on a sheet of its own; their own settings open with each of them */}
           {bp ? (
             <h4><button className="fx-bp-head fx-hit" {...opener({ kind: 'blueprint', id: bp.id }, p)}>
               <span aria-hidden="true"><BlueprintIcon look={bp.look} name={bp.name} size={24} /></span>{bp.name}<span className="fx-count">{list.length}</span>
             </button></h4>
-          ) : <h4>{tr('自訂')}<span className="fx-count">{list.length}</span></h4>}
+          ) : <h4 className={gone ? 'fx-bp-gone' : undefined}>{gone ? tr('藍圖已不存在') : tr('自訂')}<span className="fx-count">{list.length}</span></h4>}
           <ul className="fx-list">
             {list.map((r) => {
               const a = activity(w, r)

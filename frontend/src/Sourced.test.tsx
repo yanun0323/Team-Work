@@ -4,7 +4,7 @@ import { afterEach, expect, it } from 'vitest'
 import { useStore } from './core/store'
 import { blueprintList, flowList } from './core/model'
 import { isLocked } from './core/data/presets'
-import { sourceOfId, sourceUsers } from './core/domain/sources'
+import { OFFICIAL_SOURCE, sourceOfId, sourceUsers } from './core/domain/sources'
 import type { Blueprint, Workflow, World } from './core/domain/types'
 import { byOrigin } from './Pickers'
 import { SourceDetail } from './Sources'
@@ -47,12 +47,12 @@ it('lists the user\'s own first, then each source under its name, then the built
   const ids = blueprintList(w).map((b) => b.id)
   const { groups, groupOf } = byOrigin(ids, w.sources)
   const labels = groups.map((g) => g.label)
-  expect(labels.slice(-2)).toEqual([sourceName(w.sources[src]), '內建'])
-  expect(groupOf(`${src}--reviewer`)).toBe(groups.length - 2)
+  expect(labels.slice(-3)).toEqual([sourceName(w.sources[src]), sourceName(w.sources[OFFICIAL_SOURCE]), '內建'])
+  expect(groupOf(`${src}--reviewer`)).toBe(groups.length - 3)
   // each group's items follow each other, as the pick-lists need
   const order = ids.map(groupOf)
   expect(order).toEqual([...order].sort((a, b) => a - b))
-  expect(flowList(w).map((f) => groupOf(f.id)).filter((g) => g === groups.length - 2)).toHaveLength(1)
+  expect(flowList(w).map((f) => groupOf(f.id)).filter((g) => g === groups.length - 3)).toHaveLength(1)
 })
 
 it('shows what a source brings on its sheet', () => {

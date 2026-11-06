@@ -26,7 +26,7 @@ import { useAutoGrow, Select, Switcher, Toggle, WaitBadge } from './Controls'
 import { changeAsk, ChangeLines } from './ChangeCard'
 import { FlowNotes, openCard } from './FlowNotes'
 import { copyDraft, customFlow, draftFlow, draftStaff, editCustom, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
-import { blueprintLabel, chatPreview, CONTEXT_UNKNOWN, providerWindow, DEFAULT_EFFORT, effortsOf, isCustom, mindOf, modelGroups, modelsOf, randomLook } from './crew'
+import { blueprintGone, blueprintLabel, chatPreview, CONTEXT_UNKNOWN, providerWindow, DEFAULT_EFFORT, effortsOf, isCustom, mindOf, modelGroups, modelsOf, randomLook } from './crew'
 import { docDiffOf, docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
 import { githubAddress, parseGithub, shortRepo, wholeRef } from './github'
@@ -141,14 +141,16 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
     if (!sheet.current?.contains(document.activeElement)) title.current?.focus({ preventScroll: true })
   }, [])
   const id = `fx-detail-title-${depth}`
+  // scrolled down: the sheet's tools get a strip of paper behind them, so what scrolls by does not run under them
+  const [scrolled, setScrolled] = useState(false)
   return (
     <aside ref={sheet} id={depth === 0 ? 'fx-detail' : undefined} className={`fx-detail${leaving ? ' leaving' : ''}`}
       style={{ '--depth': depth, '--across': SHEET_ACROSS[depth] ?? 0 } as CSSProperties} aria-labelledby={id}
       aria-hidden={leaving || undefined} inert={leaving || undefined}
       onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
-      <div className="fx-sheet" inert={covered || undefined}>
-        <div className="fx-detail-body">
+      <div className={`fx-sheet${scrolled ? ' fx-scrolled' : ''}`} inert={covered || undefined}>
+        <div className="fx-detail-body" onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>
           {item.kind === 'task' && (
             <TaskDetail id={item.id} title={title} tid={id} open={above?.kind === 'sub' ? above.id : null}
               onOpen={(x) => onPush({ kind: 'sub', id: x })} editing={above?.kind === 'taskEdit'}
@@ -216,7 +218,8 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           )}
           {item.kind === 'source' && (
             <SourceDetail id={item.id} title={title} tid={id} open={above?.kind === 'sourceSkill' ? above.path : null}
-              onSkill={(path) => onPush({ kind: 'sourceSkill', source: item.id, path })} onGoneSource={onDone} />
+              onSkill={(path) => onPush({ kind: 'sourceSkill', source: item.id, path })}
+              openItem={above?.kind === 'blueprint' || above?.kind === 'flow' ? itemKey(above) : null} onItem={onPush} onGoneSource={onDone} />
           )}
           {item.kind === 'newSource' && <NewSource title={title} tid={id} onDone={onDone} />}
           {(item.kind === 'crewEdit' || item.kind === 'newCrew') && (
@@ -955,6 +958,9 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
     act((x) => deleteWorkflow(x, id))
   }
   const tasks = Object.values(w.tasks).filter((t) => t.workflowId === wf.id && statusOf(w, t) !== 'complete')
+  // where a flow that cannot be edited comes from, so it is plain why: its source, or 內建
+  const from = sourceOfId(id)
+  const origin = from ? (w.sources[from] ? sourceName(w.sources[from]) : from) : isLocked(id) ? tr('內建') : ''
   return (
     <>
       <div className="fx-tools">
@@ -968,6 +974,7 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
       <header className="fx-d-head">
         <Heading {...h}>{wf.name}</Heading>
         <p className="fx-d-meta">
+          {origin && <span className="fx-d-origin">{origin}</span>}
           <span>{tr('{length} 個步驟', { length: wf.nodes.length })}</span>
           <span>{tasks.length ? tr('{length} 個任務未完成', { length: tasks.length }) : tr('沒有未完成的任務')}</span>
         </p>
@@ -1005,7 +1012,7 @@ function CrewDetail({ id, editing, firing, onEdit, onFire, ...h }: Head & {
         <div>
           <Heading {...h}>{r.name}</Heading>
           <p className="fx-d-meta">
-            <span>{blueprintLabel(w, r)}</span>
+            <span className={blueprintGone(w, r) ? 'fx-bp-gone' : undefined}>{blueprintLabel(w, r)}</span>
             <span>{mindOf(r)}</span>
             {doing ? <span className="fx-pill fx-pill-on">{doing}</span> : <span>{tr('沒有工作')}</span>}
           </p>
@@ -1652,7 +1659,8 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
   const listed = (x?: string) => (x && w.blueprints[x] && !w.blueprints[x].owner ? x : undefined)
   const [name, setName] = useState(() => r?.name ?? NAMES.find((n) => !Object.values(w.replicas).some((x) => x.name === n)) ?? 'Nova')
   const [mode, setMode] = useState<'blueprint' | 'custom'>(mine ? 'custom' : 'blueprint')
-  const [bp, setBp] = useState(() => listed(mine ? mine.from : r?.blueprintId) ?? unhidden(hireList(w), usePrefs.getState().hiddenBlueprints)[0]?.id ?? '')
+  // one whose blueprint is gone picks another here: none is picked for them
+  const [bp, setBp] = useState(() => (r && blueprintGone(w, r) ? '' : listed(mine ? mine.from : r?.blueprintId) ?? unhidden(hireList(w), usePrefs.getState().hiddenBlueprints)[0]?.id ?? ''))
   // the settings of their own being written, and what they were copied from: theirs, or the blueprint copied
   const [base, setBase] = useState<Blueprint | undefined>(mine)
   const [prompt, setPrompt] = useState(mine?.prompt ?? '')
@@ -1934,12 +1942,14 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
     if (reading) return
     const session = attachmentSession.current
     const { fit, refused } = attachable([...files], MAX_ATTACHMENTS - images.length)
-    setAttachmentError(refused ? tr('圖片最大 3.75MB，其他檔案最大 25MB，最多 6 個附件') : '')
+    setAttachmentError(refused ? tr('附件每個最大 25MB，最多 6 個') : '')
     setReading(true)
     try {
-      const more = await readAttachments(fit)
+      const { added, refused: tooLarge } = await readAttachments(fit)
       // Do not add late reads to a different sheet.
-      if (attachmentSession.current === session) editDraft((d) => splitAttachments([...(d.images ?? []), ...(d.files ?? []), ...more].slice(0, MAX_ATTACHMENTS)))
+      if (attachmentSession.current !== session) return
+      if (tooLarge) setAttachmentError(tr('附件每個最大 25MB，最多 6 個'))
+      editDraft((d) => splitAttachments([...(d.images ?? []), ...(d.files ?? []), ...added].slice(0, MAX_ATTACHMENTS)))
     } catch { setAttachmentError(tr('讀取附件失敗，請重試')) }
     finally { setReading(false) }
   }
@@ -2416,13 +2426,31 @@ export function PinTool({ chat, className = 'fx-tool fx-hit' }: { chat: Chat; cl
   )
 }
 
-/** A bin that asks first: the first press turns it into 確定刪除, the second deletes; looking away cancels. */
+/**
+ * A bin that asks first: the first press turns it into 確定刪除, the second deletes; looking away cancels.
+ *
+ * One that cannot delete now stays focusable rather than disabled, so the keyboard and a touch reach it too: it says
+ * `why` under itself while pointed at or pressed, and a screen reader hears it with the button.
+ */
 export function DeleteTool({ what, onConfirm, disabled, why }: { what: string; onConfirm: () => void; disabled?: boolean; why?: string }) {
   const [asking, setAsking] = useState(false)
+  const [telling, setTelling] = useState(false)
+  const whyId = useId()
+  if (disabled) {
+    return (
+      <span className="fx-tool-why-at">
+        <button type="button" className="fx-tool fx-tool-off" aria-disabled="true" aria-label={tr('刪除')}
+          aria-describedby={why ? whyId : undefined} onClick={() => setTelling((x) => !x)} onBlur={() => setTelling(false)}>
+          <BinIcon />
+        </button>
+        {why && <span id={whyId} className={telling ? 'fx-tool-why fx-tool-why-on' : 'fx-tool-why'}>{why}</span>}
+      </span>
+    )
+  }
   return (
-    <button type="button" className={asking ? 'fx-tool fx-tool-ask fx-hit' : 'fx-tool fx-hit'} disabled={disabled}
+    <button type="button" className={asking ? 'fx-tool fx-tool-ask fx-hit' : 'fx-tool fx-hit'}
       onClick={() => (asking ? onConfirm() : setAsking(true))} onBlur={() => setAsking(false)}
-      aria-label={asking ? tr('確定刪除這個{what}', { what }) : tr('刪除')} title={disabled ? why : asking ? undefined : tr('刪除')}>
+      aria-label={asking ? tr('確定刪除這個{what}', { what }) : tr('刪除')} title={asking ? undefined : tr('刪除')}>
       {asking ? tr('確定刪除') : (
         <BinIcon />
       )}

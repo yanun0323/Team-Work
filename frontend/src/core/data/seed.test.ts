@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { seedWorld } from './seed'
 import { statusOf, tick } from '../domain/sim'
 import { validate } from '../domain/graph'
+import { sourceOfId } from '../domain/sources'
 import { setLanguage } from '../ops'
 
 describe('seed world', () => {
@@ -32,8 +33,12 @@ describe('seed world', () => {
     expect(shape(en)).toEqual(shape(zh))
     expect(en.teams[Object.keys(en.teams)[0]].name).toBe('Acme Store')
     for (let i = 0; i < 1200; i++) tick(en, 0.5)
-    // a log line with a key is translated as it is shown, so its own text may stay Chinese
-    const shown = JSON.stringify(en, (k, v) => (k === 'log' ? (v as { key?: string }[]).filter((l) => !l.key) : v))
+    // a log line with a key is translated as it is shown, so its own text may stay Chinese, and a source's file is
+    // written in every language
+    const shown = JSON.stringify(en, function (this: { id?: string }, k, v) {
+      if (k === 'log') return (v as { key?: string }[]).filter((l) => !l.key)
+      return k === 'source' && v?.kind === 'yaml' && sourceOfId(this.id ?? '') ? undefined : v
+    })
     expect(shown.match(/.{0,30}\p{Script=Han}+.{0,30}/gu)).toBeNull()
   })
 
