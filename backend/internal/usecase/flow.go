@@ -554,7 +554,7 @@ func (e *Engine) staffFlow(t *model.Task, staff map[string][]string, ownerID *st
 			t.Workflow.Nodes[i].ReplicaIDs = slices.Clone(picked)
 		}
 	}
-	localizeFlow(&t.Workflow, e.w.Language)
+	e.localize(&t.Workflow, e.w.Language)
 	e.keepOwnStaff(t)
 	t.OwnerID = ownerID
 }
@@ -588,7 +588,10 @@ func (e *Engine) createTask(in NewTask) (*model.Task, error) {
 		if err := e.checkFiles(in.Images, in.Files); err != nil {
 			return err
 		}
-		images := in.Images
+		images, err := e.storeImages(in.Images)
+		if err != nil {
+			return err
+		}
 		if images == nil {
 			images = []model.Attachment{}
 		}
@@ -1011,7 +1014,7 @@ func (e *Engine) ChangeWorkflow(id, workflowID string) error {
 		e.dropSubs(t)
 		e.removeTree(t)
 		t.WorkflowID, t.Workflow = workflowID, clone(*wf)
-		localizeFlow(&t.Workflow, e.w.Language)
+		e.localize(&t.Workflow, e.w.Language)
 		e.keepOwnStaff(t)
 		t.Paused, t.PausedAt, t.PausedStatus = false, nil, ""
 		e.start(t)

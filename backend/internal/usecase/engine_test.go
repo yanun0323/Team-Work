@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -168,6 +169,47 @@ type rig struct {
 	flow   *model.Workflow
 }
 
+// officialRepo is where the official source lives; a test reads the copy in testdata/official in its place.
+const officialRepo = "https://github.com/yanun0323/Team-Work-Source"
+
+// offline is git as a test has it: the official source is the copy in testdata/official, at the version written
+// there, and no other repo on GitHub can be reached. Repos in folders are git's own.
+type offline struct{ adapter.Git }
+
+func officialCopy() (dir, commit string) {
+	dir, _ = filepath.Abs(filepath.Join("testdata", "official"))
+	raw, _ := os.ReadFile(filepath.Join(dir, "commit"))
+	return dir, strings.TrimSpace(string(raw))
+}
+
+func (g offline) Latest(ctx context.Context, repo, ref string) (string, error) {
+	if repo == officialRepo {
+		_, commit := officialCopy()
+		return commit, nil
+	}
+	if strings.HasPrefix(repo, "https://github.com/") {
+		return "", errors.New("no network in tests")
+	}
+	return g.Git.Latest(ctx, repo, ref)
+}
+
+func (g offline) Fetch(ctx context.Context, repo, commit string) (string, error) {
+	if repo == officialRepo {
+		dir, _ := officialCopy()
+		return dir, nil
+	}
+	return g.Git.Fetch(ctx, repo, commit)
+}
+
+func (g offline) Cached(repo, commit string) bool {
+	if repo == officialRepo {
+		_, at := officialCopy()
+		return commit == at
+	}
+	return g.Git.Cached(repo, commit)
+}
+
+// newEngine starts an engine on r's data, the official source checked as the app does on start.
 func newEngine(t *testing.T, r *rig) {
 	t.Helper()
 	store, err := repository.NewStore(r.data)
@@ -175,13 +217,16 @@ func newEngine(t *testing.T, r *rig) {
 		t.Fatal(err)
 	}
 	e, err := usecase.NewEngine(context.Background(), usecase.Options{
-		Store: store, Git: repository.NewGit(r.data), Providers: r.fake, DataDir: r.data, Log: zerolog.Nop(),
+		Store: store, Git: offline{repository.NewGit(r.data)}, Providers: r.fake, DataDir: r.data, Log: zerolog.Nop(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	r.e, r.store = e, store
 	t.Cleanup(func() { e.Close(); store.Close() })
+	if err := e.CheckSource(context.Background(), usecase.OfficialSourceID); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func newRig(t *testing.T, reply func(model.ModelRequest) (model.ModelReply, error)) *rig {

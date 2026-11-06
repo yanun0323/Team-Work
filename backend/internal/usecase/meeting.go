@@ -140,6 +140,10 @@ func (e *Engine) beginRound(c *model.Chat, text string, images, files []model.At
 	if err := e.saveAttachments(c.ID, files); err != nil {
 		return err
 	}
+	images, err = e.storeImages(images)
+	if err != nil {
+		return err
+	}
 	e.chatHears(c, text, images, files, mentions)
 	c.Next = speakers[1:]
 	e.launchChat(c, speakers[0], spec)

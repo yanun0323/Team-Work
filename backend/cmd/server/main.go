@@ -68,10 +68,14 @@ func run() error {
 	}
 	// runs stop first, so nothing is saved to a closing database
 	defer engine.Close()
-	// a built-in blueprint's repo is kept as a source with no version until it is first read
+	// a repo a blueprint names is kept as a source with no version until it is first read, and the official source
+	// starts on the copy built in until its newest version is found
 	go func() {
 		if err := engine.PinSources(ctx); err != nil {
 			log.Warn().Err(err).Msg("pin sources")
+		}
+		if err := engine.CheckSource(ctx, usecase.OfficialSourceID); err != nil {
+			log.Warn().Err(err).Msg("check the official source")
 		}
 	}()
 

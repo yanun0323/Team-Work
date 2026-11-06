@@ -51,7 +51,7 @@ debug: false
 
 Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及地圖位置。`preferences.yaml` 在介面修改後立即儲存；手動編輯後按「重新載入設定」，不必重啟。省略的欄位使用預設值，未知欄位、`null`、錯誤型別或不存在的頁籤會被拒絕。
 
-偏好欄位的預設值：`logOrder: newestFirst`（也可用 `newestLast`）、`defaultTab: tasks`（`chats`、`tasks`、`crew`、`terminal`、`settings`）、`defaultAirportTab: providers`（`chats`、`providers`、`blueprints`、`flows`、`sources`、`stats`、`terminal`、`prefs`、`about`）、`autoTab: chats`（`off`、`chats`、`tasks`：打開公司或機場時先顯示有事待處理的頁籤，兩者都有時先顯示選的那個；`off` 一律用預設頁籤。舊欄位 `openWaitingTab` 讀取時會自動換成它）、`chatTitleModel: ""`、`chatTitleEffort: ""`（有模型時，公司和機場的新對話會把第一則訊息最多約 2,000 字送給這個模型取一次名字，沒有工具，30 秒逾時、失敗不重試，用量算進該對話；空字串表示關閉，`effort` 空白或模型不支援就不指定思考等級）、`imageProvider: ""`（生圖用的 ChatGPT 訂閱供應商 id，空字串表示沒有 `image_gen`，見「訂閱登入」）；`detail`、`shadows`、`crowd`、`planes`、`clouds` 預設 `true`，`autoView` 預設 `panZoom`（也可用 `pan`、`off`；舊欄位 `autoZoom` 讀取時會自動換成它），`busyAnimation` 預設 `money`（也可用 `shout`，公司工作中時建築旁的動畫），`daylight` 預設 `minecraft`（也可用 `real`、`day`、`night`，小島的時間），`zoomSensitivity` 預設 100（接受 20–300 的整數），`terminalCommand` 預設空字串，`keepTerminals` 預設 `false`，`mapClick` 預設 `sheets`（有詳細頁開著時點地圖先關掉所有詳細頁；`home` 時點地圖直接關掉公司或機場。舊欄位 `mapClickLeaves` 讀取時會自動換成它）。語言沿用 SQLite 儲存。聲音偏好 `muteInBackground`（預設 `true`）、`musicVolume`（預設 50）、`effectsVolume`（預設 100）接受 0–100 的整數，0 為靜音；`musicMuted`、`effectsMuted`（預設 `false`）直接靜音該聲道並保留音量；`soundTakeoff`、`soundLanding`、`soundFlyover`、`soundUI`、`soundNotice`、`soundOpenTeam`、`soundOpenAirport`、`soundWaves` 分別控制起飛、降落、飛越、介面、通知（待回覆任務與對話回覆）、打開公司、打開機場音效和持續循環的海浪聲，預設皆為 `true`。`systemNotices`（預設 `true`）讓 Mac App 在不在前景時，為待回覆的任務和對話發 macOS 通知，並在 Dock 圖示上顯示待回覆數量。`musicStyle` 可選 `bossa`（預設）、`chiptune`、`piano`、`ambient`。舊偏好檔缺少的欄位會補上預設值。
+偏好欄位的預設值：`logOrder: newestFirst`（也可用 `newestLast`）、`defaultTab: tasks`（`chats`、`tasks`、`crew`、`terminal`、`settings`）、`defaultAirportTab: providers`（`chats`、`providers`、`blueprints`、`flows`、`sources`、`stats`、`terminal`、`prefs`、`about`）、`autoTab: chats`（`off`、`chats`、`tasks`：打開公司或機場時先顯示有事待處理的頁籤，兩者都有時先顯示選的那個；`off` 一律用預設頁籤。舊欄位 `openWaitingTab` 讀取時會自動換成它）、`chatTitleModel: ""`、`chatTitleEffort: ""`（有模型時，公司和機場的新對話會把第一則訊息最多約 2,000 字送給這個模型取一次名字，沒有工具，30 秒逾時、失敗不重試，用量算進該對話；空字串表示關閉，`effort` 空白或模型不支援就不指定思考等級）、`imageProvider: ""`（生圖用的 ChatGPT 訂閱供應商 id，空字串表示沒有 `image_gen`，見「訂閱登入」）；`detail`、`shadows`、`crowd`、`planes`、`clouds` 預設 `true`，`autoView` 預設 `panZoom`（也可用 `pan`、`off`；舊欄位 `autoZoom` 讀取時會自動換成它），`busyAnimation` 預設 `money`（也可用 `shout`，公司工作中時建築旁的動畫），`daylight` 預設 `minecraft`（也可用 `real`、`day`、`night`，小島的時間），`zoomSensitivity` 預設 100（接受 20–300 的整數），`idleFollow` 預設 15（主畫面閒置幾秒後鏡頭跟隨一位民眾，只接受 0、5、15、30、60、300、900、1800、3600、10800，0 表示關閉），`idleFollowTarget` 預設 `map`（閒置鏡頭僅跟隨地圖人物；`all` 包含辦公室員工；地圖民眾關閉且選 `map` 時不跟隨），`terminalCommand` 預設空字串，`keepTerminals` 預設 `false`，`mapClick` 預設 `sheets`（有詳細頁開著時點地圖先關掉所有詳細頁；`home` 時點地圖直接關掉公司或機場。舊欄位 `mapClickLeaves` 讀取時會自動換成它）。語言沿用 SQLite 儲存。聲音偏好 `muteInBackground`（預設 `true`）、`musicVolume`（預設 50）、`effectsVolume`（預設 100）接受 0–100 的整數，0 為靜音；`musicMuted`、`effectsMuted`（預設 `false`）直接靜音該聲道並保留音量；`soundTakeoff`、`soundLanding`、`soundFlyover`、`soundUI`、`soundNotice`、`soundOpenTeam`、`soundOpenAirport`、`soundWaves` 分別控制起飛、降落、飛越、介面、通知（待回覆任務與對話回覆）、打開公司、打開機場音效和持續循環的海浪聲，預設皆為 `true`。`systemNotices`（預設 `true`）讓 Mac App 在不在前景時，為待回覆的任務和對話發 macOS 通知，並在 Dock 圖示上顯示待回覆數量。`musicStyle` 可選 `bossa`（預設）、`chiptune`、`piano`、`ambient`。舊偏好檔缺少的欄位會補上預設值。
 
 公司位置、建築樣式和配色種子存在 SQLite 的公司記錄，建立與移動時儲存，解散時一起移除。位置必須為整數格、兩軸各介於 -512 到 512，不可重疊公司或機場，並且整塊 16×16 用地都必須落在現有陸地格子向八個方向擴張 32 格的範圍內。搬家以搬動前的陸地計算，包含所選公司的原有陸地；機場保留兩格間距。前後端以相同的陸地格子（含連接陸地與填平的內湖）驗證。不讀取或搬移舊的網頁 `localStorage`；沒有共用位置的公司會重新配置位置與外觀。`make dev-mock` 的偏好和地圖只存在記憶體。
 
@@ -124,8 +124,8 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `GET /teams/:id/health` | 公司資料夾現在的狀態：`folder` 存在、`repo` 是 git repo、`targetBranch` 目標分支還在 |
 | `GET /teams/:id/terminal?cols=&rows=` | WebSocket：在公司資料夾開一個載入 `~/.zshrc` 的 zsh。二進位訊息是輸入與畫面輸出，文字訊息 `{"cols","rows"}` 調整大小；斷線時結束 shell 和它的工作 |
 | `GET /airport/terminal?cols=&rows=` | WebSocket：機場的終端機，在家目錄開 zsh，其餘和公司的相同。機場對話裡藍圖有讀取檔案或執行指令的機場服務人員可用 `read_terminal` 讀它 |
-| `POST /attachments` | 上傳一個檔案（請求內容就是檔案本身，最大 25MB），回傳放進 `files` 的 `url` |
-| `GET /attachments/:hash` | 下載上傳的檔案 |
+| `POST /attachments` | 上傳一個檔案（請求內容就是檔案本身，最大 25MB），回傳放進 `images` 或 `files` 的 `url` |
+| `GET /attachments/:hash` | 讀取附件；PNG、JPEG、GIF、WebP 可直接預覽，其他格式強制下載 |
 | `POST /chats` | 開始對話（`teamId`、`replicaId`、`text`、可選的 `images` 和 `files`），用員工當下的模型，員工開始回覆。加上 `guests`（同公司員工的 id）就是會議，`replicaId` 是主持人；`mentions` 同 `say` |
 | `POST /chats/:id/say`、`POST /chats/:id/stop`、`DELETE /chats/:id` | 對話發言（`text`、`images`、`files`：附件格式見下方；`mentions` 見會議）、中斷回覆、刪除。回覆中發言會排進對話的 `queue`，回覆正常結束後依序送出；中斷或失敗時留在 `queue` |
 | `POST /chats/:id/queue/:queued/steer`、`DELETE /chats/:id/queue/:queued` | Steer：把排隊的訊息標成 `steer` 並排到其他排隊訊息前面，在下一次工具呼叫結束後送出；沒有回覆進行中就立刻送出。刪除：把訊息移出 `queue` |
@@ -145,9 +145,9 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | 會議 | 對話有 `guests` 就是會議，最多 6 位員工。`say` 的 `mentions` 是這則訊息要給誰（員工 id，依序回覆），不在對話裡的人會被邀請加入；沒有 `mentions` 時所有人依序回覆，主持人最後。每人用自己加入時的模型，看得到前面的人說了什麼，但看不到別人用的工具。對外動作（建立或修改任務、藍圖、流程、`ask_user`）每輪只給一人：單獨被提及的人，否則是主持人。訊息的 `by` 是誰說的，`chat.speaker` 是這一輪正在或最後回覆的人，`chat.next` 是還沒輪到的人。`stop` 會停掉整輪；某人失敗時下一位照常回覆。從會議交給主持人是複製整場會議，交給其他人就變成和那個人的一對一對話 |
 | `PATCH /chats/:id/chair` | 把會議的主持人換成來賓 `replicaId`，原主持人變成來賓；回覆中會拒絕 |
 
-任務與對話的 `images`、`files` 都是 `{ "name": "檔名", "url": "…" }` 陣列，合計最多 6 個。`images` 接受 PNG、JPEG、GIF、WebP 的 data URL，每個最大 3.75MB。`files` 接受一般檔案，每個最大 25MB：`url` 是上傳後拿到的網址；舊資料的 data URL 仍可讀取，每個最大 3.75MB，省略 `files` 也可以。只有附件、沒有文字的對話也能發送。
+任務與對話的 `images`、`files` 都是 `{ "name": "檔名", "url": "…" }` 陣列，合計最多 6 個。`images` 接受 PNG、JPEG、GIF、WebP，每個最大 3.75MB；先上傳後使用附件網址，並帶上 `mimeType`（例如 `image/png`）。舊的 data URL 仍可送出。`files` 接受一般檔案，每個最大 25MB：`url` 是上傳後拿到的網址；舊資料的 data URL 仍可讀取，每個最大 3.75MB，省略 `files` 也可以。只有附件、沒有文字的對話也能發送。
 
-上傳的檔案存於資料目錄的 `attachments/uploads/`，內容相同只留一份；目前刪除任務或對話時不會清掉附件。
+圖片與上傳的檔案存於資料目錄的 `cache/attachments/uploads/`，內容相同只留一份；目前刪除任務或對話時不會清掉附件。公開對話與模型歷史只留圖片參照，送模型前才讀回原始圖片。啟動時會將既有內嵌圖片存成附件後更新紀錄，不刪除訊息或原圖；備份必須包含整個資料目錄，尤其是這個附件資料夾。新版紀錄不應交給不支援圖片參照的舊版後端讀取。
 
 一般檔案另外存於資料目錄的 `attachments/<task-or-chat-id>/`，不會寫入或提交到公司專案。員工會收到檔名、絕對路徑和文字預覽（最多 50KB），可用藍圖允許的讀檔工具繼續讀取；二進位文件須使用可用的命令與解析工具，沒有內建 PDF／Office 轉換。介面支援下載、移除待送附件、複製任務附件及收回訊息後重新編輯附件。
 
@@ -166,12 +166,12 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 - **範圍**：公司的員工只能讀取、建立、修改自己公司的任務，也只列得到自己公司的員工和公司；機場服務人員可以跨公司，`create_task` 要帶 `team_id`。藍圖、任務藍圖和供應商由所有公司共用，修改會影響每間公司。
 - **直接生效**：新增藍圖、新增任務藍圖、新增供應商、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。
 - **要確認**：帶 `id` 的 `save_blueprint`、`save_workflow`、`save_provider`，包括員工修改自己用的藍圖。後端先檢查內容並算出差異，然後暫停，同意前不會寫入。任務的子任務進入等待回覆（`review.kind` 為 `change`），對話則是 `chat.change`；兩者都會保存，重新啟動後還在。同意或拒絕都會回傳給模型，模型接著工作。內容沒有差異時不會暫停。同一輪在這個呼叫之後的工具不會執行，模型會收到 `interrupted`。
-- **不能修改**：`preset-` 開頭的內建項目（要新增一份自己的）、Git 來源的藍圖。修改要帶 `list_*` 回傳的 `version`，不符就拒絕；等待確認期間內容被改過或刪除時，同意也不會寫入，模型會收到原因。
+- **不能修改**：`preset-` 開頭的內建項目和來源帶來的（id 含 `--`，例如官方的 `team-work--assistant`）項目（要新增一份自己的）、Git 來源的藍圖。修改要帶 `list_*` 回傳的 `version`，不符就拒絕；等待確認期間內容被改過或刪除時，同意也不會寫入，模型會收到原因。
 - **設定檔**：寫入藍圖、任務藍圖和供應商的規則和介面相同：有外部修改尚未載入時回傳 `conflict`。
 - **生效範圍**：任務建立時留一份任務藍圖，修改共用流程不影響進行中的任務。藍圖不同：同意後正在進行的步驟不變，但每次開始步驟都讀最新藍圖，所以同一任務之後的步驟會用新藍圖。
 - **`create_task`**：帶標題、說明、任務藍圖，立即建立，不需要確認；任務和使用者建立的一樣留在待辦（`paused: true`、沒有 `pausedAt`），等使用者按開始（`POST /tasks/:id/resume`）。內建流程的步驟沒有指定員工，有步驟沒有人時會失敗並列出這些步驟，模型應該問使用者後再用 `staff` 或 `owner_id` 重試；模型自己填人選時後端無法分辨。
 - **連鎖深度**：任務中的員工建立的任務，深度是來源任務加 1，最多 3 層（`maxTaskDepth`，暫定值），超過就拒絕並告知模型。從對話建立的任務深度是 0。同時執行的任務數量沒有限制。
-- **`save_blueprint`**：模型不能設定外觀，新藍圖取自內建藍圖之一。技能用 Git 來源時不會在儲存當下解析 commit，執行時才取 `origin/HEAD`，也不會套用 `ref`；要固定版本請呼叫 `POST /blueprints/:id/update`。
+- **`save_blueprint`**：模型不能設定外觀，新藍圖的外觀取自 `presets.json` 的 `looks` 之一。技能用 Git 來源時不會在儲存當下解析 commit，執行時才取 `origin/HEAD`，也不會套用 `ref`；要固定版本請呼叫 `POST /blueprints/:id/update`。
 - **`save_workflow`**：`nodes`、`edges` 是完整的新清單，已存在的節點 id 沒帶的欄位保留原值。模型不指定座標，新節點由後端排版。有迴圈等無效內容會被拒絕。
 - **`save_provider`**：新增時帶 `name`、`kind`、`api_key`（`compatible` 另帶 `base_url`），和介面新增一樣先向供應商查模型清單，Key 或網址錯誤就失敗。修改可改 `name`、`base_url`、`api_key`、`prices`（`prices` 是整份取代），不能改 `kind` 和登入方式；查模型清單在送出確認卡之前做；但只改 `base_url` 而沿用已存的 Key 時，確認前不連新網址，同意寫入後才用已存的 Key 到新網址重新讀模型清單。確認卡列出名稱、網址、Key 最後 4 碼、價格和模型清單的差異。新的 Key 在等待確認期間只放在記憶體，不寫進確認卡和狀態檔，所以重新啟動後同意會失敗並告知模型。訂閱登入要開瀏覽器，工具做不到：可用 `login: subscription` 新增，再請使用者到設定頁登入。`list_providers` 只回傳 Key 最後 4 碼。
 - **請使用者輸入答案**：`ask_user` 一定要有選項，所以需要使用者打字的答案（例如名字、API Key），員工會在回覆裡直接問。輸入的內容和一般訊息一樣，會留在對話紀錄並交給模型；員工呼叫 `save_provider` 時，對話裡顯示的工具參數也包含 Key。
@@ -212,9 +212,19 @@ Claude Code 的設定：
 
 ## 預設內容
 
-內建十三個員工藍圖（通才、前端工程師、後端工程師、程式審查員、測試工程師、設計師、產品規劃、技術規劃、研究員、寫手、DevOps 工程師、Matt Pocock、Poteto），外加機場服務人員專用的 `preset-airport`（設定頁看得到，但不能拿來新增員工，`list_blueprints` 也不列）和四條任務藍圖（依序為「一般任務」「修 Bug」「功能開發」「程式審查」），繁中和英文都在 `internal/usecase/presets.json`。它們的 id 以 `preset-` 開頭，不存進設定檔，也不能修改或刪除；世界資料裡是目前語言的版本，員工收到的一律是英文。自訂項目不能用這個開頭的 id。拿掉的內建藍圖寫在 `presets.go` 的 `retiredPresets`，載入設定時把用它的員工和從它複製的藍圖換到接手的藍圖（例如 `preset-pm` 換成 `preset-architect`）。
+App 帶的十三個員工藍圖（通才、前端工程師、後端工程師、程式審查員、測試工程師、設計師、產品規劃、技術規劃、研究員、寫手、DevOps 工程師、Matt Pocock、Poteto）和四條任務藍圖（「一般任務」「修 Bug」「功能開發」「程式審查」）來自官方來源 [Team-Work-Source](https://github.com/yanun0323/Team-Work-Source)，見下方「官方來源」。真正內建的只剩機場服務人員專用的 `preset-airport`（設定頁看得到，但不能拿來新增員工，`list_blueprints` 也不列），和 App 自己寫的固定文字（「整理需求」「驗收」範本、討論步驟的指示、員工自己做的藍圖可用的外觀），各語言都在 `internal/usecase/presets.json`。`preset-` 開頭的 id 不存進設定檔，也不能修改或刪除；世界資料裡是目前語言的版本，員工收到的一律是英文。自訂項目不能用這個開頭的 id。舊版內建的藍圖（例如 `preset-assistant`）不會自動換成官方來源的那份。
+
+員工的藍圖不存在時（舊版內建的、來源不再帶來的、檔名改了或手動改了員工檔），設定照常載入，員工保留原樣：前端標「藍圖已不存在」，他負責的步驟開工時直接停下來問使用者（`ReviewFailed`，不重試），對話回覆也會失敗，都說明要編輯這位員工重新選擇藍圖。來源更新時拿掉某個藍圖，用它的員工仍會改成自訂設定（見 `putSourced`），不算在內。
 
 任務藍圖由所有公司共用，任務開始時留一份，之後改任務藍圖不影響它。任務藍圖不指定員工，由每個任務決定。
+
+## 官方來源
+
+`team-work` 是固定 id 的 Git 來源，指向 `https://github.com/yanun0323/Team-Work-Source`，每個世界都有（設定檔沒有就補上），預設自動套用更新，不能刪除（`DELETE /sources/team-work` 回 409）。它帶來的藍圖和流程 id 是 `team-work--<檔名>`，所以每台電腦都一樣。App 不內附它：一開始沒有版本，伺服器啟動後檢查一次時下載，之後和其他 Git 來源一樣，每 6 小時檢查。檢查時，新版要下載並讀完才會換過去，讀不到就留在原本的版本、記下錯誤；正在用的版本不在 `cache/repos/` 時（快取被刪掉），即使沒有新版也會重新下載。這兩條對所有 Git 來源都一樣。測試和模擬模式讀 `internal/usecase/testdata/official/` 那份，`make official-source`（`REF=` 可指定分支或 tag）從 GitHub 更新它。
+
+來源的 YAML 裡，員工藍圖的 `name`、`prompt`、`comment`，以及流程和每個節點的 `name`、`prompt`，可以寫一段文字，也可以寫 `en`、`zh`、`zh-Hans`、`ja`、`ko` 對文字的對照；其他語言代碼或不是文字時，該檔案列在來源的讀取問題裡。世界資料用目前語言，沒有就用英文，再沒有就用檔案裡第一個；給員工的角色說明和流程（任務的那份也是）有英文就用英文。任務留的流程副本換語言時，只換名稱仍是來源寫的那幾個節點。
+
+偏好 `codexSkills`、`claudeSkills` 關掉時，所有藍圖都不讀 `~/.codex/`、`~/.claude/`（和它們底下的資料夾）的技能，藍圖的技能清單不變，`GET /blueprints/:id/skills` 那一格是空的。
 
 ## 藍圖來源
 

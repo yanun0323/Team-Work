@@ -446,8 +446,9 @@ type Merge struct {
 }
 
 type Attachment struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	MimeType string `json:"mimeType,omitempty"`
 }
 
 type Task struct {
@@ -657,7 +658,8 @@ type Block struct {
 	Name     string          `json:"name,omitempty"`
 	Args     json.RawMessage `json:"args,omitempty"`
 	MimeType string          `json:"mimeType,omitempty"`
-	Data     string          `json:"data,omitempty"` // base64 image
+	Data     string          `json:"data,omitempty"`     // base64 image, only while calling a provider
+	ImageRef string          `json:"imageRef,omitempty"` // content hash in attachment storage
 	IsError  bool            `json:"isError,omitempty"`
 }
 

@@ -26,6 +26,10 @@ help-shots: frontend/node_modules
 server:
 	cd backend && go run ./cmd/server
 
+## official-source: refresh the copy of the official source the tests and the simulator read (REF=<branch or tag> for another version)
+official-source:
+	@./scripts/official-source.sh
+
 ## build: build the universal macOS app in dist (unsigned)
 build:
 	@./scripts/macos.sh build

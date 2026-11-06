@@ -142,8 +142,8 @@ func (p promptParts) compose(repoRole string, skills []skill) string {
 }
 
 // rolePart is the role a blueprint has written down.
-func rolePart(bp *model.Blueprint) string {
-	role := agentRole(bp)
+func (e *Engine) rolePart(bp *model.Blueprint) string {
+	role := e.agentRole(bp)
 	if role == "" {
 		return ""
 	}
@@ -151,8 +151,8 @@ func rolePart(bp *model.Blueprint) string {
 }
 
 // taskPrompt is the system prompt of one step of a task.
-func taskPrompt(t *model.Task, team *model.Team, node *model.WorkflowNode, bp *model.Blueprint, r *model.Replica, language, global string) promptParts {
-	wf := agentFlow(&t.Workflow)
+func (e *Engine) taskPrompt(t *model.Task, team *model.Team, node *model.WorkflowNode, bp *model.Blueprint, r *model.Replica, language, global string) promptParts {
+	wf := e.agentFlow(&t.Workflow)
 	node = nodeOf(wf, node.ID)
 	stepRule := handoffRule
 	if node.Kind == enum.NodeTalk {
@@ -161,7 +161,7 @@ func taskPrompt(t *model.Task, team *model.Team, node *model.WorkflowNode, bp *m
 	return promptParts{
 		rules:  systemRules + "\n" + mentionRule + "\n" + languageRule(language) + "\n\n" + stepRule + "\n" + taskPriorityRule + "\n",
 		shared: sharedRules(global, team.Prompt),
-		role:   rolePart(bp),
+		role:   e.rolePart(bp),
 		memory: memorySection(r),
 		step:   stepSection(wf, node),
 	}
@@ -211,7 +211,7 @@ func stepSection(wf *model.Workflow, node *model.WorkflowNode) string {
 
 // firstMessage is what a run starts from: the task itself, what came from upstream, and why it is being redone.
 func (e *Engine) firstMessage(t *model.Task, s *model.SubTask) model.Message {
-	wf := agentFlow(&t.Workflow)
+	wf := e.agentFlow(&t.Workflow)
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Task #%d: %s\n%s\n", t.Number, t.Title, t.Description)
 	for _, id := range s.UpstreamIDs {
@@ -237,11 +237,7 @@ func (e *Engine) firstMessage(t *model.Task, s *model.SubTask) model.Message {
 		fmt.Fprintf(&b, "\n# This step was sent back\nReason: %s\n", s.Rework.Reason)
 	}
 	content := []model.Block{{Type: enum.BlockText, Text: b.String()}}
-	for _, img := range t.Images {
-		if mime, data, ok := parseDataURL(img.URL); ok && strings.HasPrefix(mime, "image/") {
-			content = append(content, model.Block{Type: enum.BlockImage, MimeType: mime, Data: data})
-		}
-	}
+	content = append(content, imageBlocks(t.Images)...)
 	content = append(content, e.fileBlocks(t.ID, t.Files)...)
 	return model.Message{Role: enum.RoleUser, Content: content}
 }

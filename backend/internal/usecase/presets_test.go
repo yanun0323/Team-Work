@@ -3,6 +3,8 @@ package usecase_test
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -22,22 +24,30 @@ func presetFlowOf(t *testing.T, w *model.World, id string) *model.Workflow {
 	return wf
 }
 
+// The blueprints and flows the app comes with are the official source's, there from the first start without the
+// network: the built-in copy is read.
 func TestPresets(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	w := r.world()
+	if s := w.Sources[usecase.OfficialSourceID]; s == nil || s.Kind != "git" || s.Repo != "https://github.com/yanun0323/Team-Work-Source" || !s.AutoApply || s.Commit == "" {
+		t.Fatalf("official source %+v", s)
+	}
 	names := map[string]string{}
 	for id, b := range w.Blueprints {
-		if model.IsPresetID(id) {
+		if model.SourceOfID(id) == usecase.OfficialSourceID {
 			names[b.Name] = id
-			if b.Source.Kind != model.SourcePreset {
+			if b.Source.Kind != "yaml" || !model.IsLockedID(id) {
 				t.Fatalf("%s: %+v", b.Name, b.Source)
 			}
 		}
 	}
-	for _, want := range []string{"技術規劃", "產品規劃", "設計師", "後端工程師", "前端工程師", "測試工程師", "研究員", "程式審查員", "DevOps 工程師", "寫手", "通才"} {
+	for _, want := range []string{"技術規劃", "產品規劃", "設計師", "後端工程師", "前端工程師", "測試工程師", "研究員", "程式審查員", "DevOps 工程師", "寫手", "通才", "Matt Pocock", "Poteto"} {
 		if names[want] == "" {
 			t.Fatalf("no blueprint %s: %v", want, names)
 		}
+	}
+	if len(names) != 13 || w.Blueprints["preset-airport"] == nil {
+		t.Fatalf("%v", names)
 	}
 	if !slices.Contains(w.Blueprints[names["設計師"]].Tools, enum.ToolRunCommand) {
 		t.Fatal("the designer can't run commands")
@@ -49,11 +59,11 @@ func TestPresets(t *testing.T) {
 			}
 		}
 	}
-	feature := presetFlowOf(t, w, "preset-feature")
+	feature := presetFlowOf(t, w, "team-work--feature")
 	if feature.Name != "功能開發" || len(feature.Nodes) != 3 || len(feature.Edges) != 2 {
 		t.Fatalf("%+v", feature)
 	}
-	small := presetFlowOf(t, w, "preset-small")
+	small := presetFlowOf(t, w, "team-work--small")
 	if small.Name != "一般任務" || len(small.Nodes) != 1 || len(small.Edges) != 0 {
 		t.Fatalf("%+v", small)
 	}
@@ -61,7 +71,7 @@ func TestPresets(t *testing.T) {
 	if raw, err := json.Marshal(small); err != nil || !strings.Contains(string(raw), `"edges":[]`) {
 		t.Fatalf("%s %v", raw, err)
 	}
-	bugfix := presetFlowOf(t, w, "preset-bugfix")
+	bugfix := presetFlowOf(t, w, "team-work--bugfix")
 	// a built-in flow starts with its first step, and only a last step fed by one step alone may send work back
 	if n := bugfix.Nodes[1]; n.SendBack == nil || !*n.SendBack || bugfix.Nodes[0].SendBack != nil {
 		t.Fatalf("%+v", bugfix.Nodes)
@@ -71,7 +81,7 @@ func TestPresets(t *testing.T) {
 			t.Fatalf("%+v", n)
 		}
 	}
-	for _, id := range []string{"preset-small", "preset-bugfix", "preset-feature", "preset-review"} {
+	for _, id := range []string{"team-work--small", "team-work--bugfix", "team-work--feature", "team-work--review"} {
 		// a copy goes through the same checks as a flow drawn by hand
 		c, err := r.e.DuplicateWorkflow(id)
 		if err != nil {
@@ -86,7 +96,7 @@ func TestPresets(t *testing.T) {
 func TestPresetsCannotChangeButCanBeCopied(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	w := r.world()
-	bp, wf := *w.Blueprints["preset-architect"], *presetFlowOf(t, w, "preset-feature")
+	bp, wf := *w.Blueprints["team-work--architect"], *presetFlowOf(t, w, "team-work--feature")
 	for what, err := range map[string]error{
 		"save blueprint":   r.e.SaveBlueprint(bp.ID, bp),
 		"delete blueprint": r.e.DeleteBlueprint(bp.ID),
@@ -97,7 +107,7 @@ func TestPresetsCannotChangeButCanBeCopied(t *testing.T) {
 			t.Errorf("%s went through", what)
 		}
 	}
-	if _, err := r.e.CreateBlueprint(bp); err == nil {
+	if _, err := r.e.CreateBlueprint(*w.Blueprints["preset-airport"]); err == nil {
 		t.Error("made a blueprint that says it is built in")
 	}
 	// a copy takes what is shown, is the user's own, and does not change with the language
@@ -105,7 +115,7 @@ func TestPresetsCannotChangeButCanBeCopied(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if model.IsPresetID(c.ID) || c.Name != "功能開發-1" {
+	if model.IsLockedID(c.ID) || c.Name != "功能開發-1" {
 		t.Fatalf("%s %s", c.ID, c.Name)
 	}
 	if err := r.e.SetLanguage(model.LanguageEn); err != nil {
@@ -139,12 +149,12 @@ func TestPresetsCannotChangeButCanBeCopied(t *testing.T) {
 // Whatever the user sees, employees are told a built-in blueprint and flow in English, with the language to reply in.
 func TestEmployeesAreToldPresetsInEnglish(t *testing.T) {
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
-	pm, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: "preset-architect", Name: "Pam", Model: "fake"})
+	pm, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: "team-work--architect", Name: "Pam", Model: "fake"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "加功能", WorkflowID: "preset-bugfix", OwnerID: &pm.ID,
-		Staff: map[string][]string{"preset-bugfix-0-0": {pm.ID}, "preset-bugfix-1-0": {pm.ID}}}))
+	task := r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "加功能", WorkflowID: "team-work--bugfix", OwnerID: &pm.ID,
+		Staff: map[string][]string{"reproduce": {pm.ID}, "fix": {pm.ID}}}))
 	if task.Workflow.Nodes[0].Name != "重現問題" {
 		t.Fatalf("the task shows %q", task.Workflow.Nodes[0].Name)
 	}
@@ -261,24 +271,26 @@ func TestThinkingLevelsComeFromTheProvider(t *testing.T) {
 
 func TestPresetsUseTheAgentFolders(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	w := r.world()
 	found := 0
-	for id, b := range r.world().Blueprints {
-		if !model.IsPresetID(id) || id == "preset-matt-pocock" || id == "preset-poteto" {
+	for id, b := range w.Blueprints {
+		if model.SourceOfID(id) != usecase.OfficialSourceID || id == "team-work--matt-pocock" || id == "team-work--poteto" {
 			continue // these read their skills from GitHub
 		}
 		found++
 		var paths []string
 		for _, p := range b.Skills {
-			paths = append(paths, p.Source.Path)
-			if p.Source.Kind != "local" || p.Include != nil {
-				t.Fatalf("%s: %+v", b.Name, p)
+			s := w.Sources[p.SourceID]
+			if s == nil || s.Kind != "local" || p.Include != nil {
+				t.Fatalf("%s: %+v %+v", b.Name, p, s)
 			}
+			paths = append(paths, s.Path)
 		}
 		if !slices.Equal(paths, []string{"~/.agents/", "~/.team-work/", "~/.codex/", "~/.claude/"}) {
 			t.Fatalf("%s: %v", b.Name, paths)
 		}
 	}
-	if found != 12 {
+	if found != 11 {
 		t.Fatalf("%d presets", found)
 	}
 }
@@ -371,37 +383,73 @@ func TestCompatibleFallbackLevelsValidateReloadAndRun(t *testing.T) {
 	}
 }
 
+// The Codex and Claude switches leave out the skills in those folders for every blueprint: the official source's,
+// the user's own, and the airport staff's.
 func TestPresetSkillFoldersFollowPreferences(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
-	folders := func() []string {
+	home, _ := os.UserHomeDir()
+	for _, dir := range []string{".agents", ".codex", ".claude"} {
+		raw := []byte("---\nname: from-" + dir[1:] + "\ndescription: d\n---\n")
+		if err := os.MkdirAll(filepath.Join(home, dir, "skills", "x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, dir, "skills", "x", "SKILL.md"), raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, dir := range []string{".agents", ".codex", ".claude"} {
+			os.RemoveAll(filepath.Join(home, dir))
+		}
+	})
+	mine, err := r.e.CreateBlueprint(model.Blueprint{Name: "Mine", Skills: []model.SkillPack{{Source: &model.BlueprintSource{Kind: "local", Path: "~/.codex/"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func(id string) []string {
+		t.Helper()
+		packs, err := r.e.BlueprintSkills(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
 		var out []string
-		for _, p := range r.world().Blueprints["preset-architect"].Skills {
-			out = append(out, p.Source.Path)
+		for _, names := range packs {
+			out = append(out, names...)
 		}
 		return out
 	}
-	if got := folders(); !slices.Contains(got, "~/.codex/") || !slices.Contains(got, "~/.claude/") {
-		t.Fatalf("default folders: %v", got)
+	if got := read("team-work--architect"); !slices.Equal(got, []string{"from-agents", "from-codex", "from-claude"}) {
+		t.Fatalf("default skills: %v", got)
 	}
 	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codexSkills": json.RawMessage(`false`)}); err != nil {
 		t.Fatal(err)
 	}
-	if got := folders(); slices.Contains(got, "~/.codex/") || !slices.Contains(got, "~/.claude/") {
+	if got := read("team-work--architect"); !slices.Equal(got, []string{"from-agents", "from-claude"}) {
 		t.Fatalf("without Codex: %v", got)
+	}
+	if got := read(mine.ID); len(got) != 0 {
+		t.Fatalf("the user's own blueprint without Codex: %v", got)
 	}
 	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codexSkills": json.RawMessage(`true`), "claudeSkills": json.RawMessage(`false`)}); err != nil {
 		t.Fatal(err)
 	}
-	if got := folders(); !slices.Contains(got, "~/.codex/") || slices.Contains(got, "~/.claude/") || !slices.Contains(got, "~/.agents/") {
+	if got := read("team-work--architect"); !slices.Equal(got, []string{"from-agents", "from-codex"}) {
 		t.Fatalf("without Claude: %v", got)
+	}
+	if got := read("preset-airport"); slices.Contains(got, "from-claude") || !slices.Contains(got, "from-codex") {
+		t.Fatalf("the airport staff without Claude: %v", got)
+	}
+	// the packs stay listed in their places
+	if n := len(r.world().Blueprints["team-work--architect"].Skills); n != 4 {
+		t.Fatalf("%d packs", n)
 	}
 }
 
 func TestPresetsFromGitHubKeepTheirReposAsSources(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	want := map[string][2]string{
-		"preset-matt-pocock": {"https://github.com/mattpocock/skills", ""},
-		"preset-poteto":      {"https://github.com/cursor/plugins", "pstack"},
+		"team-work--matt-pocock": {"https://github.com/mattpocock/skills", ""},
+		"team-work--poteto":      {"https://github.com/cursor/plugins", "pstack"},
 	}
 	check := func() map[string]string {
 		t.Helper()
@@ -423,13 +471,13 @@ func TestPresetsFromGitHubKeepTheirReposAsSources(t *testing.T) {
 	}
 	before := check()
 	// the blueprint reads it, so it stays
-	if err := r.e.DeleteSource(before["preset-poteto"]); err == nil {
+	if err := r.e.DeleteSource(before["team-work--poteto"]); err == nil {
 		t.Fatal("deleted a built-in blueprint's source")
 	}
 	// kept in the settings, so a restart finds the same one instead of adding another
 	r.e.Close()
 	newEngine(t, r)
-	if after := check(); after["preset-matt-pocock"] != before["preset-matt-pocock"] || after["preset-poteto"] != before["preset-poteto"] {
+	if after := check(); after["team-work--matt-pocock"] != before["team-work--matt-pocock"] || after["team-work--poteto"] != before["team-work--poteto"] {
 		t.Fatalf("%v, then %v", before, after)
 	}
 }

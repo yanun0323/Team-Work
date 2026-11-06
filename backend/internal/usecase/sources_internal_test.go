@@ -42,8 +42,8 @@ func TestAdoptSourcesMergesTheSameRepo(t *testing.T) {
 	w.Blueprints["bp-3"] = &model.Blueprint{ID: "bp-3", Skills: []model.SkillPack{{Source: git("", "failed", 30, false)}}}
 	e := &Engine{w: w}
 	e.adoptSources()
-	if len(w.Sources) != 1+len(presets.SkillFolders) {
-		t.Fatalf("sources = %+v, want the repo and the agents' folders", w.Sources)
+	if len(w.Sources) != 2+len(presets.SkillFolders) || w.Sources[OfficialSourceID] == nil {
+		t.Fatalf("sources = %+v, want the repo, the agents' folders and the official source", w.Sources)
 	}
 	repo := w.Sources[w.Blueprints["bp-1"].Skills[0].SourceID]
 	if repo == nil || repo.Commit != "new" || repo.Ref != "main" {
@@ -113,6 +113,8 @@ type fetchedVersions struct {
 func (f fetchedVersions) Fetch(_ context.Context, _, commit string) (string, error) {
 	return f.dirs[commit], nil
 }
+
+func (f fetchedVersions) Cached(_, commit string) bool { return f.dirs[commit] != "" }
 
 func TestSourceUpdateChangesNamesWhoIsAffected(t *testing.T) {
 	was, is := t.TempDir(), t.TempDir()
@@ -214,6 +216,8 @@ func (l latestIs) Fetch(context.Context, string, string) (string, error) {
 	return "", errors.New("no copies here")
 }
 
+func (l latestIs) Cached(string, string) bool { return false }
+
 func TestAnUpdateAppliedByItselfIsUnseenUntilOpened(t *testing.T) {
 	data := t.TempDir()
 	store, err := repository.NewStore(data)
@@ -221,7 +225,9 @@ func TestAnUpdateAppliedByItselfIsUnseenUntilOpened(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := "c2"
-	e, err := NewEngine(context.Background(), Options{Store: store, Git: latestIs{at: &at}, DataDir: data, Log: zerolog.Nop()})
+	// a version is moved to once it is downloaded and read
+	dirs := map[string]string{"c1": t.TempDir(), "c2": t.TempDir(), "c3": t.TempDir()}
+	e, err := NewEngine(context.Background(), Options{Store: store, Git: versionsAt{dirs: dirs, latest: &at}, DataDir: data, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,6 +266,8 @@ type latestFails struct {
 }
 
 func (l latestFails) Latest(context.Context, string, string) (string, error) { return "", l.err }
+
+func (l latestFails) Cached(string, string) bool { return false }
 
 // A check that fails only for now, like no network, keeps the upstream; only a repo or branch that is gone loses it.
 func TestOnlyAGoneRepoLosesItsUpstream(t *testing.T) {

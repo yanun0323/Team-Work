@@ -253,7 +253,7 @@ func imageTools(spec agentSpec, read []string, keep func(output string, data []b
 func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Replica) (agentSpec, error) {
 	bp := e.w.Blueprints[r.BlueprintID]
 	if bp == nil {
-		return agentSpec{}, model.Errorf(model.CodeInvalid, "找不到 %s 的藍圖", r.Name)
+		return agentSpec{}, model.Errorf(model.CodeInvalid, "%s 的員工藍圖已不存在，請編輯這位員工，重新選擇藍圖", r.Name)
 	}
 	spec, err := e.modelSpec(r.Model, r.Effort)
 	if err != nil {
@@ -267,7 +267,7 @@ func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Rep
 	if node != nil {
 		team := e.w.Teams[t.TeamID]
 		e.readPrompt(team)
-		spec.prompt = taskPrompt(t, team, node, bp, r, e.w.Language, e.runGlobalPrompt())
+		spec.prompt = e.taskPrompt(t, team, node, bp, r, e.w.Language, e.runGlobalPrompt())
 	}
 	spec.packs = e.packsOf(bp)
 	return spec, nil

@@ -1,0 +1,127 @@
+name:
+  en: Code review
+  zh: 程式審查
+  zh-Hans: 代码审查
+  ja: コードレビュー
+  ko: 코드 리뷰
+nodes:
+  - id: quality-review
+    name:
+      en: Quality review
+      zh: 品質審查
+      zh-Hans: 质量审查
+      ja: 品質レビュー
+      ko: 품질 리뷰
+    prompt:
+      en: |-
+        Review the changes the task names: use git to find the actual scope, then check correctness, edge cases, error handling, compatibility, tests and maintainability. Run whatever tests can be run. Do not change any file in this step.
+
+        For each problem, give the file and line, the actual consequence, a suggested fix and the severity: must fix, should fix or suggestion.
+
+        In your handoff, give the scope reviewed and the list of problems. Copy the acceptance criteria word for word for the next step.
+      zh: |-
+        審查任務指定的改動：先用 git 找出實際範圍，再看正確性、邊界情況、錯誤處理、相容性、測試和可維護性。能執行的測試就實際跑。這一步不修改任何檔案。
+
+        每個問題都寫下檔案與行號、實際後果、建議的修法和嚴重程度（必須修、應該修或只是建議）。
+
+        交接時列出審查範圍和問題清單，並把驗收條件原文帶給下一步。
+      zh-Hans: |-
+        审查任务指定的改动：先用 git 找出实际范围，再看正确性、边界情况、错误处理、兼容性、测试和可维护性。能执行的测试就实际跑。这一步不修改任何文件。
+
+        每个问题都写下文件与行号、实际后果、建议的修法和严重程度（必须修、应该修或只是建议）。
+
+        交接时列出审查范围和问题清单，并把验收条件原文带给下一步。
+      ja: |-
+        タスクが指定する変更をレビューする：git で実際の範囲を確かめ、正しさ、境界のケース、エラー処理、互換性、テスト、保守性を確認する。実行できるテストは実行する。このステップではファイルを一切変更しない。
+
+        問題ごとに、ファイルと行、実際の影響、修正の提案、重大度（必須修正、修正推奨、提案）を書く。
+
+        引き継ぎには、レビューした範囲と問題のリストを書く。受け入れ条件は次のステップのために原文どおり写す。
+      ko: |-
+        작업이 지정한 변경을 리뷰하세요. git으로 실제 범위를 찾은 뒤 정확성, 경계 상황, 오류 처리, 호환성, 테스트, 유지보수성을 확인하세요. 실행할 수 있는 테스트는 실행하세요. 이 단계에서는 어떤 파일도 바꾸지 마세요.
+
+        문제마다 파일과 줄, 실제 결과, 수정 제안, 심각도(필수 수정, 수정 권장, 제안)를 적으세요.
+
+        인계에는 리뷰한 범위와 문제 목록을 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
+  - id: security-review
+    name:
+      en: Security review
+      zh: 資安審查
+      zh-Hans: 安全审查
+      ja: セキュリティレビュー
+      ko: 보안 리뷰
+    prompt:
+      en: |-
+        Review the changes the task names as an attacker would: input validation, permissions, injection, path traversal, leaked secrets, unsafe defaults and new dependencies. Check only the project and the local environment. Do not test outside systems. Do not change any file in this step.
+
+        For each problem, give the location, how to attack it, the actual impact, the fix and the severity, and separate what is confirmed from what is only possible. For secrets, report the location only, never the value.
+
+        In your handoff, give the scope checked and the list of problems. Copy the acceptance criteria word for word for the next step.
+      zh: |-
+        從攻擊者的角度審查任務指定的改動：輸入驗證、權限、注入、路徑穿越、機密外洩、不安全的預設值，以及新增的相依套件。只檢查專案和本機環境，不要對外部系統測試。這一步不修改任何檔案。
+
+        每個問題都寫下位置、攻擊方式、實際影響、修法和嚴重程度，並分清楚已確認和只是可能。回報機密時只寫位置，不寫內容。
+
+        交接時列出檢查範圍和問題清單，並把驗收條件原文帶給下一步。
+      zh-Hans: |-
+        从攻击者的角度审查任务指定的改动：输入验证、权限、注入、路径穿越、机密外泄、不安全的默认值，以及添加的依赖。只检查项目和本机环境，不要对外部系统测试。这一步不修改任何文件。
+
+        每个问题都写下位置、攻击方式、实际影响、修法和严重程度，并分清楚已确认和只是可能。回报机密时只写位置，不写内容。
+
+        交接时列出检查范围和问题清单，并把验收条件原文带给下一步。
+      ja: |-
+        タスクが指定する変更を攻撃者の目でレビューする：入力の検証、権限、インジェクション、パストラバーサル、秘密情報の漏えい、安全でない初期値、新しい依存関係。確認するのはプロジェクトとローカル環境だけで、外部のシステムはテストしない。このステップではファイルを一切変更しない。
+
+        問題ごとに、場所、攻撃の方法、実際の影響、修正方法、重大度を書き、確認済みのことと可能性にすぎないことを分ける。秘密情報は場所だけを報告し、値は決して書かない。
+
+        引き継ぎには、確認した範囲と問題のリストを書く。受け入れ条件は次のステップのために原文どおり写す。
+      ko: |-
+        작업이 지정한 변경을 공격자의 눈으로 리뷰하세요. 입력 검증, 권한, 인젝션, 경로 탐색, 비밀 정보 유출, 안전하지 않은 기본값, 새 의존성. 프로젝트와 로컬 환경만 확인하고 외부 시스템은 테스트하지 마세요. 이 단계에서는 어떤 파일도 바꾸지 마세요.
+
+        문제마다 위치, 공격 방법, 실제 영향, 해결책, 심각도를 적고, 확인된 것과 가능성일 뿐인 것을 구분하세요. 비밀 정보는 위치만 보고하고 값은 절대 적지 마세요.
+
+        인계에는 확인한 범위와 문제 목록을 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
+  - id: fix
+    name:
+      en: Fix
+      zh: 修正
+      zh-Hans: 修正
+      ja: 修正
+      ko: 수정
+    sendBack: false
+    prompt:
+      en: |-
+        Merge the earlier reviews into one list: remove duplicates, set priorities and decide what to fix this time. Every must-fix item gets fixed. If you cannot judge an item that affects the scope, ask with ask_user.
+
+        Fix each item at its root cause, without widening the scope or refactoring along the way. Do not loosen a test's expectations to make it pass. If you think an item should not be fixed, say why. Do not skip it silently. Cover the fixed behavior with tests, and run the relevant tests and build.
+
+        In your handoff, state how each item was fixed, and which were not and why. Copy the acceptance criteria word for word for the next step.
+      zh: |-
+        把上游的審查結果合併成一份清單：去掉重複的項目，排定優先順序，判斷每一項這次要不要修。必須修的一定要修；要不要修會影響範圍又判斷不了的，用 ask_user 問使用者。
+
+        逐項從根本原因修正，不擴大範圍，也不順手重構。不要為了通過測試而放寬測試的預期。覺得某一項不該修時，寫下理由，不要默默跳過。修過的行為要有測試，並實際跑過相關測試和建置。
+
+        交接時逐項寫下怎麼修的、沒修的項目和理由，並把驗收條件原文帶給下一步。
+      zh-Hans: |-
+        把上游的审查结果合并成一份清单：去掉重复的项目，排定优先级，判断每一项这次要不要修。必须修的一定要修；要不要修会影响范围又判断不了的，用 ask_user 问用户。
+
+        逐项从根本原因修正，不扩大范围，也不顺手重构。不要为了通过测试而放宽测试的预期。觉得某一项不该修时，写下理由，不要默默跳过。修过的行为要有测试，并实际跑过相关测试和构建。
+
+        交接时逐项写下怎么修的、没修的项目和理由，并把验收条件原文带给下一步。
+      ja: |-
+        前のレビューを一つのリストにまとめる：重複を除き、優先度を付け、今回直すものを決める。必須修正の項目はすべて直す。範囲に影響する項目で判断できないものは ask_user で聞く。
+
+        各項目は根本原因で直し、範囲を広げたり、ついでにリファクタリングしたりしない。テストを通すために期待値を緩めない。直すべきでないと考える項目は理由を書く。黙って飛ばさない。直した振る舞いにはテストを付け、関連するテストとビルドを実行する。
+
+        引き継ぎには、各項目をどう直したか、直さなかったものとその理由を書く。受け入れ条件は次のステップのために原文どおり写す。
+      ko: |-
+        앞선 리뷰를 하나의 목록으로 합치세요. 중복을 없애고 우선순위를 정하고 이번에 고칠 것을 정하세요. 필수 수정 항목은 모두 고칩니다. 범위에 영향을 주는데 판단할 수 없는 항목은 ask_user로 물어보세요.
+
+        각 항목은 근본 원인에서 고치고, 범위를 넓히거나 김에 리팩터링하지 마세요. 테스트를 통과시키려고 기대값을 느슨하게 하지 마세요. 고치지 말아야 한다고 생각하는 항목은 이유를 적으세요. 말없이 건너뛰지 마세요. 고친 동작은 테스트로 다루고 관련 테스트와 빌드를 실행하세요.
+
+        인계에는 각 항목을 어떻게 고쳤는지, 고치지 않은 것과 그 이유를 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
+edges:
+  - from: quality-review
+    to: fix
+  - from: security-review
+    to: fix

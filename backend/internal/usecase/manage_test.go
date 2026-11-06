@@ -323,7 +323,7 @@ func TestInvalidNewFlowIsRefusedAndLeavesNothing(t *testing.T) {
 
 func TestListBlueprintsLeavesOutTheAirportStaff(t *testing.T) {
 	r, m := manageRig(t)
-	versionFrom(t, r, m, "list_blueprints", "preset-assistant")
+	versionFrom(t, r, m, "list_blueprints", "team-work--assistant")
 	if strings.Contains(lastResult(t, r).Text, `"preset-airport"`) {
 		t.Fatal("the airport staff's blueprint is listed")
 	}

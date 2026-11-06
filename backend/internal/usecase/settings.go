@@ -78,7 +78,10 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 	if err := model.CheckTutorial(s.Tutorial); err != nil {
 		return s, settingsError("tutorial.yaml", err)
 	}
-	retirePresets(&s)
+	if s.Sources == nil {
+		s.Sources = map[string]*model.Source{}
+	}
+	ensureOfficial(s.Sources)
 	for _, err := range []error{
 		sameIDs("teams", s.Teams, e.w.Teams), sameIDs("replicas", s.Replicas, e.w.Replicas),
 		sameIDs("providers", s.Providers, e.w.Providers), sameIDs("blueprints", s.Blueprints, model.WithoutLocked(e.w.Blueprints), true),
@@ -203,10 +206,8 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 		if strings.TrimSpace(r.Name) == "" {
 			return bad(field+".name", "不能是空的")
 		}
-		// one read from a source is there once the source is read, which may be after the settings are
-		if s.Blueprints[r.BlueprintID] == nil && !isPresetBlueprint(r.BlueprintID) && s.Sources[model.SourceOfID(r.BlueprintID)] == nil {
-			return bad(field+".blueprintId", "藍圖不存在")
-		}
+		// a blueprint not there (one a source no longer brings, one not read yet, one from before) stops nothing: they
+		// wait for the user to pick another before they work again
 		if probe.providerFor(r.Model) == nil {
 			return bad(field+".model", "沒有供應商提供這個模型")
 		}

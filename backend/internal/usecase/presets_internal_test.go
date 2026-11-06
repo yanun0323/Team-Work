@@ -1,38 +1,44 @@
 package usecase
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
 
+func officialFlow(t *testing.T, name string) sourcedFlow {
+	t.Helper()
+	for _, f := range sourcedFiles(officialFS, sourcedWorkflows) {
+		if f.name == name {
+			wf, err := readSourcedWorkflow(OfficialSourceID, f.name, f.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return wf
+		}
+	}
+	t.Fatalf("no flow %s", name)
+	return sourcedFlow{}
+}
+
 func TestLocalizeFlowLeavesStepsThatMovedInATaskCopy(t *testing.T) {
-	// a task copied the bug fix flow when its first step was a discussion; the flow has since changed its order
-	var wf *model.Workflow
-	for _, f := range presets.Flows {
-		if f.ID == "preset-bugfix" {
-			wf = f.in(model.LanguageZh)
-		}
+	// a task copied the bug fix flow and its first step was made a discussion there
+	f := officialFlow(t, "bugfix")
+	wf := clone(f.wf)
+	f.localize(wf, model.LanguageZh)
+	wf.Nodes[0].Kind, wf.Nodes[0].Name, wf.Nodes[0].Prompt = enum.NodeTalk, "討論需求", presets.Talk[model.LanguageZh]
+	e := &Engine{w: model.NewWorld(), sourced: map[string]sourcedSet{OfficialSourceID: {Workflows: []sourcedFlow{f}}}}
+	e.localize(wf, model.LanguageEn)
+	if n := wf.Nodes[0]; n.Name != "討論需求" || n.Prompt != presets.Talk[model.LanguageEn] {
+		t.Fatalf("%+v", n)
 	}
-	old := presetNodeID(wf.ID, 0, 0)
-	for i := range wf.Nodes {
-		if wf.Nodes[i].ID == old {
-			wf.Nodes[i].Kind, wf.Nodes[i].Name, wf.Nodes[i].Prompt = enum.NodeTalk, "討論需求", presets.Talk[model.LanguageZh]
-		}
+	if n := wf.Nodes[1]; n.Name != "Fix" || !strings.HasPrefix(n.Prompt, "Find the root cause") {
+		t.Fatalf("%+v", n)
 	}
-	localizeFlow(wf, model.LanguageEn)
-	for _, n := range wf.Nodes {
-		switch n.ID {
-		case old:
-			if n.Name != "討論需求" || n.Prompt != presets.Talk[model.LanguageEn] {
-				t.Fatalf("%+v", n)
-			}
-		case presetNodeID(wf.ID, 1, 0):
-			if n.Name != "Fix" {
-				t.Fatalf("%+v", n)
-			}
-		}
+	if wf.Name != "Bug fix" {
+		t.Fatal(wf.Name)
 	}
 }
 
@@ -56,27 +62,45 @@ func TestLocalizeFlowMovesTemplatesBetweenEveryLanguage(t *testing.T) {
 	}
 }
 
-// Every built-in text comes in every language the app can be set to.
+// Every built-in text, and every text of the official source's built-in copy, comes in every language the app can be
+// set to.
 func TestPresetsHaveEveryLanguage(t *testing.T) {
 	texts := []presetText{presets.Start.Name, presets.Start.Prompt, presets.End.Name, presets.End.Prompt, presets.Talk}
 	for _, b := range presets.Blueprints {
 		texts = append(texts, b.Name, b.Prompt)
 	}
-	for _, f := range presets.Flows {
-		texts = append(texts, f.Name)
-		for _, layer := range f.Layers {
-			for _, s := range layer {
-				texts = append(texts, s.Name)
-				if !s.Talk {
-					texts = append(texts, s.Prompt)
-				}
-			}
-		}
-	}
 	for _, text := range texts {
 		for language := range languageNames {
 			if text[language] == "" {
 				t.Errorf("%s missing in %v", language, text[model.LanguageEn])
+			}
+		}
+	}
+	var official []sourcedText
+	for _, f := range sourcedFiles(officialFS, sourcedBlueprints) {
+		b, err := readSourcedBlueprint(OfficialSourceID, f.name, f.raw)
+		if err != nil {
+			t.Fatalf("%s: %v", f.name, err)
+		}
+		official = append(official, b.name, b.prompt)
+	}
+	for _, f := range sourcedFiles(officialFS, sourcedWorkflows) {
+		wf, err := readSourcedWorkflow(OfficialSourceID, f.name, f.raw)
+		if err != nil {
+			t.Fatalf("%s: %v", f.name, err)
+		}
+		official = append(official, wf.name)
+		for _, s := range wf.steps {
+			official = append(official, s.name, s.prompt)
+		}
+	}
+	if len(official) < 2*13+4 {
+		t.Fatalf("%d texts", len(official))
+	}
+	for _, text := range official {
+		for language := range languageNames {
+			if strings.TrimSpace(text.texts[language]) == "" {
+				t.Errorf("%s missing in %q", language, text.in(model.LanguageEn))
 			}
 		}
 	}

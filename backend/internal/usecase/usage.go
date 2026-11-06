@@ -21,6 +21,11 @@ type meter struct {
 }
 
 func (m meter) Complete(ctx context.Context, req model.ModelRequest, onText func(string)) (model.ModelReply, error) {
+	messages, err := m.e.resolveImages(ctx, req.Messages)
+	if err != nil {
+		return model.ModelReply{}, err
+	}
+	req.Messages = messages
 	reply, err := m.Provider.Complete(ctx, req, onText)
 	if u := reply.Usage; u.Input+u.Output > 0 {
 		m.e.recordUsage(model.Usage{ProviderID: m.providerID, ProviderName: m.providerName, Model: m.model}, m.price, u)

@@ -721,7 +721,7 @@ func (e *Engine) saveBlueprintTool(m manager) func(context.Context, string, json
 		if a.ID == "" {
 			var made *model.Blueprint
 			err := e.act(m, true, func() error {
-				b := &model.Blueprint{Look: presets.Blueprints[e.w.Seq%len(presets.Blueprints)].Look}
+				b := &model.Blueprint{Look: presets.Looks[e.w.Seq%len(presets.Looks)]}
 				if err := a.applyTo(e, b, read); err != nil {
 					return err
 				}
@@ -1104,7 +1104,7 @@ func (e *Engine) buildFlow(a workflowArgs, old *model.Workflow) (*model.Workflow
 			n.SendBack = ptr(len(outEdges(next, n.ID)) == 0 && canSendBack(next, n.ID))
 		}
 	}
-	localizeFlow(next, e.w.Language)
+	e.localize(next, e.w.Language)
 	if err := e.checkFlow(next); err != nil {
 		return nil, err
 	}

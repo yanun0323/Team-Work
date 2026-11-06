@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -31,13 +32,114 @@ const (
 // with the files that could not be read. Packs are left to place until the set is put in the world, holding the lock.
 type sourcedSet struct {
 	Blueprints []sourcedBlueprint
-	Workflows  []*model.Workflow
+	Workflows  []sourcedFlow
 	Problems   []string
 }
 
+// sourcedBlueprint is a blueprint file as read: bp holds its texts in English, or the first language written, and
+// name, prompt and comment every language the file writes them in.
 type sourcedBlueprint struct {
-	bp    model.Blueprint
-	packs []sourcedPack
+	bp                    model.Blueprint
+	packs                 []sourcedPack
+	name, prompt, comment sourcedText
+}
+
+// in is the blueprint in a language, its skill packs left to place.
+func (b sourcedBlueprint) in(language string) *model.Blueprint {
+	out := clone(&b.bp)
+	out.Name = strings.TrimSpace(b.name.in(language))
+	out.Prompt = strings.TrimSpace(b.prompt.in(language))
+	out.Comment = strings.TrimSpace(b.comment.in(language))
+	return out
+}
+
+// sourcedFlow is a flow file as read: wf holds its texts in English, or the first language written, and name and
+// steps every language the file writes them in, the steps by id.
+type sourcedFlow struct {
+	wf    *model.Workflow
+	name  sourcedText
+	steps map[string]sourcedStep
+}
+
+type sourcedStep struct{ name, prompt sourcedText }
+
+// localize puts a flow, or a task's copy of it, into a language: its name, and a step's name and instructions while
+// its name is still one the file wrote for it. A step renamed since keeps what it says.
+func (f sourcedFlow) localize(wf *model.Workflow, language string) {
+	wf.Name = f.name.in(language)
+	for i := range wf.Nodes {
+		n := &wf.Nodes[i]
+		s, ok := f.steps[n.ID]
+		if !ok || !s.name.is(n.Name) {
+			continue
+		}
+		n.Name = s.name.in(language)
+		if len(s.prompt.langs) > 0 {
+			n.Prompt = s.prompt.in(language)
+		}
+	}
+}
+
+// sourcedLanguages are the languages a source's file can write a text in, by the codes the app uses.
+var sourcedLanguages = []string{model.LanguageEn, model.LanguageZh, model.LanguageZhHans, model.LanguageJa, model.LanguageKo}
+
+// sourcedText is a text a source's file writes: one text whatever the language, or one for each language by its code.
+type sourcedText struct {
+	langs []string // in the order written; "" for the one text of any language
+	texts map[string]string
+}
+
+func (t *sourcedText) UnmarshalYAML(n *yaml.Node) error {
+	t.langs, t.texts = nil, map[string]string{}
+	switch n.Kind {
+	case yaml.ScalarNode:
+		var s string
+		if err := n.Decode(&s); err != nil {
+			return err
+		}
+		t.langs, t.texts[""] = []string{""}, s
+		return nil
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			key, value := n.Content[i], n.Content[i+1]
+			if !slices.Contains(sourcedLanguages, key.Value) {
+				return i18n.Errorf("第 %d 行：不認識的語言 %s", key.Line, key.Value)
+			}
+			var s string
+			if value.Kind != yaml.ScalarNode || value.Decode(&s) != nil {
+				return i18n.Errorf("第 %d 行要是一段文字，或用 en、zh、zh-Hans、ja、ko 各寫一段", value.Line)
+			}
+			if _, seen := t.texts[key.Value]; !seen {
+				t.langs = append(t.langs, key.Value)
+			}
+			t.texts[key.Value] = s
+		}
+		return nil
+	}
+	return i18n.Errorf("第 %d 行要是一段文字，或用 en、zh、zh-Hans、ja、ko 各寫一段", n.Line)
+}
+
+// in is the text in a language, or else in English, or else the first one written.
+func (t sourcedText) in(language string) string {
+	for _, l := range []string{language, model.LanguageEn} {
+		if s, ok := t.texts[l]; ok {
+			return s
+		}
+	}
+	if len(t.langs) == 0 {
+		return ""
+	}
+	return t.texts[t.langs[0]]
+}
+
+// is says whether s is this text in any language.
+func (t sourcedText) is(s string) bool {
+	for _, text := range t.texts {
+		if text == s {
+			return true
+		}
+	}
+	return false
 }
 
 // sourcedPack is a skill pack as a source's blueprint file writes it: a repo, a folder on this computer, or with
@@ -52,9 +154,9 @@ type sourcedPack struct {
 
 // sourcedBlueprintFile is a blueprint file in a source: the same as a blueprint made on the form is kept as.
 type sourcedBlueprintFile struct {
-	Name    string        `yaml:"name"`
-	Prompt  string        `yaml:"prompt"`
-	Comment string        `yaml:"comment"`
+	Name    sourcedText   `yaml:"name"`
+	Prompt  sourcedText   `yaml:"prompt"`
+	Comment sourcedText   `yaml:"comment"`
 	Skills  []sourcedPack `yaml:"skills"`
 	Tools   []string      `yaml:"tools"`
 	Look    *model.Look   `yaml:"look"`
@@ -76,11 +178,11 @@ func (e *Engine) readSourced(ctx context.Context, s model.Source, commit string)
 	if !e.readsSourced(model.Source{Kind: s.Kind, Path: s.Path, Commit: commit}) {
 		return set, nil
 	}
-	root, err := e.sourceRoot(ctx, s, commit)
+	fsys, err := e.sourcedFS(ctx, s, commit)
 	if err != nil {
 		return set, err
 	}
-	for _, f := range sourcedFiles(root, sourcedBlueprints) {
+	for _, f := range sourcedFiles(fsys, sourcedBlueprints) {
 		b, err := readSourcedBlueprint(s.ID, f.name, f.raw)
 		if err != nil {
 			set.Problems = append(set.Problems, fmt.Sprintf("%s/%s.yaml: %s", sourcedBlueprints, f.name, fileProblem(err)))
@@ -88,7 +190,7 @@ func (e *Engine) readSourced(ctx context.Context, s model.Source, commit string)
 		}
 		set.Blueprints = append(set.Blueprints, b)
 	}
-	for _, f := range sourcedFiles(root, sourcedWorkflows) {
+	for _, f := range sourcedFiles(fsys, sourcedWorkflows) {
 		wf, err := readSourcedWorkflow(s.ID, f.name, f.raw)
 		if err != nil {
 			set.Problems = append(set.Problems, fmt.Sprintf("%s/%s.yaml: %s", sourcedWorkflows, f.name, fileProblem(err)))
@@ -114,10 +216,19 @@ type sourcedFile struct {
 	raw  []byte
 }
 
-// sourcedFiles are the YAML files right in folder dir of root, by name without the extension. One whose name cannot
-// be part of an id is left out, as is anything reaching out of root.
-func sourcedFiles(root, dir string) []sourcedFile {
-	entries, err := os.ReadDir(filepath.Join(root, dir))
+// sourcedFS is the folder a source's blueprints and flows are read from, at commit for a repo.
+func (e *Engine) sourcedFS(ctx context.Context, s model.Source, commit string) (fs.FS, error) {
+	root, err := e.sourceRoot(ctx, s, commit)
+	if err != nil {
+		return nil, err
+	}
+	return os.DirFS(root), nil
+}
+
+// sourcedFiles are the YAML files right in folder dir of fsys, by name without the extension. One whose name cannot
+// be part of an id is left out, as is anything that is not a plain file.
+func sourcedFiles(fsys fs.FS, dir string) []sourcedFile {
+	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
 		return nil
 	}
@@ -130,7 +241,7 @@ func sourcedFiles(root, dir string) []sourcedFile {
 		if !ok || !ent.Type().IsRegular() || !sourcedName(name) {
 			continue
 		}
-		raw, err := os.ReadFile(filepath.Join(root, dir, ent.Name()))
+		raw, err := fs.ReadFile(fsys, path.Join(dir, ent.Name()))
 		if err != nil {
 			continue
 		}
@@ -184,9 +295,15 @@ func readSourcedBlueprint(sourceID, name string, raw []byte) (sourcedBlueprint, 
 	if err := decodeYAML(raw, &f); err != nil {
 		return sourcedBlueprint{}, err
 	}
+	for _, l := range f.Name.langs {
+		if strings.TrimSpace(f.Name.texts[l]) == "" {
+			return sourcedBlueprint{}, model.Errorf(model.CodeInvalid, "藍圖要有名稱")
+		}
+	}
 	b := model.Blueprint{
-		ID: model.SourcedID(sourceID, name), Name: f.Name, Prompt: strings.TrimSpace(f.Prompt), Comment: strings.TrimSpace(f.Comment),
-		Source: model.BlueprintSource{Kind: "yaml", Text: string(raw)}, Skills: []model.SkillPack{}, Tools: []enum.Tool{},
+		ID: model.SourcedID(sourceID, name), Name: f.Name.in(model.LanguageEn), Prompt: strings.TrimSpace(f.Prompt.in(model.LanguageEn)),
+		Comment: strings.TrimSpace(f.Comment.in(model.LanguageEn)),
+		Source:  model.BlueprintSource{Kind: "yaml", Text: string(raw)}, Skills: []model.SkillPack{}, Tools: []enum.Tool{},
 	}
 	for _, t := range f.Tools {
 		tool, ok := toolOfName[t]
@@ -211,7 +328,7 @@ func readSourcedBlueprint(sourceID, name string, raw []byte) (sourcedBlueprint, 
 			}
 		}
 	}
-	return sourcedBlueprint{bp: b, packs: f.Skills}, nil
+	return sourcedBlueprint{bp: b, packs: f.Skills, name: f.Name, prompt: f.Prompt, comment: f.Comment}, nil
 }
 
 // insidePath cleans a folder named inside a source, slashes between its parts; ok is false for one reaching out.
@@ -232,21 +349,82 @@ func lookFor(name string) model.Look {
 	return model.Look{Skin: skins[n%5], Hair: hairs[n/5%6], Shirt: shirts[n/30%6], Pants: pants[n/180%4], Extra: "none"}
 }
 
-func readSourcedWorkflow(sourceID, name string, raw []byte) (*model.Workflow, error) {
-	// the same fields as a flow is kept with in the settings files, so one can be copied from there
+// pullText takes the text at key of mapping m, in one language or several, and leaves it there in English, or the first
+// language written, for the rest of the file to be read as a flow kept in the settings files is.
+func pullText(m *yaml.Node, key string) (sourcedText, error) {
+	var t sourcedText
+	if m == nil || m.Kind != yaml.MappingNode {
+		return t, nil
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value != key {
+			continue
+		}
+		v := m.Content[i+1]
+		if err := v.Decode(&t); err != nil {
+			return t, err
+		}
+		*v = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: t.in(model.LanguageEn), Line: v.Line, Column: v.Column}
+	}
+	return t, nil
+}
+
+// valueOf is the value at key of mapping m; nil when there is none.
+func valueOf(m *yaml.Node, key string) *yaml.Node {
+	if m == nil || m.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func readSourcedWorkflow(sourceID, name string, raw []byte) (sourcedFlow, error) {
+	// the same fields as a flow is kept with in the settings files, so one can be copied from there, and the texts
+	// in several languages
+	var doc yaml.Node
+	if err := decodeYAML(raw, &doc); err != nil {
+		return sourcedFlow{}, err
+	}
+	out := sourcedFlow{steps: map[string]sourcedStep{}}
+	var root *yaml.Node
+	if len(doc.Content) == 1 {
+		root = doc.Content[0]
+	}
+	var err error
+	if out.name, err = pullText(root, "name"); err != nil {
+		return sourcedFlow{}, err
+	}
+	if nodes := valueOf(root, "nodes"); nodes != nil && nodes.Kind == yaml.SequenceNode {
+		for _, n := range nodes.Content {
+			var s sourcedStep
+			if s.name, err = pullText(n, "name"); err != nil {
+				return sourcedFlow{}, err
+			}
+			if s.prompt, err = pullText(n, "prompt"); err != nil {
+				return sourcedFlow{}, err
+			}
+			if id := valueOf(n, "id"); id != nil && id.Kind == yaml.ScalarNode {
+				out.steps[id.Value] = s
+			}
+		}
+	}
 	var v any
-	if err := decodeYAML(raw, &v); err != nil {
-		return nil, err
+	if err := doc.Decode(&v); err != nil {
+		return sourcedFlow{}, err
 	}
 	js, err := json.Marshal(v)
 	if err != nil {
-		return nil, err
+		return sourcedFlow{}, err
 	}
 	var wf model.Workflow
 	d := json.NewDecoder(bytes.NewReader(js))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&wf); err != nil {
-		return nil, err
+		return sourcedFlow{}, err
 	}
 	wf.ID = model.SourcedID(sourceID, name)
 	placed := map[string]bool{}
@@ -273,12 +451,18 @@ func readSourcedWorkflow(sourceID, name string, raw []byte) (*model.Workflow, er
 	}
 	settleStarts(&wf)
 	if err := (&Engine{w: model.NewWorld()}).checkFlow(&wf); err != nil {
-		return nil, err
+		return sourcedFlow{}, err
+	}
+	for _, l := range out.name.langs {
+		if strings.TrimSpace(out.name.texts[l]) == "" {
+			return sourcedFlow{}, model.Errorf(model.CodeInvalid, "任務藍圖要有名稱")
+		}
 	}
 	if len(placed) == 0 {
 		placeNodes(&wf, placed)
 	}
-	return &wf, nil
+	out.wf = &wf
+	return out, nil
 }
 
 // putSourced puts what source id brings at its version in use in the world, in place of what it brought before.
@@ -335,14 +519,66 @@ func (e *Engine) installSourced() {
 		}
 		set := e.sourced[id]
 		for _, sb := range set.Blueprints {
-			b := clone(&sb.bp)
+			b := sb.in(e.w.Language)
 			b.Skills = e.placeSourcedPacks(s, sb.packs)
 			e.w.Blueprints[b.ID] = b
 		}
-		for _, wf := range set.Workflows {
-			e.w.Workflows[wf.ID] = clone(wf)
+		for _, f := range set.Workflows {
+			wf := clone(f.wf)
+			e.localize(wf, e.w.Language)
+			e.w.Workflows[wf.ID] = wf
 		}
 	}
+}
+
+// language is the language picked, for what runs outside the lock.
+func (e *Engine) language() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.w.Language
+}
+
+// sourcedFlowOf is the flow a source brings by id, at the version in use. Call it holding the lock.
+func (e *Engine) sourcedFlowOf(id string) (sourcedFlow, bool) {
+	for _, f := range e.sourced[model.SourceOfID(id)].Workflows {
+		if f.wf.ID == id {
+			return f, true
+		}
+	}
+	return sourcedFlow{}, false
+}
+
+// localize puts what the app and the flow's source wrote in a flow, or a task's copy of one, into a language. What
+// the user wrote stays as written. Call it holding the lock.
+func (e *Engine) localize(wf *model.Workflow, language string) {
+	if f, ok := e.sourcedFlowOf(wf.ID); ok {
+		f.localize(wf, language)
+	}
+	localizeFlow(wf, language)
+}
+
+// agentFlow is a flow as employees are told it: what the app wrote is in English, and what a source wrote too when
+// it wrote English. Call it holding the lock.
+func (e *Engine) agentFlow(wf *model.Workflow) *model.Workflow {
+	c := clone(*wf)
+	e.localize(&c, model.LanguageEn)
+	return &c
+}
+
+// agentRole is a blueprint's prompt as employees are told it: a built-in one in English, one a source wrote in
+// English when it did, and a user's as written. Call it holding the lock.
+func (e *Engine) agentRole(bp *model.Blueprint) string {
+	for _, p := range presets.Blueprints {
+		if p.ID == bp.ID {
+			return p.Prompt[model.LanguageEn]
+		}
+	}
+	for _, sb := range e.sourced[model.SourceOfID(bp.ID)].Blueprints {
+		if sb.bp.ID == bp.ID {
+			return strings.TrimSpace(sb.prompt.in(model.LanguageEn))
+		}
+	}
+	return bp.Prompt
 }
 
 // placeSourcedPacks turns the packs a source's blueprint file writes into packs reading the sources kept, keeping a
@@ -442,17 +678,18 @@ func (e *Engine) sourcedChanges(ctx context.Context, src model.Source, out *Sour
 	if err != nil {
 		return err
 	}
+	language := e.language()
 	bps := func(set sourcedSet) map[string]string {
 		m := map[string]string{}
 		for _, b := range set.Blueprints {
-			m[b.bp.ID] = b.bp.Name
+			m[b.bp.ID] = b.name.in(language)
 		}
 		return m
 	}
 	wfs := func(set sourcedSet) map[string]string {
 		m := map[string]string{}
-		for _, wf := range set.Workflows {
-			m[wf.ID] = wf.Name
+		for _, f := range set.Workflows {
+			m[f.wf.ID] = f.name.in(language)
 		}
 		return m
 	}

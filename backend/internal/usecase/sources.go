@@ -160,7 +160,8 @@ func (e *Engine) adoptSources() {
 	for id := range e.w.Blueprints {
 		ids = append(ids, id)
 	}
-	slices.Sort(ids)                            // the same ids each time
+	slices.Sort(ids) // the same ids each time
+	ensureOfficial(e.w.Sources)
 	for _, path := range presets.SkillFolders { // the agents' own folders are there to pick from
 		e.sourceFor(NewSource{Kind: "local", Path: path})
 	}
@@ -191,9 +192,26 @@ func (e *Engine) packsOf(bp *model.Blueprint) []packRoot {
 		default:
 			source = bp.Source
 		}
-		packs = append(packs, packRoot{source: source, include: pack.Include, exclude: pack.Exclude})
+		include := pack.Include
+		if source.Kind == "local" && e.folderOff(source.Path) {
+			include = []string{} // read nothing, keeping its place among the packs
+		}
+		packs = append(packs, packRoot{source: source, include: include, exclude: pack.Exclude})
 	}
 	return packs
+}
+
+// folderOff says whether the preferences leave out the skills in a folder: the Codex or the Claude one, or a folder in
+// it, for any blueprint. Call it holding the lock.
+func (e *Engine) folderOff(path string) bool {
+	path = filepath.Clean(expandHome(path))
+	for folder, on := range map[string]bool{"~/.codex/": e.w.Preferences.CodexSkills, "~/.claude/": e.w.Preferences.ClaudeSkills} {
+		root := filepath.Clean(expandHome(folder))
+		if !on && (path == root || strings.HasPrefix(path, root+string(filepath.Separator))) {
+			return true
+		}
+	}
+	return false
 }
 
 // writtenPacks are packs with each source written into them, as the model reads and writes them. Call it holding
@@ -300,11 +318,12 @@ func (e *Engine) PreviewSource(ctx context.Context, in NewSource) (SourcePreview
 	}
 	out := SourcePreview{Commit: commit, Items: itemsAt(src, root), Blueprints: []string{}, Workflows: []string{}, Problems: []string{}}
 	if set, err := e.readSourced(ctx, src, commit); err == nil {
+		language := e.language()
 		for _, b := range set.Blueprints {
-			out.Blueprints = append(out.Blueprints, b.bp.Name)
+			out.Blueprints = append(out.Blueprints, b.name.in(language))
 		}
-		for _, wf := range set.Workflows {
-			out.Workflows = append(out.Workflows, wf.Name)
+		for _, f := range set.Workflows {
+			out.Workflows = append(out.Workflows, f.name.in(language))
 		}
 		out.Problems = append(out.Problems, set.Problems...)
 	}
@@ -379,6 +398,9 @@ func (e *Engine) DeleteSource(id string) error {
 		if e.w.Sources[id] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到來源")
 		}
+		if id == OfficialSourceID {
+			return model.Errorf(model.CodeConflict, "官方來源不能移除")
+		}
 		for _, b := range e.w.Blueprints {
 			if model.SourceOfID(b.ID) == id {
 				continue // goes with it
@@ -433,10 +455,18 @@ func (e *Engine) checkSource(ctx context.Context, id string) error {
 	if err != nil {
 		e.log.Warn().Err(err).Str("repo", repo).Msg("check source")
 	}
-	// what it would bring there, read before the version moves to it by itself
+	// what it brings at the version it moves to by itself, or at the one in use when that is no longer on this
+	// computer; it moves only once that is read, so the version kept is always one whose blueprints are there
+	moves := err == nil && latest != src.Commit && (src.Commit == "" || src.AutoApply)
+	at := src.Commit
+	if moves {
+		at = latest
+	}
 	var set *sourcedSet
-	if err == nil && latest != src.Commit && (src.Commit == "" || src.AutoApply) {
-		if read, rerr := e.readSourced(ctx, src, latest); rerr == nil {
+	var rerr error
+	if err == nil && (moves || e.readsSourced(src) && !e.git.Cached(repo, src.Commit)) {
+		var read sourcedSet
+		if read, rerr = e.readSourced(ctx, src, at); rerr == nil {
 			set = &read
 		} else {
 			e.log.Warn().Err(rerr).Str("source", id).Msg("read blueprints and flows of a source")
@@ -448,21 +478,24 @@ func (e *Engine) checkSource(ctx context.Context, id string) error {
 			return model.Errorf(model.CodeNotFound, "找不到來源")
 		}
 		s.Upstream = err == nil || !upstreamGone(err)
-		s.Update = &model.SourceUpdate{At: e.clock(), OK: err == nil}
+		s.Update = &model.SourceUpdate{At: e.clock(), OK: err == nil && rerr == nil}
 		if err != nil {
 			s.Update.Error = sourceProblem(err)
 			return nil
 		}
 		s.Latest = latest
-		if s.Commit != "" && s.Commit != latest && s.AutoApply {
+		if rerr != nil {
+			s.Update.Error = sourceProblem(rerr)
+			return nil
+		}
+		if set == nil || s.Commit != src.Commit {
+			return nil // nothing read, or the version moved meanwhile and what moved it read it
+		}
+		if moves && s.Commit != "" {
 			s.Unseen = true
 		}
-		if s.Commit == "" || s.AutoApply {
-			s.Commit = latest
-			if set != nil {
-				e.putSourced(id, *set)
-			}
-		}
+		s.Commit = at
+		e.putSourced(id, *set)
 		return nil
 	})
 }

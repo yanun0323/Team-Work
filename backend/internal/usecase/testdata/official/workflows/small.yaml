@@ -1,0 +1,46 @@
+name:
+  en: General task
+  zh: 一般任務
+  zh-Hans: 一般任务
+  ja: 一般的なタスク
+  ko: 일반 작업
+nodes:
+  - id: do-the-work
+    name:
+      en: Do the work
+      zh: 執行
+      zh-Hans: 执行
+      ja: 作業する
+      ko: 작업하기
+    prompt:
+      en: |-
+        Do what the task description asks, meeting its acceptance criteria. Where it is unclear in a way that affects the result, ask the user with ask_user. Read the existing architecture, components and styles first, follow the project's conventions, reuse what you can, change only what this task needs, and leave unrelated files alone.
+
+        For changes with a UI, handle loading, empty data and error states. Cover every new or changed behavior with tests. Run the tests and build before you hand off and confirm they pass. If the change makes existing documentation (README, docs/, in-app help) inaccurate, or adds a user-facing feature that is undocumented, update the documentation too. Do not write documents that describe the work done.
+
+        In your handoff, state what you did, which files you changed and how you verified it, and copy the acceptance criteria word for word for the next step.
+      zh: |-
+        照任務說明和其中的驗收條件完成交辦的事；任務沒寫清楚又會影響結果的地方，用 ask_user 問使用者。先讀現有架構、元件和樣式，沿用專案的慣例，能重用就不新寫，只改這次需要的部分，不動無關的檔案。
+
+        有畫面的改動要處理載入中、空資料和錯誤狀態。新增或修改的行為都要有測試；交接前跑過測試和建置，確認通過。改動讓現有文件（README、docs/、應用程式內的說明）變得不正確，或新增的使用者可見功能沒寫進文件時，一併更新；不另寫文件描述做了什麼。
+
+        交接時寫清楚做了什麼、改了哪些檔案、怎麼驗證，並把驗收條件原文帶給下一步。
+      zh-Hans: |-
+        照任务说明和其中的验收条件完成交办的事；任务没写清楚又会影响结果的地方，用 ask_user 问用户。先读现有架构、组件和样式，沿用项目的惯例，能重用就不新写，只改这次需要的部分，不动无关的文件。
+
+        有画面的改动要处理加载中、空数据和错误状态。添加或修改的行为都要有测试；交接前跑过测试和构建，确认通过。改动让现有文档（README、docs/、应用代码内的说明）变得不正确，或添加的用户可见功能没写进文档时，一并更新；不另写文档描述做了什么。
+
+        交接时写清楚做了什么、改了哪些文件、怎么验证，并把验收条件原文带给下一步。
+      ja: |-
+        タスクの説明が求めることを、その受け入れ条件を満たすように行う。不明確で結果に影響するところは ask_user でユーザーに聞く。まず既存のアーキテクチャ、コンポーネント、スタイルを読み、プロジェクトの慣例に従い、使えるものは再利用し、このタスクに必要なところだけを変え、関係のないファイルには手を付けない。
+
+        画面のある変更では、読み込み中、データなし、エラーの状態を扱う。新しい振る舞いや変わった振る舞いにはすべてテストを付ける。引き継ぐ前にテストとビルドを実行し、通ることを確認する。変更によって既存のドキュメント（README、docs/、アプリ内ヘルプ）が不正確になったり、ユーザー向けの機能が説明のないまま加わったりする場合は、ドキュメントも更新する。行った作業を説明するためだけのドキュメントは書かない。
+
+        引き継ぎには、やったこと、変更したファイル、検証の方法を書き、受け入れ条件は次のステップのために原文どおり写す。
+      ko: |-
+        작업 설명이 요구하는 일을 인수 기준을 충족하도록 하세요. 불분명해서 결과에 영향을 주는 부분은 ask_user로 사용자에게 물어보세요. 먼저 기존 아키텍처, 컴포넌트, 스타일을 읽고, 프로젝트 관례를 따르며, 재사용할 수 있는 것은 재사용하고, 이 작업에 필요한 부분만 바꾸며, 관련 없는 파일은 건드리지 마세요.
+
+        화면이 있는 변경은 로딩, 빈 데이터, 오류 상태를 처리하세요. 새로 생기거나 바뀐 동작은 모두 테스트로 다루세요. 인계하기 전에 테스트와 빌드를 실행해 통과하는지 확인하세요. 변경 때문에 기존 문서(README, docs/, 앱 안 도움말)가 부정확해지거나 사용자용 기능이 문서 없이 추가된다면 문서도 고치세요. 한 일을 설명하기 위한 문서는 쓰지 마세요.
+
+        인계에는 한 일, 바꾼 파일, 검증 방법을 적고, 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
+edges: []

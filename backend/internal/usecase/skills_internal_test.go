@@ -62,6 +62,8 @@ type fetchedRepo struct {
 
 func (f fetchedRepo) Fetch(context.Context, string, string) (string, error) { return f.dir, nil }
 
+func (f fetchedRepo) Cached(string, string) bool { return false }
+
 func TestLoadSkillsReadsAFolderInTheRepo(t *testing.T) {
 	// a repo of plugins like cursor/plugins: <plugin>/skills/<skill>/SKILL.md
 	root := t.TempDir()

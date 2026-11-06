@@ -389,7 +389,7 @@ func (e *Engine) saveWorkflow(id string, wf model.Workflow) error {
 	if err := e.checkFlow(&wf); err != nil {
 		return err
 	}
-	localizeFlow(&wf, e.w.Language)
+	e.localize(&wf, e.w.Language)
 	e.w.Workflows[id] = &wf
 	if e.w.Tutorial.ChangedCopy(id) {
 		e.w.Tutorial.Learn("copyFlow")
@@ -519,8 +519,9 @@ func (e *Engine) SetLanguage(language string) error {
 		e.w.Language = language
 		i18n.Set(language)
 		e.installPresets()
+		e.installSourced()
 		for _, t := range e.w.Tasks {
-			localizeFlow(&t.Workflow, language)
+			e.localize(&t.Workflow, language)
 		}
 		return nil
 	})

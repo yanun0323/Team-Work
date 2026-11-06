@@ -1,0 +1,87 @@
+name:
+  en: Bug fix
+  zh: 修 Bug
+  zh-Hans: 修 Bug
+  ja: バグ修正
+  ko: 버그 수정
+nodes:
+  - id: reproduce
+    name:
+      en: Reproduce
+      zh: 重現問題
+      zh-Hans: 重现问题
+      ja: 再現
+      ko: 재현
+    prompt:
+      en: |-
+        Reproduce the problem from the task description: confirm the actual and expected behavior, find the smallest steps to reproduce, then write a test that fails because of this problem. Do not fix the problem in this step.
+
+        In your handoff, state the steps to reproduce, the test's location, the failure message and your first judgment of the cause, labeled as a judgment. Copy the acceptance criteria word for word for the next step.
+
+        If you still cannot reproduce it, write down what you tried, the environment and the results. If information is missing, ask with ask_user.
+      zh: |-
+        根據任務描述重現問題：確認實際行為和預期行為，找出最小的重現步驟，再寫一個會因為這個問題而失敗的測試。這一步不修正問題。
+
+        交接時寫清楚重現步驟、測試的位置、失敗訊息，以及你對原因的初步判斷（寫明只是判斷）。把驗收條件原文帶給下一步。
+
+        試過仍無法重現時，寫下試過什麼、環境和結果；缺少資訊就用 ask_user 問使用者。
+      zh-Hans: |-
+        根据任务描述重现问题：确认实际行为和预期行为，找出最小的重现步骤，再写一个会因为这个问题而失败的测试。这一步不修正问题。
+
+        交接时写清楚重现步骤、测试的位置、失败消息，以及你对原因的初步判断（写明只是判断）。把验收条件原文带给下一步。
+
+        试过仍无法重现时，写下试过什么、环境和结果；缺少信息就用 ask_user 问用户。
+      ja: |-
+        タスクの説明から問題を再現する：実際の振る舞いと期待される振る舞いを確かめ、最小の再現手順を見つけ、この問題のせいで失敗するテストを書く。このステップでは問題を直さない。
+
+        引き継ぎには、再現手順、テストの場所、失敗メッセージ、原因についての最初の見立て（見立てと明記）を書く。受け入れ条件は次のステップのために原文どおり写す。
+
+        それでも再現できない場合は、試したこと、環境、結果を書き留める。情報が足りなければ ask_user で聞く。
+      ko: |-
+        작업 설명으로 문제를 재현하세요. 실제 동작과 기대 동작을 확인하고, 가장 짧은 재현 단계를 찾고, 이 문제 때문에 실패하는 테스트를 쓰세요. 이 단계에서는 문제를 고치지 마세요.
+
+        인계에는 재현 단계, 테스트 위치, 실패 메시지, 원인에 대한 첫 판단(판단이라고 표시)을 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
+
+        그래도 재현할 수 없다면 시도한 것, 환경, 결과를 적어 두세요. 정보가 부족하면 ask_user로 물어보세요.
+  - id: fix
+    name:
+      en: Fix
+      zh: 修正
+      zh-Hans: 修正
+      ja: 修正
+      ko: 수정
+    sendBack: true
+    prompt:
+      en: |-
+        Find the root cause and fix that, not just the symptom. Do not change a test's expectations to make it pass. Leave unrelated code alone and do not refactor along the way.
+
+        After the fix, the previous step's test must pass. Also check other places for the same problem.
+
+        In your handoff, state the root cause, what you changed, why you changed it that way and what may be affected. Copy the acceptance criteria word for word for the next step.
+      zh: |-
+        找出問題的根本原因，從原因修正，不要只處理表面症狀，也不要為了通過測試而改測試的預期。不改無關的程式，也不順手重構。
+
+        修好後，上一步的測試要通過；也檢查其他地方有沒有同樣的問題。
+
+        交接時寫清楚根本原因、改了什麼、為什麼這樣改、可能受影響的範圍。把驗收條件原文帶給下一步。
+      zh-Hans: |-
+        找出问题的根本原因，从原因修正，不要只处理表面症状，也不要为了通过测试而改测试的预期。不改无关的代码，也不顺手重构。
+
+        修好后，上一步的测试要通过；也检查其他地方有没有同样的问题。
+
+        交接时写清楚根本原因、改了什么、为什么这样改、可能受影响的范围。把验收条件原文带给下一步。
+      ja: |-
+        症状だけでなく根本原因を見つけて直す。テストを通すために期待値を変えない。関係のないコードには手を付けず、ついでのリファクタリングもしない。
+
+        修正後は、前のステップのテストが通らなければならない。同じ問題がほかの場所にないかも確認する。
+
+        引き継ぎには、根本原因、変更したこと、そう変えた理由、影響しうる部分を書く。受け入れ条件は次のステップのために原文どおり写す。
+      ko: |-
+        증상만이 아니라 근본 원인을 찾아 고치세요. 테스트를 통과시키려고 기대값을 바꾸지 마세요. 관련 없는 코드는 건드리지 말고 김에 리팩터링하지 마세요.
+
+        수정 후에는 앞 단계의 테스트가 통과해야 합니다. 같은 문제가 다른 곳에 없는지도 확인하세요.
+
+        인계에는 근본 원인, 바꾼 것, 그렇게 바꾼 이유, 영향받을 수 있는 부분을 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
+edges:
+  - from: reproduce
+    to: fix

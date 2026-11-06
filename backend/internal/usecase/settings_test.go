@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 	"github.com/yanun0323/Team-Work/internal/repository"
 	"github.com/yanun0323/Team-Work/internal/usecase"
 )
@@ -177,7 +178,6 @@ func TestSettingsValidationIsAtomic(t *testing.T) {
 		name, field string
 		edit        func(*model.Settings)
 	}{
-		{"reference", "blueprintId", func(s *model.Settings) { r := s.Replicas[r.owner.ID]; r.BlueprintID = "missing"; s.Replicas[r.ID] = r }},
 		{"delete company", "company/", func(s *model.Settings) { delete(s.Teams, r.team.ID) }},
 		{"cycle", "workflows", func(s *model.Settings) {
 			w := s.Workflows[r.flow.ID]
@@ -313,38 +313,42 @@ func TestImportYAMLAndKeepEditsAcrossRestart(t *testing.T) {
 	}
 }
 
-func TestEmployeesOfARetiredPresetMoveToTheOneThatTookOver(t *testing.T) {
-	for gone, to := range map[string]string{
-		"preset-fullstack": "preset-assistant",
-		"preset-security":  "preset-reviewer",
-		"preset-analyst":   "preset-researcher",
-		"preset-marketing": "preset-writer",
-		"preset-pm":        "preset-architect",
-	} {
-		t.Run(gone, func(t *testing.T) {
-			r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
-			s := readSettings(t, r)
-			rep := s.Replicas[r.owner.ID]
-			rep.BlueprintID = gone
-			s.Replicas[rep.ID] = rep
-			b := *s.Blueprints[r.owner.BlueprintID]
-			b.ID, b.From = "bp-copy", gone
-			s.Blueprints[b.ID] = &b
-			writeSettings(t, r, s)
-			r.e.Close()
-			newEngine(t, r)
-			w := r.world()
-			if _, ok := w.Blueprints[gone]; ok {
-				t.Fatalf("%s is still built in", gone)
-			}
-			if got := w.Replicas[r.owner.ID].BlueprintID; got != to {
-				t.Fatalf("still on %s", got)
-			}
-			if got := w.Blueprints["bp-copy"].From; got != to {
-				t.Fatalf("copied from %s", got)
-			}
-		})
+// An employee whose blueprint is gone (one built in once, one a source no longer brings, one written by hand) stops
+// nothing from loading: they are kept as they are, and a step they work asks the user to pick another blueprint.
+func TestAnEmployeeWhoseBlueprintIsGoneWaitsForAnother(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	own := r.owner.BlueprintID
+	s := readSettings(t, r)
+	rep := s.Replicas[r.owner.ID]
+	rep.BlueprintID = "preset-assistant"
+	s.Replicas[rep.ID] = rep
+	delete(s.Sources, usecase.OfficialSourceID) // as settings from before there was one
+	writeSettings(t, r, s)
+	r.e.Close()
+	newEngine(t, r)
+	w := r.world()
+	if got := w.Replicas[r.owner.ID].BlueprintID; got != "preset-assistant" || w.Blueprints[got] != nil {
+		t.Fatalf("blueprint %s", got)
 	}
+	if w.Sources[usecase.OfficialSourceID] == nil {
+		t.Fatal("no official source")
+	}
+	task := r.task(r.flow.ID)
+	w = r.wait("a question", func(w *model.World) bool {
+		s := subAt(w, task.ID, "整理需求")
+		return s != nil && s.Review != nil
+	})
+	sub := subAt(w, task.ID, "整理需求")
+	if sub.Review.Kind != enum.ReviewFailed || sub.Attempts != 1+w.Teams[r.team.ID].Settings.Retries || !strings.Contains(sub.Review.Prompt, "重新選擇藍圖") {
+		t.Fatalf("attempts %d review %+v", sub.Attempts, sub.Review)
+	}
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{BlueprintID: &own}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.ResolveReview(sub.ID, "retry", ""); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
 }
 
 func TestOlderFlowKeepsFirstOnAWorkStep(t *testing.T) {
