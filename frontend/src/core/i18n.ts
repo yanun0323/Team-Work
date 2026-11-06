@@ -312,6 +312,7 @@ const en = {
   '還有工作在進行，確定退出': 'Work is still running. Confirm quit',
   '退出': 'Quit',
   '檢查更新': 'Check for updates',
+  '在 GitHub 開啟': 'Open on GitHub',
   '有新版本': 'Update available',
   '正在檢查更新': 'Checking for updates',
   '檢查新版本': 'Check for updates',

@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createRef } from 'react'
 import { expect, it } from 'vitest'
 import { useStore } from './core/store'
-import { NewSource, SourceDetail, SourceRow, SourceSign, SourcesTab } from './Sources'
+import { NewSource, SourceDetail, SourceRow, SourceSign, SourcesTab, repoPage } from './Sources'
 import type { Source } from './core/domain/types'
 import { SkillPicker } from './SkillPicker'
 import { sourceName } from './source'
@@ -24,6 +24,19 @@ it('shows a repo source with its update switch off and a button to check it now,
   expect(html).toMatch(/<button type="button" class="fx-tool fx-hit fx-src-check" aria-busy="false" aria-label="檢查更新"/)
   expect(html).toContain('自動套用更新')
   expect(html).not.toMatch(/type="checkbox"[^>]*checked/)
+})
+
+it('links a repo source to its page on GitHub, at its branch, and a folder source to nothing', () => {
+  const git = (repo: string, ref?: string): Source => ({ id: 'src-x', kind: 'git', repo, ref, upstream: true, autoApply: false })
+  expect(repoPage(git('https://github.com/a/b'))).toBe('https://github.com/a/b')
+  expect(repoPage(git('git@github.com:a/b', 'feat/x'))).toBe('https://github.com/a/b/tree/feat/x')
+  expect(repoPage(git('https://gitlab.com/a/b'))).toBeNull()
+  expect(repoPage({ id: 'src-y', kind: 'local', path: '~/.claude/', upstream: false, autoApply: false })).toBeNull()
+  const s = sources().find((x) => x.kind === 'git')!
+  const html = renderToStaticMarkup(<SourceDetail id={s.id} onGoneSource={() => {}} {...h} />)
+  expect(html).toContain(`href="${repoPage(s)}" target="_blank" rel="noreferrer" aria-label="在 GitHub 開啟"`)
+  const local = sources().find((x) => x.kind === 'local')!
+  expect(renderToStaticMarkup(<SourceDetail id={local.id} onGoneSource={() => {}} {...h} />)).not.toContain('在 GitHub 開啟')
 })
 
 it('has nothing to check on a folder source', () => {

@@ -136,6 +136,25 @@ function CheckTool({ id, local }: { id: string; local?: boolean }) {
   )
 }
 
+/** The repo's page on GitHub, at its branch when it keeps one; none for an address that is not GitHub's. */
+export function repoPage(s: Source) {
+  const g = s.kind === 'git' ? parseGithub(s.repo ?? '') : null
+  if (!g) return null
+  return `https://github.com/${g.repo}${s.ref ? `/tree/${s.ref.split('/').map(encodeURIComponent).join('/')}` : ''}`
+}
+
+/** Opens the repo's page on GitHub. */
+function RepoTool({ href }: { href: string }) {
+  const label = tr('在 GitHub 開啟')
+  return (
+    <a className="fx-tool fx-hit" href={href} target="_blank" rel="noreferrer" aria-label={label} title={label}>
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+        <path d="M9 3h4v4M13 3 7.5 8.5M11.5 9.5V13H3V4.5h3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </a>
+  )
+}
+
 /** One source: its state, what a newer version would change and for whom, and its skills by folder. */
 export function SourceDetail({ id, onGoneSource, ...h }: Head & { id: string; onGoneSource: () => void }) {
   const w = useStore((s) => s.world)
@@ -171,9 +190,11 @@ export function SourceDetail({ id, onGoneSource, ...h }: Head & { id: string; on
   const users = sourceUsers(w, id)
   const crew = (changes?.replicas ?? []).map((r) => w.replicas[r]).filter(Boolean) as Replica[]
   const kept = (changes?.kept ?? []).map((r) => w.replicas[r]).filter(Boolean) as Replica[]
+  const page = repoPage(s)
   return (
     <>
       <div className="fx-tools">
+        {page && <RepoTool href={page} />}
         {s.kind === 'local' && <CheckTool key={id} id={id} local />}
         <DeleteTool what={tr('來源')} disabled={users.length > 0} why={tr('還有 {length} 個藍圖或員工使用這個來源，無法刪除', { length: users.length })}
           onConfirm={() => { onGoneSource(); act((x) => void deleteSource(x, id)) }} />
