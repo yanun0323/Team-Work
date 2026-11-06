@@ -14,6 +14,7 @@ import { useStore } from './core/store'
 import { LabelLayer, LabelProjector, type LabelSpec } from './core/voxel/labels'
 import { Airport } from './Airport'
 import { Ambient, shadowHalf } from './Ambient'
+import { fitSunShadow, seenPoints, SHADOW_MAP, sunNormalBias } from './sunShadow'
 import { Building, BuildingPreview, CUT, FLOOR, ROOF_TOP } from './Building'
 import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, seaCoverZoom, shotAt, type FocusBox, type Shot } from './camera'
 import { Drawer, putAwaySheets } from './Drawer'
@@ -445,7 +446,7 @@ export function World() {
         // the open building's see-through shell is on this layer and should still take clicks
         raycaster.layers.enable(NO_OUTLINE_LAYER)
       }}>
-      <Sun reach={span} />
+      <Sun reach={span} top={town.top} />
       <IndoorLights />
       <Ocean map={land.sea} calm={calm} />
       <Island town={town} land={land} />
@@ -581,20 +582,12 @@ function useFadingLabels(labels: LabelSpec[]): LabelSpec[] {
   }, [labels, leaving])
 }
 
-/** Side of the sun's shadow map, in texels. */
-const SHADOW_MAP = 2048
-
-/**
- * The sun's normal bias: about one shadow-map texel, so a surface doesn't shadow itself (shadow acne). The shadow box
- * grows with the town, and so do its texels, so a fixed bias lets the acne back in once the town is big enough.
- */
-export const sunNormalBias = (half: number) => Math.max(0.06, (half * 2) / SHADOW_MAP)
-
 /**
  * The sky, the light from it and the sun (the moon by night), at the time of day the preferences follow. The sun's
- * shadow box covers the town and the clouds passing over it, from wherever the sun stands.
+ * shadow box covers what the camera sees (`fitSunShadow`), at most the town and the clouds passing over it, from
+ * wherever the sun stands. `top` is the height of the tallest building.
  */
-function Sun({ reach }: { reach: number }) {
+function Sun({ reach, top }: { reach: number; top: number }) {
   const half = shadowHalf(reach)
   // off in the preferences: no shadow map is drawn at all
   const shadows = usePrefs((s) => s.shadows)
@@ -606,7 +599,7 @@ function Sun({ reach }: { reach: number }) {
   const depth = half * Math.SQRT2 * Math.cos(THREE.MathUtils.degToRad(MIN_SUN_ELEVATION)) + 12
   const distance = depth + 30
   // the frames run all the time anyway (PixelPass), so this costs no extra ones
-  useFrame(() => {
+  useFrame(({ camera }) => {
     lightAt(debugDaylight.phase ?? phaseOf(daylight, new Date()), light)
     background.current?.copy(light.sky)
     if (sky.current) {
@@ -617,7 +610,17 @@ function Sun({ reach }: { reach: number }) {
     if (sun.current) {
       sun.current.color.copy(light.sun)
       sun.current.intensity = light.strength
-      sun.current.position.copy(light.toSun).multiplyScalar(distance)
+      const fit = fitSunShadow(seenPoints(camera, top), light.toSun, half)
+      sun.current.target.position.copy(fit.center)
+      sun.current.target.updateMatrixWorld()
+      sun.current.position.copy(fit.center).addScaledVector(light.toSun, distance)
+      const box = sun.current.shadow.camera
+      if (box.right !== fit.half) {
+        box.left = box.bottom = -fit.half
+        box.right = box.top = fit.half
+        box.updateProjectionMatrix()
+        sun.current.shadow.normalBias = sunNormalBias(fit.half)
+      }
     }
     for (const m of glowing) m.emissiveIntensity = light.glow
   })
