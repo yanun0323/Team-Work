@@ -843,57 +843,50 @@ func (e *Engine) chatKeepsImage(in chatRun) func(output string, data []byte) {
 	}
 }
 
-// chatAskUser puts options under what the reply has said, and ends it. It has no question of its own: one there
-// is a reply in a box, and employees took it for a way to skip answering. Picking an option answers it; any other
-// message is a new one.
+// chatAskUser saves a complete reply as an ordinary message with choices below it, then ends the turn.
 func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
-	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "Put options under your reply for the user to pick from, and end the reply; you go on with what they pick. The options go under what you have written, so write the reply first, question included. Call it alone, once other tools' results are in. To have them type an answer, such as a name or an API key, ask in your reply instead. " + askUserHow,
+	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "When you need the user to choose before continuing, send a complete reply with options and end this turn; continue after they pick. " +
+		"Put the complete reply in reply instead of repeating it as a separate message. If the user only asks for your opinion, answer without requiring a choice. Call it alone, once other tools' results are in. " +
+		"To have them type an answer, such as a name or an API key, ask in your reply instead of using this tool. " + askUserHow,
 		Parameters: json.RawMessage(chatAskUserSchema)},
 		func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
 			var a struct {
+				Reply   string   `json:"reply"`
 				Options []string `json:"options"`
 			}
 			if err := json.Unmarshal(raw, &a); err != nil {
 				return toolError("invalid arguments: %v", err)
 			}
+			a.Reply = strings.TrimSpace(a.Reply)
+			if a.Reply == "" {
+				return toolError("reply is required: put your complete answer, recommendation and question in reply, then call ask_user again")
+			}
 			options, refused := askOptions(a.Options, "To have them type an answer, such as a name, ask in your reply instead.")
 			if refused != nil {
 				return *refused
 			}
-			asked := false
-			e.applyChat(in, func(c *model.Chat) {
-				if !saidThisReply(c) {
-					return
-				}
+			if !e.applyChat(in, func(c *model.Chat) {
+				e.chatSays(c, a.Reply)
+				// Colleagues cannot see tool arguments. Keep the public reply as text in the same
+				// assistant message, leaving the tool call open for the user's choice.
+				conv := e.w.Conversations[c.ID]
+				last := &conv[len(conv)-1]
+				last.Content = append(slices.Clone(last.Content), model.Block{Type: enum.BlockText, Text: a.Reply})
+				e.dirty[c.ID] = true
 				c.Question = &model.ChatQuestion{Options: options}
-				asked = true
-			})
-			if !asked {
-				return toolError("this reply has no text yet for the options to go under: write your reply first, then call ask_user")
+			}) {
+				return toolError("this reply is no longer active")
 			}
 			return model.ToolResult{Stop: true}
 		}}
 }
 
-// chatAskUserSchema is ask_user's in a chat: options alone, as the question is in the reply.
-const chatAskUserSchema = `{"type":"object","properties":{"options":{"type":"array","items":{"type":"string"},"minItems":1,"description":"What the user picks from"}},"required":["options"]}`
+const chatAskReplyHow = "Your complete reply, shown as an ordinary message before the options. First answer what you can of the user's current question, then write the information needed to choose, your recommendation, and what the user must decide. Asking only 'Should I do that?' is not an explanation. The user should be able to understand and choose from this reply and the options alone."
+
+const chatAskUserSchema = `{"type":"object","properties":{"reply":{"type":"string","minLength":1,"description":"` + chatAskReplyHow + `"},"options":{"type":"array","items":{"type":"string"},"minItems":1,"description":"What the user picks from"}},"required":["reply","options"]}`
 
 // chatAskSkipped is what an open ask_user in a chat gets when the user writes instead of picking.
 const chatAskSkipped = "The user did not pick an option; they wrote a new message instead, which is not an answer to it: see their next message."
-
-// saidThisReply says whether the one replying has written anything since the user last spoke.
-func saidThisReply(c *model.Chat) bool {
-	for i := len(c.Messages) - 1; i >= 0; i-- {
-		m := c.Messages[i]
-		if m.From == "user" {
-			return false
-		}
-		if m.From == "agent" && !m.Failed && m.By == c.Speaker && strings.TrimSpace(m.Text) != "" {
-			return true
-		}
-	}
-	return false
-}
 
 // chatMemoryTools let the employee keep and drop notes while chatting. The chat already shows each call.
 func (e *Engine) chatMemoryTools(in chatRun) []adapter.Tool {

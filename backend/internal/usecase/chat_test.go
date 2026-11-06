@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -159,7 +160,7 @@ func TestChatAskUserWaitsForTheNextMessage(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		calls++
 		if calls == 1 {
-			return sayAndCall("用哪個？", "ask_user", map[string]any{"options": []string{"甲", " ", "乙", "甲"}}), nil
+			return call("ask_user", map[string]any{"reply": "用哪個？", "options": []string{"甲", " ", "乙", "甲"}}), nil
 		}
 		return say("好"), nil
 	})
@@ -209,7 +210,7 @@ func TestTypingInsteadOfPickingIsANewMessage(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		calls++
 		if calls == 1 {
-			return sayAndCall("用哪個？", "ask_user", map[string]any{"options": []string{"甲", "乙"}}), nil
+			return call("ask_user", map[string]any{"reply": "用哪個？", "options": []string{"甲", "乙"}}), nil
 		}
 		return say("好"), nil
 	})
@@ -241,7 +242,7 @@ func TestChatAskUserNeedsOptions(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		calls++
 		if calls == 1 {
-			return sayAndCall("API Key 是什麼？", "ask_user", map[string]any{}), nil
+			return call("ask_user", map[string]any{"reply": "API Key 是什麼？"}), nil
 		}
 		return say("API Key 是什麼？"), nil
 	})
@@ -250,8 +251,9 @@ func TestChatAskUserNeedsOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.wait("reply", chatDone(c.ID))
-	if q := r.world().Chats[c.ID].Question; q != nil {
-		t.Fatalf("asked with nothing to pick: %+v", q)
+	got := r.world().Chats[c.ID]
+	if got.Question != nil || len(got.Messages) != 2 {
+		t.Fatalf("invalid call published a reply or choices: %+v", got)
 	}
 	seen := r.fake.seen[len(r.fake.seen)-1].Messages
 	if last := seen[len(seen)-1].Content[0]; !last.IsError || !strings.Contains(last.Text, "options") {
@@ -259,47 +261,36 @@ func TestChatAskUserNeedsOptions(t *testing.T) {
 	}
 }
 
-// ask_user only puts options under what the reply says, so a reply cannot be a choice alone: the question, and any
-// answer the user asked for, are written out first. Text from an earlier turn of the same reply counts; text from
-// before the user's last message does not.
-func TestChatAskUserNeedsTheReplyWrittenFirst(t *testing.T) {
-	calls := 0
-	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
-		calls++
-		switch calls {
-		case 1:
-			return say("好"), nil
-		case 2, 3: // options with nothing written in this reply
-			return call("ask_user", map[string]any{"options": []string{"甲", "乙"}}), nil
-		case 4:
-			return sayAndCall("每層是 4 倍。", "no_such_tool", map[string]any{}), nil
-		default:
-			return call("ask_user", map[string]any{"options": []string{"甲", "乙"}}), nil
-		}
-	})
-	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "開始"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.wait("first reply", chatDone(c.ID))
-	if err := r.e.SayInChat(c.ID, "每層是多少？", nil); err != nil {
-		t.Fatal(err)
-	}
-	r.wait("question", func(w *model.World) bool { c := w.Chats[c.ID]; return c.ReplyAt == nil && c.Question != nil })
-	if calls != 5 {
-		t.Fatalf("%d calls", calls)
-	}
-	refused := r.fake.seen[2].Messages
-	if last := refused[len(refused)-1].Content[0]; !last.IsError || !strings.Contains(last.Text, "reply") {
-		t.Fatalf("%+v", last)
-	}
-	got := r.world().Chats[c.ID]
-	texts := []string{}
-	for _, m := range got.Messages[2:] {
-		texts = append(texts, m.From+":"+m.Text)
-	}
-	if !slices.Equal(got.Question.Options, []string{"甲", "乙"}) || !slices.Equal(texts, []string{"user:每層是多少？", "agent:每層是 4 倍。", "tool:no_such_tool {}"}) {
-		t.Fatalf("%+v %q", got.Question, texts)
+// Even when text was already written, ask_user needs its own complete reply.
+func TestChatAskUserNeedsNonemptyReply(t *testing.T) {
+	for _, reply := range []any{nil, "", " \n\t", 42} {
+		t.Run(fmt.Sprint(reply), func(t *testing.T) {
+			calls := 0
+			r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+				calls++
+				if calls == 1 {
+					args := map[string]any{"options": []string{"甲", "乙"}}
+					if reply != nil {
+						args["reply"] = reply
+					}
+					return sayAndCall("要我照這樣做嗎？", "ask_user", args), nil
+				}
+				return say("補上說明。"), nil
+			})
+			c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "放左下角如何？"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.wait("reply", chatDone(c.ID))
+			got := r.world().Chats[c.ID]
+			if calls != 2 || got.Question != nil || len(got.Messages) != 3 {
+				t.Fatalf("calls=%d chat=%+v", calls, got)
+			}
+			seen := r.fake.seen[1].Messages
+			if last := seen[len(seen)-1].Content[0]; !last.IsError || !strings.Contains(last.Text, "reply") {
+				t.Fatalf("%+v", last)
+			}
+		})
 	}
 }
 
@@ -1016,7 +1007,7 @@ func TestForkKeepsAnOpenQuestion(t *testing.T) {
 		if first {
 			first = false
 			<-release
-			return sayAndCall("哪個？", "ask_user", map[string]any{"options": []string{"甲", "乙"}}), nil
+			return call("ask_user", map[string]any{"reply": "哪個？", "options": []string{"甲", "乙"}}), nil
 		}
 		return say("好"), nil
 	})

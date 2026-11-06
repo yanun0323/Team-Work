@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -29,6 +30,40 @@ func TestAskUserPromptMustMakeSenseOnItsOwn(t *testing.T) {
 	}
 	if got := schema.Properties["prompt"].Description; got != askPromptHow {
 		t.Errorf("prompt description = %q, want askPromptHow", got)
+	}
+}
+
+// This checks the instructions sent to the model, not whether a model follows them.
+func TestChatAskUserDescriptionRequiresAnAnswerBeforeChoices(t *testing.T) {
+	e := &Engine{}
+	spec := e.chatAskUser(chatRun{}).Spec()
+	var schema struct {
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(spec.Parameters, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(schema.Required, []string{"reply", "options"}) {
+		t.Fatalf("required = %v", schema.Required)
+	}
+	description := spec.Description + " " + schema.Properties["reply"].Description
+	for _, want := range []string{
+		"answer what you can of the user's current question",
+		"Put the complete reply in reply instead of repeating it as a separate message",
+		"The user should be able to understand and choose from this reply and the options alone",
+		"the information needed to choose, your recommendation, and what the user must decide",
+		"Asking only 'Should I do that?' is not an explanation",
+		"If the user only asks for your opinion, answer without requiring a choice",
+		"Call it alone, once other tools' results are in",
+		"type an answer, such as a name or an API key, ask in your reply",
+		askUserHow,
+	} {
+		if !strings.Contains(description, want) {
+			t.Errorf("ask_user description lacks %q", want)
+		}
 	}
 }
 
