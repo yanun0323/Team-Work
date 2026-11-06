@@ -57,6 +57,12 @@ func (g *Git) lock(key string) func() {
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := gitRaw(ctx, dir, args...)
+	return strings.TrimSpace(out), err
+}
+
+// gitRaw is git's output as it is, for output whose spaces count.
+func gitRaw(ctx context.Context, dir string, args ...string) (string, error) {
 	path, err := tool.path(ctx)
 	if err != nil {
 		return "", err
@@ -73,7 +79,7 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 		}
 		return "", fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(errOut.String()))
 	}
-	return strings.TrimSpace(out.String()), nil
+	return out.String(), nil
 }
 
 func identity(author string) []string {
@@ -256,6 +262,54 @@ func (g *Git) ReadFile(ctx context.Context, folder, commit, path string) (string
 		return "", model.Errorf(model.CodeInvalid, "%s 不是文字檔，請到專案資料夾打開", path)
 	}
 	return text, nil
+}
+
+// Diff is a text file at commit line by line against the same file at base, every line kept. It is nil when base has
+// no such file, as then every line is new.
+func (g *Git) Diff(ctx context.Context, folder, base, commit, path string) ([]model.DiffLine, error) {
+	after, err := g.ReadFile(ctx, folder, commit, path)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := git(ctx, folder, "cat-file", "-e", base+":"+path); err != nil {
+		return nil, nil
+	}
+	before, err := g.ReadFile(ctx, folder, base, path)
+	if err != nil {
+		return nil, err
+	}
+	// context as long as both files keeps every unchanged line, in one hunk
+	whole := fmt.Sprintf("--unified=%d", strings.Count(before, "\n")+strings.Count(after, "\n")+2)
+	out, err := gitRaw(ctx, folder, "diff", "--no-color", "--no-ext-diff", "--no-textconv", whole, base+":"+path, commit+":"+path)
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		lines := []model.DiffLine{}
+		for _, text := range strings.Split(after, "\n") {
+			lines = append(lines, model.DiffLine{Op: model.DiffSame, Text: text})
+		}
+		return lines, nil
+	}
+	lines, body := []model.DiffLine{}, false
+	for _, l := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
+		if strings.HasPrefix(l, "@@") {
+			body = true
+			continue
+		}
+		if !body || l == "" {
+			continue
+		}
+		switch l[0] {
+		case ' ':
+			lines = append(lines, model.DiffLine{Op: model.DiffSame, Text: l[1:]})
+		case '+':
+			lines = append(lines, model.DiffLine{Op: model.DiffAdd, Text: l[1:]})
+		case '-':
+			lines = append(lines, model.DiffLine{Op: model.DiffDel, Text: l[1:]})
+		}
+	}
+	return lines, nil
 }
 
 // ReadImage takes a picture from git's history the same way, with its media type; anything else is refused.

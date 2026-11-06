@@ -130,3 +130,48 @@ func TestLatestReadsTheRefNamedExactly(t *testing.T) {
 		t.Error("Latest found a branch that is not there")
 	}
 }
+
+// A diff keeps every line in order, unchanged ones too, and has nothing to say about a file the base did not have.
+func TestDiffKeepsEveryLine(t *testing.T) {
+	folder := t.TempDir()
+	run(t, folder, "init", "-q", "-b", "main")
+	write := func(name, text string) {
+		if err := os.WriteFile(filepath.Join(folder, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a.md", "one\n  two\nthree\n\nfive\n")
+	run(t, folder, "add", "-A")
+	run(t, folder, "commit", "-q", "-m", "base")
+	base := run(t, folder, "rev-parse", "HEAD")
+	write("a.md", "one\n  TWO\nthree\n\nfive\n@@ six\n")
+	write("new.md", "fresh\n")
+	run(t, folder, "add", "-A")
+	run(t, folder, "commit", "-q", "-m", "change")
+	head := run(t, folder, "rev-parse", "HEAD")
+	g := NewGit(t.TempDir())
+	ctx := context.Background()
+
+	lines, err := g.Diff(ctx, folder, base, head, "a.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, l := range lines {
+		got = append(got, l.Op+":"+l.Text)
+	}
+	want := []string{"same:one", "del:  two", "add:  TWO", "same:three", "same:", "same:five", "add:@@ six"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+
+	if lines, err := g.Diff(ctx, folder, base, head, "new.md"); err != nil || lines != nil {
+		t.Fatalf("a new file compared: %v %v", lines, err)
+	}
+	if lines, err := g.Diff(ctx, folder, head, head, "a.md"); err != nil || len(lines) != 6 || lines[1].Text != "  TWO" || lines[5].Op != "same" {
+		t.Fatalf("an unchanged file: %v %v", lines, err)
+	}
+	if _, err := g.Diff(ctx, folder, base, head, "gone.md"); err == nil {
+		t.Fatal("a missing file compared")
+	}
+}

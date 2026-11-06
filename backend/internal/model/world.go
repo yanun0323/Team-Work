@@ -228,6 +228,18 @@ type ChangeLine struct {
 	After  string `json:"after,omitempty"`
 }
 
+// DiffLine is one line of a file compared with an earlier version of it.
+type DiffLine struct {
+	Op   string `json:"op"`
+	Text string `json:"text"`
+}
+
+const (
+	DiffSame = "same"
+	DiffAdd  = "add"
+	DiffDel  = "del"
+)
+
 type LogLine struct {
 	At   float64        `json:"at"`
 	Kind enum.LogKind   `json:"kind"`
@@ -271,11 +283,13 @@ type ChatGuest struct {
 }
 
 // ChatHandoff is where an employee handed the chat to whoever comes next: the messages before Before were theirs
-// to answer, back to the handoff before it.
+// to answer, back to the handoff before it. ChatID is the chat it was copied from there; handoffs from before it was
+// kept have none. Handed to the same employee, ReplicaID is also whoever comes next.
 type ChatHandoff struct {
 	Before    int    `json:"before"`
 	ReplicaID string `json:"replicaId"`
 	Name      string `json:"name"`
+	ChatID    string `json:"chatId,omitempty"`
 }
 
 // ChatJoin is where an employee joined the chat, invited or mentioned: before the message at Before. It is only
@@ -411,7 +425,9 @@ type SubTask struct {
 	Review      *Review     `json:"review,omitempty"`
 	Talk        *Talk       `json:"talk,omitempty"`
 	Handoff     *Handoff    `json:"handoff,omitempty"`
-	Log         []LogLine   `json:"log"`
+	// BaseCommit is the work tree's commit when this sub-task first ran: what its handed files are compared against.
+	BaseCommit string    `json:"baseCommit,omitempty"`
+	Log        []LogLine `json:"log"`
 	// SendBackReason is set when this run asks to send the work back; routing acts on it.
 	SendBackReason string `json:"sendBackReason,omitempty"`
 	// Unpriced records that the cost limit was found not to apply to this run's model.

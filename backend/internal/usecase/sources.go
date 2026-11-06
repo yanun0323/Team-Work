@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -581,6 +582,45 @@ func (e *Engine) SourceItems(ctx context.Context, id string) ([]SourceItem, erro
 		return nil, model.Errorf(model.CodeInvalid, "%s", sourceProblem(err))
 	}
 	return itemsAt(src, root), nil
+}
+
+// SourceSkill reads one of a source's skills, by its path among the source's items, at the version in use. A folder's is
+// shown where it is on this computer; a repo's by where it is in the repo.
+func (e *Engine) SourceSkill(ctx context.Context, id, path string) (SkillText, error) {
+	e.mu.Lock()
+	s := e.w.Sources[id]
+	var src model.Source
+	if s != nil {
+		src = *s
+	}
+	e.mu.Unlock()
+	if s == nil {
+		return SkillText{}, model.Errorf(model.CodeNotFound, "找不到來源")
+	}
+	root, err := e.sourceRoot(ctx, src, src.Commit)
+	if err != nil {
+		return SkillText{}, model.Errorf(model.CodeInvalid, "%s", sourceProblem(err))
+	}
+	inside := ""
+	if src.Kind != "local" {
+		inside = root
+	}
+	for _, sk := range skillsIn(root, inside, nil, nil) {
+		rel, err := filepath.Rel(root, filepath.Dir(sk.path))
+		if err != nil || filepath.ToSlash(rel) != path {
+			continue
+		}
+		raw, err := os.ReadFile(sk.path)
+		if err != nil {
+			break
+		}
+		shown := sk.path
+		if src.Kind != "local" {
+			shown = path + "/SKILL.md"
+		}
+		return SkillText{Name: sk.name, Description: sk.description, Path: shown, Text: string(raw)}, nil
+	}
+	return SkillText{}, model.Errorf(model.CodeNotFound, "找不到技能 %s", path)
 }
 
 // covers says whether a pack takes the skill it at path; the pack's folder holds it and its picks keep it.

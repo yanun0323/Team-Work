@@ -365,20 +365,22 @@ func (e *Engine) HandOffChat(id string, index int, replicaID string) (*model.Cha
 		if end <= 0 {
 			return model.Errorf(model.CodeConflict, "這段對話的紀錄對不上，無法複製")
 		}
-		fork := &model.Chat{ID: e.uid("chat"), TeamID: c.TeamID, ReplicaID: c.ReplicaID, Name: c.Name, Look: c.Look, Model: c.Model, Effort: c.Effort, CreatedAt: e.w.Now, Messages: clone(c.Messages[:keep]), Handoffs: clone(c.Handoffs)}
+		// it keeps the name marked as handed off, but not the pin
+		fork := &model.Chat{ID: e.uid("chat"), TeamID: c.TeamID, ReplicaID: c.ReplicaID, Name: c.Name, Title: handOffTitle(c), Look: c.Look, Model: c.Model, Effort: c.Effort, CreatedAt: e.w.Now, Messages: clone(c.Messages[:keep]), Handoffs: clone(c.Handoffs)}
 		for _, j := range c.Joins { // who joined after where it is copied from did so in the original alone
 			if j.Before <= keep {
 				fork.Joins = append(fork.Joins, j)
 			}
 		}
+		// they take over from the user's message, or after the reply it ends with; handed to the same employee it is
+		// still marked, so the copy shows where it came from
+		before := keep
+		if c.Messages[index].From == "user" {
+			before = index
+		}
+		fork.Handoffs = append(fork.Handoffs, model.ChatHandoff{Before: before, ReplicaID: c.ReplicaID, Name: c.Name, ChatID: c.ID})
 		// a meeting handed to anyone, its chair too, goes on with them alone
 		if replicaID != c.ReplicaID {
-			// they take over from the user's message, or after the reply it ends with
-			before := keep
-			if c.Messages[index].From == "user" {
-				before = index
-			}
-			fork.Handoffs = append(fork.Handoffs, model.ChatHandoff{Before: before, ReplicaID: c.ReplicaID, Name: c.Name})
 			fork.ReplicaID, fork.Name, fork.Look, fork.Model, fork.Effort = taker.ID, taker.Name, taker.Look, taker.Model, ""
 		}
 		if keep == len(c.Messages) {
@@ -664,12 +666,23 @@ func (e *Engine) chatSpec(c *model.Chat, speaker string) (agentSpec, error) {
 // chatHandoffRule tells an employee a chat came to them from others, and whose the replies before were. They are counted
 // by the user's messages, which the model can count too.
 func chatHandoffRule(c *model.Chat) string {
-	if len(c.Handoffs) == 0 {
+	// a chat handed to the same employee it had changed hands nowhere
+	var handoffs []model.ChatHandoff
+	for i, h := range c.Handoffs {
+		next := c.ReplicaID
+		if i+1 < len(c.Handoffs) {
+			next = c.Handoffs[i+1].ReplicaID
+		}
+		if h.ReplicaID != next {
+			handoffs = append(handoffs, h)
+		}
+	}
+	if len(handoffs) == 0 {
 		return ""
 	}
 	var parts []string
 	from := 0
-	for _, h := range c.Handoffs {
+	for _, h := range handoffs {
 		upto := 0
 		for _, m := range c.Messages[:min(h.Before, len(c.Messages))] {
 			if m.From == "user" {
@@ -999,7 +1012,8 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	read := append(append(roots, e.attachmentRoot(in.id)), in.spec.read...)
 	list := tools.For(in.spec.allowed, tools.Env{Read: read, Output: e.outputRoot(in.id), Search: e.search})
 	list = append(list, e.chatAskUser(in))
-	if in.team != "" && (slices.Contains(in.spec.allowed, enum.ToolReadFile) || slices.Contains(in.spec.allowed, enum.ToolRunCommand)) {
+	// a company's chats read its terminal, the airport's (team "") the airport's
+	if slices.Contains(in.spec.allowed, enum.ToolReadFile) || slices.Contains(in.spec.allowed, enum.ToolRunCommand) {
 		list = append(list, e.readTerminalTool(in.team))
 	}
 	list = append(list, imageTools(in.spec, read, e.chatKeepsImage(in))...)

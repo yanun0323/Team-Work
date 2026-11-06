@@ -98,3 +98,24 @@ func TestEmployeesWhoReadFilesOrRunCommandsReadTheTerminal(t *testing.T) {
 		}
 	}
 }
+
+func TestAirportChatsReadTheAirportTerminal(t *testing.T) {
+	r, m := manageRig(t)
+	_, _ = r.e.TerminalOutput(r.team.ID).Write([]byte("company line\r\n"))
+	_, _ = r.e.TerminalOutput("").Write([]byte("$ brew update\r\nAlready up-to-date.\r\n$ "))
+	m.add(doing("read_terminal", map[string]any{}))
+	c, err := r.e.CreateAirportChat(usecase.NewAirportChat{Model: r.owner.Model, Text: "看一下終端機"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	if got := lastResult(t, r).Text; got != "$ brew update\nAlready up-to-date.\n$" {
+		t.Fatalf("read %q", got)
+	}
+	reqs := r.fake.requests()
+	for _, tool := range reqs[len(reqs)-1].Tools {
+		if tool.Name == "read_terminal" && !strings.Contains(tool.Description, "airport's terminal") {
+			t.Fatalf("description: %s", tool.Description)
+		}
+	}
+}

@@ -21,10 +21,12 @@ const (
 	terminalFlush = 200 * time.Millisecond
 )
 
-// terminal connects a WebSocket to a new shell in the company's folder until either of them ends. Binary
-// messages carry the bytes typed and the bytes shown; a text message from the client is a resize.
+// terminal connects a WebSocket to a new shell in the company's folder, or at home for the airport's route, which
+// has no id, until either of them ends. Binary messages carry the bytes typed and the bytes shown; a text message
+// from the client is a resize.
 func (s *Server) terminal(c echo.Context) error {
-	folder, err := s.engine.TeamFolder(c.Param("id"))
+	teamID := c.Param("id")
+	folder, err := s.engine.TerminalFolder(teamID)
 	if err != nil {
 		return err
 	}
@@ -48,9 +50,11 @@ func (s *Server) terminal(c echo.Context) error {
 	}
 	defer conn.Close()
 	conn.SetReadLimit(terminalReadLimit)
-	_ = s.engine.Learn("terminal") // only the tutorial's record; the terminal works without it
+	if teamID != "" {
+		_ = s.engine.Learn("terminal") // only the tutorial's record, whose step is a company's terminal
+	}
 	// what the employees in its chats can read
-	log := s.engine.TerminalOutput(c.Param("id"))
+	log := s.engine.TerminalOutput(teamID)
 
 	// Closing the connection ends the read loop below.
 	output := make(chan struct{})

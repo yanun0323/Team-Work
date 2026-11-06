@@ -227,7 +227,7 @@ func meetingRule(c *model.Chat, speaker string) string {
 	return "This chat is a meeting of the user and several employees; you are " + chatNames(c)[speaker] + ". " +
 		"The employees the user @mentions reply one after another, and @All is everyone, the chair last; with no mention the chair replies alone. " +
 		"Each sees what was said before them. What another employee said comes to you as a user message starting with their name in brackets, like \"[Ada] ...\": " +
-		"it is theirs, not the user's. Speak only for yourself, add what is yours to add rather than repeat the others, and keep it short. " +
+		"it is theirs, not the user's. " + othersRule +
 		"Only one employee a round may create or change tasks, blueprints and flows, or ask the user; when someone else needs to do that, say so for them to do. " +
 		"Who is in the meeting, the order of this round and who acts in it come in a [Meeting] note at the end of the user's latest message.\n"
 }

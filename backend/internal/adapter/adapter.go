@@ -144,6 +144,8 @@ type Git interface {
 	Remove(ctx context.Context, folder, dir, branch string) error
 	// ReadFile returns a text file's content as it was at commit.
 	ReadFile(ctx context.Context, folder, commit, path string) (string, error)
+	// Diff returns a text file at commit against the same file at base, every line kept; nil when base has no such file.
+	Diff(ctx context.Context, folder, base, commit, path string) ([]model.DiffLine, error)
 	// ReadImage returns a PNG, JPEG, GIF or WebP as it was at commit, with its media type.
 	ReadImage(ctx context.Context, folder, commit, path string) ([]byte, string, error)
 	// Fetch makes a local copy of repo at commit (or at its default branch) and returns where it is.

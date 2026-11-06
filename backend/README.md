@@ -51,7 +51,7 @@ debug: false
 
 Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及地圖位置。`preferences.yaml` 在介面修改後立即儲存；手動編輯後按「重新載入設定」，不必重啟。省略的欄位使用預設值，未知欄位、`null`、錯誤型別或不存在的頁籤會被拒絕。
 
-偏好欄位的預設值：`logOrder: newestFirst`（也可用 `newestLast`）、`defaultTab: tasks`（`chats`、`tasks`、`crew`、`terminal`、`settings`）、`defaultAirportTab: providers`（`chats`、`providers`、`blueprints`、`flows`、`prefs`、`about`）、`autoTab: chats`（`off`、`chats`、`tasks`：打開公司或機場時先顯示有事待處理的頁籤，兩者都有時先顯示選的那個；`off` 一律用預設頁籤。舊欄位 `openWaitingTab` 讀取時會自動換成它）、`chatTitleModel: ""`、`chatTitleEffort: ""`（有模型時，公司和機場的新對話會把第一則訊息最多約 2,000 字送給這個模型取一次名字，沒有工具，30 秒逾時、失敗不重試，用量算進該對話；空字串表示關閉，`effort` 空白或模型不支援就不指定思考等級）、`imageProvider: ""`（生圖用的 ChatGPT 訂閱供應商 id，空字串表示沒有 `image_gen`，見「訂閱登入」）；`detail`、`shadows`、`crowd`、`planes`、`clouds` 預設 `true`，`autoView` 預設 `panZoom`（也可用 `pan`、`off`；舊欄位 `autoZoom` 讀取時會自動換成它），`busyAnimation` 預設 `money`（也可用 `shout`，公司工作中時建築旁的動畫），`daylight` 預設 `minecraft`（也可用 `real`、`day`、`night`，小島的時間），`zoomSensitivity` 預設 100（接受 20–300 的整數），`terminalCommand` 預設空字串，`keepTerminals` 預設 `false`。語言沿用 SQLite 儲存。聲音偏好 `muteInBackground`（預設 `true`）、`musicVolume`（預設 50）、`effectsVolume`（預設 100）接受 0–100 的整數，0 為靜音；`musicMuted`、`effectsMuted`（預設 `false`）直接靜音該聲道並保留音量；`soundTakeoff`、`soundLanding`、`soundFlyover`、`soundUI`、`soundNotice`、`soundOpenTeam`、`soundOpenAirport`、`soundWaves` 分別控制起飛、降落、飛越、介面、通知（待回覆任務與對話回覆）、打開公司、打開機場音效和持續循環的海浪聲，預設皆為 `true`。`systemNotices`（預設 `true`）讓 Mac App 在不在前景時，為待回覆的任務和對話發 macOS 通知，並在 Dock 圖示上顯示待回覆數量。`musicStyle` 可選 `bossa`（預設）、`chiptune`、`piano`、`ambient`。舊偏好檔缺少的欄位會補上預設值。
+偏好欄位的預設值：`logOrder: newestFirst`（也可用 `newestLast`）、`defaultTab: tasks`（`chats`、`tasks`、`crew`、`terminal`、`settings`）、`defaultAirportTab: providers`（`chats`、`providers`、`blueprints`、`flows`、`sources`、`stats`、`terminal`、`prefs`、`about`）、`autoTab: chats`（`off`、`chats`、`tasks`：打開公司或機場時先顯示有事待處理的頁籤，兩者都有時先顯示選的那個；`off` 一律用預設頁籤。舊欄位 `openWaitingTab` 讀取時會自動換成它）、`chatTitleModel: ""`、`chatTitleEffort: ""`（有模型時，公司和機場的新對話會把第一則訊息最多約 2,000 字送給這個模型取一次名字，沒有工具，30 秒逾時、失敗不重試，用量算進該對話；空字串表示關閉，`effort` 空白或模型不支援就不指定思考等級）、`imageProvider: ""`（生圖用的 ChatGPT 訂閱供應商 id，空字串表示沒有 `image_gen`，見「訂閱登入」）；`detail`、`shadows`、`crowd`、`planes`、`clouds` 預設 `true`，`autoView` 預設 `panZoom`（也可用 `pan`、`off`；舊欄位 `autoZoom` 讀取時會自動換成它），`busyAnimation` 預設 `money`（也可用 `shout`，公司工作中時建築旁的動畫），`daylight` 預設 `minecraft`（也可用 `real`、`day`、`night`，小島的時間），`zoomSensitivity` 預設 100（接受 20–300 的整數），`terminalCommand` 預設空字串，`keepTerminals` 預設 `false`。語言沿用 SQLite 儲存。聲音偏好 `muteInBackground`（預設 `true`）、`musicVolume`（預設 50）、`effectsVolume`（預設 100）接受 0–100 的整數，0 為靜音；`musicMuted`、`effectsMuted`（預設 `false`）直接靜音該聲道並保留音量；`soundTakeoff`、`soundLanding`、`soundFlyover`、`soundUI`、`soundNotice`、`soundOpenTeam`、`soundOpenAirport`、`soundWaves` 分別控制起飛、降落、飛越、介面、通知（待回覆任務與對話回覆）、打開公司、打開機場音效和持續循環的海浪聲，預設皆為 `true`。`systemNotices`（預設 `true`）讓 Mac App 在不在前景時，為待回覆的任務和對話發 macOS 通知，並在 Dock 圖示上顯示待回覆數量。`musicStyle` 可選 `bossa`（預設）、`chiptune`、`piano`、`ambient`。舊偏好檔缺少的欄位會補上預設值。
 
 公司位置、建築樣式和配色種子存在 SQLite 的公司記錄，建立與移動時儲存，解散時一起移除。位置必須為整數格、兩軸各介於 -512 到 512，不可重疊公司或機場，並且整塊 16×16 用地都必須落在現有陸地格子向八個方向擴張 32 格的範圍內。搬家以搬動前的陸地計算，包含所選公司的原有陸地；機場保留兩格間距。前後端以相同的陸地格子（含連接陸地與填平的內湖）驗證。不讀取或搬移舊的網頁 `localStorage`；沒有共用位置的公司會重新配置位置與外觀。`make dev-mock` 的偏好和地圖只存在記憶體。
 
@@ -112,6 +112,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /tasks/:id/{pause,resume,cancel,merge}` | 暫停、恢復、取消（要先暫停）、合併 |
 | `POST /tasks/:id/return`、`POST /tasks/:id/workflow` | 退回（`feedback`）、更換任務藍圖（`workflowId`，要先暫停） |
 | `GET /subtasks/:id/file?path=` | 讀子任務交接的檔案（該次 commit 的內容，上限 1 MB，只限文字檔） |
+| `GET /subtasks/:id/diff?path=` | 交接的檔案和子任務開始時的版本逐行比對：`{ lines: [{ op: "same" \| "add" \| "del", text }] }`；檔案是這一步新增的、或子任務開始時沒記下版本就是 `{ lines: null }` |
 | `GET /subtasks/:id/image?path=` | 讀子任務交接的圖片（該次 commit 的內容，上限 25 MB，只限 PNG、JPEG、GIF、WebP），直接回傳圖片本身 |
 | `POST /subtasks/:id/review` | 回覆審核（`optionId`、`note`）；修改確認（`review.kind` 為 `change`，內容在 `review.change`）的 `optionId` 是 `approve` 或 `reject` |
 | `POST /subtasks/:id/talk`、`POST /subtasks/:id/talk/end` | 討論發言（`text`；會議裡 `mentions` 是要回話的員工 id，依序回話，空的就由主持人回話）、結束（`kind`: `continue`/`back`/`stop`，`to`、`reason`） |
@@ -122,6 +123,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `GET /chats/:id/skill?name=` | 讀對話裡提及的技能：從主持人開始，第一位有這個技能的人的 `SKILL.md` |
 | `GET /teams/:id/health` | 公司資料夾現在的狀態：`folder` 存在、`repo` 是 git repo、`targetBranch` 目標分支還在 |
 | `GET /teams/:id/terminal?cols=&rows=` | WebSocket：在公司資料夾開一個載入 `~/.zshrc` 的 zsh。二進位訊息是輸入與畫面輸出，文字訊息 `{"cols","rows"}` 調整大小；斷線時結束 shell 和它的工作 |
+| `GET /airport/terminal?cols=&rows=` | WebSocket：機場的終端機，在家目錄開 zsh，其餘和公司的相同。機場對話裡藍圖有讀取檔案或執行指令的機場服務人員可用 `read_terminal` 讀它 |
 | `POST /attachments` | 上傳一個檔案（請求內容就是檔案本身，最大 25MB），回傳放進 `files` 的 `url` |
 | `GET /attachments/:hash` | 下載上傳的檔案 |
 | `POST /chats` | 開始對話（`teamId`、`replicaId`、`text`、可選的 `images` 和 `files`），用員工當下的模型，員工開始回覆。加上 `guests`（同公司員工的 id）就是會議，`replicaId` 是主持人；`mentions` 同 `say` |
@@ -159,7 +161,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `write_file` 或 `run_command` | 上面的讀取工具，加上 `create_task`、`update_task`、`save_blueprint`、`save_workflow`、`save_provider` |
 | `web_search` | 沒有額外工具 |
 
-機場服務人員四個工具都有，所以擁有全部能力。內建的 15 個藍圖都有讀寫能力。任務藍圖的「和員工討論」步驟只有讀取工具。沒有刪除工具。錯誤和拒絕都以工具結果回傳給模型。
+機場服務人員四個工具都有，所以擁有全部能力。內建的 15 個藍圖都有讀寫能力。任務藍圖的「開會討論」步驟只有讀取工具。沒有刪除工具。錯誤和拒絕都以工具結果回傳給模型。
 
 - **範圍**：公司的員工只能讀取、建立、修改自己公司的任務，也只列得到自己公司的員工和公司；機場服務人員可以跨公司，`create_task` 要帶 `team_id`。藍圖、任務藍圖和供應商由所有公司共用，修改會影響每間公司。
 - **直接生效**：新增藍圖、新增任務藍圖、新增供應商、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。

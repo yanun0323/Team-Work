@@ -1339,8 +1339,8 @@ func TestAirportChatRunsWithoutACompany(t *testing.T) {
 	if slices.Contains(names, "remember") || slices.Contains(names, "forget") {
 		t.Fatalf("airport staff keep no memory: %v", names)
 	}
-	if slices.Contains(names, "read_terminal") {
-		t.Fatalf("the airport has no terminal: %v", names)
+	if !slices.Contains(names, "read_terminal") {
+		t.Fatalf("the airport's terminal is not read: %v", names)
 	}
 	if _, err := r.e.ChatTaskDraft(context.Background(), c.ID); err == nil {
 		t.Fatal("an airport chat has no company to make a task in")
@@ -1597,7 +1597,7 @@ func TestHandOffChatGoesOnWithAnotherEmployee(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []model.ChatHandoff{{Before: second, ReplicaID: r.owner.ID, Name: "Ada"}}
+	want := []model.ChatHandoff{{Before: second, ReplicaID: r.owner.ID, Name: "Ada", ChatID: c.ID}}
 	if got.ReplicaID != bea.ID || got.Name != "Bea" || !slices.Equal(got.Handoffs, want) || got.ReplyAt != nil {
 		t.Fatalf("%+v", got)
 	}
@@ -1625,6 +1625,95 @@ func TestHandOffChatGoesOnWithAnotherEmployee(t *testing.T) {
 	}
 	if _, err := r.e.HandOffChat(c.ID, second, bea.ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Handed to the employee it had, the copy still marks where it came from, but the employee is not told anyone
+// else wrote the replies.
+func TestHandOffChatToTheSameEmployeeMarksTheOriginal(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "第一句"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first", chatDone(c.ID))
+	reply := len(r.world().Chats[c.ID].Messages) - 1
+	got, err := r.e.HandOffChat(c.ID, reply, r.owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []model.ChatHandoff{{Before: reply + 1, ReplicaID: r.owner.ID, Name: "Ada", ChatID: c.ID}}
+	if got.ReplicaID != r.owner.ID || !slices.Equal(got.Handoffs, want) {
+		t.Fatalf("%+v", got)
+	}
+	// unnamed, it is named after the first message it shows, marked as handed off
+	if got.Title != "交接：第一句" || got.PinnedAt != nil {
+		t.Fatalf("%q %v", got.Title, got.PinnedAt)
+	}
+	if err := r.e.SayInChat(got.ID, "第二句", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("again", chatDone(got.ID))
+	if system := r.fake.seen[len(r.fake.seen)-1].System; strings.Contains(system, "handed over") {
+		t.Fatalf("%s", system)
+	}
+}
+
+// A copy handed off keeps the chat's name, marked once in the app's language, and not its pin.
+func TestHandOffChatKeepsTheNameMarked(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	t.Cleanup(func() { _ = r.e.SetLanguage(model.LanguageZh) })
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "第一句"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first", chatDone(c.ID))
+	if err := r.e.RenameChat(c.ID, "寫登入頁"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.PinChat(c.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.e.HandOffChat(c.ID, 0, r.owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "交接：寫登入頁" || got.PinnedAt != nil {
+		t.Fatalf("%q %v", got.Title, got.PinnedAt)
+	}
+	// handed off again, the mark is not doubled
+	again, err := r.e.HandOffChat(got.ID, 0, r.owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Title != "交接：寫登入頁" {
+		t.Fatalf("%q", again.Title)
+	}
+	// a long name is cut to what the user may give
+	long := strings.Repeat("長", 80)
+	if err := r.e.RenameChat(c.ID, long); err != nil {
+		t.Fatal(err)
+	}
+	cut, err := r.e.HandOffChat(c.ID, 0, r.owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len([]rune(cut.Title)); n > 80 || !strings.HasPrefix(cut.Title, "交接：長") || !strings.HasSuffix(cut.Title, "…") {
+		t.Fatalf("%d %q", n, cut.Title)
+	}
+	if err := r.e.RenameChat(cut.ID, cut.Title); err != nil {
+		t.Fatal(err)
+	}
+	// the mark follows the app's language
+	if err := r.e.SetLanguage(model.LanguageEn); err != nil {
+		t.Fatal(err)
+	}
+	en, err := r.e.HandOffChat(got.ID, 0, r.owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if en.Title != "Handoff: 交接：寫登入頁" {
+		t.Fatalf("%q", en.Title)
 	}
 }
 

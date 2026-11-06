@@ -60,8 +60,12 @@ const (
 	escStrSt // ESC seen inside a string, where ESC \ ends it
 )
 
-// TerminalOutput starts the log of a company's new terminal, in place of the one before. The shell's output is
-// written to it, and End marks when the shell is gone.
+// TerminalFolder is where a company's terminal starts: its folder, or the user's home folder for the airport's
+// (teamID "").
+func (e *Engine) TerminalFolder(teamID string) (string, error) { return e.mentionRoot(teamID) }
+
+// TerminalOutput starts the log of a company's new terminal, or the airport's (teamID ""), in place of the one
+// before. The shell's output is written to it, and End marks when the shell is gone.
 func (e *Engine) TerminalOutput(teamID string) *TerminalLog {
 	l := &TerminalLog{}
 	e.termMu.Lock()
@@ -306,9 +310,16 @@ func lineText(cells []cell) string {
 var readTerminalSpec = model.ToolSpec{Name: "read_terminal", Description: "Read what the company's terminal, the shell the user opens in the app, has shown: its last lines as plain text, oldest first. You cannot type into it.",
 	Parameters: json.RawMessage(`{"type":"object","properties":{"lines":{"type":"integer","minimum":1,"maximum":2000,"description":"How many of the last lines; 200 when left out"}}}`)}
 
-// readTerminalTool reads the company's terminal for an employee who may read its files.
+var readAirportTerminalSpec = model.ToolSpec{Name: readTerminalSpec.Name, Description: "Read what the airport's terminal, the shell the user opens in the app's airport, started in their home folder, has shown: its last lines as plain text, oldest first. You cannot type into it.",
+	Parameters: readTerminalSpec.Parameters}
+
+// readTerminalTool reads the company's terminal, or the airport's (teamID ""), for an employee who may read its files.
 func (e *Engine) readTerminalTool(teamID string) funcTool {
-	return funcTool{readTerminalSpec, func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+	spec := readTerminalSpec
+	if teamID == "" {
+		spec = readAirportTerminalSpec
+	}
+	return funcTool{spec, func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
 		var a struct {
 			Lines int `json:"lines"`
 		}

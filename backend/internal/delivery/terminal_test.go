@@ -94,6 +94,31 @@ func TestTerminalRunsZshInTheCompanyFolder(t *testing.T) {
 	readUntil(t, conn, "SIZE 40 120")
 }
 
+func TestAirportTerminalStartsAtHome(t *testing.T) {
+	if _, err := exec.LookPath("zsh"); err != nil {
+		t.Skip("no zsh")
+	}
+	srv := setup(t)
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	dotdir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dotdir, ".zshrc"), []byte("PROMPT='$ '\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ZDOTDIR", dotdir)
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/v1/airport/terminal?cols=80&rows=24"
+	conn, _, err := websocket.DefaultDialer.Dial(url, http.Header{"Origin": {origin}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	typeIn(t, conn, `printf '%s:%s\n' DIR "$PWD" | sed s/DIR/ANSWER/`)
+	readUntil(t, conn, "ANSWER:"+home)
+}
+
 func TestTerminalLeavesOutServerSettings(t *testing.T) {
 	t.Setenv("TEAM_WORK_PORT", "18787")
 	t.Setenv("TERM_PROGRAM", "Apple_Terminal")

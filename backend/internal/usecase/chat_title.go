@@ -6,6 +6,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/yanun0323/Team-Work/internal/i18n"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
@@ -81,6 +82,26 @@ func chatTitleOf(text string) string {
 		return ""
 	}
 	return clip(strings.TrimSpace(strings.Trim(title, "\"'“”‘’")), chatTitleRunes)
+}
+
+// handOffTitle names a copy handed off from a chat: its name, or the first message it shows without one, after a mark in
+// the app's language. A name already marked is not marked again, and it is cut to what the user may give.
+func handOffTitle(c *model.Chat) string {
+	base := c.Title
+	if base == "" && len(c.Messages) > 0 {
+		base = strings.Join(strings.Fields(c.Messages[0].Text), " ")
+	}
+	if base == "" {
+		base = c.ID
+	}
+	prefix := i18n.T("交接：%s", "")
+	if strings.HasPrefix(base, prefix) {
+		base = strings.TrimPrefix(base, prefix)
+	}
+	if room := chatTitleMax - len([]rune(prefix)) - 1; len([]rune(base)) > room {
+		base = clip(base, room)
+	}
+	return prefix + base
 }
 
 // RenameChat names a chat. An empty name goes back to showing its first message.

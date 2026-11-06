@@ -126,6 +126,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.DELETE("/sources/:id", s.deleteSource)
 	api.GET("/sources/:id/items", s.sourceItems)
 	api.GET("/sources/:id/problems", s.sourceProblems)
+	api.GET("/sources/:id/skill", s.sourceSkill)
 	api.POST("/sources/:id/check", s.checkSource)
 	api.GET("/sources/:id/changes", s.sourceChanges)
 	api.POST("/sources/:id/apply", s.applySource)
@@ -148,6 +149,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 
 	api.GET("/subtasks/:id/file", s.handedFile)
 	api.GET("/subtasks/:id/image", s.handedImage)
+	api.GET("/subtasks/:id/diff", s.handedDiff)
 	api.POST("/subtasks/:id/review", s.resolveReview)
 	api.POST("/subtasks/:id/talk", s.sayInTalk)
 	api.POST("/subtasks/:id/talk/end", s.endTalk)
@@ -176,6 +178,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/airport/open-folder", s.openFolder)
 	api.GET("/airport/file", s.projectFile)
 	api.GET("/airport/image", s.projectImage)
+	api.GET("/airport/terminal", s.terminal)
 	api.PATCH("/chats/:id/mind", s.setChatMind)
 	api.PATCH("/chats/:id/title", s.renameChat)
 	api.PATCH("/chats/:id/pin", s.pinChat)
@@ -689,6 +692,14 @@ func (s *Server) handedFile(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"text": text})
 }
 
+func (s *Server) handedDiff(c echo.Context) error {
+	lines, err := s.engine.HandedDiff(c.Request().Context(), c.Param("id"), c.QueryParam("path"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]any{"lines": lines})
+}
+
 func (s *Server) handedImage(c echo.Context) error {
 	data, kind, err := s.engine.HandedImage(c.Request().Context(), c.Param("id"), c.QueryParam("path"))
 	if err != nil {
@@ -880,6 +891,14 @@ func (s *Server) sourceItems(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusOK, items)
+}
+
+func (s *Server) sourceSkill(c echo.Context) error {
+	skill, err := s.engine.SourceSkill(c.Request().Context(), c.Param("id"), c.QueryParam("path"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, skill)
 }
 
 func (s *Server) sourceProblems(c echo.Context) error {

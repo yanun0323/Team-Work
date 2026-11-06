@@ -122,6 +122,10 @@ func TestMeetingRepliesInTurn(t *testing.T) {
 		if strings.Contains(req.System, "(chair)") || strings.Contains(req.System, "Ada may") {
 			t.Fatalf("the round is in the system prompt:\n%s", req.System)
 		}
+		// those after the first are told what came before is a view to check, not a fact to build on
+		if !strings.Contains(req.System, "their view, not established fact") || !strings.Contains(req.System, "Do not skip a part because someone else covered it") {
+			t.Fatalf("no rule against taking the others on trust:\n%s", req.System)
+		}
 	}
 	if !strings.HasSuffix(cySaw, "[Meeting] In it: Ada (chair), Bea, Cy (you). This round replies, in order: Bea, Cy (you), Ada (chair). This round Ada may act outside the chat.\n") {
 		t.Fatalf("Cy saw\n%s", cySaw)
@@ -190,12 +194,12 @@ func TestMeetingRepliesInTurn(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 
-	// handed to the chair, it goes on with the chair alone, no one taking over
+	// handed to the chair, it goes on with the chair alone, no one taking over but marked as copied from the meeting
 	chair, err := r.e.HandOffChat(c.ID, len(got.Messages)-1, bea.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if chair.ReplicaID != bea.ID || len(chair.Guests) != 0 || len(chair.Handoffs) != len(got.Handoffs) {
+	if chair.ReplicaID != bea.ID || len(chair.Guests) != 0 || len(chair.Handoffs) != len(got.Handoffs)+1 || chair.Handoffs[len(got.Handoffs)].ChatID != c.ID {
 		t.Fatalf("%+v", chair)
 	}
 	// handed to one of them, it goes on as their chat alone
@@ -364,6 +368,9 @@ func TestTalkWithSeveralIsAMeeting(t *testing.T) {
 		}
 		if req.Session == s.ID+"-"+r.owner.ID {
 			adaSaw = wordsOf(req.Messages)
+			if !strings.Contains(req.System, "their view, not established fact") {
+				t.Fatalf("no rule against taking the others on trust:\n%s", req.System)
+			}
 		}
 	}
 	if !strings.Contains(adaSaw, "[Bea] Bea 的意見") {

@@ -192,6 +192,25 @@ func (e *Engine) HandedFile(ctx context.Context, subID, path string) (string, er
 	return e.git.ReadFile(ctx, folder, commit, path)
 }
 
+// HandedDiff compares a handed file with how it was when its sub-task first ran. It is nil when there is nothing to
+// compare with: the file is new, or the sub-task ran before where it began was kept.
+func (e *Engine) HandedDiff(ctx context.Context, subID, path string) ([]model.DiffLine, error) {
+	folder, commit, path, err := e.handedAt(subID, path)
+	if err != nil {
+		return nil, err
+	}
+	e.mu.Lock()
+	base := ""
+	if s := e.w.SubTasks[subID]; s != nil {
+		base = s.BaseCommit
+	}
+	e.mu.Unlock()
+	if base == "" {
+		return nil, nil
+	}
+	return e.git.Diff(ctx, folder, base, commit, path)
+}
+
 // HandedImage is a picture from a sub-task's handoff commit, with its media type.
 func (e *Engine) HandedImage(ctx context.Context, subID, path string) ([]byte, string, error) {
 	folder, commit, path, err := e.handedAt(subID, path)

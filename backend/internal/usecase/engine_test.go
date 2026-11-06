@@ -25,6 +25,19 @@ import (
 	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
+// TestMain runs the tests in an empty home folder: the engine reads the agents' folders there (~/.team-work/ among
+// them) as sources, and what the user keeps in theirs must not change what a test sees.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "usecase-home-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("HOME", home)
+	code := m.Run()
+	os.RemoveAll(home)
+	os.Exit(code)
+}
+
 // script is a fake model: each call takes the next reply, given what the model was just told.
 type script struct {
 	mu        sync.Mutex
@@ -555,6 +568,16 @@ func TestHandedFileReadsTheCommit(t *testing.T) {
 		if _, err := r.e.HandedFile(ctx, sub.ID, path); err == nil {
 			t.Errorf("%q read", path)
 		}
+		if _, err := r.e.HandedDiff(ctx, sub.ID, path); err == nil {
+			t.Errorf("%q compared", path)
+		}
+	}
+	// the step began before the file was there, so there is nothing to compare it with
+	if sub.BaseCommit == "" {
+		t.Fatal("where the step began was not kept")
+	}
+	if lines, err := r.e.HandedDiff(ctx, sub.ID, "docs/spec.md"); err != nil || lines != nil {
+		t.Fatalf("a new file compared: %v %v", lines, err)
 	}
 }
 

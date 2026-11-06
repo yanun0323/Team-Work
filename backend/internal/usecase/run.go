@@ -603,6 +603,14 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 		stop(model.Errorf(model.CodeInvalid, "建立 work tree 失敗（分支 %s）", in.branch))
 		return
 	}
+	// kept from the first run only, so a retry or a change asked for still compares against where the step began
+	if base, _ := e.git.Tip(ctx, in.dir, ""); base != "" {
+		e.apply(in, func(_ *model.Task, s *model.SubTask) {
+			if s.BaseCommit == "" {
+				s.BaseCommit = base
+			}
+		})
+	}
 	skills, roots, problems := e.loadSkills(ctx, in.spec.packs)
 	if ctx.Err() != nil {
 		stop(ctx.Err())

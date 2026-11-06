@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -145,6 +146,25 @@ func TestItemsAtNamesEachSkillsFolder(t *testing.T) {
 	got := itemsAt(model.Source{Kind: "git"}, root)
 	if len(got) != 2 || got[0].Path != "pstack/skills/ship" || got[0].Category != "pstack/skills" || got[1].Path != "top" || got[1].Category != "" {
 		t.Fatalf("items = %+v", got)
+	}
+}
+
+func TestSourceSkillReadsTheSkillAtItsPath(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "skills/eng/tdd")
+	writeSkill(t, root, "skills/ops/tdd")
+	w := model.NewWorld()
+	w.Sources["src-1"] = &model.Source{ID: "src-1", Kind: "git", Repo: "https://github.com/a/b", Commit: "c1"}
+	e := &Engine{w: w, git: fetchedVersions{dirs: map[string]string{"c1": root}}}
+	got, err := e.SourceSkill(context.Background(), "src-1", "skills/ops/tdd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "tdd" || got.Path != "skills/ops/tdd/SKILL.md" || !strings.Contains(got.Text, "name: tdd") {
+		t.Errorf("skill = %+v", got)
+	}
+	if _, err := e.SourceSkill(context.Background(), "src-1", "../outside"); err == nil {
+		t.Error("a path that is not one of its skills is read")
 	}
 }
 
