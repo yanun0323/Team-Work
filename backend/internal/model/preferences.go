@@ -86,7 +86,7 @@ func (p Preferences) CompactShare(window int) int {
 }
 
 func DefaultPreferences() Preferences {
-	return Preferences{MuteInBackground: true, SystemNotices: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, MapClick: "home", AutoView: "panZoom", BusyAnimation: "money", Daylight: "minecraft", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", AutoTab: "chats", CodexSkills: true, ClaudeSkills: true, HiddenBlueprints: []string{}, HiddenWorkflows: []string{}, Compact1M: 40, Compact256K: 90, Compact128K: 95, CompactSmall: 95}
+	return Preferences{MuteInBackground: true, SystemNotices: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, MapClick: "sheets", AutoView: "panZoom", BusyAnimation: "money", Daylight: "minecraft", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", AutoTab: "chats", CodexSkills: true, ClaudeSkills: true, HiddenBlueprints: []string{}, HiddenWorkflows: []string{}, Compact1M: 40, Compact256K: 90, Compact128K: 95, CompactSmall: 95}
 }
 
 // MergePreferences accepts only known, non-null fields; omitted fields keep their values.

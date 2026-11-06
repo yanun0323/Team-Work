@@ -34,8 +34,8 @@ func TestSystemNoticesAreOnForOldFiles(t *testing.T) {
 
 func TestMapClick(t *testing.T) {
 	for raw, want := range map[string]string{
-		`{"shadows":false}`:                          "home",
-		`{"mapClickLeaves":true}`:                    "home",
+		`{"shadows":false}`:                          "sheets",
+		`{"mapClickLeaves":true}`:                    "sheets",
 		`{"mapClickLeaves":false}`:                   "sheets",
 		`{"mapClickLeaves":false,"mapClick":"home"}`: "home",
 	} {
@@ -44,8 +44,8 @@ func TestMapClick(t *testing.T) {
 			t.Fatalf("%s: %v %q", raw, err, p.MapClick)
 		}
 	}
-	next, err := MergePreferences(DefaultPreferences(), map[string]json.RawMessage{"mapClick": json.RawMessage(`"sheets"`)})
-	if err != nil || next.MapClick != "sheets" {
+	next, err := MergePreferences(DefaultPreferences(), map[string]json.RawMessage{"mapClick": json.RawMessage(`"home"`)})
+	if err != nil || next.MapClick != "home" {
 		t.Fatalf("%v %+v", err, next)
 	}
 	if _, err := MergePreferences(DefaultPreferences(), map[string]json.RawMessage{"mapClick": json.RawMessage(`"off"`)}); err == nil {
