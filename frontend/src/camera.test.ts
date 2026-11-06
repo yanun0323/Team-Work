@@ -1,7 +1,7 @@
 import { CELL, layoutTown } from './layout'
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { boxOnScreen, drawerWidth, focusTarget, focusView, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot, seaCoverZoom, SEA_SIZE } from './camera'
+import { boxOnScreen, drawerWidth, focusTarget, focusView, groundReach, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot, seaCoverZoom, SEA_SIZE } from './camera'
 
 /** Screen position (pixels from the canvas centre, y up) of a world point, for a camera looking at `target`. */
 const project = (p: THREE.Vector3, target: THREE.Vector3, zoom: number) => {
@@ -176,6 +176,28 @@ describe('seaCoverZoom', () => {
       // follow the line of sight down to the ground
       corner.addScaledVector(ISO_DIR, -corner.y / ISO_DIR.y)
       expect(Math.max(Math.abs(corner.x), Math.abs(corner.z))).toBeLessThanOrEqual(SEA_SIZE / 2 + 1e-6)
+    }
+  })
+})
+
+describe('groundReach', () => {
+  it('holds every screen corner on the ground, however far out the zoom goes', () => {
+    const target = new THREE.Vector3(20, 0, -30)
+    for (const view of [{ width: 1280, height: 820 }, { width: 2560, height: 1400 }, { width: 600, height: 900 }]) {
+      for (const zoom of [0.5, 2, MIN_ZOOM, 30]) {
+        const reach = groundReach(view, zoom)
+        let far = 0
+        for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+          const corner = target.clone()
+            .addScaledVector(SCREEN_RIGHT, (sx * view.width) / 2 / zoom)
+            .addScaledVector(SCREEN_UP, (sy * view.height) / 2 / zoom)
+          corner.addScaledVector(ISO_DIR, -corner.y / ISO_DIR.y)
+          far = Math.max(far, Math.abs(corner.x - target.x), Math.abs(corner.z - target.z))
+        }
+        expect(far).toBeLessThanOrEqual(reach + 1e-6)
+        // tight: the farthest corner sits on the square's edge
+        expect(far).toBeGreaterThan(reach - 1e-6)
+      }
     }
   })
 })

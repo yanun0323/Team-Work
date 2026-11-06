@@ -7,7 +7,7 @@ import * as THREE from 'three'
 import { FIELD_RES } from './land'
 import { SEA_D0, SEA_DSPAN, SEA_LEVEL, type SeaMap } from './Island'
 import { usePrefs } from './prefs'
-import { SEA_SIZE } from './camera'
+import { groundReach, SEA_SIZE } from './camera'
 import { MAX_FRAME } from './PixelPass'
 import { light } from './daylight'
 
@@ -73,6 +73,9 @@ sea = mix(sea, vec3(1.0), dash * 0.22);
 vec4 diffuseColor = vec4(sea, opacity);
 `
 
+/** World units of sea kept past the screen's corners: the rounding of the plane's position and the pixel pass's shift. */
+const SEA_MARGIN = 4
+
 export function Ocean({ map, calm }: { map: SeaMap; calm: boolean }) {
   const mesh = useRef<THREE.Mesh>(null)
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3 } | null
@@ -104,12 +107,17 @@ export function Ocean({ map, calm }: { map: SeaMap; calm: boolean }) {
     return { m, uniforms }
   }, [map])
 
-  useFrame((_, dt) => {
+  useFrame(({ camera, size }, dt) => {
     if (!calm) material.uniforms.uTime.value += Math.min(dt, MAX_FRAME)
     material.uniforms.uDetail.value = detail ? 1 : 0
     // the plane follows the view so the sea never ends; the pattern is in world space, so it doesn't slide
     const t = controls?.target
-    if (t && mesh.current) mesh.current.position.set(Math.round(t.x), SEA_LEVEL, Math.round(t.z))
+    if (t && mesh.current) {
+      mesh.current.position.set(Math.round(t.x), SEA_LEVEL, Math.round(t.z))
+      // and grows past its own size when zoomed out that far, so its edge never shows
+      const s = Math.max(1, (groundReach(size, camera.zoom) + SEA_MARGIN) / (SEA_SIZE / 2))
+      mesh.current.scale.set(s, s, 1)
+    }
   })
 
   return (

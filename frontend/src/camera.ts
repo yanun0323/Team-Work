@@ -110,11 +110,18 @@ export function shotAt(from: Shot, to: Shot, u: number): Shot {
   return { target, zoom }
 }
 
-/** The lowest zoom at which the sea still fills a screen of this size, looking at `target`. */
+/**
+ * How far the ground a screen of this size shows at `zoom` reaches from what the camera looks at, along x or z:
+ * a square this much each way round the target covers the whole screen.
+ */
+export function groundReach(view: Pick<View, 'width' | 'height'>, zoom: number): number {
+  // the square's edges run at 45° on screen; the ground is foreshortened vertically by the tilt
+  return (view.width / 2 + view.height / 2 / ISO_DIR.y) / Math.SQRT2 / zoom
+}
+
+/** The lowest zoom at which the sea, at its own size, still fills a screen of this size, looking at `target`. */
 export function seaCoverZoom(target: THREE.Vector3, view: Pick<View, 'width' | 'height'>): number {
-  // the sea's edges run at 45° on screen; the ground is foreshortened vertically by the tilt
-  const corner = (view.width / 2 + view.height / 2 / ISO_DIR.y) / Math.SQRT2
-  return corner / (SEA_SIZE / 2 - Math.max(Math.abs(target.x), Math.abs(target.z)))
+  return groundReach(view, 1) / (SEA_SIZE / 2 - Math.max(Math.abs(target.x), Math.abs(target.z)))
 }
 
 /** Fit projected land cells and static structures, not the origin-centred allocation rectangle. */
