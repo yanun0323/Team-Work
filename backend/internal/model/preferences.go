@@ -39,8 +39,13 @@ type Preferences struct {
 	// BusyAnimation is what a company's building shows while it is at work: shout strokes, money tossed off its sides, or off for nothing.
 	BusyAnimation string `json:"busyAnimation"`
 	// Daylight is the time of day the town shows: the clock (real), a 20-minute day (minecraft), or always day or night.
-	Daylight          string `json:"daylight"`
-	ZoomSensitivity   int    `json:"zoomSensitivity"`
+	Daylight        string `json:"daylight"`
+	ZoomSensitivity int    `json:"zoomSensitivity"`
+	// IdleFollow is how long, in seconds, the map is left alone before the camera picks someone on the island to follow;
+	// 0 turns it off. One of IdleFollowChoices.
+	IdleFollow int `json:"idleFollow"`
+	// IdleFollowTarget limits following to map people, or includes office employees (all).
+	IdleFollowTarget  string `json:"idleFollowTarget"`
 	TerminalCommand   string `json:"terminalCommand"`
 	DefaultTab        string `json:"defaultTab"`
 	DefaultAirportTab string `json:"defaultAirportTab"`
@@ -66,6 +71,9 @@ type Preferences struct {
 	CompactSmall int `json:"compactSmall"`
 }
 
+// IdleFollowChoices are the waits, in seconds, IdleFollow may be set to; 0 is off.
+var IdleFollowChoices = []int{0, 5, 15, 30, 60, 300, 900, 1800, 3600, 10800}
+
 // CompactLeast and CompactMost bound the compaction percentages.
 const (
 	CompactLeast = 10
@@ -86,7 +94,7 @@ func (p Preferences) CompactShare(window int) int {
 }
 
 func DefaultPreferences() Preferences {
-	return Preferences{MuteInBackground: true, SystemNotices: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, MapClick: "sheets", AutoView: "panZoom", BusyAnimation: "money", Daylight: "minecraft", ZoomSensitivity: 100, DefaultTab: "tasks", DefaultAirportTab: "providers", AutoTab: "chats", CodexSkills: true, ClaudeSkills: true, HiddenBlueprints: []string{}, HiddenWorkflows: []string{}, Compact1M: 40, Compact256K: 90, Compact128K: 95, CompactSmall: 95}
+	return Preferences{MuteInBackground: true, SystemNotices: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, MapClick: "sheets", AutoView: "panZoom", BusyAnimation: "money", Daylight: "minecraft", ZoomSensitivity: 100, IdleFollow: 15, IdleFollowTarget: "map", DefaultTab: "tasks", DefaultAirportTab: "providers", AutoTab: "chats", CodexSkills: true, ClaudeSkills: true, HiddenBlueprints: []string{}, HiddenWorkflows: []string{}, Compact1M: 40, Compact256K: 90, Compact128K: 95, CompactSmall: 95}
 }
 
 // MergePreferences accepts only known, non-null fields; omitted fields keep their values.
@@ -112,6 +120,8 @@ func MergePreferences(current Preferences, patch map[string]json.RawMessage) (Pr
 	}
 	if !slices.Contains([]string{"piano", "ambient", "bossa", "chiptune"}, next.MusicStyle) || next.MusicVolume < 0 || next.MusicVolume > 100 || next.EffectsVolume < 0 || next.EffectsVolume > 100 ||
 		next.ZoomSensitivity < 20 || next.ZoomSensitivity > 300 ||
+		!slices.Contains(IdleFollowChoices, next.IdleFollow) ||
+		!slices.Contains([]string{"map", "all"}, next.IdleFollowTarget) ||
 		slices.ContainsFunc([]int{next.Compact1M, next.Compact256K, next.Compact128K, next.CompactSmall}, func(n int) bool { return n < CompactLeast || n > CompactMost }) ||
 		!slices.Contains([]string{"newestFirst", "newestLast"}, next.LogOrder) ||
 		!slices.Contains([]string{"panZoom", "pan", "off"}, next.AutoView) ||
@@ -158,6 +168,10 @@ func (p *Preferences) UnmarshalJSON(raw []byte) error {
 	}
 	// Files written while opening a waiting task could also open its sub-task.
 	delete(patch, "openWaitingSub")
+	// Files written while 10 seconds was a choice.
+	if string(patch["idleFollow"]) == "10" {
+		patch["idleFollow"] = json.RawMessage(`15`)
+	}
 	next, err := MergePreferences(DefaultPreferences(), patch)
 	if err != nil {
 		return err

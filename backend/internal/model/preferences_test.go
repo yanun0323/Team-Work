@@ -199,3 +199,48 @@ func TestContextWindowOfEachKind(t *testing.T) {
 		}
 	}
 }
+
+func TestIdleFollow(t *testing.T) {
+	var p Preferences
+	if err := json.Unmarshal([]byte(`{"shadows":false}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.IdleFollow != 15 {
+		t.Fatalf("a file from before this preference should wait 15 seconds, got %d", p.IdleFollow)
+	}
+	for _, ok := range []string{`0`, `5`, `15`, `10800`} {
+		if _, err := MergePreferences(p, map[string]json.RawMessage{"idleFollow": json.RawMessage(ok)}); err != nil {
+			t.Fatalf("idleFollow %s refused: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{`-1`, `10`, `61`, `86400`, `"60"`} {
+		if _, err := MergePreferences(p, map[string]json.RawMessage{"idleFollow": json.RawMessage(bad)}); err == nil {
+			t.Fatalf("idleFollow %s accepted", bad)
+		}
+	}
+	// files written while 10 seconds was a choice take the nearest one now
+	if err := json.Unmarshal([]byte(`{"idleFollow":10}`), &p); err != nil || p.IdleFollow != 15 {
+		t.Fatalf("%v %d", err, p.IdleFollow)
+	}
+}
+
+func TestIdleFollowTarget(t *testing.T) {
+	var p Preferences
+	if err := json.Unmarshal([]byte(`{"idleFollow":30}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.IdleFollowTarget != "map" {
+		t.Fatalf("old files must default to map people: %+v", p)
+	}
+	for _, choice := range []string{`"map"`, `"all"`} {
+		next, err := MergePreferences(p, map[string]json.RawMessage{"idleFollowTarget": json.RawMessage(choice)})
+		if err != nil || `"`+next.IdleFollowTarget+`"` != choice || next.IdleFollow != 30 {
+			t.Fatalf("%s: %+v %v", choice, next, err)
+		}
+	}
+	for _, bad := range []string{`""`, `"crew"`, `true`, `null`, `1`} {
+		if _, err := MergePreferences(p, map[string]json.RawMessage{"idleFollowTarget": json.RawMessage(bad)}); err == nil {
+			t.Fatalf("accepted %s", bad)
+		}
+	}
+}
