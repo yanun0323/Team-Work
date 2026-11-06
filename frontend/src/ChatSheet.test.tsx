@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { AskBox, ChatFoot, ChatId, CompactLine, ContextUse, HandoffLine } from './ChatSheet'
+import { AskBox, ChatFoot, ChatId, CompactLine, ContextUse, HandoffLine, NoteName } from './ChatSheet'
 import { useStore } from './core/store'
 import type { Chat } from './core/domain/types'
 
@@ -51,4 +51,9 @@ it('folds a question\'s options away under who asked, and opens them again', () 
   expect(folded).not.toContain('fx-choice')
   // with nobody to name, the switch still says what it folds
   expect(renderToStaticMarkup(<AskBox options={['A']} folded={false} onFold={() => {}} onPick={() => {}} />)).toContain('aria-expanded="true">選項<svg')
+})
+
+it('shows whose a note is only when its colour is shared, and reads it out either way', () => {
+  expect(renderToStaticMarkup(<NoteName name="Ada" shown={false} />)).toBe('<span class="fx-sr">Ada：</span>')
+  expect(renderToStaticMarkup(<NoteName name="Ada" shown />)).toBe('<span class="fx-chat-name">Ada<span class="fx-sr">：</span></span>')
 })

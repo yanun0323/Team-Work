@@ -65,9 +65,50 @@ export function providerWindow(p: Pick<ModelProvider, 'kind' | 'contextWindow'>)
 
 /** How many tokens a model can read, from the provider the backend runs it on: the one with the shortest id. */
 export function contextWindowOf(w: World, model: string): number {
-  const p = Object.values(w.providers).filter((x) => x.models.includes(model))
-    .sort((a, b) => a.id.length - b.id.length || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0]
+  const p = providerOf(w, model)
   return p ? providerWindow(p) : CONTEXT_UNKNOWN
+}
+
+/** The provider the backend runs a model on: of those offering it, the one with the shortest id. */
+export const providerOf = (w: World, model: string): ModelProvider | undefined =>
+  Object.values(w.providers).filter((x) => x.models.includes(model))
+    .sort((a, b) => a.id.length - b.id.length || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0]
+
+/** Each kind's stretch of the colour wheel (OKLCH hue); green is left out, being the user's own notes. */
+const KIND_HUES: Partial<Record<ModelProvider['kind'], number>> = { anthropic: 55, openai: 195, google: 255 }
+/** The stretches compatible providers take in turn, by id. */
+const COMPATIBLE_HUES = [95, 345, 305]
+/** How far the 2nd and 3rd of a group step off its hue; the 4th starts over. Stretches lie 40 apart, so groups stay clear. */
+export const HUE_STEPS = [0, 12, -12]
+
+/**
+ * The colour group a provider belongs to and the hue at its centre, the same in chats and on the usage tab: one
+ * group per kind, each compatible provider a group of its own. None for a provider no longer there.
+ */
+export function providerHue(providers: World['providers'], id: string | undefined): { group: string; hue: number } | undefined {
+  const p = id ? providers[id] : undefined
+  if (!p) return undefined
+  const hue = KIND_HUES[p.kind]
+  if (hue !== undefined) return { group: p.kind, hue }
+  // placed among every compatible provider, not just those in sight, so one keeps its place wherever it shows
+  const at = Object.values(providers).filter((x) => x.kind === 'compatible').map((x) => x.id).sort().indexOf(p.id)
+  return { group: `compatible:${p.id}`, hue: COMPATIBLE_HUES[at % COMPATIBLE_HUES.length] }
+}
+
+/** Sorts ids into their providers' groups, each list by id; those with no provider go under no hue. */
+export function hueGroups(providers: World['providers'], list: { id: string; providerId?: string }[]) {
+  const groups = new Map<string, { hue?: number; ids: string[] }>()
+  const seen = new Set<string>()
+  for (const { id, providerId } of list) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    const h = providerHue(providers, providerId)
+    const key = h?.group ?? ''
+    if (!groups.has(key)) groups.set(key, { hue: h?.hue, ids: [] })
+    groups.get(key)!.ids.push(id)
+  }
+  for (const g of groups.values()) g.ids.sort()
+  return [...groups.values()]
 }
 
 /** The least anyone in a chat can read, each on the model they joined with; the chat is summed up to fit it. */
@@ -166,21 +207,32 @@ export function lastChatReplica(w: World, teamId: string): string | undefined {
   return last && w.replicas[last.replicaId] ? last.replicaId : undefined
 }
 
-/** The notes employees write on in a chat; the user's are green, so none of these is. */
-export const NOTE_COLORS = ['#fbeeb8', '#ffd3dc', '#cfe0ff', '#ffd9b0', '#e3d6f6', '#bfe9e4']
+/** A note's lightness and chroma by its place in its group, the hue stepping as HUE_STEPS. */
+const NOTE_SHADES = [[0.92, 0.06], [0.87, 0.07], [0.95, 0.05]]
+
+const noteGroups = (w: World, people: { id: string; model?: string }[]) =>
+  hueGroups(w.providers, people.map(({ id, model }) => ({ id, providerId: model ? providerOf(w, model)?.id : undefined })))
 
 /**
- * Each employee's note colour: their own wherever they are, unless someone else in the chat has it already, then the
- * next one free. Who takes what goes by id, so it holds whoever chairs or speaks first.
+ * Each employee's note colour, from the provider their model runs on: their group's hue, and when the chat has more
+ * of that group, a step off it by their place among them by id. Whoever chairs or speaks first makes no difference.
+ * A model no provider offers is on a white note.
  */
-export function noteColors(ids: string[]): Record<string, string> {
+export function noteColors(w: World, people: { id: string; model?: string }[]): Record<string, string> {
   const out: Record<string, string> = {}
-  const used = new Set<number>()
-  for (const id of [...new Set(ids)].sort()) {
-    let at = [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % NOTE_COLORS.length
-    for (let k = 0; k < NOTE_COLORS.length && used.has(at); k++) at = (at + 1) % NOTE_COLORS.length
-    used.add(at)
-    out[id] = NOTE_COLORS[at]
+  for (const { hue, ids } of noteGroups(w, people)) {
+    ids.forEach((id, i) => {
+      const [l, c] = NOTE_SHADES[i % NOTE_SHADES.length]
+      out[id] = hue === undefined ? 'var(--note-fixed)' : `oklch(${l} ${c} ${hue + HUE_STEPS[i % HUE_STEPS.length]})`
+    })
   }
   return out
 }
+
+/** Those in a group of four or more, whose colours come round again: their notes carry their name. */
+export function namedNotes(w: World, people: { id: string; model?: string }[]): Set<string> {
+  return new Set(noteGroups(w, people).filter((g) => g.ids.length > NOTE_SHADES.length).flatMap((g) => g.ids))
+}
+
+/** Who is in a chat on which model: the chair on the chat's, a guest on the one they joined with, those who left too. */
+export const chatModels = (c: Chat) => [{ id: c.replicaId, model: c.model }, ...(c.guests ?? []).map((g) => ({ id: g.replicaId, model: g.model }))]

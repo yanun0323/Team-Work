@@ -6,8 +6,7 @@ import { MOCK } from './core/mode'
 import { tr, type Key } from './core/i18n'
 import { useStore } from './core/store'
 import type { World } from './core/domain/types'
-import { SHIRTS } from './crew'
-import { shade } from './figureStyle'
+import { HUE_STEPS, hueGroups } from './crew'
 
 export interface UsageTotals {
   calls: number
@@ -29,23 +28,29 @@ export type UsagePart = UsageTotals & { providerId: string; model: string }
 /** One model's share of the chart, keyed as in partKey. */
 export const partKey = (providerId: string, model: string) => `${providerId}\u0000${model}`
 
-/** The employees' shirt colours, the greys and cream left out, in an order that keeps neighbours apart. */
-const TINTS = [SHIRTS[0], SHIRTS[1], SHIRTS[2], SHIRTS[4], SHIRTS[3], SHIRTS[7], SHIRTS[6], SHIRTS[9], SHIRTS[11], SHIRTS[10], SHIRTS[13]]
+/** A model's lightness and chroma by its place under its provider, round again past four. */
+const MODEL_SHADES = [[0.62, 0.13], [0.70, 0.11], [0.78, 0.09], [0.86, 0.07]]
 
 /**
- * Each row's colour: a provider is its shirt colour a shade darker and its models lighter mixes of it, so a model
- * reads as its provider's in the chart. Colours go round again once every one is used.
+ * Each row's colour, on its provider's hue as in the chats: a group's providers step off the hue by id, each a darker
+ * swatch and its models lighter on the same hue, so a model reads as its provider's in the chart. Providers no
+ * longer there are grey.
  */
-export function usageColors(providers: UsageStats['providers']) {
+export function usageColors(providers: UsageStats['providers'], known: World['providers']) {
+  const hues = new Map<string, number | undefined>()
+  for (const { hue, ids } of hueGroups(known, providers.map((p) => ({ id: p.id, providerId: p.id })))) {
+    ids.forEach((id, i) => hues.set(id, hue === undefined ? undefined : hue + HUE_STEPS[i % HUE_STEPS.length]))
+  }
   const out = new Map<string, string>()
-  providers.forEach((p, i) => {
-    const base = TINTS[i % TINTS.length]
-    out.set(p.id, shade(base, 0.72))
+  for (const p of providers) {
+    const hue = hues.get(p.id)
+    const tone = (l: number, c: number) => (hue === undefined ? `oklch(${l} 0 0)` : `oklch(${l} ${c} ${hue})`)
+    out.set(p.id, tone(0.55, 0.13))
     p.models.forEach((m, j) => {
-      // the shirt itself first, then paler, round again past four
-      out.set(partKey(p.id, m.model), `color-mix(in oklab, ${base} ${100 - (j % 4) * 18}%, #fff)`)
+      const [l, c] = MODEL_SHADES[j % MODEL_SHADES.length]
+      out.set(partKey(p.id, m.model), tone(l, c))
     })
-  })
+  }
   return out
 }
 
@@ -140,7 +145,7 @@ export function Stats() {
         <Switcher name="fx-stats-range" label={tr('統計區間')} options={STATS_RANGES} labels={RANGE_LABELS} value={range} onChange={setRange} />
       </div>
       {error ? <p className="fx-empty" role="alert">{error}</p>
-        : stats && (stats.total.calls === 0 ? <p className="fx-empty">{tr('這段期間沒有用量')}</p> : <UsageReport stats={stats} />)}
+        : stats && (stats.total.calls === 0 ? <p className="fx-empty">{tr('這段期間沒有用量')}</p> : <UsageReport stats={stats} providers={world.providers} />)}
     </div>
   )
 }
@@ -178,9 +183,9 @@ export function barProviders(providers: UsageStats['providers'], bar: Bar): Usag
   })
 }
 
-export function UsageReport({ stats }: { stats: UsageStats }) {
+export function UsageReport({ stats, providers }: { stats: UsageStats; providers: World['providers'] }) {
   const { total } = stats
-  const colors = usageColors(stats.providers)
+  const colors = usageColors(stats.providers, providers)
   const list = bars(stats.days)
   const [shown, setShown] = useState<number | null>(null)
   const rows = shown !== null && list[shown] ? barProviders(stats.providers, list[shown]) : stats.providers

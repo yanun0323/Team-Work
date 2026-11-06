@@ -1,5 +1,7 @@
 import { expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import type { ModelProvider, World } from './core/domain/types'
+import { noteColors } from './crew'
 import { addTotals, barProviders, bars, fmtCacheRate, fmtCount, fmtShare, fmtUsd, partKey, rangeStart, usageColors, UsageReport, type UsageStats, type UsageTotals } from './Stats'
 
 const totals = (o: Partial<UsageTotals>): UsageTotals => ({ calls: 1, input: 0, output: 0, cacheRead: 0, tokens: 0, costUsd: 0, unpriced: 0, ...o })
@@ -57,7 +59,7 @@ test('the report lists each provider over its models', () => {
       models: [{ model: 'claude-opus', ...totals({ calls: 2, tokens: 450, input: 1000, cacheRead: 600, unpriced: 2 }) }] }],
     days: [{ date: '2026-11-03', ...totals({ tokens: 450 }), parts: [{ providerId: 'p', model: 'claude-opus', ...totals({ calls: 2, tokens: 450 }) }] }],
   }
-  const html = renderToStaticMarkup(<UsageReport stats={stats} />)
+  const html = renderToStaticMarkup(<UsageReport stats={stats} providers={{}} />)
   expect(html).toContain('Claude')
   expect(html).toContain('claude-opus')
   expect(html).toContain('60%')
@@ -65,17 +67,51 @@ test('the report lists each provider over its models', () => {
   expect(html.indexOf('Claude')).toBeLessThan(html.indexOf('claude-opus'))
   // a swatch before each row, and the day's bar in the model's colour
   expect(html.match(/fx-stats-swatch/g)).toHaveLength(2)
-  const color = usageColors(stats.providers).get(partKey('p', 'claude-opus'))!
+  const color = usageColors(stats.providers, {}).get(partKey('p', 'claude-opus'))!
   expect(html).toContain(`background:${color}`)
-  expect(html).not.toContain(`background:${usageColors(stats.providers).get('p')}`)
+  expect(html).not.toContain(`background:${usageColors(stats.providers, {}).get('p')}`)
 })
 
+const known = (...list: [string, ModelProvider['kind']][]): World['providers'] => Object.fromEntries(list.map(([id, kind]) =>
+  [id, { id, name: id, kind, baseUrl: '', auth: { kind: 'apiKey', keyHint: 'x' }, models: [`${id}-m`] } satisfies ModelProvider]))
+const usageRow = (id: string, models: string[]) => ({ id, name: id, ...totals({}), models: models.map((model) => ({ model, ...totals({}) })) })
+
 test('every row has its own colour', () => {
-  const row = (id: string, models: string[]) => ({ id, name: id, ...totals({}), models: models.map((model) => ({ model, ...totals({}) })) })
-  const providers = [row('a', ['a1', 'a2', 'a3']), row('b', ['b1', 'b2'])]
-  const colors = usageColors(providers)
+  const providers = [usageRow('a', ['a1', 'a2', 'a3']), usageRow('b', ['b1', 'b2'])]
+  const colors = usageColors(providers, known(['a', 'anthropic'], ['b', 'openai']))
   expect(colors.size).toBe(7)
   expect(new Set(colors.values()).size).toBe(7)
+})
+
+test('a provider keeps the hue it has in the chats, whatever else comes and goes', () => {
+  const hue = (c: string) => Number(c.match(/ (\S+)\)$/)![1])
+  const providers = known(['claude', 'anthropic'], ['local', 'compatible'])
+  const rows = [usageRow('claude', ['m']), usageRow('local', ['n'])]
+  const colors = usageColors(rows, providers)
+  // the same hue as an employee alone in a chat on it
+  const w = { providers } as World
+  expect(hue(colors.get('claude')!)).toBe(hue(noteColors(w, [{ id: 'r', model: 'claude-m' }]).r))
+  expect(hue(colors.get('local')!)).toBe(hue(noteColors(w, [{ id: 'r', model: 'local-m' }]).r))
+  expect(colors.get('claude')).toBe('oklch(0.55 0.13 55)')
+  // another group's provider added, or one taken away
+  const more = usageColors([...rows, usageRow('codex', ['g'])], { ...providers, ...known(['codex', 'openai']) })
+  expect(more.get('claude')).toBe(colors.get('claude'))
+  expect(more.get(partKey('local', 'n'))).toBe(colors.get(partKey('local', 'n')))
+  const fewer = usageColors([rows[0]], { claude: providers.claude })
+  expect(fewer.get('claude')).toBe(colors.get('claude'))
+})
+
+test('two providers of a group, and a provider\'s first four models, are told apart; one gone is grey', () => {
+  const rows = [usageRow('claude-sub', ['m1', 'm2', 'm3', 'm4', 'm5']), usageRow('claude-api', ['m1']), usageRow('gone', ['x', 'y'])]
+  const colors = usageColors(rows, known(['claude-sub', 'anthropic'], ['claude-api', 'anthropic']))
+  expect(colors.get('claude-api')).toBe('oklch(0.55 0.13 55)')
+  expect(colors.get('claude-sub')).toBe('oklch(0.55 0.13 67)')
+  const four = ['m1', 'm2', 'm3', 'm4'].map((m) => colors.get(partKey('claude-sub', m)))
+  expect(new Set(four).size).toBe(4)
+  expect(colors.get(partKey('claude-sub', 'm5'))).toBe(four[0])
+  expect(colors.get(partKey('claude-api', 'm1'))).not.toBe(four[0])
+  expect(colors.get('gone')).toBe('oklch(0.55 0 0)')
+  expect(colors.get(partKey('gone', 'y'))).toBe('oklch(0.7 0 0)')
 })
 
 test('adding to a day leaves its date and parts alone', () => {

@@ -10,7 +10,7 @@ import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { Select } from './Controls'
 import { CrewPicks, CrewRow, CrewSelect } from './Pickers'
-import { chatMindOf, chatPeople, chatPreview, chatWindow, DEFAULT_EFFORT, effortsOf, lastAirportMind, lastChatReplica, mindOf, modelGroups, modelsOf, noteColors, personMindOf } from './crew'
+import { chatMindOf, chatPeople, chatPreview, chatWindow, DEFAULT_EFFORT, effortsOf, lastAirportMind, lastChatReplica, chatModels, mindOf, modelGroups, modelsOf, namedNotes, noteColors, personMindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
 import { ALL, answerMentions, mentionedPeople, withAll } from './mentions'
 import { Gone, Heading, DeleteTool, PinTool, type Head } from './DrawerDetail'
@@ -112,6 +112,13 @@ export function ContextUse({ chat }: { chat: Chat }) {
 }
 
 /** The chat's id, copied on a click, saying so for a moment after. */
+/** Whose a note is: read out only, or shown on it when others in the chat share its colour. */
+export function NoteName({ name, shown }: { name: string; shown: boolean }) {
+  return shown
+    ? <span className="fx-chat-name">{name}<span className="fx-sr">{colon()}</span></span>
+    : <span className="fx-sr">{name}{colon()}</span>
+}
+
 export function ChatId({ id }: { id: string }) {
   const [copied, setCopied] = useState(false)
   useEffect(() => {
@@ -296,8 +303,10 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   }
   const sendTo = meeting ? (() => { const m = mentionsIn(text); return m.length ? m : [chair] })().flatMap((id) => (w.replicas[id] ? [w.replicas[id]] : [])) : []
   const guests = chat ? people.slice(1).flatMap((x) => (w.replicas[x.id] ? [w.replicas[x.id]] : [])) : []
-  // each employee writes on their own colour; the airport staff on the plain note
-  const colors = chat && !airport ? noteColors([...people.map((x) => x.id), ...chat.messages.flatMap((m) => (m.by ? [m.by] : []))]) : {}
+  // each employee writes on their provider's colour; the airport staff on the plain note
+  const colors = chat && !airport ? noteColors(w, chatModels(chat)) : {}
+  // when colours come round again in a group, its notes say whose they are
+  const shownNames = chat && !airport ? namedNotes(w, chatModels(chat)) : new Set<string>()
   const noteOf = (id?: string) => {
     const color = colors[id || chat?.replicaId || '']
     return color ? { ['--note' as string]: color } : undefined
@@ -575,7 +584,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
               {m.from === 'agent'
                 ? (
                   <div className="fx-chat-said fx-chat-said-agent">
-                    <div className="fx-chat-bubble"><span className="fx-sr">{nameOf(m.by)}{colon()}</span><Markdown text={m.text} people={named} /></div>
+                    <div className="fx-chat-bubble"><NoteName name={nameOf(m.by)} shown={shownNames.has(m.by || chat?.replicaId || '')} /><Markdown text={m.text} people={named} /></div>
                     <div className="fx-chat-foot">
                       <time>{fmtClock(m.at)}</time>
                       {m.text && <CopyButton text={m.text} />}
