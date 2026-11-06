@@ -80,7 +80,33 @@ export function CompactLine() {
 export function ContextUse({ chat }: { chat: Chat }) {
   const window = useStore((s) => chatWindow(s.world, chat))
   const used = (chat.context ?? 0).toLocaleString('en-US')
-  return <p className="fx-room-context fx-room-say-wide">{used} / {window.toLocaleString('en-US')}</p>
+  return <p className="fx-room-context">{used} / {window.toLocaleString('en-US')}</p>
+}
+
+/** The chat's id, copied on a click, saying so for a moment after. */
+export function ChatId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), 1500)
+    return () => clearTimeout(timer)
+  }, [copied])
+  return (
+    <button type="button" className="fx-room-id fx-hit" title={tr('複製對話 ID')} aria-label={copied ? tr('已複製') : tr('複製對話 ID')}
+      onClick={() => navigator.clipboard.writeText(id).then(() => setCopied(true), () => {})}>
+      {copied ? tr('已複製') : id}
+    </button>
+  )
+}
+
+/** Under the box: the chat's id on the left, its context use on the right. */
+export function ChatFoot({ chat }: { chat: Chat }) {
+  return (
+    <div className="fx-room-foot fx-room-say-wide">
+      <ChatId id={chat.id} />
+      <ContextUse chat={chat} />
+    </div>
+  )
 }
 
 function ChatTitle({ chat }: { chat: Chat }) {
@@ -651,7 +677,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
                   <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </button>
               )}
-            {chat && <ContextUse chat={chat} />}
+            {chat && <ChatFoot chat={chat} />}
           </form>
         )}
     </div>

@@ -15,6 +15,7 @@ import { paletteOf } from './Building'
 import { BranchIcon, Detail, itemKey, type Item } from './DrawerDetail'
 import { TabBody, TABS, tabOr, type Tab } from './DrawerTabs'
 import { usePrefs } from './prefs'
+import { fmtBytes, useProjectBytes } from './projectSize'
 import type { BuildingLook } from './layout'
 import type { Team } from './core/domain/types'
 import { takeCompanyTab } from './tutorial'
@@ -85,7 +86,9 @@ export function BuildingIcon({ look }: { look: BuildingLook }) {
 }
 
 /** A company's stamp, name, folder and target branch: the head of its file, and of its block on the board. */
-export function CompanyTitle({ team, look, canOpenFolder, children }: { team: Team; look: BuildingLook; canOpenFolder?: boolean; children: ReactNode }) {
+/** `bytes` is how big the project on the target branch is; it is left out until known, and when there is nothing to add up. */
+export function CompanyTitle({ team, look, canOpenFolder, bytes = 0, children }: { team: Team; look: BuildingLook; canOpenFolder?: boolean; bytes?: number; children: ReactNode }) {
+  const size = fmtBytes(bytes)
   return (
     <div className="fx-title">
       <BuildingIcon look={look} />
@@ -107,6 +110,7 @@ export function CompanyTitle({ team, look, canOpenFolder, children }: { team: Te
             <span className="fx-sr">{tr('目標分支 ')}</span>
             <code>{team.targetBranch}</code>
           </span>
+          {size && <span className="fx-size" title={tr('目標分支的檔案大小')}>{size}</span>}
         </p>
       </div>
     </div>
@@ -145,6 +149,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const sheets = useSheets()
   const { back } = sheets
+  const bytes = useProjectBytes((b) => b[teamId] ?? 0)
   // a new company: move focus to its name, and put away the last company's sheet
   useEffect(() => {
     title.current?.focus({ preventScroll: true })
@@ -193,7 +198,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
       <NotesPin teamId={teamId} open={base?.item.kind === 'notes' && !base.leaving} onOpen={() => sheets.open({ kind: 'notes' })} />
       <div className="fx-sheet">
         <header className="fx-head">
-          <CompanyTitle team={team} look={look} canOpenFolder>
+          <CompanyTitle team={team} look={look} canOpenFolder bytes={bytes}>
             <h1 id="fx-drawer-title" ref={title} tabIndex={-1}>{team.name}</h1>
           </CompanyTitle>
           <div className="fx-tabs" role="tablist" aria-label={tr('公司檔案')} onKeyDown={onTabKey}>

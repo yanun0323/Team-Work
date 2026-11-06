@@ -24,6 +24,20 @@ function kept(): Record<string, number> {
 /** Bytes of each company's project, by the company's id; one not asked about yet is missing. */
 export const useProjectBytes = create<Record<string, number>>(() => (MOCK ? {} : kept()))
 
+const UNITS = ['B', 'KB', 'MB', 'GB', 'TB']
+
+/** `bytes` as Finder writes them: steps of 1000, at most one decimal, none for whole bytes; 0 and less is empty. */
+export function fmtBytes(bytes: number): string {
+  if (!(bytes > 0)) return ''
+  let n = bytes
+  let u = 0
+  while (u < UNITS.length - 1 && Number(n.toFixed(1)) >= 1000) {
+    n /= 1000
+    u++
+  }
+  return `${u === 0 ? Math.round(n) : Number(n.toFixed(1))} ${UNITS[u]}`
+}
+
 /** A made-up size for the mock world: one to eight storeys, the same for a company every time. */
 const mockBytes = (id: string) => FLOOR_BYTES * FLOOR_GROWTH ** ((seedOfId(id) % 8) - 1)
 
