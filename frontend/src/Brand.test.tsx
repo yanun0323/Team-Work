@@ -46,7 +46,7 @@ it('shows the time on a 24-hour clock and the date with its weekday', () => {
 const sub = (id: string, name: string): ModelProvider => ({ id, name, kind: 'anthropic', auth: { kind: 'subscription', signedIn: true }, baseUrl: '', models: [] })
 const key = (id: string, name: string): ModelProvider => ({ id, name, kind: 'compatible', auth: { kind: 'apiKey', keyHint: '1234' }, baseUrl: '', models: [] })
 
-it('shows a subscription as two rings and an API key as its balance, in the order given', () => {
+it('shows a subscription as two rings and an API key as its balance', () => {
   const html = renderToStaticMarkup(
     <QuotaList now={0} providers={[sub('a', 'Claude'), key('b', 'DeepSeek'), key('c', 'OpenAI')]} quotas={{ a: { fiveHour: 49.6, weekly: 12 }, b: { balance: 110, currency: 'CNY' } }} />,
   )
@@ -65,6 +65,18 @@ it('leaves out an API key whose balance is unknown, but keeps a subscription wit
   expect(html).not.toContain('OpenAI')
   expect(html).not.toContain('fx-quota-balance')
   expect(renderToStaticMarkup(<QuotaList now={0} providers={[key('c', 'OpenAI')]} quotas={{}} />)).toBe('')
+})
+
+it('lists providers by name, and those with the same name in the order they were made', () => {
+  // ids end in a running number, so mp-476 was made before mp-57 though it sorts after it as text
+  const html = renderToStaticMarkup(
+    <QuotaList now={0} providers={[sub('mp-72', 'Claude'), sub('mp-57', 'ChatGPT'), key('mp-476', 'Deep Seek'), sub('mp-80', 'Claude')]} quotas={{ 'mp-476': { balance: 4 }, 'mp-72': { weekly: 10 }, 'mp-80': { weekly: 30 } }} />,
+  )
+  const at = (s: string) => html.indexOf(s)
+  expect(at('ChatGPT')).toBeLessThan(at('Claude'))
+  expect(at('Claude')).toBeLessThan(at('Deep Seek'))
+  expect(at('<span>90</span>')).toBeLessThan(at('<span>70</span>'))
+  expect(at('<span>70</span>')).toBeLessThan(at('Deep Seek'))
 })
 
 it('greys out a ring with no number', () => {

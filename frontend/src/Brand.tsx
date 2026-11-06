@@ -140,10 +140,13 @@ export function UsageRing({ left: target, resetAt, now, label }: { left?: number
 
 /**
  * Every provider's allowance, one row each; now is in Unix seconds. A subscription always has its row; an API key only
- * once its balance is known.
+ * once its balance is known. Rows go by name, and those with the same name in the order they were made: ids end in a
+ * running number, compared as a number since mp-476 would come after mp-57 as text.
  */
 export function QuotaList({ providers, quotas, now }: { providers: ModelProvider[]; quotas: Record<string, Quota>; now: number }) {
-  const shown = providers.filter((p) => p.auth.kind === 'subscription' || quotas[p.id]?.balance !== undefined)
+  const shown = providers
+    .filter((p) => p.auth.kind === 'subscription' || quotas[p.id]?.balance !== undefined)
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id, undefined, { numeric: true }))
   if (!shown.length) return null
   return (
     <ul className="fx-quotas" aria-label={tr('模型額度')}>
