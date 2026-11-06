@@ -1003,11 +1003,19 @@ func (s *Server) downloadAttachment(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	// Uploads are arbitrary files: never let the page's origin render them.
+	// Only raster images may render inline; HTML and SVG remain downloads.
+	var head [512]byte
+	n, _ := f.ReadAt(head[:], 0)
+	mime := http.DetectContentType(head[:n])
 	h := c.Response().Header()
 	h.Set("Content-Type", "application/octet-stream")
 	h.Set("Content-Disposition", "attachment")
 	h.Set("X-Content-Type-Options", "nosniff")
+	switch mime {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		h.Set("Content-Type", mime)
+		h.Set("Content-Disposition", "inline")
+	}
 	http.ServeContent(c.Response(), c.Request(), "", info.ModTime(), f)
 	return nil
 }

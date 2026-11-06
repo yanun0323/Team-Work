@@ -102,7 +102,7 @@ func tokensAbout(m model.Message) int {
 	n := 0
 	for _, b := range m.Content {
 		n += (len(b.Text) + len(b.Args)) / 4
-		if b.Type == enum.BlockImage || b.Data != "" {
+		if b.Type == enum.BlockImage || b.Data != "" || b.ImageRef != "" {
 			n += imageTokens
 		}
 	}

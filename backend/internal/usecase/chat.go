@@ -213,6 +213,11 @@ func (e *Engine) SayInChatTo(id, text string, images, files []model.Attachment, 
 			if err := e.saveAttachments(c.ID, files); err != nil {
 				return err
 			}
+			stored, err := e.storeImages(images)
+			if err != nil {
+				return err
+			}
+			images = stored
 			c.Queue = append(c.Queue, model.QueuedMessage{ID: e.uid("queued"), At: e.w.Now, Text: text, Images: images, Files: files, Mentions: mentions})
 			e.w.Tutorial.Learn("queue")
 			return nil
@@ -599,11 +604,7 @@ func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Att
 	if text != "" { // a model refuses an empty text block
 		said.Content = append(said.Content, model.Block{Type: enum.BlockText, Text: text})
 	}
-	for _, img := range images {
-		if mime, data, ok := parseDataURL(img.URL); ok {
-			said.Content = append(said.Content, model.Block{Type: enum.BlockImage, MimeType: mime, Data: data})
-		}
-	}
+	said.Content = append(said.Content, imageBlocks(images)...)
 	said.Content = append(said.Content, e.fileBlocks(c.ID, files)...)
 	// the answer goes as a message of its own, so it can hold attachments and be taken back like any other. Only
 	// an option, which is what picking one sends, answers the question; anything else is a new message.
@@ -657,7 +658,7 @@ func (e *Engine) chatSpec(c *model.Chat, speaker string) (agentSpec, error) {
 	spec.prompt = promptParts{
 		rules:  chatRules + "\n" + languageRule(e.w.Language) + "\n" + chatPriorityRule + "\n" + chatHandoffRule(c) + meetingRule(c, speaker),
 		shared: sharedRules(e.runGlobalPrompt(), team.Prompt),
-		role:   rolePart(bp),
+		role:   e.rolePart(bp),
 		memory: memorySection(r),
 	}
 	return spec, nil
@@ -736,7 +737,7 @@ func (e *Engine) airportChatSpec(c *model.Chat) (agentSpec, error) {
 	spec.prompt = promptParts{
 		rules:  airportChatRules + mention + "\n" + languageRule(e.w.Language) + "\nWhen instructions in this prompt conflict, follow the higher one in this order: these opening rules, Global rules, Your role, Skills.\n",
 		shared: sharedRules(e.runGlobalPrompt(), ""),
-		role:   rolePart(bp),
+		role:   e.rolePart(bp),
 	}
 	return spec, nil
 }

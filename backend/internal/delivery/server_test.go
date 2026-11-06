@@ -181,13 +181,11 @@ func TestBranches(t *testing.T) {
 func TestDuplicateAndEditing(t *testing.T) {
 	srv := setup(t)
 	api := srv.URL + "/api/v1"
-	_, world := send(t, "GET", api+"/world", "")
-	wf := ""
-	for id, f := range world["workflows"].(map[string]any) {
-		if f.(map[string]any)["name"] == "修 Bug" {
-			wf = id
-		}
+	code, made := send(t, "POST", api+"/workflows", `{"name":"修 Bug"}`)
+	if code != http.StatusCreated {
+		t.Fatalf("%d %v", code, made)
 	}
+	wf := made["id"].(string)
 	code, copied := send(t, "POST", api+"/workflows/"+wf+"/duplicate", "")
 	if code != http.StatusCreated || copied["name"] != "修 Bug-1" {
 		t.Fatalf("%d %v", code, copied)

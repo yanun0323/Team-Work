@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -719,8 +720,18 @@ func TestChatMessageCarriesPicturesToTheModel(t *testing.T) {
 	if len(seen.Content) != 1 || seen.Content[0].Type != enum.BlockImage || seen.Content[0].MimeType != "image/png" {
 		t.Fatalf("%+v", seen)
 	}
-	if m := r.world().Chats[c.ID].Messages[0]; len(m.Images) != 1 || m.Images[0].URL != pngURL {
+	m := r.world().Chats[c.ID].Messages[0]
+	if len(m.Images) != 1 || m.Images[0].MimeType != "image/png" || !strings.HasPrefix(m.Images[0].URL, "/api/v1/attachments/") {
 		t.Fatalf("%+v", m)
+	}
+	f, err := r.e.UploadFile(strings.TrimPrefix(m.Images[0].URL, "/api/v1/attachments/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(f)
+	f.Close()
+	if err != nil || "data:image/png;base64,"+base64.StdEncoding.EncodeToString(raw) != pngURL || seen.Content[0].Data != base64.StdEncoding.EncodeToString(raw) {
+		t.Fatal("image bytes changed")
 	}
 	for _, bad := range [][]model.Attachment{
 		{{URL: "data:image/bmp;base64,AAAA"}},
@@ -907,7 +918,7 @@ func TestMessagesFollowTheLanguage(t *testing.T) {
 	// a restart keeps it
 	r.e.Close()
 	newEngine(t, r)
-	if err := r.e.DeleteBlueprint("preset-architect"); err == nil || !strings.Contains(err.Error(), "Built-in") {
+	if err := r.e.DeleteBlueprint("preset-airport"); err == nil || !strings.Contains(err.Error(), "Built-in") {
 		t.Fatalf("%v", err)
 	}
 }
@@ -1790,13 +1801,13 @@ func TestOtherLanguagesReachMessagesAndPresets(t *testing.T) {
 		if err := r.e.SayInChat("nobody", "hi", nil); err == nil || err.Error() != c.notFound {
 			t.Errorf("%s: %v", c.code, err)
 		}
-		if got := presetFlowOf(t, r.world(), "preset-feature").Name; got != c.flow {
+		if got := presetFlowOf(t, r.world(), "team-work--feature").Name; got != c.flow {
 			t.Errorf("%s: %s", c.code, got)
 		}
 	}
 	r.e.Close()
 	newEngine(t, r)
-	if r.world().Language != model.LanguageKo || presetFlowOf(t, r.world(), "preset-feature").Name != "기능 개발" {
+	if r.world().Language != model.LanguageKo || presetFlowOf(t, r.world(), "team-work--feature").Name != "기능 개발" {
 		t.Fatalf("not kept over a restart: %s", r.world().Language)
 	}
 }

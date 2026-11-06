@@ -47,11 +47,14 @@ func (e *Engine) SaveUpload(r io.Reader) (string, error) {
 	if n > maxUploadBytes {
 		return "", model.Errorf(model.CodeInvalid, "檔案不能超過 25MB")
 	}
+	if err := tmp.Sync(); err != nil {
+		return "", err
+	}
 	if err := tmp.Close(); err != nil {
 		return "", err
 	}
 	hash := hex.EncodeToString(sum.Sum(nil))
-	if err := os.Rename(tmp.Name(), e.uploadPath(hash)); err != nil {
+	if err := os.Link(tmp.Name(), e.uploadPath(hash)); err != nil && !errors.Is(err, fs.ErrExist) {
 		return "", err
 	}
 	return uploadURLPrefix + hash, nil
@@ -89,12 +92,8 @@ func (e *Engine) checkFiles(images, files []model.Attachment) error {
 		return model.Errorf(model.CodeInvalid, "最多附加 %d 個附件", maxAttachments)
 	}
 	for _, img := range images {
-		mime, data, ok := parseDataURL(img.URL)
-		if len(data) > base64.StdEncoding.EncodedLen(maxFileBytes) {
-			return model.Errorf(model.CodeInvalid, "圖片只能是 PNG、JPEG、GIF 或 WebP，單張最大 3.75MB")
-		}
-		raw, err := base64.StdEncoding.DecodeString(data)
-		if !ok || err != nil || !tools.CanLookAt(mime, len(raw)) {
+		mime, raw, err := e.imageBytes(img)
+		if err != nil || !tools.CanLookAt(mime, len(raw)) || (img.MimeType != "" && img.MimeType != mime) {
 			return model.Errorf(model.CodeInvalid, "圖片只能是 PNG、JPEG、GIF 或 WebP，單張最大 3.75MB")
 		}
 	}

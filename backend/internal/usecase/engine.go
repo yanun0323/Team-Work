@@ -75,12 +75,13 @@ type Engine struct {
 	runs      map[string]*run
 	live      map[string]string // what is being written now in chats and discussions, by their id
 	// output is the last lines of a command running now in a chat, by its id, with the run it belongs to
-	output  map[string]liveOutput
-	prev    map[string][]byte
-	dirty   map[string]bool // conversations changed since the last save
-	subs    map[chan Event]struct{}
-	pending []Event
-	logins  map[string]*loginRun
+	output     map[string]liveOutput
+	prev       map[string][]byte
+	savedChats map[string]*model.Chat // detached values corresponding to prev; committed saves only
+	dirty      map[string]bool        // conversations changed since the last save
+	subs       map[chan Event]struct{}
+	pending    []Event
+	logins     map[string]*loginRun
 	// pendingKeys are API keys waiting on the user's answer to a change, by its KeyRef. They go with a restart.
 	pendingKeys map[string]string
 	// terms is what each company's terminal has shown, by the company's id; under its own lock, as output
@@ -233,8 +234,7 @@ func (e *Engine) change(config bool, fn func() error) error {
 			return err
 		}
 	}
-	before := clone(e.w)
-	before.Conversations = maps.Clone(e.w.Conversations)
+	before := copyWorld(e.w)
 	secrets, runs := maps.Clone(e.secrets), maps.Clone(e.runs)
 	undo := func() {
 		e.w, e.secrets, e.secretOps = before, secrets, nil
@@ -322,6 +322,12 @@ func (e *Engine) load(ctx context.Context) error {
 			err = loadInto(d, e.w.SubTasks)
 		case "chat":
 			err = loadInto(d, e.w.Chats)
+			if err == nil {
+				if e.savedChats == nil {
+					e.savedChats = make(map[string]*model.Chat)
+				}
+				e.savedChats[d.ID] = copyChat(e.w.Chats[d.ID])
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("read %s %s: %w", d.Kind, d.ID, err)
@@ -338,6 +344,9 @@ func (e *Engine) load(ctx context.Context) error {
 		}
 		settings.Install(e.w)
 		e.settingsRaw, e.settingsEncoded = rawSettings, settingsBytes(e.w)
+	}
+	if err := e.storeHistoryImages(true); err != nil {
+		return fmt.Errorf("store history images: %w", err)
 	}
 	e.initializePlots()
 	return nil
@@ -377,7 +386,7 @@ func (e *Engine) documents() map[string][]byte {
 	encodeAll(now, "workflow", e.w.Workflows)
 	encodeAll(now, "task", e.w.Tasks)
 	encodeAll(now, "subTask", e.w.SubTasks)
-	encodeAll(now, "chat", e.w.Chats)
+	e.chatDocuments(now)
 	// conversations grow large, and only the ones marked have changed
 	for id := range e.w.Conversations {
 		key := docKey(kindConv, id)
@@ -396,6 +405,9 @@ func (e *Engine) documents() map[string][]byte {
 func (e *Engine) sync() error {
 	if e.saveFailed {
 		return model.Errorf(model.CodeUnavailable, "設定儲存尚未完成，請重新啟動伺服器")
+	}
+	if err := e.storeHistoryImages(false); err != nil {
+		return err
 	}
 	now := e.documents()
 	encoded := settingsBytes(e.w)
@@ -443,11 +455,20 @@ func (e *Engine) sync() error {
 	if len(changes) > 0 {
 		e.settingsRaw, e.settingsEncoded = written, encoded
 	}
+	if e.savedChats == nil {
+		e.savedChats = make(map[string]*model.Chat)
+	}
 	for _, d := range upserts {
 		e.prev[docKey(d.Kind, d.ID)] = d.Data
+		if d.Kind == "chat" {
+			e.savedChats[d.ID] = copyChat(e.w.Chats[d.ID])
+		}
 	}
 	for _, d := range deletes {
 		delete(e.prev, docKey(d.Kind, d.ID))
+		if d.Kind == "chat" {
+			delete(e.savedChats, d.ID)
+		}
 	}
 	e.dirty = map[string]bool{}
 	ev := Event{Type: "patch"}
