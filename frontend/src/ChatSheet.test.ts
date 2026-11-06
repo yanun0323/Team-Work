@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { Chats } from './DrawerTabs'
 import { useStore } from './core/store'
 import { describe, expect, it } from 'vitest'
-import { attachable, splitAttachments } from './attachments'
+import { attachable, type Encode, fitImage, splitAttachments } from './attachments'
 import { seedWorld } from './core/data/seed'
 import { airportSkills, canHandOff, chatSkill, chatTaskDraft, createAirportChat, createChat, deleteTeam, handOffChat, readChat, renameChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, steerChat, stopChat, tick, unqueueChat } from './core/domain/sim'
 import { chatMindOf, chatSign, chatWho } from './crew'
@@ -229,10 +229,44 @@ describe('chats', () => {
     const file = (type: string, size: number) => ({ type, size }) as File
     expect(attachable([file('image/png', 10)], 6)).toMatchObject({ refused: false })
     expect(attachable([file('application/pdf', 10), file('', 0)], 6)).toMatchObject({ refused: false })
-    expect(attachable([file('image/png', 4 << 20)], 6)).toMatchObject({ fit: [], refused: true })
+    // a large image is let through to be shrunk when read
+    expect(attachable([file('image/png', 4 << 20)], 6)).toMatchObject({ refused: false })
+    expect(attachable([file('image/png', (25 << 20) + 1)], 6)).toMatchObject({ fit: [], refused: true })
     expect(attachable([file('application/pdf', 25 << 20)], 6)).toMatchObject({ refused: false })
     expect(attachable([file('application/pdf', (25 << 20) + 1)], 6)).toMatchObject({ fit: [], refused: true })
     expect(attachable([file('image/png', 1), file('image/png', 1)], 1).fit).toHaveLength(1)
+  })
+
+  it('shrinks a large image step by step until it fits', async () => {
+    const tried: string[] = []
+    // bytes grow with pixels and quality; PNG counts as quality 1
+    const fake = (perPixel: number): Encode => async (w, h, type, q = 1) => {
+      tried.push(`${type.slice(6)} ${w}x${h}${type === 'image/jpeg' ? ` ${q}` : ''}`)
+      return new Blob([new Uint8Array(Math.round(w * h * perPixel * q))], { type })
+    }
+    const limit = 1000
+
+    // fits as PNG once the long side is 2000px, keeping the aspect ratio
+    expect((await fitImage(4000, 1000, false, fake(0.0002), limit))?.type).toBe('image/png')
+    expect(tried).toEqual(['png 2000x500'])
+
+    // too big as PNG: JPEG at falling quality
+    tried.length = 0
+    expect((await fitImage(2000, 500, false, fake(0.00125), limit))?.type).toBe('image/jpeg')
+    expect(tried).toEqual(['png 2000x500', 'jpeg 2000x500 0.9', 'jpeg 2000x500 0.8'])
+
+    // a JPEG skips PNG, and gets smaller when quality is not enough
+    tried.length = 0
+    expect(await fitImage(1000, 1000, true, fake(0.002), limit)).not.toBeNull()
+    expect(tried.slice(0, 5)).toEqual(['jpeg 1000x1000 0.9', 'jpeg 1000x1000 0.8', 'jpeg 1000x1000 0.7', 'jpeg 1000x1000 0.6', 'jpeg 750x750 0.9'])
+
+    // nothing fits before the long side drops under 400px
+    tried.length = 0
+    expect(await fitImage(2000, 2000, false, fake(1), limit)).toBeNull()
+    expect(tried.at(-1)).toMatch(/^jpeg 4\d\dx4\d\d 0.6$/)
+
+    // an encoder that fails is treated as too big
+    expect(await fitImage(2000, 2000, false, async () => null, limit)).toBeNull()
   })
 
   it('keeps file-only messages and separates previews from downloadable files', () => {

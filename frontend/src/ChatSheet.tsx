@@ -5,7 +5,7 @@
 
 import { colon, listOf, tr } from './core/i18n'
 import { Markdown } from './Markdown'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { Select } from './Controls'
@@ -75,6 +75,15 @@ export const COMPACT_MARK = 'auto_compact'
 /** Where the earlier conversation was summed up, drawn like the line where a chat was handed on. */
 export function CompactLine() {
   return <li className="fx-room-handoff">{tr('已整理較早的對話')}</li>
+}
+
+/** A tool call in the log. A picture image_gen saved shows on its own, without the path it was saved to. */
+export function ToolLine({ text, images }: { text: string; images?: ReactNode[] }) {
+  return (
+    <li className="fx-room-tool">
+      {images?.length ? <div className="fx-chat-images fx-room-tool-images">{images}</div> : <code>{text}</code>}
+    </li>
+  )
 }
 
 /** A question's options under who asked. The heading folds them away to read the log above;
@@ -357,8 +366,9 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     setReadFailed(false)
     setReading(true)
     try {
-      const more = await readAttachments(fit)
-      setImages((now) => [...now, ...more].slice(0, MAX_ATTACHMENTS))
+      const { added, refused: tooLarge } = await readAttachments(fit)
+      if (tooLarge) setRefused(true)
+      setImages((now) => [...now, ...added].slice(0, MAX_ATTACHMENTS))
     } catch { setReadFailed(true) }
     finally { setReading(false) }
   }
@@ -573,12 +583,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
         {chat?.messages.flatMap((m, i) => [...handoffLines(i), ...joinLines(i), ...turnAt(i), m.from === 'tool' && m.text === COMPACT_MARK
           ? <CompactLine key={i} />
           : m.from === 'tool'
-          ? (
-            <li key={i} className="fx-room-tool">
-              <code>{m.text}</code>
-              {!!m.images?.length && <div className="fx-chat-images fx-room-tool-images">{m.images.map((im, j) => imageButton(i, j, im))}</div>}
-            </li>
-          )
+          ? <ToolLine key={i} text={m.text} images={m.images?.map((im, j) => imageButton(i, j, im))} />
           : (
             <li key={i} className={`fx-chat-msg fx-chat-${m.from}`} style={m.from === 'agent' ? noteOf(m.by) : undefined}>
               {m.from === 'agent'
@@ -691,7 +696,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
               e.preventDefault()
               void attach(files)
             }}>
-            {refused && <p className="fx-room-warn fx-room-say-wide" role="status">{tr('圖片最大 3.75MB，其他檔案最大 25MB，最多 6 個附件')}</p>}
+            {refused && <p className="fx-room-warn fx-room-say-wide" role="status">{tr('附件每個最大 25MB，最多 6 個')}</p>}
             {readFailed && <p className="fx-room-warn fx-room-say-wide" role="alert">{tr('讀取附件失敗，請重試')}</p>}
             {images.length > 0 && (
               <div className="fx-thumbs fx-room-say-wide">

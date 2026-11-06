@@ -537,10 +537,11 @@ export interface Merge {
   log: LogLine[]
 }
 
-/** A user attachment, kept as a data URL. */
+/** An attachment URL, or a legacy inline data URL. */
 export interface Attachment {
   name: string
   url: string
+  mimeType?: string
 }
 
 /** Who made a task with `create_task`; a task the user made has none. */

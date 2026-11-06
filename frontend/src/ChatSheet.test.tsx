@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { AskBox, ChatFoot, ChatId, CompactLine, ContextUse, HandoffLine, NoteName } from './ChatSheet'
+import { AskBox, ChatFoot, ChatId, CompactLine, ContextUse, HandoffLine, NoteName, ToolLine } from './ChatSheet'
 import { useStore } from './core/store'
 import type { Chat } from './core/domain/types'
 
@@ -13,6 +13,12 @@ it('shows the chat id as a button that copies it', () => {
 
 it('draws where the earlier conversation was summed up as a divider, not a tool line', () => {
   expect(renderToStaticMarkup(<CompactLine />)).toBe('<li class="fx-room-handoff">已整理較早的對話</li>')
+})
+
+it('shows a picture image_gen saved without the path it was saved to', () => {
+  expect(renderToStaticMarkup(<ToolLine text="read_file a.txt" />)).toBe('<li class="fx-room-tool"><code>read_file a.txt</code></li>')
+  expect(renderToStaticMarkup(<ToolLine text="design/a.png" images={[<i key={0}>a.png</i>]} />))
+    .toBe('<li class="fx-room-tool"><div class="fx-chat-images fx-room-tool-images"><i>a.png</i></div></li>')
 })
 
 it('draws a handoff as a divider that opens the chat it came from, unless that is gone', () => {
