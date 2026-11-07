@@ -5,7 +5,8 @@
 
 import { colon, listOf, tr } from './core/i18n'
 import { Markdown } from './Markdown'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { useChatHistory } from './chatHistory'
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { Select } from './Controls'
@@ -73,14 +74,14 @@ export function SentTo({ people, className, live }: { people: { id: string; name
 export const COMPACT_MARK = 'auto_compact'
 
 /** Where the earlier conversation was summed up, drawn like the line where a chat was handed on. */
-export function CompactLine() {
-  return <li className="fx-room-handoff">{tr('已整理較早的對話')}</li>
+export function CompactLine({ index }: { index?: number }) {
+  return <li className="fx-room-handoff" data-message-index={index}>{tr('已整理較早的對話')}</li>
 }
 
 /** A tool call in the log. A picture image_gen saved shows on its own, without the path it was saved to. */
-export function ToolLine({ text, images }: { text: string; images?: ReactNode[] }) {
+export function ToolLine({ text, images, index }: { text: string; images?: ReactNode[]; index?: number }) {
   return (
-    <li className="fx-room-tool">
+    <li className="fx-room-tool" data-message-index={index}>
       {images?.length ? <div className="fx-chat-images fx-room-tool-images">{images}</div> : <code>{text}</code>}
     </li>
   )
@@ -222,7 +223,8 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const [started, setStarted] = useState<Chat | null>(null)
   const id = given ?? started?.id
   // the answer to starting it can arrive ahead of the change to the world
-  const chat = id ? w.chats[id] ?? started ?? undefined : undefined
+  const pages = useChatHistory(id ? w.chats[id] ?? started ?? undefined : undefined)
+  const chat = pages.chat
   const airport = !teamId
   const crew = teamReplicas(w, teamId)
   // what a new airport chat will run on; one under way keeps its own
@@ -251,8 +253,30 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const output = useLiveOutput(chat?.id)
   const [log, pin] = useStickToBottom<HTMLOListElement>(`${chat?.messages.length}:${writing}:${live.length}:${output}`)
   const [atBottom, toBottom] = useAtBottom(log)
+  // Keep the first visible index fixed as replies arrive; expanding history never hides it again.
+  const length = chat?.messages.length ?? 0
+  const [history, setHistory] = useState({ id, length, first: Math.max(0, length - 100) })
+  const first = chat?.history ? 0 : history.id !== id ? Math.max(0, length - 100)
+    : length < history.length ? Math.min(history.first, Math.max(0, length - 100)) : history.first
+  if (history.id !== id || history.length !== length) setHistory({ id, length, first })
+  const anchor = useRef<{ element: HTMLElement; top: number; id: typeof id } | null>(null)
+  const earlier = async () => {
+    const el = log.current
+    const element = el?.querySelector<HTMLElement>('[data-message-index]')
+    if (element) anchor.current = { element, top: element.getBoundingClientRect().top, id }
+    if (chat?.history) {
+      if (!await pages.more()) anchor.current = null
+    } else setHistory({ id, length, first: Math.max(0, first - 100) })
+  }
+  useLayoutEffect(() => {
+    const saved = anchor.current
+    anchor.current = null
+    if (saved && saved.id === id && saved.element.isConnected && log.current) {
+      log.current.scrollTop += saved.element.getBoundingClientRect().top - saved.top
+    }
+  }, [first, pages.start, id, log])
   const readId = chat?.unread ? chat.id : undefined
-  const said = chat?.messages.length
+  const said = chat?.history?.count ?? chat?.messages.length
   const openId = chat?.id
   useEffect(() => (openId ? watchChat(openId) : undefined), [openId])
   // a fresh sheet: straight to the box, to write (the sheet leaves the title alone then)
@@ -387,7 +411,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const edit = (index: number) => {
     if (!chat) return
     const { text, images, files } = chat.messages[index]
-    act((x) => rewindChat(x, chat.id, index))
+    act((x) => rewindChat(x, chat.id, index + (chat.history ? pages.start : 0), chat.history?.version))
     setText(text)
     setImages([...(images ?? []), ...(files ?? [])])
     setRefused(false)
@@ -396,13 +420,13 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const handOff = async (index: number, to: string) => {
     if (!chat) return
     setHandingOff(true)
-    const made = await handOffChat(act, chat.id, index, to)
+    const made = await handOffChat(act, chat.id, index + (chat.history ? pages.start : 0), to, chat.history?.version)
     setHandingOff(false)
     if (made) onHandOff(made.id)
   }
   // a picture in message i, opened at full size on a sheet of its own
   const imageButton = (i: number, j: number, im: Attachment) => {
-    const key = `chat:${chat?.id}:${i}:${j}`
+    const key = `chat:${chat?.id}:${i + (chat?.history ? pages.start : 0)}:${j}`
     return (
       <button key={j} type="button" className="fx-chat-image fx-hit" aria-expanded={image === key} onClick={() => chat && onImage(key, im, chat.id)}>
         <img src={im.url} alt={im.name} />
@@ -415,12 +439,12 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     if (!chat || !canHandOff(chat.messages, i, writing)) return null
     if (airport) {
       return (
-        <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('從這則訊息複製出新對話')} title={tr('從這則訊息複製出新對話')} disabled={handingOff} onClick={() => void handOff(i, '')}>
+        <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('從這則訊息複製出新對話')} title={tr('從這則訊息複製出新對話')} disabled={handingOff || !pages.ready} onClick={() => void handOff(i, '')}>
           <HandOffIcon />
         </button>
       )
     }
-    return takers.length > 0 && <HandOffMenu crew={takers} chairId={meeting ? chat.replicaId : undefined} end={end} disabled={handingOff} onPick={(to) => void handOff(i, to)} />
+    return takers.length > 0 && <HandOffMenu crew={takers} chairId={meeting ? chat.replicaId : undefined} end={end} disabled={handingOff || !pages.ready} onPick={(to) => void handOff(i, to)} />
   }
   // what can be done about the failed reply that ends the chat: sign in again first when that is why, then reply again
   const failedActions = (i: number) => {
@@ -435,7 +459,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   // a line where the chat was handed to the next
   const handoffLines = (i: number) => (chat?.handoffs ?? []).flatMap((h, k, all) => {
     if (h.before !== i && !(i === chat?.messages.length && h.before > i)) return []
-    return [<HandoffLine key={`handoff-${k}`} handoff={h} to={all[k + 1]?.name ?? chat?.name ?? ''} gone={!!h.chatId && !w.chats[h.chatId]}
+    return [<HandoffLine key={`handoff-${k}`} handoff={h} to={h.to ?? all[k + 1]?.name ?? chat?.name ?? ''} gone={!!h.chatId && !w.chats[h.chatId]}
       open={!!h.chatId && chatOpen === h.chatId} onOpen={onOpenChat} />]
   })
   // a line where an employee joined the chat
@@ -459,7 +483,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const turnAt = (i: number) => {
     const m = chat?.messages[i]
     if (!chat || !meeting || !m || m.from === 'user') return []
-    const prev = chat.messages[i - 1]
+    const prev = i === first ? undefined : chat.messages[i - 1]
     const by = m.by || chat.replicaId
     return prev && prev.from !== 'user' && (prev.by || chat.replicaId) === by ? [] : [speakerLine(by, `speaker-${i}`)]
   }
@@ -580,12 +604,17 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
       <Prereqs list={needs} />
       <div className="fx-room-scroll">
       <ol ref={log} className="fx-room-log" aria-live="polite" aria-label={tr('和 {name} 的對話', { name: meeting ? listOf(people.map((x) => x.name)) : name })}>
-        {chat?.messages.flatMap((m, i) => [...handoffLines(i), ...joinLines(i), ...turnAt(i), m.from === 'tool' && m.text === COMPACT_MARK
-          ? <CompactLine key={i} />
+        {pages.busy && <li role="status">{tr('載入中…')}</li>}
+        {pages.error && <li role="alert">{tr('讀取歷史失敗，請重試')} <button type="button" onClick={pages.retry}>{tr('重試')}</button></li>}
+        {(first > 0 || (chat?.history && pages.ready && pages.start > 0)) && <li className="fx-room-earlier"><button type="button" className="fx-hit" disabled={pages.busy} onClick={() => void earlier()}>{tr('顯示更早訊息')}</button></li>}
+        {chat?.messages.slice(first).flatMap((m, offset) => {
+          const i = first + offset
+          return [...handoffLines(i), ...joinLines(i), ...turnAt(i), m.from === 'tool' && m.text === COMPACT_MARK
+          ? <CompactLine key={i + (chat.history ? pages.start : 0)} index={i + (chat.history ? pages.start : 0)} />
           : m.from === 'tool'
-          ? <ToolLine key={i} text={m.text} images={m.images?.map((im, j) => imageButton(i, j, im))} />
+          ? <ToolLine key={i + (chat.history ? pages.start : 0)} index={i + (chat.history ? pages.start : 0)} text={m.text} images={m.images?.map((im, j) => imageButton(i, j, im))} />
           : (
-            <li key={i} className={`fx-chat-msg fx-chat-${m.from}`} style={m.from === 'agent' ? noteOf(m.by) : undefined}>
+            <li key={i + (chat.history ? pages.start : 0)} data-message-index={i + (chat.history ? pages.start : 0)} className={`fx-chat-msg fx-chat-${m.from}`} style={m.from === 'agent' ? noteOf(m.by) : undefined}>
               {m.from === 'agent'
                 ? (
                   <div className="fx-chat-said fx-chat-said-agent">
@@ -608,7 +637,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
                     <time>{fmtClock(m.at)}</time>
                     {m.text && <CopyButton text={m.text} />}
                     {!left && (
-                      <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('編輯這則訊息')} title={tr('編輯')} disabled={sending || reading} onClick={() => edit(i)}>
+                      <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('編輯這則訊息')} title={tr('編輯')} disabled={sending || reading || !pages.ready} onClick={() => edit(i)}>
                         <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
                           <path d="M2.5 13.5l.6-3L10.6 3l2.4 2.4-7.5 7.5z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                           <path d="M9 4.6l2.4 2.4" stroke="currentColor" strokeWidth="1.5" />
@@ -620,7 +649,8 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
                   </div>
                 )}
             </li>
-          ), ...madeAt(i)])}
+          ), ...madeAt(i)]
+        })}
         {chat && handoffLines(chat.messages.length)}
         {chat && joinLines(chat.messages.length)}
         {/* the running command's last lines; the tool line above has already been read out */}

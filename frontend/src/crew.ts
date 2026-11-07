@@ -161,6 +161,7 @@ export function chatSign(c: Chat) {
 
 /** When a chat last moved up the list: a reply under way waits to finish, so only the user's own message counts; a copy made of a chat starts on top, though its messages are older. */
 export function chatSortAt(c: Chat) {
+  if (c.history) return c.history.sortAt
   const counted = c.replyAt === undefined ? c.messages : c.messages.filter((m) => m.from === 'user')
   return Math.max(counted[counted.length - 1]?.at ?? c.createdAt, c.createdAt)
 }
@@ -180,7 +181,7 @@ export function chatMindOf(w: World, c: Chat) {
 }
 
 /** What a chat shows in lists when no one has named it. */
-export const chatPreview = (c: Chat) => c.messages[0]?.text || (c.messages[0]?.images?.length ? tr('圖片') : c.messages[0]?.files?.length ? tr('附件') : '')
+export const chatPreview = (c: Chat) => c.history ? c.history.preview || (c.history.previewKind === 'image' ? tr('圖片') : c.history.previewKind === 'file' ? tr('附件') : '') : c.messages[0]?.text || (c.messages[0]?.images?.length ? tr('圖片') : c.messages[0]?.files?.length ? tr('附件') : '')
 
 /** Who a chat is with: the employee as they are now, as they were if they left, or the airport staff. */
 export function chatWho(w: World, c: Chat): { name: string; look: Look } {

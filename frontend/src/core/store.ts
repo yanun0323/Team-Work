@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { DEFAULT_PREFS, usePrefs } from '../prefs'
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
@@ -40,6 +40,8 @@ interface State {
   toasts: Toast[]
   /** The world has arrived; before that, an empty one says nothing about what exists. */
   loaded: boolean
+  /** Changes on every reconnect snapshot, invalidating in-flight page requests. */
+  snapshot: number
   /** The backend can't be reached right now. */
   offline: boolean
   /** The last request the backend turned down, for the user to read. */
@@ -72,6 +74,7 @@ export const useStore = create<State>()(
     speed: 1,
     toasts: [],
     loaded: MOCK,
+    snapshot: 0,
     offline: false,
     failure: '',
     receive: (ev) => {
@@ -83,6 +86,7 @@ export const useStore = create<State>()(
       set((s) => {
         switch (ev.type) {
           case 'snapshot': {
+            s.snapshot++
             clearAllLive()
             s.world = { ...emptyWorld(), ...ev.world }
             s.loaded = true
@@ -108,7 +112,7 @@ export const useStore = create<State>()(
             break
           case 'patch': {
             // what was being written has become a message
-            const said = (id: string) => (s.world.chats[id]?.messages ?? s.world.subTasks[id]?.talk?.messages ?? []).length
+            const said = (id: string) => s.world.chats[id]?.history?.count ?? (s.world.chats[id]?.messages ?? s.world.subTasks[id]?.talk?.messages ?? []).length
             const before = (ev.upserts ?? []).map((p) => [p.id, said(p.id)] as const)
             applyPatches(s.world, ev, (kind, id) => kind === 'team' && editing(id))
             for (const [id, n] of before) if (said(id) > n) clearLive(id)
@@ -137,8 +141,8 @@ export const useStore = create<State>()(
       }),
     step: (dt) =>
       set((s) => {
-        // the backend runs the world; here its clock only keeps going between changes
-        if (!MOCK) return void (s.world.now = Date.now() / 1000)
+        // Only the simulator advances the world. Real time belongs to the screens that display it.
+        if (!MOCK) return
         if (s.speed === 0) return
         tick(s.world, dt * s.speed)
         drain(s)
@@ -163,6 +167,7 @@ function drain(s: { world: World; toasts: Toast[] }) {
 export function useSimLoop() {
   const step = useStore((s) => s.step)
   useEffect(() => {
+    if (!MOCK) return
     let last = performance.now()
     const id = window.setInterval(() => {
       const now = performance.now()
@@ -171,6 +176,18 @@ export function useSimLoop() {
     }, 100)
     return () => window.clearInterval(id)
   }, [step])
+}
+
+/** Live display time, without changing the world or waking unrelated screens. The simulator keeps its own clock. */
+export function useNow() {
+  const simulated = useStore((s) => MOCK ? s.world.now : 0)
+  const [now, setNow] = useState(() => Date.now() / 1000)
+  useEffect(() => {
+    if (MOCK) return
+    const timer = window.setInterval(() => setNow(Date.now() / 1000), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  return MOCK ? simulated : now
 }
 
 /** Keep the world in step with the backend, unless this page runs on the simulator. */

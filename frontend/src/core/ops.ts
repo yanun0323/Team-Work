@@ -57,7 +57,10 @@ export const setChatChair = pick('setChatChair', (_w: World, id: string, replica
 export const setChatMind = pick('setChatMind', (_w: World, id: string, model: string, effort: string) => fire_('PATCH', `/chats/${id}/mind`, { model, effort }))
 export const renameChat = pick('renameChat', (_w: World, id: string, title: string) => fire_('PATCH', `/chats/${id}/title`, { title }))
 export const pinChat = pick('pinChat', (_w: World, id: string, pinned: boolean) => fire_('PATCH', `/chats/${id}/pin`, { pinned }))
-export const rewindChat = pick('rewindChat', (_w: World, id: string, index: number) => fire_('POST', `/chats/${id}/rewind`, { index }))
+export function rewindChat(w: World, id: string, index: number, version?: string) {
+  if (MOCK) return sim.rewindChat(w, id, index)
+  fire_('POST', `/chats/${id}/rewind`, { index, version })
+}
 export const resolveChatChange = pick('resolveChatChange', (_w: World, id: string, approve: boolean) => fire_('POST', `/chats/${id}/change`, { approve }))
 export const retryChat = pick('retryChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/retry`))
 export const stopChat = pick('stopChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/stop`))
@@ -73,7 +76,7 @@ export function startChat(act: (fn: (w: World) => void) => void, input: sim.NewC
     act((w) => { made = JSON.parse(JSON.stringify(sim.createChat(w, input))) as Chat })
     return Promise.resolve(made)
   }
-  return attempt(() => request<Chat>('POST', '/chats', input))
+  return attempt(() => request<Chat>('POST', '/chats?chats=paged', input))
 }
 
 export function startAirportChat(act: (fn: (w: World) => void) => void, input: sim.NewAirportChat): Promise<Chat | undefined> {
@@ -82,17 +85,17 @@ export function startAirportChat(act: (fn: (w: World) => void) => void, input: s
     act((w) => { made = JSON.parse(JSON.stringify(sim.createAirportChat(w, input))) as Chat })
     return Promise.resolve(made)
   }
-  return attempt(() => request<Chat>('POST', '/airport/chats', input))
+  return attempt(() => request<Chat>('POST', '/airport/chats?chats=paged', input))
 }
 
 /** Copies a chat up to a message, for an employee of the company to go on with. The answer can arrive ahead of the change to the world, and the copy opens at once. */
-export async function handOffChat(act: (fn: (w: World) => void) => void, id: string, index: number, replicaId: string): Promise<Chat | undefined> {
+export async function handOffChat(act: (fn: (w: World) => void) => void, id: string, index: number, replicaId: string, version?: string): Promise<Chat | undefined> {
   if (MOCK) {
     let made: Chat | undefined
     act((w) => { const fork = sim.handOffChat(w, id, index, replicaId); made = fork && JSON.parse(JSON.stringify(fork)) as Chat })
     return made
   }
-  const made = await attempt(() => request<Chat>('POST', `/chats/${id}/handoff`, { index, replicaId }))
+  const made = await attempt(() => request<Chat>('POST', `/chats/${id}/handoff?chats=paged`, { index, replicaId, version }))
   if (made) act((w) => { w.chats[made.id] ??= made })
   return made
 }
@@ -278,7 +281,8 @@ function saveMemory(w: World, id: string, memory: MemoryEntry[]) {
 
 /** Corrects a note. Built from the world at the moment of saving, so notes written while editing stay. */
 export function editMemory(w: World, id: string, memoryId: string, text: string) {
-  saveMemory(w, id, (w.replicas[id]?.memory ?? []).map((m) => (m.id === memoryId ? { ...m, text, source: 'user' as const, at: w.now } : m)))
+  const at = MOCK ? w.now : Date.now() / 1000
+  saveMemory(w, id, (w.replicas[id]?.memory ?? []).map((m) => (m.id === memoryId ? { ...m, text, source: 'user' as const, at } : m)))
 }
 
 export function deleteMemory(w: World, id: string, memoryId: string) {

@@ -371,7 +371,7 @@ export function speakersFor(w: World, chat: Chat, mentions: string[] = []): stri
 export const actorOf = (chat: Chat, mentions: string[] = []) => (mentions.length === 1 ? mentions[0] : chat.replicaId)
 
 /** The actor of the round under way, from the user's last message. */
-export const roundActor = (chat: Chat) => actorOf(chat, chat.messages.findLast((m) => m.from === 'user')?.mentions)
+export const roundActor = (chat: Chat) => actorOf(chat, chat.history ? chat.history.mentions : chat.messages.findLast((m) => m.from === 'user')?.mentions)
 
 /** Brings an employee of the chat's company into it, as mentioning them would, while nobody is replying. */
 export function inviteToChat(w: World, id: string, replicaId: string) {

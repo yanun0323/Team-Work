@@ -13,7 +13,7 @@ import { keptState, sourceName, sourceState, sourceText, toolName } from './sour
 import { composing } from './ime'
 import { flowList, hireList, unhidden, activity, fmtClock, fmtTokens, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
-import { useStore } from './core/store'
+import { useNow, useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { BlueprintIcon, pinLook } from './BlueprintIcon'
 import { BlueprintSelect, byOrigin, crewOrder, CrewPicks, CrewRow, CrewSelect } from './Pickers'
@@ -650,6 +650,7 @@ function Chat({ sub }: { sub: SubTask }) {
  * asks under the row what to change, and sends the work back to the steps before the last step.
  */
 function MergeRow({ taskId }: { taskId: string }) {
+  const now = useNow()
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const [returning, setReturning] = useState(false)
@@ -666,7 +667,7 @@ function MergeRow({ taskId }: { taskId: string }) {
   const state = waiting ? `${task.branch} → ${target}`
     : done ? tr('已合併回 {target}', { target })
     : !busy ? tr('合併中')
-    : m!.conflict && w.now - m!.startedAt! < RESOLVE_TIME ? tr('解衝突中') : tr('合併中')
+    : m!.conflict && now - m!.startedAt! < RESOLVE_TIME ? tr('解衝突中') : tr('合併中')
   const sendBack = () => {
     act((x) => returnTask(x, taskId, feedback))
     setReturning(false)
@@ -677,7 +678,7 @@ function MergeRow({ taskId }: { taskId: string }) {
     <span className="fx-row-main">
       <span className="fx-d-hand-head"><span className="fx-d-stepname fx-d-stepname-sm fx-node-fixed">{tr('合併')}</span></span>
       {busy
-        ? <span className="fx-d-run fx-d-hand-text"><Bar value={(w.now - m!.startedAt!) / (m!.endsAt! - m!.startedAt!)} /><span className="fx-d-muted">{state}</span></span>
+        ? <span className="fx-d-run fx-d-hand-text"><Bar value={(now - m!.startedAt!) / (m!.endsAt! - m!.startedAt!)} /><span className="fx-d-muted">{state}</span></span>
         : <span className="fx-d-hand-text fx-d-muted">{state}</span>}
     </span>
   )
@@ -1340,6 +1341,7 @@ function BlueprintDetail({ id, teamId, editing, copying, onEdit, onCopy, onGoneB
 }) {
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
+  const now = useNow()
   const bp = w.blueprints[id]
   const hidden = usePrefs((s) => s.hiddenBlueprints.includes(id))
   if (!bp) return <Gone {...h} />
@@ -1365,7 +1367,7 @@ function BlueprintDetail({ id, teamId, editing, copying, onEdit, onCopy, onGoneB
         <BlueprintIcon look={bp.look} name={bp.name} size={52} />
         <Heading {...h}>{bp.name}</Heading>
       </header>
-      <Section name={tr('來源')}><ul className="fx-src-list"><SourceRow source={sourceOfId(bp.id) ? w.sources[sourceOfId(bp.id)] ?? null : bp.source} now={w.now} /></ul></Section>
+      <Section name={tr('來源')}><ul className="fx-src-list"><SourceRow source={sourceOfId(bp.id) ? w.sources[sourceOfId(bp.id)] ?? null : bp.source} now={now} /></ul></Section>
       <BlueprintFacts bp={bp} />
       <Section name={tr('使用中的員工')}>
         {crew.length === 0 ? <p className="fx-d-muted">{tr('沒有人')}</p> : (
@@ -1380,7 +1382,7 @@ function BlueprintDetail({ id, teamId, editing, copying, onEdit, onCopy, onGoneB
 
 /** What those who work by a blueprint are given, to read: its prompt, note, skills and tools. */
 function BlueprintFacts({ bp }: { bp: Blueprint }) {
-  const now = useStore((s) => s.world.now)
+  const now = useNow()
   const sources = useStore((s) => s.world.sources)
   // what each pack that takes every skill turns out to bring; read again whenever the packs change
   const packs = JSON.stringify(bp.skills)
@@ -1526,7 +1528,7 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
   }
   const save = (e: React.FormEvent) => {
     e.preventDefault()
-    const now = useStore.getState().world.now
+    const now = MOCK ? useStore.getState().world.now : Date.now() / 1000
     if (kind === 'local') {
       const form = { name: name.trim(), prompt: prompt.trim(), comment: comment.trim(), skills: packs, tools: TOOLS.filter((t) => tools.includes(t)) }
       return keep({ ...form, source: { kind: 'yaml', text: blueprintToYaml(form, useStore.getState().world.sources) } })

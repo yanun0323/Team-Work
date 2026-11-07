@@ -41,7 +41,7 @@ export function noticeOf(w: World, target: NoticeTarget, prefs: Pick<Prefs, 'mut
   }
   const chat = w.chats[target.id]
   if (!chat) return null
-  const last = chat.messages.findLast((m) => m.from === 'agent')
+  const last = chat.history?.lastAgent ?? chat.messages.findLast((m) => m.from === 'agent')
   const who = w.replicas[last?.by || chat.replicaId]?.name || chat.name
   return { kind: 'chat', id: chat.id, title: who, subtitle: [place(chat.teamId), chat.title || chatPreview(chat)].filter(Boolean).join(' · '), body: clip(last?.text ?? ''), sound }
 }

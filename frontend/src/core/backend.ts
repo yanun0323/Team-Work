@@ -101,7 +101,7 @@ export function connect(onEvent: (ev: ServerEvent) => void, onLost: () => void) 
   let timer = 0
   let stopped = false
   const open = () => {
-    socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/events`)
+    socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/events?chats=paged`)
     socket.onmessage = (m) => onEvent(JSON.parse(m.data as string) as ServerEvent)
     socket.onclose = () => {
       if (stopped) return

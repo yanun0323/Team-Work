@@ -389,6 +389,12 @@ export interface Chat {
   model: string
   effort?: Effort
   messages: ChatMessage[]
+  /** Present only in the opt-in paged wire format; bodies belong to an open sheet. */
+  history?: {
+    version: string; previous?: string; changedFrom: number; count: number
+    preview: string; previewKind?: 'image' | 'file'; sortAt: number
+    lastAgent?: ChatMessage; mentions?: string[]; hasFileMention: boolean; hasAttachment: boolean
+  }
   tokens: number
   /** About how many tokens the next call sends, which the chat is summed up to keep under the model's context window. */
   context?: number
@@ -423,6 +429,8 @@ export interface ChatJoin {
 }
 
 export interface ChatHandoff {
+  /** Paged responses name the recipient without loading later handoff records. */
+  to?: string
   before: number
   replicaId: string
   name: string

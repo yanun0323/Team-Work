@@ -118,6 +118,8 @@ const en = {
   '選項': 'Options',
   '回覆': 'Reply',
   '捲到最新的訊息': 'Scroll to the latest message',
+  '顯示更早訊息': 'Show earlier messages',
+  '讀取歷史失敗，請重試': 'Could not load history. Please retry.',
   '回覆，或選上面一個': 'Reply, or pick one above',
   '補充說明': 'Note',
   '確認': 'Confirm',

@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react'
 import { tr } from './core/i18n'
-import { useStore } from './core/store'
+import { useNow, useStore } from './core/store'
 import { addSource, applySource, attempt, checkSource, previewSource, seeSource, deleteSource, setSourceAutoApply, sourceChanges, sourceProblems } from './core/ops'
 import { OFFICIAL_SOURCE, sourceOfId, sourceUsers } from './core/domain/sources'
 import { blueprintList, flowList } from './core/model'
@@ -73,6 +73,7 @@ export function bringsText(skills: number | undefined, blueprints: number, flows
 }
 
 export function SourcesTab({ open, onOpen }: { open: string | null; onOpen: (x: Item) => void }) {
+  const now = useNow()
   const w = useStore((s) => s.world)
   const items = useSourceItems(Object.keys(w.sources))
   const blueprints = blueprintList(w).map((b) => sourceOfId(b.id))
@@ -85,7 +86,7 @@ export function SourcesTab({ open, onOpen }: { open: string | null; onOpen: (x: 
       <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newSource' })}>{tr('＋ 新增來源')}</button>
       <ul className="fx-list">
         {sorted(w.sources).map((s) => (
-          <li key={s.id}><button className="fx-row fx-src-row fx-hit" {...opener({ kind: 'source', id: s.id })}><SourceRow s={s} now={w.now} brings={brings(s.id)} /></button></li>
+          <li key={s.id}><button className="fx-row fx-src-row fx-hit" {...opener({ kind: 'source', id: s.id })}><SourceRow s={s} now={now} brings={brings(s.id)} /></button></li>
         ))}
       </ul>
     </div>
@@ -205,6 +206,7 @@ export function SourceDetail({ id, open, onSkill, openItem = null, onItem = () =
   onItem?: (x: Item) => void
   onGoneSource: () => void
 }) {
+  const now = useNow()
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const s = w.sources[id]
@@ -234,7 +236,7 @@ export function SourceDetail({ id, open, onSkill, openItem = null, onItem = () =
     return () => ask.abort()
   }, [id, read])
   if (!s) return <Gone {...h} />
-  const state = keptState(s, w.now)
+  const state = keptState(s, now)
   const users = sourceUsers(w, id)
   const crew = (changes?.replicas ?? []).map((r) => w.replicas[r]).filter(Boolean) as Replica[]
   const kept = (changes?.kept ?? []).map((r) => w.replicas[r]).filter(Boolean) as Replica[]
