@@ -9,14 +9,14 @@ import (
 func TestGlobalConfig(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("TEAM_WORK_HOME", dir)
-	for _, key := range []string{"TEAM_WORK_HOST", "TEAM_WORK_PORT", "TEAM_WORK_ALLOWED_ORIGINS", "TEAM_WORK_DEBUG"} {
+	for _, key := range []string{"TEAM_WORK_HOST", "TEAM_WORK_PORT", "TEAM_WORK_ALLOWED_ORIGINS", "TEAM_WORK_DEBUG", "TEAM_WORK_MEMORY_DIAGNOSTICS"} {
 		t.Setenv(key, "")
 	}
 	c, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.DataDir != dir || c.Port != 8787 || len(c.AllowedOrigins) != 2 {
+	if c.DataDir != dir || c.Port != 8787 || len(c.AllowedOrigins) != 2 || c.MemoryDiagnostics {
 		t.Fatalf("%+v", c)
 	}
 	path := filepath.Join(dir, "config.yaml")

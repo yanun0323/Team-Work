@@ -85,6 +85,9 @@ func run() error {
 	}
 	defer l.Close()
 	server := delivery.NewServer(engine, factory.ClaudeCode(), repository.FolderPicker{}, repository.Terminals{}, cfg.AllowedOrigins, log.Logger)
+	if cfg.MemoryDiagnostics {
+		server.EnableMemoryDiagnostics()
+	}
 	if *webDir != "" {
 		if _, err := os.Stat(*webDir + "/index.html"); err != nil {
 			return fmt.Errorf("frontend: %w", err)

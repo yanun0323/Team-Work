@@ -13,14 +13,15 @@ import (
 
 // Config contains startup settings; editing config.yaml requires a restart.
 type Config struct {
-	Host           string   `mapstructure:"host"`
-	Port           int      `mapstructure:"port"`
-	DataDir        string   `mapstructure:"-"`
-	AllowedOrigins []string `mapstructure:"allowedOrigins"`
-	Debug          bool     `mapstructure:"debug"`
+	Host              string   `mapstructure:"host"`
+	Port              int      `mapstructure:"port"`
+	DataDir           string   `mapstructure:"-"`
+	AllowedOrigins    []string `mapstructure:"allowedOrigins"`
+	Debug             bool     `mapstructure:"debug"`
+	MemoryDiagnostics bool     `mapstructure:"memoryDiagnostics"`
 }
 
-const defaultConfig = "host: 127.0.0.1\nport: 8787\nallowedOrigins:\n  - http://localhost:5173\n  - http://127.0.0.1:5173\ndebug: false\n"
+const defaultConfig = "host: 127.0.0.1\nport: 8787\nallowedOrigins:\n  - http://localhost:5173\n  - http://127.0.0.1:5173\ndebug: false\nmemoryDiagnostics: false\n"
 
 func Load() (Config, error) {
 	home, err := os.UserHomeDir()
@@ -65,11 +66,12 @@ func Load() (Config, error) {
 	v.SetDefault("port", 8787)
 	v.SetDefault("allowedOrigins", []string{"http://localhost:5173", "http://127.0.0.1:5173"})
 	v.SetDefault("debug", false)
+	v.SetDefault("memoryDiagnostics", false)
 	if err := v.ReadInConfig(); err != nil {
 		return Config{}, err
 	}
 	// Desktop launch overrides its loopback listener without rewriting global YAML.
-	for key, env := range map[string]string{"host": "TEAM_WORK_HOST", "port": "TEAM_WORK_PORT", "allowedOrigins": "TEAM_WORK_ALLOWED_ORIGINS", "debug": "TEAM_WORK_DEBUG"} {
+	for key, env := range map[string]string{"host": "TEAM_WORK_HOST", "port": "TEAM_WORK_PORT", "allowedOrigins": "TEAM_WORK_ALLOWED_ORIGINS", "debug": "TEAM_WORK_DEBUG", "memoryDiagnostics": "TEAM_WORK_MEMORY_DIAGNOSTICS"} {
 		if err := v.BindEnv(key, env); err != nil {
 			return Config{}, err
 		}
