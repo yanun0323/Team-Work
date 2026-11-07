@@ -59,15 +59,58 @@ func copyPointer[T any](p *T) *T {
 	return &out
 }
 
-func copyWorld(w *model.World) *model.World {
-	// Other entities are still small. Do not serialize chat history just to undo
-	// an operation; private model messages already use copy-on-write slices.
+// Message slices contain only comparable values. Preserve nil versus empty,
+// as DeepEqual does, without allocating a cycle-detection table for the history.
+func sameChatSlice[T comparable](a, b []T) bool {
+	return (a == nil) == (b == nil) && slices.Equal(a, b)
+}
+
+// Keep this comparison in step with ChatMessage (checked by its field test).
+func sameChatMessage(a, b *model.ChatMessage) bool {
+	return a.At == b.At && a.From == b.From && a.Text == b.Text && a.By == b.By &&
+		a.Failed == b.Failed && a.SignedOut == b.SignedOut &&
+		sameChatSlice(a.Images, b.Images) && sameChatSlice(a.Files, b.Files) &&
+		sameChatSlice(a.Mentions, b.Mentions) && sameChatSlice(a.Tasks, b.Tasks) && sameChatSlice(a.Made, b.Made)
+}
+
+// Compare message contents without reflection; all other chat fields still use
+// DeepEqual so new metadata cannot silently escape change detection.
+func sameChat(a, b *model.Chat) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil || len(a.Messages) != len(b.Messages) || (a.Messages == nil) != (b.Messages == nil) {
+		return false
+	}
+	left, right := *a, *b
+	left.Messages, right.Messages = nil, nil
+	if !reflect.DeepEqual(&left, &right) {
+		return false
+	}
+	for i := range a.Messages {
+		if !sameChatMessage(&a.Messages[i], &b.Messages[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// rollbackWorld borrows immutable committed chats only when they match the live
+// value. The caller must copy those chats before installing this world on undo.
+func (e *Engine) rollbackWorld() *model.World {
+	w := e.w
+	// Other entities are still small; private model messages use copy-on-write.
 	rest := *w
 	rest.Chats = nil
 	out := clone(&rest)
 	out.Chats = make(map[string]*model.Chat, len(w.Chats))
 	for id, c := range w.Chats {
-		out.Chats[id] = copyChat(c)
+		if saved, ok := e.savedChats[id]; ok && sameChat(saved, c) {
+			out.Chats[id] = saved
+		} else {
+			// A failed background save can leave newer history than the committed copy.
+			out.Chats[id] = copyChat(c)
+		}
 	}
 	out.Conversations = maps.Clone(w.Conversations)
 	return out
@@ -78,7 +121,8 @@ func (e *Engine) chatDocuments(docs map[string][]byte) {
 		key := docKey("chat", id)
 		// No mutation markers to forget: nested edits are compared with a detached
 		// copy of the last successful save. Text strings are shared, not duplicated.
-		if old, ok := e.savedChats[id]; ok && reflect.DeepEqual(old, c) {
+		// An unchanged chat contributes only its nil presence marker, not JSON.
+		if old, ok := e.savedChats[id]; ok && sameChat(old, c) {
 			if raw, ok := e.prev[key]; ok {
 				docs[key] = raw
 				continue

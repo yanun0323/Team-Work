@@ -2,6 +2,8 @@ package i18n
 
 // ko is the Korean of every text the backend tells the user, by its Chinese.
 var ko = map[string]string{
+	"讀取對話歷史失敗，請稍後重試；原有紀錄未變更": "대화 기록을 읽지 못했습니다. 나중에 다시 시도하세요. 기존 기록은 변경되지 않았습니다",
+	"訊息範圍不正確":            "메시지 범위가 올바르지 않습니다",
 	"%s 不是資料夾":           "%s은(는) 폴더가 아닙니다",
 	"讀不到資料夾 %s":          "폴더 %s을(를) 읽을 수 없습니다",
 	"讀不到檔案 %s":           "파일 %s을(를) 읽을 수 없습니다",

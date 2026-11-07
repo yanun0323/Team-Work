@@ -1358,6 +1358,9 @@ func (e *Engine) ResolveChatChange(id string, agreed bool, note string) error {
 			return model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
 		}
 		note = strings.TrimSpace(note)
+		if err := e.loadConversation(c.ID); err != nil {
+			return err
+		}
 		text, isError := e.settleChange(c.Change, agreed, note)
 		line := i18n.T("拒絕修改")
 		if agreed {

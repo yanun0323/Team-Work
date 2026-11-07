@@ -164,6 +164,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/teams/:id/tree", s.createProjectEntry)
 	api.GET("/teams/:id/image", s.projectImage)
 	api.GET("/chats/:id/skill", s.chatSkill)
+	api.GET("/chats/:id/messages", s.chatMessages)
 	api.GET("/teams/:id/terminal", s.terminal)
 	api.GET("/teams/:id/health", s.teamHealth)
 	api.GET("/teams/:id/size", s.projectSize)
@@ -323,8 +324,33 @@ func (s *Server) reloadSettings(c echo.Context) error {
 	return done(c, s.engine.ReloadSettings(c.Request().Context()))
 }
 
+func (s *Server) chatMessages(c echo.Context) error {
+	before, err := strconv.Atoi(c.QueryParam("before"))
+	if err != nil {
+		return model.Errorf(model.CodeInvalid, "訊息範圍不正確")
+	}
+	limit := 100
+	if c.QueryParam("limit") != "" {
+		limit, err = strconv.Atoi(c.QueryParam("limit"))
+		if err != nil {
+			return model.Errorf(model.CodeInvalid, "訊息範圍不正確")
+		}
+	}
+	out, err := s.engine.ChatMessages(c.Param("id"), c.QueryParam("version"), before, limit)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, out)
+}
+
 func (s *Server) world(c echo.Context) error {
-	raw, err := s.engine.Snapshot()
+	var raw []byte
+	var err error
+	if c.QueryParam("chats") == "paged" {
+		raw, err = s.engine.PagedSnapshot()
+	} else {
+		raw, err = s.engine.Snapshot()
+	}
 	if err != nil {
 		return err
 	}
@@ -945,6 +971,13 @@ func (s *Server) createChat(c echo.Context) error {
 		return err
 	}
 	out, err := s.engine.CreateChat(in)
+	if err == nil && c.QueryParam("chats") == "paged" {
+		raw, err := s.engine.ChatSummaryJSON(out.ID)
+		if err != nil {
+			return err
+		}
+		return c.JSONBlob(http.StatusCreated, raw)
+	}
 	return created(c, out, err)
 }
 
@@ -954,6 +987,13 @@ func (s *Server) createAirportChat(c echo.Context) error {
 		return err
 	}
 	out, err := s.engine.CreateAirportChat(in)
+	if err == nil && c.QueryParam("chats") == "paged" {
+		raw, err := s.engine.ChatSummaryJSON(out.ID)
+		if err != nil {
+			return err
+		}
+		return c.JSONBlob(http.StatusCreated, raw)
+	}
 	return created(c, out, err)
 }
 
@@ -1055,12 +1095,13 @@ func (s *Server) inviteToChat(c echo.Context) error {
 
 func (s *Server) rewindChat(c echo.Context) error {
 	in, err := bind[struct {
-		Index int `json:"index"`
+		Index   int    `json:"index"`
+		Version string `json:"version"`
 	}](c)
 	if err != nil {
 		return err
 	}
-	return done(c, s.engine.RewindChat(c.Param("id"), in.Index))
+	return done(c, s.engine.RewindChat(c.Param("id"), in.Index, in.Version))
 }
 
 func (s *Server) resolveChatChange(c echo.Context) error {
@@ -1077,12 +1118,20 @@ func (s *Server) resolveChatChange(c echo.Context) error {
 func (s *Server) handOffChat(c echo.Context) error {
 	in, err := bind[struct {
 		Index     int    `json:"index"`
+		Version   string `json:"version"`
 		ReplicaID string `json:"replicaId"`
 	}](c)
 	if err != nil {
 		return err
 	}
-	out, err := s.engine.HandOffChat(c.Param("id"), in.Index, in.ReplicaID)
+	out, err := s.engine.HandOffChat(c.Param("id"), in.Index, in.ReplicaID, in.Version)
+	if err == nil && c.QueryParam("chats") == "paged" {
+		raw, err := s.engine.ChatSummaryJSON(out.ID)
+		if err != nil {
+			return err
+		}
+		return c.JSONBlob(http.StatusCreated, raw)
+	}
 	return created(c, out, err)
 }
 
@@ -1126,7 +1175,7 @@ func (s *Server) events(c echo.Context) error {
 		return nil // the upgrader has answered
 	}
 	defer conn.Close()
-	snapshot, events, cancel, err := s.engine.Subscribe()
+	snapshot, events, cancel, err := s.engine.SubscribeChats(c.QueryParam("chats") == "paged")
 	if err != nil {
 		return nil
 	}

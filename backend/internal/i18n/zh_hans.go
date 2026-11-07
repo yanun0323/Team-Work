@@ -2,6 +2,8 @@ package i18n
 
 // zhHans is the Simplified Chinese of every text the backend tells the user, by its Chinese.
 var zhHans = map[string]string{
+	"讀取對話歷史失敗，請稍後重試；原有紀錄未變更": "读取对话历史失败，请稍后重试；原有记录未变更",
+	"訊息範圍不正確":            "消息范围不正确",
 	"%s 不是資料夾":           "%s 不是文件夹",
 	"讀不到資料夾 %s":          "读不到文件夹 %s",
 	"讀不到檔案 %s":           "读不到文件 %s",

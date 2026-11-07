@@ -75,13 +75,15 @@ type Engine struct {
 	runs      map[string]*run
 	live      map[string]string // what is being written now in chats and discussions, by their id
 	// output is the last lines of a command running now in a chat, by its id, with the run it belongs to
-	output     map[string]liveOutput
-	prev       map[string][]byte
-	savedChats map[string]*model.Chat // detached values corresponding to prev; committed saves only
-	dirty      map[string]bool        // conversations changed since the last save
-	subs       map[chan Event]struct{}
-	pending    []Event
-	logins     map[string]*loginRun
+	output        map[string]liveOutput
+	prev          map[string][]byte
+	chatSummaries map[string]ChatSummary
+	pagedSubs     map[chan Event]bool
+	savedChats    map[string]*model.Chat // detached committed values; chat JSON is not cached in prev
+	dirty         map[string]bool        // conversations changed since the last save
+	subs          map[chan Event]struct{}
+	pending       []Event
+	logins        map[string]*loginRun
 	// pendingKeys are API keys waiting on the user's answer to a change, by its KeyRef. They go with a restart.
 	pendingKeys map[string]string
 	// terms is what each company's terminal has shown, by the company's id; under its own lock, as output
@@ -214,6 +216,7 @@ func (e *Engine) Close() {
 	for ch := range e.subs {
 		close(ch)
 		delete(e.subs, ch)
+		delete(e.pagedSubs, ch)
 	}
 }
 
@@ -234,10 +237,18 @@ func (e *Engine) change(config bool, fn func() error) error {
 			return err
 		}
 	}
-	before := copyWorld(e.w)
+	before := e.rollbackWorld()
 	secrets, runs := maps.Clone(e.secrets), maps.Clone(e.runs)
+	dirty := maps.Clone(e.dirty)
 	undo := func() {
+		// Never expose a committed snapshot to subsequent live mutations.
+		for id, c := range before.Chats {
+			if c == e.savedChats[id] {
+				before.Chats[id] = copyChat(c)
+			}
+		}
 		e.w, e.secrets, e.secretOps = before, secrets, nil
+		e.dirty = dirty
 		for id, r := range e.runs {
 			if runs[id] != r {
 				e.stopRun(id)
@@ -284,7 +295,7 @@ func (e *Engine) load(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	docs, err := e.store.LoadDocs(ctx)
+	docs, err := e.store.LoadDocs(ctx, true)
 	if err != nil {
 		return fmt.Errorf("load world: %w", err)
 	}
@@ -303,9 +314,8 @@ func (e *Engine) load(ctx context.Context) error {
 			}
 
 		case kindConv:
-			var conv []model.Message
-			err = jsonx.Unmarshal(d.Data, &conv)
-			e.w.Conversations[d.ID] = conv
+			// A nil value is an unloaded, persisted history, not an empty one.
+			e.w.Conversations[d.ID] = nil
 		case "team":
 			err = loadInto(d, e.w.Teams)
 		case "provider":
@@ -326,6 +336,10 @@ func (e *Engine) load(ctx context.Context) error {
 				if e.savedChats == nil {
 					e.savedChats = make(map[string]*model.Chat)
 				}
+				if e.chatSummaries == nil {
+					e.chatSummaries = map[string]ChatSummary{}
+				}
+				e.chatSummaries[d.ID] = summarizeChat(e.w.Chats[d.ID], e.savedChats[d.ID], e.chatSummaries[d.ID].History)
 				e.savedChats[d.ID] = copyChat(e.w.Chats[d.ID])
 			}
 		}
@@ -333,6 +347,10 @@ func (e *Engine) load(ctx context.Context) error {
 			return fmt.Errorf("read %s %s: %w", d.Kind, d.ID, err)
 		}
 		e.prev[docKey(d.Kind, d.ID)] = d.Data
+		if d.Kind == "chat" {
+			// savedChats detects changes; keep only presence for deletion detection.
+			e.prev[docKey(d.Kind, d.ID)] = nil
+		}
 	}
 	if len(docs) > 0 && rawSettings.Data == nil {
 		return model.Errorf(model.CodeInvalid, "設定檔遺失；請還原設定檔，不能從執行資料重建設定")
@@ -344,6 +362,9 @@ func (e *Engine) load(ctx context.Context) error {
 		}
 		settings.Install(e.w)
 		e.settingsRaw, e.settingsEncoded = rawSettings, settingsBytes(e.w)
+	}
+	if err := e.migrateConversationImages(ctx); err != nil {
+		return err
 	}
 	if err := e.storeHistoryImages(true); err != nil {
 		return fmt.Errorf("store history images: %w", err)
@@ -428,6 +449,7 @@ func (e *Engine) sync() error {
 		}
 	}
 	if len(upserts)+len(deletes)+len(changes)+len(e.secretOps) == 0 {
+		e.releaseConversations()
 		e.flushPending()
 		return nil
 	}
@@ -461,6 +483,14 @@ func (e *Engine) sync() error {
 	for _, d := range upserts {
 		e.prev[docKey(d.Kind, d.ID)] = d.Data
 		if d.Kind == "chat" {
+			// savedChats detects changes; keep only presence for deletion detection.
+			e.prev[docKey(d.Kind, d.ID)] = nil
+		}
+		if d.Kind == "chat" {
+			if e.chatSummaries == nil {
+				e.chatSummaries = map[string]ChatSummary{}
+			}
+			e.chatSummaries[d.ID] = summarizeChat(e.w.Chats[d.ID], e.savedChats[d.ID], e.chatSummaries[d.ID].History)
 			e.savedChats[d.ID] = copyChat(e.w.Chats[d.ID])
 		}
 	}
@@ -468,9 +498,11 @@ func (e *Engine) sync() error {
 		delete(e.prev, docKey(d.Kind, d.ID))
 		if d.Kind == "chat" {
 			delete(e.savedChats, d.ID)
+			delete(e.chatSummaries, d.ID)
 		}
 	}
 	e.dirty = map[string]bool{}
+	e.releaseConversations()
 	ev := Event{Type: "patch"}
 	for _, d := range upserts {
 		if d.Kind != kindConv && d.Kind != kindMeta {
@@ -509,31 +541,60 @@ func (e *Engine) flushPending() {
 
 // publish never blocks: a subscriber that cannot keep up is dropped and has to connect again for a snapshot.
 func (e *Engine) publish(ev Event) {
+	var small *Event
 	for ch := range e.subs {
+		next := ev
+		if e.pagedSubs[ch] && ev.Type == "patch" {
+			if small == nil {
+				v := ev
+				v.Upserts = append([]Patch(nil), ev.Upserts...)
+				for i, p := range v.Upserts {
+					if p.Kind == "chat" {
+						v.Upserts[i].Data, _ = jsonx.Marshal(e.chatSummary(e.w.Chats[p.ID]))
+					}
+				}
+				small = &v
+			}
+			next = *small
+		}
 		select {
-		case ch <- ev:
+		case ch <- next:
 		default:
 			close(ch)
 			delete(e.subs, ch)
+			delete(e.pagedSubs, ch)
 		}
 	}
 }
 
 // Subscribe returns the world as JSON and the changes after it. The channel closes when the
 // subscription ends; cancel ends it early.
-func (e *Engine) Subscribe() (snapshot []byte, events <-chan Event, cancel func(), err error) {
+func (e *Engine) Subscribe() ([]byte, <-chan Event, func(), error) { return e.SubscribeChats(false) }
+
+func (e *Engine) SubscribeChats(paged bool) (snapshot []byte, events <-chan Event, cancel func(), err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.closed {
 		return nil, nil, nil, model.Errorf(model.CodeUnavailable, "伺服器正在關閉")
 	}
 	e.w.Now = e.clock()
-	snapshot, err = jsonx.Marshal(e.w)
+	if paged {
+		snapshot, err = e.pagedSnapshot()
+	} else {
+		snapshot, err = jsonx.Marshal(e.w)
+	}
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("encode world: %w", err)
 	}
 	ch := make(chan Event, subscriberBuffer)
+	if e.subs == nil {
+		e.subs = map[chan Event]struct{}{}
+	}
 	e.subs[ch] = struct{}{}
+	if e.pagedSubs == nil {
+		e.pagedSubs = map[chan Event]bool{}
+	}
+	e.pagedSubs[ch] = paged
 	for id, text := range e.live { // what is being written is in no snapshot
 		ch <- Event{Type: "delta", SubID: id, Text: text}
 	}
@@ -546,6 +607,7 @@ func (e *Engine) Subscribe() (snapshot []byte, events <-chan Event, cancel func(
 		if _, ok := e.subs[ch]; ok {
 			close(ch)
 			delete(e.subs, ch)
+			delete(e.pagedSubs, ch)
 		}
 	}, nil
 }

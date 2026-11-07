@@ -245,6 +245,9 @@ func (e *Engine) SteerChat(id, queuedID string) error {
 		q.Steer = true
 		rest := slices.Delete(slices.Clone(c.Queue), at, at+1)
 		if c.ReplyAt == nil {
+			if err := e.loadConversation(c.ID); err != nil {
+				return err
+			}
 			c.Queue = append([]model.QueuedMessage{q}, rest...)
 			return e.sendQueued(c)
 		}
@@ -278,6 +281,9 @@ func (e *Engine) sendQueued(c *model.Chat) error {
 	if len(c.Queue) == 0 || c.ReplyAt != nil || e.chatLeft(c) {
 		return nil
 	}
+	if err := e.loadConversation(c.ID); err != nil {
+		return err
+	}
 	q := c.Queue[0]
 	c.Queue = slices.Clone(c.Queue[1:])
 	return e.beginRound(c, q.Text, q.Images, q.Files, q.Mentions)
@@ -285,11 +291,14 @@ func (e *Engine) sendQueued(c *model.Chat) error {
 
 // RewindChat takes back one of the user's messages and all that came after it, stopping a reply being written.
 // What the employee already changed in the folder stays.
-func (e *Engine) RewindChat(id string, index int) error {
+func (e *Engine) RewindChat(id string, index int, version ...string) error {
 	return e.do(func() error {
 		c := e.w.Chats[id]
 		if c == nil {
 			return model.Errorf(model.CodeNotFound, "找不到對話")
+		}
+		if len(version) > 0 && version[0] != "" && e.chatSummary(c).History.Version != version[0] {
+			return model.Errorf(model.CodeConflict, "版本不符，內容已經被改過，請重新讀取")
 		}
 		if index < 0 || index >= len(c.Messages) || c.Messages[index].From != "user" {
 			return model.Errorf(model.CodeInvalid, "只能編輯自己的訊息")
@@ -302,6 +311,9 @@ func (e *Engine) RewindChat(id string, index int) error {
 			if m.From == "user" {
 				nth++
 			}
+		}
+		if err := e.loadConversation(c.ID); err != nil {
+			return err
 		}
 		end := saidAt(e.w.Conversations[c.ID], nth)
 		if end < 0 {
@@ -330,12 +342,15 @@ func (e *Engine) RewindChat(id string, index int) error {
 // model reads. Nothing runs until the user says something in the copy. While a reply is being written the original
 // carries on, and only that unfinished reply cannot be handed off from. A meeting goes on one-on-one, with its chair
 // too. An airport chat stays with the airport staff.
-func (e *Engine) HandOffChat(id string, index int, replicaID string) (*model.Chat, error) {
+func (e *Engine) HandOffChat(id string, index int, replicaID string, version ...string) (*model.Chat, error) {
 	var out *model.Chat
 	err := e.do(func() error {
 		c := e.w.Chats[id]
 		if c == nil {
 			return model.Errorf(model.CodeNotFound, "找不到對話")
+		}
+		if len(version) > 0 && version[0] != "" && e.chatSummary(c).History.Version != version[0] {
+			return model.Errorf(model.CodeConflict, "版本不符，內容已經被改過，請重新讀取")
 		}
 		if index < 0 || index >= len(c.Messages) || c.Messages[index].From == "tool" {
 			return model.Errorf(model.CodeInvalid, "只能從訊息複製對話")
@@ -351,6 +366,9 @@ func (e *Engine) HandOffChat(id string, index int, replicaID string) (*model.Cha
 			return model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
 		case !c.AtAirport() && (taker == nil || taker.TeamID != c.TeamID):
 			return model.Errorf(model.CodeNotFound, "找不到公司或員工")
+		}
+		if err := e.loadConversation(c.ID); err != nil {
+			return err
 		}
 		conv := e.w.Conversations[c.ID]
 		nth := 0
@@ -485,6 +503,9 @@ func (e *Engine) RetryChat(id string) error {
 		speaker := cmp.Or(c.Messages[len(c.Messages)-1].By, c.ReplicaID)
 		spec, err := e.chatSpec(c, speaker)
 		if err != nil {
+			return err
+		}
+		if err := e.loadConversation(c.ID); err != nil {
 			return err
 		}
 		c.Messages = c.Messages[:len(c.Messages)-1]

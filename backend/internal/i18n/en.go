@@ -2,6 +2,8 @@ package i18n
 
 // en is the English of every text the backend tells the user, by its Chinese. Words follow CONTEXT.md.
 var en = map[string]string{
+	"讀取對話歷史失敗，請稍後重試；原有紀錄未變更": "Could not read conversation history. Try again later; existing records are unchanged",
+	"訊息範圍不正確":         "Invalid message range",
 	"%s 不是資料夾":        "%s is not a folder",
 	"讀不到資料夾 %s":       "Could not read folder %s",
 	"讀不到檔案 %s":        "Could not read file %s",

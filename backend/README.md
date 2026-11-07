@@ -30,6 +30,8 @@ make test-backend  # 測試
 | `cache/airport/` | 機場服務人員的工作目錄 |
 | `cache/search-cooldown.json` | `web_search` 被 Exa 限流時的暫停期限，重啟後沿用 |
 
+模型專用的對話歷史（SQLite 的 `conv` 紀錄）啟動時只載入索引；續聊、收回、分岔、回覆審核或恢復子任務時才讀取內容。執行期間保留解析後的歷史，成功儲存且沒有執行中的工作後釋放；不快取原始 JSON，也不刪除磁碟紀錄。讀取失敗或紀錄毀損會明確失敗，不當作新對話；儲存失敗的變更保留待重試，使用者操作則沿用原有回復機制。舊版內嵌圖片在啟動時逐筆遷移，不一次載入所有模型歷史。儲存格式不變，公開訊息與執行中的長對話仍佔用記憶體，這不是後端總記憶體的硬上限。公開對話用成功儲存的獨立快照偵測變更，不另常駐整份 JSON；未變對話不重新編碼或寫入。舊全文 API 與同步事件仍提供完整內容，尚未送出的全文事件也仍會占用記憶體。
+
 設定檔不重複寫路徑已表達的 id：藍圖、流程與公司檔沒有 `id`，員工檔沒有 `id` 與 `teamId`。舊檔裡留著的這些欄位會被忽略，以路徑為準。啟動時會把舊版的 `teams/<team_id>/replicas/` 搬到 `company/<team_id>/employee/`；兩個資料夾同時存在時拒絕啟動，請手動合併。
 
 公司共同指示仍在公司專案資料夾的 `AGENTS.md`，不放進設定檔。所有員工共用的指示在資料目錄的 `AGENTS.md`（預設 `~/.team-work/AGENTS.md`），可在「機場 → 設定 → 系統」編輯，每次開工和對話回覆都會重新讀，接在公司指示之前。憑證沒有加密，靠檔案權限保護。
@@ -43,9 +45,33 @@ allowedOrigins:
   - http://localhost:5173
   - http://127.0.0.1:5173
 debug: false
+memoryDiagnostics: false
 ```
 
-`config.yaml` 修改後需要重啟，不由「重新載入設定」套用。可用 `TEAM_WORK_HOST`、`TEAM_WORK_PORT`、`TEAM_WORK_ALLOWED_ORIGINS`（空白分隔）、`TEAM_WORK_DEBUG` 覆寫；桌面版會覆寫自己的本機連接埠與來源，不改檔案。只允許本機監聽位址。Claude 執行檔仍用 `MHO_CLAUDE_EXECUTABLE` 指定，預設 `claude`。
+`config.yaml` 修改後需要重啟，不由「重新載入設定」套用。可用 `TEAM_WORK_HOST`、`TEAM_WORK_PORT`、`TEAM_WORK_ALLOWED_ORIGINS`（空白分隔）、`TEAM_WORK_DEBUG`、`TEAM_WORK_MEMORY_DIAGNOSTICS` 覆寫；桌面版會覆寫自己的本機連接埠與來源，不改檔案。只允許本機監聽位址。Claude 執行檔仍用 `MHO_CLAUDE_EXECUTABLE` 指定，預設 `claude`。
+
+### 記憶體診斷
+
+預設關閉。需要採樣時，在啟動前設定 `TEAM_WORK_MEMORY_DIAGNOSTICS=true`，或在全域 `config.yaml` 加上 `memoryDiagnostics: true`；關閉也需要重啟。沿用原本的連接埠與 Host／Origin 保護，並額外檢查實際連線來自 loopback，不信任轉送標頭；未啟用時以下路徑回 404。不會開啟完整的 `/debug/pprof`、讀取登入憑證或輸出物件內容。
+
+- `GET /api/v1/diagnostics/memory`：回傳 `pid`、`goVersion`、`goroutines`、`memProfileRate` 與 Go `runtime.MemStats` 的 `memory` 欄位，大小單位都是 bytes。不接受查詢參數，不主動觸發 GC。
+- `GET /api/v1/diagnostics/heap`：下載 Go pprof 二進位報告，保留標準抽樣率。不主動觸發 GC，內容可能落後最近的配置／釋放；`?gc=0` 相同。明確加上 `?gc=1` 才先強制 GC，可能短暫影響回覆延遲；不強制歸還作業系統記憶體，也不修改 GC 設定。其他參數、重複參數與非 GET 方法會被拒絕。
+
+採樣須使用包含這項功能的新版本；不要同時啟動兩個後端讀寫同一份資料。重啟會失去舊程序的記憶體現場，應記錄版本並在相同操作情境重測。先保存未強制 GC 的統計與報告，經同意後再取 GC 後的報告。以下命令供確認採樣時機後使用；桌面版通常是 18787，獨立後端是 8787：
+
+```bash
+umask 077
+base=http://127.0.0.1:18787/api/v1/diagnostics
+curl --fail "$base/memory" -o memory-before.json
+curl --fail "$base/heap" -o heap-before.pprof
+# 確認可接受一次強制 GC 後才執行：
+curl --fail "$base/heap?gc=1" -o heap-after-gc.pprof
+curl --fail "$base/memory" -o memory-after.json
+go tool pprof -top -inuse_space heap-after-gc.pprof
+go tool pprof -top -alloc_space heap-after-gc.pprof
+```
+
+`HeapAlloc` 是尚未釋放的 Go 物件（可能含等待 GC 的垃圾）；`HeapInuse - HeapAlloc` 是使用中堆區的未使用空間，不能直接當成可歸還量；`HeapIdle - HeapReleased` 是閒置但尚未歸還系統的堆空間；`Sys - HeapReleased` 可估算 Go 管理且尚未歸還的空間，但不等於 macOS physical footprint，也不涵蓋所有原生／映射記憶體。`StackInuse`、`MSpanInuse`、`MCacheInuse`、`GCSys`、`OtherSys` 可協助檢查執行環境開銷。pprof 的 `inuse_space` 按配置堆疊估算仍存活物件；`alloc_space` 是程序啟動以來的累計配置，不是目前用量，也不能直接指出是哪個引用持有物件。報告含函式與程式路徑，應保留在本機，不要直接公開。
 
 ### 介面偏好與地圖
 
@@ -144,6 +170,12 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /chats/:id/task-draft` | 把對話整理成任務的 `title` 和 `description`，不會建立任務；會議由這一輪能對外動作的人整理 |
 | 會議 | 對話有 `guests` 就是會議，最多 6 位員工。`say` 的 `mentions` 是這則訊息要給誰（員工 id，依序回覆），不在對話裡的人會被邀請加入；沒有 `mentions` 時所有人依序回覆，主持人最後。每人用自己加入時的模型，看得到前面的人說了什麼，但看不到別人用的工具。對外動作（建立或修改任務、藍圖、流程、`ask_user`）每輪只給一人：單獨被提及的人，否則是主持人。訊息的 `by` 是誰說的，`chat.speaker` 是這一輪正在或最後回覆的人，`chat.next` 是還沒輪到的人。`stop` 會停掉整輪；某人失敗時下一位照常回覆。從會議交給主持人是複製整場會議，交給其他人就變成和那個人的一對一對話 |
 | `PATCH /chats/:id/chair` | 把會議的主持人換成來賓 `replicaId`，原主持人變成來賓；回覆中會拒絕 |
+
+對話分頁是選用協定，不改 SQLite 紀錄。`GET /world?chats=paged` 和 `GET /events?chats=paged` 的對話只有摘要，`messages` 為空陣列；`history` 提供總數 `count`、版本 `version`、列表／通知預覽和教學狀態。沒有參數的舊 API 仍回傳全文。建立公司／機場對話與 `handoff` 也可加 `?chats=paged`，避免回傳整段複製歷史。
+
+`GET /chats/:id/messages?before=N&limit=100&version=V` 回傳 `[start, before)` 的訊息、`start`、`total`、`version`，以及範圍內交接與加入紀錄；`before` 為不含在本頁內的原始訊息位置，`limit` 必須是 1–100（預設 100）。分頁交接紀錄的 `to` 是接手者名稱。版本不符回 `409 conflict`，參數不合法回 `400 invalid_request`，對話不存在回 `404 not_found`。省略版本可讀取當下的範圍，但跨頁應傳版本以防收回／修改造成混用。
+
+摘要更新帶 `previous` 與 `changedFrom`，表示從哪個歷史版本、哪個位置開始改變；前端只在版本連續時重用未變前綴，再分頁取得變更尾端。未讀、名稱等變動不改歷史版本。重連丟棄前端分頁並重新讀取最新一頁。`rewind`、`handoff` 的 JSON 可帶 `version`，伺服器在修改鎖內檢查，不符就拒絕；舊呼叫不帶版本仍維持原行為。這減少前端傳輸與保留；畫面用的公開訊息仍完整保留在後端記憶體。
 
 任務與對話的 `images`、`files` 都是 `{ "name": "檔名", "url": "…" }` 陣列，合計最多 6 個。`images` 接受 PNG、JPEG、GIF、WebP，每個最大 3.75MB；先上傳後使用附件網址，並帶上 `mimeType`（例如 `image/png`）。舊的 data URL 仍可送出。`files` 接受一般檔案，每個最大 25MB：`url` 是上傳後拿到的網址；舊資料的 data URL 仍可讀取，每個最大 3.75MB，省略 `files` 也可以。只有附件、沒有文字的對話也能發送。
 

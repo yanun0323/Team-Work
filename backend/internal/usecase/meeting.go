@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/yanun0323/Team-Work/internal/i18n"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
@@ -120,6 +121,9 @@ func chatNames(c *model.Chat) map[string]string {
 
 // beginRound has the user's message heard and the first of those it is for reply; the rest follow in turn.
 func (e *Engine) beginRound(c *model.Chat, text string, images, files []model.Attachment, mentions []string) error {
+	if err := e.loadConversation(c.ID); err != nil {
+		return err
+	}
 	if err := e.checkInvite(c, mentions); err != nil {
 		return err
 	}
@@ -155,6 +159,13 @@ func (e *Engine) beginRound(c *model.Chat, text string, images, files []model.At
 func (e *Engine) nextSpeaker(c *model.Chat) bool {
 	if c.Question != nil || c.Change != nil {
 		return false
+	}
+	if len(c.Next) > 0 {
+		if err := e.loadConversation(c.ID); err != nil {
+			e.chatSays(c, i18n.T("（回覆失敗：%s）", safeText(err)))
+			c.Messages[len(c.Messages)-1].Failed = true
+			return false
+		}
 	}
 	for len(c.Next) > 0 {
 		id := c.Next[0]

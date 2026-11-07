@@ -15,12 +15,25 @@ import (
 
 type chatDisk struct {
 	adapter.Store
-	fail bool
+	fail   bool
+	rows   map[string][]byte
+	writes int
 }
 
-func (s *chatDisk) Apply(context.Context, []model.Doc, []model.Doc, []model.SecretChange, ...model.SettingsChange) error {
+func (s *chatDisk) Apply(_ context.Context, upserts, deletes []model.Doc, _ []model.SecretChange, _ ...model.SettingsChange) error {
 	if s.fail {
 		return errors.New("disk full")
+	}
+	if s.rows == nil {
+		s.rows = map[string][]byte{}
+	}
+	for _, d := range upserts {
+		s.rows[docKey(d.Kind, d.ID)] = d.Data
+		s.writes++
+	}
+	for _, d := range deletes {
+		delete(s.rows, docKey(d.Kind, d.ID))
+		s.writes++
 	}
 	return nil
 }
@@ -32,18 +45,31 @@ func storageEngine(t testing.TB) (*Engine, *chatDisk) {
 	return e, disk
 }
 
-func TestUnchangedChatsReusePersistedEncoding(t *testing.T) {
-	e, _ := storageEngine(t)
+func TestUnchangedChatsSkipEncodingAndWrites(t *testing.T) {
+	e, disk := storageEngine(t)
 	e.w.Chats["c"] = &model.Chat{ID: "c", Messages: []model.ChatMessage{{Text: strings.Repeat("history ", 10000)}}}
 	if err := e.sync(); err != nil {
 		t.Fatal(err)
 	}
 	key := docKey("chat", "c")
-	saved := e.prev[key]
+	saved := disk.rows[key]
+	writes := disk.writes
+	got, ok := e.documents()[key]
+	if !ok || got != nil || e.prev[key] != nil {
+		t.Fatal("unchanged chat encoded or retained JSON")
+	}
+	if err := e.sync(); err != nil {
+		t.Fatal(err)
+	}
+	if disk.writes != writes || &saved[0] != &disk.rows[key][0] {
+		t.Fatal("unchanged chat written again")
+	}
 	e.w.Preferences.MusicVolume = 12
-	got := e.documents()[key]
-	if &got[0] != &saved[0] {
-		t.Fatal("unchanged chat was encoded again")
+	if err := e.sync(); err != nil {
+		t.Fatal(err)
+	}
+	if &saved[0] != &disk.rows[key][0] {
+		t.Fatal("unrelated change rewrote chat")
 	}
 }
 
@@ -54,13 +80,13 @@ func TestChangedChatEncodingIsKeptOnlyAfterSuccessfulSave(t *testing.T) {
 	if err := e.sync(); err != nil {
 		t.Fatal(err)
 	}
-	old := string(e.prev[docKey("chat", c.ID)])
+	old := string(disk.rows[docKey("chat", c.ID)])
 	c.Messages[0].Images[0].URL = "new.png"
 	disk.fail = true
 	if err := e.sync(); err == nil {
 		t.Fatal("missing save failure")
 	}
-	if string(e.prev[docKey("chat", c.ID)]) != old {
+	if string(disk.rows[docKey("chat", c.ID)]) != old {
 		t.Fatal("failed write replaced saved bytes")
 	}
 	disk.fail = false
@@ -68,7 +94,7 @@ func TestChangedChatEncodingIsKeptOnlyAfterSuccessfulSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	var saved model.Chat
-	if err := jsonx.Unmarshal(e.prev[docKey("chat", c.ID)], &saved); err != nil {
+	if err := jsonx.Unmarshal(disk.rows[docKey("chat", c.ID)], &saved); err != nil {
 		t.Fatal(err)
 	}
 	if saved.Messages[0].Images[0].URL != "new.png" {
@@ -85,13 +111,13 @@ func TestChangedChatEncodingIsKeptOnlyAfterSuccessfulSave(t *testing.T) {
 	if err := e.sync(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(e.prev[docKey("chat", c.ID)]), "replacement") {
+	if !strings.Contains(string(disk.rows[docKey("chat", c.ID)]), "replacement") {
 		t.Fatal("recreated chat reused stale bytes")
 	}
 }
 
 func TestChatChangesAreDetectedWithoutDirtyMarkers(t *testing.T) {
-	e, _ := storageEngine(t)
+	e, disk := storageEngine(t)
 	style := 2
 	c := &model.Chat{ID: "c", Look: model.Look{Style: &style}, Messages: []model.ChatMessage{{Text: "old", Images: []model.Attachment{{URL: "image"}}, Files: []model.Attachment{{URL: "file"}}, Mentions: []string{"a"}, Tasks: []string{"t"}, Made: []model.Made{{ID: "b"}}}}, Queue: []model.QueuedMessage{{Text: "queued", Images: []model.Attachment{{URL: "queued image"}}}}, Question: &model.ChatQuestion{Options: []string{"yes"}}, Compact: &model.ChatCompact{Summary: "summary"}}
 	e.w.Chats[c.ID] = c
@@ -107,7 +133,7 @@ func TestChatChangesAreDetectedWithoutDirtyMarkers(t *testing.T) {
 		if err := e.sync(); err != nil {
 			t.Fatal(err)
 		}
-		before := string(e.prev[docKey("chat", c.ID)])
+		before := string(disk.rows[docKey("chat", c.ID)])
 		change()
 		got := e.documents()[docKey("chat", c.ID)]
 		expected, err := jsonx.Marshal(c)
@@ -147,7 +173,7 @@ func TestFailedChatChangeRestoresNestedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	var saved model.Chat
-	if err := jsonx.Unmarshal(e.prev[docKey("chat", "c")], &saved); err != nil {
+	if err := jsonx.Unmarshal(disk.rows[docKey("chat", "c")], &saved); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(before, &saved) {

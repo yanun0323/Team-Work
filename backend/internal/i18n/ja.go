@@ -2,6 +2,8 @@ package i18n
 
 // ja is the Japanese of every text the backend tells the user, by its Chinese.
 var ja = map[string]string{
+	"讀取對話歷史失敗，請稍後重試；原有紀錄未變更": "対話履歴を読み取れませんでした。しばらくしてから再試行してください。既存の記録は変更されていません",
+	"訊息範圍不正確":            "メッセージの範囲が正しくありません",
 	"%s 不是資料夾":           "%s はフォルダではありません",
 	"讀不到資料夾 %s":          "フォルダ %s を読み込めません",
 	"讀不到檔案 %s":           "ファイル %s を読み込めません",

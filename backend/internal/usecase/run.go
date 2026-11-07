@@ -344,6 +344,11 @@ func (e *Engine) ownPrompt(ctx context.Context, own *model.BlueprintSource) (str
 
 // startSub starts a run for a sub-task just dispatched. Call it holding the lock.
 func (e *Engine) startSub(t *model.Task, s *model.SubTask) {
+	if err := e.loadConversation(s.ID); err != nil {
+		s.Attempts = e.w.Teams[t.TeamID].Settings.Retries
+		e.fail(t, s, "error", safeText(err))
+		return
+	}
 	node := nodeOf(&t.Workflow, s.NodeID)
 	r := e.w.Replicas[*s.ReplicaID]
 	spec, err := e.buildSpec(t, node, r)
@@ -447,6 +452,10 @@ func (e *Engine) talkSees(t *model.Task, s *model.SubTask, conv []model.Message,
 
 // startTalkReply has an employee answer in a discussion. Call it holding the lock.
 func (e *Engine) startTalkReply(t *model.Task, s *model.SubTask, speaker string) {
+	if err := e.loadConversation(s.ID); err != nil {
+		e.talkFailed(s, safeText(err))
+		return
+	}
 	r := e.w.Replicas[speaker]
 	if r == nil {
 		return

@@ -78,9 +78,13 @@ func (s *Store) Close() error {
 	return raw.Close()
 }
 
-func (s *Store) LoadDocs(ctx context.Context) ([]model.Doc, error) {
+func (s *Store) LoadDocs(ctx context.Context, lazyConversations ...bool) ([]model.Doc, error) {
 	var rows []docRow
-	if err := s.db.WithContext(ctx).Find(&rows).Error; err != nil {
+	query := s.db.WithContext(ctx).Model(&docRow{})
+	if len(lazyConversations) > 0 && lazyConversations[0] {
+		query = query.Select("kind, id, CASE WHEN kind = 'conv' THEN NULL ELSE data END AS data")
+	}
+	if err := query.Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]model.Doc, len(rows))
@@ -88,6 +92,23 @@ func (s *Store) LoadDocs(ctx context.Context) ([]model.Doc, error) {
 		out[i] = model.Doc{Kind: r.Kind, ID: r.ID, Data: r.Data}
 	}
 	return out, nil
+}
+
+// LoadConversation distinguishes a missing record from an empty conversation.
+func (s *Store) LoadConversation(ctx context.Context, id string) ([]byte, error) {
+	var row docRow
+	if err := s.db.WithContext(ctx).Where("kind = ? AND id = ?", "conv", id).Take(&row).Error; err != nil {
+		return nil, err
+	}
+	return row.Data, nil
+}
+
+// InlineConversations finds old image payloads without transferring every history
+// into Go. False positives in tool arguments are harmless; migration checks blocks.
+func (s *Store) InlineConversations(ctx context.Context) ([]string, error) {
+	var ids []string
+	err := s.db.WithContext(ctx).Model(&docRow{}).Where(`kind = ? AND instr(CAST(data AS TEXT), '"data"') > 0`, "conv").Pluck("id", &ids).Error
+	return ids, err
 }
 
 func (s *Store) Apply(ctx context.Context, upserts, deletes []model.Doc, secrets []model.SecretChange, settings ...model.SettingsChange) error {

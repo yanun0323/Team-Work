@@ -11,7 +11,10 @@ import (
 
 // Store keeps entities as documents, and provider keys apart from them.
 type Store interface {
-	LoadDocs(ctx context.Context) ([]model.Doc, error)
+	// With lazyConversations, conversation documents contain only kind and id.
+	LoadDocs(ctx context.Context, lazyConversations ...bool) ([]model.Doc, error)
+	LoadConversation(ctx context.Context, id string) ([]byte, error)
+	InlineConversations(ctx context.Context) ([]string, error)
 	// Apply writes runtime documents and provider keys transactionally. A settings change is journaled
 	// in the same transaction and recovered before the next load after interruption.
 	Apply(ctx context.Context, upserts, deletes []model.Doc, secrets []model.SecretChange, settings ...model.SettingsChange) error

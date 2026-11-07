@@ -814,6 +814,11 @@ func (e *Engine) resolveReview(subID, optionID, note string) error {
 			label = optionID
 		}
 	}
+	if r.Kind == enum.ReviewQuestion || r.Kind == enum.ReviewChange {
+		if err := e.loadConversation(s.ID); err != nil {
+			return err
+		}
+	}
 	s.Review = nil
 	switch {
 	case r.Kind == enum.ReviewChange && optionID == optionApprove:
@@ -1140,6 +1145,9 @@ func (e *Engine) SayInTalk(subID, text string, mentions []string) error {
 		}
 		if len(speakers) == 0 {
 			speakers = people[:1]
+		}
+		if err := e.loadConversation(s.ID); err != nil {
+			return err
 		}
 		s.Talk.Messages = append(s.Talk.Messages, model.ChatMessage{At: e.w.Now, From: "user", Text: text, Mentions: slices.Clone(mentions)})
 		e.logLine(s, enum.LogHuman, text, "", nil)
