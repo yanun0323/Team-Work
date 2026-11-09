@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GitSource } from './core/domain/types'
-import { sourceState, sourceText } from './source'
+import { OFFICIAL_SOURCE } from './core/domain/sources'
+import { sourceName, sourceState, sourceText } from './source'
 
 const git = (extra: Partial<GitSource> = {}): GitSource => ({
   kind: 'git', repo: 'https://github.com/acme/skills', ref: 'v1.0.0', commit: 'aaa', latestRef: 'v1.0.0', latest: 'aaa',
@@ -13,6 +14,12 @@ describe('blueprint and skill sources', () => {
     expect(sourceText(git({ ref: '' }))).toBe('acme/skills')
     expect(sourceText(git({ repo: 'git@github.com:acme/skills' }))).toBe('git@github.com:acme/skills @ v1.0.0')
     expect(sourceText({ kind: 'yaml', text: 'name: x' })).toBe('本地')
+  })
+
+  it('calls the official source by name, not by its repo', () => {
+    const kept = { kind: 'git' as const, repo: 'https://github.com/yanun0323/Team-Work-Source', ref: '', upstream: true, autoApply: true }
+    expect(sourceName({ ...kept, id: OFFICIAL_SOURCE })).toBe('官方來源')
+    expect(sourceName({ ...kept, id: 'src1' })).toBe('yanun0323/Team-Work-Source')
   })
 
   it('says the most pressing thing first', () => {

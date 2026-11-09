@@ -719,6 +719,8 @@ textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-hidable:hover > .fx-hide-on-hover, .fx-hide-on-hover:focus-visible { opacity: 1; }
 /* a hidden one keeps its struck eye in sight: it says why the item is faded, and how to bring it back */
 .fx-hidden-item > .fx-hide-on-hover { opacity: 1; }
+/* the struck eye already says it is hidden: no pressed shade, only the hover one */
+.fx-hide-tool[aria-pressed="true"]:not(:hover) { box-shadow: none; }
 @media (hover: none) { .fx-hide-on-hover { opacity: 1; } }
 .fx-check { width: 1em; font-weight: 700; color: var(--ink); text-align: center; }
 /* the slot for a new task: a blank slip, dashed where the next card goes */

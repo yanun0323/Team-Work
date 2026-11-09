@@ -2379,7 +2379,7 @@ export function EditTool({ onClick, open, pressed }: { onClick: () => void; open
 export function HideTool({ hidden, onChange, className = '' }: { hidden: boolean; onChange: (hidden: boolean) => void; className?: string }) {
   const label = hidden ? tr('取消隱藏') : tr('隱藏')
   return (
-    <button type="button" className={`fx-tool fx-hit ${className}`.trim()} onClick={() => onChange(!hidden)} aria-pressed={hidden} aria-label={tr('隱藏')} title={label}>
+    <button type="button" className={`fx-tool fx-hit fx-hide-tool ${className}`.trim()} onClick={() => onChange(!hidden)} aria-pressed={hidden} aria-label={tr('隱藏')} title={label}>
       {/* the eye as it is now: open while shown, struck through while hidden */}
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />

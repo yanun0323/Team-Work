@@ -10,9 +10,9 @@ const KEYWORDS: [Role, RegExp][] = [
   ['research', /研究|調查|紀錄|调查|记录|調査|記録|조사|연구|기록|research|investigat|log/i],
   ['report', /報告|报告|보고|report|summary/i],
   ['dev', /開發|實作|程式|修正|开发|实作|程序|開発|実装|개발|구현|수정|dev|build|implement|code|fix/i],
-  ['review', /驗收|審查|審核|验收|审查|审核|レビュー|リビュー|審査|검토|리뷰|review/i],
+  ['review', /驗收|審查|審核|複查|验收|审查|审核|复查|レビュー|リビュー|審査|受け入れ|再確認|검토|리뷰|인수 확인|재확인|review|accept|recheck/i],
   ['docs', /文件|規格|规格|仕様を書く|ドキュメント|명세 작성|문서|docs?|writ/i],
-  ['test', /測試|重現|测试|重现|テスト|再現|테스트|재현|test|qa|reproduc/i],
+  ['test', /測試|重現|驗證|测试|重现|验证|テスト|再現|検証|테스트|재현|검증|test|qa|reproduc|verif/i],
 ]
 
 export function roleOf(node: WorkflowNode): Role {

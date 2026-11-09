@@ -334,6 +334,7 @@ const en = {
   '小島管理中心': 'Island control center',
   '設定': 'Settings',
   '內建': 'Built-in',
+  '官方來源': 'Official source',
   '{trouble} 個來源有問題': ({ trouble }) => `${count(trouble, 'source')} with problems`,
   '設定已重新載入': 'Settings reloaded',
   '載入中…': 'Loading…',

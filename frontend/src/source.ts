@@ -3,6 +3,7 @@
 
 import { tr } from './core/i18n'
 import { shortRepo } from './github'
+import { OFFICIAL_SOURCE } from './core/domain/sources'
 import type { BlueprintSource, GitSource, LocalSkills, Source, Tool } from './core/domain/types'
 
 /**
@@ -17,8 +18,9 @@ export function sourceText(s: BlueprintSource | LocalSkills) {
   return s.ref ? `${repo} @ ${s.ref}` : repo
 }
 
-/** A source kept apart, as one line: `owner/repo @ branch`, or its folder. */
+/** A source kept apart, as one line: 官方來源 for the official one, else `owner/repo @ branch`, or its folder. */
 export function sourceName(s: Source) {
+  if (s.id === OFFICIAL_SOURCE) return tr('官方來源')
   if (s.kind === 'local') return s.path ?? ''
   const repo = shortRepo(s.repo ?? '')
   return s.ref ? `${repo} @ ${s.ref}` : repo

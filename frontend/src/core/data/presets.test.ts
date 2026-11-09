@@ -13,13 +13,13 @@ describe('presets', () => {
 
   it('are the official source\'s and the airport staff\'s, in the mock world in the language picked', () => {
     const w = seedWorld()
-    expect(blueprints(w).map((b) => b.name).sort()).toEqual(['通才', '前端工程師', '後端工程師', '程式審查員', '測試工程師', '設計師', '產品規劃', '技術規劃', '研究員', '寫手', 'DevOps 工程師', 'Matt Pocock', 'Poteto'].sort())
+    expect(blueprints(w).map((b) => b.name).sort()).toEqual(['通才', '前端工程師', '後端工程師', '審查與測試', '介面設計工程師', '媒體設計師', '功能規劃', '研究員', '寫手', 'DevOps 工程師', 'Matt Pocock', 'Poteto'].sort())
     expect(w.blueprints['preset-airport'].name).toBe('機場服務人員')
     expect(w.sources[OFFICIAL_SOURCE]).toMatchObject({ kind: 'git', repo: 'https://github.com/yanun0323/Team-Work-Source', autoApply: true })
     expect(deleteSource(w, OFFICIAL_SOURCE)).toBe(false)
     setLanguage(w, 'en')
-    expect(w.blueprints['team-work--architect'].name).toBe('Technical Planner')
-    expect(w.blueprints['team-work--architect'].prompt).toContain("company's technical planner")
+    expect(w.blueprints['team-work--product'].name).toBe('Feature Planner')
+    expect(w.blueprints['team-work--product'].prompt).toContain("company's feature planner")
     expect(w.workflows['team-work--feature'].name).toBe('Feature development')
   })
 
@@ -48,16 +48,22 @@ describe('presets', () => {
   it('find skills in the agent folders', () => {
     const w = seedWorld()
     expect(w.blueprints[AIRPORT_BLUEPRINT].skills.map((p) => (p.source as LocalSkills).path)).toEqual(['~/.agents/', '~/.team-work/', '~/.codex/', '~/.claude/'])
-    for (const b of blueprints(w).filter((b) => b.id !== 'team-work--matt-pocock' && b.id !== 'team-work--poteto')) {
-      expect(b.skills.map((p) => w.sources[p.sourceId!].path)).toEqual(['~/.agents/', '~/.team-work/', '~/.codex/', '~/.claude/'])
+    // the official source's read the agent folders and its own skills folder, never Codex's or Claude's, then repos
+    for (const b of blueprints(w)) {
+      const whole = b.id === 'team-work--matt-pocock' || b.id === 'team-work--poteto'
+      const folders = b.skills.flatMap((p) => (p.sourceId === OFFICIAL_SOURCE ? [p.path] : w.sources[p.sourceId!].kind === 'local' ? [w.sources[p.sourceId!].path] : []))
+      expect(folders).toEqual(whole ? ['~/.agents/', '~/.team-work/'] : ['~/.agents/', '~/.team-work/', 'skills'])
+      const repos = b.skills.filter((p) => w.sources[p.sourceId!]?.kind === 'git' && p.sourceId !== OFFICIAL_SOURCE)
+      expect(repos.length).toBeGreaterThan(0)
+      for (const p of repos) expect(p.include === null).toBe(whole)
     }
   })
 
   it('keep the repos they read from GitHub as sources', () => {
     const w = seedWorld()
     const read = (id: string) => w.blueprints[id].skills.map((p) => ({ repo: w.sources[p.sourceId!]?.repo, ref: w.sources[p.sourceId!]?.ref, path: p.path }))
-    expect(read('team-work--matt-pocock')).toEqual([{ repo: 'https://github.com/mattpocock/skills', ref: 'main', path: undefined }])
-    expect(read('team-work--poteto')).toEqual([{ repo: 'https://github.com/cursor/plugins', ref: 'main', path: 'pstack' }])
+    expect(read('team-work--matt-pocock')[0]).toEqual({ repo: 'https://github.com/mattpocock/skills', ref: 'main', path: undefined })
+    expect(read('team-work--poteto')[0]).toEqual({ repo: 'https://github.com/cursor/plugins', ref: 'main', path: 'pstack' })
     const kept = Object.keys(w.sources).length
     setLanguage(w, 'en')
     expect(Object.keys(w.sources)).toHaveLength(kept)
@@ -66,7 +72,7 @@ describe('presets', () => {
 
   it('start where they do the work, join every step up, and run side by side where drawn', () => {
     const feature = seedWorld().workflows['team-work--feature']
-    expect(feature.nodes.some((n) => n.name === '整理需求' || n.name === '驗收')).toBe(false)
+    expect(feature.nodes.some((n) => n.name === '整理需求')).toBe(false)
     const starts = feature.nodes.filter((n) => !feature.edges.some((e) => e.to === n.id))
     expect(starts.map((n) => n.name)).toEqual(['撰寫規格'])
     const at = (name: string) => feature.nodes.find((n) => n.name === name)!.pos
@@ -104,7 +110,7 @@ describe('own first', () => {
     const w = seedWorld()
     const ids = blueprintList(w).map((b) => b.id)
     const official = ids.filter((id) => sourceOfId(id) === OFFICIAL_SOURCE)
-    expect(official).toHaveLength(13)
+    expect(official).toHaveLength(12)
     expect(ids.findIndex((id) => sourceOfId(id) === OFFICIAL_SOURCE)).toBeGreaterThan(ids.findLastIndex((id) => !isLocked(id)))
     expect(ids.at(-1)).toBe(AIRPORT_BLUEPRINT)
     expect(hireList(w).map((b) => b.id)).toEqual(ids.slice(0, -1))

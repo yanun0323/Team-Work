@@ -308,10 +308,10 @@ export function seedWorld(language: Locale = 'zh'): World {
     id: 'chat-airport', teamId: '', replicaId: '', name: '', look: AIRPORT_STAFF_LOOK, model: mira.model,
     title: L('新增測試員工', 'A tester for the shop'), tokens: 6200, createdAt: w.now,
     messages: [
-      asked(L('我想在 Acme 網路商店加一個專門寫測試的員工，要怎麼做？', 'I want an employee at Acme Store who only writes tests. How do I do that?')),
+      asked(L('我想在 Acme 網路商店加一個專門檢查改動、跑測試的員工，要怎麼做？', 'I want an employee at Acme Store who only checks changes and runs the tests. How do I do that?')),
       said('', L(
-        '先有一份員工藍圖，再用它新增員工：\n1. 機場的「員工藍圖」已經有「測試工程師」，可以直接用。\n2. 打開 Acme 網路商店的「員工」頁籤，按新增員工，選這份藍圖。\n\n要我幫你把「每次改動都要附測試」寫進藍圖嗎？',
-        'First there is a blueprint, then you hire from it:\n1. The airport\'s Blueprints already has a QA Engineer you can use.\n2. Open Acme Store\'s Employees tab, press New employee and pick that blueprint.\n\nShall I add "every change comes with tests" to the blueprint for you?',
+        '先有一份員工藍圖，再用它新增員工：\n1. 機場的「員工藍圖」已經有「審查與測試」，可以直接用。\n2. 打開 Acme 網路商店的「員工」頁籤，按新增員工，選這份藍圖。\n\n要我幫你把「每次改動都要附測試」寫進藍圖嗎？',
+        'First there is a blueprint, then you hire from it:\n1. The airport\'s Blueprints already has Review & QA, which you can use.\n2. Open Acme Store\'s Employees tab, press New employee and pick that blueprint.\n\nShall I add "every change comes with tests" to the blueprint for you?',
       )),
     ],
   }

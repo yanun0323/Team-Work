@@ -167,7 +167,7 @@ const TOPICS: Topic[] = [
         <p>員工藍圖是員工的範本：Prompt、技能和允許的工具，不含模型，模型由每位員工自己選。所有公司共用藍圖。不知道該用哪個就用官方的「通才」；想改官方或內建的藍圖，按右上角的複製，存成自己的再改。</p>
         <p className="fx-help-pit">「執行指令」沒有沙盒，員工能碰到整台電腦，只給你信任的藍圖。</p>
         <dl>
-          <dt>官方藍圖</dt><dd>通才、前端工程師、後端工程師、程式審查員、測試工程師、設計師、產品規劃、技術規劃、研究員、寫手、DevOps 工程師、Matt Pocock 和 Poteto，共十三個，來自官方來源，不能修改或刪除。Matt Pocock 和 Poteto 照同名作者在 GitHub 公開的技能工作。官方藍圖跟著語言顯示，實際給員工的是英文，再加上回覆語言的規則；你自己的藍圖照你寫的內容給。</dd>
+          <dt>官方藍圖</dt><dd>通才、前端工程師、後端工程師、審查與測試、介面設計工程師、媒體設計師、功能規劃、研究員、寫手、DevOps 工程師、Matt Pocock 和 Poteto，共十二個，來自官方來源，不能修改或刪除。Matt Pocock 和 Poteto 照同名作者在 GitHub 公開的技能工作。官方藍圖跟著語言顯示，實際給員工的是英文，再加上回覆語言的規則；你自己的藍圖照你寫的內容給。</dd>
           <dt>內建藍圖</dt><dd>只有機場服務人員，它只在機場對話裡工作，不能拿來新增員工。</dd>
           <dt>來源提供的藍圖</dt><dd>來源可以帶來員工藍圖。列表依出處分組：我的、各個來源（標題是來源名稱）、內建。來源提供的藍圖和內建的一樣不能修改或刪除，要改就複製一份，複製出來的放在「我的」。</dd>
           <dt>技能</dt><dd>列出「機場 → 來源」的每個來源和它的技能，點一下技能就會亮起，代表使用。勾選來源名稱會使用它全部的技能，之後新增的也會使用，點暗的技能會排除；沒勾來源名稱時只用亮著的技能。不同來源使用了同名的技能時會變成紅底白字，點暗其中一個即可。</dd>
@@ -223,7 +223,7 @@ const TOPICS: Topic[] = [
           <dt>員工藍圖和任務藍圖</dt><dd>放在來源最上層的 <code>blueprints/</code> 和 <code>workflows/</code>，一個 YAML 檔一份，檔名只能用英文字母、數字、<code>-</code> 和 <code>_</code>。員工藍圖寫 <code>name</code>、<code>prompt</code>、<code>comment</code>、<code>tools</code>（<code>read_file</code>、<code>write_file</code>、<code>web_search</code>、<code>run_command</code>）、<code>skills</code>，可加 <code>look</code>；<code>skills</code> 每一項寫 <code>repo</code>（可加 <code>ref</code>、<code>path</code>）、本機資料夾的完整路徑，或來源裡的資料夾，再用 <code>include</code>、<code>exclude</code> 挑技能。任務藍圖的格式和 <code>~/.team-work/workflows/</code> 裡的檔案相同，不指定員工，沒寫位置會自動排好。讀不了的檔案列在來源頁的「無法讀取」。<code>~/.team-work/</code> 是 App 自己的資料夾，只讀技能。</dd>
           <dt>多種語言</dt><dd>員工藍圖的 <code>name</code>、<code>prompt</code>、<code>comment</code>，以及任務藍圖和每個步驟的 <code>name</code>、<code>prompt</code>，可以只寫一段，也可以用 <code>en</code>、<code>zh</code>、<code>zh-Hans</code>、<code>ja</code>、<code>ko</code> 各寫一段。畫面照你選的語言顯示，沒有就用英文，再沒有就用第一個寫的；給員工的有英文就用英文。</dd>
           <dt>官方來源</dt><dd><code>yanun0323/Team-Work-Source</code> 帶來官方藍圖和任務藍圖，每個人都有、不能移除，預設自動套用更新。第一次使用要連上網路下載，之後沒有網路也能用已下載的版本。員工用的藍圖不見時（來源拿掉了、檔名改了，或從舊版升級），他會標上「藍圖已不存在」，排到員工列表最前面；在他身上的步驟會停下來問你，編輯他、重新選一個藍圖就能繼續。</dd>
-          <dt>自動列入</dt><dd><code>~/.agents/</code>、<code>~/.team-work/</code>、<code>~/.codex/</code>、<code>~/.claude/</code> 會自動列為本機來源；官方藍圖 Matt Pocock 和 Poteto 讀的 <code>mattpocock/skills</code>、<code>cursor/plugins</code> 也會自動列入，和你新增的一樣檢查更新。</dd>
+          <dt>自動列入</dt><dd><code>~/.agents/</code>、<code>~/.team-work/</code>、<code>~/.codex/</code>、<code>~/.claude/</code> 會自動列為本機來源；官方藍圖讀的 GitHub repo（例如 Matt Pocock 讀的 <code>mattpocock/skills</code>）也會自動列入，和你新增的一樣檢查更新。</dd>
           <dt>檢查更新</dt><dd>每 6 小時自動檢查一次，想馬上檢查就按來源右上角的重新整理按鈕。有新版本時，列表上的來源前面會出現紅色驚嘆號，打開後列出新增和移除的技能、員工藍圖和任務藍圖，以及受影響的藍圖和員工。本機資料夾沒有版本，改了檔案後按右上角的「重新讀取」。</dd>
           <dt>藍圖被移除時</dt><dd>新版本拿掉了員工正在用的藍圖時，套用後這些員工改用自訂設定，保留原本的內容；套用前會列在「改用自訂設定」底下。</dd>
           <dt>技能</dt><dd>來源頁依資料夾列出它的技能，點一下技能會在旁邊打開一張，顯示它的說明、檔案位置和完整內容。</dd>
