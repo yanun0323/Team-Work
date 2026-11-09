@@ -55,7 +55,7 @@ export function CrewRow({ r, on = false, chair, mind }: { r: Replica; on?: boole
         <span>{mind ?? mindOf(r)}</span>
       </span>
       <Tick on={on} />
-      <ToolNotes bp={w.blueprints[r.blueprintId]} />
+      {w.blueprints[r.blueprintId] && <ToolNotes bp={w.blueprints[r.blueprintId]} />}
     </>
   )
 }

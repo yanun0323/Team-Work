@@ -4,6 +4,7 @@ import { Select, Switcher } from './Controls'
 import { unhidden } from './core/model'
 import { useStore } from './core/store'
 import { lastFlowId } from './draft'
+import { CrewRow } from './Pickers'
 import { usePrefs } from './prefs'
 
 it('shows the picked value its own way when closed', () => {
@@ -33,6 +34,14 @@ it('starts a new task on a flow that is not hidden', () => {
   } finally {
     usePrefs.setState({ hiddenWorkflows: [] })
   }
+})
+
+it('shows an employee whose blueprint is gone without crashing', () => {
+  const w = useStore.getState().world
+  const r = { ...Object.values(w.replicas)[0], blueprintId: 'bp-gone' }
+  const html = renderToStaticMarkup(<CrewRow r={r} />)
+  expect(html).toContain(r.name)
+  expect(html).toContain('fx-bp-gone')
 })
 
 it('takes hidden ones out of a list to pick from', () => {
