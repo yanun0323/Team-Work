@@ -8,8 +8,16 @@ tools: [read_file, write_file, web_search, run_command]
 skills:
   - path: ~/.agents/
   - path: ~/.team-work/
-  - path: ~/.codex/
-  - path: ~/.claude/
+  - path: skills
+  - repo: https://github.com/vercel-labs/agent-skills
+    ref: main
+    include: [writing-guidelines]
+  - repo: https://github.com/anthropics/skills
+    ref: main
+    include: [doc-coauthoring, internal-comms]
+  - repo: https://github.com/coreyhaines31/marketingskills
+    ref: main
+    include: [copywriting, copy-editing, content-strategy, product-marketing, launch]
 look:
   skin: "#f2c9a0"
   hair: "#8a3b2a"

@@ -120,8 +120,49 @@ nodes:
         각 항목은 근본 원인에서 고치고, 범위를 넓히거나 김에 리팩터링하지 마세요. 테스트를 통과시키려고 기대값을 느슨하게 하지 마세요. 고치지 말아야 한다고 생각하는 항목은 이유를 적으세요. 말없이 건너뛰지 마세요. 고친 동작은 테스트로 다루고 관련 테스트와 빌드를 실행하세요.
 
         인계에는 각 항목을 어떻게 고쳤는지, 고치지 않은 것과 그 이유를 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
+  - id: recheck
+    name:
+      en: Recheck
+      zh: 複查
+      zh-Hans: 复查
+      ja: 再確認
+      ko: 재확인
+    sendBack: true
+    prompt:
+      en: |-
+        Check the fixes against the earlier reviews: confirm each must-fix item is really fixed at its root cause, that the reasons given for items left unfixed hold up, and that the fixes added no new problem. Review only what the fix step changed, and run the relevant tests and build. Do not change any file in this step.
+
+        If a must-fix item is not fixed or a fix introduced a new problem, send it back with the location and the reason.
+
+        In your handoff, give each item's result and any new problems. Copy the acceptance criteria word for word for the next step.
+      zh: |-
+        對照前面的審查結果檢查修正：確認每個必須修的項目真的從根本原因修好了，沒修的項目理由站得住，而且修正沒有帶來新問題。只看修正這一步改了什麼，並跑相關的測試和建置。這一步不修改任何檔案。
+
+        必須修的項目沒修好，或修正帶來新問題時，寫明位置和理由退回。
+
+        交接時逐項寫下結果和新發現的問題，並把驗收條件原文帶給下一步。
+      zh-Hans: |-
+        对照前面的审查结果检查修正：确认每个必须修的项目真的从根本原因修好了，没修的项目理由站得住，而且修正没有带来新问题。只看修正这一步改了什么，并跑相关的测试和构建。这一步不修改任何文件。
+
+        必须修的项目没修好，或修正带来新问题时，写明位置和理由退回。
+
+        交接时逐项写下结果和新发现的问题，并把验收条件原文带给下一步。
+      ja: |-
+        前のレビュー結果と照らして修正を確かめる：必須修正の各項目が本当に根本原因で直っているか、直さなかった項目の理由が妥当か、修正が新しい問題を持ち込んでいないかを確認する。修正のステップで変わったところだけを見て、関連するテストとビルドを実行する。このステップではファイルを一切変更しない。
+
+        必須修正の項目が直っていないか、修正が新しい問題を持ち込んだときは、場所と理由を添えて差し戻す。
+
+        引き継ぎには、項目ごとの結果と新しく見つかった問題を書く。受け入れ条件は次のステップのために原文どおり写す。
+      ko: |-
+        앞선 리뷰 결과와 대조해 수정을 확인하세요. 필수 수정 항목이 모두 근본 원인에서 고쳐졌는지, 고치지 않은 항목의 이유가 타당한지, 수정이 새 문제를 만들지 않았는지 확인하세요. 수정 단계에서 바뀐 것만 보고, 관련 테스트와 빌드를 실행하세요. 이 단계에서는 어떤 파일도 바꾸지 마세요.
+
+        필수 수정 항목이 고쳐지지 않았거나 수정이 새 문제를 만들었다면 위치와 이유를 적어 되돌려 보내세요.
+
+        인계에는 항목마다의 결과와 새로 찾은 문제를 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
 edges:
   - from: quality-review
     to: fix
   - from: security-review
     to: fix
+  - from: fix
+    to: recheck

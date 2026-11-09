@@ -131,8 +131,92 @@ nodes:
         로딩, 빈 데이터, 오류 상태를 처리하세요. 새로 생기거나 바뀐 동작은 모두 테스트로 다루세요. 인계하기 전에 테스트와 빌드를 실행해 통과하는지 확인하세요.
 
         인계에는 한 일, 검증 방법, 인터페이스가 바뀌었는지를 적으세요. 프런트엔드 작업이 없다면 이유를 적고 바로 인계하세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
+  - id: acceptance
+    name:
+      en: Acceptance
+      zh: 驗收
+      zh-Hans: 验收
+      ja: 受け入れ確認
+      ko: 인수 확인
+    sendBack: false
+    prompt:
+      en: |-
+        Check that the frontend and backend work together and meet the spec. First run the project's tests and build. Then verify each acceptance criterion by actually running the feature, and confirm both sides use the same paths, parameters, responses and error formats. Also try empty data, bad input and repeated actions. Do not change any file in this step.
+
+        For each problem, give the file and line or the steps to reproduce, the expected and actual results, and the severity: must fix, should fix or suggestion.
+
+        In your handoff, give each criterion's result with its evidence, the list of problems and what you did not verify. Copy the acceptance criteria word for word for the next step.
+      zh: |-
+        確認前後端接得起來、也符合規格。先跑專案的測試和建置，再照驗收條件逐條實際操作功能驗證，並確認兩邊的路徑、參數、回應和錯誤格式一致。也要試空資料、錯誤輸入和重複操作。這一步不修改任何檔案。
+
+        每個問題都寫下檔案與行號或重現步驟、預期結果和實際結果，以及嚴重程度：必須修、應該修或只是建議。
+
+        交接時寫下每條驗收條件的結果和依據、問題清單，以及沒驗到的部分，並把驗收條件原文帶給下一步。
+      zh-Hans: |-
+        确认前后端接得起来、也符合规格。先跑项目的测试和构建，再照验收条件逐条实际操作功能验证，并确认两边的路径、参数、响应和错误格式一致。也要试空数据、错误输入和重复操作。这一步不修改任何文件。
+
+        每个问题都写下文件与行号或重现步骤、预期结果和实际结果，以及严重程度：必须修、应该修或只是建议。
+
+        交接时写下每条验收条件的结果和依据、问题清单，以及没验到的部分，并把验收条件原文带给下一步。
+      ja: |-
+        フロントエンドとバックエンドが一緒に動き、仕様を満たしているかを確かめる。まずプロジェクトのテストとビルドを実行する。次に受け入れ条件を一つずつ、機能を実際に動かして検証し、両側のパス、パラメーター、レスポンス、エラー形式がそろっているかを確かめる。空のデータ、不正な入力、繰り返しの操作も試す。このステップではファイルを一切変更しない。
+
+        問題ごとに、ファイルと行または再現手順、期待した結果と実際の結果、重大度（必須修正、修正推奨、提案）を書く。
+
+        引き継ぎには、条件ごとの結果とその証拠、問題の一覧、検証しなかったことを書く。受け入れ条件は次のステップのために原文どおり写す。
+      ko: |-
+        프런트엔드와 백엔드가 함께 동작하고 명세를 충족하는지 확인하세요. 먼저 프로젝트의 테스트와 빌드를 실행하세요. 그다음 인수 기준을 하나씩 기능을 실제로 실행해 검증하고, 양쪽의 경로, 매개변수, 응답, 오류 형식이 같은지 확인하세요. 빈 데이터, 잘못된 입력, 반복 동작도 시도하세요. 이 단계에서는 어떤 파일도 바꾸지 마세요.
+
+        문제마다 파일과 줄 또는 재현 단계, 기대 결과와 실제 결과, 심각도(필수 수정, 수정 권장, 제안)를 적으세요.
+
+        인계에는 기준마다의 결과와 근거, 문제 목록, 검증하지 않은 것을 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
+  - id: fix
+    name:
+      en: Fix
+      zh: 修正
+      zh-Hans: 修正
+      ja: 修正
+      ko: 수정
+    sendBack: true
+    prompt:
+      en: |-
+        Fix the problems the acceptance found. Every must-fix item gets fixed. If you think an item should not be fixed, say why. Do not skip it silently. Fix each at its root cause, without widening the scope or refactoring along the way. Do not loosen a test's expectations to make it pass. Cover the fixed behavior with tests, and run the relevant tests and build.
+
+        If the acceptance found no problems, say so and hand off directly. If its report is wrong or too unclear to act on, send it back with what needs checking again.
+
+        In your handoff, state how each item was fixed, and which were not and why. Copy the acceptance criteria word for word for the next step.
+      zh: |-
+        修正驗收找到的問題。必須修的一定要修；覺得某一項不該修時，寫下理由，不要默默跳過。逐項從根本原因修正，不擴大範圍，也不順手重構。不要為了通過測試而放寬測試的預期。修過的行為要有測試，並實際跑過相關測試和建置。
+
+        驗收沒有找到問題時，寫明這點後直接交接。驗收的結果有錯或不清楚到無法處理時，退回並說明要重新確認什麼。
+
+        交接時逐項寫下怎麼修的、沒修的項目和理由，並把驗收條件原文帶給下一步。
+      zh-Hans: |-
+        修正验收找到的问题。必须修的一定要修；觉得某一项不该修时，写下理由，不要默默跳过。逐项从根本原因修正，不扩大范围，也不顺手重构。不要为了通过测试而放宽测试的预期。修过的行为要有测试，并实际跑过相关测试和构建。
+
+        验收没有找到问题时，写明这点后直接交接。验收的结果有错或不清楚到无法处理时，退回并说明要重新确认什么。
+
+        交接时逐项写下怎么修的、没修的项目和理由，并把验收条件原文带给下一步。
+      ja: |-
+        受け入れ確認で見つかった問題を直す。必須修正の項目はすべて直す。直すべきでないと考える項目は理由を書く。黙って飛ばさない。各項目は根本原因で直し、範囲を広げたり、ついでにリファクタリングしたりしない。テストを通すために期待値を緩めない。直した振る舞いにはテストを付け、関連するテストとビルドを実行する。
+
+        受け入れ確認で問題が見つからなかったときは、そう書いてそのまま引き継ぐ。その報告が誤っているか、不明確で対応できないときは、何を確かめ直すべきかを添えて差し戻す。
+
+        引き継ぎには、各項目をどう直したか、直さなかったものとその理由を書く。受け入れ条件は次のステップのために原文どおり写す。
+      ko: |-
+        인수 확인에서 찾은 문제를 고치세요. 필수 수정 항목은 모두 고칩니다. 고치지 말아야 한다고 생각하는 항목은 이유를 적으세요. 말없이 건너뛰지 마세요. 각 항목은 근본 원인에서 고치고, 범위를 넓히거나 김에 리팩터링하지 마세요. 테스트를 통과시키려고 기대값을 느슨하게 하지 마세요. 고친 동작은 테스트로 다루고 관련 테스트와 빌드를 실행하세요.
+
+        인수 확인에서 문제가 나오지 않았다면 그렇게 적고 바로 인계하세요. 그 보고가 틀렸거나 처리할 수 없을 만큼 불분명하면, 무엇을 다시 확인해야 하는지 적어 되돌려 보내세요.
+
+        인계에는 각 항목을 어떻게 고쳤는지, 고치지 않은 것과 그 이유를 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
 edges:
   - from: write-spec
     to: backend-development
   - from: write-spec
     to: frontend-development
+  - from: backend-development
+    to: acceptance
+  - from: frontend-development
+    to: acceptance
+  - from: acceptance
+    to: fix

@@ -82,6 +82,47 @@ nodes:
         수정 후에는 앞 단계의 테스트가 통과해야 합니다. 같은 문제가 다른 곳에 없는지도 확인하세요.
 
         인계에는 근본 원인, 바꾼 것, 그렇게 바꾼 이유, 영향받을 수 있는 부분을 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
+  - id: verify
+    name:
+      en: Verify
+      zh: 驗證
+      zh-Hans: 验证
+      ja: 検証
+      ko: 검증
+    sendBack: true
+    prompt:
+      en: |-
+        Check that the problem is really fixed. Follow the steps to reproduce yourself, confirm the reproduce step's test really checks this problem and now passes, and run the project's tests and build. Check whether the same problem exists elsewhere, and whether related features still work. Do not change any file in this step.
+
+        If the problem is not fixed or the fix broke something, send it back with the evidence and the steps to reproduce.
+
+        In your handoff, give what you checked, the evidence and the result, and what you did not verify. Copy the acceptance criteria word for word for the next step.
+      zh: |-
+        確認問題真的修好了。自己照重現步驟走一次，確認重現時寫的測試真的檢查到這個問題、現在也通過了，並跑專案的測試和建置。檢查其他地方有沒有同樣的問題，以及相關功能是不是還正常。這一步不修改任何檔案。
+
+        問題沒修好，或修正弄壞了別的東西時，附上依據和重現步驟退回。
+
+        交接時寫下檢查了什麼、依據和結果，以及沒驗到的部分，並把驗收條件原文帶給下一步。
+      zh-Hans: |-
+        确认问题真的修好了。自己照重现步骤走一次，确认重现时写的测试真的检查到这个问题、现在也通过了，并跑项目的测试和构建。检查其他地方有没有同样的问题，以及相关功能是不是还正常。这一步不修改任何文件。
+
+        问题没修好，或修正弄坏了别的东西时，附上依据和重现步骤退回。
+
+        交接时写下检查了什么、依据和结果，以及没验到的部分，并把验收条件原文带给下一步。
+      ja: |-
+        問題が本当に直ったかを確かめる。再現手順を自分でたどり、再現のステップで書いたテストが本当にこの問題を確かめていて、今は通ることを確認し、プロジェクトのテストとビルドを実行する。同じ問題がほかの場所にないか、関連する機能がまだ正しく動くかを確かめる。このステップではファイルを一切変更しない。
+
+        問題が直っていないか、修正でほかのものが壊れたときは、証拠と再現手順を添えて差し戻す。
+
+        引き継ぎには、確かめたこと、証拠と結果、検証しなかったことを書く。受け入れ条件は次のステップのために原文どおり写す。
+      ko: |-
+        문제가 정말 고쳐졌는지 확인하세요. 재현 단계를 직접 따라 해 보고, 재현 단계에서 쓴 테스트가 실제로 이 문제를 확인하며 지금은 통과하는지 확인하고, 프로젝트의 테스트와 빌드를 실행하세요. 같은 문제가 다른 곳에도 있는지, 관련 기능이 여전히 잘 동작하는지 확인하세요. 이 단계에서는 어떤 파일도 바꾸지 마세요.
+
+        문제가 고쳐지지 않았거나 수정이 다른 것을 망가뜨렸다면 근거와 재현 단계를 적어 되돌려 보내세요.
+
+        인계에는 확인한 것, 근거와 결과, 검증하지 않은 것을 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
 edges:
   - from: reproduce
     to: fix
+  - from: fix
+    to: verify

@@ -8,8 +8,11 @@ tools: [read_file, write_file, web_search, run_command]
 skills:
   - path: ~/.agents/
   - path: ~/.team-work/
-  - path: ~/.codex/
-  - path: ~/.claude/
+  - path: skills
+  - repo: https://github.com/anthropics/knowledge-work-plugins
+    ref: main
+    path: data
+    include: [analyze, explore-data, validate-data, statistical-analysis, sql-queries, data-visualization]
 look:
   skin: "#f2c9a0"
   hair: "#3a2a55"

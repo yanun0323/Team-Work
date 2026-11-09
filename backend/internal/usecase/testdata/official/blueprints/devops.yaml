@@ -8,8 +8,14 @@ tools: [read_file, write_file, run_command]
 skills:
   - path: ~/.agents/
   - path: ~/.team-work/
-  - path: ~/.codex/
-  - path: ~/.claude/
+  - path: skills
+  - repo: https://github.com/addyosmani/agent-skills
+    ref: main
+    include: [ci-cd-and-automation, shipping-and-launch, observability-and-instrumentation, git-workflow-and-versioning]
+  - repo: https://github.com/trailofbits/skills
+    ref: main
+    path: plugins
+    include: [supply-chain-risk-auditor, devcontainer-setup]
 look:
   skin: "#c68a5a"
   hair: "#5a3a22"

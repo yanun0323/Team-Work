@@ -8,6 +8,8 @@ tools: [read_file, write_file, web_search, run_command]
 skills:
   - repo: https://github.com/mattpocock/skills
     ref: main
+  - path: ~/.agents/
+  - path: ~/.team-work/
 look:
   skin: "#f2c9a0"
   hair: "#d9d4c7"

@@ -35,6 +35,11 @@ func TestImagesStayOutOfStoredHistoryAndSnapshots(t *testing.T) {
 		}
 		return say("seen"), nil
 	})
+	// the image is over a megabyte, so a snapshot holding it would grow by far more than the chat adds
+	before, err := r.e.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Images: []model.Attachment{{Name: "a.png", URL: "data:image/png;base64," + data}}})
 	if err != nil {
 		t.Fatal(err)
@@ -44,8 +49,8 @@ func TestImagesStayOutOfStoredHistoryAndSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(raw) > 200_000 || strings.Contains(string(raw), data) {
-		t.Fatalf("snapshot retains image payload: %d bytes", len(raw))
+	if len(raw)-len(before) > 50_000 || strings.Contains(string(raw), data) {
+		t.Fatalf("snapshot retains image payload: %d bytes more", len(raw)-len(before))
 	}
 	docs, err := r.store.LoadDocs(context.Background())
 	if err != nil {
@@ -84,6 +89,10 @@ func TestLegacyInlineImagesLoadAsReferencesWithoutLosingHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.wait("reply", chatDone(c.ID))
+	before, err := r.e.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
 	r.e.Close()
 	docs, err := r.store.LoadDocs(context.Background())
 	if err != nil {
@@ -115,8 +124,8 @@ func TestLegacyInlineImagesLoadAsReferencesWithoutLosingHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), data) || len(raw) > 200_000 {
-		t.Fatalf("legacy snapshot still carries image: %d bytes", len(raw))
+	if strings.Contains(string(raw), data) || len(raw)-len(before) > 50_000 {
+		t.Fatalf("legacy snapshot still carries image: %d bytes more", len(raw)-len(before))
 	}
 	if len(r.world().Chats[c.ID].Messages) != 2 {
 		t.Fatal("history lost")

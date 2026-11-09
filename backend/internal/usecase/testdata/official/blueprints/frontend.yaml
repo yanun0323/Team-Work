@@ -8,8 +8,16 @@ tools: [read_file, write_file, web_search, run_command]
 skills:
   - path: ~/.agents/
   - path: ~/.team-work/
-  - path: ~/.codex/
-  - path: ~/.claude/
+  - path: skills
+  - repo: https://github.com/vercel-labs/agent-skills
+    ref: main
+    include: [vercel-react-best-practices, vercel-composition-patterns, web-design-guidelines]
+  - repo: https://github.com/anthropics/skills
+    ref: main
+    include: [frontend-design, webapp-testing]
+  - repo: https://github.com/addyosmani/agent-skills
+    ref: main
+    include: [frontend-ui-engineering]
 look:
   skin: "#f2c9a0"
   hair: "#c99a4a"

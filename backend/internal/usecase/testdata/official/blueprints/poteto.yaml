@@ -9,6 +9,8 @@ skills:
   - repo: https://github.com/cursor/plugins
     ref: main
     path: pstack
+  - path: ~/.agents/
+  - path: ~/.team-work/
 look:
   skin: "#ecc5a5"
   hair: "#d97aa8"

@@ -8,8 +8,14 @@ tools: [read_file, write_file, web_search, run_command]
 skills:
   - path: ~/.agents/
   - path: ~/.team-work/
-  - path: ~/.codex/
-  - path: ~/.claude/
+  - path: skills
+  - repo: https://github.com/addyosmani/agent-skills
+    ref: main
+    include: [api-and-interface-design, security-and-hardening, observability-and-instrumentation, performance-optimization, deprecation-and-migration]
+  - repo: https://github.com/trailofbits/skills
+    ref: main
+    path: plugins
+    include: [property-based-testing, sharp-edges]
 look:
   skin: "#c68a5a"
   hair: "#1c1c1c"

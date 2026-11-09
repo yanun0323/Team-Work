@@ -8,8 +8,10 @@ tools: [read_file, write_file, web_search, run_command]
 skills:
   - path: ~/.agents/
   - path: ~/.team-work/
-  - path: ~/.codex/
-  - path: ~/.claude/
+  - path: skills
+  - repo: https://github.com/anthropics/skills
+    ref: main
+    include: [docx, pdf, pptx, xlsx]
 look:
   skin: "#e8b48a"
   hair: "#1f1a24"
