@@ -198,6 +198,9 @@ func (g offline) Fetch(ctx context.Context, repo, commit string) (string, error)
 		dir, _ := officialCopy()
 		return dir, nil
 	}
+	if strings.HasPrefix(repo, "https://github.com/") {
+		return "", errors.New("no network in tests")
+	}
 	return g.Git.Fetch(ctx, repo, commit)
 }
 
