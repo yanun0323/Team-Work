@@ -289,7 +289,7 @@ export interface Handoff {
 }
 
 export type ReviewKind = 'question' | 'pickRoute' | 'failed' | 'budget' | 'talk' | 'change'
-export type FailReason = 'timeout' | 'error'
+export type FailReason = 'timeout' | 'error' | 'environment'
 
 /** One difference in a change waiting for the user. A `node` or `edge` line with only `after` was added, with only `before` removed. */
 export interface ChangeLine {

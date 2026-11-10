@@ -465,6 +465,7 @@ function askText(w: World, sub: SubTask): string {
   if (r.kind === 'change' && r.change) return changeAsk(r.change)
   if (r.kind === 'pickRoute') return tr('這一步做完了，但我不確定接下來要交給哪一步，請幫我選一個。')
   if (r.kind === 'failed') {
+    if (r.reason === 'environment' && r.prompt) return r.prompt
     const max = w.teams[task.teamId]?.settings.retries ?? 0
     return tr('執行{a}，自動重試 {max} 次都沒成功。要再試一次，還是略過這一步？', { a: r.reason === 'timeout' ? tr('逾時') : tr('出錯'), max })
   }

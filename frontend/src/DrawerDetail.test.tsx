@@ -76,3 +76,26 @@ it('keeps a delete that cannot be done now reachable, saying why to the keyboard
   // one that can delete is a plain bin, asking first
   expect(renderToStaticMarkup(<DeleteTool what="來源" onConfirm={() => {}} />)).not.toContain('aria-disabled')
 })
+
+it('shows environment failure details instead of claiming verification exhausted retries', () => {
+  const w = useStore.getState().world
+  const task = Object.values(w.tasks)[0]
+  const id = 'environment-review-test'
+  const node = task.workflow.nodes.find((n) => n.kind !== 'talk')!
+  w.subTasks[id] = {
+    id, taskId: task.id, nodeId: node.id, parentId: null, upstreamIds: [], replicaId: null,
+    status: 'review', progress: 0, createdAt: 0, attempts: 0, costUsd: 0, tokens: 0,
+    routedTo: [], routed: false, arrivedAt: 0, waiting: false, log: [], cancelled: false, duration: 0, script: { lines: [] },
+    review: { kind: 'failed', from: 'progressing', reason: 'environment', prompt: 'Environment preparation failed; work and verification have not started: npm unavailable', options: [{ id: 'retry' }, { id: 'skip' }], at: 0 },
+  }
+  try {
+    Object.assign(useStore.getInitialState(), useStore.getState())
+    const noop = () => {}
+    const html = renderToStaticMarkup(<Detail item={{ kind: 'sub', id }} teamId={task.teamId} depth={0} covered={false} leaving={false}
+      onGone={noop} onBack={noop} onDone={noop} onClear={noop} onPush={noop} onOpen={noop} />)
+    expect(html).toContain('Environment preparation failed; work and verification have not started: npm unavailable')
+    expect(html).not.toContain('automatic retries')
+  } finally {
+    delete w.subTasks[id]
+  }
+})
