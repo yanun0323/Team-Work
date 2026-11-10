@@ -104,6 +104,7 @@ func (e *endpoint) close() {
 type Service struct {
 	mu             sync.Mutex
 	startMu        sync.Mutex
+	pairStartMu    sync.Mutex
 	ctx            context.Context
 	cancel         context.CancelFunc
 	wg             sync.WaitGroup
@@ -320,7 +321,9 @@ func (s *Service) SetAllowed(id string, allow bool) (Peer, error) {
 		s.disk.Peers[id] = old
 		return Peer{}, unavailable()
 	}
-	s.newLeaseLocked(id)
+	if old.AllowInbound != allow {
+		s.newLeaseLocked(id)
+	}
 	return p.Peer, nil
 }
 func missing() error { return model.Errorf(model.CodeNotFound, "找不到配對電腦或配對請求") }
@@ -484,13 +487,14 @@ func bearer(r *http.Request) string {
 	return strings.TrimPrefix(h, "Bearer ")
 }
 
-// RoundTrip never uses environment HTTP proxies or follows redirects. Closing the body closes the Tailcat client.
+// Dial opens a fresh encrypted stream with bounded connection establishment.
 func (s *Service) Dial(ctx context.Context, address string) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	return s.transport.Dial(ctx, address)
 }
 
+// RoundTrip never uses environment proxies or follows redirects. Closing the body closes its client.
 func (s *Service) RoundTrip(req *http.Request, address string) (*http.Response, error) {
 	tr := &http.Transport{DisableKeepAlives: true, ResponseHeaderTimeout: 30 * time.Second, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return s.Dial(ctx, address) }}
 	return tr.RoundTrip(req)

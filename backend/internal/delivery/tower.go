@@ -182,6 +182,19 @@ func (t remoteTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		// A failed connection gets a fresh Tailcat client, not the dead client's internal state.
 		var response *http.Response
 		response, err = t.service.RoundTrip(req, t.address)
+		if err == nil && r.Method != http.MethodGet {
+			// Do not expose a partial mutation response. The receiver has cached it;
+			// retry its key if the tunnel closes while the body is being delivered.
+			var raw []byte
+			raw, err = io.ReadAll(io.LimitReader(response.Body, (32<<20)+1))
+			response.Body.Close()
+			if len(raw) > 32<<20 {
+				return nil, invalidRemote()
+			}
+			if err == nil {
+				response.Body = io.NopCloser(bytes.NewReader(raw))
+			}
+		}
 		if err == nil {
 			return response, nil
 		}

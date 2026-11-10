@@ -3,8 +3,10 @@ package tower
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/fxamacker/cbor/v2"
 	"net"
 	"sync"
 	"time"
@@ -28,7 +30,7 @@ func (Tailcat) Validate(address string) error {
 	}
 	ci, err := tailcat.ParseAddr(tailcat.Addr(address))
 	// Only the official relay is supported. Never fetch arbitrary relay URLs supplied by a peer.
-	if err != nil || len(ci.Region) != 0 || ci.RegionID <= 0 || ci.PresharedKey.IsZero() {
+	if err != nil || len(ci.Region) != 0 || ci.RegionID <= 0 || ci.PresharedKey.IsZero() || ci.ServerDiscoPublic.IsZero() || ci.ServerPublic.IsZero() {
 		return errors.New("invalid address")
 	}
 	return nil
@@ -47,22 +49,36 @@ func (Tailcat) Listen(ctx context.Context, saved json.RawMessage) (net.Listener,
 	if identity.Key == nil {
 		identity.Key = tailcat.NewPrivateKey()
 	}
-	srv := &tailcat.Server{Key: identity.Key.Private, PresharedKey: identity.Key.Public.PresharedKey, RegionID: identity.Region, Logf: func(string, ...any) {}}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	region := identity.Region
+	if region == 0 {
+		region = -1
+	}
+	ci := tailcat.ConnInfo{RegionID: region}
+	if err := ci.Expand(ctx, tailcat.ExpandForServer); err != nil {
+		return nil, "", nil, errors.New("tailcat relay unavailable")
+	}
+	if len(ci.Region) != 1 {
+		return nil, "", nil, errors.New("tailcat relay unavailable")
+	}
+	identity.Region = ci.Region[0].RegionID
+	srv := &tailcat.Server{Key: identity.Key.Private, PresharedKey: identity.Key.Public.PresharedKey, Region: ci.Region[0], Logf: func(string, ...any) {}}
 	l, err := srv.Listen(ctx, "tcp", ":80")
 	if err != nil {
 		srv.Close()
 		return nil, "", nil, errors.New("tailcat listen failed")
 	}
-	address := string(srv.TailcatAddr())
-	ci, err := tailcat.ParseAddr(tailcat.Addr(address))
+	// Advertise only the official region ID, never peer-supplied relay hosts. Avoid TailcatAddr,
+	// and ConnInfo.Addr: their debug environment knob prints the preshared key.
+	identity.Key.Public.RegionID = identity.Region
+	identity.Key.Public.Region = nil
+	address, err := privateAddress(identity.Key.Public)
 	if err != nil {
 		l.Close()
 		srv.Close()
-		return nil, "", nil, errors.New("tailcat address failed")
+		return nil, "", nil, err
 	}
-	identity.Region = ci.RegionID
 	raw, err := json.Marshal(identity)
 	if err != nil {
 		l.Close()
@@ -110,4 +126,20 @@ func (c *tailConn) Close() error {
 	var err error
 	c.once.Do(func() { err = c.Conn.Close(); c.closeClient() })
 	return err
+}
+
+// v0.7.0's public encoder logs secret CBOR bytes when TS_DEBUG_ADDR is inherited.
+// Encode only its official-relay wire fields without invoking that logger.
+func privateAddress(ci tailcat.ConnInfo) (string, error) {
+	wire := struct {
+		Public    tailcat.NodePublic    `cbor:"p"`
+		Disco     *tailcat.DiscoPublic  `cbor:"k,omitempty"`
+		Preshared *tailcat.PresharedKey `cbor:"q,omitempty"`
+		Region    int64                 `cbor:"i,omitempty"`
+	}{ci.ServerPublic, &ci.ServerDiscoPublic, &ci.PresharedKey, ci.RegionID.Int64()}
+	raw, err := cbor.Marshal(wire)
+	if err != nil {
+		return "", err
+	}
+	return "tc" + base64.RawURLEncoding.EncodeToString(raw), nil
 }

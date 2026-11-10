@@ -24,6 +24,8 @@ type pairResult struct {
 }
 
 func (s *Service) BeginPairing() (*Pairing, error) {
+	s.pairStartMu.Lock()
+	defer s.pairStartMu.Unlock()
 	s.mu.Lock()
 	if s.pairing != nil {
 		p := s.pairing.view
@@ -34,16 +36,17 @@ func (s *Service) BeginPairing() (*Pairing, error) {
 	if err := s.ensureEndpoint(); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.pairing != nil {
-		p := s.pairing.view
-		return &p, nil
-	}
 	ctx, cancel := context.WithTimeout(s.ctx, pairLifetime)
 	l, address, _, err := s.transport.Listen(ctx, nil)
 	if err != nil {
 		cancel()
+		return nil, unavailable()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ctx.Err() != nil {
+		cancel()
+		l.Close()
 		return nil, unavailable()
 	}
 	w := &waiting{view: Pairing{Address: address, ExpiresAt: time.Now().Add(pairLifetime).Unix()}, cancel: cancel}
@@ -175,6 +178,10 @@ func (s *Service) Decide(requestID string, approve bool) (Peer, error) {
 		return Peer{}, missing()
 	}
 	if !w.view.Request.Compatible {
+		if !approve {
+			w.view.Request = nil
+			return Peer{}, nil
+		}
 		return Peer{}, incompatible(w.view.Request.Identity)
 	}
 	if w.pending == nil {

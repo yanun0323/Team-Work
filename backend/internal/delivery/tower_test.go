@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,8 +20,11 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/labstack/echo/v4"
 	"github.com/rs/zerolog"
+	"github.com/yanun0323/Team-Work/internal/repository"
 	"github.com/yanun0323/Team-Work/internal/tower"
+	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
 const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -320,5 +324,259 @@ func TestTowerLocalAPIAndProxy(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 403 {
 		t.Fatal("local guard bypassed")
+	}
+}
+
+func TestRemoteSocketProxyAndRevocation(t *testing.T) {
+	receiver := pairedTower(t, offlineTower{})
+	network := &lostResponseNetwork{handler: NewGateway(receiver, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		up := websocket.Upgrader{}
+		conn, err := up.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		conn.WriteMessage(websocket.TextMessage, []byte("remote snapshot"))
+		for {
+			kind, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if conn.WriteMessage(kind, data) != nil {
+				return
+			}
+		}
+	}))}
+	sender := pairedTower(t, network)
+	s := NewServer(nil, nil, nil, nil, []string{origin}, zerolog.Nop())
+	s.EnableTowers(sender)
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/api/v1/remote/peer/events", http.Header{"Origin": []string{origin}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, data, err := conn.ReadMessage()
+	if err != nil || string(data) != "remote snapshot" {
+		t.Fatal(string(data), err)
+	}
+	if err := conn.WriteMessage(websocket.BinaryMessage, []byte("terminal bytes")); err != nil {
+		t.Fatal(err)
+	}
+	kind, data, err := conn.ReadMessage()
+	if err != nil || kind != websocket.BinaryMessage || string(data) != "terminal bytes" {
+		t.Fatal(kind, string(data), err)
+	}
+	receiver.SetAllowed("peer", false)
+	conn.SetReadDeadline(time.Now().Add(time.Second))
+	if _, _, err := conn.ReadMessage(); err == nil {
+		t.Fatal("proxy remained open")
+	}
+}
+
+func TestRemoteUnpairAllowedEvenWhenControlDenied(t *testing.T) {
+	service := pairedTower(t, offlineTower{})
+	service.SetAllowed("peer", false)
+	g := NewGateway(service, http.NotFoundHandler())
+	w := gatewayRequest(g, "POST", "/tower/v1/unpair", testToken, "", "")
+	if w.Code != 204 || service.View().Peers[0].Status != "unpaired" {
+		t.Fatal(w.Code, service.View())
+	}
+	if _, _, err := service.Authorize(testToken, true); err == nil {
+		t.Fatal("unpair did not invalidate token")
+	}
+}
+
+// Explicit opt-in only: default go test never contacts Tailcat's relay.
+func TestTailcatLivePairHTTPAndWebSocket(t *testing.T) {
+	if os.Getenv("TEAM_WORK_TEST_TAILCAT") != "1" {
+		t.Skip("live relay test is opt-in")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	makeServer := func() (*tower.Service, *httptest.Server) {
+		service, err := tower.New(ctx, t.TempDir(), tower.Tailcat{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := NewServer(nil, nil, nil, nil, []string{origin}, zerolog.Nop())
+		s.echo.GET("/api/v1/live-socket", func(c echo.Context) error {
+			up := websocket.Upgrader{}
+			conn, err := up.Upgrade(c.Response(), c.Request(), nil)
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			for {
+				kind, data, err := conn.ReadMessage()
+				if err != nil {
+					return nil
+				}
+				if conn.WriteMessage(kind, data) != nil {
+					return nil
+				}
+			}
+		})
+		s.EnableTowers(service)
+		srv := httptest.NewServer(s.Handler())
+		t.Cleanup(func() { srv.Close(); service.Close() })
+		return service, srv
+	}
+	a, local := makeServer()
+	b, _ := makeServer()
+	waiting, err := b.BeginPairing()
+	if err != nil {
+		t.Fatal("cannot listen on relay")
+	}
+	if _, err = a.Pair(waiting.Address); err != nil {
+		t.Fatal("cannot start pairing")
+	}
+	wait := func(f func() bool) {
+		for !f() {
+			select {
+			case <-ctx.Done():
+				t.Fatal("live pairing timed out")
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	}
+	wait(func() bool { return b.View().Pairing != nil && b.View().Pairing.Request != nil })
+	if _, err = b.Decide(a.View().Me.ID, true); err != nil {
+		t.Fatal("cannot approve")
+	}
+	wait(func() bool { v := a.View().Outgoing; return v != nil && v.State == "paired" })
+	id := b.View().Me.ID
+	peer, err := a.Check(ctx, id)
+	if err != nil || peer.Status != "online" {
+		t.Fatal("paired peer not online")
+	}
+	response, err := http.Get(local.URL + "/api/v1/remote/" + id + "/folders")
+	if err != nil {
+		t.Fatal("live HTTP failed")
+	}
+	response.Body.Close()
+	if response.StatusCode != 200 {
+		t.Fatal(response.StatusCode)
+	}
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(local.URL, "http")+"/api/v1/remote/"+id+"/live-socket", nil)
+	if err != nil {
+		t.Fatal("live websocket failed")
+	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	conn.WriteMessage(websocket.BinaryMessage, []byte("hello"))
+	_, data, err := conn.ReadMessage()
+	if err != nil || string(data) != "hello" {
+		t.Fatal("live websocket roundtrip failed")
+	}
+	b.SetAllowed(a.View().Me.ID, false)
+	conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	if _, _, err := conn.ReadMessage(); err == nil {
+		t.Fatal("live revocation failed")
+	}
+}
+
+func TestTowerSecretsStayOutOfWorldEventsAndLogs(t *testing.T) {
+	data := t.TempDir()
+	store, err := repository.NewStore(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var logs bytes.Buffer
+	engine, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: repository.NewGit(data), Providers: noModels{}, DataDir: data, Log: zerolog.New(&logs)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+	service := pairedTower(t, offlineTower{})
+	s := NewServer(engine, claude, pickedFolder{}, repository.Terminals{}, []string{origin}, zerolog.New(&logs))
+	s.EnableTowers(service)
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	outputs := []string{}
+	for _, path := range []string{"/api/v1/world", "/api/v1/towers"} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		outputs = append(outputs, string(raw))
+	}
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/api/v1/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, event, err := conn.ReadMessage()
+	conn.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputs = append(outputs, string(event), logs.String())
+	sum := sha256.Sum256([]byte(testToken))
+	for _, output := range outputs {
+		for _, secret := range []string{testToken, "test-address", hex.EncodeToString(sum[:])} {
+			if strings.Contains(output, secret) {
+				t.Fatal("secret leaked into public output")
+			}
+		}
+	}
+}
+
+type partialResponseNetwork struct {
+	lostResponseNetwork
+	cut atomic.Bool
+}
+
+func (n *partialResponseNetwork) Dial(ctx context.Context, address string) (net.Conn, error) {
+	conn, err := n.lostResponseNetwork.Dial(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+	if !n.cut.Swap(true) {
+		return &partialRead{Conn: conn}, nil
+	}
+	return conn, nil
+}
+
+type partialRead struct {
+	net.Conn
+	sent bool
+}
+
+func (c *partialRead) Read(p []byte) (int, error) {
+	if c.sent {
+		return 0, io.ErrUnexpectedEOF
+	}
+	buf := make([]byte, 4096)
+	n, err := c.Conn.Read(buf)
+	if err != nil {
+		return n, err
+	}
+	cut := bytes.Index(buf[:n], []byte("\r\n\r\n"))
+	if cut < 0 {
+		return copy(p, buf[:n]), nil
+	}
+	c.sent = true
+	return copy(p, buf[:cut+4]), nil
+}
+func TestRemoteRetriesPartialMutationResponse(t *testing.T) {
+	receiver := pairedTower(t, offlineTower{})
+	var actions atomic.Int32
+	network := &partialResponseNetwork{lostResponseNetwork: lostResponseNetwork{handler: NewGateway(receiver, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { actions.Add(1); io.WriteString(w, "created") }))}}
+	sender := pairedTower(t, network)
+	req, _ := http.NewRequest("POST", "http://tower/api/v1/tasks", strings.NewReader(`{}`))
+	req.Header.Set("Idempotency-Key", "partial")
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	response, err := (remoteTransport{service: sender, address: "test"}).RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	raw, _ := io.ReadAll(response.Body)
+	if string(raw) != "created" || actions.Load() != 1 || response.Header.Get("Idempotent-Replayed") != "true" {
+		t.Fatal(string(raw), actions.Load())
 	}
 }

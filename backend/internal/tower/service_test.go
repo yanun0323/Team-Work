@@ -237,3 +237,42 @@ func TestSaveFailureKeepsAuthorization(t *testing.T) {
 		t.Fatal("failed write changed access", err)
 	}
 }
+
+func TestVersionCheckBeforeForwardingAndDisabledDirection(t *testing.T) {
+	n := &memoryNetwork{}
+	a, b := testService(t, n), testService(t, n)
+	pair(t, a, b)
+	p, err := b.Check(context.Background(), a.View().Me.ID)
+	if err != nil || p.Status != "denied" {
+		t.Fatal(p, err)
+	}
+	b.mu.Lock()
+	b.disk.Me.Protocol = Protocol + 1
+	b.mu.Unlock()
+	p, err = a.Check(context.Background(), b.View().Me.ID)
+	if err != nil || p.Status != "incompatible" || p.Message == "" {
+		t.Fatal(p, err)
+	}
+	if _, _, _, err := a.Target(b.View().Me.ID); err == nil {
+		t.Fatal("forwarded incompatible peer")
+	}
+}
+func TestIncompatiblePairRequestCanBeDismissed(t *testing.T) {
+	n := &memoryNetwork{}
+	a, b := testService(t, n), testService(t, n)
+	a.mu.Lock()
+	a.disk.Me.Protocol = Protocol + 1
+	a.mu.Unlock()
+	w, _ := b.BeginPairing()
+	a.Pair(w.Address)
+	await(t, func() bool { return a.View().Outgoing.State == "failed" })
+	if _, err := b.Decide(a.View().Me.ID, true); err == nil {
+		t.Fatal("incompatible approved")
+	}
+	if _, err := b.Decide(a.View().Me.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if b.View().Pairing.Request != nil {
+		t.Fatal("incompatible request not dismissed")
+	}
+}
