@@ -23,7 +23,7 @@ function island() {
   const cells = freeCells(grid)
   const scene: Scene = {
     grid, seats: benchSeats(town, grid), cells, paved: cells.filter(([x, z]) => town.ground[z * town.cols + x] === 'pave'),
-    places: islandPlaces(town, grid), swim: [], night: 0, planes: [], followed: -1,
+    places: islandPlaces(town, grid), swim: [], night: 0, followed: -1,
   }
   const n = crowdSize(town)
   scene.swim = Array.from({ length: n }, (_, i) => i % 2 === 0)
@@ -152,19 +152,6 @@ describe('stepCrowd', () => {
     expect(paddled).toBeGreaterThan(0)
   })
 
-  it('stops some to watch a plane, facing it, and lets them carry on once it is gone', () => {
-    const { scene, people } = island()
-    scene.planes = [{ x: 200, z: 0 }]
-    run(people, scene, 0.2, seeded(10))
-    const watching = people.filter((p) => p.doing === 'sky')
-    expect(watching.length).toBeGreaterThan(0)
-    run(people, scene, 0.5, seeded(11))
-    for (const p of people.filter((q) => q.doing === 'sky')) expect(Math.cos(p.heading - Math.atan2(-(200 - p.x), -(0 - p.z)))).toBeGreaterThan(0.99)
-    scene.planes = []
-    run(people, scene, 1.5, seeded(12))
-    expect(people.some((p) => p.doing === 'sky')).toBe(false)
-  })
-
   it('has two walking past each other stop, wave and walk on', () => {
     const { scene } = island()
     const [ax, az] = cellPos(scene.grid, ...scene.paved[0])
@@ -177,7 +164,7 @@ describe('stepCrowd', () => {
     expect(people.every((p) => p.mode === 'walking')).toBe(true)
   })
 
-  it('never leaves two on top of each other, nor anyone going nowhere, through days, nights and planes, even twice as many', () => {
+  it('never leaves two on top of each other, nor anyone going nowhere, through days and nights, even twice as many', () => {
     for (const seed of [14, 15, 16]) {
       const { scene, people: few } = island()
       const people = [...few, ...few.map((p, i) => townsfolk({ ...p, x: p.x, z: p.z, route: [], wait: 1 + (i % 4) }))]
@@ -187,9 +174,8 @@ describe('stepCrowd', () => {
       let t = 0
       run(people, scene, 1200, seeded(seed), () => {
         t += 0.1
-        // night falls and day breaks again; a plane comes over now and then
+        // night falls and day breaks again
         scene.night = t % 400 < 200 ? 0 : 1
-        scene.planes = t % 90 < 15 ? [{ x: 100, z: 0 }] : []
         check.step(people.map((p) => ({
           x: p.x, z: p.z, walking: p.mode === 'walking' && !p.home,
           solid: !p.home,
@@ -254,7 +240,7 @@ it('keeps an indoor person inside while someone approaches the same entrance', (
 
 it("interrupts a chat to clear a passerby's route, including its partner and walking pose", () => {
   const grid = { cols: 16, rows: 9, step: 1, x0: 0, z0: 0, free: new Uint8Array(16 * 9).fill(1) }
-  const scene: Scene = { grid, seats: [], cells: freeCells(grid), paved: [], places: { doors: [], lamps: [], shore: [] }, swim: [], night: 0, planes: [], followed: -1 }
+  const scene: Scene = { grid, seats: [], cells: freeCells(grid), paved: [], places: { doors: [], lamps: [], shore: [] }, swim: [], night: 0, followed: -1 }
   const person = (x: number, z: number) => townsfolk({ x, z, route: [], heading: 0, mode: 'standing', wait: 30, seat: null, toSeat: false })
   const a = person(1, 4), b = person(4, 4), c = person(4, 5.5)
   a.route = [[14, 4]]; a.mode = 'walking'; a.cool = 60

@@ -8,7 +8,6 @@
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { aloft, IN_THE_AIR } from './aloft'
 import { AirportInterior } from './AirportInterior'
 import { Fade } from './Fade'
 import { AIRPORT, CELL, rectCenter, RUNWAY_CELLS, RUNWAY_LINE, BRIDGE_DX, HALL_LIFT, STAND_Z, STANDS, TERMINAL, TOWER, type Town } from './layout'
@@ -216,11 +215,8 @@ function Flight({ calm }: { calm: boolean }) {
   const [shown, setShown] = useState(true)
   useEffect(() => {
     if (calm) { stopSound('soundLanding'); stopSound('soundTakeoff') }
-    // standing still at its stand, it is in nobody's sky
-    aloft.delete('flight')
-    return () => { stopSound('soundLanding'); stopSound('soundTakeoff'); aloft.delete('flight') }
+    return () => { stopSound('soundLanding'); stopSound('soundTakeoff') }
   }, [calm])
-  const world = useMemo(() => new THREE.Vector3(), [])
   useLayoutEffect(() => {
     if (calm) {
       clock.current = STAND_AT
@@ -238,10 +234,6 @@ function Flight({ calm }: { calm: boolean }) {
     poseAt(t, ref.current)
     const on = t >= SHOWN[0] && t < SHOWN[1]
     if (on !== shown) setShown(on)
-    // coming in or climbing away: something for the people on the island to watch
-    ref.current.getWorldPosition(world)
-    if (on && world.y > IN_THE_AIR) aloft.set('flight', { x: world.x, y: world.y, z: world.z })
-    else aloft.delete('flight')
   })
   return (
     <group ref={ref}>

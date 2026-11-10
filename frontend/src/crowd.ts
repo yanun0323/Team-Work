@@ -1,5 +1,5 @@
 // What the people out on the island get up to: strolling, sitting on benches, stopping to chat and walking on
-// together, waving in passing, watching the planes, looking out to sea or paddling on the beach, looking up at
+// together, waving in passing, looking out to sea or paddling on the beach, looking up at
 // a company's front door, and going indoors after dark. Decisions and walking only, nothing drawn; pure data,
 // no three.js. `People.tsx` poses the figures from what is here.
 
@@ -18,8 +18,6 @@ export type Doing =
   | 'pair'
   /** Stopped to wave at someone walking past. */
   | 'wave'
-  /** Stopped to watch a plane, pointing at it. */
-  | 'sky'
   /** Looking out to sea from the grass by the shore. */
   | 'view'
   /** Down on the beach, paddling: only people in swimwear. */
@@ -40,13 +38,11 @@ export interface Townsfolk extends Stroller, Avoider {
   lead: boolean
   /** Seconds into what they are doing, for gestures. */
   t: number
-  /** Stopped part way (to wave, or to watch a plane): walks on along the rest of the route afterwards, back to `then`. */
+  /** Stopped part way (to wave): walks on along the rest of the route afterwards, back to `then`. */
   resume: boolean
   then: Doing
   /** Seconds before waving at anyone again. */
   cool: number
-  /** Has already decided whether to watch the plane in the sky now. */
-  sighted: boolean
   /** Indoors: not drawn. */
   home: boolean
   /** The door gone in by, or the shore spot gone to, by index; -1 for none. */
@@ -58,7 +54,7 @@ export interface Townsfolk extends Stroller, Avoider {
 
 /** A stroller as `walk` knows it, with nothing going on yet. */
 export const townsfolk = (s: Stroller): Townsfolk => ({
-  ...s, phase: 0, doing: 'stroll', partner: -1, lead: false, t: 0, resume: false, then: 'stroll', cool: 0, sighted: false, home: false, door: -1, spot: -1, moved: 0, ...UNHINDERED,
+  ...s, phase: 0, doing: 'stroll', partner: -1, lead: false, t: 0, resume: false, then: 'stroll', cool: 0, home: false, door: -1, spot: -1, moved: 0, ...UNHINDERED,
 })
 
 /** Where people go on the island besides anywhere: doors, lamps and the shore, in world units. */
@@ -152,8 +148,6 @@ export interface Scene {
   swim: boolean[]
   /** How dark it is: 0 by day, 1 at night. */
   night: number
-  /** Planes in the air, in world units. */
-  planes: Array<{ x: number; z: number }>
   /** Whom the camera follows, by index (-1 for nobody): they stay out and about. */
   followed: number
 }
@@ -420,18 +414,6 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
     }
   }
 
-  // a plane in the sky: some stop to watch it go over, the rest carry on; it's decided once per plane
-  const plane = s.planes[0]
-  people.forEach((p) => {
-    if (!plane) {
-      p.sighted = false
-      return
-    }
-    if (p.yielding || p.sighted || !out(p) || p.mode === 'sitting' || !['stroll', 'daze', 'view', 'door', 'lamp'].includes(p.doing)) return
-    p.sighted = true
-    if (random() < 0.5) pause(p, 'sky', rand(4, 7))
-  })
-
   // two walking past each other may stop and wave; each looks out for it only now and then
   for (let i = 0; i < people.length; i++) {
     const a = people[i]
@@ -489,7 +471,6 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
       stopAct(people.indexOf(p))
       p.mode = 'walking'
       p.cool = Math.max(p.cool, 5)
-      p.sighted = !!plane
     })
 
   people.forEach((p, i) => {
@@ -524,13 +505,12 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
     }
     if (p.mode === 'sitting') {
       if (p.wait > 0) return
-      // get up, step off the bench and carry on; not stopping half out of it to wave or look at a plane
+      // get up, step off the bench and carry on; not stopping half out of it to wave
       p.route = [(p.seat as BenchSeat).front]
       p.seat = null
       p.mode = 'walking'
       p.doing = 'stroll'
       p.cool = Math.max(p.cool, 3)
-      p.sighted = !!plane
     } else if (p.mode === 'walking') {
       const o = people[p.partner]
       // round everyone else; not round whoever they are walking up to, or along with
@@ -549,10 +529,6 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
       if ((p.doing === 'chat' || p.doing === 'pair') && !(o && o.partner === i && (o.doing === 'chat' || o.doing === 'pair'))) {
         stopAct(i)
         p.wait = Math.min(p.wait, rand(0.5, 1.5))
-      }
-      if (p.doing === 'sky') {
-        if (plane) p.heading = headingOf(plane.x - p.x, plane.z - p.z)
-        else p.wait = Math.min(p.wait, rand(0.2, 0.8))
       }
       // standing on top of someone, with nowhere to be eased to: move off
       if (p.blocked) {

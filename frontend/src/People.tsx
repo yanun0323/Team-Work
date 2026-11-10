@@ -1,6 +1,6 @@
 // People who move: employees inside an opened office, who leave their desks when idle (to wander, chat,
 // rest on the sofa, have a coffee or stare into space) and come back when work arrives, and people out on the island,
-// who stroll about, sit on the benches, chat, wave, watch the planes and go to the beach (what they do is in crowd.ts).
+// who stroll about, sit on the benches, chat, wave and go to the beach (what they do is in crowd.ts).
 //
 // One figure for both, in office units (about 1.15 tall standing), seated or standing with a walk cycle.
 // Movement is driven per frame from refs; React only renders the figures once.
@@ -11,7 +11,6 @@ import * as THREE from 'three'
 import type { IdleFollowTarget } from './prefs'
 import type { Look } from './core/domain/types'
 import { anchors } from './core/voxel/labels'
-import { aloft } from './aloft'
 import { BODY_SHARE, coordinateTraffic, walkingRoute, beginAvoidance, openSpot, separate, spotTaken, UNHINDERED, walkAround, type Avoider } from './avoid'
 import { benchMate, indoors, islandPlaces, ISLAND_GAP, ISLAND_SPEED, stepCrowd, townsfolk, type Scene, type Townsfolk } from './crowd'
 import { Fade, FADE_SECONDS } from './Fade'
@@ -975,7 +974,7 @@ const BENCH_TURN_SPEED = 3
 /**
  * People out on the island, two to five per building. They walk about the paving and the grass and sit on the
  * benches, talking with whoever sits beside them; stop to chat, and sometimes walk on together; wave at someone
- * passing; stop to point at a plane; look out to sea, or paddle on the beach in their swimwear; and look up at a
+ * passing; look out to sea, or paddle on the beach in their swimwear; and look up at a
  * company's front door. After dark some go indoors and the rest stand about under the lamps; by day they come out
  * again. `field` is the land's, for the beach. With reduced motion they stand where they are.
  */
@@ -1029,7 +1028,7 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
     const dt = Math.min(rawDt, MAX_FRAME)
     clock.current += dt
     const scene: Scene = {
-      grid, seats, cells, paved, places, swim, night: light.glow, planes: [...aloft.values()], followed: followed.stroller,
+      grid, seats, cells, paved, places, swim, night: light.glow, followed: followed.stroller,
     }
     const moved = people.map(() => 0)
     if (!calm) inSteps(dt, (step) => {
@@ -1076,11 +1075,6 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
         if (p.doing === 'wave') {
           want.left = 2.7
           want.out = -Math.sin(p.t * 12) * 0.35
-        }
-        if (p.doing === 'sky') {
-          // pointing up at it, leaning back a little to look
-          want.left = 2.3
-          want.lean = 0.07
         }
         // looking up at the building
         if (p.doing === 'door') want.lean = 0.1
