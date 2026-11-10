@@ -3,6 +3,7 @@
 // With more than one it is a meeting: "@" picks who replies, or asks someone in, and each reply is headed by who wrote it.
 // With no company it is the airport's: always the airport staff, and the model and level can change between replies.
 
+import { shownUrl } from './core/island'
 import { colon, listOf, tr } from './core/i18n'
 import { Markdown } from './Markdown'
 import { useChatHistory } from './chatHistory'
@@ -429,7 +430,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     const key = `chat:${chat?.id}:${i + (chat?.history ? pages.start : 0)}:${j}`
     return (
       <button key={j} type="button" className="fx-chat-image fx-hit" aria-expanded={image === key} onClick={() => chat && onImage(key, im, chat.id)}>
-        <img src={im.url} alt={im.name} />
+        <img src={shownUrl(im.url)} alt={im.name} />
       </button>
     )
   }
@@ -735,7 +736,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
                     {isImage(im)
                       ? (
                         <button type="button" className="fx-thumb-open" aria-expanded={image === `chatDraft:${i}`} onClick={() => onImage(`chatDraft:${i}`, im, chat?.id)}>
-                          <img src={im.url} alt={im.name} />
+                          <img src={shownUrl(im.url)} alt={im.name} />
                         </button>
                       )
                       : <FileAttachment file={im} />}

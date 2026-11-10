@@ -1,4 +1,5 @@
 import { request } from './core/backend'
+import { shownUrl } from './core/island'
 import type { Attachment } from './core/domain/types'
 import { MOCK } from './core/mode'
 
@@ -93,5 +94,5 @@ export const readAttachments = async (files: Iterable<File>): Promise<{ added: A
 }
 
 export function FileAttachment({ file }: { file: Attachment }) {
-  return <a className="fx-file" href={file.url} download={file.name}><span aria-hidden="true">↓</span> {file.name}</a>
+  return <a className="fx-file" href={shownUrl(file.url)} download={file.name}><span aria-hidden="true">↓</span> {file.name}</a>
 }

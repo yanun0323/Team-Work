@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { DEFAULT_PREFS, usePrefs } from '../prefs'
+import { DEFAULT_PREFS, splitPrefs, usePrefs, type Prefs } from '../prefs'
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { applyPatches, connect, emptyWorld, type ServerEvent } from './backend'
@@ -10,6 +10,7 @@ import { htmlLang, setAppLanguage } from './i18n'
 import type { World, WorldEvent } from './domain/types'
 import { MOCK } from './mode'
 import { editing, setFailureHandler } from './ops'
+import { remoteIsland, useIsland } from './island'
 
 /** Screens every design has. Each design lays them out its own way. */
 export type View = 'teams' | 'home' | 'workflow' | 'roster' | 'blueprints' | 'settings'
@@ -46,6 +47,8 @@ interface State {
   offline: boolean
   /** The last request the backend turned down, for the user to read. */
   failure: string
+  /** Gone to another island (or back): its world has not arrived yet, and the one shown is empty. */
+  arriving: boolean
   /** Change the world. Domain functions from sim.ts mutate in place and run inside this. */
   act: (fn: (w: World) => void) => void
   step: (dt: number) => void
@@ -55,6 +58,8 @@ interface State {
   receive: (ev: ServerEvent) => void
   setOffline: () => void
   setFailure: (failure: string) => void
+  /** Empties the world for another island's, keeping this computer's language; its snapshot follows. */
+  leaveIsland: () => void
 }
 
 let toastSeq = 0
@@ -77,20 +82,28 @@ export const useStore = create<State>()(
     snapshot: 0,
     offline: false,
     failure: '',
+    arriving: false,
     receive: (ev) => {
+      // another island's preferences only say how that island works; the interface stays this computer's
+      const remote = !!remoteIsland()
+      const install = (p: Partial<Prefs> | undefined, whole: boolean) =>
+        usePrefs.setState(remote ? splitPrefs(p ?? {})[0] : whole ? { ...DEFAULT_PREFS, ...p } : p ?? {})
       // Install preferences before the loaded world can mount drawers or the scene.
-      if (ev.type === 'snapshot') usePrefs.setState({ ...DEFAULT_PREFS, ...ev.world.preferences })
+      if (ev.type === 'snapshot') install(ev.world.preferences, true)
       if (ev.type === 'patch') for (const p of ev.upserts ?? []) {
-        if (p.kind === 'preferences') usePrefs.setState(p.data as typeof DEFAULT_PREFS)
+        if (p.kind === 'preferences') install(p.data as Prefs, false)
       }
       set((s) => {
         switch (ev.type) {
           case 'snapshot': {
             s.snapshot++
             clearAllLive()
+            const language = s.world.language
             s.world = { ...emptyWorld(), ...ev.world }
+            if (remote) s.world.language = language
             s.loaded = true
             s.offline = false
+            s.arriving = false
             if (!s.teamId || !s.world.teams[s.teamId]) {
               const first = Object.values(s.world.teams).sort((a, b) => a.createdAt - b.createdAt)[0]
               s.teamId = first?.id ?? null
@@ -108,7 +121,7 @@ export const useStore = create<State>()(
             setOutput(ev.subId, ev.text ?? '')
             break
           case 'language':
-            s.world.language = ev.language
+            if (!remote) s.world.language = ev.language
             break
           case 'patch': {
             // what was being written has become a message
@@ -133,6 +146,18 @@ export const useStore = create<State>()(
       })
     },
     setOffline: () => set((s) => void (s.offline = true)),
+    leaveIsland: () => set((s) => {
+      clearAllLive()
+      s.world = { ...emptyWorld(), language: s.world.language, preferences: s.world.preferences }
+      s.snapshot++
+      s.arriving = true
+      s.offline = false
+      s.failure = ''
+      s.teamId = null
+      s.view = 'teams'
+      s.panel = null
+      s.toasts = []
+    }),
     setFailure: (failure) => set((s) => void (s.failure = failure)),
     act: (fn) =>
       set((s) => {
@@ -192,12 +217,14 @@ export function useNow() {
 
 /** Keep the world in step with the backend, unless this page runs on the simulator. */
 export function useBackend() {
+  // a new island is a new connection, to its backend
+  const island = useIsland((s) => s.island?.id ?? '')
   useEffect(() => {
     if (MOCK) return
     const { receive, setOffline, setFailure } = useStore.getState()
     setFailureHandler(setFailure)
     return connect(receive, setOffline)
-  }, [])
+  }, [island])
 }
 
 /**

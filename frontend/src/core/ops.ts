@@ -2,7 +2,9 @@
 // `act((x) => mergeTask(x, id))` the same way in both modes: under `make dev-mock` it runs the simulator, and
 // otherwise it asks the backend, and the answer comes back as a change to the world.
 
-import { request } from './backend'
+import { localRequest, request } from './backend'
+import { apiBase, remoteIsland } from './island'
+import { tr } from './i18n'
 import { seedWorld } from './data/seed'
 import * as sim from './domain/sim'
 import type { Attachment, Blueprint, Chat, Source, SourceChanges, SourceItem, SourcePreview, Effort, FileInfo, Locale, Look, MemoryEntry, Replica, SkillInfo, SkillText, TalkEnd, Team, Workflow, World } from './domain/types'
@@ -35,7 +37,11 @@ const pick = <K extends keyof Sim>(name: K, real: (...args: never[]) => unknown)
 /** The sample world is written in each language, so under `make dev-mock` a new language starts it again in that one. */
 export const setLanguage = MOCK
   ? (w: World, language: Locale) => { if (w.language !== language) Object.assign(w, seedWorld(language)) }
-  : (_w: World, language: Locale) => fire_('PUT', '/settings/language', { language })
+  : (w: World, language: Locale) => {
+    // the language belongs to this computer; on another island its world says the other's, so the screen follows here
+    if (remoteIsland()) w.language = language
+    localRequest('PUT', '/settings/language', { language }).catch((e: Error) => onFailure(e.message))
+  }
 
 // ---------- tasks ----------
 
@@ -202,8 +208,12 @@ export function editTeam(w: World, id: string, patch: TeamEdit) {
   edits.set(id, { timer, patch: merged })
 }
 
+/** Why something that opens a window on the computer running the backend is off on another island. */
+export const remoteWindowReason = () => tr('這會在對方電腦上打開視窗，這裡不能用')
+
 /** Shows a company's folder in Finder, or a folder in it; with no company, one at home. The prototype has no folders to show. */
 export const openFolder = (id: string, path = '') => {
+  if (remoteIsland()) return onFailure(remoteWindowReason())
   if (!MOCK) fire_('POST', `${mentionBase(id)}/open-folder${path ? `?path=${encodeURIComponent(path)}` : ''}`)
 }
 
@@ -253,7 +263,7 @@ export const saveProjectFile = (teamId: string, path: string, text: string, hash
   : request<{ hash: string }>('PUT', `${projectBase(teamId)}/file`, { path, text, hash }).then((r) => r.hash))
 
 /** Where an `<img>` loads a picture in a company's folder, or at home with no company, as it is now. */
-export const projectImageUrl = (teamId: string, path: string) => `/api/v1${mentionBase(teamId)}/image?path=${encodeURIComponent(path)}`
+export const projectImageUrl = (teamId: string, path: string) => `${apiBase()}${mentionBase(teamId)}/image?path=${encodeURIComponent(path)}`
 
 /** A skill "$" names in a chat: from the first of its people who has it, the chair first. */
 export const readChatSkill = (w: World, chatId: string, name: string, signal?: AbortSignal) => (MOCK

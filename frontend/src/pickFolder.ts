@@ -6,6 +6,8 @@
 
 import { request } from './core/backend'
 import { MOCK } from './core/mode'
+import { remoteIsland } from './core/island'
+import { remoteWindowReason } from './core/ops'
 
 interface DirectoryPicker {
   showDirectoryPicker?: (options?: { id?: string; mode?: 'read' | 'readwrite' }) => Promise<{ name: string }>
@@ -13,6 +15,8 @@ interface DirectoryPicker {
 
 /** The path of the folder picked, or null when the dialog was closed without one. Throws what went wrong. */
 export async function pickFolder(typed: string): Promise<string | null> {
+  // on another island either dialog picks wrong: the backend's opens on that computer, the app's picks a path here
+  if (remoteIsland()) throw new Error(remoteWindowReason())
   const app = (window as unknown as { webkit?: { messageHandlers?: { pickFolder?: { postMessage: (x: null) => Promise<string> } } } }).webkit?.messageHandlers?.pickFolder
   if (app) return (await app.postMessage(null)) || null
   if (!MOCK) return (await request<{ path: string }>('POST', '/folder-picker')).path || null

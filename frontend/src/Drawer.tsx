@@ -4,6 +4,7 @@
 // opens shows its detail on a sheet over the upper left of the map (DrawerDetail). There is no close
 // button: a click on the map puts everything away, or, with the preference off, the detail sheets first.
 
+import { useRemote } from './core/island'
 import { tr } from './core/i18n'
 import { openFolder } from './core/ops'
 import { MOCK } from './core/mode'
@@ -94,6 +95,8 @@ export function BuildingIcon({ look }: { look: BuildingLook }) {
 /** A company's stamp, name, folder and target branch: the head of its file, and of its block on the board. */
 /** `bytes` is how big the project on the target branch is; it is left out until known, and when there is nothing to add up. */
 export function CompanyTitle({ team, look, canOpenFolder, bytes = 0, children }: { team: Team; look: BuildingLook; canOpenFolder?: boolean; bytes?: number; children: ReactNode }) {
+  // on another island Finder would open on that computer's screen
+  const remote = useRemote()
   const size = fmtBytes(bytes)
   return (
     <div className="fx-title">
@@ -103,7 +106,7 @@ export function CompanyTitle({ team, look, canOpenFolder, bytes = 0, children }:
         <p className="fx-where">
           <span className="fx-folder">
             <code title={tr('專案位置')}>{team.folder}</code>
-            {canOpenFolder && !MOCK && (
+            {canOpenFolder && !MOCK && !remote && (
               <button type="button" className="fx-tool fx-hit fx-folder-open" aria-label={tr('在 Finder 打開')} title={tr('在 Finder 打開')} onClick={() => openFolder(team.id)}>
                 <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
                   <path d="M1.75 12.5v-9h4.2l1.5 1.75h6.8v7.25z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />

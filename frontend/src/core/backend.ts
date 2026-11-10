@@ -5,6 +5,7 @@ import type { Locale, World } from './domain/types'
 import { tr } from './i18n'
 import { DEFAULT_PREFS, type Prefs } from '../prefs'
 import type { DiffLine } from '../diffView'
+import { apiBase, LOCAL_BASE, socketUrl } from './island'
 
 export const unreachable = () => tr(import.meta.env.MODE === 'desktop'
   ? '連不上後端，請關閉並重新開啟 Team Work'
@@ -57,7 +58,7 @@ export const readHandedDiff = (subId: string, path: string, signal: AbortSignal)
   request<{ lines: DiffLine[] | null }>('GET', `/subtasks/${subId}/diff?path=${encodeURIComponent(path)}`, undefined, signal).then((r) => r.lines)
 
 /** Where an `<img>` loads a picture a sub-task handed over, as committed. */
-export const handedImageUrl = (subId: string, path: string) => `/api/v1/subtasks/${subId}/image?path=${encodeURIComponent(path)}`
+export const handedImageUrl = (subId: string, path: string) => `${apiBase()}/subtasks/${subId}/image?path=${encodeURIComponent(path)}`
 
 /** A world with nothing in it, until the backend's snapshot arrives. */
 export const emptyWorld = (): World => ({
@@ -72,12 +73,27 @@ export class ApiError extends Error {
   }
 }
 
-/** Sends a request and reads its JSON, if any. A failure throws what can be shown to the user, an ApiError when the backend answered. */
-export async function request<T = void>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+/** A fresh key for one action, so a request sent again after a lost connection is not carried out twice. */
+export const idempotencyKey = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+
+/** Refusals that mean the island shown can no longer be used from here. */
+export const LOST_ISLAND_CODES = ['peer_denied', 'peer_unpaired', 'incompatible'] as const
+
+/** Told when another island's backend turns a request down for good; the island watch takes the screen home. */
+let onIslandRefused: (e: ApiError) => void = () => {}
+export const setIslandRefusedHandler = (fn: (e: ApiError) => void) => { onIslandRefused = fn }
+
+async function send<T>(base: string, method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const headers: Record<string, string> = {}
+  if (method !== 'GET') headers['Idempotency-Key'] = idempotencyKey()
+  if (body !== undefined && !(body instanceof Blob)) headers['Content-Type'] = 'application/json'
   let res: Response
   try {
-    res = await fetch(`/api/v1${path}`, {
-      method, signal, ...(body === undefined ? {} : body instanceof Blob ? { body } : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    res = await fetch(`${base}${path}`, {
+      method, signal, headers, ...(body === undefined ? {} : { body: body instanceof Blob ? body : JSON.stringify(body) }),
     })
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e
@@ -87,10 +103,23 @@ export async function request<T = void>(method: string, path: string, body?: unk
     // the dev proxy answers without JSON when the backend is not running
     const err = await res.json().catch(() => null) as { error?: { code?: string; message?: string } } | null
     if (!err?.error?.message) throw new Error(unreachable())
-    throw new ApiError(err.error.message, err.error.code ?? '', res.status)
+    const refused = new ApiError(err.error.message, err.error.code ?? '', res.status)
+    if (base !== LOCAL_BASE && (LOST_ISLAND_CODES as readonly string[]).includes(refused.code)) onIslandRefused(refused)
+    throw refused
   }
   return (res.status === 204 ? undefined : await res.json()) as T
 }
+
+/**
+ * Sends a request to the island shown and reads its JSON, if any. A failure throws what can be shown to the user,
+ * an ApiError when the backend answered. Every request but a GET carries a new Idempotency-Key.
+ */
+export const request = <T = void>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> =>
+  send<T>(apiBase(), method, path, body, signal)
+
+/** The same, always to this computer's backend: the power tower, the language, the tutorial, interface preferences. */
+export const localRequest = <T = void>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> =>
+  send<T>(LOCAL_BASE, method, path, body, signal)
 
 /**
  * Stays connected until the returned function is called, trying again a moment after each loss; a new
@@ -101,7 +130,7 @@ export function connect(onEvent: (ev: ServerEvent) => void, onLost: () => void) 
   let timer = 0
   let stopped = false
   const open = () => {
-    socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/events?chats=paged`)
+    socket = new WebSocket(socketUrl('/events?chats=paged'))
     socket.onmessage = (m) => onEvent(JSON.parse(m.data as string) as ServerEvent)
     socket.onclose = () => {
       if (stopped) return

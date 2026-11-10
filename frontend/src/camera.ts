@@ -1,7 +1,7 @@
 // The fixed isometric camera and the maths for focusing on one building. No React.
 
 import * as THREE from 'three'
-import { CELL, FLOOR_CELLS, TREE_CELLS, type Town } from './layout'
+import { CELL, FLOOR_CELLS, POWER_TOWER, TREE_CELLS, type Town } from './layout'
 
 /**
  * Fixed isometric view, same angle as agent-factory: orthographic, looking from the +x/+z corner
@@ -159,6 +159,9 @@ export function islandView(town: Town, view: Pick<View, 'width' | 'height'>): Sh
   // Control tower, in world units relative to the airport centre (Airport.tsx).
   const ax = (airport.x + airport.w / 2) * CELL - 14, az = (airport.z + airport.d / 2) * CELL - 15
   for (const x of [ax - 2, ax + 2]) for (const z of [az - 2, az + 2]) include(x, 17, z)
+  // the power tower in the airfield's corner (PowerTower.tsx)
+  const px = (airport.x + airport.w / 2) * CELL + POWER_TOWER.x, pz = (airport.z + airport.d / 2) * CELL + POWER_TOWER.z
+  for (const x of [px - 2, px + 2]) for (const z of [pz - 2, pz + 2]) include(x, POWER_TOWER.h + 2, z)
   // Leave space for name tags and the toolbar; allow large islands below the normal manual zoom floor.
   const zoom = Math.min(MAX_ZOOM, Math.max(1, view.width - 80) / (maxX - minX), Math.max(1, view.height - 160) / (maxY - minY))
   const target = SCREEN_RIGHT.clone().multiplyScalar((minX + maxX) / 2).addScaledVector(SCREEN_UP, (minY + maxY) / 2)

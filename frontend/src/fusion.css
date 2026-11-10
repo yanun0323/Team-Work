@@ -1894,3 +1894,80 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 @keyframes fx-tutorial-flash { from { background: rgb(47 158 91 / 0.28); } to { background: rgb(47 158 91 / 0); } }
 @keyframes fx-tutorial-out { to { opacity: 0; grid-template-rows: 0fr; } }
 @keyframes fx-tutorial-in { from { opacity: 0; translate: -12px 0; } }
+
+/* ---------- the power tower (TowerPanel.tsx) ---------- */
+.fx-tower { gap: 30px; }
+.fx-tower-empty { margin: 0; padding: 10px 0 4px; max-width: 52ch; color: var(--ink-2); font-size: 13.5px; }
+.fx-tower-peers li { display: grid; gap: 6px; padding: 10px 0; }
+.fx-tower-peer { grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 14px; }
+.fx-tower-peer > .fx-tower-error { grid-column: 1 / -1; }
+.fx-tower-status { display: inline-flex; align-items: baseline; gap: 6px; }
+/* a dot beside the words, never alone: green online, grey offline or checking, the accent when it can't be worked */
+.fx-tower-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); translate: 0 -1px; }
+.fx-tower-status[data-status="online"] .fx-tower-dot { background: #2f9e5b; }
+.fx-tower-status:is([data-status="denied"], [data-status="unpaired"], [data-status="incompatible"]) { color: var(--accent); }
+.fx-tower-status:is([data-status="denied"], [data-status="unpaired"], [data-status="incompatible"]) .fx-tower-dot { background: var(--accent); }
+.fx-tower-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 10px; }
+.fx-tower-allow { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+.fx-tower-allow:has(input:disabled) { cursor: default; opacity: 0.6; }
+.fx-tower-here { transform: rotate(-2deg); }
+.fx-tower-unpair { padding: 0 10px; color: var(--muted); }
+.fx-tower-error { margin: 0; color: var(--accent); font-size: 13px; overflow-wrap: anywhere; }
+.fx-tower-box { display: grid; gap: 10px; justify-items: start; }
+.fx-tower-box > p { margin: 0; font-size: 13.5px; }
+.fx-tower-address { display: grid; gap: 6px; width: 100%; font-size: 13px; color: var(--ink-2); }
+.fx-tower :is(textarea.fx-control) { height: auto; padding: 8px 10px; resize: none; font: 12.5px/1.45 var(--font-mono); overflow-wrap: anywhere; word-break: break-all; }
+.fx-tower-left { align-self: center; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* someone asking to pair: a note pasted on, until it is answered */
+.fx-tower-ask { display: grid; gap: 8px; width: 100%; box-sizing: border-box; padding: 12px 14px; background: var(--note); box-shadow: var(--lift); transform: rotate(-0.4deg); }
+.fx-tower-ask p { margin: 0; }
+.fx-tower-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; max-width: 560px; }
+@container (max-width: 420px) {
+  .fx-tower-peer { grid-template-columns: minmax(0, 1fr); }
+  .fx-tower-acts { justify-content: flex-start; }
+  .fx-tower-form { grid-template-columns: minmax(0, 1fr); }
+}
+/* a second action beside the main one: the same shape, quieter */
+.fx-save.fx-save-quiet { background: rgb(31 29 43 / 0.08); color: var(--ink); }
+.fx-save.fx-save-quiet:hover { background: rgb(31 29 43 / 0.14); }
+
+/* the interface preferences, off on another island: the fence keeps the layout, only disabling */
+.fx-prefs-fence { display: contents; }
+
+/* ---------- which island is shown (IslandBar.tsx): over the drawers, in the lower corner ---------- */
+.fx-island {
+  position: absolute; bottom: 22px; inset-inline-start: 22px; z-index: 7;
+  display: flex; align-items: center; gap: 14px; max-width: min(560px, calc(100% - 44px)); box-sizing: border-box;
+  padding: 10px 12px 10px 16px; rotate: -0.8deg;
+  font: 600 14px/1.35 var(--font-sans);
+}
+.fx-island-text { display: grid; gap: 2px; min-width: 0; }
+.fx-island-where { overflow-wrap: anywhere; }
+.fx-island-state { font-size: 12.5px; font-weight: 500; color: #6b6474; }
+.fx-island-state:empty { display: none; }
+.fx-island .fx-save { flex: none; }
+.fx-island .fx-tool { color: #4a4656; }
+.fx-island :focus-visible { outline: 2px solid rgb(31 29 43 / 0.4); outline-offset: 2px; }
+@media (max-width: 640px) {
+  .fx-island { bottom: 12px; inset-inline-start: 12px; max-width: calc(100% - 24px); flex-wrap: wrap; gap: 8px 12px; }
+}
+
+/* ---------- picking a folder on another island (FolderBrowser.tsx) ---------- */
+.fx-folders { display: grid; gap: 8px; padding: 10px 12px 12px; border-radius: 3px; outline: 1.5px dashed var(--rule); outline-offset: -1px; }
+.fx-folders-head { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px; }
+.fx-folders-path { margin: 0; font: 500 12.5px/1.4 var(--font-mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.fx-folders-path:focus { outline: none; }
+.fx-folders-list { display: grid; max-height: 240px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.fx-folders-list[aria-busy="true"] { opacity: 0.55; }
+.fx-folders-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; background: none; font-size: 13.5px; }
+.fx-folders-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-folders-item > svg { flex: none; color: var(--muted); }
+.fx-folders-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; padding: 6px 8px; font-size: 13px; color: var(--muted); }
+.fx-folders-note[role="alert"] { color: var(--accent); }
+/* a stamp at the top of a page stays its own size */
+.fx-d-groups > .fx-pill.fx-prereq { justify-self: start; }
+.fx-prefs-fence:disabled .fx-field { opacity: 0.5; }
+/* on a narrow screen the drawers stop short of the island's slip, so it never hides their last lines */
+@media (max-width: 640px) {
+  .fusion-stage:has(> .fx-island[role="region"]) > :is(.fx-drawer, .fx-detail) { inset-block-end: 132px; }
+}

@@ -4,6 +4,7 @@
 
 import { create } from 'zustand'
 import { listProjectTree, type TreeEntry } from './core/ops'
+import { islandScope } from './core/island'
 
 /** A text file as it is being edited. */
 export interface FileDraft {
@@ -37,7 +38,10 @@ interface State {
 
 export const useFileDrafts = create<State>(() => ({ drafts: {}, views: {}, dirs: {}, leaving: null }))
 
-export const draftKey = (teamId: string, path: string) => `${teamId}\n${path}`
+/** A company's drafts on the island shown: another computer's company may have the same id. */
+const teamKey = (teamId: string) => islandScope(teamId)
+
+export const draftKey = (teamId: string, path: string) => `${teamKey(teamId)}\n${path}`
 
 export const isDirty = (d: FileDraft | undefined) => !!d && d.text !== d.base
 
@@ -79,8 +83,10 @@ export function dropDraft(teamId: string, path: string) {
 }
 
 /** The paths of a company's unsaved drafts. */
-export const unsavedIn = (drafts: Record<string, FileDraft>, teamId: string) =>
-  Object.entries(drafts).filter(([k, d]) => k.startsWith(`${teamId}\n`) && isDirty(d)).map(([k]) => k.slice(teamId.length + 1))
+export const unsavedIn = (drafts: Record<string, FileDraft>, teamId: string) => {
+  const prefix = `${teamKey(teamId)}\n`
+  return Object.entries(drafts).filter(([k, d]) => k.startsWith(prefix) && isDirty(d)).map(([k]) => k.slice(prefix.length))
+}
 
 export const anyUnsaved = () => Object.values(useFileDrafts.getState().drafts).some(isDirty)
 
@@ -91,12 +97,12 @@ export function forgetClean(teamId: string, path: string) {
 
 const NO_VIEW: BrowserView = { expanded: [] }
 
-export const viewOf = (views: Record<string, BrowserView>, teamId: string) => views[teamId] ?? NO_VIEW
+export const viewOf = (views: Record<string, BrowserView>, teamId: string) => views[teamKey(teamId)] ?? NO_VIEW
 
 export function editView(teamId: string, f: (v: BrowserView) => Partial<BrowserView>) {
   useFileDrafts.setState((s) => {
     const v = viewOf(s.views, teamId)
-    return { views: { ...s.views, [teamId]: { ...v, ...f(v) } } }
+    return { views: { ...s.views, [teamKey(teamId)]: { ...v, ...f(v) } } }
   })
 }
 

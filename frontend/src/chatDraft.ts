@@ -3,6 +3,7 @@
 
 import { useState, type SetStateAction } from 'react'
 import type { Attachment } from './core/domain/types'
+import { islandScope } from './core/island'
 
 export interface ChatDraft {
   text: string
@@ -12,8 +13,8 @@ export interface ChatDraft {
 const EMPTY: ChatDraft = { text: '', images: [] }
 const drafts = new Map<string, ChatDraft>()
 
-/** The draft for a chat, or for a new one in a company ('' for the airport). */
-export const draftKey = (chatId: string | undefined, teamId: string) => chatId ?? `new:${teamId}`
+/** The draft for a chat, or for a new one in a company ('' for the airport), on the island shown. */
+export const draftKey = (chatId: string | undefined, teamId: string) => islandScope(chatId ?? `new:${teamId}`)
 
 export const readDraft = (key: string): ChatDraft => drafts.get(key) ?? EMPTY
 

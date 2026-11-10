@@ -1,4 +1,5 @@
 import { tr } from './core/i18n'
+import { useRemote } from './core/island'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { claudeStatus, INSTALL_COMMAND, installClaude, loginClaude, phaseOf, type ClaudePhase } from './claudeCode'
 
@@ -8,6 +9,8 @@ import { claudeStatus, INSTALL_COMMAND, installClaude, loginClaude, phaseOf, typ
  */
 export function ClaudeAccount({ describedBy, onModels }: { describedBy?: string; onModels: (models: string[]) => void }) {
   const [phase, setPhase] = useState<ClaudePhase>('checking')
+  // on another island signing in opens a browser on that computer
+  const remote = useRemote()
   const [error, setError] = useState('')
   const running = useRef<AbortController | null>(null)
   const report = useRef(onModels)
@@ -62,7 +65,8 @@ export function ClaudeAccount({ describedBy, onModels }: { describedBy?: string;
             <button type="button" className="fx-control fx-login fx-hit" onClick={() => stop('missing')}>{tr('取消')}</button>
           </>
         )}
-        {phase === 'signedOut' && (
+        {phase === 'signedOut' && remote && <p className="fx-d-muted">{tr('登入會在對方電腦上打開瀏覽器，請到那台電腦登入')}</p>}
+        {phase === 'signedOut' && !remote && (
           <button type="button" className="fx-control fx-login fx-hit" aria-describedby={describedBy} onClick={() => void step('loggingIn', 'signedOut', loginClaude)}>{tr('登入 Claude')}</button>
         )}
         {phase === 'loggingIn' && (

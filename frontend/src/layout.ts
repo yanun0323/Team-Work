@@ -162,6 +162,12 @@ export const STANDS = [11, 30]
 export const STAND_Z = -5
 export const BRIDGE_DX = 1.9
 export const TOWER = { x: -14, z: -15, h: 14 }
+/**
+ * The power tower (電塔), in world units about the airport's middle like `TOWER`: in the airfield's far corner,
+ * clear of the control tower, the helipad and the runway's line. It stands on the airport's own ground, so it
+ * takes no land of its own, and no company can be placed on it.
+ */
+export const POWER_TOWER = { x: -35, z: -15.5, w: 7, d: 7, h: 17 }
 /** Cells either side of the runway kept clear of trees all the way along its line, so planes coming in or climbing out clear them. */
 const APPROACH_CELLS = RUNWAY_CELLS / 2 + 3
 /** Fixed noise seed for the coast and trees; cells hash by their town position, so growing keeps them. */

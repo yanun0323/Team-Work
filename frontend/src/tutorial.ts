@@ -1,7 +1,8 @@
 // The tutorial: steps that teach the app by doing it, listed beside the clock on the main screen. Which steps
 // there are and when each is met is decided here; the backend only keeps the lists in tutorial.yaml.
 
-import { request } from './core/backend'
+import { localRequest, request } from './core/backend'
+import { remoteIsland } from './core/island'
 import type { Key } from './core/i18n'
 import { isLocked } from './core/data/presets'
 import type { TutorialState, World } from './core/domain/types'
@@ -107,6 +108,8 @@ const union = (a: string[], b: string[] = []) => [...a, ...b.filter((x) => !a.in
 
 /** Adds to the tutorial's lists. The screen follows at once; the backend's answer arrives as the same change. */
 export function updateTutorial(p: TutorialPatch) {
+  // the tutorial is this computer's; another island's world holds the other's, and is not shown
+  if (remoteIsland()) return void attempt(() => localRequest('PATCH', '/tutorial', p))
   useStore.setState((s) => {
     const t = p.reset || !s.world.tutorial ? { ...EMPTY_TUTORIAL } : s.world.tutorial
     s.world.tutorial = {
@@ -138,5 +141,7 @@ export function lastTeam(w: World) {
 
 /** Records something the user did that leaves nothing in the world to show for it. */
 export function learn(action: string) {
+  // another island's world says nothing about what was learned here
+  if (remoteIsland()) return
   if (!tutorialOf(useStore.getState().world).actions.includes(action)) updateTutorial({ actions: [action] })
 }

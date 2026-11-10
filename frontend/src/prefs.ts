@@ -2,7 +2,8 @@
 
 import { create } from 'zustand'
 import { MOCK } from './core/mode'
-import { request } from './core/backend'
+import { localRequest, request } from './core/backend'
+import { remoteIsland } from './core/island'
 import { attempt } from './core/ops'
 import type { Tab } from './DrawerTabs'
 import type { Daylight } from './daylight'
@@ -149,10 +150,32 @@ export const usePrefs = create<Prefs & { set: (p: Partial<Prefs>) => void }>()((
   // `make dev-mock` starts silent; unmute from the settings.
   ...(import.meta.env.MODE === 'mock' && { musicMuted: true, effectsMuted: true }),
   set: (patch) => {
-    if (MOCK) set(patch)
-    else void attempt(() => request('PATCH', '/settings/preferences', patch))
+    if (MOCK) return set(patch)
+    if (!remoteIsland()) return void attempt(() => request('PATCH', '/settings/preferences', patch))
+    // on another island its work settings are the other computer's; the interface stays this computer's, whose
+    // changes are not heard there, so the screen follows at once
+    const [island, own] = splitPrefs(patch)
+    if (Object.keys(island).length) void attempt(() => request('PATCH', '/settings/preferences', island))
+    if (Object.keys(own).length) {
+      set(own)
+      void attempt(() => localRequest('PATCH', '/settings/preferences', own))
+    }
   },
 }))
+
+/**
+ * Preferences about how an island works, which on another island are that computer's: they change what runs there.
+ * Every other preference is about this screen, and stays this computer's wherever it looks.
+ */
+export const ISLAND_PREFS = ['terminalCommand', 'chatTitleModel', 'chatTitleEffort', 'imageProvider', 'codexSkills', 'claudeSkills',
+  'hiddenBlueprints', 'hiddenWorkflows', 'compact1M', 'compact256K', 'compact128K', 'compactSmall'] as const satisfies ReadonlyArray<keyof Prefs>
+
+/** A change of preferences, as [the island's work settings, the interface's own]. */
+export function splitPrefs(p: Partial<Prefs>): [Partial<Prefs>, Partial<Prefs>] {
+  const island: Record<string, unknown> = {}, own: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(p)) ((ISLAND_PREFS as readonly string[]).includes(k) ? island : own)[k] = v
+  return [island as Partial<Prefs>, own as Partial<Prefs>]
+}
 
 /** Log lines in the order the preference asks for; they come oldest first. */
 export const ordered = <T,>(lines: T[], order: LogOrder) => (order === 'newestFirst' ? [...lines].reverse() : lines)

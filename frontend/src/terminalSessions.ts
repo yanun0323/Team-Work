@@ -7,6 +7,7 @@ import { Terminal as XTerm } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { MOCK } from './core/mode'
 import { useStore } from './core/store'
+import { apiBase, socketUrl, useIsland } from './core/island'
 import { mockShell, type ShellSocket } from './mockShell'
 import { usePrefs } from './prefs'
 import { terminalKey } from './terminalKeys'
@@ -26,7 +27,8 @@ interface Session {
 const sessions = new Map<string, Session>()
 
 /** Where a company's shell is asked for; the airport's (teamId '') starts at home and has its own. */
-export const terminalPath = (teamId: string) => (teamId ? `/api/v1/teams/${teamId}/terminal` : '/api/v1/airport/terminal')
+export const terminalPath = (teamId: string) => `${apiBase()}${terminalRoute(teamId)}`
+const terminalRoute = (teamId: string) => (teamId ? `/teams/${teamId}/terminal` : '/airport/terminal')
 
 function start(teamId: string, host: HTMLElement): Session {
   const el = document.createElement('div')
@@ -45,7 +47,7 @@ function start(teamId: string, host: HTMLElement): Session {
   fit.fit()
   const socket: ShellSocket = MOCK
     ? mockShell(!teamId)
-    : new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${terminalPath(teamId)}?cols=${term.cols}&rows=${term.rows}`)
+    : new WebSocket(socketUrl(`${terminalRoute(teamId)}?cols=${term.cols}&rows=${term.rows}`))
   socket.binaryType = 'arraybuffer'
   const s: Session = { term, socket, el, fit, shown: true, ended: false, onEnded: () => {}, onLeave: () => {} }
   socket.onmessage = (m) => term.write(new Uint8Array(m.data as ArrayBuffer))
@@ -101,6 +103,11 @@ function watch() {
     if (state.world.teams === before.world.teams) return
     // the airport's ('') is no company and stays
     for (const id of [...sessions.keys()]) if (id && !state.world.teams[id]) close(id)
+  })
+  // leaving an island ends its shells, kept or not: they run on that computer, and its ids are its own
+  useIsland.subscribe((state, before) => {
+    if (state.island?.id === before.island?.id) return
+    for (const id of [...sessions.keys()]) close(id)
   })
   usePrefs.subscribe((prefs) => {
     if (prefs.keepTerminals) return

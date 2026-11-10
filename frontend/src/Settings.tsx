@@ -5,7 +5,7 @@
 
 import { LANGUAGE_NAMES, LANGUAGES } from './LanguageMenu'
 import { tr } from './core/i18n'
-import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useStore } from './core/store'
 import LICENSE from '../../LICENSE?raw'
 import { BlueprintIcon } from './BlueprintIcon'
@@ -21,7 +21,8 @@ import { keptState, sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, makesImages, PROVIDER_KINDS } from './providers'
 import { Chevron, Select, Toggle, useAutoGrow } from './Controls'
-import { hideBlueprint, hideWorkflow, setLanguage } from './core/ops'
+import { hideBlueprint, hideWorkflow, remoteWindowReason, setLanguage } from './core/ops'
+import { useRemote } from './core/island'
 import { Chats, TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
 import { airportTabOr, AIRPORT_TABS, AUTO_TABS, AUTO_VIEWS, BUSY_ANIMATIONS, DAYLIGHTS, DEFAULT_PREFS, IDLE_FOLLOW_TARGETS, type IdleFollowTarget, IDLE_FOLLOWS, MAP_CLICKS, type AirportTab, type AutoTab, type AutoView, type MapClick, type BusyAnimation, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY, COMPACT_DEFAULTS, COMPACT_SHARE } from './prefs'
 import { request } from './core/backend'
@@ -311,6 +312,7 @@ const LOG_ORDERS = { newestFirst: '新的在最上面', newestLast: '新的在�
 
 /** App-wide preferences; changes are persisted and broadcast by the backend. */
 export function ReloadSettings() {
+  const remote = useRemote()
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -343,8 +345,9 @@ export function ReloadSettings() {
         <button type="button" className="fx-save" disabled={busy} onClick={() => void reload()}>
           {busy ? tr('載入中…') : tr('重新載入設定')}
         </button>
-        <button type="button" className="fx-save" onClick={() => void openFolder()}>{tr('開啟設定檔資料夾')}</button>
+        <button type="button" className="fx-save" disabled={remote} onClick={() => void openFolder()}>{tr('開啟設定檔資料夾')}</button>
       </div>
+      {remote && <p className="fx-d-muted">{remoteWindowReason()}</p>}
       <p role="status">{message}</p>
       <p role="alert">{error}</p>
     </section>
@@ -539,24 +542,31 @@ export function PrefsPage() {
   const prefs = usePrefs()
   const language = useStore((s) => s.world.language)
   const act = useStore((s) => s.act)
+  // on another island the interface stays this computer's: only its language, and the island's own work settings, change here
+  const remote = useRemote()
+  const own = (children: ReactNode) => (remote ? <fieldset className="fx-prefs-fence" disabled>{children}</fieldset> : children)
   const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'idleFollow' | 'idleFollowTarget' | 'terminalCommand' | 'autoView' | 'mapClick' | 'busyAnimation' | 'autoTab' | 'daylight' | 'hiddenBlueprints' | 'hiddenWorkflows' | keyof typeof COMPACT_DEFAULTS>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
   return (
     <div className="fx-d-groups fx-prefs-groups">
+      {remote && <p className="fx-pill fx-prereq">{tr('介面設定要回到自己的島再改')}</p>}
       <section className="fx-d-group" aria-labelledby="fx-prefs-general">
         <h4 id="fx-prefs-general">{tr('一般')}</h4>
         <div className="fx-fields">
           <Select label={tr('語言')} value={language} options={[...LANGUAGES]} labelOf={(l) => LANGUAGE_NAMES[l as Locale]}
             onChange={(l) => act((x) => void setLanguage(x, l as Locale))} />
+          {own(<>
           <Select label={tr('預設機場頁面')} value={airportTabOr(prefs.defaultAirportTab)} options={AIRPORT_TABS.map((x) => x.id)}
             labelOf={(id) => tr(AIRPORT_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultAirportTab: v as AirportTab })} />
           <Select label={tr('預設公司頁面')} value={tabOr(prefs.defaultTab)} options={COMPANY_TABS.filter((x) => x.id !== 'files').map((x) => x.id)}
             labelOf={(id) => tr(COMPANY_TABS.find((x) => x.id === id)!.label)} onChange={(v) => prefs.set({ defaultTab: v as CompanyTab })} />
           <Select label={tr('自動切換預設頁面')} value={prefs.autoTab} options={Object.keys(AUTO_TABS)} labelOf={(o) => tr(AUTO_TABS[o as AutoTab])}
             onChange={(v) => prefs.set({ autoTab: v as AutoTab })} />
+          </>)}
         </div>
       </section>
+      {own(<>
       <section className="fx-d-group" aria-labelledby="fx-prefs-controls">
         <h4 id="fx-prefs-controls">{tr('操作')}</h4>
         <div className="fx-fields">
@@ -595,15 +605,16 @@ export function PrefsPage() {
         </div>
       </section>
       <MusicSection />
+      </>)}
       {!MOCK && <SystemSection />}
       {!MOCK && <CompactSection />}
       {!MOCK && <AdvancedSection />}
-      <section className="fx-d-group" aria-labelledby="fx-prefs-tutorial">
+      {!remote && <section className="fx-d-group" aria-labelledby="fx-prefs-tutorial">
         <h4 id="fx-prefs-tutorial">{tr('教學')}</h4>
         <TutorialActs />
-      </section>
+      </section>}
       {!MOCK && <ReloadSettings />}
-      <ResetSettings />
+      {!remote && <ResetSettings />}
     </div>
   )
 }

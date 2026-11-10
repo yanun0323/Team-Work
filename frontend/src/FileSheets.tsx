@@ -3,6 +3,7 @@
 // against the fingerprint it was read with, so a change made elsewhere meanwhile is never written over. What is being
 // edited lives in fileDrafts, so it outlasts the edit sheet being put away.
 
+import { useRemote } from './core/island'
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { tr } from './core/i18n'
 import { ApiError } from './core/backend'
@@ -99,6 +100,7 @@ export function FileDetail({ teamId, path, editing, onEdit, ...h }: Head & { tea
   useEffect(() => () => forgetClean(teamId, path), [teamId, path])
   const name = nameOf(path)
   const unsaved = isDirty(draft)
+  const remote = useRemote()
   return (
     <>
       {state.status === 'ready' && <div className="fx-tools"><EditTool onClick={onEdit} open={editing} /></div>}
@@ -107,11 +109,12 @@ export function FileDetail({ teamId, path, editing, onEdit, ...h }: Head & { tea
         <p className="fx-d-meta">
           <span className="fx-folder">
             <code>{path}</code>
-            <button type="button" className="fx-tool fx-hit fx-folder-open" aria-label={tr('在 Finder 顯示')} title={tr('在 Finder 顯示')} onClick={() => openFolder(teamId, parentOf(path))}>
+            {/* on another island Finder would open on that computer's screen */}
+            {!remote && <button type="button" className="fx-tool fx-hit fx-folder-open" aria-label={tr('在 Finder 顯示')} title={tr('在 Finder 顯示')} onClick={() => openFolder(teamId, parentOf(path))}>
               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
                 <path d="M1.75 12.5v-9h4.2l1.5 1.75h6.8v7.25z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
               </svg>
-            </button>
+            </button>}
           </span>
           {unsaved && <span className="fx-files-unsaved">{tr('有未儲存的修改')}</span>}
         </p>

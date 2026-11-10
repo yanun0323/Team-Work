@@ -1,4 +1,6 @@
 import { tr } from './core/i18n'
+import { apiBase } from './core/island'
+import { idempotencyKey } from './core/backend'
 // The backend's setup of Claude Code, which a Claude subscription runs through. This is the one thing the
 // frontend asks the backend so far: the rest of it still runs on the simulator.
 
@@ -16,7 +18,8 @@ const unreachable = () => tr('連不上後端，請先執行 make dev')
 async function call(path: string, init?: RequestInit): Promise<Response> {
   let res: Response
   try {
-    res = await fetch(`/api/v1/claude-code${path}`, init)
+    const method = init?.method ?? 'GET'
+    res = await fetch(`${apiBase()}/claude-code${path}`, method === 'GET' ? init : { ...init, headers: { ...init?.headers, 'Idempotency-Key': idempotencyKey() } })
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e
     throw new Error(unreachable())

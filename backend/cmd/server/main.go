@@ -20,6 +20,7 @@ import (
 	"github.com/yanun0323/Team-Work/internal/delivery"
 	"github.com/yanun0323/Team-Work/internal/providers"
 	"github.com/yanun0323/Team-Work/internal/repository"
+	"github.com/yanun0323/Team-Work/internal/tower"
 	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
@@ -85,6 +86,12 @@ func run() error {
 	}
 	defer l.Close()
 	server := delivery.NewServer(engine, factory.ClaudeCode(), repository.FolderPicker{}, repository.Terminals{}, cfg.AllowedOrigins, log.Logger)
+	towers, err := tower.New(ctx, cfg.DataDir, tower.Tailcat{})
+	if err != nil {
+		return err
+	}
+	defer towers.Close()
+	server.EnableTowers(towers)
 	if cfg.MemoryDiagnostics {
 		server.EnableMemoryDiagnostics()
 	}

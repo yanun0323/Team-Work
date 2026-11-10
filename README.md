@@ -37,6 +37,7 @@ Load and update what others share on GitHub:
 
 ## Features
 
+- **Power Tower**: pair your own computers through built-in [Tailcat](https://github.com/tailscale/tailcat/) and visit another computer’s island. Pairing needs approval; each computer separately controls who may operate it. Work and settings stay on the other computer, and tasks continue if your controlling app disconnects. **Team Work must stay open on the computer being controlled.** No Tailscale account or separate installation is needed; the default free relay has traffic limits.
 - **Companies**: one company per project folder and target branch. The building grows as the company finishes tasks and hires employees.
 - **Employees**: made from blueprints (prompt, skills and allowed tools). Each employee picks their own model and thinking level. An employee can also have custom settings instead of a blueprint, written from scratch or copied from a blueprint and adjusted. There are 13 built-in blueprints, such as Backend Engineer, Review & QA and Media Designer, plus Matt Pocock and Poteto, who work by skills published on GitHub.
 - **Workflows**: the steps a task goes through, from Clarify requirements to Acceptance review. Steps can hand work to an employee or open a discussion with you. Four workflows are ready to use: General task, Feature development, Bug fix and Code review. They and the ready-made employee blueprints live in the official source, [Team-Work-Source](https://github.com/yanun0323/Team-Work-Source), which the app downloads the first time you use it and keeps up to date.

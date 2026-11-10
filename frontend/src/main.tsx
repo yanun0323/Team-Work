@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { holdBoot, revealBoot } from './boot'
 import { useAppLanguage, useBackend, useSimLoop, useStore } from './core/store'
 import { unreachable } from './core/backend'
+import { useRemote } from './core/island'
 import { World } from './World'
 import { GitGate } from './GitInstall'
 import './fonts.css'
@@ -18,7 +19,9 @@ function App() {
   useAppLanguage()
   const loaded = useStore((s) => s.loaded)
   const offline = useStore((s) => s.offline)
-  useEffect(() => holdBoot(offline), [offline])
+  // another island's lost connection is said by its own slip (IslandBar)
+  const remote = useRemote()
+  useEffect(() => holdBoot(offline && !remote), [offline, remote])
   // the scene lifts the startup screen on its first frames; never leave it covering a scene that didn't draw
   useEffect(() => {
     if (!loaded) return
@@ -30,7 +33,8 @@ function App() {
 
 /** Says when the backend can't be reached, or turned something down. */
 function Trouble() {
-  const offline = useStore((s) => s.offline)
+  const remote = useRemote()
+  const offline = useStore((s) => s.offline) && !remote
   const failure = useStore((s) => s.failure)
   const setFailure = useStore((s) => s.setFailure)
   if (!offline && !failure) return null

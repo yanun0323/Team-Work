@@ -1,4 +1,5 @@
 import { tr } from './core/i18n'
+import { useRemote } from './core/island'
 import { useState } from 'react'
 import { attempt, cancelLogin, logout, pasteLogin, startLogin } from './core/ops'
 import { useStore } from './core/store'
@@ -15,6 +16,8 @@ export function SubscriptionLogin({ id }: { id: string }) {
   const openai = provider.kind === 'openai'
   const login = auth.login
   const start = (method?: 'browser' | 'device') => void attempt(() => startLogin(id, method))
+  // on another island a browser sign-in opens on that computer, and comes back to it
+  const remote = useRemote()
   return (
     <div className="fx-field">
       <span>{tr('帳號')}</span>
@@ -46,7 +49,8 @@ export function SubscriptionLogin({ id }: { id: string }) {
         {login?.error && <p className="fx-field-error" role="alert">{login.error}</p>}
         {!auth.signedIn && (!login || login.error) && (
           <>
-            <button type="button" className="fx-control fx-login fx-hit" onClick={() => start(openai ? 'browser' : undefined)}>{openai ? tr('用瀏覽器登入') : tr('確認登入')}</button>
+            {!remote && <button type="button" className="fx-control fx-login fx-hit" onClick={() => start(openai ? 'browser' : undefined)}>{openai ? tr('用瀏覽器登入') : tr('確認登入')}</button>}
+            {remote && <p className="fx-d-muted">{openai ? tr('用瀏覽器登入會在對方電腦上打開，這裡請用裝置代碼登入') : tr('登入會在對方電腦上打開瀏覽器，請到那台電腦登入')}</p>}
             {openai && <button type="button" className="fx-control fx-login fx-hit" onClick={() => start('device')}>{tr('用裝置代碼登入')}</button>}
           </>
         )}

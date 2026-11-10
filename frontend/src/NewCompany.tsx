@@ -3,6 +3,8 @@
 // on the plot meanwhile, in a look rolled at random; the die on the sheet rolls another. Spots the player
 // picked are pinned here, so the town keeps its shape as it grows.
 
+import { useIsland } from './core/island'
+import { FolderBrowser } from './FolderBrowser'
 import { tr } from './core/i18n'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
@@ -218,7 +220,11 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
     if (!named) setName(basename(path))
   }
   const [browsing, setBrowsing] = useState(false)
+  // on another island, its folders are browsed here: a system dialog would open on that computer's screen
+  const remote = useIsland((s) => !!s.island)
+  const [inPage, setInPage] = useState(false)
   const browse = async () => {
+    if (remote) return setInPage(!inPage)
     setBrowsing(true)
     try {
       const picked = await pickFolder(folder)
@@ -276,13 +282,17 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
                 <input className="fx-control" value={folder} required pattern=".*\S.*" title={tr('專案位置不可為空')}
                   placeholder="~/code/my-app" spellCheck={false} autoComplete="off"
                   onChange={(e) => takeFolder(e.target.value)} />
-                <button type="button" className="fx-control fx-browse fx-hit" onClick={browse} disabled={browsing} aria-label={tr('選擇資料夾')} title={tr('選擇資料夾')}>
+                <button type="button" className="fx-control fx-browse fx-hit" onClick={browse} disabled={browsing} aria-label={tr('選擇資料夾')} title={tr('選擇資料夾')}
+                  aria-expanded={remote ? inPage : undefined}>
                   <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true">
                     <path d="M1.75 4.25v8.5h12.5v-7h-6.5l-1.5-1.5z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                   </svg>
                 </button>
               </span>
             </label>
+            {remote && inPage && (
+              <FolderBrowser from={folder} onClose={() => setInPage(false)} onPick={(path) => { takeFolder(path); setInPage(false) }} />
+            )}
             <label className="fx-field">
               <span>{tr('名稱')}</span>
               <input className="fx-control" value={name} required pattern=".*\S.*" title={tr('名稱不可為空')}

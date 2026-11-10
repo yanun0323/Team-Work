@@ -4,6 +4,7 @@ import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, 
 // tapes an edit sheet over theirs, a little lower and to the right, and clicking the strip of the sheet
 // below that still shows puts the top one away unsaved. They read the live world.
 
+import { shownUrl } from './core/island'
 import { colon, listOf, tr, trRecorded } from './core/i18n'
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { canSendBack, inEdges as stepsIn, nodeOf } from './core/domain/graph'
@@ -394,7 +395,7 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
         <div className="fx-thumbs">
           {task.images.map((im, i) => (
             <button key={i} type="button" className="fx-thumb fx-hit" aria-expanded={image === `task:${task.id}:${i}`} onClick={() => onImage(`task:${task.id}:${i}`, im)}>
-              <img src={im.url} alt={im.name} />
+              <img src={shownUrl(im.url)} alt={im.name} />
             </button>
           ))}
         </div>
@@ -1979,7 +1980,7 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
                 {isImage(im)
                   ? (
                     <button type="button" className="fx-thumb-open" aria-expanded={image === `newTask:${i}`} onClick={() => onImage(`newTask:${i}`, im)}>
-                      <img src={im.url} alt={im.name} />
+                      <img src={shownUrl(im.url)} alt={im.name} />
                     </button>
                   )
                   : <FileAttachment file={im} />}
@@ -2359,7 +2360,7 @@ function ImageDetail({ item, ...h }: Head & { item: Extract<Item, { kind: 'image
         {task && <p className="fx-d-meta"><span><span className="fx-task-no">#{task.number}</span>{task.title}</span></p>}
         {chat && <p className="fx-d-meta"><span>{chat.title || chatPreview(chat)}</span></p>}
       </header>
-      <img className="fx-d-image" src={im.url} alt={im.name} />
+      <img className="fx-d-image" src={shownUrl(im.url)} alt={im.name} />
     </>
   )
 }

@@ -89,6 +89,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.DELETE("/teams/:id", s.deleteTeam)
 	api.POST("/workflows", s.createWorkflow)
 
+	api.GET("/folders", s.browseFolders)
 	api.GET("/branches", s.branches)
 	api.POST("/folder-picker", s.pickFolder)
 	api.PUT("/workflows/:id", s.saveWorkflow)
@@ -277,13 +278,17 @@ func (s *Server) handleError(err error, c echo.Context) {
 			status = http.StatusNotFound
 		case model.CodeInvalid, model.CodeSignedOut:
 			status = http.StatusBadRequest
-		case model.CodeConflict:
+		case model.CodeConflict, "incompatible":
 			status = http.StatusConflict
 		case model.CodeUnsupported:
 			status = http.StatusUnsupportedMediaType
 		case model.CodeUnavailable:
 			status = http.StatusBadGateway
-		case codeForbidden:
+		case "unauthorized":
+			status = http.StatusUnauthorized
+		case "pair_self":
+			status = http.StatusBadRequest
+		case codeForbidden, "peer_denied", "peer_unpaired", "remote_unavailable":
 			status = http.StatusForbidden
 		}
 	case errors.As(err, &web) && web.Code < 500:

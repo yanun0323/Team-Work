@@ -37,6 +37,7 @@ Team Work는 AI 에이전트 팀이 내 프로젝트에서 일하게 해 주는 
 
 ## 기능
 
+- **송전탑**: 내장된 [Tailcat](https://github.com/tailscale/tailcat/)으로 자신의 컴퓨터를 페어링하고 상대 컴퓨터의 섬으로 이동합니다. 최초 페어링은 승인이 필요하며, 각 컴퓨터가 조작 허용 여부를 따로 설정합니다. 작업과 설정은 상대 컴퓨터에 있고, 조작하는 앱이 연결을 끊어도 작업은 계속됩니다. **조작되는 컴퓨터에서는 Team Work를 계속 실행해야 합니다.** Tailscale 계정이나 별도 설치는 필요 없으며, 기본 무료 중계 서버에는 트래픽 제한이 있습니다.
 - **회사**: 프로젝트 폴더 하나와 대상 브랜치 하나가 회사 하나입니다. 완료한 작업과 직원이 늘수록 건물이 커집니다.
 - **직원**: 블루프린트(프롬프트, 스킬, 허용 도구)로 만듭니다. 모델과 사고 수준은 직원마다 고를 수 있습니다. 블루프린트 없이 프롬프트, 스킬, 도구를 직원별로 직접 설정하거나, 블루프린트를 복사해 조정할 수도 있습니다. Backend Engineer, Review & QA, Media Designer 등 13가지 블루프린트가 기본으로 들어 있으며, GitHub에 공개된 스킬로 일하는 Matt Pocock과 Poteto도 있습니다.
 - **워크플로**: 작업이 거치는 단계로, Clarify requirements에서 시작해 Acceptance review로 끝납니다. 중간 단계는 직원에게 작업을 맡기거나 사용자와 논의하게 할 수 있습니다. General task, Feature development, Bug fix, Code review 4가지를 바로 쓸 수 있습니다. 이것들과 미리 만들어 둔 블루프린트는 공식 소스 [Team-Work-Source](https://github.com/yanun0323/Team-Work-Source)에 있으며, 처음 쓸 때 내려받고 그 뒤로 알아서 업데이트됩니다.

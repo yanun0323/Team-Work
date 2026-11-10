@@ -12,7 +12,7 @@ it('lists the main topics first, then the airport, the company and the looks', (
   const nav = html.slice(html.indexOf('<nav'), html.indexOf('</nav>'))
   const words = [...nav.matchAll(/<(button|h2)[^>]*>([^<]+)</g)].map((m) => m[2])
   expect(words).toEqual([
-    '快速開始', '地圖', '機場', '公司',
+    '快速開始', '地圖', '電塔', '機場', '公司',
     '機場', '對話', '模型供應商', '員工藍圖', '任務藍圖', '來源', '統計', '終端機', '設定', '關於',
     '公司', '對話', '任務', '回覆與討論', '員工', '檔案瀏覽', '終端機', '設定',
     '外觀', '建築', '家具', '角色',
