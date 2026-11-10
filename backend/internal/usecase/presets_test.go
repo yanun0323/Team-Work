@@ -114,7 +114,7 @@ func TestPresetsCannotChangeButCanBeCopied(t *testing.T) {
 	bp, wf := *w.Blueprints["team-work--product"], *presetFlowOf(t, w, "team-work--feature")
 	for what, err := range map[string]error{
 		"save blueprint":   r.e.SaveBlueprint(bp.ID, bp),
-		"delete blueprint": r.e.DeleteBlueprint(bp.ID),
+		"delete blueprint": r.e.DeleteBlueprint(bp.ID, ""),
 		"save flow":        r.e.SaveWorkflow(wf.ID, wf),
 		"delete flow":      r.e.DeleteWorkflow(wf.ID),
 	} {

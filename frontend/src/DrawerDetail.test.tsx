@@ -1,9 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { DeleteTool, Detail } from './DrawerDetail'
+import { DeleteTool, Detail, type Item } from './DrawerDetail'
+import { blueprintChoices } from './Pickers'
 import { useStore } from './core/store'
 import type { ModelProvider } from './core/domain/types'
-import { isLocked } from './core/data/presets'
+import { AIRPORT_BLUEPRINT, isLocked } from './core/data/presets'
 import { sourceName } from './source'
 
 it('picks no blueprint for an employee whose blueprint is gone, so saving waits for one', () => {
@@ -97,5 +98,53 @@ it('shows environment failure details instead of claiming verification exhausted
     expect(html).not.toContain('automatic retries')
   } finally {
     delete w.subTasks[id]
+  }
+})
+
+it('deletes a blueprint in use by moving everyone on it, in every company, to another one picked first', () => {
+  const w = useStore.getState().world
+  const base = Object.values(w.replicas)[0]
+  const bp = w.blueprints[base.blueprintId] ?? Object.values(w.blueprints).find((b) => !b.owner)!
+  const team = w.teams[base.teamId]
+  w.blueprints['bp-old'] = { ...bp, id: 'bp-old', name: 'Old', owner: undefined }
+  w.blueprints['bp-spare'] = { ...bp, id: 'bp-spare', name: 'Spare', owner: undefined }
+  w.teams['team-far'] = { ...team, id: 'team-far', name: 'Far Co' }
+  w.replicas['rep-here'] = { ...base, id: 'rep-here', name: 'Here', blueprintId: 'bp-old' }
+  w.replicas['rep-far'] = { ...base, id: 'rep-far', teamId: 'team-far', name: 'Faraway', blueprintId: 'bp-old' }
+  const noop = () => {}
+  const sheet = (item: Item) => {
+    Object.assign(useStore.getInitialState(), useStore.getState())
+    return renderToStaticMarkup(<Detail item={item} teamId={team.id} depth={0} covered={false} leaving={false}
+      onGone={noop} onBack={noop} onDone={noop} onClear={noop} onPush={noop} onOpen={noop} />)
+  }
+  try {
+    // in use: a bin that opens the sheet, not one that cannot be pressed
+    const detail = sheet({ kind: 'blueprint', id: 'bp-old' })
+    expect(detail).toContain('aria-expanded="false" aria-label="刪除"')
+    expect(detail).not.toContain('aria-disabled')
+    // no one on it: the bin that asks first, as before
+    const spare = sheet({ kind: 'blueprint', id: 'bp-spare' })
+    expect(spare).toContain('aria-label="刪除"')
+    expect(spare).not.toContain('aria-expanded="false" aria-label="刪除"')
+    // built-in: no bin at all
+    expect(sheet({ kind: 'blueprint', id: AIRPORT_BLUEPRINT })).not.toContain('aria-label="刪除"')
+
+    const form = sheet({ kind: 'blueprintDelete', id: 'bp-old' })
+    expect(form).toContain('刪除 Old')
+    expect(form).toContain('<b>Here</b></li>')
+    expect(form).toContain('<b>Faraway</b><span>Far Co</span>')
+    expect(form).toContain('<button type="submit" class="fx-save" disabled="">轉移並刪除</button>')
+    // gone meanwhile: says so
+    expect(sheet({ kind: 'blueprintDelete', id: 'bp-none' })).not.toContain('轉移並刪除')
+
+    const choices = blueprintChoices(w, ['bp-spare'], '', 'bp-old')
+    expect(choices).not.toContain('bp-old')
+    expect(choices).not.toContain('bp-spare')
+    expect(choices).not.toContain(AIRPORT_BLUEPRINT)
+    expect(choices.length).toBeGreaterThan(0)
+  } finally {
+    for (const id of ['rep-here', 'rep-far']) delete w.replicas[id]
+    for (const id of ['bp-old', 'bp-spare']) delete w.blueprints[id]
+    delete w.teams['team-far']
   }
 })

@@ -3,7 +3,7 @@ import { combine } from './rollup'
 import {
   cancelTask, fire, changeWorkflow, updateReplica, createTask as makeTask, createTeam, notStarted, DEFAULT_MODEL, deleteBlueprint, deleteTask, deleteTeam, gitSources, updateBlueprint, updateSource, deleteWorkflow, duplicateWorkflow, newWorkflow, hire, pauseTask, mergeTask, returnTask,
   MERGE_TIME, RESOLVE_TIME, resolveReview, resumeTask, statusOf, subsOf, tick,
-  endTalk, REPLY_TIME, sayInTalk, taskTokens, createChat, handOffChat, rewindChat, retryChat, sayInChat, setChatChair, inviteToChat, MAX_CHAT_PEOPLE,
+  endTalk, REPLY_TIME, sayInTalk, taskTokens, createChat, handOffChat, rewindChat, retryChat, sayInChat, setChatChair, inviteToChat, MAX_CHAT_PEOPLE, AIRPORT_BLUEPRINT_ID,
 } from './sim'
 import { composePrompt, validate, wouldCreateCycle } from './graph'
 import type { GitSource, Script, World, Workflow, WorkflowNode } from './types'
@@ -817,6 +817,28 @@ describe('deleting a blueprint', () => {
     delete w.replicas[r.id]
     expect(deleteBlueprint(w, 'bp')).toBe(true)
     expect(w.blueprints.bp).toBeUndefined()
+  })
+
+  it('moves everyone on it to another blueprint, then removes it', () => {
+    const w = world()
+    const a = createTeam(w, { name: 'A', folder: '/tmp/a', targetBranch: 'main', branches: ['main'], initializedGit: false })
+    const b = createTeam(w, { name: 'B', folder: '/tmp/b', targetBranch: 'main', branches: ['main'], initializedGit: false })
+    const ann = hire(w, a.id, 'bp', 'Ann')
+    const bo = hire(w, b.id, 'bp', 'Bo')
+    w.blueprints.to = { ...w.blueprints.bp, id: 'to', name: 'To' }
+    w.blueprints.own = { ...w.blueprints.bp, id: 'own', owner: ann.id }
+    const before = structuredClone([w.replicas[ann.id], w.replicas[bo.id]])
+    for (const to of [undefined, 'bp', 'missing', 'own', AIRPORT_BLUEPRINT_ID]) {
+      expect(deleteBlueprint(w, 'bp', to)).toBe(false)
+      expect(w.blueprints.bp).toBeDefined()
+      expect([w.replicas[ann.id].blueprintId, w.replicas[bo.id].blueprintId]).toEqual(['bp', 'bp'])
+    }
+    expect(deleteBlueprint(w, 'own', 'to')).toBe(false)
+    expect(w.blueprints.own).toBeDefined()
+
+    expect(deleteBlueprint(w, 'bp', 'to')).toBe(true)
+    expect(w.blueprints.bp).toBeUndefined()
+    expect([w.replicas[ann.id], w.replicas[bo.id]]).toEqual(before.map((r) => ({ ...r, blueprintId: 'to' })))
   })
 
   it('leaves the model to the employee', () => {

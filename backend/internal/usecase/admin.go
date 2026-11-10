@@ -1144,17 +1144,35 @@ func (e *Engine) dropOwnBlueprint(r *model.Replica) {
 	}
 }
 
-func (e *Engine) DeleteBlueprint(id string) error {
+// DeleteBlueprint deletes a blueprint anyone can be hired from. Employees made from it move to blueprint to first, all
+// in the same change; with no one on it, to is not looked at.
+func (e *Engine) DeleteBlueprint(id, to string) error {
 	return e.doSettings(func() error {
-		if e.w.Blueprints[id] == nil {
+		if e.hireableBlueprint(id, "") == nil {
 			return model.Errorf(model.CodeNotFound, "找不到藍圖")
 		}
 		if err := errLocked(id); err != nil {
 			return err
 		}
+		var users []*model.Replica
 		for _, r := range e.w.Replicas {
 			if r.BlueprintID == id {
+				users = append(users, r)
+			}
+		}
+		if len(users) > 0 {
+			switch {
+			case to == "":
 				return model.Errorf(model.CodeConflict, "還有員工是用這個藍圖建立的")
+			case to == id:
+				return model.Errorf(model.CodeInvalid, "要轉移到另一個藍圖")
+			case e.hireableBlueprint(to, "") == nil || to == airportBlueprintID:
+				return model.Errorf(model.CodeNotFound, "找不到要轉移到的藍圖")
+			case e.blueprintHidden(to):
+				return model.Errorf(model.CodeInvalid, "這個藍圖已隱藏")
+			}
+			for _, r := range users {
+				r.BlueprintID = to
 			}
 		}
 		delete(e.w.Blueprints, id)
