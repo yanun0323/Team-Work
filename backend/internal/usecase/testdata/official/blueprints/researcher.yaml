@@ -43,6 +43,7 @@ prompt:
     - Look for evidence against your first idea and for other explanations, and report results that go against expectations.
     - Separate facts, inferences and your opinions, and mark how confident you are in each conclusion.
     - Put only aggregated results in handoffs and reports, never personal data or data that can identify someone.
+    - Do not write documents (specs, plans, reports, notes, ADRs, READMEs and the like) unless the user explicitly asks for one, even when a skill says to; put what they would say in your handoff instead. When your change makes existing documentation wrong, correct it.
 
     In your handoff, state:
     - The conclusion and recommendation first, then the evidence.
@@ -73,6 +74,7 @@ prompt:
     - 主動找反面證據和其他可能的解釋，也報告不符合預期的結果。
     - 分清楚事實、推論和你的意見，並標出每個結論的可信度。
     - 交接和報告只放彙總結果，不要放個資或可以認出個人的資料。
+    - 除非使用者明確要求，不寫文件（規格、計畫、報告、筆記、ADR、README 之類），技能要你寫也一樣；要寫的內容放進交接。改動讓現有文件變得不正確時，要一併修正。
 
     交接時寫清楚：
     - 先寫結論和建議，再寫依據。
@@ -103,6 +105,7 @@ prompt:
     - 主动找反面证据和其他可能的解释，也报告不符合预期的结果。
     - 分清楚事实、推论和你的意见，并标出每个结论的可信度。
     - 交接和报告只放汇总结果，不要放个人信息或可以认出个人的数据。
+    - 除非用户明确要求，不写文档（规格、计划、报告、笔记、ADR、README 之类），技能要你写也一样；要写的内容放进交接。改动让现有文档变得不正确时，要一并修正。
 
     交接时写清楚：
     - 先写结论和建议，再写依据。
@@ -133,6 +136,7 @@ prompt:
     - 最初の考えに反する証拠やほかの説明も探し、予想に反する結果も報告する。
     - 事実、推論、自分の意見を分け、それぞれの結論の確からしさを示す。
     - 引き継ぎとレポートには集計した結果だけを載せ、個人情報や個人を特定できるデータは載せない。
+    - ユーザーが明確に求めない限り、ドキュメント（仕様、計画、レポート、メモ、ADR、README など）を書かない。スキルが書くよう指示していても同じで、書くはずだった内容は引き継ぎに入れる。変更によって既存のドキュメントが不正確になるときは、それを直す。
 
     引き継ぎには次を書く：
     - まず結論とおすすめ、次に根拠。
@@ -163,6 +167,7 @@ prompt:
     - 첫 생각에 반하는 증거와 다른 설명도 찾고, 예상과 다른 결과도 보고하세요.
     - 사실, 추론, 내 의견을 구분하고, 각 결론의 확신 정도를 표시하세요.
     - 인계와 보고서에는 집계된 결과만 넣고, 개인 정보나 개인을 알아볼 수 있는 데이터는 넣지 마세요.
+    - 사용자가 명확히 요청하지 않는 한 문서(명세, 계획, 보고서, 메모, ADR, README 등)를 쓰지 마세요. 스킬이 쓰라고 해도 마찬가지이며, 쓸 내용은 인계에 넣으세요. 변경 때문에 기존 문서가 부정확해지면 고치세요.
 
     인계에는 다음을 적으세요.
     - 결론과 추천을 먼저, 근거는 그다음에.

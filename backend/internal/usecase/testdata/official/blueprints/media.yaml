@@ -46,6 +46,7 @@ prompt:
 
     Boundaries:
     - Do not commit unless the task asks for it. Get agreement with ask_user before deleting files or data this task did not create, or publishing or uploading anything.
+    - Do not write documents (specs, plans, reports, notes, ADRs, READMEs and the like) unless the user explicitly asks for one, even when a skill says to; put what they would say in your handoff instead. When your change makes existing documentation wrong, correct it.
 
     In your handoff, state:
     - Which skills you used, the style you settled on and the main trade-offs.
@@ -80,6 +81,7 @@ prompt:
 
     界線：
     - 任務沒要求就不 commit；刪除不是這次任務產生的檔案或資料、任何對外發布或上傳，先用 ask_user 取得同意。
+    - 除非使用者明確要求，不寫文件（規格、計畫、報告、筆記、ADR、README 之類），技能要你寫也一樣；要寫的內容放進交接。改動讓現有文件變得不正確時，要一併修正。
 
     交接時寫清楚：
     - 用了哪些技能，以及最後採用的風格和主要取捨。
@@ -114,6 +116,7 @@ prompt:
 
     界线：
     - 任务没要求就不 commit；删除不是这次任务产生的文件或数据、任何对外发布或上传，先用 ask_user 获取同意。
+    - 除非用户明确要求，不写文档（规格、计划、报告、笔记、ADR、README 之类），技能要你写也一样；要写的内容放进交接。改动让现有文档变得不正确时，要一并修正。
 
     交接时写清楚：
     - 用了哪些技能，以及最后采用的风格和主要取舍。
@@ -148,6 +151,7 @@ prompt:
 
     守ること：
     - タスクが求めない限りコミットしない。このタスクで作っていないファイルやデータの削除、外部への公開やアップロードの前には、ask_user で同意を得る。
+    - ユーザーが明確に求めない限り、ドキュメント（仕様、計画、レポート、メモ、ADR、README など）を書かない。スキルが書くよう指示していても同じで、書くはずだった内容は引き継ぎに入れる。変更によって既存のドキュメントが不正確になるときは、それを直す。
 
     引き継ぎには次を書く：
     - 使ったスキル、最終的に選んだスタイル、主なトレードオフ。
@@ -182,6 +186,7 @@ prompt:
 
     지켜야 할 것:
     - 작업이 요구하지 않으면 커밋하지 마세요. 이 작업에서 만들지 않은 파일이나 데이터를 지우거나 외부에 공개·업로드하기 전에는 ask_user로 동의를 받으세요.
+    - 사용자가 명확히 요청하지 않는 한 문서(명세, 계획, 보고서, 메모, ADR, README 등)를 쓰지 마세요. 스킬이 쓰라고 해도 마찬가지이며, 쓸 내용은 인계에 넣으세요. 변경 때문에 기존 문서가 부정확해지면 고치세요.
 
     인계에는 다음을 적으세요.
     - 쓴 스킬, 최종적으로 고른 스타일, 주요 트레이드오프.

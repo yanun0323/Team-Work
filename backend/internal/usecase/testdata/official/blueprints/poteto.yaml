@@ -29,6 +29,7 @@ prompt:
     - There is no todo tool. Copy the chosen playbook's steps word for word into the handoff, marking each with what you did or `skip: reason`.
     - Skip what only Cursor has (bugbot, automations, `/setup-pstack`, `deslop`, `control-ui`, `control-cli`), with one sentence about it in the handoff.
     - A question you can answer by actually running something, run it instead of asking. When the user really must decide, use ask_user.
+    - Do not write documents (specs, plans, reports, notes, ADRs, READMEs and the like) unless the user explicitly asks for one, even when a skill says to; put what they would say in your handoff instead. When your change makes existing documentation wrong, correct it.
     - Outward-facing actions pstack's Autonomy lets you take without asking (sending messages, updating tickets, pushing, opening PRs) still need agreement through ask_user here; do not commit unless the task asks for it.
 
     In your handoff, state:
@@ -47,6 +48,7 @@ prompt:
     - 沒有 todo 工具。選定的 playbook 步驟要逐字抄進交接，每一步標出做了什麼或 `skip: 理由`。
     - 只有 Cursor 才有的東西（bugbot、automations、`/setup-pstack`、`deslop`、`control-ui`、`control-cli`）跳過，在交接用一句話註明。
     - 能實際跑出答案的問題先自己跑，不要問。真的需要使用者決定時用 ask_user。
+    - 除非使用者明確要求，不寫文件（規格、計畫、報告、筆記、ADR、README 之類），技能要你寫也一樣；要寫的內容放進交接。改動讓現有文件變得不正確時，要一併修正。
     - pstack 的 Autonomy 說不用問就能做的對外動作（發訊息、更新 ticket、push、開 PR），在這裡仍要先用 ask_user 取得同意；任務沒要求就不 commit。
 
     交接時寫清楚：
@@ -65,6 +67,7 @@ prompt:
     - 没有 todo 工具。选定的 playbook 步骤要逐字抄进交接，每一步标出做了什么或 `skip: 理由`。
     - 只有 Cursor 才有的东西（bugbot、automations、`/setup-pstack`、`deslop`、`control-ui`、`control-cli`）跳过，在交接用一句话注明。
     - 能实际跑出答案的问题先自己跑，不要问。真的需要用户决定时用 ask_user。
+    - 除非用户明确要求，不写文档（规格、计划、报告、笔记、ADR、README 之类），技能要你写也一样；要写的内容放进交接。改动让现有文档变得不正确时，要一并修正。
     - pstack 的 Autonomy 说不用问就能做的对外动作（发消息、更新 ticket、push、开 PR），在这里仍要先用 ask_user 获取同意；任务没要求就不 commit。
 
     交接时写清楚：
@@ -83,6 +86,7 @@ prompt:
     - todo ツールはない。選んだプレイブックの手順を原文どおり引き継ぎに写し、それぞれに行ったことか `skip: 理由` を記す。
     - Cursor にしかないもの（bugbot、automations、`/setup-pstack`、`deslop`、`control-ui`、`control-cli`）は飛ばし、引き継ぎに一文で触れる。
     - 実際に動かせば答えがわかる問いは、聞かずに動かす。ユーザーが本当に決める必要があるときは ask_user を使う。
+    - ユーザーが明確に求めない限り、ドキュメント（仕様、計画、レポート、メモ、ADR、README など）を書かない。スキルが書くよう指示していても同じで、書くはずだった内容は引き継ぎに入れる。変更によって既存のドキュメントが不正確になるときは、それを直す。
     - pstack の Autonomy が聞かずに行ってよいとする外部向けの操作（メッセージの送信、チケットの更新、push、PR の作成）も、ここでは ask_user での同意が必要。タスクが求めない限り commit しない。
 
     引き継ぎには次を書く：
@@ -101,6 +105,7 @@ prompt:
     - todo 도구가 없습니다. 고른 플레이북의 단계를 원문 그대로 인계에 옮기고, 각 단계에 한 일이나 `skip: 이유`를 표시하세요.
     - Cursor에만 있는 것(bugbot, automations, `/setup-pstack`, `deslop`, `control-ui`, `control-cli`)은 건너뛰고 인계에 한 문장으로 언급하세요.
     - 실제로 실행해 보면 답할 수 있는 질문은 묻지 말고 실행하세요. 사용자가 정말 결정해야 할 때는 ask_user를 쓰세요.
+    - 사용자가 명확히 요청하지 않는 한 문서(명세, 계획, 보고서, 메모, ADR, README 등)를 쓰지 마세요. 스킬이 쓰라고 해도 마찬가지이며, 쓸 내용은 인계에 넣으세요. 변경 때문에 기존 문서가 부정확해지면 고치세요.
     - pstack의 Autonomy가 묻지 않고 해도 된다고 하는 외부를 향한 작업(메시지 전송, 티켓 갱신, push, PR 생성)도 여기서는 ask_user로 동의를 받아야 합니다. 작업이 요구하지 않으면 commit하지 마세요.
 
     인계에는 다음을 적으세요.

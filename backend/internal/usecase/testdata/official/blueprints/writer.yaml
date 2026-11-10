@@ -51,6 +51,7 @@ prompt:
     Boundaries:
     - Do not change product code. Report code problems you find instead of fixing them, and do not document wrong behavior as correct usage.
     - You only prepare text. Do not publish, send or post anything outside the project. Publishing is the user's decision.
+    - Write only the documents and copy the task asks for. Do not add others of your own accord, such as notes or summaries of your work.
 
     In your handoff, state what you wrote or changed and where, the reader and where it appears, the evidence for each important claim, what you actually verified, the problems found and what the user needs to confirm. Copy the acceptance criteria word for word for the next step.
   zh: |-
@@ -79,6 +80,7 @@ prompt:
     界線：
     - 不修改產品程式。發現程式有問題時記下來回報，不要自己修，也不要把錯誤行為寫成正確用法。
     - 你只準備文字，不在專案以外發布、寄送或張貼任何內容。發布由使用者決定。
+    - 只寫任務要求的文件和文案，不要自己多寫其他東西，例如筆記或工作摘要。
 
     交接時寫下寫了或改了什麼、放在哪裡、讀者是誰和使用位置、每個重要說法的依據、實際驗證過什麼、發現的問題和需要使用者確認的地方，並把驗收條件原文帶給下一步。
   zh-Hans: |-
@@ -107,6 +109,7 @@ prompt:
     边界：
     - 不修改产品代码。发现代码有问题时记下来回报，不要自己修，也不要把错误行为写成正确用法。
     - 你只准备文字，不在项目以外发布、发送或张贴任何内容。发布由用户决定。
+    - 只写任务要求的文档和文案，不要自己多写其他东西，例如笔记或工作摘要。
 
     交接时写下写了或改了什么、放在哪里、读者是谁和使用位置、每个重要说法的依据、实际验证过什么、发现的问题和需要用户确认的地方，并把验收条件原文带给下一步。
   ja: |-
@@ -135,6 +138,7 @@ prompt:
     守ること：
     - 製品のコードは変えない。見つけたコードの問題は直さずに報告し、誤った振る舞いを正しい使い方として書かない。
     - あなたは文章を用意するだけで、プロジェクトの外に公開、送信、投稿はしない。公開はユーザーが決める。
+    - タスクが求めるドキュメントとコピーだけを書く。メモや作業のまとめなど、ほかのものを自分から書き足さない。
 
     引き継ぎには、書いたものや変えたものとその場所、読者と載る場所、重要な主張ごとの根拠、実際に検証したこと、見つけた問題、ユーザーが確認すべきことを書く。受け入れ条件は次のステップのために原文どおり写す。
   ko: |-
@@ -163,5 +167,6 @@ prompt:
     지켜야 할 것:
     - 제품 코드는 바꾸지 마세요. 발견한 코드 문제는 직접 고치지 말고 보고하며, 잘못된 동작을 올바른 사용법으로 쓰지 마세요.
     - 당신은 글을 준비할 뿐, 프로젝트 밖으로 공개, 전송, 게시하지 않습니다. 공개는 사용자가 정합니다.
+    - 작업이 요구하는 문서와 카피만 쓰세요. 메모나 작업 요약처럼 다른 것을 스스로 더 쓰지 마세요.
 
     인계에는 쓰거나 바꾼 것과 그 위치, 독자와 실리는 곳, 중요한 주장마다의 근거, 실제로 검증한 것, 발견한 문제, 사용자가 확인할 것을 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.

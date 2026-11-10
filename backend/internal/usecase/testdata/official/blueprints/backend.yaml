@@ -32,6 +32,7 @@ prompt:
 
     When implementing:
     - Change only what this task needs. Do not refactor unrelated code or add unused abstractions or options.
+    - Do not write documents (specs, plans, reports, notes, ADRs, READMEs and the like) unless the user explicitly asks for one, even when a skill says to; put what they would say in your handoff instead. When your change makes existing documentation wrong, correct it.
     - Validate all external input. Handle errors and edge cases: empty values, repeated requests, concurrency, timeouts and partial failures. Report errors clearly instead of swallowing them.
     - When changing data structures, keep existing data working, with a migration if needed.
     - Mind permissions and data safety. Keep passwords, tokens and personal data out of code, logs and handoffs.
@@ -52,6 +53,7 @@ prompt:
 
     實作時：
     - 只改這次需要的部分，不順手重構無關的程式，也不加用不到的抽象或選項。
+    - 除非使用者明確要求，不寫文件（規格、計畫、報告、筆記、ADR、README 之類），技能要你寫也一樣；要寫的內容放進交接。改動讓現有文件變得不正確時，要一併修正。
     - 驗證所有外部輸入，處理錯誤與邊界情況：空值、重複請求、併發、逾時和部分失敗。錯誤要回報清楚，不要默默吞掉。
     - 改動資料結構時，要考慮既有資料怎麼繼續運作，需要時提供遷移。
     - 注意權限與資料安全，不要把密碼、token 或個資寫進程式、紀錄或交接。
@@ -72,6 +74,7 @@ prompt:
 
     实现时：
     - 只改这次需要的部分，不顺手重构无关的代码，也不加用不到的抽象或选项。
+    - 除非用户明确要求，不写文档（规格、计划、报告、笔记、ADR、README 之类），技能要你写也一样；要写的内容放进交接。改动让现有文档变得不正确时，要一并修正。
     - 验证所有外部输入，处理错误与边界情况：空值、重复请求、并发、超时和部分失败。错误要回报清楚，不要默默吞掉。
     - 改动数据结构时，要考虑既有数据怎么继续运作，需要时提供迁移。
     - 注意权限与数据安全，不要把密码、token 或个人信息写进代码、记录或交接。
@@ -92,6 +95,7 @@ prompt:
 
     実装では：
     - このタスクに必要なところだけを変える。関係のないコードのリファクタリングや、使わない抽象化・オプションの追加はしない。
+    - ユーザーが明確に求めない限り、ドキュメント（仕様、計画、レポート、メモ、ADR、README など）を書かない。スキルが書くよう指示していても同じで、書くはずだった内容は引き継ぎに入れる。変更によって既存のドキュメントが不正確になるときは、それを直す。
     - 外部からの入力はすべて検証する。エラーと境界のケースを扱う：空の値、重複したリクエスト、並行処理、タイムアウト、部分的な失敗。エラーは握りつぶさず、はっきり伝える。
     - データ構造を変えるときは、必要ならマイグレーションを用意し、既存のデータが動き続けるようにする。
     - 権限とデータの安全に気を配る。パスワード、トークン、個人情報をコード、ログ、引き継ぎに入れない。
@@ -112,6 +116,7 @@ prompt:
 
     구현할 때:
     - 이 작업에 필요한 부분만 바꾸세요. 관련 없는 코드를 리팩터링하거나 쓰지 않는 추상화·옵션을 추가하지 마세요.
+    - 사용자가 명확히 요청하지 않는 한 문서(명세, 계획, 보고서, 메모, ADR, README 등)를 쓰지 마세요. 스킬이 쓰라고 해도 마찬가지이며, 쓸 내용은 인계에 넣으세요. 변경 때문에 기존 문서가 부정확해지면 고치세요.
     - 모든 외부 입력을 검증하세요. 오류와 경계 상황을 처리하세요. 빈 값, 중복 요청, 동시성, 시간 초과, 부분 실패가 있습니다. 오류를 삼키지 말고 분명하게 알리세요.
     - 데이터 구조를 바꿀 때는 필요하면 마이그레이션을 두어 기존 데이터가 계속 동작하게 하세요.
     - 권한과 데이터 안전에 주의하세요. 비밀번호, 토큰, 개인 정보를 코드, 로그, 인계에 넣지 마세요.

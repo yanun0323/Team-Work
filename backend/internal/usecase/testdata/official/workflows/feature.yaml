@@ -14,45 +14,45 @@ nodes:
       ko: 명세 작성
     prompt:
       en: |-
-        Read the task description and images and look at the project's current state and the relevant code, then write the requirements as a spec in docs/, so later steps can start without asking. Where the task is unclear in a way that affects the scope or result, ask the user with ask_user.
+        Read the task description and images and look at the project's current state and the relevant code, then write the requirements as a spec in your handoff, so later steps can start without asking. Write it to a file in docs/ only when the user explicitly asks. Where the task is unclear in a way that affects the scope or result, ask the user with ask_user.
 
         The spec includes: the problem, the scope, what is excluded, the main flows, edge and error cases, and acceptance criteria that can be verified one by one. Say what to achieve, not how to implement it.
 
         Then split the work into a frontend part and a backend part, and define the interface between them (API paths, parameters, responses and error formats), so both can start at once without waiting for each other. Both share one working directory, so state which files each part changes, to keep them from changing the same place.
 
-        In your handoff, list the spec's file path, and state each part's work, the interface and any ordering constraints. If a part has no work, say so. Copy the acceptance criteria word for word for the next step.
+        In your handoff, include the spec in full, and state each part's work, the interface and any ordering constraints. If a part has no work, say so. Copy the acceptance criteria word for word for the next step.
       zh: |-
-        讀懂任務說明和附圖，看過專案現況和相關程式，把需求寫成規格，放進 docs/，讓後面的人不用再問就能動手。任務沒寫清楚又會影響範圍或結果的地方，用 ask_user 問使用者。
+        讀懂任務說明和附圖，看過專案現況和相關程式，把需求寫成規格放進交接，讓後面的人不用再問就能動手；使用者明確要求時才另存成 docs/ 裡的檔案。任務沒寫清楚又會影響範圍或結果的地方，用 ask_user 問使用者。
 
         規格要包含：要解決的問題、範圍、不做的事、主要流程、邊界與錯誤情況，以及可以逐條驗證的驗收條件。只寫要達成什麼，不談實作細節。
 
         接著把工作拆成前端和後端兩份，並定好兩邊之間的介面（API 路徑、參數、回應和錯誤格式），讓兩邊可以同時開工，不用互相等。兩邊共用同一個工作目錄，所以要分清楚各自改哪些檔案，避免改到同一處。
 
-        交接時列出規格檔案的路徑，分別寫出前端和後端要做的事、介面定義和先後限制，某一邊沒有工作就明說。把驗收條件原文帶給下一步。
+        交接時附上完整規格，分別寫出前端和後端要做的事、介面定義和先後限制，某一邊沒有工作就明說。把驗收條件原文帶給下一步。
       zh-Hans: |-
-        读懂任务说明和附图，看过项目现况和相关代码，把需求写成规格，放进 docs/，让后面的人不用再问就能动手。任务没写清楚又会影响范围或结果的地方，用 ask_user 问用户。
+        读懂任务说明和附图，看过项目现况和相关代码，把需求写成规格放进交接，让后面的人不用再问就能动手；用户明确要求时才另存成 docs/ 里的文件。任务没写清楚又会影响范围或结果的地方，用 ask_user 问用户。
 
         规格要包含：要解决的问题、范围、不做的事、主要流程、边界与错误情况，以及可以逐条验证的验收条件。只写要达成什么，不谈实现细节。
 
         接着把工作拆成前端和后端两份，并定好两边之间的接口（API 路径、参数、响应和错误格式），让两边可以同时开工，不用互相等。两边共用同一个工作目录，所以要分清楚各自改哪些文件，避免改到同一处。
 
-        交接时列出规格文件的路径，分别写出前端和后端要做的事、接口定义和先后限制，某一边没有工作就明说。把验收条件原文带给下一步。
+        交接时附上完整规格，分别写出前端和后端要做的事、接口定义和先后限制，某一边没有工作就明说。把验收条件原文带给下一步。
       ja: |-
-        タスクの説明と添付画像を読み、プロジェクトの現状と関連するコードを確認してから、要件を仕様として docs/ に書き、後のステップが質問せずに始められるようにする。タスクが不明確で範囲や結果に影響するところは ask_user でユーザーに聞く。
+        タスクの説明と添付画像を読み、プロジェクトの現状と関連するコードを確認してから、要件を仕様として引き継ぎに書き、後のステップが質問せずに始められるようにする。docs/ にファイルとして書くのは、ユーザーが明確に求めたときだけ。タスクが不明確で範囲や結果に影響するところは ask_user でユーザーに聞く。
 
         仕様に含めるもの：問題、範囲、除外するもの、主な流れ、境界とエラーのケース、一つずつ検証できる受け入れ条件。どう実装するかではなく、何を実現するかを書く。
 
         そのうえで作業をフロントエンドとバックエンドに分け、その間のインターフェース（API のパス、パラメーター、レスポンス、エラー形式）を定め、両方が互いを待たずに同時に始められるようにする。両者は一つの作業ディレクトリを共有するので、それぞれが変更するファイルを書き、同じ場所を変えないようにする。
 
-        引き継ぎには、仕様のファイルパスを挙げ、それぞれの作業、インターフェース、順序の制約を書く。作業のない側があればそう書く。受け入れ条件は次のステップのために原文どおり写す。
+        引き継ぎには、仕様の全文を入れ、それぞれの作業、インターフェース、順序の制約を書く。作業のない側があればそう書く。受け入れ条件は次のステップのために原文どおり写す。
       ko: |-
-        작업 설명과 첨부 이미지를 읽고 프로젝트의 현재 상태와 관련 코드를 살펴본 뒤, 요구 사항을 명세로 docs/에 적어 이후 단계가 묻지 않고 시작할 수 있게 하세요. 작업이 불분명해 범위나 결과에 영향을 주는 부분은 ask_user로 사용자에게 물어보세요.
+        작업 설명과 첨부 이미지를 읽고 프로젝트의 현재 상태와 관련 코드를 살펴본 뒤, 요구 사항을 명세로 인계에 적어 이후 단계가 묻지 않고 시작할 수 있게 하세요. docs/에 파일로 쓰는 것은 사용자가 명확히 요청할 때만입니다. 작업이 불분명해 범위나 결과에 영향을 주는 부분은 ask_user로 사용자에게 물어보세요.
 
         명세에는 문제, 범위, 제외하는 것, 주요 흐름, 경계와 오류 상황, 하나씩 검증할 수 있는 인수 기준이 들어갑니다. 어떻게 구현할지가 아니라 무엇을 이룰지를 쓰세요.
 
         그다음 일을 프런트엔드와 백엔드로 나누고 둘 사이의 인터페이스(API 경로, 매개변수, 응답, 오류 형식)를 정의해, 둘이 서로를 기다리지 않고 동시에 시작할 수 있게 하세요. 둘은 작업 디렉터리 하나를 함께 쓰므로 각각 바꾸는 파일을 적어 같은 곳을 바꾸지 않게 하세요.
 
-        인계에는 명세 파일 경로를 적고, 각 부분의 작업, 인터페이스, 순서 제약을 적으세요. 작업이 없는 부분이 있으면 그렇다고 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
+        인계에는 명세 전문을 넣고, 각 부분의 작업, 인터페이스, 순서 제약을 적으세요. 작업이 없는 부분이 있으면 그렇다고 적으세요. 인수 기준은 다음 단계를 위해 원문 그대로 옮겨 적으세요.
   - id: backend-development
     name:
       en: Backend development

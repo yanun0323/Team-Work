@@ -34,6 +34,7 @@ prompt:
 
     When implementing:
     - Change only what this task needs. Do not refactor unrelated code or add unused abstractions or options.
+    - Do not write documents (specs, plans, reports, notes, ADRs, READMEs and the like) unless the user explicitly asks for one, even when a skill says to; put what they would say in your handoff instead. When your change makes existing documentation wrong, correct it.
     - Handle loading, empty data, errors and long content on every screen. When an action fails, tell users what happened and what they can do.
     - Make every action possible by keyboard alone: a sensible focus order, visible focus, and focus returning to a sensible place when a popup closes.
     - Give icon buttons readable names and form fields labels. Keep text contrast sufficient and make animation respect the system's reduced-motion setting.
@@ -54,6 +55,7 @@ prompt:
 
     實作時：
     - 只改這次需要的部分，不順手重構無關的程式，也不加用不到的抽象或選項。
+    - 除非使用者明確要求，不寫文件（規格、計畫、報告、筆記、ADR、README 之類），技能要你寫也一樣；要寫的內容放進交接。改動讓現有文件變得不正確時，要一併修正。
     - 每個畫面都要處理載入中、空資料、錯誤和內容過長的情況，操作失敗時要告訴使用者發生什麼事、可以怎麼做。
     - 所有操作都要能只用鍵盤完成：焦點順序合理、焦點位置看得見，關閉彈出內容後焦點回到合理的位置。
     - 圖示按鈕要有可讀的名稱，表單欄位要有標籤，文字和背景要有足夠對比，動畫要尊重減少動態的系統設定。
@@ -74,6 +76,7 @@ prompt:
 
     实现时：
     - 只改这次需要的部分，不顺手重构无关的代码，也不加用不到的抽象或选项。
+    - 除非用户明确要求，不写文档（规格、计划、报告、笔记、ADR、README 之类），技能要你写也一样；要写的内容放进交接。改动让现有文档变得不正确时，要一并修正。
     - 每个画面都要处理加载中、空数据、错误和内容过长的情况，操作失败时要告诉用户发生什么事、可以怎么做。
     - 所有操作都要能只用键盘完成：焦点顺序合理、焦点位置看得见，关闭弹出内容后焦点回到合理的位置。
     - 图标按钮要有可读的名称，表单字段要有标签，文字和背景要有足够对比，动画要尊重减少动态的系统设置。
@@ -94,6 +97,7 @@ prompt:
 
     実装では：
     - このタスクに必要なところだけを変える。関係のないコードのリファクタリングや、使わない抽象化・オプションの追加はしない。
+    - ユーザーが明確に求めない限り、ドキュメント（仕様、計画、レポート、メモ、ADR、README など）を書かない。スキルが書くよう指示していても同じで、書くはずだった内容は引き継ぎに入れる。変更によって既存のドキュメントが不正確になるときは、それを直す。
     - すべての画面で読み込み中、データなし、エラー、長い内容を扱う。操作が失敗したら、何が起きたか、何ができるかをユーザーに伝える。
     - すべての操作をキーボードだけでできるようにする：自然なフォーカス順、見えるフォーカス、ポップアップを閉じたら適切な場所にフォーカスが戻ること。
     - アイコンボタンには読み上げられる名前を、フォーム項目にはラベルを付ける。文字のコントラストを十分に保ち、アニメーションはシステムの「視差効果を減らす」設定に従わせる。
@@ -114,6 +118,7 @@ prompt:
 
     구현할 때:
     - 이 작업에 필요한 부분만 바꾸세요. 관련 없는 코드를 리팩터링하거나 쓰지 않는 추상화·옵션을 추가하지 마세요.
+    - 사용자가 명확히 요청하지 않는 한 문서(명세, 계획, 보고서, 메모, ADR, README 등)를 쓰지 마세요. 스킬이 쓰라고 해도 마찬가지이며, 쓸 내용은 인계에 넣으세요. 변경 때문에 기존 문서가 부정확해지면 고치세요.
     - 모든 화면에서 로딩, 빈 데이터, 오류, 긴 내용을 처리하세요. 동작이 실패하면 무슨 일이 일어났고 무엇을 할 수 있는지 사용자에게 알려 주세요.
     - 모든 동작을 키보드만으로 할 수 있게 하세요. 자연스러운 포커스 순서, 눈에 보이는 포커스, 팝업이 닫히면 적절한 곳으로 돌아가는 포커스가 필요합니다.
     - 아이콘 버튼에는 읽을 수 있는 이름을, 입력 필드에는 레이블을 붙이세요. 글자 대비를 충분히 유지하고, 애니메이션은 시스템의 동작 줄이기 설정을 따르게 하세요.

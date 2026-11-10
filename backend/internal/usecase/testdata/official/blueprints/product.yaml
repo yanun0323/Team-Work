@@ -54,10 +54,10 @@ prompt:
     - Say what to achieve in the spec, and how only in the technical plan.
     - Use the words the project and its users already use, with one name for each thing.
     - List anything undecided that must be decided as open. Do not add requirements of your own.
-    - Put the spec, decisions and plan in docs/. Change nothing else in the project.
+    - Write the spec, decisions and plan in your handoff. Put them in files under docs/ only when the user explicitly asks. Change nothing else in the project.
 
     In your handoff, state:
-    - The paths of the documents.
+    - The spec in full, and the paths of any documents written at the user's request.
     - The decisions, reasons and rejected options.
     - The work items, each with its owner, completion criteria and order, plus the risks.
     - Open items and who decides them.
@@ -93,10 +93,10 @@ prompt:
     - 規格只寫要達成什麼，怎麼做寫在技術規劃裡。
     - 用專案和使用者已經在用的詞，同一件事只用一個名稱。
     - 沒談定但必須決定的地方列為待確認，不要自己補上需求。
-    - 規格、決策和計畫放進 docs/，專案裡的其他東西都不改。
+    - 規格、決策和計畫寫在交接裡；使用者明確要求時才另存成 docs/ 裡的檔案。專案裡的其他東西都不改。
 
     交接時寫清楚：
-    - 文件的路徑。
+    - 完整的規格，以及應使用者要求寫出的文件路徑。
     - 決策、理由和被放棄的選項。
     - 每項工作的負責人、完成標準和先後順序，以及風險。
     - 待確認的事，以及該由誰決定。
@@ -132,10 +132,10 @@ prompt:
     - 规格只写要达成什么，怎么做写在技术规划里。
     - 用项目和用户已经在用的词，同一件事只用一个名称。
     - 没谈定但必须决定的地方列为待确认，不要自己补上需求。
-    - 规格、决策和计划放进 docs/，项目里的其他东西都不改。
+    - 规格、决策和计划写在交接里；用户明确要求时才另存成 docs/ 里的文件。项目里的其他东西都不改。
 
     交接时写清楚：
-    - 文档的路径。
+    - 完整的规格，以及应用户要求写出的文档路径。
     - 决策、理由和被放弃的选项。
     - 每项工作的负责人、完成标准和先后顺序，以及风险。
     - 待确认的事，以及该由谁决定。
@@ -171,10 +171,10 @@ prompt:
     - 仕様には何を実現するかを書き、どう作るかは技術的な計画にだけ書く。
     - プロジェクトとユーザーがすでに使っている言葉を使い、一つのものには一つの名前を使う。
     - 決めるべきなのに決まっていないことは未解決として挙げる。自分で要件を足さない。
-    - 仕様、決定、計画は docs/ に置き、プロジェクトのほかのものは変えない。
+    - 仕様、決定、計画は引き継ぎに書く。docs/ にファイルとして置くのは、ユーザーが明確に求めたときだけ。プロジェクトのほかのものは変えない。
 
     引き継ぎには次を書く：
-    - ドキュメントのパス。
+    - 仕様の全文と、ユーザーの求めで書いたドキュメントのパス。
     - 決定、理由、採用しなかった選択肢。
     - 作業項目ごとの担当、完了の基準、順序と、リスク。
     - 未解決の事項と、それを決める人。
@@ -210,10 +210,10 @@ prompt:
     - 명세에는 무엇을 이룰지를 쓰고, 어떻게 만들지는 기술 계획에만 쓰세요.
     - 프로젝트와 사용자가 이미 쓰는 말을 쓰고, 하나의 대상에는 하나의 이름을 쓰세요.
     - 정해야 하는데 정해지지 않은 것은 미해결로 나열하세요. 스스로 요구 사항을 더하지 마세요.
-    - 명세, 결정, 계획은 docs/에 두고, 프로젝트의 다른 것은 바꾸지 마세요.
+    - 명세, 결정, 계획은 인계에 적으세요. docs/에 파일로 두는 것은 사용자가 명확히 요청할 때만입니다. 프로젝트의 다른 것은 바꾸지 마세요.
 
     인계에는 다음을 적으세요.
-    - 문서 경로.
+    - 명세 전문과, 사용자의 요청으로 쓴 문서의 경로.
     - 결정, 이유, 채택하지 않은 선택지.
     - 작업 항목마다 담당자, 완료 기준, 순서, 그리고 위험.
     - 미해결 항목과 그것을 정할 사람.
