@@ -153,7 +153,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <dt>Added or changed by employees</dt><dd>A blueprint an employee adds can be used at once. A change is written only if you agree, even when employees change their own. Once you agree, steps under way stay as they are, and later steps use the new blueprint. Built-in blueprints and those from Git or a source cannot be changed.</dd>
           <dt>Known limit</dt><dd>An employee who can run commands could still edit the settings files directly and reload them, without asking you.</dd>
           <dt>Older GitHub blueprints</dt><dd>Blueprints imported from GitHub earlier can still change their name, repo and version.</dd>
-          <dt>Delete</dt><dd>A blueprint cannot be deleted while employees use it.</dd>
+          <dt>Delete</dt><dd>A blueprint no one uses is deleted with two presses of the bin. While employees use it, you first see everyone on it in every company and pick another blueprint for all of them to move to; then it is deleted. Their names, looks, models and memories stay; work already running finishes as it was, and later work uses the new blueprint.</dd>
         </dl>
       </>
     ),

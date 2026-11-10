@@ -1282,9 +1282,18 @@ function endChatsOf(w: World, id: string) {
 /** Employees made from a blueprint, in every company. */
 export const blueprintUsers = (w: World, id: string) => Object.values(w.replicas).filter((r) => r.blueprintId === id)
 
-/** Remove a blueprint no one is made from; false (and nothing removed) while anyone still is. */
-export function deleteBlueprint(w: World, id: string): boolean {
-  if (!w.blueprints[id] || blueprintUsers(w, id).length) return false
+/**
+ * Remove a blueprint anyone can be hired from. Employees made from it move to blueprint `to` first; without a `to` that
+ * can take them (another one anyone is hired from, not the airport staff's), it is false and nothing changes.
+ */
+export function deleteBlueprint(w: World, id: string, to?: string): boolean {
+  if (!w.blueprints[id] || w.blueprints[id].owner) return false
+  const users = blueprintUsers(w, id)
+  if (users.length) {
+    const target = to ? w.blueprints[to] : undefined
+    if (!target || target.owner || to === id || to === AIRPORT_BLUEPRINT_ID) return false
+    for (const r of users) r.blueprintId = to!
+  }
   delete w.blueprints[id]
   return true
 }

@@ -301,7 +301,9 @@ export function deleteMemory(w: World, id: string, memoryId: string) {
 
 // ---------- blueprints ----------
 
-export const deleteBlueprint = pick('deleteBlueprint', (_w: World, id: string) => fire_('DELETE', `/blueprints/${id}`))
+/** Delete a blueprint; the employees made from it move to blueprint `to` first. */
+export const deleteBlueprint = pick('deleteBlueprint', (_w: World, id: string, to?: string) =>
+  fire_('DELETE', `/blueprints/${id}${to ? `?to=${encodeURIComponent(to)}` : ''}`))
 
 /** Save a blueprint (`id` null makes a new one). One from a repo is moved to that repo's newest version. */
 export function saveBlueprint(w: World, id: string | null, make: (key: string, prev: Blueprint | undefined) => Blueprint) {

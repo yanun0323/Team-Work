@@ -1213,7 +1213,7 @@ func TestCannotDeleteWhatIsInUse(t *testing.T) {
 			t.Fatal("a provider in use was deleted")
 		}
 	}
-	if err := r.e.DeleteBlueprint(r.owner.BlueprintID); err == nil {
+	if err := r.e.DeleteBlueprint(r.owner.BlueprintID, ""); err == nil {
 		t.Fatal("a blueprint in use was deleted")
 	}
 	bad := *r.flow

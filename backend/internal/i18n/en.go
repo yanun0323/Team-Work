@@ -233,6 +233,8 @@ var en = map[string]string{
 	"不認識的工具 %s":                     "Unknown tool %s",
 	"找不到藍圖":                         "Blueprint not found",
 	"還有員工是用這個藍圖建立的":                 "Employees were made from this blueprint",
+	"要轉移到另一個藍圖":                     "Pick another blueprint to move them to",
+	"找不到要轉移到的藍圖":                    "The blueprint to move them to was not found",
 	"連線逾時，請稍後再試":                    "The connection timed out. Try again later",
 	"這台電腦還不信任這個 SSH 主機：請在終端機連線一次並確認信任，或改用 HTTPS 網址": "This computer does not trust this SSH host yet. Connect once in a terminal and accept it, or use the HTTPS address",
 	"SSH 金鑰沒有讀取權限：請確認金鑰已加到 GitHub，或改用 HTTPS 網址":     "The SSH key cannot read it. Check the key is added to GitHub, or use the HTTPS address",

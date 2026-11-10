@@ -918,7 +918,7 @@ func TestMessagesFollowTheLanguage(t *testing.T) {
 	// a restart keeps it
 	r.e.Close()
 	newEngine(t, r)
-	if err := r.e.DeleteBlueprint("preset-airport"); err == nil || !strings.Contains(err.Error(), "Built-in") {
+	if err := r.e.DeleteBlueprint("preset-airport", ""); err == nil || !strings.Contains(err.Error(), "Built-in") {
 		t.Fatalf("%v", err)
 	}
 }

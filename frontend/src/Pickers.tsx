@@ -4,7 +4,7 @@ import { tr } from './core/i18n'
 import { BlueprintIcon } from './BlueprintIcon'
 import { Select } from './Controls'
 import { isPreset } from './core/data/presets'
-import { TOOLS, type Blueprint, type Replica, type Source } from './core/domain/types'
+import { TOOLS, type Blueprint, type Replica, type Source, type World } from './core/domain/types'
 import { sourceOfId } from './core/domain/sources'
 import { hireList, unhidden } from './core/model'
 import { useStore } from './core/store'
@@ -138,11 +138,25 @@ export function byOrigin(ids: string[], sources: Record<string, Source>) {
 /**
  * Picks one of the island's blueprints by its face and name. With `none`, 無 comes first and picks '' (nothing).
  */
-export function BlueprintSelect({ label, value, none, onChange }: { label: string; value: string; none?: boolean; onChange: (id: string) => void }) {
+/**
+ * The blueprints to pick from: those an employee can be hired from that are not hidden, keeping `value` even when it
+ * is, and leaving out `exclude`.
+ */
+export const blueprintChoices = (w: World, hidden: string[], value: string, exclude?: string) =>
+  unhidden(hireList(w), hidden, value).map((b) => b.id).filter((id) => id !== exclude)
+
+/** `exclude` is a blueprint left out of the options, as the one being deleted. */
+export function BlueprintSelect({ label, value, none, exclude, onChange }: {
+  label: string
+  value: string
+  none?: boolean
+  exclude?: string
+  onChange: (id: string) => void
+}) {
   const w = useStore((s) => s.world)
   const blueprints = w.blueprints
   const hidden = usePrefs((s) => s.hiddenBlueprints)
-  const ids = unhidden(hireList(w), hidden, value).map((b) => b.id)
+  const ids = blueprintChoices(w, hidden, value, exclude)
   const { groups, groupOf } = byOrigin(ids, w.sources)
   return (
     <Select

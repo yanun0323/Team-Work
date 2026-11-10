@@ -625,7 +625,7 @@ func (s *Server) saveBlueprint(c echo.Context) error {
 }
 
 func (s *Server) deleteBlueprint(c echo.Context) error {
-	return done(c, s.engine.DeleteBlueprint(c.Param("id")))
+	return done(c, s.engine.DeleteBlueprint(c.Param("id"), c.QueryParam("to")))
 }
 
 func (s *Server) hideBlueprint(c echo.Context) error {

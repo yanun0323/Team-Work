@@ -120,7 +120,7 @@ func TestHiddenCannotBePickedButStaysInUse(t *testing.T) {
 	if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "新", WorkflowID: wf, OwnerID: &r.owner.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.e.DeleteBlueprint(other.ID); err != nil {
+	if err := r.e.DeleteBlueprint(other.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	prefs = r.world().Preferences

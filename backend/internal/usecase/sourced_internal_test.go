@@ -141,7 +141,7 @@ func TestWhatASourceBringsCannotBeChanged(t *testing.T) {
 	if err := e.SaveBlueprint(bp, model.Blueprint{Name: "Mine"}); err == nil {
 		t.Error("a blueprint from a source was changed")
 	}
-	if err := e.DeleteBlueprint(bp); err == nil {
+	if err := e.DeleteBlueprint(bp, ""); err == nil {
 		t.Error("a blueprint from a source was deleted")
 	}
 	if err := e.DeleteWorkflow(wf); err == nil {

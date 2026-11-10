@@ -67,6 +67,8 @@ export type Item =
   | { kind: 'crewEdit'; id: string }
   | { kind: 'newCrew' }
   | { kind: 'fire'; id: string }
+  /** Deleting a blueprint employees are made from: they move to another one first. */
+  | { kind: 'blueprintDelete'; id: string }
   /** With copyOf, the sheet starts filled in from that task. */
   | { kind: 'newTask'; copyOf?: string; seed?: ChatTaskSeed }
   | { kind: 'chat'; id: string }
@@ -211,7 +213,8 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           {item.kind === 'blueprint' && (
             <BlueprintDetail id={item.id} teamId={teamId} title={title} tid={id} editing={above?.kind === 'blueprintEdit'}
               copying={above?.kind === 'newBlueprint'} onEdit={() => onPush({ kind: 'blueprintEdit', id: item.id })}
-              onCopy={() => onPush({ kind: 'newBlueprint', copyOf: item.id })} onGoneBlueprint={onDone} />
+              onCopy={() => onPush({ kind: 'newBlueprint', copyOf: item.id })} onGoneBlueprint={onDone}
+              deleting={above?.kind === 'blueprintDelete'} onDelete={() => onPush({ kind: 'blueprintDelete', id: item.id })} />
           )}
           {(item.kind === 'blueprintEdit' || item.kind === 'newBlueprint') && (
             <BlueprintEdit id={item.kind === 'blueprintEdit' ? item.id : null} copyOf={item.kind === 'newBlueprint' ? item.copyOf : undefined}
@@ -227,6 +230,7 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
             <CrewEdit id={item.kind === 'crewEdit' ? item.id : null} teamId={teamId} title={title} tid={id} onDone={onDone} />
           )}
           {item.kind === 'fire' && <Fire id={item.id} title={title} tid={id} onDone={onClear} />}
+          {item.kind === 'blueprintDelete' && <BlueprintDelete id={item.id} teamId={teamId} title={title} tid={id} onDone={onClear} />}
           {item.kind === 'newTask' && (
             <NewTask teamId={teamId} copyOf={item.copyOf} seed={item.seed} title={title} tid={id} open={above?.kind === 'staff' ? above.node : null}
               onOpen={(node) => onPush({ kind: 'staff', node })} image={above?.kind === 'image' ? above.key : null}
@@ -1331,15 +1335,19 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
   )
 }
 
-function BlueprintDetail({ id, teamId, editing, copying, onEdit, onCopy, onGoneBlueprint, ...h }: Head & {
+function BlueprintDetail({ id, teamId, editing, copying, deleting, onEdit, onCopy, onGoneBlueprint, onDelete, ...h }: Head & {
   id: string
   teamId: string
   editing: boolean
   copying: boolean
+  /** The sheet that moves its employees to another blueprint before deleting it is open. */
+  deleting: boolean
   onEdit: () => void
   onCopy: () => void
   /** Called once the blueprint is deleted, to put its sheet away. */
   onGoneBlueprint: () => void
+  /** Open that sheet, for a blueprint employees are made from. */
+  onDelete: () => void
 }) {
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
@@ -1363,7 +1371,13 @@ function BlueprintDetail({ id, teamId, editing, copying, onEdit, onCopy, onGoneB
           <CopyIcon />
         </button>
         {id !== AIRPORT_BLUEPRINT && <HideTool hidden={hidden} onChange={(on) => act((x) => hideBlueprint(x, id, on))} />}
-        {!isLocked(id) && <DeleteTool what={tr('藍圖')} onConfirm={remove} disabled={users > 0} why={tr('還有 {users} 位員工使用這個藍圖，無法刪除', { users })} />}
+        {!isLocked(id) && (users > 0
+          ? (
+            <button type="button" className="fx-tool fx-hit" onClick={onDelete} aria-expanded={deleting} aria-label={tr('刪除')} title={tr('刪除')}>
+              <BinIcon />
+            </button>
+          )
+          : <DeleteTool what={tr('藍圖')} onConfirm={remove} />)}
       </div>
       <header className="fx-d-head fx-d-who">
         <BlueprintIcon look={bp.look} name={bp.name} size={52} />
@@ -1810,6 +1824,49 @@ function Fire({ id, onDone, ...h }: Head & { id: string; onDone: () => void }) {
         </ul>
       </Section>
       <button type="submit" className="fx-save" disabled={!heir}>{tr('交接並解僱')}</button>
+    </form>
+  )
+}
+
+/**
+ * Delete a blueprint employees are made from. Everyone on it, in every company, moves to the one picked here first;
+ * their names, looks, models and memories stay.
+ */
+function BlueprintDelete({ id, teamId, onDone, ...h }: Head & { id: string; teamId: string; onDone: () => void }) {
+  const w = useStore((s) => s.world)
+  const act = useStore((s) => s.act)
+  const [to, setTo] = useState('')
+  const bp = w.blueprints[id]
+  if (!bp) return <Gone {...h} />
+  const users = blueprintUsers(w, id)
+  const go = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!to) return
+    onDone()
+    act((x) => void deleteBlueprint(x, id, to))
+  }
+  return (
+    <form className="fx-d-form" onSubmit={go}>
+      <header className="fx-d-head fx-d-who">
+        <BlueprintIcon look={bp.look} name={bp.name} size={52} />
+        <Heading {...h}>{tr('刪除 {name}', { name: bp.name })}</Heading>
+      </header>
+      <Section name={tr('使用中的員工')}>
+        {users.length === 0 ? <p className="fx-d-muted">{tr('沒有人')}</p> : (
+          <ul className="fx-d-people">
+            {users.map((r) => (
+              <li key={r.id}>
+                <PixelFace look={r.look} name={r.name} size={26} /><b>{r.name}</b>
+                {r.teamId !== teamId && <span>{w.teams[r.teamId]?.name}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+      <div className="fx-fields">
+        <BlueprintSelect label={tr('轉移到')} value={to} exclude={id} onChange={setTo} />
+      </div>
+      <button type="submit" className="fx-save" disabled={!to}>{tr('轉移並刪除')}</button>
     </form>
   )
 }
