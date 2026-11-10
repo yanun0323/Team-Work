@@ -1934,13 +1934,17 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 /* the interface preferences, off on another island: the fence keeps the layout, only disabling */
 .fx-prefs-fence { display: contents; }
 
-/* ---------- which island is shown (IslandBar.tsx): over the drawers, in the lower corner ---------- */
+/* ---------- which island is shown (IslandBar.tsx): over the drawers, flush in the lower corner ---------- */
+/* square to the window's edges, so neither a tilt nor the tape leaves a gap there */
 .fx-island {
-  position: absolute; bottom: 22px; inset-inline-start: 22px; z-index: 7;
-  display: flex; align-items: center; gap: 14px; max-width: min(560px, calc(100% - 44px)); box-sizing: border-box;
-  padding: 10px 12px 10px 16px; rotate: -0.8deg;
+  position: absolute; bottom: 0; inset-inline-start: 0; z-index: 7;
+  display: flex; align-items: center; gap: 14px; max-width: min(560px, calc(100% - 22px)); box-sizing: border-box;
+  padding: 10px 12px 10px 16px; rotate: none; border-start-end-radius: 3px;
   font: 600 14px/1.35 var(--font-sans);
 }
+.fx-island::before { display: none; }
+/* the slip sits outside the drawers, where the hover ink of .fx-save is not set */
+.fx-island { --ink: #1f1d2b; --ink-2: #4a4656; }
 .fx-island-text { display: grid; gap: 2px; min-width: 0; }
 .fx-island-where { overflow-wrap: anywhere; }
 .fx-island-state { font-size: 12.5px; font-weight: 500; color: #6b6474; }
@@ -1949,7 +1953,34 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fx-island .fx-tool { color: #4a4656; }
 .fx-island :focus-visible { outline: 2px solid rgb(31 29 43 / 0.4); outline-offset: 2px; }
 @media (max-width: 640px) {
-  .fx-island { bottom: 12px; inset-inline-start: 12px; max-width: calc(100% - 24px); flex-wrap: wrap; gap: 8px 12px; }
+  .fx-island { max-width: calc(100% - 12px); flex-wrap: wrap; gap: 8px 12px; }
+}
+/* while a sheet is open the slip folds to a small square with an arrow, covering almost nothing of it; under the
+   pointer or the keyboard it slides open to the right again. Only how much of it shows changes (clip-path, which
+   also bounds where the pointer finds it), so its layout never jumps; the negative insets keep the shadow. What it
+   folds away stays focusable, so Tab still reaches it and opens it */
+.fx-island[role="region"] {
+  clip-path: inset(-12px -12px 0 0);
+  transition: clip-path 260ms cubic-bezier(0.3, 0.7, 0.3, 1);
+}
+.fx-island-fold {
+  position: absolute; inset-block: 0; inset-inline-start: 0; width: 36px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  color: #4a4656; opacity: 0; pointer-events: none; transition: opacity 160ms ease-out;
+}
+.fx-island-alert { color: #d13a2c; }
+.fx-island[role="region"] > :not(.fx-island-fold) { transition: opacity 200ms ease-out 60ms; }
+.fusion-stage:has(:is(.fx-drawer, .fx-detail)) > .fx-island[role="region"]:not(:hover, :focus-within) {
+  clip-path: inset(-12px calc(100% - 36px) 0 0);
+}
+.fusion-stage:has(:is(.fx-drawer, .fx-detail)) > .fx-island[role="region"]:not(:hover, :focus-within) > .fx-island-fold {
+  opacity: 1; transition-delay: 100ms;
+}
+.fusion-stage:has(:is(.fx-drawer, .fx-detail)) > .fx-island[role="region"]:not(:hover, :focus-within) > :not(.fx-island-fold) {
+  opacity: 0; transition-delay: 0ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx-island[role="region"], .fx-island[role="region"] > * { transition: none; }
 }
 
 /* ---------- picking a folder on another island (FolderBrowser.tsx) ---------- */
@@ -1969,5 +2000,5 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fx-prefs-fence:disabled .fx-field { opacity: 0.5; }
 /* on a narrow screen the drawers stop short of the island's slip, so it never hides their last lines */
 @media (max-width: 640px) {
-  .fusion-stage:has(> .fx-island[role="region"]) > :is(.fx-drawer, .fx-detail) { inset-block-end: 132px; }
+  .fusion-stage:has(> .fx-island[role="region"]) > :is(.fx-drawer, .fx-detail) { inset-block-end: 64px; }
 }

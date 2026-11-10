@@ -119,10 +119,16 @@ describe('which island is shown', () => {
     expect(html).toContain('正在操作：Studio')
     expect(html).toContain('載入中…')
     expect(html).toMatch(/<button[^>]*>回到自己的島<\/button>/)
+    // the square the slip folds to over an open sheet is only a picture; loading is not a lost connection
+    expect(html).toMatch(/<span class="fx-island-fold" aria-hidden="true"><svg class="fx-island-arrow"/)
+    expect(html).not.toContain('fx-island-alert')
     html = slip({ island: studio, offline: true })
     expect(html).toContain('和 Studio 的連線中斷，正在重新連線')
     expect(html).toContain('回到自己的島')
+    // folded, the square shows the lost connection with a red warning beside the arrow
+    expect(html).toMatch(/<span class="fx-island-fold" aria-hidden="true"><svg class="fx-island-alert"/)
     expect(slip({ island: studio })).not.toContain('連線中斷')
+    expect(slip({ island: studio })).not.toContain('fx-island-alert')
   })
 
   it('back home on its own, says why until put away', () => {
