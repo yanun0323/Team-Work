@@ -10,7 +10,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { AirportInterior } from './AirportInterior'
 import { Fade } from './Fade'
-import { AIRPORT, CELL, rectCenter, RUNWAY_CELLS, RUNWAY_LINE, BRIDGE_DX, HALL_LIFT, STAND_Z, STANDS, TERMINAL, TOWER, type Town } from './layout'
+import { ROOF_TOP } from './Building'
+import { AIRPORT, CELL, FLOOR_CELLS, rectCenter, RUNWAY_CELLS, RUNWAY_LINE, BRIDGE_DX, HALL_LIFT, STAND_Z, STANDS, TERMINAL, TOWER, type Town } from './layout'
 import { MAX_FRAME, NO_OUTLINE_LAYER } from './PixelPass'
 import { usePrefs } from './prefs'
 import { playSound, stopSound } from './sound'
@@ -195,20 +196,91 @@ const STAND_AT = 30
 /** Shown from the first key until it is well away over the sea. */
 const SHOWN = [0, 73] as const
 
-function poseAt(t: number, out: THREE.Object3D) {
+/** The approach and the climb-out, flown along the runway's line (+x): the only parts that pass over the town. */
+const LANDING = [0, 13] as const
+const TAKEOFF = [60, 74] as const
+/** Room kept above a building, and round it along and across the line. */
+const CLEAR = 2
+/** Half the plane's length and span, so its nose, tail and wingtips clear a building too. */
+const PLANE_HALF_L = 4.4
+const PLANE_HALF_SPAN = 4.3
+/** When a building stands in the way: the farthest along the runway the plane may touch down, and the soonest it may lift off. */
+const LAND_BY = -10
+const LIFT_FROM = 13
+/** Rise per unit along x of a normal climb or descent over a building; closer ones make it steeper. */
+const GLIDE = 0.35
+
+/** A building in the runway's line, in airport units along x, with the height to keep the plane's wheels above. */
+export interface Obstacle {
+  x0: number
+  x1: number
+  top: number
+}
+
+/** Companies' buildings the plane would fly into, coming in (x < 0) or climbing out (x > 0). */
+export function runwayObstacles(town: Town): Obstacle[] {
+  const [ax, az] = rectCenter(town, town.airport)
+  return town.lots.flatMap((l) => {
+    const [bx, bz] = rectCenter(town, l.building)
+    const x = bx - ax
+    const hw = (l.building.w * CELL) / 2
+    const hd = (l.building.d * CELL) / 2
+    if (Math.abs(bz - az - RUNWAY_Z) >= hd + PLANE_HALF_SPAN + CLEAR) return []
+    return [{ x0: x - hw - PLANE_HALF_L - CLEAR, x1: x + hw + PLANE_HALF_L + CLEAR, top: l.floors * FLOOR_CELLS * CELL + ROOF_TOP + CLEAR }]
+  })
+}
+
+/**
+ * Lowest the plane may fly at `x` on that side of the runway, and how that height changes along x: over a
+ * building and out to sea beyond it, its top; towards the runway, a smooth ramp down to the ground, as long as a
+ * normal descent but never past `LAND_BY` or `LIFT_FROM`.
+ */
+export function clearance(x: number, obstacles: Obstacle[], east: boolean): { y: number; slope: number } {
+  let y = 0
+  let slope = 0
+  for (const o of obstacles) {
+    if (east !== o.x0 > 0) continue
+    const edge = east ? o.x0 : o.x1
+    const run = Math.max(1, Math.min(Math.abs(edge - (east ? LIFT_FROM : LAND_BY)), o.top / GLIDE))
+    // how far short of the building, towards the runway
+    const u = east ? edge - x : x - edge
+    const k = THREE.MathUtils.clamp(1 - u / run, 0, 1)
+    const h = o.top * k * k * (3 - 2 * k)
+    if (h <= y) continue
+    y = h
+    const dk = u <= 0 || u >= run ? 0 : 6 * k * (1 - k) * o.top / run
+    slope = east ? dk : -dk
+  }
+  return { y, slope }
+}
+
+/** Where the plane is at `t`, lifted over any building in its way. */
+export function poseAt(t: number, out: THREE.Object3D, obstacles: Obstacle[] = []) {
   let i = FLIGHT.findIndex((k) => k.t > t)
   if (i < 0) i = FLIGHT.length - 1
   if (i === 0) i = 1
   const a = FLIGHT[i - 1]
   const b = FLIGHT[i]
   const k = THREE.MathUtils.clamp((t - a.t) / (b.t - a.t), 0, 1)
-  out.position.set(...(a.p.map((v, j) => v + (b.p[j] - v) * k) as V3))
-  out.rotation.set(0, a.h + (b.h - a.h) * k, (a.pitch ?? 0) + ((b.pitch ?? 0) - (a.pitch ?? 0)) * k, 'YZX')
+  const p = a.p.map((v, j) => v + (b.p[j] - v) * k) as V3
+  let pitch = (a.pitch ?? 0) + ((b.pitch ?? 0) - (a.pitch ?? 0)) * k
+  const landing = t >= LANDING[0] && t < LANDING[1]
+  if (obstacles.length && (landing || (t >= TAKEOFF[0] && t <= TAKEOFF[1]))) {
+    const c = clearance(p[0], obstacles, !landing)
+    if (c.y > p[1]) {
+      p[1] = c.y
+      pitch = Math.atan(c.slope)
+    }
+  }
+  out.position.set(...p)
+  out.rotation.set(0, a.h + (b.h - a.h) * k, pitch, 'YZX')
 }
 
 /** The plane that comes and goes; it fades in far out to sea and fades out again. */
-function Flight({ calm }: { calm: boolean }) {
+function Flight({ calm, obstacles }: { calm: boolean; obstacles: Obstacle[] }) {
   const ref = useRef<THREE.Group>(null)
+  /** Nose angle shown, eased towards the path's, so it never snaps where the path bends over a building. */
+  const pitch = useRef(0)
   // with reduced motion, or the planes turned off, it simply stands at its stand; turned off mid-flight,
   // it goes straight there
   const clock = useRef(calm ? STAND_AT : 0)
@@ -231,7 +303,9 @@ function Flight({ calm }: { calm: boolean }) {
     const t = clock.current
     if (before < 3 && t >= 3) playSound('soundLanding')
     if (before < 60 && t >= 60) playSound('soundTakeoff')
-    poseAt(t, ref.current)
+    poseAt(t, ref.current, obstacles)
+    pitch.current += (ref.current.rotation.z - pitch.current) * Math.min(1, dt * 6)
+    ref.current.rotation.z = pitch.current
     const on = t >= SHOWN[0] && t < SHOWN[1]
     if (on !== shown) setShown(on)
   })
@@ -534,6 +608,7 @@ export function Airport({ town, open, hover, still, calm, onHover, onSelect }: {
   onSelect: () => void
 }) {
   const [x, z] = rectCenter(town, town.airport)
+  const obstacles = useMemo(() => runwayObstacles(town), [town])
   // less detail: no runway lights, window frames, roof units or windsock
   const detail = usePrefs((s) => s.detail)
   const marks = useMemo(() => {
@@ -634,7 +709,7 @@ export function Airport({ town, open, hover, still, calm, onHover, onSelect }: {
         <Plane body="#f4f4f0" tail="#c8643f" />
       </group>
       {detail && <GroundCrew />}
-      <Flight calm={calm} />
+      <Flight calm={calm} obstacles={obstacles} />
       <Fade show={open}><AirportInterior /></Fade>
       <Shade on={hover} />
     </group>
