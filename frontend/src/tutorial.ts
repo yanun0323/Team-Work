@@ -2,7 +2,7 @@
 // there are and when each is met is decided here; the backend only keeps the lists in tutorial.yaml.
 
 import { localRequest, request } from './core/backend'
-import { remoteIsland } from './core/island'
+import { islandScope, remoteIsland } from './core/island'
 import type { Key } from './core/i18n'
 import { isLocked } from './core/data/presets'
 import type { TutorialState, World } from './core/domain/types'
@@ -132,10 +132,10 @@ export const takeCompanyTab = () => { const t = companyTab; companyTab = null; r
 
 /** The company used last, for steps that need one. */
 const LAST_TEAM = 'tutorial.lastTeam'
-export const rememberTeam = (id: string) => { try { localStorage.setItem(LAST_TEAM, id) } catch { /* private mode */ } }
+export const rememberTeam = (id: string) => { try { localStorage.setItem(islandScope(LAST_TEAM), id) } catch { /* private mode */ } }
 export function lastTeam(w: World) {
   let id: string | null = null
-  try { id = localStorage.getItem(LAST_TEAM) } catch { /* private mode */ }
+  try { id = localStorage.getItem(islandScope(LAST_TEAM)) } catch { /* private mode */ }
   return id && w.teams[id] ? id : Object.keys(w.teams)[0] ?? null
 }
 

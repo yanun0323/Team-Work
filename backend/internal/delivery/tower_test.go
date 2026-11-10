@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -111,7 +112,7 @@ func TestGatewayBlocksLocalOnlyPathsAndPreferences(t *testing.T) {
 		status             int
 	}{
 		{"GET", "/", "", 404}, {"GET", "/api/v1/towers", "", 403}, {"POST", "/api/v1/towers/pairing", "", 403}, {"GET", "/api/v1/remote/peer/world", "", 403},
-		{"GET", "/api/v1/diagnostics/memory", "", 403}, {"POST", "/api/v1/folder-picker", "", 403}, {"POST", "/api/v1/settings/open-folder", "", 403}, {"POST", "/api/v1/teams/team/open-folder", "", 403}, {"POST", "/api/v1/airport/open-folder", "", 403}, {"POST", "/api/v1/claude-code/login", "", 403},
+		{"GET", "/api/v1/diagnostics/memory", "", 403}, {"POST", "/api/v1/git/install", `{"consent":true}`, 403}, {"POST", "/api/v1/folder-picker", "", 403}, {"POST", "/api/v1/settings/open-folder", "", 403}, {"POST", "/api/v1/teams/team/open-folder", "", 403}, {"POST", "/api/v1/airport/open-folder", "", 403}, {"POST", "/api/v1/claude-code/login", "", 403},
 		{"POST", "/api/v1/providers/p/login", `{}`, 403}, {"POST", "/api/v1/providers/p/login", `{"method":"browser"}`, 403}, {"POST", "/api/v1/providers/p/login", `{"method":"device"}`, 204}, {"POST", "/api/v1/providers/p/login", "bad", 400},
 		{"PUT", "/api/v1/settings/language", `{}`, 403}, {"PATCH", "/api/v1/tutorial", `{}`, 403}, {"PATCH", "/api/v1/settings/preferences", `{"language":"en","terminalCommand":"sh"}`, 400}, {"PATCH", "/api/v1/settings/preferences", `{"terminalCommand":"sh","compactSmall":0.5}`, 204}, {"PATCH", "/api/v1/settings/preferences", `null`, 400},
 		{"POST", "/api/v1/%74owers/pairing", "", 403}, {"GET", "/api/v1/teams/../towers", "", 403},
@@ -485,7 +486,7 @@ func TestTowerSecretsStayOutOfWorldEventsAndLogs(t *testing.T) {
 	}
 	defer store.Close()
 	var logs bytes.Buffer
-	engine, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: repository.NewGit(data), Providers: noModels{}, DataDir: data, Log: zerolog.New(&logs)})
+	engine, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: offline{repository.NewGit(data)}, Providers: noModels{}, DataDir: data, Log: zerolog.New(&logs)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,5 +579,33 @@ func TestRemoteRetriesPartialMutationResponse(t *testing.T) {
 	raw, _ := io.ReadAll(response.Body)
 	if string(raw) != "created" || actions.Load() != 1 || response.Header.Get("Idempotent-Replayed") != "true" {
 		t.Fatal(string(raw), actions.Load())
+	}
+}
+
+func TestOfflineProxyNamesThePairedComputer(t *testing.T) {
+	service := pairedTower(t, offlineTower{})
+	s := NewServer(nil, nil, nil, nil, []string{origin}, zerolog.Nop())
+	s.EnableTowers(service)
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	for _, socket := range []bool{false, true} {
+		req, _ := http.NewRequest("GET", srv.URL+"/api/v1/remote/peer/events", nil)
+		if socket {
+			req.Header.Set("Connection", "Upgrade")
+			req.Header.Set("Upgrade", "websocket")
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 502 || !strings.Contains(string(raw), "連不上 Peer") {
+			t.Fatal(resp.StatusCode, string(raw))
+		}
+	}
+	status, body := send(t, "PATCH", srv.URL+"/api/v1/towers/peers/peer", `{}`)
+	if status != 400 || strings.Contains(fmt.Sprint(body), "遠端") {
+		t.Fatal(status, body)
 	}
 }

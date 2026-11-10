@@ -84,7 +84,7 @@ func setup(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: repository.NewGit(data), Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
+	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: offline{repository.NewGit(data)}, Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestClientLeavingStopsInstallAndLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: repository.NewGit(data), Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
+	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: offline{repository.NewGit(data)}, Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +504,7 @@ func TestReloadSettingsEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: repository.NewGit(data), Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
+	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: offline{repository.NewGit(data)}, Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -616,7 +616,7 @@ func TestProjectSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	git := &countingGit{Git: repository.NewGit(data)}
-	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: git, Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
+	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: offline{git}, Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -710,7 +710,7 @@ func TestWithoutGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	git := &noGit{Git: repository.NewGit(data)}
-	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: git, Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
+	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: offline{git}, Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
 	}

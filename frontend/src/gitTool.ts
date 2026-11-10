@@ -2,6 +2,7 @@
 // window and returns at once; the install happens there, so this asks again every few seconds until git is found.
 
 import { request } from './core/backend'
+import { remoteIsland } from './core/island'
 import { MOCK } from './core/mode'
 
 export interface GitStatus {
@@ -77,6 +78,7 @@ export function simulateNoGit(on: boolean) {
 
 /** Only call this once the user asked for it: it opens Apple's installer. */
 export async function installGit(): Promise<void> {
+  if (remoteIsland()) return
   if (state.phase === 'opening' || state.phase === 'ready') return
   if (MOCK) {
     // Apple's window is pretended open, and the install done a moment later

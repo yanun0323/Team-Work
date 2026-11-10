@@ -24,7 +24,7 @@ func TestChatMessagePagesHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	initial, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: repository.NewGit(data), Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
+	initial, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: offline{repository.NewGit(data)}, Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestChatMessagePagesHTTP(t *testing.T) {
 	if err = store.Apply(context.Background(), []model.Doc{{Kind: "chat", ID: "c", Data: raw}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: repository.NewGit(data), Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
+	e, err := usecase.NewEngine(context.Background(), usecase.Options{Store: store, Git: offline{repository.NewGit(data)}, Providers: noModels{}, DataDir: data, Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
 	}

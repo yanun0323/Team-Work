@@ -1,14 +1,13 @@
 package tower
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/yanun0323/Team-Work/internal/model"
 )
 
@@ -18,9 +17,10 @@ type exchange struct {
 	Token   string `json:"token"`
 }
 type pairResult struct {
-	State string       `json:"state"`
-	Peer  *exchange    `json:"peer,omitempty"`
-	Error *model.Error `json:"error,omitempty"`
+	Challenge string       `json:"challenge,omitempty"`
+	State     string       `json:"state"`
+	Peer      *exchange    `json:"peer,omitempty"`
+	Error     *model.Error `json:"error,omitempty"`
 }
 
 func (s *Service) BeginPairing() (*Pairing, error) {
@@ -49,7 +49,7 @@ func (s *Service) BeginPairing() (*Pairing, error) {
 		l.Close()
 		return nil, unavailable()
 	}
-	w := &waiting{view: Pairing{Address: address, ExpiresAt: time.Now().Add(pairLifetime).Unix()}, cancel: cancel}
+	w := &waiting{done: make(chan struct{}), view: Pairing{Address: address, ExpiresAt: time.Now().Add(pairLifetime).Unix()}, cancel: cancel}
 	s.pairing = w
 	srv := &http.Server{Handler: http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) { s.receivePair(ctx, w, rw, r) }), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 15 * time.Second, MaxHeaderBytes: 32 << 10}
 	e := &endpoint{srv, l}
@@ -62,7 +62,16 @@ func (s *Service) BeginPairing() (*Pairing, error) {
 		if s.pairing == w {
 			s.pairing = nil
 		}
+		active := w.pending != nil
 		s.mu.Unlock()
+		// Closing Tailcat's listener also destroys its established streams. Let the
+		// result be acknowledged before tearing it down, but never wait forever.
+		if active {
+			select {
+			case <-w.done:
+			case <-time.After(pairTimeout):
+			}
+		}
 		e.close()
 	}()
 	p := w.view
@@ -79,38 +88,48 @@ func (s *Service) StopPairing() {
 func (s *Service) validExchange(x exchange) bool {
 	return x.ID != "" && len(x.ID) <= 128 && strings.TrimSpace(x.Name) != "" && len(x.Name) <= 256 && len(x.Token) == 64 && s.transport.Validate(x.Address) == nil
 }
-func pairFailure(w http.ResponseWriter, code, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(pairResult{State: "failed", Error: &model.Error{Code: code, Message: msg}})
+
+const pairTimeout = 10 * time.Second
+
+func pairFailure(conn *websocket.Conn, code, msg string) {
+	_ = conn.SetWriteDeadline(time.Now().Add(pairTimeout))
+	_ = conn.WriteJSON(pairResult{State: "failed", Error: &model.Error{Code: code, Message: msg}})
 }
 func (s *Service) receivePair(ctx context.Context, w *waiting, rw http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" || r.URL.Path != "/tower/v1/pair" {
+	if r.Method != "GET" || r.URL.Path != "/tower/v1/pair" {
 		http.NotFound(rw, r)
 		return
 	}
+	up := websocket.Upgrader{}
+	conn, err := up.Upgrade(rw, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	conn.SetReadLimit(8192)
+	conn.SetReadDeadline(time.Now().Add(pairTimeout))
 	var x exchange
-	if json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&x) != nil || !s.validExchange(x) {
+	if conn.ReadJSON(&x) != nil || !s.validExchange(x) {
 		err := model.Errorf(model.CodeInvalid, "配對位址格式不正確")
-		pairFailure(rw, err.Code, err.Message)
+		pairFailure(conn, err.Code, err.Message)
 		return
 	}
 	s.mu.Lock()
 	if s.pairing != w || ctx.Err() != nil {
 		s.mu.Unlock()
-		err := model.Errorf("pair_expired", "配對等待已結束")
-		pairFailure(rw, err.Code, err.Message)
+		pairFailure(conn, "pair_expired", model.Errorf("pair_expired", "配對等待已結束").Message)
 		return
 	}
 	if x.ID == s.disk.Me.ID {
 		s.mu.Unlock()
 		err := model.Errorf("pair_self", "不能和自己配對")
-		pairFailure(rw, err.Code, err.Message)
+		pairFailure(conn, err.Code, err.Message)
 		return
 	}
 	if w.pending != nil {
 		s.mu.Unlock()
 		err := model.Errorf("pair_busy", "對方正在處理另一個配對請求")
-		pairFailure(rw, err.Code, err.Message)
+		pairFailure(conn, err.Code, err.Message)
 		return
 	}
 	w.view.Request = &Request{Identity: x.Identity, Compatible: x.Protocol == Protocol}
@@ -123,10 +142,10 @@ func (s *Service) receivePair(ctx context.Context, w *waiting, rw http.ResponseW
 		} else {
 			err = model.Errorf("incompatible", "%s 的 Team Work 太舊，請更新那台", me.Name)
 		}
-		pairFailure(rw, err.Code, err.Message)
+		pairFailure(conn, err.Code, err.Message)
 		return
 	}
-	p := &pending{wire: x, result: make(chan pairResult, 1)}
+	p := &pending{wire: x, result: make(chan pairResult, 1), confirmed: make(chan struct{}), challenge: secret(), done: make(chan struct{})}
 	w.pending = p
 	s.mu.Unlock()
 	defer func() {
@@ -135,36 +154,93 @@ func (s *Service) receivePair(ctx context.Context, w *waiting, rw http.ResponseW
 			w.pending = nil
 			w.view.Request = nil
 		}
+		close(p.done)
 		s.mu.Unlock()
 	}()
-	rw.Header().Set("Content-Type", "application/json")
-	enc := json.NewEncoder(rw)
-	if enc.Encode(pairResult{State: "waiting"}) != nil {
+	// One reader owns deadlines; only a response from the client extends its lease.
+	messages := make(chan pairResult)
+	readerStop := make(chan struct{})
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		defer conn.Close()
+		for {
+			conn.SetReadDeadline(time.Now().Add(pairTimeout))
+			var reply pairResult
+			if conn.ReadJSON(&reply) != nil {
+				return
+			}
+			select {
+			case messages <- reply:
+			case <-readerStop:
+				return
+			}
+		}
+	}()
+	defer func() { close(readerStop); conn.Close(); <-readDone }()
+	send := func(result pairResult) bool {
+		conn.SetWriteDeadline(time.Now().Add(pairTimeout))
+		return conn.WriteJSON(result) == nil
+	}
+	if !send(pairResult{State: "waiting"}) {
 		return
 	}
-	http.NewResponseController(rw).Flush()
-	tick := time.NewTicker(5 * time.Second)
+	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
+	terminal := false
+	paired := false
+	defer func() {
+		if paired {
+			w.cancel()
+		}
+	}()
 	for {
 		select {
 		case result := <-p.result:
-			_ = enc.Encode(result)
-			_ = http.NewResponseController(rw).Flush()
-			if result.State == "paired" {
-				w.cancel()
-			}
-			return
-		case <-ctx.Done():
-			err := model.Errorf("pair_expired", "配對等待已結束")
-			pairFailure(rw, err.Code, err.Message)
-			return
-		case <-r.Context().Done():
-			return
-		case <-tick.C:
-			if enc.Encode(pairResult{State: "waiting"}) != nil {
+			paired = result.State == "paired"
+			if !send(result) {
 				return
 			}
-			if http.NewResponseController(rw).Flush() != nil {
+			terminal = result.State == "paired" || result.State == "failed"
+		case reply := <-messages:
+			if reply.State == "confirm" && reply.Challenge == p.challenge {
+				select {
+				case <-p.confirmed:
+				default:
+					close(p.confirmed)
+				}
+			}
+			if terminal && reply.State == "received" {
+				if ctx.Err() != nil || paired {
+					close(w.done)
+					w.cancel()
+				}
+				return
+			}
+		case <-readDone:
+			return
+		case <-ctx.Done():
+			if !terminal {
+				err := model.Errorf("pair_expired", "配對等待已結束")
+				if !send(pairResult{State: "failed", Error: err}) {
+					return
+				}
+				terminal = true
+			}
+			// The listener stays alive until the client acknowledges the final result.
+			select {
+			case reply := <-messages:
+				if reply.State == "received" {
+					close(w.done)
+					return
+				}
+			case <-readDone:
+				return
+			case <-time.After(pairTimeout):
+				return
+			}
+		case <-tick.C:
+			if !terminal && !send(pairResult{State: "waiting"}) {
 				return
 			}
 		}
@@ -188,12 +264,37 @@ func (s *Service) Decide(requestID string, approve bool) (Peer, error) {
 		return Peer{}, missing()
 	}
 	p := w.pending
+	if p.deciding {
+		return Peer{}, model.Errorf(model.CodeConflict, "已經有一筆配對正在進行")
+	}
+	p.deciding = true
 	if !approve {
 		err := model.Errorf("pair_rejected", "對方拒絕了配對")
 		p.result <- pairResult{State: "failed", Error: err}
 		w.pending = nil
 		w.view.Request = nil
 		return Peer{}, nil
+	}
+	// Require a fresh round trip at approval, not merely a recently alive socket.
+	p.result <- pairResult{State: "confirm", Challenge: p.challenge}
+	s.mu.Unlock()
+	select {
+	case <-p.confirmed:
+	case <-p.done:
+	case <-time.After(pairTimeout):
+	}
+	s.mu.Lock()
+	select {
+	case <-p.confirmed:
+	default:
+		if w.pending == p {
+			w.pending = nil
+			w.view.Request = nil
+		}
+		return Peer{}, missing()
+	}
+	if s.pairing != w || w.pending != p {
+		return Peer{}, missing()
 	}
 	token := secret()
 	peer := savedPeer{Peer: Peer{ID: p.wire.ID, Name: p.wire.Name, Protocol: p.wire.Protocol, Status: "checking", AllowInbound: true, PairedAt: time.Now().Unix()}, Address: p.wire.Address, Token: p.wire.Token, InboundHash: hash(token)}
@@ -256,7 +357,7 @@ func (s *Service) pairFailed(o *Outgoing, err *model.Error) {
 }
 func (s *Service) runPair(ctx context.Context, address string, o *Outgoing) {
 	fail := func() {
-		s.pairFailed(o, model.Errorf(model.CodeUnavailable, "電塔暫時連不上，請確認對方仍在等待配對"))
+		s.pairFailed(o, model.Errorf(model.CodeUnavailable, "連不上這個位址，請確認位址正確、對方還在等待配對"))
 	}
 	if s.ensureEndpoint() != nil {
 		fail()
@@ -266,27 +367,55 @@ func (s *Service) runPair(ctx context.Context, address string, o *Outgoing) {
 	s.mu.Lock()
 	x := exchange{Identity: s.disk.Me, Address: s.address, Token: token}
 	s.mu.Unlock()
-	raw, _ := json.Marshal(x)
-	req, _ := http.NewRequestWithContext(ctx, "POST", "http://tower/tower/v1/pair", bytes.NewReader(raw))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := s.RoundTrip(req, address)
+	dialer := websocket.Dialer{HandshakeTimeout: 30 * time.Second, NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return s.Dial(ctx, address) }}
+	conn, resp, err := dialer.DialContext(ctx, "ws://tower/tower/v1/pair", nil)
 	if err != nil {
+		if resp != nil {
+			resp.Body.Close()
+		}
 		fail()
 		return
 	}
-	defer resp.Body.Close()
-	dec := json.NewDecoder(resp.Body)
+	defer conn.Close()
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
+	send := func(state string) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		conn.SetWriteDeadline(time.Now().Add(pairTimeout))
+		return conn.WriteJSON(pairResult{State: state})
+	}
+	conn.SetWriteDeadline(time.Now().Add(pairTimeout))
+	if conn.WriteJSON(x) != nil {
+		fail()
+		return
+	}
 	for {
+		conn.SetReadDeadline(time.Now().Add(pairTimeout))
 		var result pairResult
-		if dec.Decode(&result) != nil {
-			fail()
+		if conn.ReadJSON(&result) != nil {
+			s.pairFailed(o, model.Errorf("pair_expired", "配對等待已結束"))
 			return
 		}
+		if result.State == "confirm" {
+			conn.SetWriteDeadline(time.Now().Add(pairTimeout))
+			if ctx.Err() != nil || conn.WriteJSON(pairResult{State: "confirm", Challenge: result.Challenge}) != nil {
+				fail()
+				return
+			}
+			continue
+		}
 		if result.Error != nil {
+			_ = send("received")
 			s.pairFailed(o, result.Error)
 			return
 		}
 		if result.State == "waiting" {
+			if send("waiting") != nil {
+				fail()
+				return
+			}
 			s.mu.Lock()
 			if s.outgoing == o {
 				o.State = "waiting"
@@ -327,6 +456,7 @@ func (s *Service) runPair(ctx context.Context, address string, o *Outgoing) {
 			return
 		}
 		s.newLeaseLocked(peer.ID)
+		_ = send("received")
 		o.State = "paired"
 		o.Name = peer.Name
 		o.PeerID = peer.ID

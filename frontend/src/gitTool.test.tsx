@@ -139,3 +139,17 @@ describe('installing git', () => {
     expect(renderToStaticMarkup(<ui.GitInstall />)).toContain('無法開啟安裝視窗')
   })
 })
+
+it('never opens the remote Mac installer, and explains why', async () => {
+  const { tool, ui, fetch } = await load(() => reply(200, { installed: false, installable: true }))
+  const { useIsland } = await import('./core/island')
+  useIsland.setState({ island: { id: 'remote', name: 'Remote' } })
+  // Server rendering reads Zustand's initial snapshot, unlike the mounted app.
+  Object.assign(useIsland.getInitialState(), useIsland.getState())
+  await tool.checkGit()
+  const html = renderToStaticMarkup(<ui.GitInstall />)
+  expect(html).toContain('disabled=""')
+  expect(html).toContain('這會在對方電腦上打開視窗，這裡不能用')
+  await tool.installGit()
+  expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+})

@@ -5,6 +5,7 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import { request } from './core/backend'
+import { islandScope, useIsland } from './core/island'
 import { MOCK } from './core/mode'
 import { FLOOR_BYTES, FLOOR_GROWTH, seedOfId } from './layout'
 
@@ -14,7 +15,7 @@ const REFRESH_MS = 60_000
 
 function kept(): Record<string, number> {
   try {
-    const v: unknown = JSON.parse(localStorage.getItem(KEPT) ?? '{}')
+    const v: unknown = JSON.parse(localStorage.getItem(islandScope(KEPT)) ?? '{}')
     return v && typeof v === 'object' ? (v as Record<string, number>) : {}
   } catch {
     return {}
@@ -23,6 +24,15 @@ function kept(): Record<string, number> {
 
 /** Bytes of each company's project, by the company's id; one not asked about yet is missing. */
 export const useProjectBytes = create<Record<string, number>>(() => (MOCK ? {} : kept()))
+
+if (!MOCK) {
+  useIsland.subscribe((next, prev) => {
+    if (next.island?.id !== prev.island?.id) useProjectBytes.setState(kept(), true)
+  })
+  useProjectBytes.subscribe((next) => {
+    try { localStorage.setItem(islandScope(KEPT), JSON.stringify(next)) } catch { /* private mode */ }
+  })
+}
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB']
 
@@ -46,7 +56,9 @@ const mockBytes = (id: string) => FLOOR_BYTES * FLOOR_GROWTH ** ((seedOfId(id) %
  * whenever `refresh` changes. A size that cannot be read keeps the last one.
  */
 export function useProjectSizePolling(ids: string, refresh: string) {
+  const island = useIsland((s) => s.island?.id ?? '')
   useEffect(() => {
+    const scope = islandScope(KEPT)
     const list = ids ? ids.split('\n') : []
     if (MOCK) {
       useProjectBytes.setState(Object.fromEntries(list.map((id) => [id, mockBytes(id)])), true)
@@ -56,15 +68,14 @@ export function useProjectSizePolling(ids: string, refresh: string) {
     const load = () => void Promise.all(list.map((id) =>
       request<{ bytes: number }>('GET', `/teams/${id}/size`, undefined, ctrl.signal).then((s) => [id, s.bytes] as const, () => null),
     )).then((got) => {
-      if (ctrl.signal.aborted) return
+      if (ctrl.signal.aborted || islandScope(KEPT) !== scope) return
       const last = useProjectBytes.getState()
-      const next = Object.fromEntries(list.filter((id) => id in last).map((id) => [id, last[id]]))
+      const next = { ...last }
       for (const g of got) if (g) next[g[0]] = g[1]
       useProjectBytes.setState(next, true)
-      try { localStorage.setItem(KEPT, JSON.stringify(next)) } catch { /* private mode */ }
     })
     load()
     const timer = setInterval(load, REFRESH_MS)
     return () => { ctrl.abort(); clearInterval(timer) }
-  }, [ids, refresh])
+  }, [ids, refresh, island])
 }

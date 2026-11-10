@@ -75,7 +75,7 @@ func (s *Server) EnableTowers(service *tower.Service) {
 			return err
 		}
 		if in.Allow == nil {
-			return invalidRemote()
+			return model.Errorf(model.CodeInvalid, "請指定是否允許對方操作這台電腦")
 		}
 		v, err := service.SetAllowed(c.Param("id"), *in.Allow)
 		if err != nil {
@@ -109,7 +109,7 @@ func (s *Server) EnableTowers(service *tower.Service) {
 		request.URL.Path = "/api/v1/" + c.Param("*")
 		request.URL.RawPath = ""
 		if websocket.IsWebSocketUpgrade(request) {
-			return proxyTowerSocket(c, service, request, address, token)
+			return proxyTowerSocket(c, service, request, address, token, c.Param("id"))
 		}
 		proxy := &httputil.ReverseProxy{
 			Rewrite: func(p *httputil.ProxyRequest) {
@@ -141,7 +141,13 @@ func (s *Server) EnableTowers(service *tower.Service) {
 				return nil
 			},
 		}
-		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) { remoteError(w, err) }
+		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+			var known *model.Error
+			if !errors.As(err, &known) {
+				err = service.Unreachable(c.Param("id"))
+			}
+			remoteError(w, err)
+		}
 		writer := &revocableWriter{ResponseWriter: c.Response(), ctx: ctx}
 		defer writer.close()
 		proxy.ServeHTTP(writer, request)
@@ -211,7 +217,7 @@ func (t remoteTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 // Both ends receive ping/pong heartbeats: Tailcat does not report a vanished server's TCP close.
-func proxyTowerSocket(c echo.Context, service *tower.Service, r *http.Request, address, token string) error {
+func proxyTowerSocket(c echo.Context, service *tower.Service, r *http.Request, address, token, id string) error {
 	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second, NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return service.Dial(ctx, address) }}
 	target := "ws://tower" + r.URL.RequestURI()
 	remote, response, err := dialer.DialContext(r.Context(), target, http.Header{"Authorization": []string{"Bearer " + token}})
@@ -228,7 +234,7 @@ func proxyTowerSocket(c echo.Context, service *tower.Service, r *http.Request, a
 				return model.Errorf("incompatible", "這台的 Team Work 太舊，請更新這台")
 			}
 		}
-		return model.Errorf(model.CodeUnavailable, "電塔暫時連不上，請確認對方仍在等待配對")
+		return service.Unreachable(id)
 	}
 	defer remote.Close()
 	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}

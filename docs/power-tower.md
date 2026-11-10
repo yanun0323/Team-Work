@@ -125,6 +125,7 @@
   - **一律擋下**以下路徑（403，`remote_unavailable`）。這些不是會在被操作那台的螢幕上跳出視窗，就是不該從遠端改：
     - `/api/v1/towers` 和底下全部，以及 `/api/v1/remote/…`（不能從遠端管理配對，也不能轉接到第三台）。
     - `POST /api/v1/folder-picker`、`POST /api/v1/settings/open-folder`、`POST /api/v1/teams/:id/open-folder`、`POST /api/v1/airport/open-folder`。
+    - `POST /api/v1/git/install`（會在對方電腦開 Apple 安裝視窗）。
     - `POST /api/v1/claude-code/login`（會在對方電腦開瀏覽器）。
     - `POST /api/v1/providers/:id/login`，method 是 `browser` 或空白時（瀏覽器登入要開對方的瀏覽器，回呼也落在對方本機；`device` 照常允許）。
     - `PUT /api/v1/settings/language`、`PATCH /api/v1/tutorial`（語言和教學屬於本機）。
@@ -290,7 +291,7 @@ interface Towers {
   - `GET /tower/v1/hello`：要帶通行證。回 `{id, name, protocol}`；失敗時回 401 `unauthorized` 或 403 `peer_denied`。
   - `POST /tower/v1/unpair`：要帶通行證，通知對方「我解除了配對」。
   - `/api/v1/*`：照 6.3 處理。
-- 一次性的配對伺服器只接 `POST /tower/v1/pair`。這個請求會一直等，直到同意、拒絕、到期或放棄為止。
+- 一次性的配對伺服器只接 `GET /tower/v1/pair` 的 WebSocket 升級。連線會一直等，直到同意、拒絕、到期或放棄為止。每 2 秒雙向確認存活，10 秒未回應就移除請求；同意前另做一次帶隨機挑戰值的往返確認。停止等待或到期時，送出 `pair_expired` 並等待發起方確認收到（最多 10 秒），才關閉 Tailcat 入口，避免結果被入口關閉丟棄。
 - 各種 key、通行證、位址在雙方之間怎麼交換，由後端決定，但要符合 6.2 和 6.3。
 
 ## 8. 邊界與錯誤情況（整理）

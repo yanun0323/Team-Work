@@ -2,13 +2,15 @@ package i18n
 
 // en is the English of every text the backend tells the user, by its Chinese. Words follow CONTEXT.md.
 var en = map[string]string{
-	"電塔暫時連不上，請確認對方仍在等待配對":     "Cannot connect to the tower. Check that the other computer is still waiting to pair",
-	"找不到配對電腦或配對請求":            "Paired computer or pairing request not found",
-	"對方沒有允許這台操作它":             "The other computer has not allowed this computer to control it",
-	"通行證無效或配對已解除":             "Invalid pass or pairing has been revoked",
-	"對方已解除配對":                 "The other computer has removed this pairing",
-	"這台的 Team Work 太舊，請更新這台":  "Team Work on this computer is too old. Update this computer",
-	"%s 的 Team Work 太舊，請更新那台": "Team Work on %s is too old. Update that computer",
+	"連不上這個位址，請確認位址正確、對方還在等待配對": "Cannot connect to this address. Check the address and that the other computer is waiting to pair",
+	"請指定是否允許對方操作這台電腦":          "Specify whether the other computer may control this computer",
+	"電塔暫時連不上，請確認對方仍在等待配對":      "Cannot connect to the tower. Check that the other computer is still waiting to pair",
+	"找不到配對電腦或配對請求":             "Paired computer or pairing request not found",
+	"對方沒有允許這台操作它":              "The other computer has not allowed this computer to control it",
+	"通行證無效或配對已解除":              "Invalid pass or pairing has been revoked",
+	"對方已解除配對":                  "The other computer has removed this pairing",
+	"這台的 Team Work 太舊，請更新這台":   "Team Work on this computer is too old. Update this computer",
+	"%s 的 Team Work 太舊，請更新那台":  "Team Work on %s is too old. Update that computer",
 	"連不上 %s":        "Cannot connect to %s",
 	"配對位址格式不正確":     "Invalid pairing address",
 	"配對等待已結束":       "The pairing wait has ended",

@@ -249,7 +249,7 @@ func blockedRemote(p, method string) bool {
 		return false
 	}
 	switch p {
-	case "/api/v1/folder-picker", "/api/v1/settings/open-folder", "/api/v1/airport/open-folder", "/api/v1/claude-code/login":
+	case "/api/v1/git/install", "/api/v1/folder-picker", "/api/v1/settings/open-folder", "/api/v1/airport/open-folder", "/api/v1/claude-code/login":
 		return true
 	}
 	return strings.HasPrefix(p, "/api/v1/teams/") && strings.HasSuffix(p, "/open-folder")

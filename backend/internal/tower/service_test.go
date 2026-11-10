@@ -3,9 +3,13 @@ package tower
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -218,6 +222,9 @@ func TestCancelExpiryIncompatibleAndOffline(t *testing.T) {
 	a.CancelOutgoing()
 	a.Pair(secret())
 	await(t, func() bool { return a.View().Outgoing.State == "failed" })
+	if a.View().Outgoing.Message != "連不上這個位址，請確認位址正確、對方還在等待配對" {
+		t.Fatal("wrong offline pairing message")
+	}
 	if a.View().Outgoing.Code != "unavailable" {
 		t.Fatal(a.View())
 	}
@@ -274,5 +281,124 @@ func TestIncompatiblePairRequestCanBeDismissed(t *testing.T) {
 	}
 	if b.View().Pairing.Request != nil {
 		t.Fatal("incompatible request not dismissed")
+	}
+}
+
+// A vanished Tailcat client need not send EOF. Keep its server-side connection
+// alive and discard writes, so HTTP cannot infer liveness from a successful write.
+type silentNetwork struct {
+	memoryNetwork
+	muConn sync.Mutex
+	client net.Conn
+}
+
+func (n *silentNetwork) Dial(ctx context.Context, address string) (net.Conn, error) {
+	c, err := n.memoryNetwork.Dial(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+	n.muConn.Lock()
+	n.client = c
+	n.muConn.Unlock()
+	return &silentClose{Conn: c}, nil
+}
+
+type silentClose struct{ net.Conn }
+
+func (c *silentClose) Close() error { go io.Copy(io.Discard, c.Conn); return nil }
+
+func TestPairDisappearsWithoutTransportEOF(t *testing.T) {
+	for _, approve := range []bool{false, true} {
+		t.Run(fmt.Sprint(approve), func(t *testing.T) {
+			n := &silentNetwork{}
+			a, err := New(context.Background(), t.TempDir(), n)
+			if err != nil {
+				t.Fatal(err)
+			}
+			a.gateway = http.NotFoundHandler()
+			defer a.Close()
+			b := testService(t, &n.memoryNetwork)
+			w, err := b.BeginPairing()
+			if err != nil {
+				t.Fatal(err)
+			}
+			a.Pair(w.Address)
+			await(t, func() bool { return b.View().Pairing.Request != nil })
+			a.CancelOutgoing()
+			defer func() { n.muConn.Lock(); defer n.muConn.Unlock(); n.client.Close() }()
+			if approve {
+				if _, err := b.Decide(a.View().Me.ID, true); err == nil {
+					t.Fatal("approved vanished client before heartbeat expiry")
+				}
+			}
+			until := time.Now().Add(20 * time.Second)
+			for b.View().Pairing.Request != nil && time.Now().Before(until) {
+				time.Sleep(10 * time.Millisecond)
+			}
+			if b.View().Pairing.Request != nil {
+				t.Fatal("vanished client still has an approvable request")
+			}
+			if _, err := b.Decide(a.View().Me.ID, true); err == nil {
+				t.Fatal("approved vanished client")
+			}
+			if len(b.View().Peers) != 0 {
+				t.Fatal("persisted unfinished pairing")
+			}
+
+		})
+	}
+}
+
+func TestTailcatLivePairCancellation(t *testing.T) {
+	if os.Getenv("TEAM_WORK_TEST_TAILCAT") != "1" {
+		t.Skip("live relay test is opt-in")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	makeService := func() *Service {
+		s, err := New(ctx, t.TempDir(), Tailcat{})
+		if err != nil {
+			t.Fatal("cannot create tower")
+		}
+		s.gateway = http.NotFoundHandler()
+		t.Cleanup(s.Close)
+		return s
+	}
+	a, b := makeService(), makeService()
+	wait := func(f func() bool) {
+		until := time.Now().Add(20 * time.Second)
+		for !f() {
+			if time.Now().After(until) {
+				t.Fatal("live pairing condition timed out")
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	for _, stopReceiver := range []bool{true, false} {
+		w, err := b.BeginPairing()
+		if err != nil {
+			t.Fatal("cannot listen on relay")
+		}
+		if _, err := a.Pair(w.Address); err != nil {
+			t.Fatal("cannot begin pairing")
+		}
+		wait(func() bool { return b.View().Pairing.Request != nil })
+		if stopReceiver {
+			b.StopPairing()
+			wait(func() bool { return a.View().Outgoing.State == "failed" })
+			if a.View().Outgoing.Code != "pair_expired" {
+				t.Fatal("wrong cancellation result")
+			}
+		} else {
+			a.CancelOutgoing()
+			// Even before heartbeat expiry, approval must require a fresh reply.
+			if _, err := b.Decide(a.View().Me.ID, true); err == nil {
+				t.Fatal("approved disconnected client")
+			}
+			wait(func() bool { return b.View().Pairing.Request == nil })
+			if len(b.View().Peers) != 0 {
+				t.Fatal("persisted unfinished pairing")
+			}
+		}
 	}
 }

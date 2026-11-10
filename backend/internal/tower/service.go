@@ -80,10 +80,15 @@ type lease struct {
 	cancel context.CancelFunc
 }
 type pending struct {
-	wire   exchange
-	result chan pairResult
+	confirmed chan struct{}
+	challenge string
+	done      chan struct{}
+	deciding  bool
+	wire      exchange
+	result    chan pairResult
 }
 type waiting struct {
+	done    chan struct{}
 	view    Pairing
 	cancel  context.CancelFunc
 	pending *pending
@@ -498,4 +503,15 @@ func (s *Service) Dial(ctx context.Context, address string) (net.Conn, error) {
 func (s *Service) RoundTrip(req *http.Request, address string) (*http.Response, error) {
 	tr := &http.Transport{DisableKeepAlives: true, ResponseHeaderTimeout: 30 * time.Second, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return s.Dial(ctx, address) }}
 	return tr.RoundTrip(req)
+}
+
+// Unreachable names the already-paired computer, not the one-time pairing address.
+func (s *Service) Unreachable(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.disk.Peers[id]
+	if !ok {
+		return missing()
+	}
+	return model.Errorf(model.CodeUnavailable, "連不上 %s", p.Name)
 }
