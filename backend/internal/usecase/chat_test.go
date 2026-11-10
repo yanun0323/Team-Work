@@ -19,6 +19,9 @@ import (
 	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
+// zhNote is the language reminder at the end of the user's latest words in a chat whose user reads Traditional Chinese.
+const zhNote = "[Language] Write your reply, and every note while you work, in Traditional Chinese; keep code, identifiers, paths and commands unchanged."
+
 func chatDone(id string) func(*model.World) bool {
 	return func(w *model.World) bool { c := w.Chats[id]; return c != nil && c.ReplyAt == nil }
 }
@@ -793,7 +796,7 @@ func TestRewindTakesBackTheMessageAndAllAfterIt(t *testing.T) {
 			}
 		}
 	}
-	if !slices.Equal(said, []string{"第一句", "改過的第二句"}) {
+	if !slices.Equal(said, []string{"第一句", "改過的第二句", zhNote}) {
 		t.Fatalf("the model heard %q", said)
 	}
 
@@ -993,7 +996,7 @@ func TestForkCopiesUpToTheMessageAndGoesOnByItself(t *testing.T) {
 		}
 	}
 	mu.Unlock()
-	if !slices.Equal(said, []string{"第一句", "分支"}) {
+	if !slices.Equal(said, []string{"第一句", "分支", zhNote}) {
 		t.Fatalf("the model heard %q", said)
 	}
 	// the copy has its own attachment, and the model is told where

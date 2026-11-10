@@ -77,6 +77,25 @@ func TestLanguageRuleCoversNotesBetweenToolCalls(t *testing.T) {
 	}
 }
 
+// Long English tool output made a chat drift into English (chat-766), so the rule names that case.
+func TestLanguageRuleHoldsAfterEnglishToolOutput(t *testing.T) {
+	rule := languageRule(model.LanguageZh)
+	if !strings.Contains(rule, "Long English tool output, code diffs, test logs and skill files do not change it either: after them, go on writing in Traditional Chinese.") {
+		t.Errorf("languageRule(zh) = %q", rule)
+	}
+}
+
+// The reminder comes in every chat turn, before a meeting's round note so that note still ends the message.
+func TestChatNoteRemindsOfLanguage(t *testing.T) {
+	want := "[Language] Write your reply, and every note while you work, in Japanese; keep code, identifiers, paths and commands unchanged."
+	if got := chatNote(model.LanguageJa, ""); got != want {
+		t.Errorf("chatNote without a meeting = %q", got)
+	}
+	if got := chatNote(model.LanguageJa, "[Meeting] In it: Ada."); got != want+"\n[Meeting] In it: Ada." {
+		t.Errorf("chatNote in a meeting = %q", got)
+	}
+}
+
 // Employees are told by name which language the user reads, in each language the app can be set to.
 func TestLanguageRuleNamesEveryLanguage(t *testing.T) {
 	for code, name := range map[string]string{

@@ -846,7 +846,7 @@ func (e *Engine) launchChat(c *model.Chat, speaker string, spec agentSpec) {
 	}
 	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, team: c.TeamID, said: said, peers: peers, context: c.Context, compact: clone(c.Compact), memory: !c.AtAirport(),
 		room: room, compactAt: at, chair: chair, chairRoom: chairRoom,
-		speaker: speaker, actor: speaker == roundActor(c), actorName: chatNames(c)[roundActor(c)], note: e.roundNote(c, speaker), session: session, names: chatNames(c)})
+		speaker: speaker, actor: speaker == roundActor(c), actorName: chatNames(c)[roundActor(c)], note: chatNote(e.w.Language, e.roundNote(c, speaker)), session: session, names: chatNames(c)})
 }
 
 // applyChat changes a chat for a run, unless the run was stopped or replaced meanwhile.

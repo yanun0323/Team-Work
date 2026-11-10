@@ -292,6 +292,14 @@ func (e *Engine) roundNote(c *model.Chat, speaker string) string {
 		strings.Join(here, ", "), strings.Join(order, ", "), actor)
 }
 
+// chatNote is what goes at the end of the user's latest words in a chat: the language reminder, then the round's note in a meeting.
+func chatNote(language, round string) string {
+	if round == "" {
+		return languageNote(language)
+	}
+	return languageNote(language) + "\n" + round
+}
+
 // withNote puts a note at the end of the user's latest words, on a copy, leaving what came before as it was sent.
 func withNote(conv []model.Message, note string) []model.Message {
 	if note == "" {

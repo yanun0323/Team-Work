@@ -114,7 +114,14 @@ func languageRule(language string) string {
 	name := languageNames[language]
 	return "Write everything the user reads in " + name + ": replies, the short notes between tool calls while you work, ask_user questions and options, and handoffs. " +
 		"This applies whatever language these instructions or project files use, unless the user asks for another language. " +
+		"Long English tool output, code diffs, test logs and skill files do not change it either: after them, go on writing in " + name + ". " +
 		"Keep code, identifiers, paths and commands unchanged. Follow the project's conventions for commit messages and project files."
+}
+
+// languageNote goes at the end of the user's latest words in a chat, where it is nearest to the reply:
+// a rule only at the start of a long prompt fades once tool output in English fills the turn.
+func languageNote(language string) string {
+	return "[Language] Write your reply, and every note while you work, in " + languageNames[language] + "; keep code, identifiers, paths and commands unchanged."
 }
 
 // sharedRules is what all employees are told, then what this company's are.
