@@ -31,13 +31,13 @@ const HIT = new THREE.MeshBasicMaterial({ visible: false })
 const PAVE = 0.08
 
 /** Half the leg spread at the foot and at the waist, where the legs meet the mast, and the waist's height. */
-const FOOT = 2.3
-const WAIST = 0.7
-const WAIST_Y = 11
+const FOOT = 3
+const WAIST = 0.9
+const WAIST_Y = 14.3
 /** Steps each leg climbs in, inward as it goes up: a voxel taper. */
 const STEPS = 8
 /** The cross-arms: height and half span. */
-const ARMS: Array<[number, number]> = [[9.4, 3.4], [12.6, 2.7]]
+const ARMS: Array<[number, number]> = [[12.2, 4.4], [16.4, 3.5]]
 
 /** Where a leg is at height y: from the foot's spread in to the waist's. */
 const spread = (y: number) => FOOT + (WAIST - FOOT) * Math.min(1, y / WAIST_Y)
@@ -60,21 +60,21 @@ export function PowerTower({ town, hover, still, onHover, onSelect }: {
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (let i = 0; i < STEPS; i++) {
       const y = i * step
       const r = spread(y + step / 2)
-      out.push({ p: [sx * r, y + step / 2, sz * r], s: [0.34, step + 0.02, 0.34], c: STEEL })
+      out.push({ p: [sx * r, y + step / 2, sz * r], s: [0.44, step + 0.02, 0.44], c: STEEL })
     }
     // braces round all four sides every other step, and a diagonal-ish pair of struts between them
     for (let i = 1; i < STEPS; i += 2) {
       const y = i * step
       const r = spread(y)
-      for (const sz of [-1, 1]) out.push({ p: [0, y, sz * r], s: [r * 2, 0.16, 0.16], c: STEEL_DARK })
-      for (const sx of [-1, 1]) out.push({ p: [sx * r, y, 0], s: [0.16, 0.16, r * 2], c: STEEL_DARK })
+      for (const sz of [-1, 1]) out.push({ p: [0, y, sz * r], s: [r * 2, 0.2, 0.2], c: STEEL_DARK })
+      for (const sx of [-1, 1]) out.push({ p: [sx * r, y, 0], s: [0.2, 0.2, r * 2], c: STEEL_DARK })
     }
     // the mast above the waist, up to the beacon
-    out.push({ p: [0, (WAIST_Y + POWER_TOWER.h) / 2, 0], s: [0.7, POWER_TOWER.h - WAIST_Y, 0.7], c: STEEL })
+    out.push({ p: [0, (WAIST_Y + POWER_TOWER.h) / 2, 0], s: [0.9, POWER_TOWER.h - WAIST_Y, 0.9], c: STEEL })
     // cross-arms, along x, with an insulator string hanging off each end
     for (const [y, half] of ARMS) {
-      out.push({ p: [0, y, 0], s: [half * 2, 0.3, 0.42], c: STEEL })
-      for (const side of [-1, 1]) out.push({ p: [side * (half - 0.25), y - 0.75, 0], s: [0.2, 1.2, 0.2], c: INSULATOR })
+      out.push({ p: [0, y, 0], s: [half * 2, 0.4, 0.55], c: STEEL })
+      for (const side of [-1, 1]) out.push({ p: [side * (half - 0.32), y - 0.98, 0], s: [0.26, 1.56, 0.26], c: INSULATOR })
     }
     return out
   }, [])
@@ -91,10 +91,10 @@ export function PowerTower({ town, hover, still, onHover, onSelect }: {
       {/* a concrete pad, fenced at its corners */}
       <B p={[0, PAVE / 2, 0]} s={[POWER_TOWER.w, PAVE, POWER_TOWER.d]} c={PAD} />
       {detail && [-1, 1].flatMap((sx) => [-1, 1].map((sz) => (
-        <B key={`${sx}${sz}`} p={[sx * (half - 0.2), 0.6, sz * (half - 0.2)]} s={[0.18, 1.2, 0.18]} c={FENCE} />
+        <B key={`${sx}${sz}`} p={[sx * (half - 0.26), 0.78, sz * (half - 0.26)]} s={[0.24, 1.56, 0.24]} c={FENCE} />
       )))}
-      {detail && [-1, 1].map((sz) => <B key={`rail${sz}`} p={[0, 1.05, sz * (half - 0.2)]} s={[POWER_TOWER.w - 0.4, 0.08, 0.08]} c={FENCE} shadow={false} />)}
-      {detail && [-1, 1].map((sx) => <B key={`side${sx}`} p={[sx * (half - 0.2), 1.05, 0]} s={[0.08, 0.08, POWER_TOWER.d - 0.4]} c={FENCE} shadow={false} />)}
+      {detail && [-1, 1].map((sz) => <B key={`rail${sz}`} p={[0, 1.36, sz * (half - 0.26)]} s={[POWER_TOWER.w - 0.52, 0.1, 0.1]} c={FENCE} shadow={false} />)}
+      {detail && [-1, 1].map((sx) => <B key={`side${sx}`} p={[sx * (half - 0.26), 1.36, 0]} s={[0.1, 0.1, POWER_TOWER.d - 0.52]} c={FENCE} shadow={false} />)}
       {steel.map((b, i) => <B key={i} {...b} />)}
       <Beacon />
       {/* the lattice is mostly air: a box the size of the tower takes the pointer, unseen */}
@@ -115,7 +115,7 @@ function Beacon() {
     ref.current.visible = clock.elapsedTime % 2.4 < 1.6
   })
   return (
-    <mesh ref={ref} position={[0, POWER_TOWER.h + 0.25, 0]} scale={[0.4, 0.4, 0.4]} material={toonGlow('#e5533a', '#ff6a55')} castShadow={false}>
+    <mesh ref={ref} position={[0, POWER_TOWER.h + 0.31, 0]} scale={[0.52, 0.52, 0.52]} material={toonGlow('#e5533a', '#ff6a55')} castShadow={false}>
       <boxGeometry />
     </mesh>
   )

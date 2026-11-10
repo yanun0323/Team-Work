@@ -51,7 +51,8 @@ const TAXI_W = 1.5 * CELL
 const APRON = { x0: -10, x1: TERMINAL.x1, z0: TERMINAL.z1, z1: 1.5 }
 /** Where planes cross the apron, clear of the parked one's nose. */
 const LANE_Z = 0
-const HELIPAD = { x: -28, z: -8, r: 3.4 }
+/** Clear of the power tower's pad in the corner behind it (layout.ts `POWER_TOWER`). */
+export const HELIPAD = { x: -26, z: -7, r: 3.4 }
 
 /**
  * Swept wing in three steps, root to tip, each `[x of its middle, chord, z from, z to]`; the span stays 8.4

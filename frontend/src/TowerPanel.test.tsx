@@ -6,6 +6,7 @@ import { useIsland } from './core/island'
 import { MOCK_TOWERS, readTowers, type Towers } from './core/towers'
 import { AIRPORT, CELL, POWER_TOWER, canPlace, layoutTown, rectCenter } from './layout'
 import { listFolders } from './FolderBrowser'
+import { HELIPAD } from './Airport'
 
 const refresh = async () => {}
 const body = (towers: Towers | null, error = '') => renderToStaticMarkup(<TowerBody towers={towers} error={error} refresh={refresh} />)
@@ -140,6 +141,10 @@ describe('where the power tower stands', () => {
       expect(Math.abs(x)).toBeLessThan(half.x)
       expect(Math.abs(z)).toBeLessThan(half.z)
     }
+    // its pad stays off the helipad's paving (Airport.tsx: a square of side 2r + 1)
+    const pad = HELIPAD.r + 0.5
+    const apart = Math.abs(POWER_TOWER.x - HELIPAD.x) >= POWER_TOWER.w / 2 + pad || Math.abs(POWER_TOWER.z - HELIPAD.z) >= POWER_TOWER.d / 2 + pad
+    expect(apart).toBe(true)
     const town = layoutTown([])
     const [ax, az] = rectCenter(town, town.airport)
     // the tower's cell, in town cells as a spot is
