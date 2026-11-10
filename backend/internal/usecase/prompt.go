@@ -24,7 +24,10 @@ const systemRules = "You are a company employee working on one step of a task. W
 
 // workTreeRule says what the work tree is made from, so a step does not look for what only the project folder has.
 const workTreeRule = "The work tree is the task's own branch, apart from the project folder, started from the target branch's latest commit. " +
-	"Files git ignores, such as installed dependencies, build output and .env, are not in it: install or build what you need here, do not take files from the project folder, and ask with ask_user for any you cannot make. " +
+	"Files git ignores are not copied wholesale: Team Work prepares supported locked Node dependencies before work steps and reuses them between steps. Build output, .env and other private files are not copied. " +
+	"In work steps, including read-only code review, you may install missing dependencies and build ignored outputs needed for verification without changing tracked source, manifests or lockfiles. Discussion steps remain read-only. " +
+	"If package manifests or lockfiles change, refresh dependencies with the project's package manager before verification. Check missing runtimes separately from missing packages. Report environment preparation failures separately from failing tests; never claim tests passed when they could not run. " +
+	"Do not take files from the project folder; ask with ask_user for secrets or files you cannot generate. " +
 	"Paths in the task that point into the project folder mean the same files in the work tree."
 
 // memoryRule says what remember and forget are for; tasks and chats both have them.

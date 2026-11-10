@@ -2,6 +2,16 @@ package i18n
 
 // en is the English of every text the backend tells the user, by its Chinese. Words follow CONTEXT.md.
 var en = map[string]string{
+	"套件路徑超出任務資料夾：%s":                       "Package path leaves the task folder: %s",
+	"套件產物未被 Git 忽略，已停止準備：%s":               "Package output is not ignored by Git; preparation stopped: %s",
+	"準備環境中：%s（%s）":                         "Preparing environment: %s (%s)",
+	"環境準備失敗：%s；請確認 %s 可執行、網路及套件設定，再重試（%s）": "Environment preparation failed: %s; check that %s is available, the network and package settings, then retry (%s)",
+	"準備期間套件設定已變更，請重試：%s":                   "Package settings changed during preparation; retry: %s",
+	"環境已就緒：%s":                             "Environment ready: %s",
+	"無法判讀套件設定：%s":                          "Could not read package settings: %s",
+	"套件鎖定檔不明確，請只保留使用中的套件管理器：%s":            "Ambiguous lockfiles; keep only the package manager in use: %s",
+	"環境準備失敗，尚未開始工作或驗證：%s":                  "Environment preparation failed; work and verification have not started: %s",
+
 	"讀取對話歷史失敗，請稍後重試；原有紀錄未變更": "Could not read conversation history. Try again later; existing records are unchanged",
 	"訊息範圍不正確":         "Invalid message range",
 	"%s 不是資料夾":        "%s is not a folder",

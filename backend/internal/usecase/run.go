@@ -612,6 +612,24 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 		stop(model.Errorf(model.CodeInvalid, "建立 work tree 失敗（分支 %s）", in.branch))
 		return
 	}
+	if !in.talk {
+		err := e.git.PrepareEnvironment(ctx, in.folder, in.dir, func(text string) {
+			e.apply(in, func(_ *model.Task, s *model.SubTask) { e.logLine(s, enum.LogSystem, text, "", nil) })
+		})
+		if err != nil {
+			if ctx.Err() != nil {
+				stop(err)
+				return
+			}
+			e.log.Error().Err(err).Str("sub", in.subID).Msg("prepare task environment")
+			e.apply(in, func(t *model.Task, s *model.SubTask) {
+				detail := i18n.T("環境準備失敗，尚未開始工作或驗證：%s", safeText(err))
+				e.logLine(s, enum.LogSystem, detail, "", nil)
+				e.openReview(t, s, model.Review{Kind: enum.ReviewFailed, Reason: "environment", Prompt: detail, Options: []model.ReviewOption{{ID: "retry"}, {ID: "skip"}}})
+			})
+			return
+		}
+	}
 	// kept from the first run only, so a retry or a change asked for still compares against where the step began
 	if base, _ := e.git.Tip(ctx, in.dir, ""); base != "" {
 		e.apply(in, func(_ *model.Task, s *model.SubTask) {

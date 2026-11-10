@@ -198,7 +198,7 @@ type Review struct {
 	Kind    enum.ReviewKind `json:"kind"`
 	From    enum.Status     `json:"from"`
 	Prompt  string          `json:"prompt,omitempty"`
-	Reason  string          `json:"reason,omitempty"` // timeout or error
+	Reason  string          `json:"reason,omitempty"` // timeout, error or environment
 	Options []ReviewOption  `json:"options"`
 	At      float64         `json:"at"`
 	// Change is what a ReviewChange would write.

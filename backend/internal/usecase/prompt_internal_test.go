@@ -88,3 +88,11 @@ func TestLanguageRuleNamesEveryLanguage(t *testing.T) {
 		}
 	}
 }
+
+func TestReviewMayPrepareIgnoredDependenciesButNotChangeSource(t *testing.T) {
+	for _, want := range []string{"including read-only code review", "without changing tracked source, manifests or lockfiles", "Discussion steps remain read-only", "Report environment preparation failures separately", "If package manifests or lockfiles change"} {
+		if !strings.Contains(workTreeRule, want) {
+			t.Errorf("missing environment rule: %s", want)
+		}
+	}
+}

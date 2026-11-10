@@ -135,6 +135,8 @@ type Git interface {
 	Ignored(ctx context.Context, folder string, paths []string) map[string]bool
 	// Worktree makes, or finds, the task's work tree at dir on a new branch off target.
 	Worktree(ctx context.Context, folder, dir, branch, target string) error
+	// PrepareEnvironment prepares locked Node dependencies in the worktree, reporting progress before employees run.
+	PrepareEnvironment(ctx context.Context, folder, dir string, report func(string)) error
 	// Commit commits everything in the work tree and returns HEAD. Nothing to commit is no failure.
 	Commit(ctx context.Context, dir, author, message string) (string, error)
 	// MergeTarget merges target into the work tree. conflict leaves the merge open for someone to resolve.
