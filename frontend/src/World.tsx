@@ -21,7 +21,7 @@ import { watchIsland } from './core/towers'
 import { Ambient, shadowHalf } from './Ambient'
 import { fitSunShadow, seenPoints, SHADOW_MAP, sunDepthBias, sunNormalBias } from './sunShadow'
 import { Building, BuildingPreview, CUT, FLOOR, ROOF_TOP } from './Building'
-import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, hidesPoint, islandView, ISO_DIR, SCREEN_RIGHT, MAX_ZOOM, MIN_ZOOM, seaCoverZoom, shotAt, type FocusBox, type Shot } from './camera'
+import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, hidesPoint, islandView, ISO_DIR, SCREEN_RIGHT, MAX_ZOOM, MIN_ZOOM, shotAt, type FocusBox, type Shot } from './camera'
 import { Drawer, putAwaySheets } from './Drawer'
 import { putAwaySampleSheet } from './HelpLooks'
 import { Settings } from './Settings'
@@ -29,7 +29,7 @@ import { Help } from './Help'
 import { FADE_SECONDS } from './Fade'
 import { Island, useLand } from './Island'
 import { MapGrid } from './MapGrid'
-import { useProjectBytes, useProjectSizePolling } from './projectSize'
+import { useProjectBytes, useProjectSizePolling, useSizesAnswered } from './projectSize'
 import { canMove, placeProblem, CELL, cellCenter, POWER_TOWER, floorsOf, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, HALL_LIFT, TERMINAL, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
 import { NewCompanySheet, Placer } from './NewCompany'
 import { request } from './core/backend'
@@ -53,7 +53,9 @@ import { playSound, useSound } from './sound'
 import { Brand, useQuotaPolling } from './Brand'
 import { TutorialList } from './TutorialList'
 import { askTab, lastTeam, learn, rememberTeam, type TutorialGoal } from './tutorial'
-import { nextIntro, revealBoot, skipBoot, type Intro } from './boot'
+import { introFor, nextIntro, revealBoot, type Intro } from './boot'
+import { startIntro, useVoyage } from './voyagePath'
+import { Voyage } from './Voyage'
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -73,6 +75,11 @@ const MISS_SHOWN_MS = 3000
 const missText = (problem: 'taken' | 'far') =>
   problem === 'taken' ? tr('這裡已經有公司或機場，試試旁邊的海上') : tr('離島太遠了，請在格線範圍內挑選')
 
+
+const NO_LABELS: LabelSpec[] = []
+
+/** The longest the screen's controls stay off it at startup waiting for the plane to bring the camera in. */
+const AWAY_LIMIT_MS = 15000
 
 /** Finished tasks per company. */
 const doneOf = (w: ReturnType<typeof useStore.getState>['world'], teamId: string) =>
@@ -137,13 +144,24 @@ export function World() {
   useSystemNotices()
   useQuotaPolling()
   const { crowd, planes, clouds, autoView, zoomSensitivity, idleFollowTarget } = usePrefs()
+  // taking off for another island: the airport's own plane keeps off the runway
+  const takingOff = useVoyage((s) => s.leaving)
+  // the screen's controls and panels slide off the screen while a plane has the camera, and back on once it has
+  // landed (fusion.css, `data-away`); never left off it should no flight start (no WebGL, say)
+  const away = useVoyage((s) => s.away)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const v = useVoyage.getState()
+      if (v.away && !v.active) useVoyage.setState({ away: false })
+    }, AWAY_LIMIT_MS)
+    return () => clearTimeout(timer)
+  }, [])
   // the simulation changes the world ten times a second; rebuild the town only when its shape changes
   const key = useStore(townKey)
   // each project's size, asked again whenever a task is finished; only a change of storeys reshapes the town
-  useProjectSizePolling(
-    useStore((s) => Object.keys(s.world.teams).sort().join('\n')),
-    useStore((s) => String(Object.values(s.world.tasks).filter((t) => t.stage === 'done').length)),
-  )
+  const teamIds = useStore((s) => Object.keys(s.world.teams).sort().join('\n'))
+  useProjectSizePolling(teamIds, useStore((s) => String(Object.values(s.world.tasks).filter((t) => t.stage === 'done').length)))
+  const landing = useLanding(teamIds)
   const floorsKey = useProjectBytes((b) => Object.keys(b).sort().map((id) => `${id}:${floorsOf(b[id])}`).join())
   const town = useMemo(() => {
     void key
@@ -486,7 +504,9 @@ export function World() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [town, open, crewNames, followedCrew, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language, alerts])
 
-  const shownLabels = useFadingLabels(labels)
+  // the names wait while a plane brings the camera in, then fade in on the island
+  const voyaging = useVoyage((s) => s.active)
+  const shownLabels = useFadingLabels(voyaging ? NO_LABELS : labels)
   const help = useLingering(helpOpen ? 'help' : null)
   // the drawer stays a moment after closing, to fade out
   const drawer = useLingering(selected)
@@ -535,7 +555,7 @@ export function World() {
   const down = useRef<[number, number]>([0, 0])
   const span = town.span
   return (
-    <div className="fusion-stage" onPointerDownCapture={(e) => void (down.current = [e.clientX, e.clientY])}>
+    <div className="fusion-stage" data-away={away ? '' : undefined} onPointerDownCapture={(e) => void (down.current = [e.clientX, e.clientY])}>
     {/* pixel art: PixelPass scales the low-res picture up with hard edges, and `image-rendering: pixelated` keeps
         them sharp on Retina, so dpr 1 is enough. PixelPass draws into its own targets with their own depth, so the
         canvas needs none. It also paces the frames, hence demand. */}
@@ -565,7 +585,7 @@ export function World() {
         <Building key={lot.id} lot={lot} town={town} open={lot.id === selected} cut={following !== null && (cutAway.includes(lot.id) || followedCrew?.teamId === lot.id)} another={!!open && lot !== open}
           hover={!selected && !settingsOpen && !placing && (hovered === lot.id || moving === lot.id)} onHover={hover} onSelect={select} />
       ))}
-      <Airport town={town} open={panel === 'settings'} calm={calm || !planes} still={editing} onSelect={selectAirport} onHover={(on) => hover(AIRPORT_ID, on)}
+      <Airport town={town} open={panel === 'settings'} calm={calm || !planes} away={takingOff} still={editing} onSelect={selectAirport} onHover={(on) => hover(AIRPORT_ID, on)}
         hover={hovered === AIRPORT_ID && !selected && !settingsOpen && !placing && !editing && !helpOpen} />
       <PowerTower town={town} still={editing} onSelect={selectTower} onHover={(on) => hover(TOWER_ID, on)}
         hover={hovered === TOWER_ID && !selected && !settingsOpen && !placing && !editing && !helpOpen} />
@@ -573,11 +593,12 @@ export function World() {
       {spot && <BuildingPreview look={look} at={spot} />}
       {moving && <Placer key={moving} town={town} picked={null} onPick={moveTo} moved={moving} can={(s) => canMove(town, moving, s)} />}
       <Ambient town={town} calm={calm} clouds={clouds} planes={planes} />
+      {!calm && <Voyage town={town} landing={landing} clouds={clouds} />}
       <MapControls makeDefault enableRotate={false} enableDamping dampingFactor={0.12} screenSpacePanning={false}
         minZoom={MIN_ZOOM} maxZoom={MAX_ZOOM} zoomSpeed={ZOOM_SPEED * zoomSensitivity / 100} />
       <CameraRig town={town} radius={town.radius} span={span} top={town.top} focus={focus} focusKey={!focus ? null : towerShown ? 'tower' : airportShown ? 'airport' : selected ?? (spot ? `spot:${spot}` : null)}
         panOnly={autoView === 'pan'} blocked={(settingsOpen && (autoView === 'panZoom' || !(airportShown || towerShown))) || helpOpen} wide={(placing || editing) && !selected ? town.middle : null}
-        following={following !== null} held={pressHeld} />
+        following={following !== null} held={pressHeld} landing={landing} />
       <LabelProjector />
       <PixelPass pixel={2} />
     </Canvas>
@@ -805,7 +826,39 @@ const FOLLOW_ENTER_SECONDS = 2.5
 const FOLLOW_AIM = 0.8
 
 
-function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked, wide, following, held }: {
+/** The longest the clouds wait over another island for its world and its companies' sizes, before parting on what has come. */
+const LANDING_LIMIT_MS = 15000
+
+/**
+ * Gone to another island, or back: counts each arrival once its world and every company's size are in, so the
+ * camera lands on the whole town at once and the clouds part (`coverIsland`, `revealBoot`), rather than showing
+ * the airport alone while the buildings come. Never later than `LANDING_LIMIT_MS`.
+ */
+function useLanding(teamIds: string) {
+  const islandId = useIsland((s) => s.island?.id ?? '')
+  const arriving = useStore((s) => s.arriving)
+  const sized = useSizesAnswered(teamIds)
+  const [landing, setLanding] = useState(0)
+  const [waiting, setWaiting] = useState(false)
+  const first = useRef(true)
+  useEffect(() => {
+    if (first.current) { first.current = false; return }
+    setWaiting(true)
+  }, [islandId])
+  useEffect(() => {
+    if (!waiting) return
+    const land = () => {
+      setWaiting(false)
+      setLanding((n) => n + 1)
+    }
+    if (!arriving && sized) return land()
+    const timer = setTimeout(land, LANDING_LIMIT_MS)
+    return () => clearTimeout(timer)
+  }, [waiting, arriving, sized])
+  return landing
+}
+
+function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked, wide, following, held, landing }: {
   town: Town; radius: number; span: number; top: number; focus: FocusBox | null; focusKey: string | null; panOnly: boolean; blocked: boolean
   /** Placing a new company: the middle of the town, which is shown with the sea a new plot may go on. */
   wide: [number, number] | null
@@ -813,6 +866,8 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
   following: boolean
   /** Set by a press that stopped following: the map isn't dragged until the press ends. */
   held: { current: boolean }
+  /** Counts arrivals on another island (or back): each lands the camera on it again, as the clouds part. */
+  landing: number
 }) {
   const controls = useThree((s) => s.controls) as unknown as (THREE.EventDispatcher<{ start: object }> & { target: THREE.Vector3; update: () => void; enabled: boolean; enablePan: boolean; zoomToCursor: boolean; minZoom: number }) | null
   const gl = useThree((s) => s.gl)
@@ -822,6 +877,7 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
   const keys = useRef(new Set<string>())
   const bootKind = useRef<Intro['kind'] | undefined>(undefined)
   const bootFrames = useRef(0)
+  const landed = useRef(landing)
 
   // the zoom that fits a grid `reach` wide, with its tallest building, in view
   const fit = (reach: number) => {
@@ -831,7 +887,16 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
     const tall = across * ISO_DIR.y + top * Math.sqrt(1 - ISO_DIR.y ** 2)
     return THREE.MathUtils.clamp(Math.min((size.width * 0.85) / across, (size.height * 0.8) / tall), MIN_ZOOM, MAX_ZOOM)
   }
+  const voyaging = useVoyage((s) => s.active)
   useEffect(() => {
+    // arrived on another island: fit it afresh, with the short landing; unless a plane is bringing the camera in
+    const travel = landing !== landed.current
+    if (travel) {
+      landed.current = landing
+      if (useVoyage.getState().active) return
+      fitted.current = false
+      bootFrames.current = 0
+    }
     if (fitted.current || !size.width || !size.height || !controls) return
     fitted.current = true
     const shot = islandView(town, size)
@@ -841,32 +906,20 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
     camera.position.copy(shot.target).addScaledVector(ISO_DIR, distance)
     camera.far = distance * 3
     camera.lookAt(shot.target)
-    const intro = nextIntro(localStorage, calm)
+    const intro = travel ? introFor(true, calm) : nextIntro(localStorage, calm)
     bootKind.current = intro?.kind
-    // never so far out that the edge of the sea shows
-    camera.zoom = intro ? Math.min(shot.zoom, Math.max(shot.zoom * intro.zoomFrom, seaCoverZoom(shot.target, size))) : shot.zoom
+    camera.zoom = shot.zoom
     camera.updateProjectionMatrix()
-    if (intro) {
-      controls.minZoom = Math.min(controls.minZoom, camera.zoom)
-      const landing = { from: { target: shot.target, zoom: camera.zoom }, to: shot, time: -intro.hold, seconds: intro.seconds, intro: true }
-      fly.current = landing
-      // any input skips the landing and goes through to the map
-      const inputs = new AbortController()
-      const skip = () => {
-        inputs.abort()
-        skipBoot()
-        if (fly.current === landing) landing.time = landing.seconds
-      }
-      for (const type of ['pointerdown', 'wheel', 'keydown']) window.addEventListener(type, skip, { capture: true, signal: inputs.signal })
-    }
+    // a plane brings the camera in from over the sea (Voyage), from its first frame
+    if (intro) startIntro(intro)
     // eslint-disable-next-line react-hooks/exhaustive-deps
     controls.update()
-  }, [camera, controls, size, town])
+  }, [camera, controls, size, town, landing])
   // the sea all round where a new plot may go
   const around = (REACH_CELLS + PLOT_CELLS) * CELL
 
   // where the camera is flying to, and the view to go back to when the building closes
-  const fly = useRef<{ from: Shot; to: Shot; time: number; seconds?: number; intro?: boolean } | null>(null)
+  const fly = useRef<{ from: Shot; to: Shot; time: number; seconds?: number } | null>(null)
   const home = useRef<Shot | null>(null)
   /** Starts a flight from wherever the camera is now. */
   const flyTo = (to: Shot) => {
@@ -889,7 +942,7 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
     if (focus) {
       // remember the player's view only when coming from the map, not when switching companies
       // mid-flight (say, back from following someone), the view being flown to is the one to come back to
-      if (!home.current) home.current = fly.current && !fly.current.intro ? { target: fly.current.to.target.clone(), zoom: fly.current.to.zoom }
+      if (!home.current) home.current = fly.current ? { target: fly.current.to.target.clone(), zoom: fly.current.to.zoom }
         : { target: controls.target.clone(), zoom: camera.zoom }
       const view = { width: size.width, height: size.height, coverRight: drawerWidth(size.width) }
       if (panOnly) {
@@ -927,7 +980,7 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
       return
     }
     // mid-flight, the view being flown to is the one to come back to
-    beforeFollow.current = fly.current && !fly.current.intro ? { target: fly.current.to.target.clone(), zoom: fly.current.to.zoom }
+    beforeFollow.current = fly.current ? { target: fly.current.to.target.clone(), zoom: fly.current.to.zoom }
       : controls ? { target: controls.target.clone(), zoom: camera.zoom } : null
     fly.current = null
     pan.current = null
@@ -936,14 +989,21 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [following, camera])
   useEffect(() => {
-    locked.current = !!focus || blocked || following
-    panLocked.current = !!focus && panOnly && !blocked && !following
+    locked.current = !!focus || blocked || following || voyaging
+    panLocked.current = !!focus && panOnly && !blocked && !following && !voyaging
     if (controls) {
       controls.enabled = !held.current && (!locked.current || panLocked.current)
       controls.enablePan = !panLocked.current
     }
     if (locked.current) keys.current.clear()
-  }, [focus, panOnly, blocked, following, controls, held])
+    // whatever the camera was doing, the plane takes over; the view to go back to was on the island left
+    if (voyaging) {
+      fly.current = null
+      pan.current = null
+      home.current = null
+      zoomed.current = false
+    }
+  }, [focus, panOnly, blocked, following, controls, held, voyaging])
   useEffect(() => {
     if (!controls) return
     const up = () => {
@@ -1002,6 +1062,8 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
     if (!controls) return
     // the second frame with the camera in place: the first has compiled and drawn the scene
     if (fitted.current && bootFrames.current < 2 && ++bootFrames.current === 2) revealBoot(bootKind.current)
+    // a plane has the camera (Voyage)
+    if (useVoyage.getState().active) return
     const t = controls.target
     let ax = 0
     let az = 0
@@ -1044,7 +1106,6 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
       camera.updateProjectionMatrix()
       if (p === 1) {
         fly.current = null
-        if (f.intro && controls) controls.minZoom = Math.min(MIN_ZOOM, f.to.zoom)
       }
     }
     if (followZoom.current !== null && followed.seen) {

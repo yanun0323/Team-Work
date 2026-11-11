@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { clearance, poseAt, runwayObstacles } from './Airport'
+import { clearance, onRunway, poseAt, runwayObstacles } from './Airport'
 import { ROOF_TOP } from './Building'
 import { AIRPORT, CELL, FLOOR_CELLS, MAX_FLOORS, PLOT_CELLS, rectCenter, RUNWAY_LINE, layoutTown, type Town } from './layout'
 
@@ -71,5 +71,13 @@ describe('the plane and buildings in the runway line', () => {
       expect(c.slope).toBeGreaterThanOrEqual(0)
       last = c.y
     }
+  })
+})
+
+describe('onRunway', () => {
+  it('is the landing roll and the take-off, not the wait at the stand', () => {
+    expect(onRunway(5)).toBe(true)
+    expect(onRunway(30)).toBe(false)
+    expect(onRunway(62)).toBe(true)
   })
 })

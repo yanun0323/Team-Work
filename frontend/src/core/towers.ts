@@ -1,6 +1,7 @@
 // The power tower: the computers this one is paired with, pairing a new one, and going to another's island and back.
 // Its requests always go to this computer's backend, whichever island is shown (docs/power-tower.md, 7.2).
 
+import { travel } from '../boot'
 import { ApiError, localRequest, setIslandRefusedHandler } from './backend'
 import { useIsland, type Island } from './island'
 import { MOCK } from './mode'
@@ -67,11 +68,20 @@ export const unpairPeer = (id: string) => localRequest('DELETE', `/towers/peers/
 /** The statuses that send the screen home from another island: it can no longer be worked from here. */
 const SENDS_HOME: PeerStatus[] = ['denied', 'unpaired', 'incompatible']
 
-/** Shows a paired computer's island: its backend's world in place of this one's. */
-function enter(island: Island | null) {
-  if ((useIsland.getState().island?.id ?? null) === (island?.id ?? null)) return
-  useStore.getState().leaveIsland()
-  useIsland.setState({ island })
+/**
+ * Shows a paired computer's island: its backend's world in place of this one's, swapped once a plane has flown
+ * this one out of sight (or under the clouds closing over the map); it comes in once the island has arrived
+ * (World.tsx, `useLanding`).
+ */
+function enter(island: Island | null, then: () => void = () => {}) {
+  if ((useIsland.getState().island?.id ?? null) === (island?.id ?? null)) return then()
+  travel(() => {
+    if ((useIsland.getState().island?.id ?? null) !== (island?.id ?? null)) {
+      useStore.getState().leaveIsland()
+      useIsland.setState({ island })
+    }
+    then()
+  }, island === null)
 }
 
 /**
@@ -83,7 +93,7 @@ export async function goTo(id: string): Promise<{ ok: true } | { ok: false; mess
     const peer = await checkPeer(id)
     if (peer.status !== 'online') return { ok: false, message: peer.message ?? '' }
     useIsland.setState({ notice: '' })
-    enter({ id: peer.id, name: peer.name })
+    await new Promise<void>((done) => enter({ id: peer.id, name: peer.name }, done))
     return { ok: true }
   } catch (e) {
     return { ok: false, message: (e as Error).message }

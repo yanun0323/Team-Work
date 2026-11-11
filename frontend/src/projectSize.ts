@@ -25,9 +25,19 @@ function kept(): Record<string, number> {
 /** Bytes of each company's project, by the company's id; one not asked about yet is missing. */
 export const useProjectBytes = create<Record<string, number>>(() => (MOCK ? {} : kept()))
 
+/** The companies, as `useProjectSizePolling` takes them, last asked about on the island shown: answered or failed. */
+const useAnswered = create<{ key: string | null }>(() => ({ key: null }))
+const answeredKey = (ids: string) => `${islandScope(KEPT)}\u0000${ids}`
+
+/** Whether every company in `ids` (joined by newlines) has had its size asked for on the island shown. */
+export const useSizesAnswered = (ids: string) => useAnswered((s) => s.key === answeredKey(ids))
+
 if (!MOCK) {
   useIsland.subscribe((next, prev) => {
-    if (next.island?.id !== prev.island?.id) useProjectBytes.setState(kept(), true)
+    if (next.island?.id !== prev.island?.id) {
+      useProjectBytes.setState(kept(), true)
+      useAnswered.setState({ key: null })
+    }
   })
   useProjectBytes.subscribe((next) => {
     try { localStorage.setItem(islandScope(KEPT), JSON.stringify(next)) } catch { /* private mode */ }
@@ -62,6 +72,7 @@ export function useProjectSizePolling(ids: string, refresh: string) {
     const list = ids ? ids.split('\n') : []
     if (MOCK) {
       useProjectBytes.setState(Object.fromEntries(list.map((id) => [id, mockBytes(id)])), true)
+      useAnswered.setState({ key: answeredKey(ids) })
       return
     }
     const ctrl = new AbortController()
@@ -73,6 +84,7 @@ export function useProjectSizePolling(ids: string, refresh: string) {
       const next = { ...last }
       for (const g of got) if (g) next[g[0]] = g[1]
       useProjectBytes.setState(next, true)
+      useAnswered.setState({ key: answeredKey(ids) })
     })
     load()
     const timer = setInterval(load, REFRESH_MS)

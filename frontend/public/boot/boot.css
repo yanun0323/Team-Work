@@ -1,7 +1,10 @@
-/* The startup screen, shared by index.html and the Mac app's boot/index.html. Clouds part as the camera lands.
-   --leave must match LEAVE_MS in src/boot.ts. */
+/* The startup screen, shared by index.html and the Mac app's boot/index.html: a plain sea that fades as a plane
+   brings the camera in (src/Voyage.tsx). With reduced motion, going to another island brings it back with clouds and
+   the wordmark (data-covering, src/boot.ts `coverIsland`): the clouds close in, the parting played backwards, and a
+   plane (.boot-plane, only there) flies across over them again and again until they part, fading as they do.
+   --leave must match LEAVE_MS, and --cover COVER_MS, in src/boot.ts. */
 html { background: #3b86c6; }
-#boot { --leave: 450ms; position: fixed; inset: 0; z-index: 40; overflow: hidden; display: grid; place-items: center; }
+#boot { --leave: 450ms; --cover: 600ms; position: fixed; inset: 0; z-index: 40; overflow: hidden; display: grid; place-items: center; }
 #boot[data-leaving="full"] { --leave: 1200ms; }
 #boot::before { content: ""; position: absolute; inset: 0; background: #3b86c6; }
 #boot i { position: absolute; aspect-ratio: 2.2; transform: translate(-50%, -50%); }
@@ -9,9 +12,11 @@ html { background: #3b86c6; }
 .boot-mark { position: relative; display: grid; justify-items: center; }
 .boot-mark img { display: block; }
 .boot-word { width: min(520px, 76vw); height: auto; }
+.boot-plane { display: none; }
 .boot-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 
 #boot[data-leaving] { pointer-events: none; animation: boot-out var(--leave) ease-out forwards; }
+#boot[data-covering] { animation: boot-out 200ms ease-in reverse both; }
 @keyframes boot-out { to { opacity: 0; } }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -20,11 +25,28 @@ html { background: #3b86c6; }
   @keyframes boot-bob { to { transform: translateY(-6px); } }
   @keyframes boot-drift { to { transform: translateX(var(--drift)); } }
 
+  #boot[data-covering] { animation: none; }
+  #boot[data-covering]::before { animation: boot-out calc(var(--cover) * 0.5) ease-out calc(var(--cover) * 0.5) reverse both; }
+  #boot[data-covering] .boot-mark { animation: boot-mark-out calc(var(--cover) * 0.35) ease-in calc(var(--cover) * 0.65) reverse both; }
+  #boot[data-covering] i { animation: boot-part var(--cover) cubic-bezier(0.5, 0, 0.45, 1) reverse both; }
+
   #boot[data-leaving] { animation: none; }
   #boot[data-leaving]::before { animation: boot-out calc(var(--leave) * 0.5) ease-in forwards; }
   #boot[data-leaving] .boot-mark { animation: boot-mark-out calc(var(--leave) * 0.35) ease-out forwards; }
   #boot[data-leaving] i { animation: boot-part var(--leave) cubic-bezier(0.5, 0, 0.45, 1) both; }
   @keyframes boot-mark-out { to { opacity: 0; transform: translateY(-12px) scale(1.04); } }
+
+  .boot-plane {
+    display: block; position: absolute; left: 0; top: 24%; width: min(240px, 34vw); height: auto; image-rendering: pixelated;
+    animation: boot-fly 4.2s linear infinite, boot-plane-bob 0.7s steps(2, jump-none) infinite alternate, boot-plane-in 300ms ease-out both;
+  }
+  #boot[data-held] .boot-plane { animation-play-state: paused; }
+  #boot[data-leaving] .boot-plane {
+    animation: boot-fly 4.2s linear infinite, boot-plane-bob 0.7s steps(2, jump-none) infinite alternate, boot-out calc(var(--leave) * 0.6) ease-in forwards;
+  }
+  @keyframes boot-fly { from { translate: -110% 0; } to { translate: calc(100vw + 10%) -6vh; } }
+  @keyframes boot-plane-bob { to { transform: translateY(-4px); } }
+  @keyframes boot-plane-in { from { opacity: 0; } }
   @keyframes boot-part {
     70% { opacity: 1; }
     to { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.7); }

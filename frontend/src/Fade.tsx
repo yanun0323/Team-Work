@@ -2,7 +2,8 @@
 //
 // While fading, each mesh gets a see-through copy of its material, stays out of the outline pass and casts
 // a shadow that fades with it (dithered, see shadowFade); once fully shown it gets its own material back, so a settled object is drawn
-// exactly as before. Materials the meshes share with others are never touched.
+// exactly as before. Materials the meshes share with others are never touched. With `shade`, the shadow is also
+// only that strong, faded or not.
 //
 // A solid surface fading in keeps writing depth, so what is in front stays in front. Without depth the
 // blended copies were stacked purely in draw order, which let thin layers lying close together (floor,
@@ -46,7 +47,7 @@ function seeThrough(m: THREE.Material, appearing: boolean) {
 
 const dispose = (m: Mat) => list(m).forEach((x) => x.dispose())
 
-export function Fade({ show, children }: { show: boolean; children: ReactNode }) {
+export function Fade({ show, shade, children }: { show: boolean; shade?: { current: number }; children: ReactNode }) {
   // stays mounted while fading out
   const [mounted, setMounted] = useState(show)
   if (show && !mounted) setMounted(true)
@@ -74,18 +75,31 @@ export function Fade({ show, children }: { show: boolean; children: ReactNode })
     shadow.material.dispose()
   }, [shadow])
 
+  /** Shown, with a shadow of its own strength: every mesh casts through the dither. */
+  const shaded = (g: THREE.Group) => {
+    shadow.set(shade!.current)
+    g.traverse((o) => {
+      const mesh = o as THREE.Mesh
+      if (mesh.isMesh && mesh.customDepthMaterial !== shadow.material) mesh.customDepthMaterial = shadow.material
+    })
+  }
+
   useFrame((_, dt) => {
     const g = group.current
     if (!g) return
     const goal = show ? 1 : 0
-    if (level.current === goal && (show ? saved.current.size === 0 : !mounted)) return
+    if (level.current === goal && (show ? saved.current.size === 0 : !mounted)) {
+      if (show && shade) shaded(g)
+      return
+    }
     level.current = calm ? goal : THREE.MathUtils.clamp(level.current + (show ? 1 : -1) * (dt / FADE_SECONDS), 0, 1)
     const k = level.current
-    shadow.set(k)
+    shadow.set(k * (shade?.current ?? 1))
     if (show) g.visible = true
 
     if (show && k === 1) {
       restore()
+      if (shade) shaded(g)
       return
     }
     if (!show && k === 0) {

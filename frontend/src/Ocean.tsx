@@ -10,6 +10,7 @@ import { usePrefs } from './prefs'
 import { groundReach, SEA_SIZE } from './camera'
 import { MAX_FRAME } from './PixelPass'
 import { light } from './daylight'
+import { drift } from './voyagePath'
 
 
 const head = /* glsl */ `
@@ -19,6 +20,7 @@ uniform float uDetail;
 uniform sampler2D uDist;
 uniform vec2 uOrigin;
 uniform vec2 uN;
+uniform vec3 uDrift;
 uniform vec3 uShallow;
 uniform vec3 uMid;
 uniform vec3 uDeep;
@@ -41,9 +43,10 @@ float vnoise(vec2 p) {
 `
 
 const body = /* glsl */ `
-vec2 p = vSea.xz;
+// the ripples move on with the flights' jumps (voyagePath.ts, drift); the coast stays put
+vec2 p = vSea.xz - uDrift.xz;
 float t = uTime;
-float d = shore(p);
+float d = shore(vSea.xz);
 float n1 = vnoise(p * 0.28 + vec2(t * 0.03, t * 0.02));
 float n2 = vnoise(p * 0.9 - vec2(t * 0.05, -t * 0.04));
 // colour bands loosely follow the coast
@@ -89,6 +92,8 @@ export function Ocean({ map, calm }: { map: SeaMap; calm: boolean }) {
       uDist: { value: map.texture },
       uOrigin: { value: map.origin },
       uN: { value: map.n },
+      // the very vector the flights move
+      uDrift: { value: drift },
       // the time of day's colours, the very objects the sun updates
       uShallow: { value: light.shallow },
       uMid: { value: light.mid },

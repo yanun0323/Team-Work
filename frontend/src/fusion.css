@@ -2016,3 +2016,26 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 @media (max-width: 640px) {
   .fusion-stage:has(> .fx-island[role="region"]) > :is(.fx-drawer, .fx-detail) { inset-block-end: 64px; }
 }
+
+/* While a plane has the camera (data-away, src/Voyage.tsx): the controls and panels go off the screen over the edge
+   they sit by, and come back from it once it lands. One that appears meanwhile waits off the screen and comes in
+   with the rest. Off the screen they are out of reach of the pointer and the keyboard. `translate` leaves the
+   panels' own transform animations (fx-paste) to them; the names on the map fade out on their own (World.tsx). */
+.fusion-stage > :is(.fx-top-left, .fx-debug, .fx-island) { --away: calc(-100% - 40px) 0; }
+.fusion-stage > .fx-detail { --away: calc(-100% - 55vw) 0; }
+.fusion-stage > :is(.fx-corner, .fx-drawer) { --away: calc(100% + 40px) 0; }
+.fusion-stage > .fx-help { --away: 0 100vh; }
+.fusion-stage > .fx-map-tip { --away: 0 calc(-100% - 40px); }
+.fusion-stage > :not(.fusion-canvas, .labels) { transition: translate 480ms cubic-bezier(0.2, 0.8, 0.3, 1); }
+.fusion-stage > .fx-island[role="region"] { transition: clip-path 260ms cubic-bezier(0.3, 0.7, 0.3, 1), translate 480ms cubic-bezier(0.2, 0.8, 0.3, 1); }
+/* a detail sheet keeps its own slide, which also pulls a covered one out on hover */
+.fusion-stage > .fx-detail { transition: translate 320ms cubic-bezier(0.3, 0.7, 0.4, 1); }
+.fusion-stage[data-away] > :not(.fusion-canvas, .labels) {
+  translate: var(--away, 0 calc(-100% - 40px)); visibility: hidden; pointer-events: none;
+  /* --out matches UI_OUT_SECONDS in src/Voyage.tsx; hidden only once off the screen */
+  --out: 400ms;
+  transition: translate var(--out) cubic-bezier(0.55, 0, 0.8, 0.4), visibility 0s linear var(--out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fusion-stage > :not(.fusion-canvas, .labels), .fusion-stage[data-away] > :not(.fusion-canvas, .labels) { transition: none; }
+}

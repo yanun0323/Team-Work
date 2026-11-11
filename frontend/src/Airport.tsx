@@ -202,7 +202,7 @@ const SHOWN = [0, 73] as const
 
 /** The approach and the climb-out, flown along the runway's line (+x): the only parts that pass over the town. */
 const LANDING = [0, 13] as const
-const TAKEOFF = [60, 74] as const
+export const TAKEOFF = [60, 74] as const
 /** Room kept above a building, and round it along and across the line. */
 const CLEAR = 2
 /** Half the plane's length and span, so its nose, tail and wingtips clear a building too. */
@@ -280,8 +280,14 @@ export function poseAt(t: number, out: THREE.Object3D, obstacles: Obstacle[] = [
   out.rotation.set(0, a.h + (b.h - a.h) * k, pitch, 'YZX')
 }
 
-/** The plane that comes and goes; it fades in far out to sea and fades out again. */
-function Flight({ calm, obstacles }: { calm: boolean; obstacles: Obstacle[] }) {
+/** On the runway or about to be: landing until it turns off, and from lining up to gone. */
+export const onRunway = (t: number) => t < 17.5 || t >= TAKEOFF[0] - 3
+
+/**
+ * The plane that comes and goes; it fades in far out to sea and fades out again. `away`: another plane has the
+ * runway, so while on it, this one fades out.
+ */
+function Flight({ calm, away, obstacles }: { calm: boolean; away: boolean; obstacles: Obstacle[] }) {
   const ref = useRef<THREE.Group>(null)
   /** Nose angle shown, eased towards the path's, so it never snaps where the path bends over a building. */
   const pitch = useRef(0)
@@ -310,7 +316,7 @@ function Flight({ calm, obstacles }: { calm: boolean; obstacles: Obstacle[] }) {
     poseAt(t, ref.current, obstacles)
     pitch.current += (ref.current.rotation.z - pitch.current) * Math.min(1, dt * 6)
     ref.current.rotation.z = pitch.current
-    const on = t >= SHOWN[0] && t < SHOWN[1]
+    const on = t >= SHOWN[0] && t < SHOWN[1] && !(away && onRunway(t))
     if (on !== shown) setShown(on)
   })
   return (
@@ -599,7 +605,7 @@ function GroundCrew() {
 /** Flat markings: never casting a shadow, just over what they are painted on. */
 const paint = (x: number, z: number, w: number, d: number, c = MARK, y = PAVE + 0.005): { p: V3; s: V3; c: string } => ({ p: [x, y, z], s: [w, 0.01, d], c })
 
-export function Airport({ town, open, hover, still, calm, onHover, onSelect }: {
+export function Airport({ town, open, hover, still, calm, away = false, onHover, onSelect }: {
   town: Town
   /** The settings are open: the exterior gives way to the inside. */
   open: boolean
@@ -608,6 +614,8 @@ export function Airport({ town, open, hover, still, calm, onHover, onSelect }: {
   /** Under the pointer, with nothing else open: shaded to show it can be clicked. */
   hover: boolean
   calm: boolean
+  /** Another plane is taking off from the runway (Voyage): this one keeps off it. */
+  away?: boolean
   onHover: (on: boolean) => void
   onSelect: () => void
 }) {
@@ -713,7 +721,7 @@ export function Airport({ town, open, hover, still, calm, onHover, onSelect }: {
         <Plane body="#f4f4f0" tail="#c8643f" />
       </group>
       {detail && <GroundCrew />}
-      <Flight calm={calm} obstacles={obstacles} />
+      <Flight calm={calm} away={away} obstacles={obstacles} />
       <Fade show={open}><AirportInterior /></Fade>
       <Shade on={hover} />
     </group>
