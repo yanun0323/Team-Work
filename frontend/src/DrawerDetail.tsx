@@ -58,6 +58,7 @@ import { ChatSheet, SentTo, type ChatTaskSeed } from './ChatSheet'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, link, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
 import { isOwnerTask } from './core/domain/owner'
 import { OwnerRunFacts, OwnerTaskDetail, ReturnStep } from './TaskPanel'
+import { SaidContext } from './Said'
 
 export type Item =
   | { kind: 'task'; id: string }
@@ -887,7 +888,7 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
         </p>
       </header>
       {sub.status === 'progressing' && <p className="fx-d-run"><Bar value={sub.progress} /><span className="fx-d-muted">{Math.round(sub.progress * 100)}%</span></p>}
-      <OwnerRunFacts task={task} sub={sub} />
+      <SaidContext.Provider value={{ person: onCrew, canPerson: (x) => !!w.replicas[x] }}><OwnerRunFacts task={task} sub={sub} /></SaidContext.Provider>
       <ReturnStep key={sub.id} task={task} sub={sub} />
       {/* the user answers here: a discussion in its chat, anything else under what the employee asks; under an owner, in the task's conversation */}
       {(sub.talk || (nodeOf(wf, sub.nodeId)?.kind === 'talk' && sub.status === 'progressing')) && <Section name={tr('討論')}><Chat key={sub.id} sub={sub} /></Section>}

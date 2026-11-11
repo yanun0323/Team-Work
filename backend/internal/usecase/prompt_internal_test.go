@@ -18,6 +18,13 @@ func TestEveryEmployeeIsToldTheUserCannotSeeTheirThinking(t *testing.T) {
 	}
 }
 
+// The owner reads runs and employees by id, and the user would read those ids back unless told to use names.
+func TestOwnerIsToldToNameEmployeesNotIds(t *testing.T) {
+	if !strings.Contains(ownerRules, "call employees by their names") {
+		t.Error("ownerRules do not tell the owner to name employees, not their ids, to the user")
+	}
+}
+
 // The model decides what to ask while filling in the prompt, so the reminder to spell out its findings sits on that field.
 func TestAskUserPromptMustMakeSenseOnItsOwn(t *testing.T) {
 	var schema struct {

@@ -21,12 +21,14 @@ const sheet = (task: Task) => renderToStaticMarkup(
 
 const line = (a: Partial<TaskActivity>): TaskActivity => ({ id: `a${a.seq}`, seq: 1, at: 0, kind: 'message', from: 'agent', text: '', planVersion: 1, ...a })
 
-const feed = (items: TaskActivity[], extra: { unsent?: Unsent[]; expanded?: string[]; ops?: Record<string, TaskOperation> } = {}) => renderToStaticMarkup(
+type FeedExtra = { unsent?: Unsent[]; expanded?: string[]; ops?: Record<string, TaskOperation> }
+const feedOf = (items: TaskActivity[], extra: FeedExtra = {}) => (
   <ol>
     <Feed task={owned} items={items} unsent={extra.unsent ?? []} open={null} onStep={noop} expanded={extra.expanded ?? []} onExpand={noop}
       ops={(id) => (id ? extra.ops?.[id] : undefined)} onResend={noop} onEdit={noop} />
-  </ol>,
+  </ol>
 )
+const feed = (items: TaskActivity[], extra: FeedExtra = {}) => renderToStaticMarkup(feedOf(items, extra))
 
 describe('the sheet of a task its owner runs', () => {
   it('shows its owner stamped as chair, its steps, a box that writes to the owner alone, and the question waiting on the user', () => {
@@ -225,10 +227,12 @@ describe('its steps', () => {
     const asked = renderToStaticMarkup(<QuestionCard task={owned} q={change} onJump={noop} onAnswer={noop} />)
     expect(asked).toContain('<del><span class="fx-sr">修改前 </span>舊的說明</del>')
     expect(asked).toContain('<ins><span class="fx-sr">修改後 </span>新的說明</ins>')
-    const joining = renderToStaticMarkup(<QuestionCard task={owned} q={join} onJump={noop} onAnswer={noop} />)
+    const joining = renderToStaticMarkup(<SaidContext.Provider value={{ person: noop }}><QuestionCard task={owned} q={join} onJump={noop} onAnswer={noop} /></SaidContext.Provider>)
     expect(joining).toContain(`aria-label="員工"`)
-    expect(joining).toContain(`${bob.name}</li>`)
-    expect(joining).toContain('<code>rep-gone</code>')
+    // each one opens, as an employee does anywhere; one who has left is said so, faint, not by id
+    expect(joining).toContain(`${bob.name}</button></li>`)
+    expect(joining).toContain('<li><span class="fx-said-gone">已刪除的員工</span></li>')
+    expect(joining).not.toContain('rep-gone')
   })
 })
 
@@ -251,7 +255,7 @@ describe('a run or an employee the owner names by id', () => {
     .some((b) => b.includes('class="pixel-face"') && b.replace(/<svg.*?<\/svg>/gs, '').includes(name))
 
   it('shows who works a run the owner\'s message names, not its id', () => {
-    const html = drawn([run('sub-696', kai.id)], () => feed([
+    const html = drawn([run('sub-696', kai.id)], () => feedOf([
       line({ seq: 1, by: owned.ownerId!, name: w.replicas[owned.ownerId!].name, text: `我接受了這個交接（sub-696），也請 ${kai.id} 接著核對。` }),
     ]))
     expect(html).not.toContain('sub-696')
@@ -260,7 +264,7 @@ describe('a run or an employee the owner names by id', () => {
   })
 
   it('shows who works a run named in the owner\'s reason on a short line', () => {
-    const html = drawn([run('sub-696', kai.id)], () => feed([
+    const html = drawn([run('sub-696', kai.id)], () => feedOf([
       line({ seq: 1, kind: 'event', from: 'system', key: 'rejected', args: { owner: 'Mira', step: '開發', reason: 'sub-696 少了測試' }, text: 'raw', subId: base.id, nodeId: base.nodeId }),
     ]))
     expect(html).not.toContain('sub-696')
@@ -283,6 +287,32 @@ describe('a run or an employee the owner names by id', () => {
   })
 
   it('still draws a run whose employee has left', () => {
-    expect(() => drawn([run('sub-696', 'rep-gone')], () => feed([line({ seq: 1, text: '接受了 sub-696' })]))).not.toThrow()
+    expect(() => drawn([run('sub-696', 'rep-gone')], () => feedOf([line({ seq: 1, text: '接受了 sub-696' })]))).not.toThrow()
+    const step = owned.workflow.nodes.find((n) => n.id === base.nodeId)!.name
+    const html = drawn([run('sub-696', 'rep-gone')], () => feedOf([line({ seq: 1, text: '接受了 sub-696，也問過 rep-404' })]))
+    expect(html).toContain(`<span class="fx-said-gone">已刪除的員工（${step}）</span>`)
+    expect(html).toContain('<span class="fx-said-gone">已刪除的員工</span>')
+    expect(html).not.toMatch(/sub-696|rep-404/)
+    expect(html).not.toContain('<button')
+  })
+
+  it('leaves alone what only looks like an id: another task\'s run, a record, a path', () => {
+    const other = { ...run('sub-698', kai.id), taskId: 'elsewhere' }
+    const html = drawn([other], () => feedOf([line({ seq: 1, text: '看 sub-698、fact-692 與 logs/sub-1.txt' })]))
+    expect(html).toContain('看 sub-698、fact-692 與 logs/sub-1.txt')
+    expect(chip(html, kai.name)).toBe(false)
+  })
+
+  it('shows who works a run named in code, keeping the rest code', () => {
+    const html = drawn([run('sub-696', kai.id)], () => feedOf([line({ seq: 1, text: '交給 `sub-696`，見 `sub-696 的交付`' })]))
+    expect(html).not.toContain('sub-696')
+    expect(chip(html, kai.name)).toBe(true)
+    expect(html).toContain('<code> 的交付</code>')
+  })
+
+  it('reads a question\'s id by name to a screen reader', () => {
+    const q: TaskQuestion = { id: 'q9', activityId: 'a9', prompt: '要不要改派 sub-696 給別人？', options: [{ id: 'approve' }], kind: 'approval', audience: 'user', planVersion: 1, createdAt: 0 }
+    const html = drawn([run('sub-696', kai.id)], () => <QuestionCard task={owned} q={q} onJump={noop} onAnswer={noop} />)
+    expect(html).toContain(`aria-label="要不要改派 ${kai.name} 給別人？"`)
   })
 })

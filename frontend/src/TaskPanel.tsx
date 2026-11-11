@@ -21,6 +21,8 @@ import { MentionBox } from './MentionBox'
 import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, splitAttachments } from './attachments'
 import { BranchIcon, CopyIcon, DeleteTool, EditTool, Gone, Heading, type Head } from './DrawerDetail'
 import { ChangeLines } from './ChangeCard'
+import { idsAsNames, SaidChip, SaidContext } from './Said'
+import type { IdLookup } from './mentions'
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 
@@ -51,6 +53,24 @@ export function eventLines(a: TaskActivity): string[] {
 }
 
 export const activityText = (a: TaskActivity) => eventLines(a)[0] ?? ''
+
+/**
+ * What the ids the owner writes name in a task: one of its runs, by who works it, and an employee, here or gone. A run
+ * of another task, or a word that only looks like an id, is not one.
+ */
+export function crewIds(w: World, task: Task): IdLookup {
+  return (word) => {
+    const s = w.subTasks[word]
+    if (s) return s.taskId === task.id ? { id: s.replicaId ?? undefined, step: stepName(task, s.nodeId) } : null
+    return w.replicas[word] || /^rep-\d+$/.test(word) ? { id: word } : null
+  }
+}
+
+/** The ids of a task, read again as its runs and employees change. */
+function useCrewIds(task: Task): IdLookup {
+  const w = useStore((s) => s.world)
+  return crewIds(w, task)
+}
 
 
 /** What a step's run is doing, in a word, or '' when its bar or handoff says it. */
@@ -248,13 +268,14 @@ export function ActivityRow({ task, a, open, onStep, onImage, flash, op }: {
   op?: TaskOperation
 }) {
   const cls = flash ? ' fx-d-flash' : ''
+  const ids = useCrewIds(task)
   if (a.kind === 'event') {
     const [head, ...more] = eventLines(a)
     return (
       <li className={`fx-ticket-event${cls}`} data-activity={a.id}>
         <span>
-          <MarkdownLine text={head ?? ''} noLinks />
-          {more.map((m, i) => <span key={i} className="fx-ticket-event-more"><MarkdownLine text={m} noLinks /></span>)}
+          <MarkdownLine text={head ?? ''} noLinks ids={ids} />
+          {more.map((m, i) => <span key={i} className="fx-ticket-event-more"><MarkdownLine text={m} noLinks ids={ids} /></span>)}
         </span>
         {a.subId && <StepTag task={task} a={a} open={open} onStep={onStep} />}
         <time>{fmtClock(a.at)}</time>
@@ -284,7 +305,7 @@ export function ActivityRow({ task, a, open, onStep, onImage, flash, op }: {
             {waiting && <> · <b className="fx-ticket-waiting">{tr('待你回答')}</b></>}
           </span>
           <span className="fx-sr">{colon()}</span>
-          <Markdown text={a.text} />
+          <Markdown text={a.text} ids={ids} />
         </div>
         <Attachments a={a} onImage={onImage} />
         <div className="fx-chat-foot">
@@ -463,20 +484,18 @@ export function QuestionCard({ task, q, onJump, onAnswer, state }: {
   const [note, setNote] = useState('')
   const owner = useStore((s) => (task.ownerId ? s.world.replicas[task.ownerId] : undefined))
   const replicas = useStore((s) => s.world.replicas)
+  const ids = useCrewIds(task)
   return (
-    <form className="fx-ticket-ask" aria-label={q.prompt} onSubmit={(e) => { e.preventDefault(); if (choice) onAnswer(choice, note) }}>
+    <form className="fx-ticket-ask" aria-label={idsAsNames(q.prompt, ids, replicas)} onSubmit={(e) => { e.preventDefault(); if (choice) onAnswer(choice, note) }}>
       <div className="fx-ticket-ask-head">
         {owner && <PixelFace look={owner.look} name={owner.name} size={18} />}
-        <div className="fx-d-text-md"><Markdown text={q.prompt} /></div>
+        <div className="fx-d-text-md"><Markdown text={q.prompt} ids={ids} /></div>
         <button type="button" className="fx-chat-act fx-hit" onClick={() => onJump(q.activityId)}>{tr('原訊息')}</button>
       </div>
       {q.change && <ChangeLines change={q.change} />}
       {!!q.replicaIds?.length && (
         <ul className="fx-ticket-ask-crew" aria-label={tr('員工')}>
-          {q.replicaIds.map((id) => {
-            const r = replicas[id]
-            return <li key={id}>{r ? <><PixelFace look={r.look} name={r.name} size={18} />{r.name}</> : <code>{id}</code>}</li>
-          })}
+          {q.replicaIds.map((id) => <li key={id}><SaidChip part={{ text: id, kind: 'crew', id }} /></li>)}
         </ul>
       )}
       {q.options.length > 0 && (
@@ -542,11 +561,13 @@ function Notices({ task, subs, onStep }: { task: Task; subs: SubTask[]; onStep: 
   const c = task.coordination!
   const failed = c.operations.filter((o) => o.status === 'failed' && o.kind !== 'message').at(-1)
   const lost = uncertain(subs)
+  const replicas = useStore((s) => s.world.replicas)
+  const ids = useCrewIds(task)
   const out: React.ReactNode[] = []
   if (c.ownerState === 'blocked' || c.ownerState === 'failed') {
     out.push(
       <div key="owner" className="fx-ticket-notice" role="alert">
-        <p>{tr('負責人停下來了')}{c.blockedReason && <>{colon()}{c.blockedReason}</>}</p>
+        <p>{tr('負責人停下來了')}{c.blockedReason && <>{colon()}{idsAsNames(c.blockedReason, ids, replicas)}</>}</p>
         {c.ownerState === 'failed' && failed && (
           <button type="button" className="fx-chat-act fx-hit" disabled={retry.sent?.state === 'sending'}
             onClick={() => { const body = { action: 'retry' as const, operationId: failed.id, ...seenVersions(task) }; void retry.send(JSON.stringify(body), (requestId) => controlTask(act, task.id, { requestId, ...body })) }}>
@@ -709,6 +730,7 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
         : controlOp.error?.message ?? OP_WORDS()[controlOp.status] }
       : null)
   return (
+    <SaidContext.Provider value={{ person: onCrew, canPerson: (x) => !!w.replicas[x] }}>
     <div className="fx-room fx-ticket">
       <div className="fx-tools">
         <EditTool onClick={onEdit} open={editing} />
@@ -762,7 +784,7 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
               <PixelFace look={owner.look} name={owner.name} size={22} />
               <span className="fx-sr">{tr('{name} 正在處理…', { name: owner.name })}</span>
               {live
-                ? <div className="fx-chat-bubble" aria-hidden="true"><Markdown text={live} /></div>
+                ? <div className="fx-chat-bubble" aria-hidden="true"><Markdown text={live} ids={crewIds(w, task)} /></div>
                 : <p className="fx-chat-bubble"><span className="fx-chat-dots" aria-hidden="true"><span /><span /><span /></span></p>}
             </li>
           )}
@@ -806,6 +828,7 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
         </form>
       ) : <p className="fx-d-muted fx-ticket-closed">{owner ? tr('任務已結束，可以複製成新任務') : tr('先選任務負責人')}</p>}
     </div>
+    </SaidContext.Provider>
   )
 }
 
@@ -813,11 +836,12 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
 
 /** What the owner told a run, and where the run stands with the owner. */
 export function OwnerRunFacts({ task, sub }: { task: Task; sub: SubTask }) {
+  const ids = useCrewIds(task)
   if (!isOwnerTask(task)) return null
   const word = runWord(sub)
   return (
     <>
-      {sub.instruction && <div className="fx-d-text-md fx-d-quote"><span className="fx-sr">{tr('指示')}{colon()}</span><Markdown text={sub.instruction} /></div>}
+      {sub.instruction && <div className="fx-d-text-md fx-d-quote"><span className="fx-sr">{tr('指示')}{colon()}</span><Markdown text={sub.instruction} ids={ids} /></div>}
       {(sub.validity === 'superseded' || sub.validity === 'needsRevalidation' || sub.executionState === 'uncertain' || sub.executionState === 'stopping' || sub.ownerReview === 'pending') && (
         <p className={sub.executionState === 'uncertain' ? 'fx-room-warn' : 'fx-d-muted'} role={sub.executionState === 'uncertain' ? 'alert' : undefined}>{word}</p>
       )}

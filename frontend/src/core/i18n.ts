@@ -834,6 +834,8 @@ const en = {
   '選這個資料夾': 'Choose this folder',
   '舊制流程': 'Older flow',
   '已退回': 'Sent back',
+  '已刪除的員工': 'Deleted employee',
+  '已刪除的員工（{step}）': 'Deleted employee ({step})',
   '無法確認': 'Can\'t confirm',
   '停止中': 'Stopping',
   '待重驗': 'To recheck',

@@ -13,7 +13,7 @@ import remarkGfm from 'remark-gfm'
 import type { Pluggable } from 'unified'
 import { tr } from './core/i18n'
 import { LANGUAGES } from './Highlight'
-import { saidParts, type Person, type SaidPart } from './mentions'
+import { ID_WORD, saidParts, type IdLookup, type Person, type SaidPart } from './mentions'
 import { SaidChip } from './Said'
 
 const isWebLink = (href?: string) => !!href && /^(https?:|mailto:)/i.test(href)
@@ -154,18 +154,24 @@ const WRITTEN = [remarkGfm, remarkWideEnd, remarkBreaks]
 /** A file, where lines may be wrapped by hand and only a blank line ends a paragraph. */
 const FILE = [remarkGfm, remarkWideEnd]
 
-/** Marks where the text, outside code and links, mentions one of people, a file or a skill, by the signs given. */
-function remarkSaid({ people, signs }: { people: Person[]; signs: string }) {
+/**
+ * Marks where the text, outside code and links, mentions one of people, a file or a skill, by the signs given; and
+ * where it names an employee or a run by an id `ids` knows, in code written inline too.
+ */
+function remarkSaid({ people, signs, ids }: { people: Person[]; signs: string; ids?: IdLookup }) {
+  const said = (p: SaidPart): MdNode => ({ type: 'said', data: { hName: 'span', hProperties: { 'data-said': JSON.stringify(p) } }, children: [{ type: 'text', value: p.text }] })
   const walk = (node: MdNode) => {
     if (!node.children || node.type === 'link' || node.type === 'linkReference') return
     node.children = node.children.flatMap((child): MdNode[] => {
+      if (child.type === 'inlineCode' && ids && child.value) {
+        // an id in code stands alone as a name; what is around it stays code
+        return saidParts(child.value, [], '', ids).flatMap((p) => (p.kind ? [said(p)] : p.text.trim() ? [{ type: 'inlineCode', value: p.text }] : []))
+      }
       if (child.type !== 'text' || !child.value) {
         walk(child)
         return [child]
       }
-      return saidParts(child.value, people, signs).map((p) => p.kind
-        ? { type: 'said', data: { hName: 'span', hProperties: { 'data-said': JSON.stringify(p) } }, children: [{ type: 'text', value: p.text }] }
-        : { type: 'text', value: p.text })
+      return saidParts(child.value, people, signs, ids).map((p) => (p.kind ? said(p) : { type: 'text', value: p.text }))
     })
   }
   return (tree: MdNode) => walk(tree)
@@ -176,29 +182,38 @@ function remarkSaid({ people, signs }: { people: Person[]; signs: string }) {
  * for: a reply's own "#" or "$" is as likely a number or a price, so it looks for "@" only, and a message the user
  * sent, written with the "#" and "$" menus, for all three.
  */
-export function Markdown({ text, file, people = [], signs = '@', project }: {
+export function Markdown({ text, file, people = [], signs = '@', ids, project }: {
   text: string; file?: boolean; people?: Person[]; signs?: string
+  /** What the ids of employees and runs in the text name, to show them as their names. */
+  ids?: IdLookup
   /** A file opened from a folder: its HTML is drawn and its pictures load from beside it. */
   project?: InProject
 }) {
   const plugins = file || project ? FILE : WRITTEN
-  const looks = people.length > 0 || /[#$]/.test(signs)
+  const looks = people.length > 0 || /[#$]/.test(signs) || (!!ids && hasId(text))
   return (
     <div className="fx-md">
-      <ReactMarkdown remarkPlugins={looks ? [...plugins, [remarkSaid, { people, signs }]] : plugins}
+      <ReactMarkdown remarkPlugins={looks ? [...plugins, [remarkSaid, { people, signs, ids }]] : plugins}
         rehypePlugins={project ? FILE_HTML : [HIGHLIGHT]}
         components={project ? projectComponents(project) : COMPONENTS}>{text}</ReactMarkdown>
     </div>
   )
 }
 
+const hasId = (text: string) => text.search(ID_WORD) >= 0
+
 const INLINE = ['strong', 'em', 'del', 'code', 'a']
 
-/** One line of text among other things: its marks only, with no blocks. `noLinks` is for inside a button. */
-export function MarkdownLine({ text, noLinks }: { text: string; noLinks?: boolean }) {
+/**
+ * One line of text among other things: its marks only, with no blocks. `noLinks` is for inside a button; `ids`, as for
+ * Markdown, is not, as a name it shows is a button.
+ */
+export function MarkdownLine({ text, noLinks, ids }: { text: string; noLinks?: boolean; ids?: IdLookup }) {
+  const named = !!ids && hasId(text)
+  const allowed = noLinks ? INLINE.filter((x) => x !== 'a') : INLINE
   return (
-    <ReactMarkdown remarkPlugins={FILE} components={COMPONENTS} unwrapDisallowed
-      allowedElements={noLinks ? INLINE.filter((x) => x !== 'a') : INLINE}>
+    <ReactMarkdown remarkPlugins={named ? [...FILE, [remarkSaid, { people: [], signs: '', ids }]] : FILE} components={COMPONENTS} unwrapDisallowed
+      allowedElements={named ? [...allowed, 'span'] : allowed}>
       {text}
     </ReactMarkdown>
   )

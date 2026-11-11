@@ -107,15 +107,27 @@ function peopleAt(text: string, people: Person[]) {
 
 export interface SaidPart {
   text: string
-  kind?: Mention['kind']
-  /** Who "@" names. */
+  /** A mention by its sign, or `crew`: an employee or a run named by its id, as a task's owner writes them. */
+  kind?: Mention['kind'] | 'crew'
+  /** Who "@" or an id names; none for a run nobody works yet. */
   id?: string
+  /** The step a run named by its id is of. */
+  step?: string
   /** What "#" names, unquoted and without the sign, and whether it is a folder: one written with a "/" at its end. */
   path?: string
   dir?: boolean
   /** The skill "$" names. */
   skill?: string
 }
+
+/**
+ * What an id a task's owner wrote names: the employee, who may be gone (none for a run nobody works yet), and for a
+ * run, its step; null for an id it does not know, which stays as written.
+ */
+export type IdLookup = (word: string) => { id?: string; step?: string } | null
+
+/** A run's or an employee's id: "sub-12" and "rep-3" as the backend writes them, not inside a longer word or path. */
+export const ID_WORD = /(?<![\w./-])(?:sub|rep)-?\d+(?![\w-])/g
 
 /** What a "#" word names: its path, out of any quotes, and whether it ends with "/". */
 function pathOf(word: string) {
@@ -132,8 +144,16 @@ function pathOf(word: string) {
  * reply's own "#" or "$" is as likely a number or a price. A "#" or "$" counts at the start of a word, a "$" before a
  * letter only.
  */
-export function saidParts(text: string, people: Person[], signs: string = '@#$'): SaidPart[] {
-  const found: { at: number; end: number; kind: Mention['kind']; id?: string }[] = signs.includes('@') ? peopleAt(text, people).map((x) => ({ ...x, kind: '@' as const })) : []
+export function saidParts(text: string, people: Person[], signs: string = '@#$', ids?: IdLookup): SaidPart[] {
+  const found: { at: number; end: number; kind: NonNullable<SaidPart['kind']>; id?: string; step?: string }[] = signs.includes('@') ? peopleAt(text, people).map((x) => ({ ...x, kind: '@' as const })) : []
+  if (ids) {
+    for (const m of text.matchAll(ID_WORD)) {
+      const named = ids(m[0])
+      const at = m.index, end = at + m[0].length
+      if (!named || found.some((x) => at < x.end && end > x.at)) continue
+      found.push({ at, end, kind: 'crew', ...named })
+    }
+  }
   const words = [signs.includes('#') && /#(?:"(?:[^"\\\n]|\\.)*"|[^\s#"，。；：！？、（）「」]+)/g, signs.includes('$') && /\$[A-Za-z][\w.:-]*/g].filter((x): x is RegExp => !!x)
   for (const re of words) {
     for (const m of text.matchAll(re)) {
@@ -150,7 +170,8 @@ export function saidParts(text: string, people: Person[], signs: string = '@#$')
   for (const x of found) {
     if (x.at > from) out.push({ text: text.slice(from, x.at) })
     const word = text.slice(x.at, x.end)
-    out.push(x.kind === '@' ? { text: word, kind: x.kind, id: x.id }
+    out.push(x.kind === 'crew' ? { text: word, kind: x.kind, id: x.id, step: x.step }
+      : x.kind === '@' ? { text: word, kind: x.kind, id: x.id }
       : x.kind === '#' ? { text: word, kind: x.kind, ...pathOf(word) }
       : { text: word, kind: x.kind, skill: word.slice(1) })
     from = x.end

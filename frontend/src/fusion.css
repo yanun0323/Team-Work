@@ -1550,6 +1550,11 @@ button.fx-said:hover { background: rgb(31 95 168 / 0.2); box-shadow: none; }
 :is(.fx-said-person, .fx-said-skill) { background: none; }
 button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0.12); }
 .fx-said-icon { flex: none; }
+/* an employee the owner named by id: face and name, opening them */
+.fx-said-crew { background: none; vertical-align: -2px; }
+button.fx-said-crew:hover { background: rgb(31 95 168 / 0.12); }
+.fx-said-crew .pixel-face { flex: none; }
+.fx-said-gone { color: var(--muted); }
 .fx-chat-msg time { flex: none; padding-bottom: 2px; font: 500 10.5px/1 var(--font-mono); color: var(--muted); }
 /* the employee writing back: three dots that light up in turn, and hop when motion is fine */
 .fx-chat-dots { display: inline-flex; align-items: center; gap: 5px; height: 1.55em; vertical-align: top; }
