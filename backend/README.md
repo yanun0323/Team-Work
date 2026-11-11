@@ -264,7 +264,7 @@ App 帶的十二個員工藍圖（通才、前端工程師、後端工程師、�
 
 從 Git 來的藍圖如果沒有寫 `prompt`，執行時會讀那個 repo 的 `AGENTS.md`；技能來自它的 `skills/`。
 
-技能來源（Git 或本機資料夾）裡，有 `SKILL.md` 的資料夾就是一個技能。Git 來源可以用 `path` 指定 repo 裡的子資料夾，就從那裡開始找；貼上 `/tree/main/pstack` 這種網址時，第一段是版本，其餘是子資料夾。先找 `skills/` 底下，找不到才找來源根目錄；可以分類放（如 `skills/engineering/tdd/SKILL.md`），最多往下四層，會跟著符號連結，略過 `.` 開頭的資料夾和 `node_modules`，技能資料夾裡面不再往下找。
+技能來源（Git 或本機資料夾）裡，有 `SKILL.md` 的資料夾就是一個技能。Git 來源可以用 `path` 指定 repo 裡的子資料夾，就從那裡開始找；貼上 `/tree/main/pstack` 這種網址時，第一段是版本，其餘是子資料夾。先找 `skills/` 底下，找不到才找來源根目錄；可以分類放（如 `skills/engineering/tdd/SKILL.md`），最多往下四層，會跟著符號連結，略過 `.` 開頭的資料夾和 `node_modules`，技能資料夾裡面不再往下找。`SKILL.md` 開頭設定區寫了 `disable-model-invocation: true` 的技能不列進員工的系統提示，只有使用者用 `$名稱` 點名時才交給員工。
 
 ## 執行方式
 

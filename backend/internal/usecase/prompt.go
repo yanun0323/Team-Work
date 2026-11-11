@@ -353,7 +353,27 @@ func interruptedText(tool string) string {
 
 var frontmatterField = regexp.MustCompile(`(?m)^(name|description):\s*(.+?)\s*$`)
 
-type skill struct{ name, description, path string }
+// userOnly matches the frontmatter setting that keeps a skill for the user to ask for by name.
+var userOnly = regexp.MustCompile(`(?m)^disable-model-invocation:\s*true\s*$`)
+
+// skill is a skill found in a pack. A userOnly one is left out of the prompt's list, so the employee uses it only
+// when the user names it with "$name".
+type skill struct {
+	name, description, path string
+	userOnly                bool
+}
+
+// frontmatter is the settings block between the "---" lines that open a SKILL.md, or "" when there is none.
+func frontmatter(raw string) string {
+	rest, ok := strings.CutPrefix(strings.ReplaceAll(raw, "\r\n", "\n"), "---\n")
+	if !ok {
+		return ""
+	}
+	if end := strings.Index(rest, "\n---"); end >= 0 {
+		return rest[:end]
+	}
+	return ""
+}
 
 // skillDepth bounds how far below its base a skill folder may sit, so a large folder cannot make the search endless.
 const skillDepth = 4
@@ -376,7 +396,7 @@ func skillsIn(root, inside string, include, exclude []string) []skill {
 		if err != nil {
 			continue
 		}
-		s := skill{name: filepath.Base(filepath.Dir(path)), path: path}
+		s := skill{name: filepath.Base(filepath.Dir(path)), path: path, userOnly: userOnly.MatchString(frontmatter(string(raw)))}
 		for _, m := range frontmatterField.FindAllStringSubmatch(string(raw), 2) {
 			if m[1] == "name" {
 				s.name = m[2]
@@ -441,15 +461,16 @@ func skillFiles(dir, inside string, depth int) []string {
 }
 
 func skillsPrompt(skills []skill) string {
-	if len(skills) == 0 {
+	var b strings.Builder
+	for _, s := range skills {
+		if !s.userOnly {
+			fmt.Fprintf(&b, "- %s: %s (%s)\n", s.name, s.description, s.path)
+		}
+	}
+	if b.Len() == 0 {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString("\n# Skills\nEach skill is a set of instructions. When the task fits one, read its file with read_file, then follow it.\n")
-	for _, s := range skills {
-		fmt.Fprintf(&b, "- %s: %s (%s)\n", s.name, s.description, s.path)
-	}
-	return b.String()
+	return "\n# Skills\nEach skill is a set of instructions. When the task fits one, read its file with read_file, then follow it.\n" + b.String()
 }
 
 func expandHome(path string) string {
