@@ -2,7 +2,7 @@ import { act, createRoot } from '@react-three/fiber'
 import type { WebGLRenderer } from 'three'
 import { afterEach, expect, it, vi } from 'vitest'
 import { emptyWorld } from './backend'
-import { useLiveText } from './live'
+import { useLive, useLiveText } from './live'
 import { useNow, useSimLoop, useStore } from './store'
 import { ago } from '../source'
 import { editMemory } from './ops'
@@ -82,6 +82,62 @@ it('does not rerender world subscribers on idle ticks, but still delivers patche
   expect(worldRender.mock.lastCall![0].chats.c.messages).toHaveLength(1)
   expect(worldRender.mock.lastCall![0].chats.c.unread).toBe(false)
   expect(liveRender).toHaveBeenLastCalledWith('')
+})
+
+it('keeps what a meeting is saying while another step\'s event arrives, and lets it go once the words are a line of the meeting', async () => {
+  vi.stubGlobal('window', globalThis)
+  vi.stubGlobal('requestAnimationFrame', (f: FrameRequestCallback) => { queueMicrotask(() => f(0)); return 1 })
+  const world = seedWorld()
+  const task = Object.values(world.tasks).find((t) => t.coordination?.activeMeetingId)!
+  const id = task.coordination!.activeMeetingId!
+  const meeting = world.subTasks[id].meeting!
+  useStore.setState({ world, loaded: true })
+  const settle = () => new Promise((r) => setTimeout(r, 0))
+  // the chair takes the floor and starts writing
+  meeting.speakerId = meeting.chairId
+  useStore.getState().receive({ type: 'patch', upserts: [{ kind: 'subTask', id, data: structuredClone(world.subTasks[id]) }] })
+  useStore.getState().receive({ type: 'delta', subId: id, text: '我正在寫' })
+  await settle()
+  expect(useLive.getState().texts[id]).toBe('我正在寫')
+  // another step goes on meanwhile: its line is no reason to drop what the chair is saying
+  const busy = structuredClone(task)
+  busy.coordination!.history = { version: '99', count: task.coordination!.history.count + 1 }
+  useStore.getState().receive({ type: 'patch', upserts: [{ kind: 'task', id: task.id, data: busy }] })
+  await settle()
+  expect(useLive.getState().texts[id]).toBe('我正在寫')
+  // the floor changes hands, and what was being written became a line of the meeting
+  const said = structuredClone(useStore.getState().world.subTasks[id])
+  said.meeting!.speakerId = ''
+  said.meeting!.revision++
+  useStore.getState().receive({ type: 'patch', upserts: [{ kind: 'subTask', id, data: said }] })
+  await settle()
+  expect(useLive.getState().texts[id]).toBeUndefined()
+
+  // and again when the same one goes on, its words saved: the run's revision says so
+  useStore.getState().receive({ type: 'delta', subId: id, text: '我再補一句' })
+  await settle()
+  expect(useLive.getState().texts[id]).toBe('我再補一句')
+  const more = structuredClone(useStore.getState().world.subTasks[id])
+  more.meeting!.revision++
+  useStore.getState().receive({ type: 'patch', upserts: [{ kind: 'subTask', id, data: more }] })
+  await settle()
+  expect(useLive.getState().texts[id]).toBeUndefined()
+})
+
+it('clears what a meeting was saying when the meeting ends under it', async () => {
+  vi.stubGlobal('window', globalThis)
+  vi.stubGlobal('requestAnimationFrame', (f: FrameRequestCallback) => { queueMicrotask(() => f(0)); return 1 })
+  const world = seedWorld()
+  const task = Object.values(world.tasks).find((t) => t.coordination?.activeMeetingId)!
+  const id = task.coordination!.activeMeetingId!
+  useStore.setState({ world, loaded: true })
+  useStore.getState().receive({ type: 'delta', subId: id, text: '最後一句' })
+  await new Promise((r) => setTimeout(r, 0))
+  expect(useLive.getState().texts[id]).toBe('最後一句')
+  const ended = structuredClone(task)
+  ended.coordination!.activeMeetingId = undefined
+  useStore.getState().receive({ type: 'patch', upserts: [{ kind: 'task', id: task.id, data: ended }] })
+  expect(useLive.getState().texts[id]).toBeUndefined()
 })
 
 it('updates elapsed-time displays independently and cleans up their timer', async () => {

@@ -2237,8 +2237,10 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
   // the flow itself changed, not only who works it
   const changed = !!custom && reshaped(task.workflow, trimmedFlow(custom))
   const ready = draft.title.trim() && missing.length === 0 && !unnamed && !saving
-  // someone already on a step comes off it: say whether they finish it or hand it over now
-  const swapping = swappable(w, id, draft.staff).length > 0
+  // someone already on a step comes off it: say whether they finish it or hand it over now. A task its owner runs
+  // keeps every run it started as it was told (the backend turns a swap away once it is under way), so only a task
+  // that has not started, or one an older flow runs, offers it
+  const swapping = (!isOwnerTask(task) || notStarted(task)) && swappable(w, id, draft.staff).length > 0
   const save = async (swap: boolean) => {
     if (!ready) return
     // only the steps still in the flow are staffed

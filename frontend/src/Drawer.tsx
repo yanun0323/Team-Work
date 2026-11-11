@@ -9,7 +9,7 @@ import { tr } from './core/i18n'
 import { openFolder } from './core/ops'
 import { MOCK } from './core/mode'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { inTerminal, waitingTab } from './core/model'
+import { inTerminal, keepsEscape, waitingTab } from './core/model'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { useStore } from './core/store'
 import { paletteOf } from './Building'
@@ -298,8 +298,8 @@ export function useSheets() {
     if (top < 0) return
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape' || inTerminal(e)) return
-      // an open drop-down list, or a floating menu such as the hand-off one (a popover there only while open), takes Esc for itself
-      if ((e.target as HTMLElement | null)?.closest?.('[aria-expanded="true"][aria-haspopup="listbox"], [popover]')) return
+      // an open drop-down list, a floating menu such as the hand-off one, or a box with a draft in it takes Esc for itself
+      if (keepsEscape(e.target)) return
       e.stopPropagation()
       back(top - 1)
     }

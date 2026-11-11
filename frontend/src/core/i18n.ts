@@ -851,6 +851,7 @@ const en = {
   '失敗': 'Failed',
   '交付': 'Handoff',
   '待你回答': 'Waiting on you',
+  'Esc 離開輸入框': 'Esc leaves the box',
   '會議：{step}': 'Meeting: {step}',
   '{n} 則發言': (a) => `${a.n} ${a.n === 1 ? 'message' : 'messages'}`,
   '傳送失敗': 'Couldn\'t send',

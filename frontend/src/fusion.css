@@ -1665,6 +1665,9 @@ button.fx-said-fact:hover { background: rgb(31 95 168 / 0.12); }
 .fx-room-to { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; font-size: 12.5px; color: var(--muted); }
 .fx-room-to-one { display: inline-flex; align-items: center; gap: 4px; color: var(--ink); }
 .fx-room-to-one svg { display: block; }
+/* under a box holding a draft: the way out for the keyboard, in a row of its own beneath the box and its buttons */
+.fx-box-hint { order: 1; flex: 0 0 100%; margin: -2px 0 0; padding-inline: 40px 48px; font: 500 11px/1.2 var(--font-mono); color: var(--muted); }
+.fx-mention-wrap .fx-box-hint { margin: 4px 0 0; padding: 0; }
 /* under a sent message; two classes, to win over the sheet's margin-less p */
 .fx-chat-said .fx-chat-to { margin-top: 4px; }
 /* a question's options with who asked, to answer them by typing instead: dashed, as a choice left open */

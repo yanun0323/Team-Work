@@ -36,6 +36,32 @@ it('offers to swap at once only when someone already on a step comes off it', ()
   }
 })
 
+it('hands no run over at once in a task its owner runs, a meeting under way included', () => {
+  const w = useStore.getState().world
+  const task = Object.values(w.tasks).find((t) => t.orchestration === 'owner' && t.coordination?.activeMeetingId)!
+  const meeting = subsOf(w, task.id).find((s) => s.meeting && s.status !== 'complete')!
+  const node = task.workflow.nodes.find((n) => n.id === meeting.nodeId)!
+  const other = Object.values(w.replicas).find((r) => r.teamId === task.teamId && r.id !== meeting.replicaId)!
+  const staff = Object.fromEntries(task.workflow.nodes.map((n) => [n.id, [...n.replicaIds]]))
+  const sheet = (s: Record<string, string[]>) => {
+    Object.assign(useStore.getInitialState(), useStore.getState())
+    Object.assign(useDraft.getInitialState(), { draft: { title: task.title, description: task.description, workflowId: task.workflowId, staff: s, from: null, taskId: task.id, ownerId: task.ownerId } })
+    const noop = () => {}
+    return renderToStaticMarkup(<Detail item={{ kind: 'taskEdit', id: task.id }} teamId={task.teamId} depth={0} covered={false} leaving={false}
+      onGone={noop} onBack={noop} onDone={noop} onClear={noop} onPush={noop} onOpen={noop} />)
+  }
+  try {
+    // the chair is the task's owner, not someone the step was staffed with, and a run under way is kept as it was told;
+    // the backend turns a swap away, so the sheet offers none
+    const html = sheet({ ...staff, [node.id]: [other.id] })
+    expect(html).toContain('>儲存</button>')
+    expect(html).not.toContain('儲存，下一步起生效')
+    expect(html).not.toContain('儲存並立刻換人')
+  } finally {
+    Object.assign(useDraft.getInitialState(), { draft: null })
+  }
+})
+
 it('writes the flow of a task its owner runs on its edit sheet, keeping the steps that ran', () => {
   const w = useStore.getState().world
   const task = Object.values(w.tasks).find((t) => t.orchestration === 'owner' && t.stage === 'running' && subsOf(w, t.id).length > 0)!
@@ -68,7 +94,7 @@ it('writes the flow of a task its owner runs on its edit sheet, keeping the step
     const unnamed = structuredClone(task.workflow)
     unnamed.nodes.find((n) => n.id === fresh.id)!.name = ''
     const off = sheet({ kind: 'taskEdit', id: task.id }, unnamed)
-    expect(off).toMatch(/<button type="submit" class="fx-save[^"]*" disabled=""/)
+    expect(off).toMatch(/<button type="submit" class="fx-save" disabled=""/)
     expect(off).toContain('有步驟沒有名稱')
   } finally {
     Object.assign(useDraft.getInitialState(), { draft: null })

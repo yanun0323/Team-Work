@@ -9,7 +9,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { guardUnload, leaveTeam } from './fileDrafts'
 import { placeOf, useOpenRequest, useSystemNotices } from './notices'
 import * as THREE from 'three'
-import { inTerminal, teamAlerts, teamReplicas, teamWork } from './core/model'
+import { inTerminal, keepsEscape, teamAlerts, teamReplicas, teamWork } from './core/model'
 import { useStore } from './core/store'
 import { LabelLayer, LabelProjector, type LabelSpec } from './core/voxel/labels'
 import { Airport } from './Airport'
@@ -348,7 +348,8 @@ export function World() {
   }, [panel, spot, placing, editing, moving, helpOpen])
   useEffect(() => {
     if (!open && !settingsOpen && !placing && !editing && !helpOpen) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !inTerminal(e) && close(true)
+    // a draft in a box keeps its Esc, and with it the drawer it is written in
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !inTerminal(e) && !keepsEscape(e.target) && close(true)
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open, settingsOpen, placing, editing, helpOpen, close])

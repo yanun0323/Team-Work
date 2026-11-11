@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { seedWorld } from './data/seed'
 import { createTask, statusOf } from './domain/sim'
 import type { Status } from './domain/types'
-import { laneTasks } from './model'
+import { keepsEscape, laneTasks } from './model'
 
 describe('laneTasks', () => {
   it('lists open lanes oldest first and 完成 latest first', () => {
@@ -32,5 +32,20 @@ describe('laneTasks', () => {
     const t = lanes.flatMap((s) => laneTasks(w, teamId, s))[0]
     t.stage = 'cancelled'
     expect(lanes.flatMap((s) => laneTasks(w, teamId, s))).not.toContain(t)
+  })
+})
+
+describe('keepsEscape', () => {
+  it('leaves Esc to the box a draft is in, and to the lists and menus that take it first', () => {
+    const asked: string[] = []
+    const inside = { closest: (sel: string) => { asked.push(sel); return {} } } as unknown as Element
+    expect(keepsEscape(inside)).toBe(true)
+    // one selector, so what the page nests is what decides: an open list, a floating menu, or a box with a draft
+    expect(asked).toHaveLength(1)
+    expect(asked[0]).toContain('[data-esc="box"]')
+    expect(asked[0]).toContain('[aria-expanded="true"][aria-haspopup="listbox"]')
+    expect(asked[0]).toContain('[popover]')
+    expect(keepsEscape({ closest: () => null } as unknown as Element)).toBe(false)
+    expect(keepsEscape(null)).toBe(false)
   })
 })
