@@ -32,12 +32,15 @@ const SAID_FOR = 6
 
 const stepName = (t: Task, nodeId: string | undefined) => (nodeId ? nodeOf(t.workflow, nodeId)?.name ?? nodeId : '')
 
-/** What of a change of the plan an event lists after its reason. */
-const PLAN_PARTS = ['added', 'skipped', 'restaffed', 'linked', 'unlinked'] as const
+/** What of a change of the plan an event lists after its first line: the owner's, and the user's on the edit sheet. */
+const PLAN_PARTS: Record<string, readonly string[]> = {
+  planChanged: ['added', 'skipped', 'restaffed', 'linked', 'unlinked'],
+  editedByUser: ['added', 'removed', 'changed', 'restaffed', 'linked', 'unlinked'],
+}
 
 /**
  * An event in the user's language, a line each: by its key when this version knows it, else as the backend wrote it.
- * A change of the plan lists what it added, skipped, gave to someone else and linked or unlinked.
+ * A change of the plan lists what it added, skipped or removed, changed, gave to someone else and linked or unlinked.
  */
 export function eventLines(a: TaskActivity): string[] {
   const recorded = a.text.split('\n').filter(Boolean)
@@ -49,7 +52,7 @@ export function eventLines(a: TaskActivity): string[] {
   const args = Object.fromEntries(Object.entries(a.args ?? {}).map(([k, v]) => [k, String(v)]))
   const holes = [...template.matchAll(/\{(\w+)\}/g)].map((m) => m[1])
   if (!holes.every((h) => h in args)) return recorded
-  const parts = a.key === 'planChanged' ? PLAN_PARTS.filter((p) => args[p]).map((p) => trRecorded(`task.plan.${p}`, { value: args[p] })) : []
+  const parts = (PLAN_PARTS[a.key] ?? []).filter((p) => args[p]).map((p) => trRecorded(`task.plan.${p}`, { value: args[p] }))
   return [trRecorded(key, args), ...parts]
 }
 

@@ -950,6 +950,8 @@ const RECORDED: Record<string, Record<Locale, string>> = {
   'task.plan.added': { zh: '新增：{value}', en: 'Added: {value}', 'zh-Hans': '新增：{value}', ja: '追加：{value}', ko: '추가: {value}' },
   'task.plan.skipped': { zh: '略過：{value}', en: 'Skipped: {value}', 'zh-Hans': '跳过：{value}', ja: 'スキップ：{value}', ko: '건너뜀: {value}' },
   'task.plan.restaffed': { zh: '改派：{value}', en: 'Reassigned: {value}', 'zh-Hans': '改派：{value}', ja: '担当変更：{value}', ko: '담당 변경: {value}' },
+  'task.plan.removed': { zh: '刪除：{value}', en: 'Removed: {value}', 'zh-Hans': '删除：{value}', ja: '削除：{value}', ko: '삭제: {value}' },
+  'task.plan.changed': { zh: '修改：{value}', en: 'Changed: {value}', 'zh-Hans': '修改：{value}', ja: '変更：{value}', ko: '수정: {value}' },
   'task.plan.linked': { zh: '新增依賴：{value}', en: 'New dependencies: {value}', 'zh-Hans': '新增依赖：{value}', ja: '追加した依存：{value}', ko: '추가된 의존: {value}' },
   'task.plan.unlinked': { zh: '移除依賴：{value}', en: 'Removed dependencies: {value}', 'zh-Hans': '移除依赖：{value}', ja: '外した依存：{value}', ko: '제거된 의존: {value}' },
   'task.constraintRecorded': { zh: '記下限制：{text}', en: 'Constraint kept: {text}', 'zh-Hans': '记下限制：{text}', ja: '制約として記録：{text}', ko: '제약으로 기록: {text}' },

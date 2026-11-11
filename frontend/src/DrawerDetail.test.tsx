@@ -36,6 +36,45 @@ it('offers to swap at once only when someone already on a step comes off it', ()
   }
 })
 
+it('writes the flow of a task its owner runs on its edit sheet, keeping the steps that ran', () => {
+  const w = useStore.getState().world
+  const task = Object.values(w.tasks).find((t) => t.orchestration === 'owner' && t.stage === 'running' && subsOf(w, t.id).length > 0)!
+  const ran = new Set(subsOf(w, task.id).map((s) => s.nodeId))
+  const done = task.workflow.nodes.find((n) => ran.has(n.id))!
+  const fresh = task.workflow.nodes.find((n) => !ran.has(n.id))!
+  const staff = Object.fromEntries(task.workflow.nodes.map((n) => [n.id, [...n.replicaIds]]))
+  const sheet = (item: Item, custom = structuredClone(task.workflow)) => {
+    Object.assign(useStore.getInitialState(), useStore.getState())
+    Object.assign(useDraft.getInitialState(), { draft: { title: task.title, description: task.description, workflowId: task.workflowId, staff, from: null, taskId: task.id, ownerId: task.ownerId, custom } })
+    const noop = () => {}
+    return renderToStaticMarkup(<Detail item={item} teamId={task.teamId} depth={0} covered={false} leaving={false}
+      onGone={noop} onBack={noop} onDone={noop} onClear={noop} onPush={noop} onOpen={noop} />)
+  }
+  try {
+    const html = sheet({ kind: 'taskEdit', id: task.id })
+    expect(html).toContain('＋ 新增步驟')
+    // a step that ran is faded and has no bin; one that did not can go
+    expect(html).not.toContain(`aria-label="刪除 ${done.name}"`)
+    expect(html).toContain(`aria-label="刪除 ${fresh.name}"`)
+    expect(html).toMatch(new RegExp(`data-step="${done.id}" class="[^"]*fx-node-done`))
+    // a step's own sheet writes it, as on a new task, and only one that never ran can be deleted
+    const step = (id: string) => sheet({ kind: 'staff', node: id, title: '' } as Item)
+    expect(step(fresh.id)).toContain('aria-label="步驟名稱"')
+    expect(step(fresh.id)).toContain('Prompt')
+    expect(step(fresh.id)).toContain('aria-label="刪除"')
+    expect(step(done.id)).toContain('aria-label="步驟名稱"')
+    expect(step(done.id)).not.toContain('aria-label="刪除"')
+    // a step with no name keeps it from being saved
+    const unnamed = structuredClone(task.workflow)
+    unnamed.nodes.find((n) => n.id === fresh.id)!.name = ''
+    const off = sheet({ kind: 'taskEdit', id: task.id }, unnamed)
+    expect(off).toMatch(/<button type="submit" class="fx-save" disabled=""/)
+    expect(off).toContain('有步驟沒有名稱')
+  } finally {
+    Object.assign(useDraft.getInitialState(), { draft: null })
+  }
+})
+
 it('picks no blueprint for an employee whose blueprint is gone, so saving waits for one', () => {
   const w = useStore.getState().world
   const r = Object.values(w.replicas)[0]

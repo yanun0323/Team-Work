@@ -7,8 +7,8 @@ import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, 
 import { shownUrl } from './core/island'
 import { colon, listOf, tr, trRecorded } from './core/i18n'
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
-import { canSendBack, nodeOf } from './core/domain/graph'
-import { blueprintUsers, gitSources, notStarted, statusOf, subsOf, swappable, type OwnSettings } from './core/domain/sim'
+import { canSendBack, nodeOf, reshaped } from './core/domain/graph'
+import { blueprintUsers, flowEditable, gitSources, notStarted, ranSteps, statusOf, subsOf, swappable, type OwnSettings } from './core/domain/sim'
 import { TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type WorkflowNode, type World } from './core/domain/types'
 import { keptState, sourceName, sourceState, sourceText, toolName } from './source'
 import { composing } from './ime'
@@ -2159,7 +2159,9 @@ function StepSheet({ node, teamId, onDone, ...h }: Head & { node: string; teamId
   const wf = draft && draftFlow(w, draft)
   const n = wf && nodeOf(wf, node)
   if (!draft || !wf || !n) return <Gone {...h} />
-  const own = !draft.taskId && draft.custom ? draft.custom : null
+  const own = draft.custom ?? null
+  // a step of a task that already ran stays in its flow
+  const removable = !!own && own.nodes.length > 1 && !(draft.taskId && ranSteps(w, draft.taskId).has(node))
   const crew = teamReplicas(w, teamId)
   const picked = draftStaff(w, draft, node).filter((id) => w.replicas[id])
   // in the order picked, as the first chairs a discussion
@@ -2171,7 +2173,7 @@ function StepSheet({ node, teamId, onDone, ...h }: Head & { node: string; teamId
           <div className="fx-step-head">
             <Heading {...h}><span className="fx-sr">{n.name || tr('這一步')}</span></Heading>
             <StepName flow={own} id={node} edit={editCustom} />
-            {own.nodes.length > 1 && <DeleteTool what={tr('步驟')} onConfirm={() => { onDone(); editCustom((f) => removeStep(f, node)) }} />}
+            {removable && <DeleteTool what={tr('步驟')} onConfirm={() => { onDone(); editCustom((f) => removeStep(f, node)) }} />}
           </div>
         ) : (
           <>
@@ -2194,7 +2196,11 @@ function StepSheet({ node, teamId, onDone, ...h }: Head & { node: string; teamId
   )
 }
 
-/** Change a task: its title, what it asks, and who works each step from here on. */
+/**
+ * Change a task: its title, what it asks, who works each step from here on, and while it is still open, its own flow,
+ * written as a new task's is. A step that ran stays, faded. What the owner changed of the plan after the sheet opened
+ * turns the save down, and the sheet keeps what was written.
+ */
 function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
   id: string
   teamId: string
@@ -2205,29 +2211,52 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const draft = useDraft((s) => s.draft)
+  // the plan the sheet was opened on, which a changed flow is written over
+  const [seenPlan, setSeenPlan] = useState<number | undefined>()
+  const [saving, setSaving] = useState(false)
   useEffect(() => {
-    const task = useStore.getState().world.tasks[id]
+    const s = useStore.getState().world
+    const task = s.tasks[id]
     if (!task) return
     const staff = Object.fromEntries(task.workflow.nodes.map((n) => [n.id, [...n.replicaIds]]))
+    setSeenPlan(task.coordination?.planVersion)
     useDraft.setState({ draft: {
       title: task.title, description: task.description, workflowId: task.workflowId, staff, from: null, taskId: id, ownerId: task.ownerId,
+      custom: flowEditable(task) ? structuredClone(task.workflow) : undefined,
     } })
     return () => useDraft.setState({ draft: null })
   }, [id])
   const task = w.tasks[id]
   if (!task) return <Gone {...h} />
   if (!draft) return null
+  const { custom } = draft
+  const flow = custom ?? task.workflow
+  const ran = ranSteps(w, id)
   const missing = unstaffed(w, draft)
-  const ready = draft.title.trim() && missing.length === 0
+  const unnamed = !!custom?.nodes.some((n) => !n.name.trim())
+  // the flow itself changed, not only who works it
+  const changed = !!custom && reshaped(task.workflow, trimmedFlow(custom))
+  const ready = draft.title.trim() && missing.length === 0 && !unnamed && !saving
   // someone already on a step comes off it: say whether they finish it or hand it over now
   const swapping = swappable(w, id, draft.staff).length > 0
-  const save = (swap: boolean) => {
+  const save = async (swap: boolean) => {
     if (!ready) return
-    act((x) => updateTask(x, id, { title: draft.title.trim(), description: draft.description.trim(), staff: draft.staff, ownerId: draft.ownerId, swap }))
-    onDone()
+    // only the steps still in the flow are staffed
+    const staff = Object.fromEntries(Object.entries(draft.staff).filter(([n]) => nodeOf(flow, n)))
+    const edit = { title: draft.title.trim(), description: draft.description.trim(), staff, ownerId: draft.ownerId, swap }
+    setSaving(true)
+    const ok = await updateTask(w, act, id, changed ? { ...edit, workflow: trimmedFlow(custom), planVersion: seenPlan } : edit)
+    setSaving(false)
+    if (ok) onDone()
+  }
+  // a step just made goes into the flow; one made with ＋ also opens on its sheet, ready to be written
+  const made = ([next, step]: [Workflow, string], show = false) => {
+    if (!step) return
+    editCustom(() => next)
+    if (show) onOpen(step)
   }
   return (
-    <form className="fx-d-form" onSubmit={(e) => { e.preventDefault(); save(false) }}>
+    <form className="fx-d-form" onSubmit={(e) => { e.preventDefault(); void save(false) }}>
       <header className="fx-d-head"><Heading {...h}>{tr('編輯 #{number}', { number: task.number })}</Heading></header>
       <div className="fx-fields">
         <label className="fx-field">
@@ -2243,16 +2272,33 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
         </label>
         <OwnerField teamId={task.teamId} draft={draft} />
       </div>
-      <Section name={tr('人員')}>
-        <div className="fx-flow">
-          <FlowNotes wf={task.workflow} staff={(n) => draftStaff(w, draft, n)} open={open} onOpen={onOpen}
-            done={(n) => subsOf(w, id).some((s) => s.skipped && !s.cancelled && s.nodeId === n)} />
-        </div>
+      <Section name={custom ? tr('流程') : tr('人員')}>
+        {custom ? (
+          <div className="fx-d-flowedit">
+            <div className="fx-flow">
+              <FlowNotes wf={custom} staff={(n) => draftStaff(w, draft, n)} open={open} onOpen={onOpen} done={(n) => ran.has(n)} edit={{
+                canLink: (a, b) => canLink(custom, a, b),
+                link: (a, b) => editCustom((f) => link(f, a, b)),
+                unlink: (e) => editCustom((f) => unlink(f, e)),
+                branch: (from) => made(branchStep(custom, from)),
+                insert: (e) => made(insertStep(custom, e)),
+                remove: (n) => { if (!ran.has(n)) editCustom((f) => removeStep(f, n)) },
+                removable: (n) => !ran.has(n),
+              }} />
+            </div>
+            <button type="button" className="fx-task fx-task-new fx-flow-new fx-hit" onClick={() => made(addStep(custom), true)}>{tr('＋ 新增步驟')}</button>
+          </div>
+        ) : (
+          <div className="fx-flow">
+            <FlowNotes wf={task.workflow} staff={(n) => draftStaff(w, draft, n)} open={open} onOpen={onOpen}
+              done={(n) => subsOf(w, id).some((s) => s.skipped && !s.cancelled && s.nodeId === n)} />
+          </div>
+        )}
       </Section>
       <p className="fx-d-actions">
         <button type="submit" className={swapping ? 'fx-save fx-plain' : 'fx-save'} disabled={!ready}>{swapping ? tr('儲存，下一步起生效') : tr('儲存')}</button>
-        {swapping && <button type="button" className="fx-save" disabled={!ready} onClick={() => save(true)}>{tr('儲存並立刻換人')}</button>}
-        <Missing draft={draft} missing={missing.length} />
+        {swapping && <button type="button" className="fx-save" disabled={!ready} onClick={() => void save(true)}>{tr('儲存並立刻換人')}</button>}
+        {unnamed ? <span className="fx-d-muted">{tr('有步驟沒有名稱')}</span> : <Missing draft={draft} missing={missing.length} />}
       </p>
     </form>
   )

@@ -1187,6 +1187,82 @@ func (e *Engine) newPlan(t *model.Task, reason, by string) {
 	l.Plans = append(l.Plans, planSnapshot{Version: c.PlanVersion, At: e.w.Now, Reason: reason, By: by, Workflow: clone(t.Workflow)})
 }
 
+// planChange is what a new plan does to the old one, by step names: steps added and removed, steps whose content
+// changed, steps given to someone else ("name：old → new"), and links made and taken away.
+type planChange struct {
+	Added, Removed, Edited, Restaffed, Linked, Unlinked []string
+	// Touched is every step kept that was edited or restaffed, as the owner's record has it.
+	Touched []string
+}
+
+// planDiff compares a task's plan with the next one; a step already run cannot be removed. Call it holding the lock.
+func (e *Engine) planDiff(t *model.Task, from, to *model.Workflow) (planChange, error) {
+	var d planChange
+	ran := map[string]bool{}
+	for _, s := range e.subsOf(t.ID) {
+		ran[s.NodeID] = true
+	}
+	staff := func(ids []string) string {
+		names := []string{}
+		for _, id := range ids {
+			names = append(names, e.replicaName(id))
+		}
+		if len(names) == 0 {
+			return "-"
+		}
+		return strings.Join(names, "、")
+	}
+	for _, n := range from.Nodes {
+		if nodeOf(to, n.ID) == nil {
+			if ran[n.ID] {
+				return planChange{}, model.Errorf(model.CodeConflict, "已執行過的步驟「%s」不能移除", n.Name)
+			}
+			d.Removed = append(d.Removed, n.Name)
+		}
+	}
+	for _, n := range to.Nodes {
+		old := nodeOf(from, n.ID)
+		if old == nil {
+			d.Added = append(d.Added, n.Name)
+			continue
+		}
+		restaffed := !slices.Equal(old.ReplicaIDs, n.ReplicaIDs)
+		if restaffed {
+			d.Restaffed = append(d.Restaffed, n.Name+"："+staff(old.ReplicaIDs)+" → "+staff(n.ReplicaIDs))
+		}
+		edited := old.Name != n.Name || old.Prompt != n.Prompt || old.Kind != n.Kind || old.Handoff != n.Handoff || old.Join != n.Join
+		if edited {
+			d.Edited = append(d.Edited, n.Name)
+		}
+		if restaffed || old.Name != n.Name || old.Prompt != n.Prompt || old.Kind != n.Kind {
+			d.Touched = append(d.Touched, n.Name)
+		}
+	}
+	edgeName := func(w *model.Workflow, edge model.WorkflowEdge) string {
+		name := func(id string) string {
+			if n := nodeOf(w, id); n != nil {
+				return n.Name
+			}
+			return id
+		}
+		return name(edge.From) + " → " + name(edge.To)
+	}
+	has := func(w *model.Workflow, edge model.WorkflowEdge) bool {
+		return slices.ContainsFunc(w.Edges, func(x model.WorkflowEdge) bool { return x.From == edge.From && x.To == edge.To })
+	}
+	for _, edge := range to.Edges {
+		if !has(from, edge) {
+			d.Linked = append(d.Linked, edgeName(to, edge))
+		}
+	}
+	for _, edge := range from.Edges {
+		if !has(to, edge) {
+			d.Unlinked = append(d.Unlinked, edgeName(from, edge))
+		}
+	}
+	return d, nil
+}
+
 func (e *Engine) planTool(in *ownerRun) func(context.Context, string, json.RawMessage) model.ToolResult {
 	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
 		var a struct {
@@ -1240,63 +1316,12 @@ func (e *Engine) planTool(in *ownerRun) func(context.Context, string, json.RawMe
 			if err := e.checkFlow(&wf); err != nil {
 				return "", err
 			}
-			ran := map[string]bool{}
-			for _, s := range e.subsOf(t.ID) {
-				ran[s.NodeID] = true
+			d, err := e.planDiff(t, &t.Workflow, &wf)
+			if err != nil {
+				return "", err
 			}
-			var added, removed, changed, restaffed, linked, unlinked []string
-			staff := func(ids []string) string {
-				names := []string{}
-				for _, id := range ids {
-					names = append(names, e.replicaName(id))
-				}
-				if len(names) == 0 {
-					return "-"
-				}
-				return strings.Join(names, "、")
-			}
-			for _, n := range wf.Nodes {
-				old := nodeOf(&t.Workflow, n.ID)
-				switch {
-				case old == nil:
-					added = append(added, n.Name)
-				case !slices.Equal(old.ReplicaIDs, n.ReplicaIDs):
-					restaffed = append(restaffed, n.Name+"："+staff(old.ReplicaIDs)+" → "+staff(n.ReplicaIDs))
-					fallthrough
-				case old.Name != n.Name || old.Prompt != n.Prompt || old.Kind != n.Kind:
-					changed = append(changed, n.Name)
-				}
-			}
-			edgeName := func(w *model.Workflow, edge model.WorkflowEdge) string {
-				name := func(id string) string {
-					if n := nodeOf(w, id); n != nil {
-						return n.Name
-					}
-					return id
-				}
-				return name(edge.From) + " → " + name(edge.To)
-			}
-			has := func(w *model.Workflow, edge model.WorkflowEdge) bool {
-				return slices.ContainsFunc(w.Edges, func(x model.WorkflowEdge) bool { return x.From == edge.From && x.To == edge.To })
-			}
-			for _, edge := range wf.Edges {
-				if !has(&t.Workflow, edge) {
-					linked = append(linked, edgeName(&wf, edge))
-				}
-			}
-			for _, edge := range t.Workflow.Edges {
-				if !has(&wf, edge) {
-					unlinked = append(unlinked, edgeName(&t.Workflow, edge))
-				}
-			}
-			for _, n := range t.Workflow.Nodes {
-				if nodeOf(&wf, n.ID) == nil {
-					if ran[n.ID] {
-						return "", model.Errorf(model.CodeConflict, "已執行過的步驟「%s」不能移除", n.Name)
-					}
-					removed = append(removed, n.Name)
-				}
-			}
+			added, removed, restaffed, linked, unlinked := d.Added, d.Removed, d.Restaffed, d.Linked, d.Unlinked
+			changed := d.Touched
 			t.Workflow.Nodes, t.Workflow.Edges = wf.Nodes, wf.Edges
 			e.newPlan(t, a.Reason, "owner")
 			version := t.Coordination.PlanVersion
