@@ -298,8 +298,8 @@ export function useSheets() {
     if (top < 0) return
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape' || inTerminal(e)) return
-      // an open drop-down list takes Esc for itself
-      if ((e.target as HTMLElement | null)?.closest?.('[aria-expanded="true"][aria-haspopup="listbox"]')) return
+      // an open drop-down list, or a floating menu such as the hand-off one (a popover there only while open), takes Esc for itself
+      if ((e.target as HTMLElement | null)?.closest?.('[aria-expanded="true"][aria-haspopup="listbox"], [popover]')) return
       e.stopPropagation()
       back(top - 1)
     }
