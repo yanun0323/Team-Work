@@ -579,6 +579,100 @@ func TestReturnKeepsHistoryAndMarksWhatWasBuiltOnIt(t *testing.T) {
 	})
 }
 
+// A redo starts a conversation of its own, so it is told what its last attempt handed off and to fix only what the
+// reason names, not to start over.
+func TestRedoIsToldItsLastAttempt(t *testing.T) {
+	r := newRig(t, leading(func(req model.ModelRequest) model.ModelReply {
+		return call("submit_handoff", map[string]any{"goal": "寫出需求", "done": []string{"列了三條驗收"}, "open": []string{"效能未測"},
+			"headline": "h", "did": []string{"x"}, "commit_message": "chore: step"})
+	}))
+	task := r.ownerTask(r.flow.ID)
+	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	start := subAt(w, task.ID, "整理需求")
+	plan, control := versions(w.Tasks[task.ID])
+	if _, err := r.e.ControlTask(task.ID, usecase.TaskControl{RequestID: "b1", Action: "return", SubID: start.ID, Reason: "需求漏了", PlanVersion: plan, ControlVersion: control}); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("paused", func(w *model.World) bool { return w.Tasks[task.ID].Paused })
+	if err := r.e.ResumeTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("redone", func(w *model.World) bool {
+		for _, s := range w.SubTasks {
+			if s.Rework != nil && s.Rework.From == start.ID {
+				return s.Status == enum.StatusComplete
+			}
+		}
+		return false
+	})
+	var first string
+	for _, req := range r.fake.requests() {
+		if !isOwner(req) && strings.Contains(req.Messages[0].Content[0].Text, "需求漏了") {
+			first = req.Messages[0].Content[0].Text
+			break
+		}
+	}
+	for _, want := range []string{"# This step was sent back\nReason: 需求漏了", "# Your last attempt at this step (" + start.ID + ")", "Goal: 寫出需求",
+		"Done:\n- 列了三條驗收", "Open:\n- 效能未測", "already in the working tree"} {
+		if !strings.Contains(first, want) {
+			t.Fatalf("the redo was not told %q:\n%s", want, first)
+		}
+	}
+}
+
+// Every step of an owner-led task can read any run of its own task in full, so a reviewer finds earlier handoffs
+// without the owner pasting them; a run of another task stays out of reach.
+func TestStepsReadRunsOfTheirOwnTask(t *testing.T) {
+	r := newRig(t, leading(worker))
+	other := r.ownerTask(r.flow.ID)
+	w := r.wait("other done", stage(other.ID, enum.StageAwaitMerge))
+	outside := subAt(w, other.ID, "整理需求").ID
+	var inside string
+	var results []string
+	r.setReply(func(req model.ModelRequest) (model.ModelReply, error) {
+		if isOwner(req) {
+			return autoOwner(req), nil
+		}
+		if stepOf(req) == "Clarify requirements" {
+			return worker(req), nil
+		}
+		if !slices.Contains(toolNames(req), "read_step") {
+			t.Errorf("no read_step: %v", toolNames(req))
+			return worker(req), nil
+		}
+		var got []string
+		for _, m := range req.Messages {
+			for _, b := range m.Content {
+				if b.Type == enum.BlockToolResult && b.Name == "read_step" {
+					got = append(got, b.Text)
+				}
+			}
+		}
+		switch len(got) {
+		case 0:
+			if m := regexp.MustCompile(`# Handoff from "[^"]+" \((sub-\d+)\)`).FindStringSubmatch(req.Messages[0].Content[0].Text); m != nil {
+				inside = m[1]
+			}
+			return ownerCall("read_step", map[string]any{"sub_id": inside}), nil
+		case 1:
+			return ownerCall("read_step", map[string]any{"sub_id": outside}), nil
+		}
+		results = got
+		return worker(req), nil
+	})
+	task := r.ownerTask(r.flow.ID)
+	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	if inside == "" || len(results) != 2 {
+		t.Fatalf("%q %q", inside, results)
+	}
+	if !strings.Contains(results[0], "Step run "+inside) || !strings.Contains(results[0], `"goal":"g"`) {
+		t.Fatalf("the run of its own task was not read: %s", results[0])
+	}
+	if !strings.Contains(results[1], "no step run "+outside) {
+		t.Fatalf("a run of another task was read: %s", results[1])
+	}
+}
+
 func TestQuestionsOnlyTheUserAnswersStayUntilAnswered(t *testing.T) {
 	asked := false
 	r := newRig(t, leading(func(req model.ModelRequest) model.ModelReply {

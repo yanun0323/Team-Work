@@ -121,6 +121,20 @@ type taskLog struct {
 	PausedSubs []string `json:"pausedSubs,omitempty"`
 	// Steers are what the owner told runs at work that they have not read yet, oldest first.
 	Steers []pendingSteer `json:"steers,omitempty"`
+	// Returning are send-backs the owner asked for that wait for the runs built on them to hand off first.
+	Returning []pendingReturn `json:"returning,omitempty"`
+}
+
+// pendingReturn is a run the owner sent back while runs built on it were still working: they were told to hand off
+// now, and the run is sent back once none of them works any more, or when the user says not to wait.
+type pendingReturn struct {
+	SubID   string   `json:"subId"`
+	Reason  string   `json:"reason"`
+	Waiting []string `json:"waiting"`
+	Since   float64  `json:"since"`
+	// Gen goes up each time the wait starts again, so an older timer does nothing.
+	Gen        int    `json:"gen"`
+	QuestionID string `json:"questionId,omitempty"`
 }
 
 // pendingSteer is something the owner told a run at work, waiting for its next round of tool results.
@@ -129,6 +143,9 @@ type pendingSteer struct {
 	Text       string  `json:"text"`
 	ActivityID string  `json:"activityId"`
 	At         float64 `json:"at"`
+	// System is the system asking the run to wrap up, not the owner talking: read as it is, and dropped unsaid
+	// when the run ends first.
+	System bool `json:"system,omitempty"`
 }
 
 func newTaskLog() *taskLog {

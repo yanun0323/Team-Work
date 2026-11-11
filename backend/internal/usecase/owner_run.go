@@ -387,8 +387,11 @@ func (e *Engine) taskState(t *model.Task) string {
 		if s.Rework != nil {
 			fmt.Fprintf(&b, ", redo of %s: %s", s.Rework.From, clip(s.Rework.Reason, 200))
 		}
-		if n := e.unreadSteers(t, s.ID); n > 0 {
+		if n := e.ownerSteers(t, s.ID); n > 0 {
 			fmt.Fprintf(&b, ", %d of your messages not read yet", n)
+		}
+		if p := e.returning(t, s.ID); p != nil {
+			fmt.Fprintf(&b, ", sent back once %s hand off", strings.Join(p.Waiting, ", "))
 		}
 		if s.Handoff != nil {
 			fmt.Fprintf(&b, "\n  handoff: %s", clip(s.Handoff.Human.Headline, 300))
@@ -697,7 +700,7 @@ func (e *Engine) ownerTools(in *ownerRun) []adapter.Tool {
 		ownerTool("read_task_entry", "Read one entry of the task's conversation in full, with what was attached, by page of its text.",
 			`{"type":"object","properties":{"activity_id":{"type":"string"},"offset":{"type":"integer"}},"required":["activity_id"]}`, e.readEntryTool(in)),
 		ownerTool("read_step", "Read a step run in full: its instructions, handoff, open question and log, by page.",
-			`{"type":"object","properties":{"sub_id":{"type":"string"},"log_offset":{"type":"integer"}},"required":["sub_id"]}`, e.readStepTool(in)),
+			readStepSchema, e.readStepTool(in)),
 		ownerTool("dispatch_step", "Start a step of the plan with your instructions, by an allowed employee (the step's first when left out). "+
 			"upstream_ids are accepted runs whose handoffs it builds on. With sub_id, go on with a stopped run instead, adding the instructions.",
 			`{"type":"object","properties":{"node_id":{"type":"string"},"replica_id":{"type":"string"},"instructions":{"type":"string"},"upstream_ids":{"type":"array","items":{"type":"string"}},"sub_id":{"type":"string"}},"required":["instructions"]}`,
@@ -707,7 +710,8 @@ func (e *Engine) ownerTools(in *ownerRun) []adapter.Tool {
 			e.reviewTool(in)),
 		ownerTool("stop_step", "Stop a step run now. Files it already changed stay as they are.",
 			`{"type":"object","properties":{"sub_id":{"type":"string"},"reason":{"type":"string"}},"required":["sub_id","reason"]}`, e.stopTool(in)),
-		ownerTool("return_step", "Send a step run back to be redone by the same employee with your reason; runs built on it must be checked again. Nothing is deleted or reverted.",
+		ownerTool("return_step", "Send a step run back to be redone by the same employee with your reason; runs built on it must be checked again. Nothing is deleted or reverted. "+
+			"Runs built on it that are still working are asked to hand off first, and it goes back once they have.",
 			`{"type":"object","properties":{"sub_id":{"type":"string"},"reason":{"type":"string"}},"required":["sub_id","reason"]}`, e.returnTool(in)),
 		ownerTool("answer_employee", "Answer a question an employee asked you; their step goes on with it.",
 			`{"type":"object","properties":{"question_id":{"type":"string"},"answer":{"type":"string"}},"required":["question_id","answer"]}`, e.answerTool(in)),
@@ -812,41 +816,51 @@ func (e *Engine) readStepTool(in *ownerRun) func(context.Context, string, json.R
 		if err := parseArgs(raw, &a); err != nil {
 			return toolError("%s", safeText(err))
 		}
-		return e.ownerRead(in, func(t *model.Task) model.ToolResult {
-			s := e.w.SubTasks[a.SubID]
-			if s == nil || s.TaskID != t.ID {
-				return toolError("no step run %s in this task", a.SubID)
-			}
-			var b strings.Builder
-			who := ""
-			if s.ReplicaID != nil {
-				who = e.replicaName(*s.ReplicaID) + " (" + *s.ReplicaID + ")"
-			}
-			fmt.Fprintf(&b, "Step run %s of %s by %s: %s, run %s, review %s, %s\nUpstream: %s\nInstructions:\n%s\n",
-				s.ID, s.NodeID, who, s.Status, s.ExecutionState, s.OwnerReview, s.Validity, strings.Join(s.UpstreamIDs, ", "), s.Instruction)
-			if s.Handoff != nil {
-				raw, _ := json.Marshal(s.Handoff)
-				fmt.Fprintf(&b, "Handoff: %s\n", raw)
-			}
-			if s.Talk != nil {
-				b.WriteString("Meeting:\n")
-				for _, m := range s.Talk.Messages {
-					fmt.Fprintf(&b, "- %s: %s\n", e.replicaName(m.By), m.Text)
-				}
-			}
-			const page = 80
-			from := min(max(a.Offset, 0), len(s.Log))
-			to := min(from+page, len(s.Log))
-			fmt.Fprintf(&b, "Log %d-%d of %d:\n", from, to, len(s.Log))
-			for _, line := range s.Log[from:to] {
-				fmt.Fprintf(&b, "- [%s] %s\n", line.Kind, clip(line.Text, 400))
-			}
-			if to < len(s.Log) {
-				fmt.Fprintf(&b, "More: log_offset=%d\n", to)
-			}
-			return model.ToolResult{Text: b.String()}
-		})
+		return e.ownerRead(in, func(t *model.Task) model.ToolResult { return e.stepRun(t, a.SubID, a.Offset) })
 	}
+}
+
+// readStepSchema is read_step's parameters, for the owner and for the task's steps alike.
+const readStepSchema = `{"type":"object","properties":{"sub_id":{"type":"string"},"log_offset":{"type":"integer"}},"required":["sub_id"]}`
+
+// stepRun is read_step's answer: a run of task t in full, its log by page from offset. Call it holding the lock.
+func (e *Engine) stepRun(t *model.Task, subID string, offset int) model.ToolResult {
+	s := e.w.SubTasks[subID]
+	if s == nil || s.TaskID != t.ID {
+		return toolError("no step run %s in this task", subID)
+	}
+	var b strings.Builder
+	who := ""
+	if s.ReplicaID != nil {
+		who = e.replicaName(*s.ReplicaID) + " (" + *s.ReplicaID + ")"
+	}
+	fmt.Fprintf(&b, "Step run %s of %s by %s: %s, run %s, review %s, %s\nUpstream: %s\n",
+		s.ID, s.NodeID, who, s.Status, s.ExecutionState, s.OwnerReview, s.Validity, strings.Join(s.UpstreamIDs, ", "))
+	if s.Rework != nil {
+		fmt.Fprintf(&b, "Redo after %s, because: %s\n", s.Rework.From, s.Rework.Reason)
+	}
+	fmt.Fprintf(&b, "Instructions:\n%s\n", s.Instruction)
+	if s.Handoff != nil {
+		raw, _ := json.Marshal(s.Handoff)
+		fmt.Fprintf(&b, "Handoff: %s\n", raw)
+	}
+	if s.Talk != nil {
+		b.WriteString("Meeting:\n")
+		for _, m := range s.Talk.Messages {
+			fmt.Fprintf(&b, "- %s: %s\n", e.replicaName(m.By), m.Text)
+		}
+	}
+	const page = 80
+	from := min(max(offset, 0), len(s.Log))
+	to := min(from+page, len(s.Log))
+	fmt.Fprintf(&b, "Log %d-%d of %d:\n", from, to, len(s.Log))
+	for _, line := range s.Log[from:to] {
+		fmt.Fprintf(&b, "- [%s] %s\n", line.Kind, clip(line.Text, 400))
+	}
+	if to < len(s.Log) {
+		fmt.Fprintf(&b, "More: log_offset=%d\n", to)
+	}
+	return model.ToolResult{Text: b.String()}
 }
 
 // held says whether the user must answer before the task's queued work starts: its cost limit or a loop guard stopped it.
@@ -895,6 +909,9 @@ func (e *Engine) dispatchTool(in *ownerRun) func(context.Context, string, json.R
 			n := nodeOf(&t.Workflow, a.NodeID)
 			if n == nil {
 				return "", model.Errorf(model.CodeInvalid, "計畫裡沒有步驟 %s", a.NodeID)
+			}
+			if e.returningNode(t, n.ID) != "" {
+				return "", model.Errorf(model.CodeConflict, "「%s」正在等下游交接後退回，退回完成前不能派工", n.Name)
 			}
 			who := a.ReplicaID
 			if who == "" && len(n.ReplicaIDs) > 0 {
@@ -1107,6 +1124,9 @@ func (e *Engine) returnTool(in *ownerRun) func(context.Context, string, json.Raw
 			if !current(s) {
 				return "", model.Errorf(model.CodeConflict, "這次執行已被取代")
 			}
+			if e.returning(t, s.ID) != nil {
+				return "", model.Errorf(model.CodeConflict, "這一步已經在等下游交接後退回")
+			}
 			l := e.editLog(t.ID)
 			if l.Returns >= MaxSendBacks {
 				e.block(t, "loop", model.TaskQuestion{Kind: "approval", Prompt: i18n.T("退回次數已達上限，要讓負責人繼續嗎？"),
@@ -1114,8 +1134,7 @@ func (e *Engine) returnTool(in *ownerRun) func(context.Context, string, json.Raw
 				return "The limit of sending work back is reached; the user was asked whether to go on. Stop here.", nil
 			}
 			l.Returns++
-			redo := e.rework(t, s, strings.TrimSpace(a.Reason), "owner")
-			return "sent back; the redo is " + redo.ID, nil
+			return e.ownerReturn(t, s, strings.TrimSpace(a.Reason)), nil
 		})
 	}
 }
@@ -1231,6 +1250,19 @@ func (e *Engine) mayMessage(t *model.Task, s *model.SubTask) error {
 }
 
 // unreadSteers counts what the owner told a run that it has not read yet.
+// ownerSteers is how many of what the owner told a run it has not read yet, leaving out the system's.
+func (e *Engine) ownerSteers(t *model.Task, subID string) int {
+	n := 0
+	if l := e.logOf(t.ID); l != nil {
+		for _, p := range l.Steers {
+			if p.SubID == subID && !p.System {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 func (e *Engine) unreadSteers(t *model.Task, subID string) int {
 	l := e.logOf(t.ID)
 	if l == nil {
@@ -1257,7 +1289,11 @@ func (e *Engine) takeSteers(t *model.Task, s *model.SubTask) []model.Message {
 		if p.SubID != s.ID {
 			return false
 		}
-		out = append(out, userText(steerSays+p.Text))
+		if p.System {
+			out = append(out, userText(p.Text))
+		} else {
+			out = append(out, userText(steerSays+p.Text))
+		}
 		return true
 	})
 	e.w.Conversations[s.ID] = append(e.w.Conversations[s.ID], out...)
@@ -1277,9 +1313,14 @@ func (e *Engine) steersUnread(t *model.Task, s *model.SubTask) {
 		if p.SubID != s.ID {
 			return false
 		}
-		said = append(said, "\n- "+clip(p.Text, 1000))
+		if !p.System { // a run that ended before it was asked to wrap up has nothing more to be told
+			said = append(said, "\n- "+clip(p.Text, 1000))
+		}
 		return true
 	})
+	if len(said) == 0 {
+		return
+	}
 	how := "ended"
 	switch {
 	case s.Status == enum.StatusComplete:
@@ -1702,6 +1743,9 @@ func (e *Engine) unfinished(t *model.Task, wake string) string {
 	}
 	if !any {
 		return i18n.T("還沒有任何步驟完成")
+	}
+	if l := e.logOf(t.ID); l != nil && len(l.Returning) > 0 {
+		return i18n.T("還有退回在等下游交接")
 	}
 	// every step of the plan is done and accepted; one left out is taken out of the plan where the user sees it
 	for _, n := range t.Workflow.Nodes {

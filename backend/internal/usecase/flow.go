@@ -157,6 +157,11 @@ func (e *Engine) step() {
 			e.stepMerge(t)
 		}
 	}
+	for _, t := range e.w.Tasks {
+		if t.OwnerLed() { // a send-back goes once what it waited for has handed off or stopped
+			e.settleReturns(t, false)
+		}
+	}
 	e.dispatch()
 	for _, t := range e.w.Tasks {
 		if t.Stage != enum.StageRunning || t.Paused || t.OwnerLed() { // the owner says when theirs is done

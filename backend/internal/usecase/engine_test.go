@@ -799,6 +799,26 @@ func TestSendBackThenPass(t *testing.T) {
 	if count != 4 || !reworked {
 		t.Fatalf("runs = %d, reworked = %v", count, reworked)
 	}
+	// the redo is told what the step it redoes handed off, not the review that sent it back
+	node := subAt(w, task.ID, "整理需求").NodeID
+	var first *model.SubTask
+	var told string
+	for _, req := range r.fake.requests() {
+		if text := req.Messages[0].Content[0].Text; strings.Contains(text, "Reason: 少了測試") {
+			told = text
+		}
+	}
+	for _, s := range w.SubTasks {
+		if s.TaskID == task.ID && s.NodeID == node && s.Rework == nil {
+			first = s // the earlier run of the step, the one sent back
+		}
+	}
+	if first == nil {
+		t.Fatal("no first run")
+	}
+	if !strings.Contains(told, "# Your last attempt at this step ("+first.ID+")\nGoal: g") {
+		t.Fatalf("the redo was not told its last attempt (%s):\n%s", first.ID, told)
+	}
 }
 
 func TestMergeConflictIsResolvedByTheOwner(t *testing.T) {

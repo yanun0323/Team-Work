@@ -1002,7 +1002,25 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if t := e.w.Tasks[in.taskID]; t != nil && t.OwnerLed() {
-		out = append(out, e.askOwnerTool(in))
+		out = append(out, e.askOwnerTool(in), funcTool{model.ToolSpec{Name: "read_step",
+			Description: "Read a run of a step of this task in full, by its id (sub-…): its instructions, handoff and log, by page. " +
+				"For the handoffs and earlier attempts your instructions name.",
+			Parameters: json.RawMessage(readStepSchema)}, func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+			var a struct {
+				SubID  string `json:"sub_id"`
+				Offset int    `json:"log_offset"`
+			}
+			if err := parseArgs(raw, &a); err != nil {
+				return toolError("%s", safeText(err))
+			}
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			t := e.w.Tasks[in.taskID]
+			if t == nil {
+				return toolError("the task is gone")
+			}
+			return e.stepRun(t, a.SubID, a.Offset)
+		}})
 	}
 	if s, t := e.w.SubTasks[in.subID], e.w.Tasks[in.taskID]; s != nil && t != nil && e.maySendBack(t, s) {
 		out = append(out, funcTool{model.ToolSpec{Name: "send_back", Description: "The work does not pass: commit what is here and send it back to the steps before this one, to redo.",

@@ -243,19 +243,8 @@ func (e *Engine) firstMessage(t *model.Task, s *model.SubTask) model.Message {
 		if u == nil || u.Handoff == nil {
 			continue
 		}
-		h := u.Handoff.Agent
-		fmt.Fprintf(&b, "\n# Handoff from \"%s\"\nGoal: %s\n", nodeOf(wf, u.NodeID).Name, h.Goal)
-		for _, part := range []struct {
-			name  string
-			items []string
-		}{{"Done", h.Done}, {"Outputs", h.Outputs}, {"Decisions", h.Decisions}, {"Open", h.Open}} {
-			if len(part.items) > 0 {
-				fmt.Fprintf(&b, "%s:\n- %s\n", part.name, strings.Join(part.items, "\n- "))
-			}
-		}
-		if u.Handoff.Commit != "" {
-			fmt.Fprintf(&b, "Commit: %s\n", u.Handoff.Commit)
-		}
+		fmt.Fprintf(&b, "\n# Handoff from \"%s\" (%s)\n", nodeOf(wf, u.NodeID).Name, u.ID)
+		writeHandoff(&b, u.Handoff)
 	}
 	if s.Instruction != "" {
 		owner := "the task owner"
@@ -264,13 +253,76 @@ func (e *Engine) firstMessage(t *model.Task, s *model.SubTask) model.Message {
 		}
 		fmt.Fprintf(&b, "\n# Instructions from %s\n%s\n", owner, s.Instruction)
 	}
+	var last *model.SubTask
 	if s.Rework != nil {
 		fmt.Fprintf(&b, "\n# This step was sent back\nReason: %s\n", s.Rework.Reason)
+		if last = e.lastAttempt(t, s); last != nil {
+			fmt.Fprintf(&b, "\n# Your last attempt at this step (%s)\n", last.ID)
+			if last.Handoff != nil {
+				writeHandoff(&b, last.Handoff)
+				b.WriteString("Its work is already in the working tree (git log, git diff). Keep what still holds and fix what the reason names; do not start over.\n")
+			} else {
+				b.WriteString("It stopped before handing off; what it changed is already in the working tree (git status, git log). Fix what the reason names; do not start over.\n")
+			}
+		}
+	}
+	if t.OwnerLed() {
+		var earlier []string
+		for _, o := range e.subsOf(t.ID) {
+			if o.NodeID != s.NodeID || o == s || o == last || o.CreatedAt > s.CreatedAt {
+				continue
+			}
+			line := "- " + o.ID
+			if o.ReplicaID != nil {
+				line += " by " + e.replicaName(*o.ReplicaID)
+			}
+			if o.Handoff != nil && o.Handoff.Human.Headline != "" {
+				line += ": " + clip(o.Handoff.Human.Headline, 300)
+			} else {
+				line += ": no handoff"
+			}
+			earlier = append(earlier, line)
+		}
+		if len(earlier) > 0 {
+			fmt.Fprintf(&b, "\n# Earlier runs of this step (read_step reads one in full)\n%s\n", strings.Join(earlier, "\n"))
+		}
 	}
 	content := []model.Block{{Type: enum.BlockText, Text: b.String()}}
 	content = append(content, imageBlocks(t.Images)...)
 	content = append(content, e.fileBlocks(t.ID, t.Files)...)
 	return model.Message{Role: enum.RoleUser, Content: content}
+}
+
+// writeHandoff writes a run's handoff as the steps after it read it.
+func writeHandoff(b *strings.Builder, h *model.Handoff) {
+	a := h.Agent
+	fmt.Fprintf(b, "Goal: %s\n", a.Goal)
+	for _, part := range []struct {
+		name  string
+		items []string
+	}{{"Done", a.Done}, {"Outputs", a.Outputs}, {"Decisions", a.Decisions}, {"Open", a.Open}} {
+		if len(part.items) > 0 {
+			fmt.Fprintf(b, "%s:\n- %s\n", part.name, strings.Join(part.items, "\n- "))
+		}
+	}
+	if h.Commit != "" {
+		fmt.Fprintf(b, "Commit: %s\n", h.Commit)
+	}
+}
+
+// lastAttempt is the run of the same step a redo replaces: the one an owner-led task sent back, or, where the run
+// that asked for the redo is a later step's, the latest earlier run of this step that handed off. Call it holding the lock.
+func (e *Engine) lastAttempt(t *model.Task, s *model.SubTask) *model.SubTask {
+	if p := e.w.SubTasks[s.Rework.From]; p != nil && p.NodeID == s.NodeID {
+		return p
+	}
+	var last *model.SubTask
+	for _, o := range e.subsOf(t.ID) {
+		if o != s && o.NodeID == s.NodeID && o.Handoff != nil && o.CreatedAt <= s.CreatedAt && (s.ReplicaID == nil || o.ReplicaID == nil || *o.ReplicaID == *s.ReplicaID) {
+			last = o
+		}
+	}
+	return last
 }
 
 func parseDataURL(url string) (mime, data string, ok bool) {

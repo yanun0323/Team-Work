@@ -291,6 +291,8 @@ func (e *Engine) holdAll(t *model.Task) []string {
 			l.PausedSubs = append(l.PausedSubs, s.ID)
 		}
 	}
+	// nothing works on any more, so a send-back waiting for that goes now; its redo waits like the rest
+	e.settleReturns(t, true)
 	return affected
 }
 
@@ -776,6 +778,7 @@ func (e *Engine) controlReturn(t *model.Task, in TaskControl) (model.TaskOperati
 	if t.Stage == enum.StageAwaitMerge {
 		reopen(t)
 	}
+	e.dropReturn(t, s.ID) // the user sends it back now, with their reason
 	op := e.newOperation(t, model.TaskOperation{Kind: "return", RequestID: in.RequestID, Status: model.OpProcessing, SubID: s.ID})
 	affected := []string{}
 	if !t.Paused {
@@ -934,6 +937,8 @@ func (e *Engine) controlAnswer(t *model.Task, in TaskControl) (model.TaskOperati
 		return op, nil
 	}
 	switch {
+	case in.OptionID == optionReturnNow || in.OptionID == optionWaitMore:
+		e.answerReturn(t, question.ID, in.OptionID)
 	case question.SubID != "" && question.Kind != "recovery":
 		s := e.w.SubTasks[question.SubID]
 		if s != nil && s.Review != nil {
@@ -1018,12 +1023,14 @@ func (e *Engine) recoverOwners() {
 				}
 				e.markUncertain(t, s)
 				// what the owner told it stays waiting, and goes with it if it goes on
-				if n := e.unreadSteers(t, s.ID); n > 0 {
+				if n := e.ownerSteers(t, s.ID); n > 0 {
 					e.addEvent(t, ownerEvent{Kind: evRecovery, Key: "steers:" + s.ID + ":" + strconv.Itoa(s.RunGeneration), SubID: s.ID,
 						Text: "Step run " + s.ID + " (" + s.NodeID + ") has not read " + strconv.Itoa(n) + " of your messages yet; they go with it if it goes on (dispatch_step with sub_id)."})
 				}
 			}
 		}
+		// what a send-back waited for stopped with the server, and the wait's timer with it
+		e.settleReturns(t, true)
 		e.stopsSettled(t)
 	}
 }
