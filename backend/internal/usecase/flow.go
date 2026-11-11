@@ -239,20 +239,9 @@ func (e *Engine) route(t *model.Task, s *model.SubTask) bool {
 	return true
 }
 
-// maySendBack: a step the flow lets send work back, and only while it can (see canSendBack), never a start or a
-// discussion, and never more than MaxSendBacks times a task. A flow from before the switch existed lets its last
-// step and a step that was itself sent back.
+// maySendBack: any step that can send work back (see canSendBack), never more than MaxSendBacks times a task.
 func (e *Engine) maySendBack(t *model.Task, s *model.SubTask) bool {
-	wf := &t.Workflow
-	n := nodeOf(wf, s.NodeID)
-	if n == nil || n.Kind != enum.NodeWork || len(s.UpstreamIDs) == 0 {
-		return false
-	}
-	if n.SendBack != nil {
-		if !*n.SendBack || !canSendBack(wf, n.ID) {
-			return false
-		}
-	} else if len(outEdges(wf, n.ID)) > 0 && s.Rework == nil {
+	if len(s.UpstreamIDs) == 0 || !canSendBack(&t.Workflow, s.NodeID) {
 		return false
 	}
 	rounds := 0

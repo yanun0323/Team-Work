@@ -122,8 +122,8 @@ type WorkflowNode struct {
 	Assignment string           `json:"assignment,omitempty"`
 	Handoff    enum.HandoffMode `json:"handoff"`
 	Join       enum.JoinMode    `json:"join"`
-	// SendBack lets the step send work back to the one before it. Nil in flows from before it existed, which keep
-	// the old rule: only the last step, and a step that was itself sent back, may.
+	// SendBack is from before every step that can send work back could, read so older settings and sources still
+	// load; settleStaff drops it.
 	SendBack *bool `json:"sendBack,omitempty"`
 	Pos      Point `json:"pos"`
 }

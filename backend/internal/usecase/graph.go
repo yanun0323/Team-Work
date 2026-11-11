@@ -45,7 +45,7 @@ func startsOf(wf *model.Workflow) []*model.WorkflowNode {
 	return out
 }
 
-// canSendBack is whether a step may be let send work back: a work step with one step before it, whose work goes
+// canSendBack is whether a step may send work back: a work step with one step before it, whose work goes
 // only to this one, so redoing it holds up nothing else.
 func canSendBack(wf *model.Workflow, id string) bool {
 	n := nodeOf(wf, id)

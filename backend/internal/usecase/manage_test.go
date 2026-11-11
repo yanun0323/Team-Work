@@ -278,9 +278,9 @@ func TestCreatingABlueprintAndFlowTakesEffectAtOnce(t *testing.T) {
 			t.Fatalf("%s: %+v", tool, w.Chats[c.ID].Messages)
 		}
 	}
-	// an old-style start is a step like any other; a new last step that two steps feed cannot send work back
+	// an old-style start is a step like any other, and no step keeps a send-back switch
 	for _, n := range made.Nodes {
-		if n.Kind != enum.NodeWork || (n.ID == "z" && (n.SendBack == nil || *n.SendBack)) {
+		if n.Kind != enum.NodeWork || n.SendBack != nil {
 			t.Fatalf("%+v", n)
 		}
 	}

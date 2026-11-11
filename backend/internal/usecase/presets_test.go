@@ -74,27 +74,14 @@ func TestPresets(t *testing.T) {
 	if raw, err := json.Marshal(small); err != nil || !strings.Contains(string(raw), `"edges":[]`) {
 		t.Fatalf("%s %v", raw, err)
 	}
-	sendsBack := func(flow *model.Workflow, id string) bool {
+	// the official flows still write sendBack on their steps; it is read and dropped, as every step that can send
+	// work back does
+	for _, flow := range []*model.Workflow{feature, small, presetFlowOf(t, w, "team-work--bugfix"), presetFlowOf(t, w, "team-work--review")} {
 		for _, n := range flow.Nodes {
-			if n.ID == id {
-				return n.SendBack != nil && *n.SendBack
+			if n.SendBack != nil {
+				t.Fatalf("%s keeps sendBack on %s", flow.ID, n.ID)
 			}
 		}
-		t.Fatalf("%s has no step %s", flow.ID, id)
-		return false
-	}
-	// a built-in flow starts with its first step, and only a step fed by one step alone may send work back: each
-	// flow ends with a check that can send the work back to be done again
-	bugfix := presetFlowOf(t, w, "team-work--bugfix")
-	review := presetFlowOf(t, w, "team-work--review")
-	if sendsBack(bugfix, "reproduce") || !sendsBack(bugfix, "fix") || !sendsBack(bugfix, "verify") {
-		t.Fatalf("%+v", bugfix.Nodes)
-	}
-	if sendsBack(feature, "backend-development") || sendsBack(feature, "frontend-development") || sendsBack(feature, "acceptance") || !sendsBack(feature, "fix") {
-		t.Fatalf("%+v", feature.Nodes)
-	}
-	if sendsBack(review, "fix") || !sendsBack(review, "recheck") {
-		t.Fatalf("%+v", review.Nodes)
 	}
 	for _, id := range []string{"team-work--small", "team-work--bugfix", "team-work--feature", "team-work--review"} {
 		// a copy goes through the same checks as a flow drawn by hand

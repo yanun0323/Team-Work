@@ -268,7 +268,6 @@ func newRig(t *testing.T, reply func(model.ModelRequest) (model.ModelReply, erro
 			Handoff: enum.HandoffAll, Join: enum.JoinAll}
 	}
 	plain.Nodes = []model.WorkflowNode{step("start", "整理需求", usecase.StartPrompt), step("end", "驗收", usecase.EndPrompt)}
-	plain.Nodes[1].SendBack = ptrTo(true)
 	plain.Edges = []model.WorkflowEdge{{ID: "e", From: "start", To: "end"}}
 	if err := r.e.SaveWorkflow(plain.ID, *plain); err != nil {
 		t.Fatal(err)
@@ -569,8 +568,8 @@ func TestSeveralStartsAndEnds(t *testing.T) {
 	}
 }
 
-// A last step switched off from sending back gets no send_back; with the switch unset it has it, as before.
-func TestSendBackSwitch(t *testing.T) {
+// Every step that can send work back gets send_back, whatever an older flow's switch said; a start never does.
+func TestSendBackIsBuiltIn(t *testing.T) {
 	var mu sync.Mutex
 	tools := map[string][]string{}
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -579,20 +578,20 @@ func TestSendBackSwitch(t *testing.T) {
 		mu.Unlock()
 		return call("submit_handoff", handoff), nil
 	})
-	for _, on := range []*bool{ptrTo(false), nil} {
+	for _, on := range []*bool{ptrTo(false), ptrTo(true), nil} {
 		wf := *r.flow
 		wf.Nodes = slices.Clone(wf.Nodes)
-		wf.Nodes[1].SendBack = on
+		wf.Nodes[0].SendBack, wf.Nodes[1].SendBack = on, on
 		if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
 			t.Fatal(err)
 		}
 		task := r.task(wf.ID)
 		r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
 		mu.Lock()
-		got := slices.Contains(tools["Acceptance review"], "send_back")
+		start, end := slices.Contains(tools["Clarify requirements"], "send_back"), slices.Contains(tools["Acceptance review"], "send_back")
 		mu.Unlock()
-		if got != (on == nil) {
-			t.Fatalf("switch %v: send_back %v", on, got)
+		if start || !end {
+			t.Fatalf("switch %v: start %v, end %v", on, start, end)
 		}
 	}
 }

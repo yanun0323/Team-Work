@@ -1020,7 +1020,7 @@ func pricesText(prices map[string]model.ModelPrice) string {
 const saveWorkflowDescription = "Without id, create a task flow; it can be used at once. With id and the version from list_workflows, replace one: nodes and edges are the whole new list, " +
 	"and in a node that has an id already what you leave out stays. Then you stop until the user agrees or refuses, which is what this call then returns. Tasks under way keep the flow they started with. Built-in flows and ones a source provides cannot be changed, so make a new one instead. " +
 	"A step nothing leads to is a start: a task starts every start at once, each with the task as given. A step that leads nowhere is a last step, and the task is done once every branch that ran is done. No cycles. Kind task is only in old flows; use work. " +
-	"send_back lets a work step send work back to the one step before it, when that step hands on to it alone; leave it out of other steps. Do not give positions: they are worked out for you. Node ids are yours to choose, unique in the flow. " +
+	"A work step may send work back to the one step before it when that step hands on to it alone. Do not give positions: they are worked out for you. Node ids are yours to choose, unique in the flow. " +
 	"Save only a flow worth keeping: for one a single task needs, give it to create_task as workflow instead."
 
 const saveWorkflowSchema = `{"type":"object","properties":{"id":{"type":"string"},"version":{"type":"string"},` + flowProperties + `}}`
@@ -1029,7 +1029,7 @@ const saveWorkflowSchema = `{"type":"object","properties":{"id":{"type":"string"
 const flowProperties = `"name":{"type":"string"},` +
 	`"nodes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"kind":{"type":"string","enum":["work","talk"]},"name":{"type":"string"},"prompt":{"type":"string"},` +
 	`"replica_ids":{"type":"array","items":{"type":"string"},"description":"Usually left out: each task decides who works its steps. One on a work step; a talk step may have several, who hold it as a meeting, the first chairing"},` +
-	`"handoff":{"type":"string","enum":["all","pickOne"]},"join":{"type":"string","enum":["all","any"]},"send_back":{"type":"boolean"}},"required":["id"]}},` +
+	`"handoff":{"type":"string","enum":["all","pickOne"]},"join":{"type":"string","enum":["all","any"]}},"required":["id"]}},` +
 	`"edges":{"type":"array","items":{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"},"condition":{"type":"string"}},"required":["from","to"]}}`
 
 type workflowArgs struct {
@@ -1044,7 +1044,6 @@ type workflowArgs struct {
 		ReplicaIDs *[]string         `json:"replica_ids"`
 		Handoff    *enum.HandoffMode `json:"handoff"`
 		Join       *enum.JoinMode    `json:"join"`
-		SendBack   *bool             `json:"send_back"`
 	} `json:"nodes"`
 	Edges *[]struct {
 		From      string `json:"from"`
@@ -1090,9 +1089,6 @@ func (e *Engine) buildFlow(a workflowArgs, old *model.Workflow) (*model.Workflow
 			if in.Join != nil {
 				n.Join = *in.Join
 			}
-			if in.SendBack != nil {
-				n.SendBack = ptr(*in.SendBack)
-			}
 			if n.Name == "" {
 				return nil, model.Errorf(model.CodeInvalid, "節點要有名稱")
 			}
@@ -1130,12 +1126,6 @@ func (e *Engine) buildFlow(a workflowArgs, old *model.Workflow) (*model.Workflow
 		}
 	}
 	settleStarts(next)
-	// a new step that ends the flow may send work back unless told otherwise, as on the flow's sheet
-	for i := range next.Nodes {
-		if n := &next.Nodes[i]; !known[n.ID] && n.SendBack == nil && n.Kind == enum.NodeWork && len(inEdges(next, n.ID)) > 0 {
-			n.SendBack = ptr(len(outEdges(next, n.ID)) == 0 && canSendBack(next, n.ID))
-		}
-	}
 	e.localize(next, e.w.Language)
 	if err := e.checkFlow(next); err != nil {
 		return nil, err

@@ -167,6 +167,7 @@ func settleStaff(wf *model.Workflow) {
 	for i := range wf.Nodes {
 		n := &wf.Nodes[i]
 		n.Assignment = ""
+		n.SendBack = nil
 		if n.Kind != enum.NodeTalk && len(n.ReplicaIDs) > 1 {
 			n.ReplicaIDs = n.ReplicaIDs[:1]
 		}
