@@ -32,6 +32,16 @@ const answeredKey = (ids: string) => `${islandScope(KEPT)}\u0000${ids}`
 /** Whether every company in `ids` (joined by newlines) has had its size asked for on the island shown. */
 export const useSizesAnswered = (ids: string) => useAnswered((s) => s.key === answeredKey(ids))
 
+/** Whether `bytes` has a size for every company in `ids` (joined by newlines). */
+export const hasSizes = (bytes: Record<string, number>, ids: string) => !ids || ids.split('\n').every((id) => bytes[id] !== undefined)
+
+/** Whether every company in `ids` has a size to stand at on the island shown: asked for, or kept from before. */
+export function useSizesKnown(ids: string) {
+  const answered = useSizesAnswered(ids)
+  const kept = useProjectBytes((b) => hasSizes(b, ids))
+  return answered || kept
+}
+
 if (!MOCK) {
   useIsland.subscribe((next, prev) => {
     if (next.island?.id !== prev.island?.id) {

@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import { CompanyTitle } from './Drawer'
 import { randomLook } from './layout'
-import { fmtBytes } from './projectSize'
+import { fmtBytes, hasSizes } from './projectSize'
 import type { Team } from './core/domain/types'
 
 it('writes sizes as Finder does, in steps of 1000 with at most one decimal', () => {
@@ -17,6 +17,14 @@ it('writes sizes as Finder does, in steps of 1000 with at most one decimal', () 
   // just under a step rounds up into the next unit rather than reading "1000 KB"
   expect(fmtBytes(999_960)).toBe('1 MB')
   expect(fmtBytes(5e15)).toBe('5000 TB')
+})
+
+it('counts sizes kept from the last visit as known, so an island lands without asking again first', () => {
+  const kept = { a: 1000, empty: 0 }
+  expect(hasSizes(kept, '')).toBe(true)
+  expect(hasSizes(kept, 'a\nempty')).toBe(true)
+  // a company never measured here waits for its answer
+  expect(hasSizes(kept, 'a\nb')).toBe(false)
 })
 
 const team = { id: 't1', name: 'Acme', folder: '/p/acme', targetBranch: 'main' } as Team

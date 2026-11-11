@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./mode', () => ({ MOCK: false }))
 
-import { connect, handedImageUrl, localRequest, request, setIslandRefusedHandler } from './backend'
+import { connect, connectAhead, handedImageUrl, localRequest, request, setIslandRefusedHandler, type ServerEvent } from './backend'
 import { apiBase, islandScope, shownUrl, socketUrl, useIsland } from './island'
 import { projectImageUrl, openFolder, setFailureHandler, setLanguage } from './ops'
 import { emptyWorld } from './backend'
@@ -95,6 +95,47 @@ describe('the island shown', () => {
     await installClaude(signal)
     expect(call(f)[0]).toBe('/api/v1/remote/mac%202/claude-code/install')
     expect((call(f)[1].headers as Record<string, string>)['Idempotency-Key']).toBeTruthy()
+  })
+
+  it('takes over a connection opened before the island was shown, with what it already had', () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:5173' })
+    vi.stubGlobal('window', { setTimeout, clearTimeout })
+    const sockets: Array<{ url: string; closed: boolean; onmessage?: (m: { data: string }) => void }> = []
+    vi.stubGlobal('WebSocket', class {
+      closed = false
+      onmessage?: (m: { data: string }) => void
+      constructor(readonly url: string) { sockets.push(this) }
+      close() { this.closed = true }
+    })
+    // still at home: the plane is taking off for mac 2
+    connectAhead({ id: 'mac 2', name: 'Studio' })
+    expect(sockets.map((s) => s.url)).toEqual(['ws://localhost:5173/api/v1/remote/mac%202/events?chats=paged'])
+    sockets[0].onmessage?.({ data: JSON.stringify({ type: 'snapshot', world: { teams: {} } }) })
+    away()
+    const got: ServerEvent[] = []
+    const stop = connect((ev) => got.push(ev), () => {})
+    expect(sockets).toHaveLength(1)
+    expect(got.map((e) => e.type)).toEqual(['snapshot'])
+    sockets[0].onmessage?.({ data: JSON.stringify({ type: 'language', language: 'en' }) })
+    expect(got.map((e) => e.type)).toEqual(['snapshot', 'language'])
+    stop()
+    expect(sockets[0].closed).toBe(true)
+    // taken over once only: the next connection is a new one
+    connect(() => {}, () => {})()
+    expect(sockets).toHaveLength(2)
+  })
+
+  it('opens its own connection when the one opened ahead was for another island', () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:5173' })
+    vi.stubGlobal('window', { setTimeout, clearTimeout })
+    const opened: string[] = []
+    vi.stubGlobal('WebSocket', class { constructor(url: string) { opened.push(url) } close() {} })
+    connectAhead({ id: 'mac 3', name: 'Other' })
+    away()
+    connect(() => {}, () => {})()
+    expect(opened).toEqual(['ws://localhost:5173/api/v1/remote/mac%203/events?chats=paged', 'ws://localhost:5173/api/v1/remote/mac%202/events?chats=paged'])
+    // done with: the next time ahead drops it
+    connectAhead(null)
   })
 
   it("shows the other computer's attachment links through its base, and leaves data links and home alone", () => {

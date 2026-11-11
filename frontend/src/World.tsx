@@ -29,7 +29,7 @@ import { Help } from './Help'
 import { FADE_SECONDS } from './Fade'
 import { Island, useLand } from './Island'
 import { MapGrid } from './MapGrid'
-import { useProjectBytes, useProjectSizePolling, useSizesAnswered } from './projectSize'
+import { useProjectBytes, useProjectSizePolling, useSizesKnown } from './projectSize'
 import { canMove, placeProblem, CELL, cellCenter, POWER_TOWER, floorsOf, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, HALL_LIFT, TERMINAL, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
 import { NewCompanySheet, Placer } from './NewCompany'
 import { request } from './core/backend'
@@ -832,12 +832,13 @@ const LANDING_LIMIT_MS = 15000
 /**
  * Gone to another island, or back: counts each arrival once its world and every company's size are in, so the
  * camera lands on the whole town at once and the clouds part (`coverIsland`, `revealBoot`), rather than showing
- * the airport alone while the buildings come. Never later than `LANDING_LIMIT_MS`.
+ * the airport alone while the buildings come; sizes kept from the last visit will do, and are asked again after.
+ * Never later than `LANDING_LIMIT_MS`.
  */
 function useLanding(teamIds: string) {
   const islandId = useIsland((s) => s.island?.id ?? '')
   const arriving = useStore((s) => s.arriving)
-  const sized = useSizesAnswered(teamIds)
+  const sized = useSizesKnown(teamIds)
   const [landing, setLanding] = useState(0)
   const [waiting, setWaiting] = useState(false)
   const first = useRef(true)

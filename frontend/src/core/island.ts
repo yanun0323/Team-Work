@@ -22,14 +22,17 @@ export const LOCAL_BASE = '/api/v1'
 
 export const remoteIsland = () => useIsland.getState().island
 
+/** Where requests about `island` go; null is this computer's own. */
+const baseOf = (island: Island | null) => island ? `${LOCAL_BASE}/remote/${encodeURIComponent(island.id)}` : LOCAL_BASE
+
 /** Where requests about the island shown go. */
-export const apiBase = () => {
-  const island = remoteIsland()
-  return island ? `${LOCAL_BASE}/remote/${encodeURIComponent(island.id)}` : LOCAL_BASE
-}
+export const apiBase = () => baseOf(remoteIsland())
+
+/** A WebSocket's address on `island`, `path` under /api/v1. */
+export const socketUrlOn = (island: Island | null, path: string) => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${baseOf(island)}${path}`
 
 /** A WebSocket's address on the island shown, `path` under /api/v1. */
-export const socketUrl = (path: string) => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${apiBase()}${path}`
+export const socketUrl = (path: string) => socketUrlOn(remoteIsland(), path)
 
 /**
  * A link the backend handed over, as `/api/v1/…` from its own point of view, made into one that reaches it from

@@ -5,7 +5,7 @@ import type { Locale, World } from './domain/types'
 import { tr } from './i18n'
 import { DEFAULT_PREFS, type Prefs } from '../prefs'
 import type { DiffLine } from '../diffView'
-import { apiBase, LOCAL_BASE, socketUrl } from './island'
+import { apiBase, LOCAL_BASE, socketUrl, socketUrlOn, type Island } from './island'
 
 export const unreachable = () => tr(import.meta.env.MODE === 'desktop'
   ? '連不上後端，請關閉並重新開啟 Team Work'
@@ -121,24 +121,59 @@ export const request = <T = void>(method: string, path: string, body?: unknown, 
 export const localRequest = <T = void>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> =>
   send<T>(LOCAL_BASE, method, path, body, signal)
 
+const EVENTS = '/events?chats=paged'
+
+/** A connection opened before its island is shown, keeping what arrives until `connect` takes it over. */
+let ahead: { url: string; socket: WebSocket; events: ServerEvent[]; closed: boolean } | null = null
+
+/**
+ * Starts connecting to `island` (null: this computer's own) while the screen still shows another, so its world is
+ * in by the time it is shown; the next `connect` to it takes this connection over. Another call drops the last.
+ */
+export function connectAhead(island: Island | null) {
+  // only ever a head start: with no way to open one (no page, say), `connect` opens its own
+  let url: string
+  try { url = socketUrlOn(island, EVENTS) } catch { return }
+  if (ahead?.url === url && !ahead.closed) return
+  dropAhead()
+  let socket: WebSocket
+  try { socket = new WebSocket(url) } catch { return }
+  const a: NonNullable<typeof ahead> = { url, socket, events: [], closed: false }
+  a.socket.onmessage = (m) => a.events.push(JSON.parse(m.data as string) as ServerEvent)
+  a.socket.onclose = () => { a.closed = true }
+  ahead = a
+}
+
+function dropAhead() {
+  ahead?.socket.close()
+  ahead = null
+}
+
 /**
  * Stays connected until the returned function is called, trying again a moment after each loss; a new
- * connection starts with a fresh snapshot, so nothing missed stays missed.
+ * connection starts with a fresh snapshot, so nothing missed stays missed. One opened ahead to the island shown
+ * (`connectAhead`) is taken over, with what it has already had.
  */
 export function connect(onEvent: (ev: ServerEvent) => void, onLost: () => void) {
   let socket: WebSocket | null = null
   let timer = 0
   let stopped = false
-  const open = () => {
-    socket = new WebSocket(socketUrl('/events?chats=paged'))
-    socket.onmessage = (m) => onEvent(JSON.parse(m.data as string) as ServerEvent)
-    socket.onclose = () => {
+  const listen = (s: WebSocket) => {
+    socket = s
+    s.onmessage = (m) => onEvent(JSON.parse(m.data as string) as ServerEvent)
+    s.onclose = () => {
       if (stopped) return
       onLost()
       timer = window.setTimeout(open, 1000)
     }
   }
-  open()
+  const open = () => listen(new WebSocket(socketUrl(EVENTS)))
+  const a = ahead
+  if (a && a.url === socketUrl(EVENTS) && !a.closed) {
+    ahead = null
+    listen(a.socket)
+    for (const ev of a.events) onEvent(ev)
+  } else open()
   return () => {
     stopped = true
     window.clearTimeout(timer)

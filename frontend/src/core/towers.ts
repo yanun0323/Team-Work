@@ -2,7 +2,7 @@
 // Its requests always go to this computer's backend, whichever island is shown (docs/power-tower.md, 7.2).
 
 import { travel } from '../boot'
-import { ApiError, localRequest, setIslandRefusedHandler } from './backend'
+import { ApiError, connectAhead, localRequest, setIslandRefusedHandler } from './backend'
 import { useIsland, type Island } from './island'
 import { MOCK } from './mode'
 import { useStore } from './store'
@@ -71,10 +71,11 @@ const SENDS_HOME: PeerStatus[] = ['denied', 'unpaired', 'incompatible']
 /**
  * Shows a paired computer's island: its backend's world in place of this one's, swapped once a plane has flown
  * this one out of sight (or under the clouds closing over the map); it comes in once the island has arrived
- * (World.tsx, `useLanding`).
+ * (World.tsx, `useLanding`). Its world starts coming at once, as the plane takes off.
  */
 function enter(island: Island | null, then: () => void = () => {}) {
   if ((useIsland.getState().island?.id ?? null) === (island?.id ?? null)) return then()
+  if (!MOCK) connectAhead(island)
   travel(() => {
     if ((useIsland.getState().island?.id ?? null) !== (island?.id ?? null)) {
       useStore.getState().leaveIsland()
