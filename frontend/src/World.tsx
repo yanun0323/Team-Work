@@ -604,7 +604,7 @@ export function World() {
       <PixelPass pixel={2} />
       {import.meta.env.DEV && <FrameCounter />}
     </Canvas>
-    <LabelLayer labels={shownLabels} />
+    <LabelLayer labels={shownLabels} wheelTo={() => document.querySelector('.fusion-canvas canvas')} />
     {!drawer.value && !settings.value && !sheet.value && !help.value && (
       <div className="fx-top-left">
         <Brand />
