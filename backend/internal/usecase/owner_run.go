@@ -51,6 +51,7 @@ func (e *Engine) launchSaved() bool {
 	for _, id := range ids {
 		t := e.w.Tasks[id]
 		moved = e.dispatchOwner(t) || moved
+		moved = e.launchMeeting(t) || moved
 		moved = e.wakeOwner(t) || moved
 	}
 	return moved
@@ -87,7 +88,16 @@ func (e *Engine) dispatchOwner(t *model.Task) bool {
 			continue
 		}
 		n := nodeOf(&t.Workflow, s.NodeID)
-		if n == nil {
+		if n == nil || s.Meeting != nil {
+			continue
+		}
+		if n.Kind == enum.NodeTalk && s.Talk == nil {
+			// a meeting not yet held (a redo, or one queued before meetings moved into the conversation) is held there
+			if !t.Paused && !e.meetingBusy(t) {
+				if people, err := e.meetingPeople(t, n.ReplicaIDs); err == nil && e.openMeeting(t, s, n.Name, s.Instruction, people) == nil {
+					moved = true
+				}
+			}
 			continue
 		}
 		if t.Paused && (n.Kind != enum.NodeTalk || t.PausedAt == nil || s.CreatedAt < *t.PausedAt) {
@@ -234,9 +244,14 @@ func (e *Engine) ownerBrief(t *model.Task, events []ownerEvent) string {
 		fmt.Fprintf(&b, "- [%s] %s\n", ev.Kind, ev.Text)
 	}
 	if all, _ := e.activities(t.ID); len(all) > 0 {
-		from := max(0, len(all)-10)
+		var latest []model.TaskActivity
+		for i := len(all) - 1; i >= 0 && len(latest) < 10; i-- {
+			if all[i].MeetingVersion != meetingVersion { // a meeting's conclusion comes as the event it ended with
+				latest = append([]model.TaskActivity{all[i]}, latest...)
+			}
+		}
 		fmt.Fprintf(&b, "\n# Latest in the conversation (%d entries in all; older ones with read_task_history, one in full with read_task_entry)\n", len(all))
-		for _, a := range all[from:] {
+		for _, a := range latest {
 			b.WriteString(activityLine(a))
 		}
 	}
@@ -276,7 +291,7 @@ func (e *Engine) readEntryTool(in *ownerRun) func(context.Context, string, json.
 			if err != nil {
 				return toolError("%s", safeText(err))
 			}
-			i := slices.IndexFunc(all, func(x model.TaskActivity) bool { return x.ID == a.ID })
+			i := slices.IndexFunc(all, func(x model.TaskActivity) bool { return x.ID == a.ID && ownerSees(x) })
 			if i < 0 {
 				return toolError("no entry %s in this task", a.ID)
 			}
@@ -383,6 +398,9 @@ func (e *Engine) taskState(t *model.Task) string {
 		}
 		if s.Cancelled {
 			b.WriteString(", cancelled")
+		}
+		if m := meetingOf(s); m != nil {
+			fmt.Fprintf(&b, ", meeting on %q %s", m.Topic, m.State)
 		}
 		if s.Rework != nil {
 			fmt.Fprintf(&b, ", redo of %s: %s", s.Rework.From, clip(s.Rework.Reason, 200))
@@ -718,8 +736,10 @@ func (e *Engine) ownerTools(in *ownerRun) []adapter.Tool {
 		ownerTool(toolMessageStep, "Tell a step run that is working now something, without stopping it: it reads your words after its current round of tools. "+
 			"It does not answer here; if the run ends first, you are told it was not delivered. For a stopped run use dispatch_step with sub_id; for a question it asked you, answer_employee.",
 			`{"type":"object","properties":{"sub_id":{"type":"string"},"text":{"type":"string"}},"required":["sub_id","text"]}`, e.messageTool(in)),
-		ownerTool("hold_meeting", "Call a meeting of 2 to 6 allowed employees on a topic. Each speaks once, reading only; when it ends you get what was said.",
-			`{"type":"object","properties":{"topic":{"type":"string"},"replica_ids":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":6}},"required":["topic","replica_ids"]}`, e.meetingTool(in)),
+		ownerTool("hold_meeting", "Call a meeting with 1 to 6 allowed employees on a topic, held in the task's conversation where the user may speak too. "+
+			"You chair it: you speak first, call on employees and end it with its conclusion, which is what you get back here. "+
+			"background is what they need to know from the task, as they read nothing else of it. One meeting at a time; they only read.",
+			`{"type":"object","properties":{"topic":{"type":"string"},"background":{"type":"string"},"replica_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":6}},"required":["topic","replica_ids"]}`, e.meetingTool(in)),
 		ownerTool("revise_plan", "Replace the task's plan with nodes and edges as a flow has them, with your reason: add, skip (remove a step never run) or restaff steps. "+
 			"Steps already run stay. Only allowed employees. The shared flow is not changed.",
 			`{"type":"object","properties":{"nodes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"kind":{"type":"string","enum":["work","talk"]},"name":{"type":"string"},"prompt":{"type":"string"},"replica_ids":{"type":"array","items":{"type":"string"}}},"required":["id","name"]}},`+
@@ -797,7 +817,9 @@ func (e *Engine) readHistoryTool(in *ownerRun) func(context.Context, string, jso
 			start := max(0, end-limit)
 			var b strings.Builder
 			for _, x := range all[start:end] {
-				b.WriteString(activityLine(x))
+				if ownerSees(x) {
+					b.WriteString(activityLine(x))
+				}
 			}
 			if start > 0 {
 				fmt.Fprintf(&b, "Earlier entries: before=%d\n", start+1)
@@ -843,6 +865,12 @@ func (e *Engine) stepRun(t *model.Task, subID string, offset int) model.ToolResu
 	if s.Handoff != nil {
 		raw, _ := json.Marshal(s.Handoff)
 		fmt.Fprintf(&b, "Handoff: %s\n", raw)
+	}
+	if m := meetingOf(s); m != nil {
+		fmt.Fprintf(&b, "Meeting on %q: %s, %d model calls\n", m.Topic, m.State, m.CallsTotal)
+		if m.Summary != "" {
+			fmt.Fprintf(&b, "Conclusion: %s\n", m.Summary)
+		}
 	}
 	if s.Talk != nil {
 		b.WriteString("Meeting:\n")
@@ -925,6 +953,15 @@ func (e *Engine) dispatchTool(in *ownerRun) func(context.Context, string, json.R
 					return "", model.Errorf(model.CodeConflict, "這一步已有進行中的執行")
 				}
 			}
+			if n.Kind == enum.NodeTalk { // a meeting, the owner chairing: the step's employees besides them take part
+				who = in.ownerID
+				if err := e.mayMeet(t); err != nil {
+					return "", err
+				}
+				if _, err := e.meetingPeople(t, n.ReplicaIDs); err != nil {
+					return "", err
+				}
+			}
 			upstream, err := e.upstreamOf(t, n, a.UpstreamIDs)
 			if err != nil {
 				return "", err
@@ -937,6 +974,13 @@ func (e *Engine) dispatchTool(in *ownerRun) func(context.Context, string, json.R
 				}
 			}
 			s := e.newRun(t, n.ID, who, a.Instructions, upstream)
+			if n.Kind == enum.NodeTalk {
+				people, _ := e.meetingPeople(t, n.ReplicaIDs)
+				if err := e.openMeeting(t, s, n.Name, a.Instructions, people); err != nil {
+					return "", err
+				}
+				return "meeting " + s.ID + " called; you chair it in the conversation, and get its conclusion when it ends", nil
+			}
 			name := e.replicaName(who)
 			e.systemEvent(t, "dispatched", i18n.T("派工「%s」給 %s", n.Name, name), map[string]any{"step": n.Name, "name": name, "owner": e.replicaName(in.ownerID), "instructions": clip(a.Instructions, 300)}, s.ID)
 			return "dispatched " + s.ID, nil
@@ -997,6 +1041,9 @@ func (e *Engine) continueRun(t *model.Task, subID, instructions string) (string,
 	s := e.w.SubTasks[subID]
 	if s == nil || s.TaskID != t.ID {
 		return "", model.Errorf(model.CodeNotFound, "找不到子任務")
+	}
+	if s.Meeting != nil {
+		return "", model.Errorf(model.CodeConflict, "會議不能接著開，要開新的會議")
 	}
 	if !current(s) || s.Status == enum.StatusComplete || s.ExecutionState != model.ExecStopped || s.Validity == model.ValidNeedsRevalidation {
 		return "", model.Errorf(model.CodeConflict, "只有已停止的有效執行可以接著做")
@@ -1341,6 +1388,7 @@ func (e *Engine) meetingTool(in *ownerRun) func(context.Context, string, json.Ra
 	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
 		var a struct {
 			Topic      string   `json:"topic"`
+			Background string   `json:"background"`
 			ReplicaIDs []string `json:"replica_ids"`
 		}
 		if err := parseArgs(raw, &a); err != nil {
@@ -1351,31 +1399,36 @@ func (e *Engine) meetingTool(in *ownerRun) func(context.Context, string, json.Ra
 			return toolError("topic is required")
 		}
 		return e.ownerChange(in, func(t *model.Task) (string, error) {
-			if t.Stage != enum.StageRunning || e.taskCost(t) >= e.costLimit(t) {
-				return "", model.Errorf(model.CodeConflict, "這個任務現在不能開會")
+			if err := e.mayMeet(t); err != nil {
+				return "", err
 			}
-			people := []string{}
-			for _, id := range a.ReplicaIDs {
-				if !e.authorized(t, id) {
-					return "", model.Errorf("forbidden", "這位員工沒有被授權參與這個任務，要先問使用者")
-				}
-				if !slices.Contains(people, id) {
-					people = append(people, id)
-				}
-			}
-			if len(people) < 2 || len(people) > maxChatPeople {
-				return "", model.Errorf(model.CodeInvalid, "會議要有 2 到 %d 位員工", maxChatPeople)
+			people, err := e.meetingPeople(t, a.ReplicaIDs)
+			if err != nil {
+				return "", err
 			}
 			e.w.Seq++
 			node := model.WorkflowNode{ID: "meeting-" + strconv.Itoa(e.w.Seq), Kind: enum.NodeTalk, Name: clip(a.Topic, 40), Prompt: a.Topic,
 				ReplicaIDs: people, Handoff: enum.HandoffAll, Join: enum.JoinAll}
 			t.Workflow.Nodes = append(t.Workflow.Nodes, node)
 			e.newPlan(t, "meeting: "+a.Topic, "owner")
-			s := e.newRun(t, node.ID, people[0], a.Topic, []string{})
-			e.systemEvent(t, "meetingCalled", i18n.T("負責人召開會議：%s", node.Name), map[string]any{"topic": a.Topic, "owner": e.replicaName(in.ownerID)}, s.ID)
-			return "meeting " + s.ID + " called; you are woken when it ends", nil
+			s := e.newRun(t, node.ID, in.ownerID, a.Topic, []string{})
+			if err := e.openMeeting(t, s, a.Topic, strings.TrimSpace(a.Background), people); err != nil {
+				return "", err
+			}
+			return "meeting " + s.ID + " called; you chair it in the conversation, and get its conclusion when it ends", nil
 		})
 	}
+}
+
+// mayMeet says why the task cannot hold a meeting now, or nil.
+func (e *Engine) mayMeet(t *model.Task) error {
+	if err := e.mayDispatch(t); err != nil {
+		return err
+	}
+	if e.meetingBusy(t) {
+		return model.Errorf(model.CodeConflict, "這個任務已經在開會，同時只能有一場會議")
+	}
+	return nil
 }
 
 // newPlan records the plan as it now is: a new version, kept with why it changed.

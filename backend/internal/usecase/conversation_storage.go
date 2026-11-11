@@ -46,7 +46,7 @@ func (e *Engine) releaseConversations() {
 			continue
 		}
 		e.prev[key] = nil
-		if e.runs[id] == nil {
+		if e.runs[id] == nil && !e.speaking(id) {
 			e.w.Conversations[id] = nil
 		}
 	}

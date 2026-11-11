@@ -768,6 +768,9 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 		if r := e.w.Replicas[*p.OwnerID]; r == nil || r.TeamID != t.TeamID {
 			return model.Errorf(model.CodeInvalid, "負責人不是這間公司的員工")
 		}
+		if t.OwnerLed() && t.Coordination.ActiveMeetingID != "" && (t.OwnerID == nil || *t.OwnerID != *p.OwnerID) {
+			return model.Errorf(model.CodeConflict, "會議進行中不能更換負責人，要先結束會議")
+		}
 	}
 	base := &t.Workflow
 	if p.Workflow != nil {
@@ -1200,6 +1203,9 @@ func (e *Engine) stopTask(t *model.Task) {
 	t.DoneAt = ptr(e.w.Now)
 	e.stopRun(ownerKey(t.ID))
 	for _, s := range e.subsOf(t.ID) {
+		if t.OwnerLed() {
+			e.cancelMeeting(t, s)
+		}
 		e.stopRun(s.ID)
 		if isLive(s) {
 			s.Cancelled = true

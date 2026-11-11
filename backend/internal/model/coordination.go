@@ -31,6 +31,8 @@ type Coordination struct {
 	Questions      []TaskQuestion    `json:"questions"`
 	Operations     []TaskOperation   `json:"operations"`
 	BlockedReason  string            `json:"blockedReason,omitempty"`
+	// ActiveMeetingID is the run of the meeting under way in the conversation, when there is one.
+	ActiveMeetingID string `json:"activeMeetingId,omitempty"`
 }
 
 // ActivityHistory says what the task's conversation holds: Version changes whenever it does.
@@ -122,6 +124,11 @@ type TaskActivity struct {
 	Args        map[string]any `json:"args,omitempty"`
 	Images      []Attachment   `json:"images,omitempty"`
 	Files       []Attachment   `json:"files,omitempty"`
+	// MeetingVersion 2 marks words of a meeting held in the conversation; MeetingPart is speech or summary, and
+	// Mentions who the user asked to answer.
+	MeetingVersion int      `json:"meetingVersion,omitempty"`
+	MeetingPart    string   `json:"meetingPart,omitempty"`
+	Mentions       []string `json:"mentions,omitempty"`
 }
 
 // What an owner-led step's run is doing, and whether its result still counts.

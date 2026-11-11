@@ -1016,51 +1016,6 @@ func factID(brief string) string {
 	return m[1]
 }
 
-func TestMeetingTheOwnerCallsHearsEveryoneOnce(t *testing.T) {
-	var bob *model.Replica
-	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
-		if !isOwner(req) {
-			return say("我的看法：" + stepOf(req)), nil
-		}
-		brief := req.Messages[0].Content[0].Text
-		switch {
-		case len(req.Messages) == 1 && strings.Contains(brief, "[task_started]"):
-			return ownerCall("hold_meeting", map[string]any{"topic": "選方案", "replica_ids": []string{r0ID, bob.ID}}), nil
-		case len(req.Messages) == 1 && strings.Contains(brief, "[meeting_ended]"):
-			return say("會議結論已收到"), nil
-		}
-		return say("meeting called"), nil
-	})
-	r0ID = r.owner.ID
-	var err error
-	bob, err = r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.world().Replicas[r.owner.ID].BlueprintID, Name: "Bob", Model: "fake"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, Staff: map[string][]string{"end": {bob.ID}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := r.e.ResumeTask(task.ID); err != nil {
-		t.Fatal(err)
-	}
-	r.wait("the conclusion", func(w *model.World) bool {
-		return hasActivity(r.activity(task.ID), func(a model.TaskActivity) bool { return a.Text == "會議結論已收到" })
-	})
-	said := map[string]int{}
-	for _, a := range r.activity(task.ID) {
-		if a.Kind == "meeting" {
-			said[a.By]++
-			if a.MeetingID == "" || a.SubID != a.MeetingID {
-				t.Fatalf("%+v", a)
-			}
-		}
-	}
-	if said[r.owner.ID] != 1 || said[bob.ID] != 1 {
-		t.Fatalf("%v", said)
-	}
-}
-
 func TestOlderTasksKeepTheirWayAndRefuseTheNewOnes(t *testing.T) {
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) { return worker(req), nil })
 	task := r.task(r.flow.ID)

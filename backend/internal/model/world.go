@@ -442,6 +442,7 @@ type SubTask struct {
 	Rework      *Rework     `json:"rework,omitempty"`
 	Review      *Review     `json:"review,omitempty"`
 	Talk        *Talk       `json:"talk,omitempty"`
+	Meeting     *Meeting    `json:"meeting,omitempty"`
 	Handoff     *Handoff    `json:"handoff,omitempty"`
 	// BaseCommit is the work tree's commit when this sub-task first ran: what its handed files are compared against.
 	BaseCommit string    `json:"baseCommit,omitempty"`

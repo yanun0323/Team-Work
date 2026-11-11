@@ -313,6 +313,9 @@ func (e *Engine) taskConversation(t *model.Task, head string, before, limit int)
 	lines := []string{}
 	used, start := 0, end
 	for i := end - 1; i >= 0 && end-i <= limit; i-- {
+		if !ownerSees(all[i]) { // a meeting's words stay in the meeting; its conclusion is read
+			continue
+		}
 		line := e.entryLine(t, i, all[i])
 		if used+len(line) > room {
 			if len(lines) > 0 {

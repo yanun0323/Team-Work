@@ -123,6 +123,8 @@ type taskLog struct {
 	Steers []pendingSteer `json:"steers,omitempty"`
 	// Returning are send-backs the owner asked for that wait for the runs built on them to hand off first.
 	Returning []pendingReturn `json:"returning,omitempty"`
+	// Meetings are the private records of meetings held in the conversation, by run.
+	Meetings map[string]meetingState `json:"meetings,omitempty"`
 }
 
 // pendingReturn is a run the owner sent back while runs built on it were still working: they were told to hand off
@@ -167,6 +169,9 @@ func (l *taskLog) fill() {
 	if l.Commands == nil {
 		l.Commands = map[string]string{}
 	}
+	if l.Meetings == nil {
+		l.Meetings = map[string]meetingState{}
+	}
 }
 
 // snapshot is a copy a failed change goes back to.
@@ -179,6 +184,7 @@ func (l *taskLog) snapshot() *taskLog {
 	out.PausedSubs = slices.Clone(l.PausedSubs)
 	out.Steers = slices.Clone(l.Steers)
 	out.Operations, out.Requests, out.Events, out.Commands = maps.Clone(l.Operations), maps.Clone(l.Requests), maps.Clone(l.Events), maps.Clone(l.Commands)
+	out.Meetings = maps.Clone(l.Meetings)
 	return &out
 }
 

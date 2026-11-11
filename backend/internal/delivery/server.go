@@ -152,6 +152,8 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.GET("/tasks/:id/activity/:activityId", s.taskActivityEntry)
 	api.GET("/tasks/:id/operations/:operationId", s.taskOperation)
 	api.POST("/tasks/:id/messages", s.sayToOwner)
+	api.POST("/tasks/:id/meetings/:meetingId/control", s.controlMeeting)
+	api.GET("/tasks/:id/meetings/:meetingId/activity", s.meetingActivity)
 	api.POST("/tasks/:id/control", s.controlTask)
 
 	api.GET("/subtasks/:id/file", s.handedFile)
@@ -765,6 +767,37 @@ func (s *Server) sayToOwner(c echo.Context) error {
 		return err
 	}
 	return c.JSON(http.StatusAccepted, out)
+}
+
+func (s *Server) controlMeeting(c echo.Context) error {
+	in, err := bind[usecase.MeetingControl](c)
+	if err != nil {
+		return err
+	}
+	op, err := s.engine.ControlMeeting(c.Param("id"), c.Param("meetingId"), in)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusAccepted, map[string]any{"operation": op})
+}
+
+func (s *Server) meetingActivity(c echo.Context) error {
+	before, err := intQuery(c, "before")
+	if err != nil {
+		return err
+	}
+	limit, err := intQuery(c, "limit")
+	if err != nil {
+		return err
+	}
+	if c.QueryParam("limit") != "" && limit == 0 {
+		return model.Errorf(model.CodeInvalid, "分頁參數不正確")
+	}
+	page, err := s.engine.MeetingActivity(c.Param("id"), c.Param("meetingId"), before, limit, c.QueryParam("version"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, page)
 }
 
 func (s *Server) controlTask(c echo.Context) error {

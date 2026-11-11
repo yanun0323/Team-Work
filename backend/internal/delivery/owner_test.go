@@ -53,6 +53,14 @@ func TestOwnerTaskEndpoints(t *testing.T) {
 	do("GET", "/tasks/nope/activity", nil, http.StatusNotFound)
 	do("GET", "/tasks/"+id+"/activity/nope", nil, http.StatusNotFound)
 	do("GET", "/tasks/"+id+"/operations/nope", nil, http.StatusNotFound)
+	// meetings held in the conversation: none yet
+	do("GET", "/tasks/"+id+"/meetings/sub-999/activity", nil, http.StatusNotFound)
+	do("GET", "/tasks/"+id+"/meetings/sub-999/activity?limit=101", nil, http.StatusNotFound)
+	do("POST", "/tasks/"+id+"/meetings/sub-999/control", map[string]any{"requestId": "mc", "action": "end", "revision": 1}, http.StatusNotFound)
+	do("POST", "/tasks/"+id+"/meetings/sub-999/control", map[string]any{"action": "end", "revision": 1}, http.StatusBadRequest)
+	if body := do("POST", "/tasks/"+id+"/messages", map[string]any{"requestId": "mm", "text": "x", "meetingId": "sub-999"}, http.StatusConflict); errorCode(body) != "conflict" {
+		t.Fatal(body)
+	}
 
 	// writing to the owner before the start is allowed; it waits for them
 	said := do("POST", "/tasks/"+id+"/messages", map[string]any{"requestId": "m1", "text": "先看這個"}, http.StatusAccepted)

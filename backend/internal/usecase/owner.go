@@ -121,6 +121,10 @@ func (e *Engine) nodeName(t *model.Task, id string) string {
 // halt stops a step's run. It returns true when the run still has to end: it is stopping until it does, and nothing
 // it reports meanwhile counts. Call it holding the lock.
 func (e *Engine) halt(t *model.Task, s *model.SubTask) bool {
+	if meetingOf(s) != nil { // a meeting held in the conversation stops for good, with no conclusion
+		e.cancelMeeting(t, s)
+		return false
+	}
 	if e.runs[s.ID] != nil {
 		e.stopRun(s.ID)
 		s.ExecutionState = model.ExecStopping
@@ -275,8 +279,9 @@ func (e *Engine) requeuePaused(t *model.Task) {
 // holdAll stops every run of the task, keeping them to go on later; it returns those still ending.
 func (e *Engine) holdAll(t *model.Task) []string {
 	var affected []string
+	e.holdMeetings(t, pauseTaskPaused)
 	for _, s := range e.subsOf(t.ID) {
-		if !current(s) || s.Status == enum.StatusComplete {
+		if !current(s) || s.Status == enum.StatusComplete || s.Meeting != nil {
 			continue
 		}
 		active := e.runs[s.ID] != nil || s.ExecutionState == model.ExecQueued || s.ExecutionState == model.ExecRunning || s.ExecutionState == model.ExecStopping
@@ -364,6 +369,7 @@ func (e *Engine) budgetHold(t *model.Task) {
 	if openQuestion(t, "budget") {
 		return
 	}
+	e.holdMeetings(t, pauseBudget)
 	e.holdAll(t)
 	e.block(t, "budget", model.TaskQuestion{Kind: "budget", Prompt: i18n.T("費用達到上限，已停止這個任務的工作"),
 		Options: []model.ReviewOption{{ID: optionAddBudget}, {ID: optionPause}}})
@@ -554,7 +560,9 @@ type TaskMessage struct {
 	Text      string             `json:"text"`
 	Images    []model.Attachment `json:"images"`
 	Files     []model.Attachment `json:"files"`
-	// Mentions, ReplicaID and SubID are refused: everything the user writes goes to the owner.
+	// MeetingID puts the words into the meeting under way, where Mentions are who answer, in order; without it they
+	// go to the owner. ReplicaID and SubID are refused.
+	MeetingID string   `json:"meetingId,omitempty"`
 	Mentions  []string `json:"mentions,omitempty"`
 	ReplicaID string   `json:"replicaId,omitempty"`
 	SubID     string   `json:"subId,omitempty"`
@@ -584,10 +592,13 @@ func (e *Engine) SayToOwner(id string, in TaskMessage) (MessageResult, error) {
 		if err != nil {
 			return err
 		}
-		if len(in.Mentions) > 0 || in.ReplicaID != "" || in.SubID != "" {
+		if in.MeetingID == "" && len(in.Mentions) > 0 || in.ReplicaID != "" || in.SubID != "" {
 			return model.Errorf(model.CodeInvalid, "訊息只能寫給負責人")
 		}
 		print := fingerprint([]any{"message", in.Text, in.Images, in.Files})
+		if in.MeetingID != "" {
+			print = fingerprint([]any{"message", in.Text, in.Images, in.Files, in.MeetingID, in.Mentions})
+		}
 		op, act, err := e.replay(t, in.RequestID, print)
 		if err != nil {
 			return err
@@ -607,6 +618,13 @@ func (e *Engine) SayToOwner(id string, in TaskMessage) (MessageResult, error) {
 		case enum.StageRunning, enum.StageAwaitMerge:
 		default:
 			return model.Errorf(model.CodeConflict, "這個任務已結束，不能再留言")
+		}
+		if in.MeetingID != "" {
+			out, err = e.sayInMeeting(t, in, text, print)
+			return err
+		}
+		if t.Coordination.ActiveMeetingID != "" { // written before the meeting began: the user sends it again where they mean
+			return model.Errorf(model.CodeConflict, "現在正在開會，訊息沒有送出")
 		}
 		if err := e.checkFiles(in.Images, in.Files); err != nil {
 			return err
@@ -1010,6 +1028,10 @@ func (e *Engine) recoverOwners() {
 			}
 		}
 		for _, s := range e.subsOf(t.ID) {
+			if s.Meeting != nil {
+				e.recoverMeeting(t, s)
+				continue
+			}
 			busy := s.Status == enum.StatusProgressing || s.ExecutionState == model.ExecRunning || (s.Talk != nil && s.Talk.ReplyAt != nil)
 			switch {
 			case s.ExecutionState == model.ExecStopping:

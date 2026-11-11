@@ -15,3 +15,11 @@ func SetReturnWait(d time.Duration) func() {
 	returnWait = d
 	return func() { returnWait = old }
 }
+
+// Remember gives an employee a note from outside any run, for a test.
+func (e *Engine) Remember(replicaID, text string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.remember(&replicaID, text, "test", "")
+	e.settle()
+}
