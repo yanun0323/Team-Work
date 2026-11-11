@@ -110,7 +110,7 @@ const HANDOFF = { pickOne: '交給其中一個下一步', all: '交給所有下�
 const JOIN = { any: '任一個前一步完成就開始', all: '所有前一步都完成才開始' } as const
 /** What a step in the middle of a flow can be. */
 const KINDS = { work: '員工執行', talk: '開會討論' } as const
-/** The last lines of a log worth showing on a sheet this size. */
+/** The last lines of a log worth showing on a sheet this size. The backend sends each sub-task only this many (logShown). */
 const LOG_LINES = 40
 
 /** How far across each sheet in the stack sits, from the left (0) to right beside the company file (1). */

@@ -583,6 +583,9 @@ func (e *Engine) publish(ev Event) {
 					if p.Kind == "chat" {
 						v.Upserts[i].Data, _ = jsonx.Marshal(e.chatSummary(e.w.Chats[p.ID]))
 					}
+					if s := e.w.SubTasks[p.ID]; p.Kind == "subTask" && s != nil && len(s.Log) > logShown {
+						v.Upserts[i].Data, _ = jsonx.Marshal(shownSub(s))
+					}
 				}
 				small = &v
 			}

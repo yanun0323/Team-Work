@@ -164,10 +164,28 @@ func (e *Engine) pagedSnapshot() ([]byte, error) {
 	for id, c := range e.w.Chats {
 		chats[id] = e.chatSummary(c)
 	}
+	subs := make(map[string]*model.SubTask, len(e.w.SubTasks))
+	for id, s := range e.w.SubTasks {
+		subs[id] = shownSub(s)
+	}
 	return jsonx.Marshal(struct {
 		*model.World
-		Chats map[string]ChatSummary `json:"chats"`
-	}{e.w, chats})
+		Chats    map[string]ChatSummary    `json:"chats"`
+		SubTasks map[string]*model.SubTask `json:"subTasks"`
+	}{e.w, chats, subs})
+}
+
+// logShown is how many of a sub-task's newest log lines paged clients get: no screen shows more.
+const logShown = 40
+
+// shownSub is the sub-task as paged clients get it, with only its newest log lines. Called under the engine lock.
+func shownSub(s *model.SubTask) *model.SubTask {
+	if len(s.Log) <= logShown {
+		return s
+	}
+	v := *s
+	v.Log = s.Log[len(s.Log)-logShown:]
+	return &v
 }
 
 func (e *Engine) PagedSnapshot() ([]byte, error) {

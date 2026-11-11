@@ -518,6 +518,7 @@ export interface SubTask {
   handoff?: Handoff
   /** The work tree's commit when this sub-task first ran: what its handed files are compared against. */
   baseCommit?: string
+  /** Only the newest lines: the backend sends at most 40 (logShown). */
   log: LogLine[]
   script: Script
   // ----- a task its owner runs (`orchestration: 'owner'`); none of these on older tasks -----
