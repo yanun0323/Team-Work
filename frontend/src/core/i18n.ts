@@ -164,6 +164,7 @@ const en = {
   '我想修改藍圖「{name}」：': 'I would like to change the blueprint "{name}":',
   '我想修改任務藍圖「{name}」：': 'I would like to change the task flow "{name}":',
   '我想修改供應商「{name}」：': 'I would like to change the provider "{name}":',
+  '我想修改員工「{name}」：': 'I would like to change the employees "{name}":',
   '價格': 'Prices',
   '修改前': 'Before',
   '修改後': 'After',

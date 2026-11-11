@@ -294,15 +294,15 @@ export type FailReason = 'timeout' | 'error' | 'environment'
 /** One difference in a change waiting for the user. A `node` or `edge` line with only `after` was added, with only `before` removed. */
 export interface ChangeLine {
   field: string
-  /** The step, or connection, the line is about. */
+  /** The step, connection or employee the line is about. */
   node?: string
   before?: string
   after?: string
 }
 
-/** A change an employee wants to make to a blueprint or flow; written only once the user agrees. */
+/** A change an employee wants to make to a blueprint, flow, provider or employees; written only once the user agrees. */
 export interface PendingChange {
-  kind: 'blueprint' | 'workflow' | 'provider'
+  kind: 'blueprint' | 'workflow' | 'provider' | 'employees'
   targetId: string
   name: string
   lines: ChangeLine[]

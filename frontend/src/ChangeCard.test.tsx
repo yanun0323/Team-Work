@@ -31,6 +31,19 @@ describe('a change card', () => {
     expect((html.match(/<ins>/g) ?? []).length).toBe(3) // a removed connection has nothing after it
   })
 
+  it('names the employee and what changes about them', () => {
+    const employees: PendingChange = { kind: 'employees', targetId: '', name: 'Bo、Cy', lines: [
+      { field: 'name', node: 'Bo', before: 'Bo', after: 'Bob' },
+      { field: 'effort', node: 'Cy', before: 'default', after: 'high' },
+    ] }
+    expect(changeAsk(employees)).toBe('我想修改員工「Bo、Cy」：')
+    const html = renderToStaticMarkup(<ChangeLines change={employees} />)
+    expect(html).toContain('Bo · 名稱')
+    expect(html).toContain('Cy · 思考等級')
+    setAppLanguage('en')
+    expect(changeAsk(employees)).toBe('I would like to change the employees "Bo、Cy":')
+  })
+
   it('shows a source a blueprint brings as only added', () => {
     const html = renderToStaticMarkup(<ChangeLines change={{ ...change, lines: [{ field: 'source', after: 'https://github.com/a/b main @ 1a2b3c4' }] }} />)
     expect(html).toContain('新增來源')
