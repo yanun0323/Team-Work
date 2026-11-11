@@ -1191,6 +1191,102 @@ func TestEditingATask(t *testing.T) {
 	}
 }
 
+// logged says whether a sub-task's log has a line with this key and these args.
+func logged(s *model.SubTask, key string, args map[string]any) bool {
+	return slices.ContainsFunc(s.Log, func(l model.LogLine) bool {
+		if l.Key != key {
+			return false
+		}
+		for k, v := range args {
+			if l.Args[k] != v {
+				return false
+			}
+		}
+		return true
+	})
+}
+
+// Restaffing a step under way leaves it with whoever began it, unless asked to swap now: then the new employee
+// takes it over at once.
+func TestSwappingAStepUnderWay(t *testing.T) {
+	release := make(chan struct{})
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if stepOf(req) == "Clarify requirements" {
+			<-release
+		}
+		return call("submit_handoff", handoff), nil
+	})
+	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bo", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := r.task(r.flow.ID)
+	working := func(w *model.World) bool {
+		s := subAt(w, task.ID, "整理需求")
+		return s != nil && s.Status == enum.StatusProgressing
+	}
+	r.wait("the first step", working)
+	staff := map[string][]string{"start": {bo.ID}}
+	if err := r.e.UpdateTask(task.ID, usecase.TaskPatch{Staff: staff}); err != nil {
+		t.Fatal(err)
+	}
+	if s := subAt(r.world(), task.ID, "整理需求"); *s.ReplicaID != r.owner.ID || s.Status != enum.StatusProgressing {
+		t.Fatalf("saving alone took the step away: %+v", s)
+	}
+	if err := r.e.UpdateTask(task.ID, usecase.TaskPatch{Staff: staff, Swap: true}); err != nil {
+		t.Fatal(err)
+	}
+	w := r.wait("Bo to start", func(w *model.World) bool {
+		return logged(subAt(w, task.ID, "整理需求"), "start", map[string]any{"name": "Bo"})
+	})
+	s := subAt(w, task.ID, "整理需求")
+	if *s.ReplicaID != bo.ID || !logged(s, "swapped", map[string]any{"from": "Ada", "to": "Bo"}) {
+		t.Fatalf("%+v", s)
+	}
+	close(release)
+	w = r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	if s := subAt(w, task.ID, "整理需求"); *s.ReplicaID != bo.ID || s.Status != enum.StatusComplete {
+		t.Fatalf("%+v", s)
+	}
+}
+
+// A step sent back is redone by whoever works it now, when the one who did it was taken off it.
+func TestSendBackGoesToTheNewStaff(t *testing.T) {
+	review := make(chan struct{})
+	sent := false
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if stepOf(req) == "Acceptance review" && !sent {
+			sent = true
+			<-review
+			return call("send_back", map[string]string{"reason": "少了測試"}), nil
+		}
+		return call("submit_handoff", handoff), nil
+	})
+	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bo", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := r.task(r.flow.ID)
+	r.wait("the review", func(w *model.World) bool {
+		s := subAt(w, task.ID, "驗收")
+		return s != nil && s.Status == enum.StatusProgressing
+	})
+	if err := r.e.UpdateTask(task.ID, usecase.TaskPatch{Staff: map[string][]string{"start": {bo.ID}}}); err != nil {
+		t.Fatal(err)
+	}
+	close(review)
+	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	var redo *model.SubTask
+	for _, s := range w.SubTasks {
+		if s.TaskID == task.ID && s.NodeID == "start" && s.Rework != nil {
+			redo = s
+		}
+	}
+	if redo == nil || *redo.ReplicaID != bo.ID {
+		t.Fatalf("%+v", redo)
+	}
+}
+
 func TestKeyNeverReachesClients(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say(""), nil })
 	raw, err := r.e.Snapshot()

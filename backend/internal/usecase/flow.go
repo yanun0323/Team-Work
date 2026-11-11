@@ -264,7 +264,8 @@ func (e *Engine) maySendBack(t *model.Task, s *model.SubTask) bool {
 	return rounds < MaxSendBacks
 }
 
-// sendBack has every step that fed this run work again, by the same employee when it can.
+// sendBack has every step that fed this run work again, by the same employee while they still work that step,
+// otherwise by whoever works it now.
 func (e *Engine) sendBack(t *model.Task, s *model.SubTask, members []*model.SubTask, reason string) {
 	wf := &t.Workflow
 	before := map[string]*model.SubTask{}
@@ -291,7 +292,7 @@ func (e *Engine) sendBack(t *model.Task, s *model.SubTask, members []*model.SubT
 	for _, nodeID := range to {
 		u := before[nodeID]
 		redo := e.spawn(t, nodeID, slices.Clone(u.UpstreamIDs), ptr(s.ID), false, s.Round+1)
-		if u.ReplicaID != nil && e.w.Replicas[*u.ReplicaID] != nil {
+		if u.ReplicaID != nil && e.w.Replicas[*u.ReplicaID] != nil && slices.Contains(nodeOf(wf, nodeID).ReplicaIDs, *u.ReplicaID) {
 			redo.ReplicaID = ptr(*u.ReplicaID)
 		}
 		for _, r := range e.groupOf(t, redo) {
@@ -697,15 +698,17 @@ func (e *Engine) start(t *model.Task) {
 	}
 }
 
-// TaskPatch changes a task; a nil field stays. Steps left out of Staff keep who they have.
+// TaskPatch changes a task; a nil field stays. Steps left out of Staff keep who they have. Swap hands a step
+// already begun by someone no longer on it to its new employee at once; otherwise it stays theirs to finish.
 type TaskPatch struct {
 	Title       *string             `json:"title"`
 	Description *string             `json:"description"`
 	Staff       map[string][]string `json:"staff"`
 	OwnerID     *string             `json:"ownerId"`
+	Swap        bool                `json:"swap"`
 }
 
-// UpdateTask edits a task. A run under way keeps what it was told; later steps see the change.
+// UpdateTask edits a task. Without Swap a run under way keeps what it was told and later steps see the change.
 func (e *Engine) UpdateTask(id string, p TaskPatch) error {
 	return e.do(func() error { return e.updateTask(id, p) })
 }
@@ -761,7 +764,36 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 		t.Description = *p.Description
 	}
 	t.OwnerID, t.Workflow = next.OwnerID, next.Workflow
+	if p.Swap {
+		e.swapStaff(t, p.Staff)
+	}
 	return nil
+}
+
+// swapStaff hands every unfinished sub-task of a restaffed step whose employee is no longer on it to the step's
+// first employee, who goes on from where it stopped, as when someone leaves. Call it holding the lock.
+func (e *Engine) swapStaff(t *model.Task, staff map[string][]string) {
+	for _, s := range e.subsOf(t.ID) {
+		ids, ok := staff[s.NodeID]
+		if !ok || s.ReplicaID == nil || s.Cancelled || s.Status == enum.StatusComplete || slices.Contains(ids, *s.ReplicaID) {
+			continue
+		}
+		i := slices.IndexFunc(ids, func(id string) bool { return e.w.Replicas[id] != nil })
+		if i < 0 {
+			continue
+		}
+		from, to := e.w.Replicas[*s.ReplicaID], e.w.Replicas[ids[i]]
+		e.stopRun(s.ID)
+		s.ReplicaID = ptr(to.ID)
+		if s.Status == enum.StatusProgressing {
+			s.Status = enum.StatusTodo
+		}
+		name := ""
+		if from != nil {
+			name = from.Name
+		}
+		e.logLine(s, enum.LogSystem, i18n.T("%s 換成 %s", name, to.Name), "swapped", map[string]any{"from": name, "to": to.Name})
+	}
 }
 
 // ResolveReview is the user's reply to a sub-task waiting on them: an option with a note; a question can
