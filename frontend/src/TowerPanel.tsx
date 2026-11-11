@@ -1,10 +1,10 @@
 // The power tower's panel: a drawer over the right half of the map, like the airport's. The computers this one is
-// paired with, each with whether it may work this island and a way to go to its island; below, pairing a new one,
-// either by waiting with an address to hand over, or by entering the address another computer shows.
+// paired with, each with a way to go to its island and whether it may work this one; below, pairing a new one: pick
+// which side this computer takes, then wait with an address to hand over, or enter the address another one shows.
 // Everything here is this computer's own, whichever island the map shows.
 
 import { colon, tr } from './core/i18n'
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { MOCK } from './core/mode'
 import { useIsland } from './core/island'
 import {
@@ -70,7 +70,7 @@ export function TowerPanel({ leaving, onGone }: {
         <header className="fx-head fx-head-rule">
           <div className="fx-title fx-title-plain">
             <div className="fx-title-text">
-              <h1 id="fx-tower-title" ref={title} tabIndex={-1}>{tr('電塔')}</h1>
+              <h1 id="fx-tower-title" ref={title} tabIndex={-1}>{tr('基地台')}</h1>
               {towers && <p className="fx-where">{towers.me.name}</p>}
             </div>
           </div>
@@ -83,7 +83,7 @@ export function TowerPanel({ leaving, onGone }: {
   )
 }
 
-/** The panel's page: the paired computers, then pairing. Apart from the drawer so tests can render it on its own. */
+/** The panel's page: the paired computers, then pairing a new one. Apart from the drawer so tests can render it on its own. */
 export function TowerBody({ towers, error, refresh, here = null }: {
   towers: Towers | null
   error: string
@@ -108,11 +108,10 @@ export function TowerBody({ towers, error, refresh, here = null }: {
             {towers.peers.map((p) => <PeerRow key={p.id} peer={p} me={towers.me.protocol} here={p.id === here} refresh={refresh} />)}
           </ul>
         ) : (
-          <p className="fx-tower-empty">{tr('還沒有配對的電腦。在要被操作的那台按「等待配對」，再把位址貼到這台的「連到別台」。')}</p>
+          <p className="fx-tower-empty">{tr('還沒有配對的電腦')}</p>
         )}
       </section>
-      <WaitSection pairing={towers.pairing} me={towers.me.protocol} refresh={refresh} />
-      <ConnectSection outgoing={towers.outgoing} refresh={refresh} />
+      <PairSection towers={towers} refresh={refresh} />
     </div>
   )
 }
@@ -136,6 +135,10 @@ function useAction(refresh: () => Promise<void>) {
   return { busy, error, setError, run }
 }
 
+/**
+ * A paired computer: its name and how it is on the first line, with Go at the end, the way it is used most; the switch
+ * that lets it work this one and unpairing on the second. Go is the page's dark button only while it can be gone to.
+ */
 function PeerRow({ peer, me, here, refresh }: { peer: Peer; me: number; here: boolean; refresh: () => Promise<void> }) {
   const nameId = useId()
   const { busy, error, setError, run } = useAction(refresh)
@@ -169,17 +172,19 @@ function PeerRow({ peer, me, here, refresh }: { peer: Peer; me: number; here: bo
           <span className="fx-tower-dot" aria-hidden="true" />{status}
         </span>
       </div>
+      {here
+        ? <span className="fx-pill fx-tower-here">{tr('目前所在')}</span>
+        // not online may be stale: Go checks again before it gives up, so it stays pressable, only quieter
+        : <button type="button" className={peer.status === 'online' ? 'fx-save fx-tower-go' : 'fx-save fx-save-quiet fx-tower-go'}
+          disabled={going || MOCK} aria-describedby={nameId} onClick={() => void go()}>
+          {going ? tr('檢查中…') : tr('前往')}
+        </button>}
       <div className="fx-tower-acts">
         <label className="fx-tower-allow">
           <input type="checkbox" className="fx-tick" checked={peer.allowInbound} disabled={busy || MOCK} aria-describedby={nameId}
             onChange={(e) => { const on = e.target.checked; void run(() => allowPeer(peer.id, on)) }} />
           {tr('允許它操作我')}
         </label>
-        {here
-          ? <span className="fx-pill fx-tower-here">{tr('目前所在')}</span>
-          : <button type="button" className="fx-save" disabled={going || MOCK} aria-describedby={nameId} onClick={() => void go()}>
-            {going ? tr('檢查中…') : tr('前往')}
-          </button>}
         <button type="button" className={asking ? 'fx-tool fx-tool-ask fx-hit' : 'fx-tool fx-hit fx-tower-unpair'} disabled={busy}
           aria-describedby={nameId} onClick={unpair} onBlur={() => setAsking(false)}>
           {asking ? tr('確定解除配對') : tr('解除配對')}
@@ -206,70 +211,117 @@ function useSecondsLeft(until: number | undefined) {
   return until === undefined ? 0 : until - now
 }
 
-/** Waiting for another computer to pair: the address to hand over, how long it lasts, and the request when one comes. */
-function WaitSection({ pairing, me, refresh }: { pairing: Pairing | null; me: number; refresh: () => Promise<void> }) {
+/** Which side of a new pairing this computer takes: worked by the other, or working it. */
+export type PairRole = 'wait' | 'connect'
+const ROLES: readonly PairRole[] = ['wait', 'connect']
+const ROLE_LABELS = { wait: '讓別台操作這台', connect: '操作別台' } as const satisfies Record<PairRole, string>
+
+/**
+ * Pairing a new computer. While nothing is under way: which side this computer takes, then the one action for it.
+ * Once waiting or connecting, how that goes, whichever side is picked, so a request that comes is never out of sight;
+ * stopping or closing brings the choice back.
+ */
+function PairSection({ towers, refresh }: { towers: Towers; refresh: () => Promise<void> }) {
+  const { pairing, outgoing } = towers
+  const [role, setRole] = useState<PairRole>(outgoing ? 'connect' : 'wait')
+  const roleName = useId()
+  return (
+    <section className="fx-d-group" aria-labelledby="fx-tower-pair">
+      <h4 id="fx-tower-pair">{tr('配對新電腦')}</h4>
+      {pairing || outgoing ? (
+        <div className="fx-tower-under-way">
+          {pairing && <Waiting pairing={pairing} me={towers.me.protocol} refresh={refresh} />}
+          {outgoing && <Connecting outgoing={outgoing} refresh={refresh} />}
+        </div>
+      ) : (
+        <div className="fx-tower-start">
+          <div className="fx-switcher fx-tower-roles" role="radiogroup" aria-labelledby="fx-tower-pair"
+            style={{ '--count': ROLES.length, '--at': ROLES.indexOf(role) } as CSSProperties}>
+            <span className="fx-switcher-thumb" aria-hidden="true" />
+            {ROLES.map((r) => (
+              <label key={r} className="fx-switcher-option">
+                <input type="radio" name={roleName} checked={r === role} onChange={() => setRole(r)} />
+                <span>{tr(ROLE_LABELS[r])}</span>
+              </label>
+            ))}
+          </div>
+          {role === 'wait' ? <StartWaiting refresh={refresh} /> : <ConnectForm refresh={refresh} />}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function StartWaiting({ refresh }: { refresh: () => Promise<void> }) {
   const { busy, error, run } = useAction(refresh)
-  const left = useSecondsLeft(pairing?.expiresAt)
+  return (
+    <>
+      <button type="button" className="fx-save" disabled={busy || MOCK} onClick={() => void run(startPairing)}>{busy ? tr('準備中…') : tr('等待配對')}</button>
+      {error && <p className="fx-tower-error" role="alert">{error}</p>}
+    </>
+  )
+}
+
+/**
+ * Waiting for another computer to pair: the address to hand over, kept to one line since it is copied rather than
+ * read, how long it lasts, and the request when one comes.
+ */
+function Waiting({ pairing, me, refresh }: { pairing: Pairing; me: number; refresh: () => Promise<void> }) {
+  const { busy, error, run } = useAction(refresh)
+  const left = useSecondsLeft(pairing.expiresAt)
   const [copied, setCopied] = useState(false)
-  const box = useRef<HTMLTextAreaElement>(null)
+  const box = useRef<HTMLInputElement>(null)
+  const boxId = useId()
   useEffect(() => {
     if (!copied) return
     const t = window.setTimeout(() => setCopied(false), 2000)
     return () => window.clearTimeout(t)
   }, [copied])
   const copy = async () => {
-    if (!pairing) return
     try {
       await navigator.clipboard.writeText(pairing.address)
       setCopied(true)
     } catch {
       // no clipboard: leave it selected to copy by hand
+      box.current?.focus()
       box.current?.select()
     }
   }
-  const asked = pairing?.request
+  const asked = pairing.request
   return (
-    <section className="fx-d-group" aria-labelledby="fx-tower-wait">
-      <h4 id="fx-tower-wait">{tr('等待配對')}</h4>
-      {!pairing ? (
-        <div className="fx-settings-file-acts">
-          <button type="button" className="fx-save" disabled={busy || MOCK} onClick={() => void run(startPairing)}>{busy ? tr('準備中…') : tr('等待配對')}</button>
-        </div>
-      ) : (
-        <div className="fx-tower-box">
-          <label className="fx-tower-address">
-            <span>{tr('把這串位址貼到要操作這台的電腦')}</span>
-            <textarea ref={box} className="fx-control" readOnly rows={3} value={pairing.address} spellCheck={false} onFocus={(e) => e.target.select()} />
-          </label>
+    <div className="fx-tower-box">
+      <label htmlFor={boxId} className="fx-tower-hint">{tr('在另一台選「操作別台」，貼上這串位址')}</label>
+      <div className="fx-tower-line">
+        <input id={boxId} ref={box} className="fx-control fx-tower-code" readOnly value={pairing.address} spellCheck={false}
+          onFocus={(e) => e.target.select()} />
+        <button type="button" className="fx-save" onClick={() => void copy()}>{copied ? tr('已複製') : tr('複製')}</button>
+      </div>
+      <div className="fx-tower-meta">
+        <span className="fx-tower-left" role="timer" aria-live="off">{tr('剩下 {time}', { time: clockOf(left) })}</span>
+        <button type="button" className="fx-tool fx-hit fx-tool-text" disabled={busy} onClick={() => void run(stopPairing)}>{tr('停止等待')}</button>
+      </div>
+      {asked && (
+        <div className="fx-tower-ask" role="alert">
+          <p><b>{tr('{name} 想要配對', { name: asked.name })}</b></p>
+          {!asked.compatible && <p className="fx-tower-error">{tr('版本不相容')}{colon()}{updateWhich(me, asked.protocol, asked.name)}</p>}
           <div className="fx-settings-file-acts">
-            <button type="button" className="fx-save" onClick={() => void copy()}>{copied ? tr('已複製') : tr('複製')}</button>
-            <button type="button" className="fx-save fx-save-quiet" disabled={busy} onClick={() => void run(stopPairing)}>{tr('停止等待')}</button>
-            <span className="fx-tower-left" role="timer" aria-live="off">{tr('剩下 {time}', { time: clockOf(left) })}</span>
+            {asked.compatible && <button type="button" className="fx-save" disabled={busy} onClick={() => void run(() => approvePairing(asked.id))}>{tr('同意')}</button>}
+            <button type="button" className="fx-save fx-save-quiet" disabled={busy} onClick={() => void run(() => rejectPairing(asked.id))}>{tr('拒絕')}</button>
           </div>
-          {asked && (
-            <div className="fx-tower-ask" role="alert">
-              <p><b>{tr('{name} 想要配對', { name: asked.name })}</b></p>
-              {!asked.compatible && <p className="fx-tower-error">{tr('版本不相容')}{colon()}{updateWhich(me, asked.protocol, asked.name)}</p>}
-              <div className="fx-settings-file-acts">
-                {asked.compatible && <button type="button" className="fx-save" disabled={busy} onClick={() => void run(() => approvePairing(asked.id))}>{tr('同意')}</button>}
-                <button type="button" className="fx-save fx-save-quiet" disabled={busy} onClick={() => void run(() => rejectPairing(asked.id))}>{tr('拒絕')}</button>
-              </div>
-            </div>
-          )}
         </div>
       )}
       {error && <p className="fx-tower-error" role="alert">{error}</p>}
-    </section>
+    </div>
   )
 }
 
-/** Entering the address another computer shows, and how that goes. */
-function ConnectSection({ outgoing, refresh }: { outgoing: Outgoing | null; refresh: () => Promise<void> }) {
+/** Entering the address another computer shows. */
+function ConnectForm({ refresh }: { refresh: () => Promise<void> }) {
   const { busy, error, setError, run } = useAction(refresh)
   const [address, setAddress] = useState('')
   const fieldId = useId()
-  const submit = (e?: FormEvent) => {
-    e?.preventDefault()
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
     const typed = address.trim()
     if (!typed) return setError(tr('請貼上對方的配對位址'))
     void run(async () => {
@@ -277,38 +329,36 @@ function ConnectSection({ outgoing, refresh }: { outgoing: Outgoing | null; refr
       setAddress('')
     })
   }
-  const going = outgoing && (outgoing.state === 'connecting' || outgoing.state === 'waiting')
   return (
-    <section className="fx-d-group" aria-labelledby="fx-tower-connect">
-      <h4 id="fx-tower-connect">{tr('連到別台')}</h4>
-      {going ? (
-        <div className="fx-tower-box" role="status">
-          <p>{outgoing.state === 'connecting' ? tr('正在連線…')
-            : outgoing.name ? tr('等待 {name} 同意…', { name: outgoing.name }) : tr('等待對方同意…')}</p>
-          <div className="fx-settings-file-acts">
-            <button type="button" className="fx-save fx-save-quiet" disabled={busy} onClick={() => void run(clearOutgoing)}>{tr('取消')}</button>
-          </div>
-        </div>
-      ) : outgoing ? (
-        <div className="fx-tower-box">
-          {outgoing.state === 'paired'
-            ? <p role="status">{tr('已和 {name} 配對', { name: outgoing.name ?? '' })}</p>
-            : <p className="fx-tower-error" role="alert">{outgoing.message || tr('配對沒有完成')}</p>}
-          <div className="fx-settings-file-acts">
-            <button type="button" className="fx-save" disabled={busy} onClick={() => void run(clearOutgoing)}>{tr('關閉')}</button>
-          </div>
-        </div>
-      ) : (
-        <form className="fx-tower-form" onSubmit={submit} noValidate>
-          <label htmlFor={fieldId} className="fx-sr">{tr('對方的配對位址')}</label>
-          <textarea id={fieldId} className="fx-control" rows={2} value={address} spellCheck={false} autoComplete="off" autoCapitalize="off"
-            placeholder={tr('貼上對方的配對位址')} disabled={MOCK} aria-invalid={!!error || undefined}
-            onChange={(e) => { setAddress(e.target.value); if (error) setError('') }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit() } }} />
-          <button type="submit" className="fx-save" disabled={busy || MOCK}>{busy ? tr('連線中…') : tr('連線#button')}</button>
-        </form>
-      )}
+    <>
+      <form className="fx-tower-line" onSubmit={submit} noValidate>
+        <label htmlFor={fieldId} className="fx-sr">{tr('對方的配對位址')}</label>
+        <input id={fieldId} className="fx-control fx-tower-code" value={address} spellCheck={false} autoComplete="off" autoCapitalize="off"
+          placeholder={tr('貼上對方的配對位址')} disabled={MOCK} aria-invalid={!!error || undefined}
+          onChange={(e) => { setAddress(e.target.value); if (error) setError('') }} />
+        <button type="submit" className="fx-save" disabled={busy || MOCK}>{busy ? tr('連線中…') : tr('連線#button')}</button>
+      </form>
       {error && <p className="fx-tower-error" role="alert">{error}</p>}
-    </section>
+    </>
+  )
+}
+
+/** A pairing this computer asked for: connecting, waiting for the other to agree, then how it ended. */
+function Connecting({ outgoing, refresh }: { outgoing: Outgoing; refresh: () => Promise<void> }) {
+  const { busy, error, run } = useAction(refresh)
+  const going = outgoing.state === 'connecting' || outgoing.state === 'waiting'
+  return (
+    <div className="fx-tower-box">
+      {going
+        ? <p role="status">{outgoing.state === 'connecting' ? tr('正在連線…')
+          : outgoing.name ? tr('等待 {name} 同意…', { name: outgoing.name }) : tr('等待對方同意…')}</p>
+        : outgoing.state === 'paired'
+          ? <p role="status">{tr('已和 {name} 配對', { name: outgoing.name ?? '' })}</p>
+          : <p className="fx-tower-error" role="alert">{outgoing.message || tr('配對沒有完成')}</p>}
+      <button type="button" className={going ? 'fx-save fx-save-quiet' : 'fx-save'} disabled={busy} onClick={() => void run(clearOutgoing)}>
+        {going ? tr('取消') : tr('關閉')}
+      </button>
+      {error && <p className="fx-tower-error" role="alert">{error}</p>}
+    </div>
   )
 }

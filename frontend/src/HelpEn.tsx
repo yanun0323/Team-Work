@@ -48,16 +48,16 @@ export const HELP_EN: Record<string, HelpTopic> = {
     ),
   },
   tower: {
-    label: 'Power Tower',
-    alt: 'The open power tower: the paired computers with their Let it work this computer switches, then Wait for pairing and Connect to another',
+    label: 'Cell Tower',
+    alt: 'The open cell tower: the paired computers with their Let it work this computer switches, then Pair a new computer',
     body: (
       <>
-        <p>The power tower pairs two computers that both run Team Work. Once paired, you can Go from this one to the other's island and work its companies, employees, tasks, chats and terminals directly. The work runs on that computer, with its model providers, blueprints and settings, and goes on when this one is closed.</p>
+        <p>The cell tower pairs two computers that both run Team Work. Once paired, you can Go from this one to the other's island and work its companies, employees, tasks, chats and terminals directly. The work runs on that computer, with its model providers, blueprints and settings, and goes on when this one is closed.</p>
         <p className="fx-help-pit">The computer being worked must keep Team Work open: when it closes, nobody can reach it, and its own work stops too.</p>
         <dl>
-          <dt>Pairing</dt><dd>On the computer to be worked, press Wait for pairing, copy the address to the other computer, paste it into Connect to another and send it. Pairing is done once the computer being worked presses Agree. The address lasts 10 minutes. After that, reopening the app or losing the connection never needs pairing again.</dd>
+          <dt>Pairing</dt><dd>Under Pair a new computer, the computer to be worked picks Let another work this one, presses Wait for pairing and copies the address; the other picks Work another, pastes the address and sends it. Pairing is done once the computer being worked presses Agree. The address lasts 10 minutes. After that, reopening the app or losing the connection never needs pairing again.</dd>
           <dt>Let it work this computer</dt><dd>Each paired computer has its own switch; only while it is on can that computer work this one. Right after pairing, only the computer being worked has it on; for the other way round, turn it on in your own tower. Turning it off or unpairing shuts the other computer out at once.</dd>
-          <dt>Going and coming back</dt><dd>Go first checks that the other computer can be worked, then switches to its island. The lower left corner always says which computer you are working; press Back to my island to return. The power tower on another island opens this computer's tower.</dd>
+          <dt>Going and coming back</dt><dd>Go first checks that the other computer can be worked, then switches to its island. The lower left corner always says which computer you are working; press Back to my island to return. The cell tower on another island opens this computer's tower.</dd>
           <dt>On another island</dt><dd>Interface settings, the language and the tutorial stay this computer's. A new company browses the other computer's folders inside the page. Anything that would open a window on the other computer's screen (Open in Finder, Open settings folder, browser sign-in) is off.</dd>
           <dt>Versions</dt><dd>When the two computers' Team Work are not compatible, they cannot pair or go to each other, and the screen says which one to update.</dd>
         </dl>

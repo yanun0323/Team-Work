@@ -29,12 +29,18 @@ describe('the power tower panel', () => {
     expect(failed).toContain('重試')
   })
 
-  it('with nothing paired, says how to pair, and offers both ways to', () => {
+  it('with nothing paired, says so, and asks which side of a new pairing this computer takes', () => {
     const html = body(towers())
     expect(html).toContain('還沒有配對的電腦')
-    expect(html).toContain('等待配對')
-    expect(html).toContain('連到別台')
-    expect(html).toContain('<textarea')
+    expect(html).toContain('配對新電腦')
+    // both sides as real radios, named by the section, the side being worked picked first
+    expect(html).toMatch(/role="radiogroup" aria-labelledby="fx-tower-pair"/)
+    expect(html.match(/<input type="radio"/g)).toHaveLength(2)
+    expect(html).toMatch(/<input type="radio"[^>]*checked=""[^>]*\/><span>讓別台操作這台<\/span>/)
+    expect(html).toContain('操作別台')
+    expect(html).toMatch(/<button[^>]*>等待配對<\/button>/)
+    // the address to enter shows only once that side is picked
+    expect(html).not.toContain('placeholder="貼上對方的配對位址"')
     // the mock pairs with nothing, and says so
     expect(html).toContain('模擬模式不能配對')
   })
@@ -53,6 +59,9 @@ describe('the power tower panel', () => {
     expect(html.match(/<label class="fx-tower-allow"><input type="checkbox"[^>]*>允許它操作我<\/label>/g)).toHaveLength(3)
     expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(1)
     expect(html.match(/<button[^>]*>前往<\/button>/g)).toHaveLength(3)
+    // Go is the dark button only where it can be gone to; elsewhere still pressable, as it checks again first
+    expect(html.match(/class="fx-save fx-tower-go"/g)).toHaveLength(1)
+    expect(html.match(/class="fx-save fx-save-quiet fx-tower-go"/g)).toHaveLength(2)
     expect(html.match(/<button[^>]*>解除配對<\/button>/g)).toHaveLength(3)
     // never colour alone
     expect(html).toContain('data-status="denied"')
@@ -68,8 +77,12 @@ describe('the power tower panel', () => {
   it('shows the address to hand over, the time left, and a request to answer', () => {
     const now = Date.now() / 1000
     const waiting = body(towers({ pairing: { address: 'tc0123456789abcdef', expiresAt: now + 600, request: null } }))
-    expect(waiting).toContain('tc0123456789abcdef')
+    expect(waiting).toContain('value="tc0123456789abcdef"')
+    expect(waiting).toContain('readOnly=""')
+    expect(waiting).toContain('在另一台選「操作別台」，貼上這串位址')
     expect(waiting).toContain('複製')
+    // under way, there is no choosing a side until it is stopped
+    expect(waiting).not.toContain('role="radiogroup"')
     expect(waiting).toContain('停止等待')
     expect(waiting).toMatch(/剩下 (10:00|9:59)/)
     const asked = body(towers({ pairing: { address: 'tc0', expiresAt: now + 60, request: { id: 'r', name: 'Studio', protocol: 1, compatible: true } } }))
@@ -89,8 +102,11 @@ describe('the power tower panel', () => {
     const failed = body(towers({ outgoing: { state: 'failed', code: 'pair_rejected', message: '對方拒絕了配對' } }))
     expect(failed).toContain('role="alert"')
     expect(failed).toContain('對方拒絕了配對')
-    // while one is under way there is no second address to enter
+    // while one is under way there is no second address to enter, nor a side to pick
     expect(body(towers({ outgoing: { state: 'waiting' } }))).not.toContain('placeholder="貼上對方的配對位址"')
+    expect(body(towers({ outgoing: { state: 'waiting' } }))).not.toContain('role="radiogroup"')
+    // after a pairing it asked for, the side picked is still to enter an address
+    expect(body(towers({ outgoing: { state: 'paired', name: 'Studio' } }))).toContain('>關閉<')
   })
 
   it('writes which computer to update, and the time left as m:ss', () => {
@@ -147,8 +163,8 @@ describe('where the power tower stands', () => {
       expect(Math.abs(x)).toBeLessThan(half.x)
       expect(Math.abs(z)).toBeLessThan(half.z)
     }
-    // its pad stays off the helipad's paving (Airport.tsx: a square of side 2r + 1)
-    const pad = HELIPAD.r + 0.5
+    // its pad stays at least two cells off the helipad's paving (Airport.tsx: a square of side 2r + 1)
+    const pad = HELIPAD.r + 0.5 + 2 * CELL
     const apart = Math.abs(POWER_TOWER.x - HELIPAD.x) >= POWER_TOWER.w / 2 + pad || Math.abs(POWER_TOWER.z - HELIPAD.z) >= POWER_TOWER.d / 2 + pad
     expect(apart).toBe(true)
     const town = layoutTown([])

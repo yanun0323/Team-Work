@@ -4,7 +4,7 @@ package i18n
 var en = map[string]string{
 	"連不上這個位址，請確認位址正確、對方還在等待配對": "Cannot connect to this address. Check the address and that the other computer is waiting to pair",
 	"請指定是否允許對方操作這台電腦":          "Specify whether the other computer may control this computer",
-	"電塔暫時連不上，請確認對方仍在等待配對":      "Cannot connect to the tower. Check that the other computer is still waiting to pair",
+	"基地台暫時連不上，請確認對方仍在等待配對":     "Cannot connect to the cell tower. Check that the other computer is still waiting to pair",
 	"找不到配對電腦或配對請求":             "Paired computer or pairing request not found",
 	"對方沒有允許這台操作它":              "The other computer has not allowed this computer to control it",
 	"通行證無效或配對已解除":              "Invalid pass or pairing has been revoked",

@@ -45,7 +45,7 @@ func NewGateway(service *tower.Service, api http.Handler) *Gateway {
 func remoteError(w http.ResponseWriter, err error) {
 	var known *model.Error
 	if !errors.As(err, &known) {
-		known = model.Errorf(model.CodeUnavailable, "電塔暫時連不上，請確認對方仍在等待配對")
+		known = model.Errorf(model.CodeUnavailable, "基地台暫時連不上，請確認對方仍在等待配對")
 	}
 	status := http.StatusBadRequest
 	switch known.Code {

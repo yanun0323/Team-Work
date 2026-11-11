@@ -283,7 +283,7 @@ func (s *Service) ensureEndpoint() error {
 	return nil
 }
 func unavailable() error {
-	return model.Errorf(model.CodeUnavailable, "電塔暫時連不上，請確認對方仍在等待配對")
+	return model.Errorf(model.CodeUnavailable, "基地台暫時連不上，請確認對方仍在等待配對")
 }
 func (s *Service) View() View {
 	s.mu.Lock()

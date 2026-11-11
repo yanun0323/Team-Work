@@ -466,7 +466,7 @@ export function World() {
     const tower: LabelSpec = {
       id: 'fusion-tower', at: [ax + POWER_TOWER.x, POWER_TOWER.h + 2.2, az + POWER_TOWER.z],
       tone: hovered === TOWER_ID && !open && !settingsOpen && !placing && !editing ? 'fusion lifted' : 'fusion',
-      text: <span className="fx-tag fx-tag-right">{tr('電塔')}</span>,
+      text: <span className="fx-tag fx-tag-right">{tr('基地台')}</span>,
       onClick: selectTower,
     }
     const tags = town.lots.map((l, i): LabelSpec => {

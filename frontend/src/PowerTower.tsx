@@ -1,5 +1,6 @@
-// The power tower (電塔): a steel lattice pylon on a fenced pad in the airfield's far corner (layout.ts `POWER_TOWER`).
-// Its cross-arms carry insulator strings, and a beacon on top blinks after dark. Clicking it opens the tower's
+// The power tower (基地台), drawn as a cell tower: a tapering steel lattice on a fenced pad in the airfield's far corner
+// (layout.ts `POWER_TOWER`), with two platforms of panel antennas, microwave dishes on its legs, an equipment cabinet
+// at its foot, and a pole on top whose beacon blinks after dark. Clicking it opens the tower's
 // panel, where this computer is paired with others and goes to their islands.
 
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
@@ -11,10 +12,11 @@ import { usePrefs } from './prefs'
 import { toon, toonGlow } from './toon'
 
 type V3 = [number, number, number]
+const PI = Math.PI
 
-function B({ p, s, c, shadow = true, glow }: { p: V3; s: V3; c: string; shadow?: boolean; glow?: string }) {
+function B({ p, s, c, r, shadow = true, glow }: { p: V3; s: V3; c: string; r?: V3; shadow?: boolean; glow?: string }) {
   return (
-    <mesh position={p} scale={s} material={glow ? toonGlow(c, glow) : toon(c)} castShadow={shadow} receiveShadow>
+    <mesh position={p} rotation={r} scale={s} material={glow ? toonGlow(c, glow) : toon(c)} castShadow={shadow} receiveShadow>
       <boxGeometry />
     </mesh>
   )
@@ -23,24 +25,30 @@ function B({ p, s, c, shadow = true, glow }: { p: V3; s: V3; c: string; shadow?:
 const STEEL = '#9aa2ae'
 const STEEL_DARK = '#6b7280'
 const PAD = '#c4c0cc'
-const INSULATOR = '#3a3f4a'
 const FENCE = '#7d8590'
+/** Panel antennas and microwave dish faces. */
+const PANEL = '#eef0f3'
+const DISH = '#d9dde3'
+const CABINET = '#b9bec8'
+const CABLE = '#3a3f4a'
 /** Takes clicks without being drawn. */
 const HIT = new THREE.MeshBasicMaterial({ visible: false })
 /** Top of the paving, as on the airfield. */
 const PAVE = 0.08
 
-/** Half the leg spread at the foot and at the waist, where the legs meet the mast, and the waist's height. */
-const FOOT = 3
-const WAIST = 0.9
-const WAIST_Y = 14.3
+/** Half the leg spread at the foot and at the lattice's top, and how high the lattice goes; a pole carries on to the beacon. */
+const FOOT = 1.9
+const TOP = 0.75
+const LATTICE_Y = 34
 /** Steps each leg climbs in, inward as it goes up: a voxel taper. */
-const STEPS = 8
-/** The cross-arms: height and half span. */
-const ARMS: Array<[number, number]> = [[12.2, 4.4], [16.4, 3.5]]
+const STEPS = 16
+/** Antenna platforms: height, half side of the frame, and panels on each side of it. */
+const PLATFORMS: Array<[number, number, number]> = [[32.2, 1.75, 2], [26.8, 1.55, 1]]
+/** Microwave dishes on the legs: height, and the face they look out of (+z towards the town, -x to the side). */
+const DISHES: Array<[number, 'z' | 'x']> = [[21.4, 'z'], [16.8, 'x']]
 
-/** Where a leg is at height y: from the foot's spread in to the waist's. */
-const spread = (y: number) => FOOT + (WAIST - FOOT) * Math.min(1, y / WAIST_Y)
+/** Where a leg is at height y: from the foot's spread in to the top's. */
+const spread = (y: number) => FOOT + (TOP - FOOT) * Math.min(1, y / LATTICE_Y)
 
 export function PowerTower({ town, hover, still, onHover, onSelect }: {
   town: Town
@@ -54,28 +62,43 @@ export function PowerTower({ town, hover, still, onHover, onSelect }: {
   const [ax, az] = rectCenter(town, town.airport)
   const detail = usePrefs((s) => s.detail)
   const steel = useMemo(() => {
-    const out: Array<{ p: V3; s: V3; c: string }> = []
-    const step = WAIST_Y / STEPS
-    // four legs, each a stack of short posts stepping in towards the mast
+    const out: Array<{ p: V3; s: V3; c: string; r?: V3 }> = []
+    const step = LATTICE_Y / STEPS
+    // four legs, each a stack of short posts stepping in towards the top
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (let i = 0; i < STEPS; i++) {
       const y = i * step
       const r = spread(y + step / 2)
-      out.push({ p: [sx * r, y + step / 2, sz * r], s: [0.44, step + 0.02, 0.44], c: STEEL })
+      out.push({ p: [sx * r, y + step / 2, sz * r], s: [0.34, step + 0.02, 0.34], c: STEEL })
     }
-    // braces round all four sides every other step, and a diagonal-ish pair of struts between them
-    for (let i = 1; i < STEPS; i += 2) {
-      const y = i * step
+    // a ring of braces at every step, and a diagonal across each face in between, zigzagging up
+    for (let i = 0; i < STEPS; i++) {
+      const y = (i + 1) * step
       const r = spread(y)
-      for (const sz of [-1, 1]) out.push({ p: [0, y, sz * r], s: [r * 2, 0.2, 0.2], c: STEEL_DARK })
-      for (const sx of [-1, 1]) out.push({ p: [sx * r, y, 0], s: [0.2, 0.2, r * 2], c: STEEL_DARK })
+      for (const sz of [-1, 1]) out.push({ p: [0, y, sz * r], s: [r * 2, 0.16, 0.16], c: STEEL_DARK })
+      for (const sx of [-1, 1]) out.push({ p: [sx * r, y, 0], s: [0.16, 0.16, r * 2], c: STEEL_DARK })
+      const m = spread(y - step / 2)
+      const tilt = Math.atan2(step, m * 2) * (i % 2 ? 1 : -1)
+      const len = Math.hypot(step, m * 2)
+      for (const sz of [-1, 1]) out.push({ p: [0, y - step / 2, sz * m], s: [len, 0.12, 0.12], c: STEEL_DARK, r: [0, 0, tilt] })
+      for (const sx of [-1, 1]) out.push({ p: [sx * m, y - step / 2, 0], s: [0.12, 0.12, len], c: STEEL_DARK, r: [-tilt, 0, 0] })
     }
-    // the mast above the waist, up to the beacon
-    out.push({ p: [0, (WAIST_Y + POWER_TOWER.h) / 2, 0], s: [0.9, POWER_TOWER.h - WAIST_Y, 0.9], c: STEEL })
-    // cross-arms, along x, with an insulator string hanging off each end
-    for (const [y, half] of ARMS) {
-      out.push({ p: [0, y, 0], s: [half * 2, 0.4, 0.55], c: STEEL })
-      for (const side of [-1, 1]) out.push({ p: [side * (half - 0.32), y - 0.98, 0], s: [0.26, 1.56, 0.26], c: INSULATOR })
+    // the pole above the lattice, up to the beacon, and the cable ladder up the middle
+    out.push({ p: [0, (LATTICE_Y + POWER_TOWER.h) / 2, 0], s: [0.42, POWER_TOWER.h - LATTICE_Y, 0.42], c: STEEL })
+    out.push({ p: [0, PLATFORMS[0][0] / 2, 0], s: [0.3, PLATFORMS[0][0], 0.3], c: CABLE })
+    // antenna platforms: a square frame round the tower with tall white panels standing on each side
+    for (const [y, half, n] of PLATFORMS) {
+      for (const sz of [-1, 1]) out.push({ p: [0, y, sz * half], s: [half * 2 + 0.2, 0.2, 0.2], c: STEEL_DARK })
+      for (const sx of [-1, 1]) out.push({ p: [sx * half, y, 0], s: [0.2, 0.2, half * 2 + 0.2], c: STEEL_DARK })
+      for (let k = 0; k < n; k++) {
+        const along = n === 1 ? 0 : (k / (n - 1) - 0.5) * half * 1.1
+        for (const sz of [-1, 1]) out.push({ p: [along, y + 0.7, sz * (half + 0.22)], s: [0.52, 2.2, 0.22], c: PANEL })
+        for (const sx of [-1, 1]) out.push({ p: [sx * (half + 0.22), y + 0.7, along], s: [0.22, 2.2, 0.52], c: PANEL })
+      }
     }
+    // the equipment cabinet beside the foot, its cables crossing on a bridge to the ladder
+    out.push({ p: [-3.2, 1.1, 0], s: [1.3, 2.2, 2.4], c: CABINET })
+    out.push({ p: [-2.53, 1.1, 0], s: [0.04, 1.8, 0.04], c: STEEL_DARK })
+    out.push({ p: [-1.6, 2.35, 0], s: [3.2, 0.14, 0.5], c: CABLE })
     return out
   }, [])
   const click = (e: ThreeEvent<MouseEvent>) => {
@@ -96,6 +119,7 @@ export function PowerTower({ town, hover, still, onHover, onSelect }: {
       {detail && [-1, 1].map((sz) => <B key={`rail${sz}`} p={[0, 1.36, sz * (half - 0.26)]} s={[POWER_TOWER.w - 0.52, 0.1, 0.1]} c={FENCE} shadow={false} />)}
       {detail && [-1, 1].map((sx) => <B key={`side${sx}`} p={[sx * (half - 0.26), 1.36, 0]} s={[0.1, 0.1, POWER_TOWER.d - 0.52]} c={FENCE} shadow={false} />)}
       {steel.map((b, i) => <B key={i} {...b} />)}
+      {DISHES.map(([y, face]) => <Dish key={y} y={y} face={face} />)}
       <Beacon />
       {/* the lattice is mostly air: a box the size of the tower takes the pointer, unseen */}
       <mesh position={[0, POWER_TOWER.h / 2, 0]} scale={[POWER_TOWER.w, POWER_TOWER.h + 1, POWER_TOWER.d]} material={HIT}>
@@ -103,6 +127,18 @@ export function PowerTower({ town, hover, still, onHover, onSelect }: {
       </mesh>
       <Shade on={hover} />
     </group>
+  )
+}
+
+/** A microwave dish on a leg, a short drum looking straight out of `face`. */
+function Dish({ y, face }: { y: number; face: 'z' | 'x' }) {
+  const out = spread(y) + 0.45
+  const p: V3 = face === 'z' ? [0.5, y, out] : [-out, y, -0.5]
+  const r: V3 = face === 'z' ? [PI / 2, 0, 0] : [0, 0, PI / 2]
+  return (
+    <mesh position={p} rotation={r} scale={[0.75, 0.45, 0.75]} material={toon(DISH)} castShadow receiveShadow>
+      <cylinderGeometry args={[1, 1, 1, 12]} />
+    </mesh>
   )
 }
 
