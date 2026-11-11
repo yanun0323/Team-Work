@@ -720,6 +720,57 @@ func TestCreateTaskAsksForMissingStaffInsteadOfPicking(t *testing.T) {
 	}
 }
 
+func TestCreateTaskTakesAFlowOfItsOwnWithoutSavingIt(t *testing.T) {
+	r, m := manageRig(t)
+	flows := len(r.world().Workflows)
+	flow := map[string]any{
+		"nodes": []map[string]any{{"id": "a", "name": "寫"}, {"id": "b", "name": "審"}},
+		"edges": []map[string]any{{"from": "a", "to": "b"}},
+	}
+	// steps with nobody are asked about, as with a saved flow
+	inChat(t, r, m, doing("create_task", map[string]any{"title": "一次性", "workflow": flow}))
+	if res := lastResult(t, r); !res.IsError || !strings.Contains(res.Text, "寫 (a)") || !strings.Contains(res.Text, "審 (b)") {
+		t.Fatalf("%+v", res)
+	}
+	for name, args := range map[string]map[string]any{
+		"both":         {"title": "x", "workflow_id": r.flow.ID, "workflow": flow, "owner_id": r.owner.ID},
+		"neither":      {"title": "x", "owner_id": r.owner.ID},
+		"unknown step": {"title": "x", "workflow": flow, "owner_id": r.owner.ID, "staff": map[string][]string{"nope": {r.owner.ID}}},
+		"cycle": {"title": "x", "owner_id": r.owner.ID, "workflow": map[string]any{
+			"nodes": []map[string]any{{"id": "a", "name": "寫"}, {"id": "b", "name": "審"}},
+			"edges": []map[string]any{{"from": "a", "to": "b"}, {"from": "b", "to": "a"}},
+		}},
+	} {
+		inChat(t, r, m, doing("create_task", args))
+		if res := lastResult(t, r); !res.IsError {
+			t.Errorf("%s: %+v", name, res)
+		}
+	}
+	if got := len(r.world().Tasks); got != 0 {
+		t.Fatalf("%d tasks", got)
+	}
+	inChat(t, r, m, doing("create_task", map[string]any{"title": "一次性", "workflow": flow, "owner_id": r.owner.ID, "staff": map[string][]string{"a": {r.owner.ID}, "b": {r.owner.ID}}}))
+	if res := lastResult(t, r); res.IsError {
+		t.Fatalf("%+v", res)
+	}
+	w := r.world()
+	if got := len(w.Workflows); got != flows {
+		t.Fatalf("the flow was saved: %d flows, was %d", got, flows)
+	}
+	var made *model.Task
+	for _, task := range w.Tasks {
+		made = task
+	}
+	if made == nil || made.WorkflowID != "" || made.Workflow.Name != "一次性" || len(made.Workflow.Nodes) != 2 || len(made.Workflow.Edges) != 1 {
+		t.Fatalf("%+v", made)
+	}
+	for _, n := range made.Workflow.Nodes {
+		if !slices.Equal(n.ReplicaIDs, []string{r.owner.ID}) {
+			t.Fatalf("%+v", n)
+		}
+	}
+}
+
 func TestCompaniesAreKeptApart(t *testing.T) {
 	r, m := manageRig(t)
 	other, err := r.e.CreateTeam(t.Context(), usecase.NewTeam{Name: "別家", Folder: t.TempDir()})

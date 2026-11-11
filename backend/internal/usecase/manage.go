@@ -344,17 +344,22 @@ func (e *Engine) listProviders() any {
 
 const createTaskDescription = "Create a task, with no confirmation. It waits in to-do until the user starts it. Who works its steps is the user's decision: do not pick employees yourself. " +
 	taskBranchRule + " If the task needs changes not yet committed, tell the user to commit them before starting it. " +
-	"If steps have nobody, this fails and lists them; then ask the user with ask_user, and call again with what they chose in staff or owner_id."
+	"If steps have nobody, this fails and lists them; then ask the user with ask_user, and call again with what they chose in staff or owner_id. " +
+	"For a flow this task alone needs, give it in workflow instead of workflow_id: it is the task's own and is not added to the flow list, " +
+	"so do not save it with save_workflow first. Its steps and edges follow save_workflow's rules; its name is the title when left out."
 
 const staffProperty = `"staff":{"type":"object","description":"Step id to the ids of the employees who work it","additionalProperties":{"type":"array","items":{"type":"string"}}}`
 
 func createTaskSchema(m manager) json.RawMessage {
-	team, required := "", `"title","workflow_id"`
+	team, required := "", `"title"`
 	if m.teamID == "" {
-		team, required = `"team_id":{"type":"string","description":"The company, from list_companies"},`, `"title","workflow_id","team_id"`
+		team, required = `"team_id":{"type":"string","description":"The company, from list_companies"},`, `"title","team_id"`
 	}
 	return json.RawMessage(`{"type":"object","properties":{` + team +
-		`"title":{"type":"string"},"description":{"type":"string"},"workflow_id":{"type":"string"},` + staffProperty + `,` +
+		`"title":{"type":"string"},"description":{"type":"string"},` +
+		`"workflow_id":{"type":"string","description":"A saved flow, from list_workflows. Give this or workflow"},` +
+		`"workflow":{"type":"object","description":"A flow for this task alone, not saved to the flow list. Give this or workflow_id","properties":{` + flowProperties + `}},` +
+		staffProperty + `,` +
 		`"owner_id":{"type":"string","description":"The employee answerable for the whole task; it does not work any step by being its owner"}},"required":[` + required + `]}`)
 }
 
@@ -377,11 +382,15 @@ func (e *Engine) createTaskTool(m manager) func(context.Context, string, json.Ra
 			Title       string              `json:"title"`
 			Description string              `json:"description"`
 			WorkflowID  string              `json:"workflow_id"`
+			Workflow    *workflowArgs       `json:"workflow"`
 			Staff       map[string][]string `json:"staff"`
 			OwnerID     *string             `json:"owner_id"`
 		}
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return toolError("invalid arguments: %v", err)
+		}
+		if (a.WorkflowID == "") == (a.Workflow == nil) {
+			return toolError("give either workflow_id, a saved flow, or workflow, a flow for this task alone")
 		}
 		teamID := a.TeamID
 		if m.teamID != "" {
@@ -400,15 +409,27 @@ func (e *Engine) createTaskTool(m manager) func(context.Context, string, json.Ra
 				refused = fmt.Sprintf("refused: this would be %d tasks in a row made by employees, and the limit is %d. Leave it to the user", origin.Depth, maxTaskDepth)
 				return nil
 			}
-			// a hidden flow is one employees do not know of
-			if e.workflowHidden(a.WorkflowID) {
+			in := NewTask{TeamID: teamID, Title: a.Title, Description: a.Description, WorkflowID: a.WorkflowID, Staff: a.Staff, OwnerID: a.OwnerID, Origin: &origin}
+			wf, label := e.w.Workflows[a.WorkflowID], a.WorkflowID
+			if a.Workflow != nil {
+				flow := *a.Workflow
+				flow.ID, flow.Version = "", ""
+				if flow.Name == nil || strings.TrimSpace(*flow.Name) == "" {
+					flow.Name = ptr(a.Title)
+				}
+				built, err := e.buildFlow(flow, nil)
+				if err != nil {
+					return err
+				}
+				wf, label, in.Workflow = built, "workflow", built
+			} else if e.workflowHidden(a.WorkflowID) { // a hidden flow is one employees do not know of
 				return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
 			}
-			if refused = e.staffProblem(teamID, a.WorkflowID, a.Staff, a.OwnerID); refused != "" {
+			if refused = e.staffProblem(teamID, wf, label, a.Staff, a.OwnerID); refused != "" {
 				return nil
 			}
 			var err error
-			made, err = e.createTask(NewTask{TeamID: teamID, Title: a.Title, Description: a.Description, WorkflowID: a.WorkflowID, Staff: a.Staff, OwnerID: a.OwnerID, Origin: &origin})
+			made, err = e.createTask(in)
 			return err
 		})
 		if err != nil {
@@ -422,9 +443,9 @@ func (e *Engine) createTaskTool(m manager) func(context.Context, string, json.Ra
 }
 
 // staffProblem says what is wrong with who a new task would have, for the model: staff for steps the flow does not
-// have, people from elsewhere, and every step left with nobody. Other mistakes are createTask's to refuse.
-func (e *Engine) staffProblem(teamID, workflowID string, staff map[string][]string, ownerID *string) string {
-	wf := e.w.Workflows[workflowID]
+// have, people from elsewhere, and every step left with nobody. Other mistakes are createTask's to refuse. label names
+// the flow in what the model is told.
+func (e *Engine) staffProblem(teamID string, wf *model.Workflow, label string, staff map[string][]string, ownerID *string) string {
 	if wf == nil || e.w.Teams[teamID] == nil {
 		return ""
 	}
@@ -435,7 +456,7 @@ func (e *Engine) staffProblem(teamID, workflowID string, staff map[string][]stri
 	}
 	for nodeID, ids := range staff {
 		if nodeOf(wf, nodeID) == nil {
-			return fmt.Sprintf("flow %s has no step %s", workflowID, nodeID)
+			return fmt.Sprintf("flow %s has no step %s", label, nodeID)
 		}
 		for _, id := range ids {
 			if r := e.w.Replicas[id]; r == nil || r.TeamID != teamID {
@@ -992,13 +1013,17 @@ func pricesText(prices map[string]model.ModelPrice) string {
 const saveWorkflowDescription = "Without id, create a task flow; it can be used at once. With id and the version from list_workflows, replace one: nodes and edges are the whole new list, " +
 	"and in a node that has an id already what you leave out stays. Then you stop until the user agrees or refuses, which is what this call then returns. Tasks under way keep the flow they started with. Built-in flows and ones a source provides cannot be changed, so make a new one instead. " +
 	"A step nothing leads to is a start: a task starts every start at once, each with the task as given. A step that leads nowhere is a last step, and the task is done once every branch that ran is done. No cycles. Kind task is only in old flows; use work. " +
-	"send_back lets a work step send work back to the one step before it, when that step hands on to it alone; leave it out of other steps. Do not give positions: they are worked out for you. Node ids are yours to choose, unique in the flow."
+	"send_back lets a work step send work back to the one step before it, when that step hands on to it alone; leave it out of other steps. Do not give positions: they are worked out for you. Node ids are yours to choose, unique in the flow. " +
+	"Save only a flow worth keeping: for one a single task needs, give it to create_task as workflow instead."
 
-const saveWorkflowSchema = `{"type":"object","properties":{"id":{"type":"string"},"version":{"type":"string"},"name":{"type":"string"},` +
+const saveWorkflowSchema = `{"type":"object","properties":{"id":{"type":"string"},"version":{"type":"string"},` + flowProperties + `}}`
+
+// flowProperties are a flow's name, steps and edges, as save_workflow and create_task take them.
+const flowProperties = `"name":{"type":"string"},` +
 	`"nodes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"kind":{"type":"string","enum":["work","talk"]},"name":{"type":"string"},"prompt":{"type":"string"},` +
 	`"replica_ids":{"type":"array","items":{"type":"string"},"description":"Usually left out: each task decides who works its steps. One on a work step; a talk step may have several, who hold it as a meeting, the first chairing"},` +
 	`"handoff":{"type":"string","enum":["all","pickOne"]},"join":{"type":"string","enum":["all","any"]},"send_back":{"type":"boolean"}},"required":["id"]}},` +
-	`"edges":{"type":"array","items":{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"},"condition":{"type":"string"}},"required":["from","to"]}}}}`
+	`"edges":{"type":"array","items":{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"},"condition":{"type":"string"}},"required":["from","to"]}}`
 
 type workflowArgs struct {
 	ID      string  `json:"id"`
