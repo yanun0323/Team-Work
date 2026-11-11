@@ -252,7 +252,7 @@ App 帶的十二個員工藍圖（通才、前端工程師、後端工程師、�
 
 ## 官方來源
 
-`team-work` 是固定 id 的 Git 來源，指向 `https://github.com/yanun0323/Team-Work-Source`，每個世界都有（設定檔沒有就補上），預設自動套用更新，不能刪除（`DELETE /sources/team-work` 回 409）。它帶來的藍圖和流程 id 是 `team-work--<檔名>`，所以每台電腦都一樣。App 不內附它：一開始沒有版本，伺服器啟動後檢查一次時下載，之後和其他 Git 來源一樣，每 6 小時檢查。檢查時，新版要下載並讀完才會換過去，讀不到就留在原本的版本、記下錯誤；正在用的版本不在 `cache/repos/` 時（快取被刪掉），即使沒有新版也會重新下載。這兩條對所有 Git 來源都一樣。測試和模擬模式讀 `internal/usecase/testdata/official/` 那份，`make official-source`（`REF=` 可指定分支或 tag）從 GitHub 更新它。
+`team-work` 是固定 id 的 Git 來源，指向 `https://github.com/yanun0323/Team-Work-Source`，每個世界都有（設定檔沒有就補上），預設自動套用更新，不能刪除（`DELETE /sources/team-work` 回 409）。它帶來的藍圖和流程 id 是 `team-work--<檔名>`，所以每台電腦都一樣。App 不內附它：一開始沒有版本，伺服器啟動後檢查一次時下載，之後和其他 Git 來源一樣，每小時檢查。檢查時，新版要下載並讀完才會換過去，讀不到就留在原本的版本、記下錯誤；正在用的版本不在 `cache/repos/` 時（快取被刪掉），即使沒有新版也會重新下載。這兩條對所有 Git 來源都一樣。測試和模擬模式讀 `internal/usecase/testdata/official/` 那份，`make official-source`（`REF=` 可指定分支或 tag）從 GitHub 更新它。
 
 來源的 YAML 裡，員工藍圖的 `name`、`prompt`、`comment`，以及流程和每個節點的 `name`、`prompt`，可以寫一段文字，也可以寫 `en`、`zh`、`zh-Hans`、`ja`、`ko` 對文字的對照；其他語言代碼或不是文字時，該檔案列在來源的讀取問題裡。世界資料用目前語言，沒有就用英文，再沒有就用檔案裡第一個；給員工的角色說明和流程（任務的那份也是）有英文就用英文。任務留的流程副本換語言時，只換名稱仍是來源寫的那幾個節點。
 

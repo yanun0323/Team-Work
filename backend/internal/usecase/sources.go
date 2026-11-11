@@ -13,7 +13,7 @@ import (
 )
 
 // sourceCheckEvery is how often every Git source is asked for its newest version.
-const sourceCheckEvery = 6 * time.Hour
+const sourceCheckEvery = time.Hour
 
 // NewSource is a place to read from: a Git repo at a branch (Ref empty: its default branch), or a folder.
 type NewSource struct {
