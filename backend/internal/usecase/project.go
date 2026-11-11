@@ -203,9 +203,7 @@ func (e *Engine) ChatSkill(ctx context.Context, chatID, name string) (SkillText,
 	c := e.w.Chats[chatID]
 	var packs [][]packRoot
 	if c != nil && c.AtAirport() {
-		if bp := e.w.Blueprints[airportBlueprintID]; bp != nil {
-			packs = append(packs, e.packsOf(bp))
-		}
+		packs = append(packs, e.airportPacks())
 	} else if c != nil {
 		if team := e.w.Teams[c.TeamID]; team != nil {
 			packs = append(packs, projectPacks(team.Folder, e.w.Preferences))

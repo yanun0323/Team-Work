@@ -144,6 +144,75 @@ func TestAirportChatUsesTheSkillsOfItsBlueprint(t *testing.T) {
 	}
 }
 
+func TestAirportChatUsesEverySkill(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeSkill := func(root, name, about string) {
+		t.Helper()
+		dir := filepath.Join(root, "skills", name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: "+about+"\n---\n"+about+"的做法"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeSkill(filepath.Join(home, ".agents"), "tdd", "全域的測試")
+	employees, source := t.TempDir(), t.TempDir()
+	writeSkill(employees, "tdd", "員工的測試")
+	writeSkill(employees, "review", "審查")
+	writeSkill(source, "deploy", "部署")
+	writeSkill(employees, "secret", "沒被挑選的")
+
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	bp := *r.world().Blueprints[r.owner.BlueprintID]
+	bp.Skills = []model.SkillPack{{Source: &model.BlueprintSource{Kind: "local", Path: employees}, Include: []string{"tdd", "review"}}}
+	if err := r.e.SaveBlueprint(bp.ID, bp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.AddSource(context.Background(), usecase.NewSource{Kind: "local", Path: source}); err != nil {
+		t.Fatal(err)
+	}
+
+	about := map[string]string{}
+	for _, s := range r.e.AirportSkills(context.Background()) {
+		about[s.Name] = s.Description
+	}
+	want := map[string]string{"tdd": "全域的測試", "review": "審查", "deploy": "部署", "secret": "沒被挑選的"}
+	if len(about) != len(want) {
+		t.Fatalf("%v", about)
+	}
+	for name, d := range want {
+		if about[name] != d {
+			t.Fatalf("%s: %q in %v", name, about[name], about)
+		}
+	}
+
+	c, err := r.e.CreateAirportChat(usecase.NewAirportChat{Model: r.owner.Model, Text: "用 $deploy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	system := r.fake.seen[0].System
+	for _, d := range []string{"全域的測試", "審查", "部署", "沒被挑選的"} {
+		if !strings.Contains(system, d) {
+			t.Fatalf("the staff were not told %s:\n%s", d, system)
+		}
+	}
+	if strings.Contains(system, "員工的測試") {
+		t.Fatalf("a skill by a name already taken was told:\n%s", system)
+	}
+	for name, text := range map[string]string{"deploy": "部署的做法", "review": "審查的做法", "secret": "沒被挑選的的做法", "tdd": "全域的測試的做法"} {
+		got, err := r.e.ChatSkill(context.Background(), c.ID, name)
+		if err != nil || !strings.Contains(got.Text, text) {
+			t.Fatalf("%s: %+v %v", name, got, err)
+		}
+	}
+	if _, err := r.e.ChatSkill(context.Background(), c.ID, "nope"); err == nil {
+		t.Fatal("a skill nobody has was found")
+	}
+}
+
 func TestAirportFilesBrowseHomeOneFolderAtATime(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
