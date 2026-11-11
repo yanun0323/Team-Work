@@ -216,7 +216,7 @@ func TestMeetingSendsEachSpeakerWhatTheyWereSentBeforeAndTheNoteLast(t *testing.
 		n := len(bySession[req.Session])
 		mu.Unlock()
 		reply := say(fmt.Sprintf("%s 第 %d 次", req.Session, n))
-		if isMember(req) && strings.Contains(req.System, "Bob") && n == 2 { // a round of tools in the middle
+		if strings.HasSuffix(req.Session, ":"+people[0].ID) && n == 2 { // Bob's second round includes a tool call
 			reply = ownerCall("read_file", map[string]any{"path": "nothing-here.txt"})
 		}
 		reply.Content = append([]model.Block{{Type: enum.BlockReasoning, Raw: json.RawMessage(fmt.Sprintf(`{"n":%d}`, n)), Origin: "fake"}}, reply.Content...)
@@ -234,15 +234,25 @@ func TestMeetingSendsEachSpeakerWhatTheyWereSentBeforeAndTheNoteLast(t *testing.
 			t.Fatal(err)
 		}
 		r.wait("the round", func(*model.World) bool { return len(speeches(r, task.ID)) == before+4 })
+		// Three completed speaking rounds per person, not three calls padded by tool continuations.
+		for i, id := range all {
+			if got := speeches(r, task.ID)[before+1+i]; got.By != id {
+				t.Fatalf("round %d reply %d: got %s, want %s", round, i, got.By, id)
+			}
+		}
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	if len(bySession) != 3 {
 		t.Fatalf("sessions: %v", len(bySession))
 	}
-	for session, reqs := range bySession {
-		if !strings.HasPrefix(session, "meeting:"+m.ID+":") || len(reqs) < 3 {
-			t.Fatalf("%s: %d requests", session, len(reqs))
+	// Chair: opening + 3 rounds. Bob: 3 rounds + one tool continuation. Carol: 3 rounds.
+	wantCalls := map[string]int{r.owner.ID: 4, people[0].ID: 4, people[1].ID: 3}
+	for id, want := range wantCalls {
+		session := "meeting:" + m.ID + ":" + id
+		reqs := bySession[session]
+		if len(reqs) != want {
+			t.Fatalf("%s: %d requests, want %d", session, len(reqs), want)
 		}
 		for i := 1; i < len(reqs); i++ {
 			before, now := reqs[i-1], reqs[i]
@@ -254,10 +264,24 @@ func TestMeetingSendsEachSpeakerWhatTheyWereSentBeforeAndTheNoteLast(t *testing.
 			}
 		}
 	}
+	toolResults, reasoning := 0, 0
 	for _, req := range meetingRequests(r) {
+		for _, msg := range req.Messages {
+			for _, block := range msg.Content {
+				if block.Type == enum.BlockToolResult {
+					toolResults++
+				}
+				if block.Type == enum.BlockReasoning && block.Origin == "fake" && len(block.Raw) > 0 {
+					reasoning++
+				}
+			}
+		}
 		if last := lastText(req); last != "" && !strings.HasPrefix(last, "[Meeting note]") && req.Messages[len(req.Messages)-1].Content[0].Type != enum.BlockToolResult {
 			t.Fatalf("the note is not last: %q", last)
 		}
+	}
+	if toolResults == 0 || reasoning == 0 {
+		t.Fatal("tool/reasoning preservation was not exercised")
 	}
 	for _, a := range r.activity(task.ID) {
 		if strings.Contains(a.Text, "[Meeting note]") {

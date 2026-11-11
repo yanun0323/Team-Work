@@ -54,13 +54,21 @@ type script struct {
 	askedMu sync.Mutex // apart from mu, which tests hold to keep a reply waiting
 	// midway runs after a reply's text went out, before the reply is done.
 	midway func()
+	// replyContext lets lifecycle tests wait for the real cancellation signal.
+	replyContext func(context.Context, model.ModelRequest) (model.ModelReply, error)
 }
 
-func (s *script) Complete(_ context.Context, req model.ModelRequest, onText func(string)) (model.ModelReply, error) {
+func (s *script) Complete(ctx context.Context, req model.ModelRequest, onText func(string)) (model.ModelReply, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.seen = append(s.seen, req)
-	r, err := s.reply(req)
+	var r model.ModelReply
+	var err error
+	if s.replyContext != nil {
+		r, err = s.replyContext(ctx, req)
+	} else {
+		r, err = s.reply(req)
+	}
 	for _, b := range r.Content {
 		if b.Type == enum.BlockText {
 			onText(b.Text)

@@ -459,7 +459,30 @@ func (g meetingGate) Complete(ctx context.Context, req model.ModelRequest, onTex
 	if err := g.e.meetingCall(g.in); err != nil {
 		return model.ModelReply{}, err
 	}
-	return g.Provider.Complete(ctx, req, onText)
+	reply, err := g.Provider.Complete(ctx, req, onText)
+	// Every attempted call is charged, including failed retries and replies returned after cancellation.
+	g.e.meetingUsage(g.in, reply.Usage)
+	return reply, err
+}
+
+// meetingUsage is independent of the run's authority to publish speech. Providers can return usage with an error.
+func (e *Engine) meetingUsage(in *meetingRun, usage model.ModelUsage) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	t, s := e.w.Tasks[in.taskID], e.w.SubTasks[in.subID]
+	if t == nil || meetingOf(s) == nil {
+		return
+	}
+	s.Tokens += tokensUsed(usage)
+	if in.spec.price != nil {
+		s.CostUSD += cost(usage, *in.spec.price)
+	} else if !in.spec.subscription {
+		s.Unpriced = true
+	}
+	if !s.Meeting.Over() && e.taskCost(t) >= e.costLimit(t) {
+		e.budgetHold(t)
+	}
+	e.settle()
 }
 
 // meetingCall counts a call about to be made, saved before it is; when the batch is used up or the budget is, the
@@ -469,7 +492,7 @@ func (e *Engine) meetingCall(in *meetingRun) error {
 	err := e.do(func() error {
 		t, s := e.w.Tasks[in.taskID], e.w.SubTasks[in.subID]
 		m := meetingOf(s)
-		if e.runs[in.subID] != in.r || t == nil || m == nil {
+		if e.runs[in.subID] != in.r || in.r.stopping || t == nil || m == nil {
 			held = true
 			return nil
 		}
@@ -641,6 +664,15 @@ func (e *Engine) runMeeting(ctx context.Context, in *meetingRun) {
 			return
 		}
 		e.w.Now = e.clock()
+		if e.closed {
+			// Preserve the interrupted speaker for recovery, including a summary in flight.
+			e.settle()
+			return
+		}
+		if in.r.stopping {
+			e.settle()
+			return
+		}
 		if s.Meeting.SpeakerID == in.turn.Speaker {
 			s.Meeting.SpeakerID = ""
 		}
@@ -767,7 +799,7 @@ func (e *Engine) meetingTurn(in *meetingRun) *turn {
 	record := func(fn func(t *model.Task, s *model.SubTask)) bool {
 		e.mu.Lock()
 		defer e.mu.Unlock()
-		if e.runs[in.subID] != in.r {
+		if e.runs[in.subID] != in.r || in.r.stopping || e.closed {
 			return false
 		}
 		t, s := e.w.Tasks[in.taskID], e.w.SubTasks[in.subID]
@@ -783,23 +815,31 @@ func (e *Engine) meetingTurn(in *meetingRun) *turn {
 		provider: meetingGate{Provider: in.spec.provider, e: e, in: in},
 		req: model.ModelRequest{Cwd: in.dir, Session: in.key, Model: in.spec.model, Effort: in.spec.effort, System: in.system,
 			Messages: in.conv, Tools: specs},
-		tools: byName, cwd: in.dir,
+		tools: byName, cwd: in.dir, noRetry: in.turn.Summary,
 		onStart: func() { e.restartLive(in.subID, in.r) },
 		onText:  func(text string) { e.addLive(in.subID, in.r, text) },
 		onReply: func(reply model.ModelReply) bool {
 			goOn := false
 			record(func(t *model.Task, s *model.SubTask) {
-				e.w.Conversations[in.key] = append(e.w.Conversations[in.key], model.Message{Role: enum.RoleAssistant, Content: reply.Content, By: in.turn.Speaker})
+				// Match the turn's raw assistant message exactly, including across tool continuations.
+				e.w.Conversations[in.key] = append(e.w.Conversations[in.key], model.Message{Role: enum.RoleAssistant, Content: reply.Content})
 				e.dirty[in.key] = true
-				s.Tokens += tokensUsed(reply.Usage)
-				if in.spec.price != nil {
-					s.CostUSD += cost(reply.Usage, *in.spec.price)
-				} else if !in.spec.subscription && !s.Unpriced {
-					s.Unpriced = true
-				}
-				if e.taskCost(t) >= e.costLimit(t) {
-					e.budgetHold(t)
-					return
+				if in.turn.Summary {
+					// Validate before executing anything: malformed end_meeting must not buy a tool retry.
+					calls := 0
+					for _, b := range reply.Content {
+						if b.Type != enum.BlockToolCall {
+							continue
+						}
+						calls++
+						var args struct {
+							Summary string `json:"summary"`
+						}
+						if b.Name != toolEndMeeting || calls > 1 || json.Unmarshal(b.Args, &args) != nil || strings.TrimSpace(args.Summary) == "" {
+							e.summaryFailed(t, s, &model.OperationError{Code: model.CodeInvalid, Message: i18n.T("寫結論時不能使用其他工具")})
+							return
+						}
+					}
 				}
 				own := true // only the chair's own tools may run on the batch's last call, or while concluding
 				for _, b := range reply.Content {
@@ -833,7 +873,7 @@ func (e *Engine) meetingChange(in *meetingRun, fn func(t *model.Task, s *model.S
 	var out string
 	err := e.do(func() error {
 		t, s := e.w.Tasks[in.taskID], e.w.SubTasks[in.subID]
-		if e.runs[in.subID] != in.r || t == nil || meetingOf(s) == nil {
+		if e.runs[in.subID] != in.r || in.r.stopping || t == nil || meetingOf(s) == nil {
 			out = "This turn was stopped."
 			return nil
 		}
@@ -1105,6 +1145,14 @@ func (e *Engine) mayContinue(t *model.Task, m *model.Meeting) error {
 	case m.PauseReason == pauseContext:
 		return model.Errorf(model.CodeConflict, "會議內容超過模型能讀的長度，只能結束會議")
 	}
+	for _, p := range m.Participants {
+		if r := e.w.Replicas[p.ReplicaID]; r == nil || r.TeamID != t.TeamID {
+			return model.Errorf(model.CodeConflict, "與會的員工已不在")
+		}
+		if _, err := e.modelSpec(p.Model, p.Effort); err != nil {
+			return model.Errorf(model.CodeConflict, "%s", safeText(err))
+		}
+	}
 	return nil
 }
 
@@ -1162,12 +1210,13 @@ func ownerSees(a model.TaskActivity) bool {
 // recoverMeeting settles a meeting after a restart: a call under way cannot be known to have finished, so it waits.
 func (e *Engine) recoverMeeting(t *model.Task, s *model.SubTask) {
 	m := meetingOf(s)
-	if m == nil || m.Over() || m.SpeakerID == "" {
+	if m == nil || m.Over() || (m.SpeakerID == "" && m.State != model.MeetingClosing) {
 		return
 	}
 	failure := &model.OperationError{Code: model.CodeUnavailable, Message: i18n.T("伺服器重新啟動，進行中的發言已中斷")}
 	if m.State == model.MeetingClosing {
 		e.summaryFailed(t, s, failure)
+		m.PauseReason = pauseRecovery
 		return
 	}
 	e.holdMeeting(t, s, pauseRecovery, failure)

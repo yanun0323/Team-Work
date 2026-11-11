@@ -51,6 +51,8 @@ type turn struct {
 	compactAt int
 	// steer, when set, returns what the user said meanwhile that goes right after a round of tool results.
 	steer func() []model.Message
+	// noRetry is for a call the user authorized once, such as a meeting conclusion.
+	noRetry bool
 }
 
 // turnResult is how a turn ended: Stopped by a tool or callback, or with the model's Text and no tool calls.
@@ -65,7 +67,7 @@ func (t *turn) complete(ctx context.Context) (model.ModelReply, error) {
 		t.onStart()
 		reply, err := t.provider.Complete(ctx, t.req, t.onText)
 		var failure *model.Error
-		if err == nil || ctx.Err() != nil || !errors.As(err, &failure) || failure.Code != model.CodeUnavailable || attempt == modelRetries {
+		if err == nil || t.noRetry || ctx.Err() != nil || !errors.As(err, &failure) || failure.Code != model.CodeUnavailable || attempt == modelRetries {
 			return reply, err
 		}
 		select {
@@ -533,7 +535,12 @@ func (e *Engine) launch(t *model.Task, s *model.SubTask, spec agentSpec, replica
 
 func (e *Engine) stopRun(id string) {
 	if r := e.runs[id]; r != nil {
-		delete(e.runs, id)
+		if meetingOf(e.w.SubTasks[id]) != nil {
+			// Keep the slot until cancellation finishes; a conclusion must not overlap it.
+			r.stopping = true
+		} else {
+			delete(e.runs, id)
+		}
 		r.cancel()
 		if _, ok := e.live[id]; ok {
 			delete(e.live, id)
@@ -813,7 +820,7 @@ func (e *Engine) steersFor(in subRun) bool {
 func (e *Engine) restartLive(id string, r *run) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.runs[id] != r {
+	if e.runs[id] != r || r.stopping {
 		return
 	}
 	delete(e.live, id)
@@ -824,7 +831,7 @@ func (e *Engine) restartLive(id string, r *run) {
 func (e *Engine) addLive(id string, r *run, text string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.runs[id] != r {
+	if e.runs[id] != r || r.stopping {
 		return
 	}
 	e.live[id] += text

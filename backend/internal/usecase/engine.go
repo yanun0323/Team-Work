@@ -130,6 +130,8 @@ type Engine struct {
 type run struct {
 	cancel    context.CancelFunc
 	replicaID string
+	// stopping meetings keep their slot until the provider returns, but discard all late output.
+	stopping bool
 }
 
 const (
