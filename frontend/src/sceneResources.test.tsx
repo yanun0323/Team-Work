@@ -95,7 +95,7 @@ it('releases the pixel compositor geometry together with its targets and materia
   expect(targetDispose).toHaveBeenCalledTimes(2)
 })
 
-it('paces ambient frames without polling every display refresh, pauses hidden and resumes on focus', async () => {
+it('follows the display refresh with focus, paces background frames without polling it, pauses hidden', async () => {
   const doc = Object.assign(new EventTarget(), { hidden: false, hasFocus: (): boolean => false })
   const win = new EventTarget()
   vi.stubGlobal('document', doc)
@@ -128,8 +128,9 @@ it('paces ambient frames without polling every display refresh, pauses hidden an
   expect(invalidate).toHaveBeenCalledTimes(1)
   invalidate.mockClear()
   await act(async () => { vi.advanceTimersByTime(1000) })
-  expect(invalidate.mock.calls.length).toBeGreaterThanOrEqual(29)
-  expect(invalidate.mock.calls.length).toBeLessThanOrEqual(31)
+  // one frame per display refresh, 16ms apart here
+  expect(invalidate.mock.calls.length).toBeGreaterThanOrEqual(61)
+  expect(invalidate.mock.calls.length).toBeLessThanOrEqual(63)
 
   doc.hasFocus = () => false
   win.dispatchEvent(new Event('blur'))

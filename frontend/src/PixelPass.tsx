@@ -73,22 +73,24 @@ export const MAX_FRAME = 1.1
  * Takes over R3F rendering. The camera is snapped to whole texels for the low-res render and the remainder is
  * applied when scaling up, so panning stays smooth and the pixels don't crawl.
  */
-export function PixelPass({ pixel = 2, fps = 30 }: { pixel?: number; fps?: number }) {
+export function PixelPass({ pixel = 2 }: { pixel?: number }) {
   const { gl, scene, camera, size, invalidate } = useThree()
 
-  // The canvas runs on demand: ask for a frame at most `fps` times a second, which is plenty for the ambient
-  // motion. Camera moves and prop changes ask for their own frames, so panning and flights stay at full rate.
-  // R3F schedules the actual drawing on requestAnimationFrame. Wake only when another ambient frame is due,
-  // rather than polling at the display's refresh rate even while drawing just five background frames a second.
+  // The canvas runs on demand: with focus, ask for a frame on every display refresh, so the ambient motion
+  // follows the screen's own rate. Without focus, wake only when one of the BACKGROUND_FPS frames is due,
+  // rather than polling at the display's refresh rate. R3F schedules the actual drawing on requestAnimationFrame.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
+    let frame: number | undefined
     const tick = () => {
       if (document.hidden) return
       invalidate()
-      timer = setTimeout(tick, 1000 / (document.hasFocus() ? fps : BACKGROUND_FPS))
+      if (document.hasFocus()) frame = requestAnimationFrame(tick)
+      else timer = setTimeout(tick, 1000 / BACKGROUND_FPS)
     }
     const restart = () => {
       clearTimeout(timer)
+      if (frame !== undefined) cancelAnimationFrame(frame)
       tick()
     }
     window.addEventListener('focus', restart)
@@ -97,11 +99,12 @@ export function PixelPass({ pixel = 2, fps = 30 }: { pixel?: number; fps?: numbe
     restart()
     return () => {
       clearTimeout(timer)
+      if (frame !== undefined) cancelAnimationFrame(frame)
       window.removeEventListener('focus', restart)
       window.removeEventListener('blur', restart)
       document.removeEventListener('visibilitychange', restart)
     }
-  }, [fps, invalidate])
+  }, [invalidate])
 
   const res = useMemo(() => {
     const opts = { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, type: THREE.HalfFloatType }
