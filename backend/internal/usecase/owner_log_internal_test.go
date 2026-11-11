@@ -8,6 +8,7 @@ import (
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
 	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 	"github.com/yanun0323/Team-Work/pkg/jsonx"
 )
 
@@ -157,4 +158,68 @@ func TestOlderLogsMoveTheirConversationToItsOwnDocument(t *testing.T) {
 	say(e, task, 1)
 	all, _ = e.activities(task.ID)
 	checkSeqs(t, all, 3)
+}
+
+func TestContinuingAStoppedRunWaitsForWhatTheCurrentPlanPutsBeforeIt(t *testing.T) {
+	e, _, task := logEngine(t)
+	task.TeamID = "team"
+	task.Coordination.Authorization.ReplicaIDs = []string{"r"}
+	e.w.Replicas["r"] = &model.Replica{ID: "r", TeamID: "team"}
+	task.Workflow.Nodes = []model.WorkflowNode{{ID: "before", Name: "new prerequisite"}, {ID: "work", Name: "work"}}
+	task.Workflow.Edges = []model.WorkflowEdge{{From: "before", To: "work"}}
+	s := &model.SubTask{ID: "s", TaskID: task.ID, NodeID: "work", ReplicaID: ptr("r"), Status: enum.StatusTodo, ExecutionState: model.ExecStopped, Validity: model.ValidCurrent, PlanVersion: 1}
+	e.w.SubTasks[s.ID] = s
+	task.Coordination.PlanVersion = 2 // the step it now waits for came in after it stopped
+
+	if _, err := e.continueRun(task, s.ID, "go on"); err == nil {
+		t.Fatalf("went on without the new prerequisite: %+v", s)
+	}
+	if s.ExecutionState != model.ExecStopped || s.PlanVersion != 1 || len(s.UpstreamIDs) != 0 {
+		t.Fatalf("a refused continue changed the run: %+v", s)
+	}
+
+	b := &model.SubTask{ID: "b", TaskID: task.ID, NodeID: "before", ReplicaID: ptr("r"), Status: enum.StatusComplete, OwnerReview: model.ReviewAccepted, Validity: model.ValidCurrent}
+	e.w.SubTasks[b.ID] = b
+	if _, err := e.continueRun(task, s.ID, "go on"); err != nil {
+		t.Fatal(err)
+	}
+	if s.ExecutionState != model.ExecQueued || s.PlanVersion != 2 || len(s.UpstreamIDs) != 1 || s.UpstreamIDs[0] != b.ID {
+		t.Fatalf("continued run = %+v, want queued on plan 2 building on %s", s, b.ID)
+	}
+	// sending the prerequisite back now reaches the run that went on with it
+	if deps := e.dependents(task, b); len(deps) != 1 || deps[0] != s.ID {
+		t.Fatalf("dependents of the prerequisite = %v, want [%s]", deps, s.ID)
+	}
+}
+
+func TestTheFailureGuardStopsQueuedWorkAndTheOwnerDispatching(t *testing.T) {
+	e, _, task := logEngine(t)
+	task.TeamID, task.Stage = "team", enum.StageRunning
+	task.Coordination.StartedAt = ptr(float64(1))
+	task.Coordination.Authorization.ReplicaIDs = []string{"r"}
+	e.w.Teams["team"] = &model.Team{ID: "team", Settings: model.TeamSettings{CostLimitUSD: 100}}
+	e.w.Replicas["r"] = &model.Replica{ID: "r", TeamID: "team", Name: "worker", BlueprintID: "missing"}
+	for i := 1; i <= maxOwnerFailures+1; i++ {
+		id := strconv.Itoa(i)
+		task.Workflow.Nodes = append(task.Workflow.Nodes, model.WorkflowNode{ID: id, Name: id, Kind: enum.NodeWork})
+		e.w.SubTasks[id] = &model.SubTask{ID: id, TaskID: task.ID, NodeID: id, ReplicaID: ptr("r"), Status: enum.StatusTodo, ExecutionState: model.ExecQueued, Validity: model.ValidCurrent}
+	}
+	// independent branches were queued, and their employee's blueprint is gone: every start fails
+	e.dispatchOwner(task)
+	if task.Coordination.BlockedReason != "loop" {
+		t.Fatal("the failure guard never engaged")
+	}
+	if n := e.taskLogs[task.ID].Failures; n != maxOwnerFailures {
+		t.Fatalf("%d runs failed, want the guard to stop at %d", n, maxOwnerFailures)
+	}
+	last := e.w.SubTasks[strconv.Itoa(maxOwnerFailures+1)]
+	if last.ExecutionState != model.ExecQueued {
+		t.Fatalf("the run left in the queue = %+v, want it still queued", last)
+	}
+	if e.dispatchOwner(task) || last.ExecutionState != model.ExecQueued {
+		t.Fatal("queued work started again before the user answered")
+	}
+	if err := e.mayDispatch(task); err == nil {
+		t.Fatal("the owner may still dispatch while the guard waits for the user")
+	}
 }

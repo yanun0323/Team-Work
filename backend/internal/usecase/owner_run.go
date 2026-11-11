@@ -68,11 +68,14 @@ func (e *Engine) writerBusy(t *model.Task) bool {
 // dispatchOwner starts the steps the owner dispatched. A paused task starts only meetings called during the pause.
 func (e *Engine) dispatchOwner(t *model.Task) bool {
 	c := t.Coordination
-	if t.Stage != enum.StageRunning || !started(t) || e.taskCost(t) >= e.costLimit(t) || c.OwnerState == model.OwnerBlocked && c.BlockedReason == "budget" {
+	if t.Stage != enum.StageRunning || !started(t) || e.taskCost(t) >= e.costLimit(t) || held(c) {
 		return false
 	}
 	moved := false
 	for _, s := range e.subsOf(t.ID) {
+		if held(c) { // a run that failed to start may have just stopped the rest
+			break
+		}
 		if s.Status != enum.StatusTodo || !current(s) || s.Validity == model.ValidNeedsRevalidation || s.ReplicaID == nil || e.runs[s.ID] != nil {
 			continue
 		}
@@ -800,6 +803,11 @@ func (e *Engine) readStepTool(in *ownerRun) func(context.Context, string, json.R
 	}
 }
 
+// held says whether the user must answer before the task's queued work starts: its cost limit or a loop guard stopped it.
+func held(c *model.Coordination) bool {
+	return c.OwnerState == model.OwnerBlocked && (c.BlockedReason == "budget" || c.BlockedReason == "loop")
+}
+
 // mayDispatch says why the task cannot take new work now, or "".
 func (e *Engine) mayDispatch(t *model.Task) error {
 	switch {
@@ -809,6 +817,8 @@ func (e *Engine) mayDispatch(t *model.Task) error {
 		return model.Errorf(model.CodeConflict, "這個任務現在不能派工")
 	case e.taskCost(t) >= e.costLimit(t):
 		return model.Errorf(model.CodeConflict, "費用已達上限")
+	case held(t.Coordination):
+		return model.Errorf(model.CodeConflict, "任務已停下來等使用者決定，使用者同意前不能派工")
 	}
 	return nil
 }
@@ -931,6 +941,21 @@ func (e *Engine) continueRun(t *model.Task, subID, instructions string) (string,
 	if s.ReplicaID == nil || !e.authorized(t, *s.ReplicaID) {
 		return "", model.Errorf("forbidden", "這位員工沒有被授權參與這個任務，要先問使用者")
 	}
+	n := nodeOf(&t.Workflow, s.NodeID)
+	if n == nil {
+		return "", model.Errorf(model.CodeConflict, "目前的計畫已沒有步驟 %s", s.NodeID)
+	}
+	// the plan may have changed since it stopped: it goes on only on what the current plan has before it
+	var kept []string
+	for _, id := range s.UpstreamIDs {
+		if u := e.w.SubTasks[id]; u != nil && accepted(u) {
+			kept = append(kept, id)
+		}
+	}
+	upstream, err := e.upstreamOf(t, n, kept)
+	if err != nil {
+		return "", err
+	}
 	if err := e.loadConversation(s.ID); err != nil {
 		return "", err
 	}
@@ -939,6 +964,7 @@ func (e *Engine) continueRun(t *model.Task, subID, instructions string) (string,
 		e.dirty[s.ID] = true
 	}
 	s.Instruction = strings.TrimSpace(s.Instruction + "\n\n" + instructions)
+	s.UpstreamIDs = upstream
 	s.PlanVersion = t.Coordination.PlanVersion
 	s.ExecutionState = model.ExecQueued
 	s.Status = enum.StatusTodo
