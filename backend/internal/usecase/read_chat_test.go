@@ -57,7 +57,7 @@ func TestReadChatPages(t *testing.T) {
 	}
 }
 
-func TestReadChatRefusesWhatIsOutOfReach(t *testing.T) {
+func TestReadChatReadsEveryCompanyAndTheAirport(t *testing.T) {
 	r, m := manageRig(t)
 	other, err := r.e.CreateTeam(t.Context(), usecase.NewTeam{Name: "別家", Folder: t.TempDir()})
 	if err != nil {
@@ -72,14 +72,20 @@ func TestReadChatRefusesWhatIsOutOfReach(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.wait("theirs", chatDone(theirs.ID))
-	for _, args := range []map[string]any{{"id": theirs.ID}, {"id": "chat-999999"}, {"id": " "}} {
+
+	// a company's employee reads another company's chat
+	inChat(t, r, m, doing("read_chat", map[string]any{"id": theirs.ID}))
+	if res := lastResult(t, r); res.IsError || !strings.Contains(res.Text, "別家的祕密") || !strings.Contains(res.Text, "Zed") {
+		t.Fatalf("%+v", res)
+	}
+	for _, args := range []map[string]any{{"id": "chat-999999"}, {"id": " "}} {
 		inChat(t, r, m, doing("read_chat", args))
-		if res := lastResult(t, r); !res.IsError || strings.Contains(res.Text, "別家的祕密") {
+		if res := lastResult(t, r); !res.IsError {
 			t.Fatalf("%v: %+v", args, res)
 		}
 	}
 
-	// the airport's staff reach every company's chats
+	// the airport's staff read every company's chats
 	m.add(doing("read_chat", map[string]any{"id": "#" + theirs.ID}))
 	a, err := r.e.CreateAirportChat(usecase.NewAirportChat{Model: "fake", Text: "看"})
 	if err != nil {
@@ -90,9 +96,9 @@ func TestReadChatRefusesWhatIsOutOfReach(t *testing.T) {
 		t.Fatalf("%+v", res)
 	}
 
-	// and a company's employee does not reach the airport's
+	// and a company's employee reads the airport's
 	inChat(t, r, m, doing("read_chat", map[string]any{"id": a.ID}))
-	if res := lastResult(t, r); !res.IsError {
+	if res := lastResult(t, r); res.IsError || !strings.Contains(res.Text, "at the airport") || !strings.Contains(res.Text, "看") {
 		t.Fatalf("%+v", res)
 	}
 }

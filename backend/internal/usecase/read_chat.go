@@ -17,14 +17,14 @@ const (
 )
 
 var readChatSpec = model.ToolSpec{Name: toolReadChat,
-	Description: "Read a chat by its ID, such as chat-805, which the user can copy from under a chat: who said what, oldest first, with the tools the employees ran. Returns at most 50KB; use offset and limit to continue. Only chats you can reach.",
+	Description: "Read a chat by its ID, such as chat-805, which the user can copy from under a chat: who said what, oldest first, with the tools the employees ran. Returns at most 50KB; use offset and limit to continue. Any chat can be read, from any company or the airport.",
 	Parameters: json.RawMessage(`{"type":"object","properties":{` +
 		`"id":{"type":"string","description":"The chat's ID, such as chat-805"},` +
 		`"offset":{"type":"integer","minimum":1,"description":"Message to start from, 1-indexed"},` +
 		`"limit":{"type":"integer","minimum":1,"description":"Maximum number of messages"}},"required":["id"]}`)}
 
-// readChatTool reads a chat the manager can reach, by its ID.
-func (e *Engine) readChatTool(m manager) funcTool {
+// readChatTool reads any chat by its ID, in any company or the airport.
+func (e *Engine) readChatTool() funcTool {
 	return funcTool{readChatSpec, func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
 		var a struct {
 			ID     string `json:"id"`
@@ -44,8 +44,8 @@ func (e *Engine) readChatTool(m manager) funcTool {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		c := e.w.Chats[id]
-		if c == nil || !m.reaches(c.TeamID) {
-			return toolError("no chat %s that you can reach", id)
+		if c == nil {
+			return toolError("no chat %s", id)
 		}
 		return model.ToolResult{Text: e.chatText(c, a.Offset, a.Limit)}
 	}}
