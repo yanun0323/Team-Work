@@ -148,6 +148,18 @@ describe('its conversation', () => {
     expect(eventLines(line({ kind: 'event', key: 'planChanged', args: { reason: 'x' }, text: '第一行\n第二行' }))).toEqual(['第一行', '第二行'])
   })
 
+  it('lists what the user changed of the flow on the edit sheet, in the user\'s language', () => {
+    const edited = line({ kind: 'event', from: 'system', key: 'editedByUser', text: '使用者修改了任務\n新增：文件',
+      args: { what: 'the plan\'s steps or links', added: '文件', removed: '草稿', changed: '驗收', restaffed: '', linked: '驗收 → 文件', unlinked: '' } })
+    setAppLanguage('en')
+    try {
+      expect(eventLines(edited)).toEqual(['You edited the task', 'Added: 文件', 'Removed: 草稿', 'Changed: 驗收', 'New dependencies: 驗收 → 文件'])
+    } finally {
+      setAppLanguage('zh')
+    }
+    expect(eventLines(edited)).toEqual(['使用者修改了任務', '新增：文件', '刪除：草稿', '修改：驗收', '新增依賴：驗收 → 文件'])
+  })
+
   it('offers to copy what the user and each employee wrote, but not a short line', () => {
     const copies = (a: Partial<TaskActivity>) => feed([line({ seq: 1, ...a })]).includes('aria-label="複製這則訊息"')
     expect(copies({ from: 'user', text: '改方向' })).toBe(true)

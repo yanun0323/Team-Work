@@ -202,17 +202,16 @@ export const hasUncommitted = (teamId: string) => (MOCK
   ? Promise.resolve(false)
   : request<{ uncommitted: boolean }>('GET', `/teams/${teamId}/uncommitted`).then((r) => r.uncommitted))
 
-/** Change a task's title, description, staff and owner; with `swap`, steps under way go to their new employee at once. */
-export function updateTask(w: World, id: string, p: { title: string; description: string; staff: Record<string, string[]>; ownerId: string | null; swap?: boolean }) {
+/**
+ * Change a task's title, description, staff and owner, and with `workflow` its own flow; with `swap`, steps under way go
+ * to their new employee at once. Answers whether it took: a refusal is shown, and the sheet waiting on it stays open.
+ */
+export async function updateTask(w: World, act: (fn: (w: World) => void) => void, id: string, p: sim.TaskEdit): Promise<boolean> {
+  if (MOCK) return (await attempt(() => simulate(act, (x) => { sim.updateTask(x, id, p); return true }))) === true
   // a task its owner runs is changed only as the user saw it, so an edit cannot undo what happened since
   const t = w.tasks[id]
-  if (!MOCK) return fire_('PATCH', `/tasks/${id}`, t?.coordination ? { ...p, ...seenVersions(t) } : p)
-  if (!t) return
-  t.title = p.title
-  t.description = p.description
-  for (const n of t.workflow.nodes) if (p.staff[n.id]) n.replicaIds = [...p.staff[n.id]]
-  t.ownerId = p.ownerId
-  if (p.swap) sim.swapStaff(w, id, p.staff)
+  const body = t?.coordination ? { ...seenVersions(t), ...p } : p
+  return (await attempt(async () => { await request('PATCH', `/tasks/${id}`, body); return true })) === true
 }
 
 // ---------- flows ----------

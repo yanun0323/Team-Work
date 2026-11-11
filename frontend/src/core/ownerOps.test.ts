@@ -78,16 +78,26 @@ describe('a task its owner runs, over the API', () => {
   })
 
   it('edits a task its owner runs only as the user saw it', async () => {
-    const f = answer(null, 204)
+    const f = vi.fn(async () => new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', f)
     const w = emptyWorld()
     w.tasks.t = { id: 't', coordination: { planVersion: 3, controlVersion: 7 } } as never
     w.tasks.old = { id: 'old' } as never
     const p = { title: 'x', description: '', staff: {}, ownerId: 'r' }
-    updateTask(w, 't', p)
-    updateTask(w, 'old', p)
-    await vi.waitFor(() => expect(f).toHaveBeenCalledTimes(2))
+    expect(await updateTask(w, act, 't', p)).toBe(true)
+    expect(await updateTask(w, act, 'old', p)).toBe(true)
     expect(sent(f, 0).body).toEqual({ ...p, planVersion: 3, controlVersion: 7 })
     expect(sent(f, 1).body).toEqual(p)
+  })
+
+  it('sends a changed flow against the plan the sheet was opened on, and says when the task moved on', async () => {
+    const f = answer({ error: { code: 'conflict', message: '任務已更新，請確認最新狀態再操作' } }, 409)
+    vi.stubGlobal('fetch', f)
+    const w = emptyWorld()
+    w.tasks.t = { id: 't', coordination: { planVersion: 4, controlVersion: 7 } } as never
+    const workflow = { id: '', name: 'x', nodes: [], edges: [] }
+    const p = { title: 'x', description: '', staff: {}, ownerId: 'r', workflow, planVersion: 3 }
+    expect(await updateTask(w, act, 't', p)).toBe(false)
+    expect(sent(f).body).toEqual({ ...p, planVersion: 3, controlVersion: 7 })
   })
 })

@@ -10,7 +10,7 @@
 // may not reach fade while it is drawn. The dragged arrow and the would-be note are drawn on a layer over
 // the whole block, not in the drawing, so they reach its empty edges. The dot in the middle of an arrow
 // opens, under the pointer or focus, into ＋ (put a new step into the arrow) and × (take the arrow away);
-// a note's top right corner shows a bin to remove it, while the flow has more than one step. The step list under the drawing
+// a note's top right corner shows a bin to remove it, while the flow has more than one step and the step may go. The step list under the drawing
 // offers the same by keyboard.
 
 import { tr } from './core/i18n'
@@ -35,6 +35,8 @@ export interface FlowEdits {
   insert: (edgeId: string) => void
   /** Remove a step (never the only one). */
   remove: (nodeId: string) => void
+  /** Whether a step may be removed; every one may when left out. */
+  removable?: (nodeId: string) => boolean
 }
 
 /**
@@ -192,7 +194,7 @@ export function FlowNotes({ wf, staff, done, open, onOpen, canOpen, edit }: {
           // beside the note, not in it: a button may not hold another
           // looking away (focus or pointer leaving it) takes the question back
           const ask = asking === n.id
-          const bin = edit && wf.nodes.length > 1 && (
+          const bin = edit && wf.nodes.length > 1 && (edit.removable?.(n.id) ?? true) && (
             <button type="button" className={ask ? 'fx-node-del fx-node-del-ask' : 'fx-node-del'}
               onClick={() => { if (ask) { setAsking(null); edit.remove(n.id) } else setAsking(n.id) }}
               onBlur={() => setAsking(null)} onPointerLeave={() => setAsking(null)}

@@ -727,6 +727,9 @@ type TaskPatch struct {
 	Staff       map[string][]string `json:"staff"`
 	OwnerID     *string             `json:"ownerId"`
 	Swap        bool                `json:"swap"`
+	// Workflow replaces the task's own flow: its steps, links and who works them, Staff on top. A step already run
+	// stays; the shared blueprint is not touched.
+	Workflow *model.Workflow `json:"workflow,omitempty"`
 	// PlanVersion and ControlVersion, when given, are what the user saw of an owner-led task; a task that moved on
 	// since refuses the change.
 	PlanVersion    *int `json:"planVersion,omitempty"`
@@ -761,8 +764,14 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 			return model.Errorf(model.CodeInvalid, "負責人不是這間公司的員工")
 		}
 	}
+	base := &t.Workflow
+	if p.Workflow != nil {
+		if base, err = e.patchedFlow(t, p.Workflow); err != nil {
+			return err
+		}
+	}
 	for nodeID, staff := range p.Staff {
-		if nodeOf(&t.Workflow, nodeID) == nil {
+		if nodeOf(base, nodeID) == nil {
 			return model.Errorf(model.CodeInvalid, "這個任務沒有節點 %s", nodeID)
 		}
 		for _, r := range staff {
@@ -771,7 +780,7 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 			}
 		}
 	}
-	next := model.Task{OwnerID: t.OwnerID, Workflow: clone(t.Workflow)}
+	next := model.Task{OwnerID: t.OwnerID, Workflow: clone(*base)}
 	for i := range next.Workflow.Nodes {
 		if staff, ok := p.Staff[next.Workflow.Nodes[i].ID]; ok {
 			next.Workflow.Nodes[i].ReplicaIDs = slices.Clone(staff)
@@ -785,11 +794,18 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 	if name := crowdedStep(&next.Workflow); name != "" {
 		return model.Errorf(model.CodeInvalid, "工作步驟「%s」只能有一位員工", name)
 	}
-	for nodeID := range p.Staff {
-		n := nodeOf(&next.Workflow, nodeID)
-		if !slices.ContainsFunc(n.ReplicaIDs, func(r string) bool { return e.w.Replicas[r] != nil }) {
+	for _, n := range next.Workflow.Nodes {
+		if _, ok := p.Staff[n.ID]; (ok || p.Workflow != nil) && !slices.ContainsFunc(n.ReplicaIDs, func(r string) bool { return e.w.Replicas[r] != nil }) {
 			return model.Errorf(model.CodeInvalid, "節點「%s」沒有指派員工", n.Name)
 		}
+	}
+	var change *planChange
+	if p.Workflow != nil {
+		d, err := e.planDiff(t, &t.Workflow, &next.Workflow)
+		if err != nil {
+			return err
+		}
+		change = &d
 	}
 	before := clone(*t)
 	if p.Title != nil {
@@ -799,8 +815,13 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 		t.Description = *p.Description
 	}
 	t.OwnerID, t.Workflow = next.OwnerID, next.Workflow
+	if change != nil && reshaped(&before.Workflow, &t.Workflow) && t.WorkflowID != "" {
+		// no longer the blueprint's: named apart from it, and a copy of the task takes this flow
+		t.WorkflowID, t.Workflow.ID = "", ""
+		t.Workflow.Name = i18n.T("%s（自訂）", t.Workflow.Name)
+	}
 	if t.OwnerLed() {
-		e.editedByUser(t, &before)
+		e.editedByUser(t, &before, change)
 		return nil
 	}
 	if p.Swap {
@@ -809,9 +830,57 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 	return nil
 }
 
+// patchedFlow is the flow the user wrote for a task, checked as a task's own flow is when it is made, before Staff
+// goes on it. Only an owner-led task still open can take one: waiting, running, paused or waiting to be merged. Call
+// it holding the lock.
+func (e *Engine) patchedFlow(t *model.Task, in *model.Workflow) (*model.Workflow, error) {
+	if t.Stage != enum.StageRunning && t.Stage != enum.StageAwaitMerge {
+		return nil, model.Errorf(model.CodeConflict, "這個任務現在不能修改流程")
+	}
+	if !t.OwnerLed() { // its flow routes the work itself, and is under way from the moment it is made
+		return nil, model.Errorf(model.CodeConflict, "舊制任務不能修改流程")
+	}
+	wf := clone(in)
+	wf.ID, wf.Name = t.Workflow.ID, t.Workflow.Name
+	if strings.TrimSpace(wf.Name) == "" {
+		wf.Name = t.Title
+	}
+	settleStarts(wf)
+	for i := range wf.Nodes {
+		if strings.TrimSpace(wf.Nodes[i].Name) == "" {
+			return nil, model.Errorf(model.CodeInvalid, "節點要有名稱")
+		}
+		wf.Nodes[i].Name = strings.TrimSpace(wf.Nodes[i].Name)
+	}
+	if err := e.checkFlow(wf); err != nil {
+		return nil, err
+	}
+	return wf, nil
+}
+
+// reshaped says whether a flow changed beyond who works its steps and where they are drawn.
+func reshaped(a, b *model.Workflow) bool {
+	if len(a.Nodes) != len(b.Nodes) || len(a.Edges) != len(b.Edges) {
+		return true
+	}
+	for _, x := range a.Edges {
+		if !slices.ContainsFunc(b.Edges, func(y model.WorkflowEdge) bool { return x.From == y.From && x.To == y.To && x.Condition == y.Condition }) {
+			return true
+		}
+	}
+	for _, x := range a.Nodes {
+		y := nodeOf(b, x.ID)
+		if y == nil || x.Kind != y.Kind || x.Name != y.Name || x.Prompt != y.Prompt || x.Handoff != y.Handoff || x.Join != y.Join {
+			return true
+		}
+	}
+	return false
+}
+
 // editedByUser records what the user changed of an owner-led task: who they put on it is allowed from now on, the
-// change is kept, and the owner, told of it, decides again on what it touches.
-func (e *Engine) editedByUser(t, before *model.Task) {
+// change is kept, and the owner, told of it, decides again on what it touches. A changed flow, given as change, is
+// listed step by step, and takes a task waiting to be merged back to work.
+func (e *Engine) editedByUser(t, before *model.Task, change *planChange) {
 	c := t.Coordination
 	for _, id := range e.staffOf(t) {
 		if !slices.Contains(c.Authorization.ReplicaIDs, id) {
@@ -823,7 +892,15 @@ func (e *Engine) editedByUser(t, before *model.Task) {
 		e.editLog(t.ID).Brief = append(e.editLog(t.ID).Brief, briefEdit{At: e.w.Now, Title: t.Title, Description: t.Description})
 		what = append(what, "the title or description")
 	}
-	if !slices.EqualFunc(t.Workflow.Nodes, before.Workflow.Nodes, func(a, b model.WorkflowNode) bool { return slices.Equal(a.ReplicaIDs, b.ReplicaIDs) }) {
+	flowChanged := change != nil && reshaped(&before.Workflow, &t.Workflow)
+	if flowChanged {
+		what = append(what, "the plan's steps or links")
+	}
+	restaffed := !slices.EqualFunc(t.Workflow.Nodes, before.Workflow.Nodes, func(a, b model.WorkflowNode) bool { return slices.Equal(a.ReplicaIDs, b.ReplicaIDs) })
+	if change != nil {
+		restaffed = len(change.Restaffed) > 0
+	}
+	if restaffed {
 		what = append(what, "who works the steps")
 	}
 	ownerChanged := (t.OwnerID == nil) != (before.OwnerID == nil) || t.OwnerID != nil && *t.OwnerID != *before.OwnerID
@@ -854,8 +931,27 @@ func (e *Engine) editedByUser(t, before *model.Task) {
 			e.systemEvent(t, "ownerChanged", i18n.T("負責人換成 %s", r.Name), map[string]any{"name": r.Name}, "")
 		}
 	}
+	if flowChanged && t.Stage == enum.StageAwaitMerge { // what was concluded has to be confirmed again
+		reopen(t)
+		c.ControlVersion++
+	}
 	e.newPlan(t, "the user changed "+strings.Join(what, ", "), "user")
-	e.systemEvent(t, "editedByUser", i18n.T("使用者修改了任務"), map[string]any{"what": strings.Join(what, ", ")}, "")
+	args := map[string]any{"what": strings.Join(what, ", ")}
+	text := i18n.T("使用者修改了任務")
+	if change != nil {
+		for _, part := range []struct {
+			key, label string
+			value      []string
+			sep        string
+		}{{"added", i18n.T("新增"), change.Added, "、"}, {"removed", i18n.T("刪除"), change.Removed, "、"}, {"changed", i18n.T("修改"), change.Edited, "、"},
+			{"restaffed", i18n.T("改派"), change.Restaffed, "；"}, {"linked", i18n.T("新增依賴"), change.Linked, "、"}, {"unlinked", i18n.T("移除依賴"), change.Unlinked, "、"}} {
+			args[part.key] = strings.Join(part.value, part.sep)
+			if len(part.value) > 0 {
+				text += "\n" + part.label + "：" + args[part.key].(string)
+			}
+		}
+	}
+	e.systemEvent(t, "editedByUser", text, args, "")
 	if started(t) {
 		e.addEvent(t, ownerEvent{Kind: evUserMessage, Text: "The user changed " + strings.Join(what, ", ") + " of the task. Read the task again and decide what it changes."})
 	}

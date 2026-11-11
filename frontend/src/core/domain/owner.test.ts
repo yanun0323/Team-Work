@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activityPage, controlOwnerTask, createTask, createTeam, hire, newWorkflow, notStarted, OWNER_TIME, sayToOwner, statusOf, subsOf, taskCost, tick, TaskRefusal } from './sim'
+import { activityPage, controlOwnerTask, createTask, createTeam, flowEditable, hire, newWorkflow, notStarted, OWNER_TIME, sayToOwner, statusOf, subsOf, taskCost, tick, TaskRefusal, updateTask } from './sim'
 import { mergeBlocked, resumeBlock, userQuestions } from './owner'
 import type { Task, World, WorkflowNode } from './types'
 
@@ -178,5 +178,84 @@ describe('a task its owner runs', () => {
     expect(before.items.map((x) => x.seq)).toEqual([2, 3])
     sayToOwner(w, task.id, { requestId: 'm9', text: 'new' })
     expect(() => activityPage(w, task.id, { before: 2, version: last.version })).toThrow(TaskRefusal)
+  })
+})
+
+describe('the user changing the flow of a task its owner runs', () => {
+  const edit = (task: Task, change: (wf: Task['workflow']) => void = () => {}) => {
+    const workflow = structuredClone(task.workflow)
+    change(workflow)
+    return { title: task.title, description: task.description, staff: {}, ownerId: task.ownerId, workflow }
+  }
+  const docs = (staff: string): WorkflowNode => ({ id: 'docs', kind: 'work', name: '文件', prompt: 'write docs', replicaIds: [staff], handoff: 'all', join: 'all', pos: { x: 2, y: 0 } })
+
+  it('takes a new step, lists what changed, names the flow apart from the blueprint and leaves the blueprint alone', () => {
+    const { w, task, a } = setup()
+    const blueprint = structuredClone(w.workflows[task.workflowId])
+    const name = task.workflow.name
+    updateTask(w, task.id, { ...edit(task, (wf) => {
+      wf.nodes.push(docs(a.id))
+      wf.edges.push({ id: 'e2', from: 'next', to: 'docs', condition: '' })
+      wf.nodes[1].prompt = 'build it well'
+    }), planVersion: 1 })
+    expect(task.workflow.nodes.map((n) => n.id)).toContain('docs')
+    expect(task.coordination!.planVersion).toBe(2)
+    expect(task.workflowId).toBe('')
+    expect(task.workflow.name).toBe(`${name}（自訂）`)
+    expect(w.workflows[blueprint.id]).toEqual(blueprint)
+    const line = said(w, task.id).at(-1)!
+    expect(line.key).toBe('editedByUser')
+    expect(line.args).toMatchObject({ added: '文件', changed: 'next', linked: 'next → 文件', removed: '' })
+    expect(line.text).toContain('新增依賴：next → 文件')
+  })
+
+  it('refuses a broken flow, a step that ran going, or an older view, and changes nothing', () => {
+    const { w, task, start } = setup()
+    controlOwnerTask(w, task.id, { requestId: 'r1', action: 'resume', ...versions(task) })
+    run(w, 2)
+    const before = structuredClone(task)
+    const refused = (p: Parameters<typeof updateTask>[2], text: string) => {
+      expect(() => updateTask(w, task.id, p)).toThrow(text)
+      expect(task.workflow).toEqual(before.workflow)
+      expect(task.coordination!.planVersion).toBe(before.coordination!.planVersion)
+    }
+    refused(edit(task, (wf) => wf.edges.push({ id: 'back', from: 'next', to: start.id, condition: '' })), '迴圈')
+    refused(edit(task, (wf) => { wf.nodes[1].name = ' ' }), '名稱')
+    refused(edit(task, (wf) => { wf.nodes[1].replicaIds = [] }), '沒有指派員工')
+    refused(edit(task, (wf) => { wf.nodes[1].replicaIds = [wf.nodes[0].replicaIds[0], wf.nodes[1].replicaIds[0]] }), '只能有一位員工')
+    refused(edit(task, (wf) => { wf.nodes = wf.nodes.slice(1); wf.edges = [] }), `已執行過的步驟「${start.name}」不能移除`)
+    refused({ ...edit(task, (wf) => { wf.nodes[1].prompt = 'x' }), planVersion: 0 }, '任務已更新')
+  })
+
+  it('takes a task waiting to be merged back to work, without its merge card', () => {
+    const { w, task, a } = setup()
+    controlOwnerTask(w, task.id, { requestId: 'r1', action: 'resume', ...versions(task) })
+    run(w, 40)
+    expect(task.stage).toBe('awaitMerge')
+    task.coordination!.questions.push({ id: 'q-merge', audience: 'user', kind: 'merge', prompt: '合併？', options: [], at: w.now } as never)
+    updateTask(w, task.id, edit(task, (wf) => {
+      wf.nodes.push(docs(a.id))
+      wf.edges.push({ id: 'e2', from: 'next', to: 'docs', condition: '' })
+    }))
+    expect(task.stage).toBe('running')
+    expect(task.coordination!.questions.some((q) => q.kind === 'merge')).toBe(false)
+  })
+
+  it('cannot change the flow of an ended task, nor of one run the older way', () => {
+    const { w, task } = setup()
+    task.stage = 'cancelled'
+    expect(() => updateTask(w, task.id, edit(task))).toThrow('不能修改流程')
+    expect(flowEditable(task)).toBe(false)
+    const old = createTask(w, { teamId: task.teamId, title: 'old', description: '', workflowId: task.workflowId, ownerId: task.ownerId ?? undefined })
+    expect(flowEditable(old)).toBe(false)
+    expect(() => updateTask(w, old.id, edit(old))).toThrow('舊制任務不能修改流程')
+    expect(old.workflow.nodes).toHaveLength(2)
+  })
+
+  it('keeps the blueprint when only who works a step changes', () => {
+    const { w, task, a } = setup()
+    updateTask(w, task.id, edit(task, (wf) => { wf.nodes[1].replicaIds = [a.id] }))
+    expect(task.workflowId).not.toBe('')
+    expect(said(w, task.id).at(-1)?.args).toMatchObject({ what: 'who works the steps', restaffed: 'next：Ivy → Kai' })
   })
 })

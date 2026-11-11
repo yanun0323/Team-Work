@@ -24,7 +24,10 @@ export interface TaskDraft {
   /** Pictures to go with the description; only a new task takes them. */
   images?: Attachment[]
   files?: Attachment[]
-  /** Set when editing a task that exists: its own copy of the flow is the one staffed. */
+  /**
+   * Set when editing a task that exists: its own copy of the flow is the one staffed, and while the flow can still
+   * change, `custom` is that copy being written.
+   */
   taskId?: string
 }
 
@@ -88,7 +91,7 @@ export function copyDraft(w: World, teamId: string, t: Task): TaskDraft {
 
 /** The flow the draft is staffing. */
 export const draftFlow = (w: World, d: TaskDraft): Workflow | undefined =>
-  d.taskId ? w.tasks[d.taskId]?.workflow : d.custom ?? w.workflows[d.workflowId]
+  d.custom ?? (d.taskId ? w.tasks[d.taskId]?.workflow : w.workflows[d.workflowId])
 
 /**
  * A flow of the task's own to write, copied from a blueprint (its steps keep their ids, so who works them carries

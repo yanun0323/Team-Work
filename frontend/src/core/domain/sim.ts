@@ -4,7 +4,7 @@
 import { makeHandoff, makeScript, roleOf } from './content'
 import { mockText } from '../data/mockText'
 import { installPresets, localizeFlow } from '../data/presets'
-import { canReach, canSendBack, feedsOnly, inEdges, nodeOf, outEdges, startsOf } from './graph'
+import { canReach, canSendBack, feedsOnly, inEdges, nodeOf, outEdges, reshaped, startsOf } from './graph'
 import { between, chance, hex, pick, uid } from './rng'
 import { taskStatus } from './rollup'
 import { currentRun, isOwnerTask, ownerStatus, resumeBlock } from './owner'
@@ -1263,6 +1263,118 @@ export function swapStaff(w: World, taskId: string, staff: Record<string, string
     if (s.status === 'progressing') s.status = 'todo'
     log(s, w.now, 'system', `${from} 換成 ${to.name}`, 'swapped', { from, to: to.name })
   }
+}
+
+/** What the user changes of a task on its edit sheet; `workflow` replaces its own flow, `planVersion` is the plan they saw. */
+export interface TaskEdit {
+  title: string
+  description: string
+  staff: Record<string, string[]>
+  ownerId: string | null
+  swap?: boolean
+  workflow?: Workflow
+  planVersion?: number
+  controlVersion?: number
+}
+
+/** The steps of a task that ever ran: they stay in its flow. */
+export const ranSteps = (w: World, taskId: string) => new Set(subsOf(w, taskId).map((s) => s.nodeId))
+
+/** Whether a task's flow can still change: one its owner runs, until it is merged or cancelled. An older one's flow routes the work itself. */
+export const flowEditable = (task: Task) => isOwnerTask(task) && (task.stage === 'running' || task.stage === 'awaitMerge')
+
+/** What a new plan does to the old one, by step names, as the task's conversation lists it. */
+function planChange(w: World, taskId: string, from: Workflow, to: Workflow) {
+  const ran = ranSteps(w, taskId)
+  const names = (ids: string[]) => (ids.length ? ids.map((id) => w.replicas[id]?.name ?? id).join('、') : '-')
+  const gone = from.nodes.filter((n) => !nodeOf(to, n.id))
+  const kept = gone.find((n) => ran.has(n.id))
+  if (kept) throw new TaskRefusal(say2(w, '已執行過的步驟「{name}」不能移除', 'The step "{name}" already ran and cannot be removed', { name: kept.name }), 'conflict')
+  const edge = (wf: Workflow, e: { from: string; to: string }) => `${nodeOf(wf, e.from)?.name ?? e.from} → ${nodeOf(wf, e.to)?.name ?? e.to}`
+  const has = (wf: Workflow, e: { from: string; to: string }) => wf.edges.some((x) => x.from === e.from && x.to === e.to)
+  const added: string[] = [], changed: string[] = [], restaffed: string[] = []
+  for (const n of to.nodes) {
+    const old = nodeOf(from, n.id)
+    if (!old) { added.push(n.name); continue }
+    if (old.replicaIds.join() !== n.replicaIds.join()) restaffed.push(`${n.name}：${names(old.replicaIds)} → ${names(n.replicaIds)}`)
+    if (old.name !== n.name || old.prompt !== n.prompt || old.kind !== n.kind || old.handoff !== n.handoff || old.join !== n.join) changed.push(n.name)
+  }
+  return {
+    added: added.join('、'), removed: gone.map((n) => n.name).join('、'), changed: changed.join('、'), restaffed: restaffed.join('；'),
+    linked: to.edges.filter((e) => !has(from, e)).map((e) => edge(to, e)).join('、'),
+    unlinked: from.edges.filter((e) => !has(to, e)).map((e) => edge(from, e)).join('、'),
+  }
+}
+
+/** The parts of a change of the plan, in the order the conversation lists them. */
+const PLAN_LINES = [['added', '新增', 'Added'], ['removed', '刪除', 'Removed'], ['changed', '修改', 'Changed'], ['restaffed', '改派', 'Reassigned'],
+  ['linked', '新增依賴', 'New dependencies'], ['unlinked', '移除依賴', 'Removed dependencies']] as const
+
+/**
+ * The user changes a task, as the backend does: everything is checked before anything changes. A flow the user wrote
+ * keeps every step that ran, and a task no longer on its blueprint's flow is named apart from it. On a task its owner
+ * runs, the change is a new version of the plan, listed in the conversation; a changed flow takes a task waiting to be
+ * merged back to work.
+ */
+export function updateTask(w: World, id: string, p: TaskEdit) {
+  const t = w.tasks[id]
+  if (!t) throw new TaskRefusal(say2(w, '找不到這個任務', 'Task not found'), 'not_found')
+  const c = isOwnerTask(t) ? t.coordination : undefined
+  if (c && (p.planVersion !== undefined && p.planVersion !== c.planVersion || p.controlVersion !== undefined && p.controlVersion !== c.controlVersion)) {
+    throw new TaskRefusal(say2(w, '任務已更新，請確認最新狀態再操作', 'The task was updated; check where it is now and try again'), 'conflict')
+  }
+  let next = clone(t.workflow)
+  if (p.workflow) {
+    if (!flowEditable(t)) {
+      throw new TaskRefusal(isOwnerTask(t)
+        ? say2(w, '這個任務現在不能修改流程', 'This task\'s flow cannot be changed now')
+        : say2(w, '舊制任務不能修改流程', 'A task run the older way cannot change its flow'), 'conflict')
+    }
+    next = { ...clone(p.workflow), id: t.workflow.id, name: t.workflow.name }
+    if (next.nodes.some((n) => !n.name.trim())) throw new TaskRefusal(say2(w, '節點要有名稱', 'A node needs a name'), 'invalid_request')
+    for (const n of next.nodes) n.name = n.name.trim()
+    if (next.edges.some((e) => canReach(next, e.to, e.from))) throw new TaskRefusal(say2(w, '任務藍圖不能有迴圈', 'A workflow cannot loop'), 'invalid_request')
+  }
+  for (const n of next.nodes) if (p.staff[n.id]) n.replicaIds = [...p.staff[n.id]]
+  const crowded = next.nodes.find((n) => n.kind !== 'talk' && n.replicaIds.length > 1)
+  if (crowded) throw new TaskRefusal(say2(w, '工作步驟「{name}」只能有一位員工', 'The work step "{name}" can have only one employee', { name: crowded.name }), 'invalid_request')
+  const empty = next.nodes.find((n) => (p.workflow || p.staff[n.id]) && !n.replicaIds.some((r) => w.replicas[r]))
+  if (empty) throw new TaskRefusal(say2(w, '節點「{name}」沒有指派員工', 'Nobody works the node "{name}"', { name: empty.name }), 'invalid_request')
+  const change = p.workflow ? planChange(w, id, t.workflow, next) : undefined
+  const flowChanged = !!p.workflow && reshaped(t.workflow, next)
+  const before = clone(t)
+  t.title = p.title
+  t.description = p.description
+  t.ownerId = p.ownerId
+  t.workflow = next
+  if (flowChanged && t.workflowId) {
+    t.workflowId = ''
+    t.workflow.id = ''
+    t.workflow.name = say2(w, '{name}（自訂）', '{name} (custom)', { name: t.workflow.name })
+  }
+  if (!c) {
+    if (p.swap) swapStaff(w, id, p.staff)
+    return
+  }
+  for (const r of [t.ownerId, ...t.workflow.nodes.flatMap((n) => n.replicaIds)]) if (r && !c.authorization.replicaIds.includes(r)) c.authorization.replicaIds.push(r)
+  const restaffed = change ? !!change.restaffed : before.workflow.nodes.some((n) => n.replicaIds.join() !== nodeOf(t.workflow, n.id)?.replicaIds.join())
+  const what = [
+    ...(t.title !== before.title || t.description !== before.description ? ['the title or description'] : []),
+    ...(flowChanged ? ['the plan\'s steps or links'] : []),
+    ...(restaffed ? ['who works the steps'] : []),
+    ...(t.ownerId !== before.ownerId ? ['the owner'] : []),
+  ]
+  if (!what.length) return
+  if (t.ownerId !== before.ownerId) c.controlVersion++
+  if (flowChanged && t.stage === 'awaitMerge') { // what was concluded has to be confirmed again
+    t.stage = 'running'
+    c.questions = c.questions.filter((q) => q.kind !== 'merge')
+    c.controlVersion++
+  }
+  c.planVersion++
+  const args: Record<string, string> = { what: what.join(', '), ...change }
+  const lines = change ? PLAN_LINES.filter(([k]) => change[k]).map(([k, zh, en]) => `${say2(w, zh, en)}：${change[k]}`) : []
+  taskEvent(w, t, 'editedByUser', [say2(w, '使用者修改了任務', 'You edited the task'), ...lines].join('\n'), args)
 }
 
 /**

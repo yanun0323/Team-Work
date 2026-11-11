@@ -22,6 +22,16 @@ export function canReach(wf: Workflow, from: string, to: string): boolean {
   return false
 }
 
+/** Whether a flow changed beyond who works its steps and where they are drawn: its steps, what they say, or its arrows. */
+export function reshaped(a: Workflow, b: Workflow): boolean {
+  if (a.nodes.length !== b.nodes.length || a.edges.length !== b.edges.length) return true
+  if (a.edges.some((x) => !b.edges.some((y) => x.from === y.from && x.to === y.to && x.condition === y.condition))) return true
+  return a.nodes.some((x) => {
+    const y = nodeOf(b, x.id)
+    return !y || x.kind !== y.kind || x.name !== y.name || x.prompt !== y.prompt || x.handoff !== y.handoff || x.join !== y.join
+  })
+}
+
 export const wouldCreateCycle = (wf: Workflow, from: string, to: string) => canReach(wf, to, from)
 
 /** True when every path out of `id` passes through `target`, so the node only exists to feed it. */
