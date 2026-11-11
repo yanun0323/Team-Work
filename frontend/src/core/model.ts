@@ -260,11 +260,17 @@ export function useStickToBottom<E extends HTMLElement>(dep: unknown): [RefObjec
     if (!el) return
     const on = () => (pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24)
     // something beside the list grew, such as the box to write in: the last line stays in view
-    const size = new ResizeObserver(() => { if (pinned.current) el.scrollTop = el.scrollHeight })
+    const down = () => { if (pinned.current) el.scrollTop = el.scrollHeight }
+    const size = new ResizeObserver(down)
     size.observe(el)
+    // a row coming or going above, such as "loading", makes the browser move scrollTop to keep its place; going
+    // down before that scroll is told keeps it from reading as the reader scrolling up
+    const lines = new MutationObserver(down)
+    lines.observe(el, { childList: true, subtree: true, characterData: true })
     el.addEventListener('scroll', on)
     return () => {
       size.disconnect()
+      lines.disconnect()
       el.removeEventListener('scroll', on)
     }
   }, [])
