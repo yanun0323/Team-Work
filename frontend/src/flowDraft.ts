@@ -4,7 +4,7 @@
 
 import { tr } from './core/i18n'
 import { create } from 'zustand'
-import { canReach, canSendBack, inEdges, outEdges } from './core/domain/graph'
+import { canReach, inEdges, outEdges } from './core/domain/graph'
 import { blankSteps } from './core/domain/sim'
 import type { Workflow, WorkflowNode } from './core/domain/types'
 
@@ -37,28 +37,18 @@ const blankStep = (wf: Workflow): WorkflowNode => ({
 })
 const arrow = (from: string, to: string) => ({ id: tmp('e'), from, to, condition: '' })
 
-/**
- * A new step's send-back switch, once its arrows are in: on for a last step that may send back, off for any other
- * step something hands on to, and none for a step that starts the flow.
- */
-function settle(wf: Workflow, id: string): Workflow {
-  if (!inEdges(wf, id).length) return wf
-  const on = !outEdges(wf, id).length && canSendBack(wf, id)
-  return { ...wf, nodes: wf.nodes.map((n) => (n.id === id ? { ...n, sendBack: on } : n)) }
-}
-
 /** A new step after the flow's last step, when it has just one; otherwise on its own. Returns the new flow and the step's id. */
 export function addStep(wf: Workflow): [Workflow, string] {
   const node = blankStep(wf)
   const ends = wf.nodes.filter((n) => !outEdges(wf, n.id).length)
   const edges = ends.length === 1 ? [...wf.edges, arrow(ends[0].id, node.id)] : wf.edges
-  return [settle({ ...wf, nodes: [...wf.nodes, node], edges }, node.id), node.id]
+  return [{ ...wf, nodes: [...wf.nodes, node], edges }, node.id]
 }
 
 /** A new step that `from` also hands on to. */
 export function branchStep(wf: Workflow, from: string): [Workflow, string] {
   const node = blankStep(wf)
-  return [settle({ ...wf, nodes: [...wf.nodes, node], edges: [...wf.edges, arrow(from, node.id)] }, node.id), node.id]
+  return [{ ...wf, nodes: [...wf.nodes, node], edges: [...wf.edges, arrow(from, node.id)] }, node.id]
 }
 
 /** A new step put into an arrow: what went straight along it now passes through the step. */
@@ -67,7 +57,7 @@ export function insertStep(wf: Workflow, edgeId: string): [Workflow, string] {
   if (!cut) return [wf, '']
   const node = blankStep(wf)
   const edges = wf.edges.flatMap((e) => (e.id === edgeId ? [arrow(e.from, node.id), arrow(node.id, e.to)] : [e]))
-  return [settle({ ...wf, nodes: [...wf.nodes, node], edges }, node.id), node.id]
+  return [{ ...wf, nodes: [...wf.nodes, node], edges }, node.id]
 }
 
 /** Remove a step, joining each step before it to each step after it. A flow keeps at least one step. */

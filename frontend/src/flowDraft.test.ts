@@ -31,7 +31,6 @@ describe('flow draft', () => {
     const [b] = branchStep(a, first)
     const [wf, id] = addStep(b)
     expect(wf.edges.some((e) => e.to === id || e.from === id)).toBe(false)
-    expect(nodeIn(wf, id).sendBack).toBeUndefined()
   })
 
   it('numbers new steps 新步驟1, 新步驟2…, taking the first number not in use', () => {
@@ -43,17 +42,6 @@ describe('flow draft', () => {
     // removed, a number is free again
     const [d, z] = addStep(removeStep(c, y))
     expect(nodeIn(d, z).name).toBe('新步驟3')
-  })
-
-  it('switches send-back on for a new last step that may send back, and off for one in the middle', () => {
-    const { wf: blank, first } = fresh()
-    const [a, x] = addStep(blank)
-    expect(nodeIn(a, x).sendBack).toBe(true)
-    const [b, y] = insertStep(a, outEdges(a, first)[0].id)
-    expect(nodeIn(b, y).sendBack).toBe(false)
-    // first hands on to two, so neither may send back to it
-    const [c, z] = branchStep(a, first)
-    expect(nodeIn(c, z).sendBack).toBe(false)
   })
 
   it('draws arrows only where they may go, and takes them away', () => {

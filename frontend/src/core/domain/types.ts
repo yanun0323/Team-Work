@@ -223,11 +223,6 @@ export interface WorkflowNode {
   replicaIds: string[]
   handoff: HandoffMode
   join: JoinMode
-  /**
-   * Whether this step may send work back to the one before it, when canSendBack allows it. Unset keeps the old
-   * rule: a last step, or one whose work is being redone, may send back.
-   */
-  sendBack?: boolean
   pos: { x: number; y: number }
 }
 

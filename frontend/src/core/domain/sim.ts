@@ -812,17 +812,15 @@ function route(w: World, task: Task, sub: SubTask) {
 }
 
 /**
- * Whether a finished run sends the work back instead of handing it on. A step whose send-back switch is on may,
- * when canSendBack allows it; with the switch unset, a last step (a review that does not pass) and a step that was
- * itself sent back may. Never a starting step, and a task at most `MAX_SEND_BACKS` times; each send-back halves the
- * odds of the next.
+ * Whether a finished run sends the work back instead of handing it on: any step canSendBack allows, a task at most
+ * `MAX_SEND_BACKS` times; each send-back halves the odds of the next.
  */
 function sendsBack(w: World, task: Task, sub: SubTask) {
   const wf = task.workflow
   const node = nodeOf(wf, sub.nodeId)
   if (!node || node.kind !== 'work' || sub.sentBack || sub.skipped || !sub.upstreamIds.length) return false
   const last = outEdges(wf, node.id).length === 0
-  if (node.sendBack !== undefined ? !node.sendBack || !canSendBack(wf, node.id) : !last && !sub.rework) return false
+  if (!canSendBack(wf, node.id)) return false
   const rounds = subsOf(w, task.id).filter((s) => s.sentBack && (!s.group || s.group === s.id)).length
   if (rounds >= MAX_SEND_BACKS) return false
   return (sub.script.sendBack?.roll ?? 1) < (last ? 0.3 : 0.25) / 2 ** rounds

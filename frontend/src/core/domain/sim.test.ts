@@ -302,16 +302,18 @@ describe('workflow run', () => {
     expect(nodesDone(w, t.id).sort()).toEqual(['a', 'b', 'c', wf.nodes[0].name].sort())
   })
 
-  it('sends back only from a step whose switch is on', () => {
+  it('sends back from any step whose one step before hands on to it alone, and from no other', () => {
     const back = { ...calm, sendBack: { roll: 0.2, reason: 'redo' } }
-    const off = setup([['start', 'a'], ['a', 'z']], { z: { sendBack: false } })
-    const t = createTask(off.w, { teamId: off.team.id, title: 'x', description: '', workflowId: off.wf.id, overrides: { '*': calm, z: back } })
-    run(off.w, 80)
-    expect(subsOf(off.w, t.id).some((s) => s.sentBack)).toBe(false)
-    const on = setup([['start', 'a'], ['a', 'b'], ['b', 'z']], { b: { sendBack: true } })
-    const u = createTask(on.w, { teamId: on.team.id, title: 'x', description: '', workflowId: on.wf.id, overrides: { '*': calm, b: back } })
-    run(on.w, 120)
-    expect(subsOf(on.w, u.id).some((s) => s.nodeId === 'b' && s.sentBack)).toBe(true)
+    // a hands on to b and c, so neither may send back
+    const fork = setup([['start', 'a'], ['a', 'b'], ['a', 'c']])
+    const t = createTask(fork.w, { teamId: fork.team.id, title: 'x', description: '', workflowId: fork.wf.id, overrides: { '*': back } })
+    run(fork.w, 80)
+    expect(subsOf(fork.w, t.id).some((s) => (s.nodeId === 'b' || s.nodeId === 'c') && s.sentBack)).toBe(false)
+    // a step in the middle may, whatever an older flow's switch said
+    const line = setup([['start', 'a'], ['a', 'b'], ['b', 'z']], { b: { sendBack: false } as Partial<WorkflowNode> })
+    const u = createTask(line.w, { teamId: line.team.id, title: 'x', description: '', workflowId: line.wf.id, overrides: { '*': calm, b: back } })
+    run(line.w, 120)
+    expect(subsOf(line.w, u.id).some((s) => s.nodeId === 'b' && s.sentBack)).toBe(true)
   })
 
   it('retries failures up to the team limit, then asks the user', () => {
@@ -688,8 +690,8 @@ describe('task owner', () => {
 describe('send-backs', () => {
   const names = (w: World, taskId: string, ids: string[]) => ids.map((id) => w.tasks[taskId].workflow.nodes.find((n) => n.id === id)!.name)
 
-  it('a review that does not pass sends every step before it back, then reviews again', () => {
-    const { w, team, wf } = setup([['start', 'a'], ['start', 'b'], ['a', 'rev'], ['b', 'rev']])
+  it('a review that does not pass sends the step before it back, then reviews again', () => {
+    const { w, team, wf } = setup([['start', 'a'], ['a', 'rev']])
     const task = createTask(w, {
       teamId: team.id, title: 't', description: '', workflowId: wf.id,
       overrides: { '*': calm, rev: { sendBack: { roll: 0.2, reason: '少了測試' } } },
@@ -698,31 +700,40 @@ describe('send-backs', () => {
     const subs = subsOf(w, task.id).filter((s) => !s.cancelled)
     const reviews = subs.filter((s) => s.nodeId === 'rev').sort((x, y) => x.createdAt - y.createdAt)
     expect(reviews).toHaveLength(2)
-    expect(names(w, task.id, reviews[0].sentBack!.to).sort()).toEqual(['a', 'b'])
+    expect(names(w, task.id, reviews[0].sentBack!.to)).toEqual(['a'])
     expect(reviews[0].sentBack!.reason).toBe('少了測試')
     const redo = subs.filter((s) => s.rework)
-    expect(redo.map((s) => s.nodeId).sort()).toEqual(['a', 'b'])
+    expect(redo.map((s) => s.nodeId)).toEqual(['a'])
     expect(redo.every((s) => s.rework!.from === reviews[0].id && s.status === 'complete')).toBe(true)
-    // the second review comes after both redone steps, and passes
+    // the second review comes after the redone step, and passes
     expect(reviews[1].sentBack).toBeUndefined()
     expect(w.tasks[task.id].stage).toBe('awaitMerge')
   })
 
-  it('a step sent back may send it further back, up to two send-backs a task', () => {
+  it('a review fed by two steps never sends back', () => {
+    const { w, team, wf } = setup([['start', 'a'], ['start', 'b'], ['a', 'rev'], ['b', 'rev']])
+    const task = createTask(w, {
+      teamId: team.id, title: 't', description: '', workflowId: wf.id,
+      overrides: { '*': calm, rev: { sendBack: { roll: 0, reason: 'x' } } },
+    })
+    run(w, 200)
+    expect(subsOf(w, task.id).some((s) => s.sentBack)).toBe(false)
+    expect(w.tasks[task.id].stage).toBe('awaitMerge')
+  })
+
+  it('a step in the middle may send back too, up to two send-backs a task', () => {
     const { w, team, wf } = setup([['start', 'a'], ['a', 'b'], ['b', 'rev']])
     const task = createTask(w, {
       teamId: team.id, title: 't', description: '', workflowId: wf.id,
-      overrides: {
-        '*': { ...calm, sendBack: { roll: 0, reason: '還是不對' } },
-      },
+      overrides: { '*': calm, b: { ...calm, sendBack: { roll: 0, reason: '還是不對' } } },
     })
     run(w, 300)
     const subs = subsOf(w, task.id).filter((s) => !s.cancelled)
     const backs = subs.filter((s) => s.sentBack).sort((x, y) => x.createdAt - y.createdAt)
-    // the review sends b back, b sends a back; then the cap is reached and the flow runs on to the end
-    expect(backs.map((s) => names(w, task.id, [s.nodeId])[0])).toEqual(['rev', 'b'])
-    expect(names(w, task.id, backs[1].sentBack!.to)).toEqual(['a'])
-    expect(subs.filter((s) => s.nodeId === 'rev')).toHaveLength(2)
+    // b sends a back twice; then the cap is reached and the flow runs on to the end
+    expect(backs.map((s) => names(w, task.id, [s.nodeId])[0])).toEqual(['b', 'b'])
+    expect(backs.every((s) => names(w, task.id, s.sentBack!.to)[0] === 'a')).toBe(true)
+    expect(subs.filter((s) => s.nodeId === 'rev')).toHaveLength(1)
     expect(w.tasks[task.id].stage).toBe('awaitMerge')
   })
 

@@ -51,7 +51,7 @@ type BlueprintFile = {
 }
 type FlowFile = {
   name: SourcedText
-  nodes: { id: string; kind?: WorkflowNode['kind']; name: SourcedText; prompt?: SourcedText; sendBack?: boolean }[]
+  nodes: { id: string; kind?: WorkflowNode['kind']; name: SourcedText; prompt?: SourcedText }[]
   edges: { from: string; to: string; condition?: string }[]
 }
 
@@ -105,7 +105,7 @@ function officialFlow(name: string, f: FlowFile, language: Locale): Workflow {
     id: officialId(name), name: textIn(f.name, language),
     nodes: f.nodes.map((n) => ({
       id: n.id, kind: n.kind ?? 'work', name: textIn(n.name, language), prompt: textIn(n.prompt, language), replicaIds: [],
-      handoff: 'all', join: 'all', pos: { x: 0, y: 0 }, ...(n.sendBack !== undefined && { sendBack: n.sendBack }),
+      handoff: 'all', join: 'all', pos: { x: 0, y: 0 },
     })),
     edges: f.edges.map((e, i) => ({ id: `edge-${i + 1}`, from: e.from, to: e.to, condition: e.condition ?? '' })),
   }

@@ -41,7 +41,7 @@ export function feedsOnly(wf: Workflow, id: string, target: string): boolean {
 }
 
 /**
- * Whether a step may be let send work back: a work step with one step before it, whose work goes only to this
+ * Whether a step may send work back: a work step with one step before it, whose work goes only to this
  * one, so redoing it holds up nothing else.
  */
 export function canSendBack(wf: Workflow, id: string): boolean {

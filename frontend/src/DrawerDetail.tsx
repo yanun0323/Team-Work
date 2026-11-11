@@ -7,7 +7,7 @@ import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, 
 import { shownUrl } from './core/island'
 import { colon, listOf, tr, trRecorded } from './core/i18n'
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
-import { canSendBack, inEdges as stepsIn, nodeOf } from './core/domain/graph'
+import { canSendBack, nodeOf } from './core/domain/graph'
 import { blueprintUsers, gitSources, notStarted, statusOf, subsOf, swappable, type OwnSettings } from './core/domain/sim'
 import { TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type WorkflowNode, type World } from './core/domain/types'
 import { keptState, sourceName, sourceState, sourceText, toolName } from './source'
@@ -804,17 +804,10 @@ function StepFacts({ wf, id }: { wf: Workflow; id: string }) {
       {n.kind === 'talk' && <><dt>{tr('種類')}</dt><dd>{KINDS.talk}</dd></>}
       {before > 1 && <><dt>{tr('開始條件')}</dt><dd>{tr(JOIN[n.join])}</dd></>}
       {next.length > 1 && <><dt>{tr('交接')}</dt><dd>{tr(HANDOFF[n.handoff])}</dd></>}
-      {sendsBack(wf, id) && <><dt>{tr('退回')}</dt><dd>{tr('可以退回上一步')}</dd></>}
+      {canSendBack(wf, id) && <><dt>{tr('退回')}</dt><dd>{tr('可以退回上一步')}</dd></>}
       <dt>{tr('下一步')}</dt><dd>{next.length ? listOf(next.filter((x) => x !== undefined)) : tr('結束')}</dd>
     </dl>
   )
-}
-
-/** Whether a step may send work back to the one before it: as its switch says, or with none set, when it is last. */
-function sendsBack(wf: Workflow, id: string) {
-  const n = nodeOf(wf, id)
-  if (!n || n.kind !== 'work' || !stepsIn(wf, id).length) return false
-  return n.sendBack === undefined ? !outEdges(wf, id).length : n.sendBack && canSendBack(wf, id)
 }
 
 /** The employees on a step, face and name; each opens on its own sheet when `onOpen` is given. */
@@ -2678,7 +2671,6 @@ function StepFields({ flow, id, edit }: { flow: Workflow; id: string; edit: Flow
   const next = outEdges(flow, id).map((e) => e.to)
   const choices = nextChoices(flow, id)
   const before = inEdges(flow, id).length
-  const mayBack = canSendBack(flow, id)
   const put = putIn(edit, id)
   const toggle = (to: string) => edit((wf) => {
     const cur = nodeOf(wf, id)
@@ -2710,16 +2702,6 @@ function StepFields({ flow, id, edit }: { flow: Workflow; id: string; edit: Flow
         {next.length > 1 && (
           <Select label={tr('交接')} value={n.handoff} options={Object.keys(HANDOFF)} labelOf={(x) => tr(HANDOFF[x as keyof typeof HANDOFF])}
             onChange={(x) => put({ handoff: x as typeof n.handoff })} />
-        )}
-        {n.kind !== 'talk' && before > 0 && (
-          <div className="fx-field">
-            <label htmlFor={`fx-back-${id}`}>{tr('可以退回')}</label>
-            <span className="fx-back-switch">
-              <input id={`fx-back-${id}`} type="checkbox" className="fx-tick" disabled={!mayBack} aria-describedby={mayBack ? undefined : `fx-back-why-${id}`}
-                checked={mayBack && (n.sendBack ?? !next.length)} onChange={(e) => put({ sendBack: e.target.checked })} />
-              {!mayBack && <span id={`fx-back-why-${id}`} className="fx-d-muted">{tr('只有一個上一步、且上一步只交給這一步時才能退回')}</span>}
-            </span>
-          </div>
         )}
         {choices.length > 0 && (
           <div className="fx-field fx-field-top" role="group" aria-label={tr('{a}的下一步', { a: n.name || tr('這一步') })}>

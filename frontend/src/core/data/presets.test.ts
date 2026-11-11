@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { canSendBack } from '../domain/graph'
 import { effortsOf } from '../../crew'
 import { blueprintList, flowList, hireList } from '../model'
 import type { LocalSkills, World } from '../domain/types'
@@ -77,11 +76,8 @@ describe('presets', () => {
     expect(starts.map((n) => n.name)).toEqual(['撰寫規格'])
     const at = (name: string) => feature.nodes.find((n) => n.name === name)!.pos
     expect(at('後端開發').y).toBe(at('前端開發').y)
-    for (const n of feature.nodes) {
-      const last = !feature.edges.some((e) => e.from === n.id)
-      if (starts.includes(n) || n.kind === 'talk') expect(n.sendBack).toBeUndefined()
-      else expect(n.sendBack).toBe(last && canSendBack(feature, n.id))
-    }
+    // the source still writes sendBack on its steps; the flow does not keep it
+    for (const n of feature.nodes) expect('sendBack' in n).toBe(false)
   })
 
   it('copy as shown, and a copy stays as it was while what the app wrote follows the language', () => {
