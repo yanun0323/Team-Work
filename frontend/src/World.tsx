@@ -47,6 +47,7 @@ import { usePrefs } from './prefs'
 import { debugDaylight, glowing, light, lightAt, MIN_SUN_ELEVATION, phaseOf } from './daylight'
 import { DaylightDebug } from './DaylightDebug'
 import { CleanMacDebug } from './CleanMacDebug'
+import { FpsDebug, FrameCounter } from './FpsDebug'
 import { IndoorLights } from './IndoorLight'
 import { LANTERN, propBoxes, type Box } from './streetProps'
 import { playSound, useSound } from './sound'
@@ -601,6 +602,7 @@ export function World() {
         following={following !== null} held={pressHeld} landing={landing} />
       <LabelProjector />
       <PixelPass pixel={2} />
+      {import.meta.env.DEV && <FrameCounter />}
     </Canvas>
     <LabelLayer labels={shownLabels} />
     {!drawer.value && !settings.value && !sheet.value && !help.value && (
@@ -611,6 +613,7 @@ export function World() {
     )}
     {import.meta.env.DEV && (
       <div className="fx-debug">
+        <FpsDebug />
         {MOCK && <CleanMacDebug />}
         <DaylightDebug />
       </div>
