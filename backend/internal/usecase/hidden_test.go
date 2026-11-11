@@ -23,8 +23,8 @@ func TestHiddenBlueprintsAndFlowsAreUnknownToEmployees(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := versionFrom(t, r, m, "list_blueprints", bp)
-	flowVersion := versionFrom(t, r, m, "list_workflows", wf)
+	version := versionFrom(t, r, m, "read_blueprint", bp)
+	flowVersion := versionFrom(t, r, m, "read_workflow", wf)
 	if err := r.e.HideBlueprint(bp, true); err != nil {
 		t.Fatal(err)
 	}

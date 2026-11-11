@@ -27,11 +27,9 @@ async function stack() {
   function View() { sheets = useSheets(); return null }
   await act(async () => { root.render(<View />) })
   const live = () => sheets.layers.filter((l) => !l.leaving).map((l) => l.item)
-  const escape = async () => {
-    const e = Object.assign(new Event('keydown'), { key: 'Escape' })
-    await act(async () => { for (const f of [...heard]) f(e) })
-  }
-  return { get: () => sheets, live, escape }
+  const escapeWith = async (e: Event) => { await act(async () => { for (const f of [...heard]) f(e) }) }
+  const escape = () => escapeWith(Object.assign(new Event('keydown'), { key: 'Escape' }))
+  return { get: () => sheets, live, escape, escapeWith }
 }
 
 it('puts away only a decision\'s sheet on Esc, keeping the task under it', async () => {
@@ -42,5 +40,31 @@ it('puts away only a decision\'s sheet on Esc, keeping the task under it', async
   await s.escape()
   expect(s.live()).toEqual([{ kind: 'task', id: 't1' }])
   await s.escape()
+  expect(s.live()).toEqual([])
+})
+
+it('leaves Esc to an open floating menu, keeping the sheet under it', async () => {
+  const s = await stack()
+  await act(async () => { s.get().open({ kind: 'task', id: 't1' }) })
+  // focus sits on an item of the hand-off menu, a popover that is there only while open
+  const inMenu = { closest: (q: string) => (q.split(',').some((p) => p.trim() === '[popover]') ? {} : null) }
+  const e = Object.assign(new Event('keydown'), { key: 'Escape' })
+  Object.defineProperty(e, 'target', { value: inMenu })
+  const stop = vi.spyOn(e, 'stopPropagation')
+  await s.escapeWith(e)
+  expect(stop).not.toHaveBeenCalled()
+  expect(s.live()).toEqual([{ kind: 'task', id: 't1' }])
+  await s.escape()
+  expect(s.live()).toEqual([])
+})
+
+it('still puts away the sheet on Esc from outside any menu', async () => {
+  const s = await stack()
+  await act(async () => { s.get().open({ kind: 'task', id: 't1' }) })
+  const e = Object.assign(new Event('keydown'), { key: 'Escape' })
+  Object.defineProperty(e, 'target', { value: { closest: () => null } })
+  const stop = vi.spyOn(e, 'stopPropagation')
+  await s.escapeWith(e)
+  expect(stop).toHaveBeenCalled()
   expect(s.live()).toEqual([])
 })

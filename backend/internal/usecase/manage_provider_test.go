@@ -56,9 +56,9 @@ func TestAddingAProviderTakesEffectAtOnce(t *testing.T) {
 		t.Fatalf("%+v", w.Chats[c.ID].Messages)
 	}
 
-	inChat(t, r, m, doing("list_providers", map[string]any{}))
-	if res := lastResult(t, r); strings.Contains(res.Text, "sk-new-9999") || strings.Contains(res.Text, "sk-secret-1234") {
-		t.Fatalf("a key was listed: %s", res.Text)
+	inChat(t, r, m, doing("read_provider", map[string]any{"id": p.ID}))
+	if res := lastResult(t, r); res.IsError || strings.Contains(res.Text, "sk-new-9999") || !strings.Contains(res.Text, `"keyHint":"9999"`) {
+		t.Fatalf("a key was shown: %s", res.Text)
 	}
 
 	inChat(t, r, m, doing("save_provider", map[string]any{"name": "沒 key", "kind": "compatible"}))
@@ -70,7 +70,7 @@ func TestAddingAProviderTakesEffectAtOnce(t *testing.T) {
 func TestChangingAProviderWaitsForTheUser(t *testing.T) {
 	r, m := manageRig(t)
 	p := providerNamed(r.world(), "p")
-	version := versionFrom(t, r, m, "list_providers", p.ID)
+	version := versionFrom(t, r, m, "read_provider", p.ID)
 	args := map[string]any{"id": p.ID, "version": version, "name": "改名", "api_key": "sk-changed-4321"}
 
 	c := inChat(t, r, m, doing("save_provider", args))
@@ -126,7 +126,7 @@ func TestChangingAProviderWaitsForTheUser(t *testing.T) {
 func TestANewAddressGetsTheStoredKeyOnlyOnceAgreed(t *testing.T) {
 	r, m := manageRig(t)
 	p := providerNamed(r.world(), "p")
-	version := versionFrom(t, r, m, "list_providers", p.ID)
+	version := versionFrom(t, r, m, "read_provider", p.ID)
 	args := map[string]any{"id": p.ID, "version": version, "base_url": "https://evil.test/v1"}
 	sentTo := func() []string {
 		var out []string
