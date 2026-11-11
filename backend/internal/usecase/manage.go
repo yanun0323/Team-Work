@@ -150,7 +150,7 @@ func (e *Engine) manageTools(m manager, allowed []enum.Tool, writing bool) []ada
 	}
 	if write && writing {
 		out = append(out,
-			funcTool{model.ToolSpec{Name: toolCreateTask, Description: createTaskDescription, Parameters: createTaskSchema(m)}, e.createTaskTool(m)},
+			funcTool{model.ToolSpec{Name: toolCreateTask, Description: createTaskDescription, Parameters: createTaskSchema(m.teamID == "")}, e.createTaskTool(m)},
 			funcTool{model.ToolSpec{Name: toolUpdateTask, Description: "Change a task's title, description, who works its steps, or its owner. It takes effect at once: work under way keeps what it was told, later steps see the change.", Parameters: json.RawMessage(updateTaskSchema)}, e.updateTaskTool(m)},
 			funcTool{model.ToolSpec{Name: toolSaveBlueprint, Description: saveBlueprintDescription, Parameters: json.RawMessage(saveBlueprintSchema)}, e.saveBlueprintTool(m)},
 			funcTool{model.ToolSpec{Name: toolSaveWorkflow, Description: saveWorkflowDescription, Parameters: json.RawMessage(saveWorkflowSchema)}, e.saveWorkflowTool(m)},
@@ -357,9 +357,10 @@ const createTaskDescription = "Create a task, with no confirmation. It waits in 
 
 const staffProperty = `"staff":{"type":"object","description":"Step id to the ids of the employees who work it","additionalProperties":{"type":"array","items":{"type":"string"}}}`
 
-func createTaskSchema(m manager) json.RawMessage {
+// createTaskSchema is create_task's arguments; anyCompany asks which company too, for the airport's staff.
+func createTaskSchema(anyCompany bool) json.RawMessage {
 	team, required := "", `"title"`
-	if m.teamID == "" {
+	if anyCompany {
 		team, required = `"team_id":{"type":"string","description":"The company, from list_companies"},`, `"title","team_id"`
 	}
 	return json.RawMessage(`{"type":"object","properties":{` + team +
@@ -382,17 +383,20 @@ func (e *Engine) act(m manager, settings bool, fn func() error) error {
 	})
 }
 
+// taskArgs are what create_task takes.
+type taskArgs struct {
+	TeamID      string              `json:"team_id"`
+	Title       string              `json:"title"`
+	Description string              `json:"description"`
+	WorkflowID  string              `json:"workflow_id"`
+	Workflow    *workflowArgs       `json:"workflow"`
+	Staff       map[string][]string `json:"staff"`
+	OwnerID     *string             `json:"owner_id"`
+}
+
 func (e *Engine) createTaskTool(m manager) func(context.Context, string, json.RawMessage) model.ToolResult {
 	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
-		var a struct {
-			TeamID      string              `json:"team_id"`
-			Title       string              `json:"title"`
-			Description string              `json:"description"`
-			WorkflowID  string              `json:"workflow_id"`
-			Workflow    *workflowArgs       `json:"workflow"`
-			Staff       map[string][]string `json:"staff"`
-			OwnerID     *string             `json:"owner_id"`
-		}
+		var a taskArgs
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return toolError("invalid arguments: %v", err)
 		}
@@ -411,32 +415,8 @@ func (e *Engine) createTaskTool(m manager) func(context.Context, string, json.Ra
 		var made *model.Task
 		var refused string
 		err := e.act(m, false, func() error {
-			origin := m.origin()
-			if origin.Depth > maxTaskDepth {
-				refused = fmt.Sprintf("refused: this would be %d tasks in a row made by employees, and the limit is %d. Leave it to the user", origin.Depth, maxTaskDepth)
-				return nil
-			}
-			in := NewTask{TeamID: teamID, Title: a.Title, Description: a.Description, WorkflowID: a.WorkflowID, Staff: a.Staff, OwnerID: a.OwnerID, Origin: &origin}
-			wf, label := e.w.Workflows[a.WorkflowID], a.WorkflowID
-			if a.Workflow != nil {
-				flow := *a.Workflow
-				flow.ID, flow.Version = "", ""
-				if flow.Name == nil || strings.TrimSpace(*flow.Name) == "" {
-					flow.Name = ptr(a.Title)
-				}
-				built, err := e.buildFlow(flow, nil)
-				if err != nil {
-					return err
-				}
-				wf, label, in.Workflow = built, "workflow", built
-			} else if e.workflowHidden(a.WorkflowID) { // a hidden flow is one employees do not know of
-				return model.Errorf(model.CodeNotFound, "找不到任務藍圖")
-			}
-			if refused = e.staffProblem(teamID, wf, label, a.Staff, a.OwnerID); refused != "" {
-				return nil
-			}
 			var err error
-			made, err = e.createTask(in)
+			made, refused, err = e.makeTask(teamID, a, m.origin())
 			return err
 		})
 		if err != nil {
@@ -445,8 +425,42 @@ func (e *Engine) createTaskTool(m manager) func(context.Context, string, json.Ra
 		if refused != "" {
 			return toolError("%s", refused)
 		}
-		return model.ToolResult{Text: fmt.Sprintf("created task #%d, id %s; it waits in to-do until the user starts it", made.Number, made.ID)}
+		return model.ToolResult{Text: madeTask(made)}
 	}
+}
+
+// madeTask is what the model is told of a task it created.
+func madeTask(t *model.Task) string {
+	return fmt.Sprintf("created task #%d, id %s; it waits in to-do until the user starts it", t.Number, t.ID)
+}
+
+// makeTask creates a task in a company from create_task's arguments. refused is what the model is told when the
+// task is not made for a reason of its own making; err is anything else. Call it holding the lock.
+func (e *Engine) makeTask(teamID string, a taskArgs, origin model.TaskOrigin) (*model.Task, string, error) {
+	if origin.Depth > maxTaskDepth {
+		return nil, fmt.Sprintf("refused: this would be %d tasks in a row made by employees, and the limit is %d. Leave it to the user", origin.Depth, maxTaskDepth), nil
+	}
+	in := NewTask{TeamID: teamID, Title: a.Title, Description: a.Description, WorkflowID: a.WorkflowID, Staff: a.Staff, OwnerID: a.OwnerID, Origin: &origin}
+	wf, label := e.w.Workflows[a.WorkflowID], a.WorkflowID
+	if a.Workflow != nil {
+		flow := *a.Workflow
+		flow.ID, flow.Version = "", ""
+		if flow.Name == nil || strings.TrimSpace(*flow.Name) == "" {
+			flow.Name = ptr(a.Title)
+		}
+		built, err := e.buildFlow(flow, nil)
+		if err != nil {
+			return nil, "", err
+		}
+		wf, label, in.Workflow = built, "workflow", built
+	} else if e.workflowHidden(a.WorkflowID) { // a hidden flow is one employees do not know of
+		return nil, "", model.Errorf(model.CodeNotFound, "找不到任務藍圖")
+	}
+	if refused := e.staffProblem(teamID, wf, label, a.Staff, a.OwnerID); refused != "" {
+		return nil, refused, nil
+	}
+	made, err := e.createTask(in)
+	return made, "", err
 }
 
 // staffProblem says what is wrong with who a new task would have, for the model: staff for steps the flow does not

@@ -30,6 +30,9 @@ const (
 	optionPause     = "pauseTask"
 	optionStopped   = "confirmStopped"
 	optionRedo      = "redo"
+	// optionMerge and optionNotYet answer the card the owner gives when the user asks to merge.
+	optionMerge  = "merge"
+	optionNotYet = "notYet"
 )
 
 // stopWait is how long a stopped run may take to end before what it did is called uncertain.
@@ -315,6 +318,13 @@ func questionOf(t *model.Task, id string) *model.TaskQuestion {
 		}
 	}
 	return nil
+}
+
+// reopen takes a task waiting to be merged back to work: what was concluded has to be confirmed again, so a card to
+// merge it is gone.
+func reopen(t *model.Task) {
+	t.Stage = enum.StageRunning
+	t.Coordination.Questions = slices.DeleteFunc(slices.Clone(t.Coordination.Questions), func(q model.TaskQuestion) bool { return q.Kind == "merge" })
 }
 
 func dropQuestion(t *model.Task, id string) {
@@ -606,7 +616,7 @@ func (e *Engine) SayToOwner(id string, in TaskMessage) (MessageResult, error) {
 			return err
 		}
 		if t.Stage == enum.StageAwaitMerge { // what was concluded has to be confirmed again
-			t.Stage = enum.StageRunning
+			reopen(t)
 		}
 		t.Coordination.ControlVersion++
 		operation := e.newOperation(t, model.TaskOperation{Kind: "message", RequestID: in.RequestID})
@@ -763,7 +773,7 @@ func (e *Engine) controlReturn(t *model.Task, in TaskControl) (model.TaskOperati
 		return model.TaskOperation{}, model.Errorf(model.CodeConflict, "這一步現在不能退回")
 	}
 	if t.Stage == enum.StageAwaitMerge {
-		t.Stage = enum.StageRunning
+		reopen(t)
 	}
 	op := e.newOperation(t, model.TaskOperation{Kind: "return", RequestID: in.RequestID, Status: model.OpProcessing, SubID: s.ID})
 	affected := []string{}
@@ -915,6 +925,13 @@ func (e *Engine) controlAnswer(t *model.Task, in TaskControl) (model.TaskOperati
 	dropQuestion(t, question.ID)
 	t.Coordination.ControlVersion++
 	tell := "The user answered question " + question.ID + " (" + question.Prompt + "): " + text
+	if question.Kind == "merge" && in.OptionID == optionMerge {
+		// merging is the user's own press; the owner has nothing more to decide
+		if err := e.startMerge(t); err != nil {
+			return model.TaskOperation{}, err
+		}
+		return op, nil
+	}
 	switch {
 	case question.SubID != "" && question.Kind != "recovery":
 		s := e.w.SubTasks[question.SubID]

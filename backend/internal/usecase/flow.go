@@ -1228,35 +1228,40 @@ func (e *Engine) MergeTask(id string) error {
 		if err != nil {
 			return err
 		}
-		if t.Stage != enum.StageAwaitMerge {
-			return model.Errorf(model.CodeConflict, "這個任務現在不能合併")
-		}
-		if t.OwnerLed() {
-			if e.owner(t) == nil {
-				return model.Errorf(model.CodeInvalid, "要先選這個任務的負責人")
-			}
-			if e.runs[ownerKey(t.ID)] != nil {
-				return model.Errorf(model.CodeConflict, "負責人還在處理")
-			}
-			if why := e.unfinished(t, ""); why != "" {
-				return model.Errorf(model.CodeConflict, "%s", why)
-			}
-		}
-		by := t.OwnerID
-		if by == nil || e.w.Replicas[*by] == nil {
-			by = nil
-			if last := e.lastReview(t); last != nil {
-				by = last.ReplicaID
-			}
-		}
-		t.Stage = enum.StageMerging
-		var earlier []model.LogLine // of a merge that failed
-		if t.Merge != nil {
-			earlier = t.Merge.Log
-		}
-		t.Merge = &model.Merge{ReplicaID: by, Log: append(earlier, model.LogLine{At: e.w.Now, Kind: enum.LogHuman, Text: i18n.T("合併")})}
-		return nil
+		return e.startMerge(t)
 	})
+}
+
+// startMerge has a task waiting to be merged start merging. Call it holding the lock, inside a change.
+func (e *Engine) startMerge(t *model.Task) error {
+	if t.Stage != enum.StageAwaitMerge {
+		return model.Errorf(model.CodeConflict, "這個任務現在不能合併")
+	}
+	if t.OwnerLed() {
+		if e.owner(t) == nil {
+			return model.Errorf(model.CodeInvalid, "要先選這個任務的負責人")
+		}
+		if e.runs[ownerKey(t.ID)] != nil {
+			return model.Errorf(model.CodeConflict, "負責人還在處理")
+		}
+		if why := e.unfinished(t, ""); why != "" {
+			return model.Errorf(model.CodeConflict, "%s", why)
+		}
+	}
+	by := t.OwnerID
+	if by == nil || e.w.Replicas[*by] == nil {
+		by = nil
+		if last := e.lastReview(t); last != nil {
+			by = last.ReplicaID
+		}
+	}
+	t.Stage = enum.StageMerging
+	var earlier []model.LogLine // of a merge that failed
+	if t.Merge != nil {
+		earlier = t.Merge.Log
+	}
+	t.Merge = &model.Merge{ReplicaID: by, Log: append(earlier, model.LogLine{At: e.w.Now, Kind: enum.LogHuman, Text: i18n.T("合併")})}
+	return nil
 }
 
 // ReturnTask sends a task waiting to be merged back, with feedback: the steps before its last step (see lastReview)

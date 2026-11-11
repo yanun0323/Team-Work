@@ -32,6 +32,9 @@ type ownerRun struct {
 	// stale is set once the task moved on under the decision: what is left of it is not done, and its events wait for
 	// the next one.
 	stale bool
+	// completed is set once the decision reported the task done: that report is what the user reads, so the words the
+	// decision ends with are not posted again.
+	completed bool
 }
 
 // launchSaved starts what owner-led tasks have waiting, once what started it is saved: queued steps, and the owner
@@ -214,7 +217,11 @@ const ownerRules = "You are the owner of a task: you lead it for the user. Emplo
 	"Constraints and decisions that must hold for the rest of the task go in record_task_fact; the formal state at the start of every message is what holds, and read_task_history and read_step show the rest on demand. " +
 	"You are woken only by events: the user writing, handoffs, questions, failures, meetings ending and stops. When nothing more can be done until the next one, end your turn with a short message to the user about what happened and what is next; it goes into the task's conversation. " +
 	"In what the user reads (messages, reasons, questions, instructions), call employees by their names and steps by theirs, never by ids such as sub-12 or rep-3; ids are for tools. " +
-	"When the user pauses the task, only talk: do not dispatch until they resume. When every step that counts is done and accepted, call submit_complete; the user decides about merging.\n" +
+	"When the user pauses the task, only talk: do not dispatch until they resume. When every step that counts is done and accepted, call submit_complete; the user decides about merging. " +
+	"Its summary is your report to the user: end your turn after it without repeating it. " +
+	"You cannot merge yourself: when the user asks you to merge, call submit_complete with ask_merge, and they get a card that merges with one press. " +
+	"Work outside this task, such as a problem found on the way, can go into another task with create_task, but only when the user asked for it or agreed to your proposal; what this task needs goes into its plan instead. " +
+	"Never tell the user to do by hand what one of your tools does, and do not offer what no tool of yours does.\n" +
 	unseenThinkingRule
 
 // ownerBrief is what the owner reads first each time: the task's formal state, then what woke them.
@@ -457,7 +464,7 @@ func (e *Engine) runOwner(ctx context.Context, in *ownerRun) {
 				e.returnEvents(t, in.wake)
 				return
 			}
-			if text := strings.TrimSpace(res.Text); text != "" {
+			if text := strings.TrimSpace(res.Text); text != "" && !in.completed {
 				e.addActivity(t, model.TaskActivity{Kind: "message", From: "agent", Text: text, By: in.ownerID, Name: e.replicaName(in.ownerID)})
 			}
 			e.eventsHandled(t, in.wake)
@@ -715,8 +722,14 @@ func (e *Engine) ownerTools(in *ownerRun) []adapter.Tool {
 			"To change one, record the new one with supersedes; a constraint from the user changes only with a newer word from the user.",
 			`{"type":"object","properties":{"kind":{"type":"string","enum":["constraint","decision"]},"text":{"type":"string"},"source_activity_ids":{"type":"array","items":{"type":"string"}},"supersedes":{"type":"string"}},"required":["kind","text"]}`,
 			e.factTool(in)),
-		ownerTool("submit_complete", "Say the task is done: every step that counts is done and accepted, and nothing is open. The user then decides about merging.",
-			`{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"]}`, e.completeTool(in)),
+		ownerTool("submit_complete", "Say the task is done: every step that counts is done and accepted, and nothing is open. The user then decides about merging. "+
+			"summary is your report to the user. Set ask_merge when the user asked you to merge: they get a card that merges with one press.",
+			`{"type":"object","properties":{"summary":{"type":"string"},"ask_merge":{"type":"boolean"}},"required":["summary"]}`, e.completeTool(in)),
+		ownerTool(toolCreateTask, "Create another task in this company, for work outside this one, only when the user asked for it or agreed to your proposal. "+
+			"It waits in to-do until the user starts it, and its conversation is shown in this one. "+taskBranchRule+" "+
+			"owner_id is you when left out. Who works its steps is the user's decision: give staff only as they said. If steps have nobody, this fails and lists them; then ask the user with ask_user. "+
+			"For a flow this task alone needs, give it in workflow instead of workflow_id; its steps and edges follow a flow's rules.",
+			string(createTaskSchema(false)), e.ownerCreateTaskTool(in)),
 	}
 }
 
@@ -1418,6 +1431,7 @@ func (e *Engine) completeTool(in *ownerRun) func(context.Context, string, json.R
 	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
 		var a struct {
 			Summary string `json:"summary"`
+			Merge   bool   `json:"ask_merge"`
 		}
 		if err := parseArgs(raw, &a); err != nil {
 			return toolError("%s", safeText(err))
@@ -1433,10 +1447,50 @@ func (e *Engine) completeTool(in *ownerRun) func(context.Context, string, json.R
 				return "", model.Errorf(model.CodeConflict, "%s", why)
 			}
 			t.Stage = enum.StageAwaitMerge
-			e.addActivity(t, model.TaskActivity{Kind: "message", From: "agent", Text: strings.TrimSpace(a.Summary), By: in.ownerID, Name: e.replicaName(in.ownerID)})
+			said := e.addActivity(t, model.TaskActivity{Kind: "message", From: "agent", Text: strings.TrimSpace(a.Summary), By: in.ownerID, Name: e.replicaName(in.ownerID)})
 			e.systemEvent(t, "completed", i18n.T("負責人提交完成，等待使用者決定是否合併"), map[string]any{"owner": e.replicaName(in.ownerID)}, "")
+			in.completed = true
+			if a.Merge {
+				e.askUserQuestion(t, model.TaskQuestion{ActivityID: said.ID, Prompt: i18n.T("要合併這個任務嗎？"), Kind: "merge",
+					Options: []model.ReviewOption{{ID: optionMerge, Label: i18n.T("合併")}, {ID: optionNotYet, Label: i18n.T("先不要")}}})
+				return "the task waits for the user to merge; they have a card to merge with one press. End your turn without repeating your summary", nil
+			}
 			e.notice(Event{Type: "notice", Kind: "awaitMerge", TaskID: t.ID})
-			return "the task waits for the user to merge", nil
+			return "the task waits for the user to merge. End your turn without repeating your summary", nil
+		})
+	}
+}
+
+// ownerCreateTaskTool lets the owner create another task in the company, as an employee's create_task does. It waits
+// in to-do for the user, and a line in this task's conversation says so.
+func (e *Engine) ownerCreateTaskTool(in *ownerRun) func(context.Context, string, json.RawMessage) model.ToolResult {
+	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+		var a taskArgs
+		if err := parseArgs(raw, &a); err != nil {
+			return toolError("%s", safeText(err))
+		}
+		if (a.WorkflowID == "") == (a.Workflow == nil) {
+			return toolError("give either workflow_id, a saved flow, or workflow, a flow for this task alone")
+		}
+		if a.OwnerID == nil {
+			a.OwnerID = ptr(in.ownerID)
+		}
+		return e.ownerChange(in, func(t *model.Task) (string, error) {
+			name := e.replicaName(in.ownerID)
+			origin := model.TaskOrigin{Kind: "employee", ID: in.ownerID, Name: name, Depth: 1}
+			if t.Origin != nil {
+				origin.Depth += t.Origin.Depth
+			}
+			made, refused, err := e.makeTask(t.TeamID, a, origin)
+			if err != nil {
+				return "", err
+			}
+			if refused != "" {
+				return "", model.Errorf(model.CodeInvalid, "%s", refused)
+			}
+			e.systemEvent(t, "taskCreated", i18n.T("%s 開了任務 #%d「%s」", name, made.Number, made.Title),
+				map[string]any{"owner": name, "number": made.Number, "title": made.Title, "taskId": made.ID}, "")
+			return madeTask(made), nil
 		})
 	}
 }
@@ -1472,7 +1526,7 @@ func (e *Engine) unfinished(t *model.Task, wake string) string {
 			return i18n.T("計畫裡的「%s」還沒有被接受的成果；不做的話要先調整計畫", n.Name)
 		}
 	}
-	if len(t.Coordination.Questions) > 0 {
+	if slices.ContainsFunc(t.Coordination.Questions, func(q model.TaskQuestion) bool { return q.Kind != "merge" }) {
 		return i18n.T("還有問題沒有回答")
 	}
 	for _, ev := range e.logOf(t.ID).Events {
