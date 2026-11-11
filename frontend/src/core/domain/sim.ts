@@ -1549,8 +1549,11 @@ export function sayToOwner(w: World, taskId: string, m: OwnerMessage): { operati
   activity.operationId = op.id
   c.controlVersion++
   c.ownerState = 'queued'
-  // what the owner reported done has to be looked at again with this in mind
-  if (task.stage === 'awaitMerge') task.stage = 'running'
+  // what the owner reported done has to be looked at again with this in mind, so a card to merge it is gone
+  if (task.stage === 'awaitMerge') {
+    task.stage = 'running'
+    c.questions = c.questions.filter((q) => q.kind !== 'merge')
+  }
   return { operation: op, activity }
 }
 
@@ -1700,6 +1703,12 @@ export function controlOwnerTask(w: World, taskId: string, b: OwnerControl): { o
       }
       const op = operation(w, task, 'answer', b.requestId, { messageId: said.id })
       said.operationId = op.id
+      // merging is the user's own press: the owner has nothing more to decide
+      if (q.kind === 'merge' && option.id === 'merge') {
+        mergeTask(w, task.id)
+        settleOp(w, op, 'applied')
+        return { operation: op }
+      }
       c.ownerState = 'queued'
       return { operation: op }
     }

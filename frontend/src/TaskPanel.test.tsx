@@ -144,6 +144,19 @@ describe('its conversation', () => {
     expect(copies({ from: 'user', text: '' })).toBe(false)
   })
 
+  it('says the owner opened a task, which opens from that line while it is there', () => {
+    const other = Object.values(w.tasks).find((t) => t.id !== owned.id)!
+    const made = (taskId: string) => line({ seq: 1, kind: 'event', from: 'system', key: 'taskCreated', args: { owner: 'Mira', number: 12, title: '修 Esc', taskId }, text: 'raw' })
+    const shown = (taskId: string) => renderToStaticMarkup(<SaidContext.Provider value={{ task: noop }}>{feedOf([made(taskId)])}</SaidContext.Provider>)
+    const there = shown(other.id)
+    expect(there).toContain('Mira 開了任務 #12「修 Esc」')
+    expect(there).toContain('class="fx-ticket-event-open fx-hit"')
+    // one deleted since is only said
+    const gone = shown('task-gone')
+    expect(gone).toContain('Mira 開了任務 #12「修 Esc」')
+    expect(gone).not.toContain('fx-ticket-event-open')
+  })
+
   it('shows an event it does not know, or cannot fill in, as the backend wrote it', () => {
     expect(activityText(line({ kind: 'event', key: 'newKind', text: '新的事件' }))).toBe('新的事件')
     expect(activityText(line({ kind: 'event', key: 'dispatched', args: { node: 'x' }, text: '後端的句子' }))).toBe('後端的句子')

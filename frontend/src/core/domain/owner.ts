@@ -38,7 +38,8 @@ export function resumeBlock(t: Task, subs: SubTask[]): '' | 'owner' | 'stopping'
 export function mergeBlocked(t: Task, subs: SubTask[]) {
   const c = t.coordination
   if (!c) return false
-  return c.questions.length > 0 || c.ownerState === 'queued' || c.ownerState === 'responding'
+  // the card the owner gives to merge is what merges, not something in the way
+  return c.questions.some((q) => q.kind !== 'merge') || c.ownerState === 'queued' || c.ownerState === 'responding'
     || c.operations.some((o) => o.status === 'received' || o.status === 'processing' || o.status === 'uncertain')
     || subs.some((s) => currentRun(s) && (s.executionState === 'stopping' || s.executionState === 'uncertain' || s.validity === 'needsRevalidation'
       || s.status !== 'complete' || s.ownerReview === 'pending' || s.ownerReview === 'rejected'))

@@ -619,7 +619,7 @@ export interface TaskQuestion {
   activityId: string
   prompt: string
   options: ReviewOption[]
-  kind: 'question' | 'approval' | 'budget' | 'recovery'
+  kind: 'question' | 'approval' | 'budget' | 'recovery' | 'merge'
   audience: 'owner' | 'user'
   subId?: string
   planVersion: number

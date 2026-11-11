@@ -148,6 +148,26 @@ describe('a task its owner runs', () => {
     expect(() => controlOwnerTask(w, task.id, { requestId: 'a2', action: 'answer', questionId: 'q3', optionId: 'x', ...versions(task) })).toThrow(TaskRefusal)
   })
 
+  it('merges from the owner\'s card with the user\'s press, which writing again takes away', () => {
+    const { w, task } = setup()
+    controlOwnerTask(w, task.id, { requestId: 'r1', action: 'resume', ...versions(task) })
+    run(w, 40)
+    expect(task.stage).toBe('awaitMerge')
+    const card = () => ({ id: 'qm', activityId: 'a1', prompt: '要合併這個任務嗎？', options: [{ id: 'merge', label: '合併' }, { id: 'notYet', label: '先不要' }], kind: 'merge' as const, audience: 'user' as const, planVersion: 1, createdAt: 1 })
+    task.coordination!.questions.push(card())
+    // the card is what merges, not something in the way of merging
+    expect(mergeBlocked(task, subsOf(w, task.id))).toBe(false)
+    sayToOwner(w, task.id, { requestId: 'm1', text: '等等' })
+    expect(task.stage).toBe('running')
+    expect(userQuestions(task)).toEqual([])
+    run(w, 40)
+    expect(task.stage).toBe('awaitMerge')
+    task.coordination!.questions.push(card())
+    controlOwnerTask(w, task.id, { requestId: 'a1', action: 'answer', questionId: 'qm', optionId: 'merge', ...versions(task) })
+    expect(task.stage).toBe('merging')
+    expect(said(w, task.id).at(-1)).toMatchObject({ from: 'user', text: '合併', questionId: 'qm' })
+  })
+
   it('reads its conversation in pages, oldest first, and refuses a page of an older version', () => {
     const { w, task } = setup()
     for (let i = 0; i < 5; i++) sayToOwner(w, task.id, { requestId: `m${i}`, text: `m${i}` })

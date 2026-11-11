@@ -3,7 +3,7 @@
 // handoffs, questions and meetings show under their own names, and what the owner does shows as short lines. Every
 // action is followed from received to taken effect or failed.
 
-import { useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { colon, tr, trRecorded } from './core/i18n'
 import { ApiError } from './core/backend'
 import { shownUrl } from './core/island'
@@ -278,12 +278,17 @@ export function ActivityRow({ task, a, open, onStep, onImage, flash, op }: {
 }) {
   const cls = flash ? ' fx-d-flash' : ''
   const ids = useCrewIds(task)
+  const opens = useContext(SaidContext)
+  // a task the owner made opens from the line that says so, while it is there
+  const made = a.key === 'taskCreated' && typeof a.args?.taskId === 'string' ? a.args.taskId : ''
+  const madeThere = useStore((s) => !!made && !!s.world.tasks[made])
   if (a.kind === 'event') {
     const [head, ...more] = eventLines(a)
+    const line = <MarkdownLine text={head ?? ''} noLinks ids={ids} />
     return (
       <li className={`fx-ticket-event${cls}`} data-activity={a.id}>
         <span>
-          <MarkdownLine text={head ?? ''} noLinks ids={ids} />
+          {madeThere && opens.task ? <button type="button" className="fx-ticket-event-open fx-hit" onClick={() => opens.task!(made)}>{line}</button> : line}
           {more.map((m, i) => <span key={i} className="fx-ticket-event-more"><MarkdownLine text={m} noLinks ids={ids} /></span>)}
         </span>
         {a.subId && <StepTag task={task} a={a} open={open} onStep={onStep} />}
@@ -609,7 +614,7 @@ function Notices({ task, subs, onStep }: { task: Task; subs: SubTask[]; onStep: 
 }
 
 /** A task its owner runs, on its sheet. */
-export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copying, onCopy, onGoneTask, crew, onCrew, onFact, image, onImage, ...h }: Head & {
+export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copying, onCopy, onGoneTask, crew, onCrew, onFact, onTask, image, onImage, ...h }: Head & {
   id: string
   image: string | null
   onImage: (key: string, image: Attachment) => void
@@ -617,6 +622,8 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
   onCrew: (id: string) => void
   /** Opens a record the owner names by id. */
   onFact: (id: string) => void
+  /** Opens a task the owner made. */
+  onTask: (id: string) => void
   open: string | null
   onOpen: (subId: string) => void
   flowOpen: boolean
@@ -742,7 +749,7 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
         : controlOp.error?.message ?? OP_WORDS()[controlOp.status] }
       : null)
   return (
-    <SaidContext.Provider value={{ person: onCrew, canPerson: (x) => !!w.replicas[x], fact: onFact }}>
+    <SaidContext.Provider value={{ person: onCrew, canPerson: (x) => !!w.replicas[x], fact: onFact, task: onTask }}>
     <div className="fx-room fx-ticket">
       <div className="fx-tools">
         <EditTool onClick={onEdit} open={editing} />

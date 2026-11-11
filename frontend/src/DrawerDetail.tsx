@@ -166,6 +166,7 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               onEdit={() => onPush({ kind: 'taskEdit', id: item.id })} onGoneTask={onDone}
               copying={above?.kind === 'newTask'} onCopy={() => onPush({ kind: 'newTask', copyOf: item.id })}
               crew={above?.kind === 'crew' ? above.id : null} onCrew={(x) => onPush({ kind: 'crew', id: x })} onFact={(x) => onPush({ kind: 'fact', id: x })}
+              onTask={(x) => onPush({ kind: 'task', id: x })}
               image={above?.kind === 'image' ? above.key : null} onImage={(key, image) => onPush({ kind: 'image', key, image, task: item.id })} />
           )}
           {item.kind === 'image' && <ImageDetail item={item} title={title} tid={id} />}
@@ -317,7 +318,7 @@ function Bar({ value }: { value: number }) {
 }
 
 /** A task someone asked for. The sub-tasks the employees made for it are listed here and open on their own sheet. */
-function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copying, onCopy, onGoneTask, crew, onCrew, onFact, image, onImage, ...h }: Head & {
+function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copying, onCopy, onGoneTask, crew, onCrew, onFact, onTask, image, onImage, ...h }: Head & {
   id: string
   /** The picture open on the sheet above, by its key, and how to open one. */
   image: string | null
@@ -327,6 +328,8 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
   onCrew: (id: string) => void
   /** Opens a record its owner names by id. */
   onFact: (id: string) => void
+  /** Opens another task, one its owner made. */
+  onTask: (id: string) => void
   open: string | null
   onOpen: (subId: string) => void
   /** Whether its flow, spelled out step by step, is the sheet above. */
@@ -346,7 +349,7 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
   if (!task) return <Gone {...h} />
   if (isOwnerTask(task)) {
     return <OwnerTaskDetail id={id} open={open} onOpen={onOpen} flowOpen={flowOpen} onFlow={onFlow} editing={editing} onEdit={onEdit} copying={copying}
-      onCopy={onCopy} onGoneTask={onGoneTask} crew={crew} onCrew={onCrew} onFact={onFact} image={image} onImage={onImage} {...h} />
+      onCopy={onCopy} onGoneTask={onGoneTask} crew={crew} onCrew={onCrew} onFact={onFact} onTask={onTask} image={image} onImage={onImage} {...h} />
   }
   const canPause = task.stage === 'running'
   const remove = () => {

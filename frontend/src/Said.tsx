@@ -14,6 +14,8 @@ export interface SaidActions {
   canPerson?: (id: string) => boolean
   /** Opens a task's record by its id. */
   fact?: (id: string) => void
+  /** Opens a task by its id. */
+  task?: (id: string) => void
   file?: (path: string) => void
   folder?: (path: string) => void
   skill?: (name: string) => void

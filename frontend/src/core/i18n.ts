@@ -956,6 +956,7 @@ const RECORDED: Record<string, Record<Locale, string>> = {
   'task.decisionRecorded': { zh: '記下決定：{text}', en: 'Decision kept: {text}', 'zh-Hans': '记下决定：{text}', ja: '決定として記録：{text}', ko: '결정으로 기록: {text}' },
   'task.stepFailed': { zh: '「{step}」重試後仍失敗：{error}', en: '"{step}" still failed after retrying: {error}', 'zh-Hans': '“{step}”重试后仍失败：{error}', ja: '「{step}」は再試行しても失敗しました：{error}', ko: '"{step}"이(가) 다시 시도해도 실패: {error}' },
   'task.ownerFailed': { zh: '負責人處理失敗：{error}', en: 'The owner could not go on: {error}', 'zh-Hans': '负责人处理失败：{error}', ja: '責任者の処理に失敗しました：{error}', ko: '책임자 처리 실패: {error}' },
+  'task.taskCreated': { zh: '{owner} 開了任務 #{number}「{title}」', en: '{owner} opened task #{number} "{title}"', 'zh-Hans': '{owner} 开了任务 #{number}“{title}”', ja: '{owner} がタスク #{number}「{title}」を作成しました', ko: '{owner}이(가) 작업 #{number} "{title}"을(를) 만들었습니다' },
   'task.staffAllowed': { zh: '使用者同意加入員工', en: 'You let more employees join', 'zh-Hans': '用户同意加入员工', ja: '社員の追加に同意しました', ko: '직원 추가에 동의함' },
   'task.editedByUser': { zh: '使用者修改了任務', en: 'You edited the task', 'zh-Hans': '用户修改了任务', ja: 'タスクを編集しました', ko: '작업을 수정함' },
   'task.blocked.budget': { zh: '費用達到上限，已停止這個任務的工作', en: 'The cost limit was reached; work on this task stopped', 'zh-Hans': '费用达到上限，已停止这个任务的工作', ja: '費用が上限に達したため、このタスクの作業を止めました', ko: '비용이 한도에 도달해 이 작업을 멈췄습니다' },
