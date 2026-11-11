@@ -84,44 +84,112 @@ it('does not rerender world subscribers on idle ticks, but still delivers patche
   expect(liveRender).toHaveBeenLastCalledWith('')
 })
 
-it('keeps what a meeting is saying while another step\'s event arrives, and lets it go once the words are a line of the meeting', async () => {
+// The backend's own order (usecase/owner_meeting.go): a turn starts with a patch naming its speaker, then each call
+// at the model opens with deltaReset and streams deltas. The user's words in the meeting bump its revision and add a
+// line to the task while the speaker goes on; an accepted answer clears the speaker in the patch that saves it, before
+// the next turn names one again. Only those last signs say what was being written is done.
+function meetingWorld() {
   vi.stubGlobal('window', globalThis)
   vi.stubGlobal('requestAnimationFrame', (f: FrameRequestCallback) => { queueMicrotask(() => f(0)); return 1 })
   const world = seedWorld()
   const task = Object.values(world.tasks).find((t) => t.coordination?.activeMeetingId)!
   const id = task.coordination!.activeMeetingId!
   const meeting = world.subTasks[id].meeting!
+  const bob = meeting.participants.find((p) => p.replicaId !== meeting.chairId)!.replicaId
   useStore.setState({ world, loaded: true })
-  const settle = () => new Promise((r) => setTimeout(r, 0))
-  // the chair takes the floor and starts writing
-  meeting.speakerId = meeting.chairId
-  useStore.getState().receive({ type: 'patch', upserts: [{ kind: 'subTask', id, data: structuredClone(world.subTasks[id]) }] })
-  useStore.getState().receive({ type: 'delta', subId: id, text: '我正在寫' })
-  await settle()
-  expect(useLive.getState().texts[id]).toBe('我正在寫')
-  // another step goes on meanwhile: its line is no reason to drop what the chair is saying
-  const busy = structuredClone(task)
-  busy.coordination!.history = { version: '99', count: task.coordination!.history.count + 1 }
-  useStore.getState().receive({ type: 'patch', upserts: [{ kind: 'task', id: task.id, data: busy }] })
-  await settle()
-  expect(useLive.getState().texts[id]).toBe('我正在寫')
-  // the floor changes hands, and what was being written became a line of the meeting
-  const said = structuredClone(useStore.getState().world.subTasks[id])
-  said.meeting!.speakerId = ''
-  said.meeting!.revision++
-  useStore.getState().receive({ type: 'patch', upserts: [{ kind: 'subTask', id, data: said }] })
-  await settle()
-  expect(useLive.getState().texts[id]).toBeUndefined()
+  const receive = useStore.getState().receive
+  const run = (change: (m: NonNullable<typeof meeting>) => void) => {
+    const s = structuredClone(useStore.getState().world.subTasks[id])
+    change(s.meeting!)
+    s.meeting!.revision++
+    receive({ type: 'patch', upserts: [{ kind: 'subTask', id, data: s }] })
+  }
+  const line = (withRun?: (m: NonNullable<typeof meeting>) => void) => {
+    const t = structuredClone(useStore.getState().world.tasks[task.id])
+    t.coordination!.history = { version: String(Math.random()), count: t.coordination!.history.count + 1 }
+    const upserts: { kind: 'task' | 'subTask'; id: string; data: unknown }[] = [{ kind: 'task', id: task.id, data: t }]
+    if (withRun) {
+      const s = structuredClone(useStore.getState().world.subTasks[id])
+      withRun(s.meeting!)
+      s.meeting!.revision++
+      upserts.push({ kind: 'subTask', id, data: s })
+    }
+    receive({ type: 'patch', upserts } as Parameters<typeof receive>[0])
+  }
+  const live = () => useLive.getState().texts[id]
+  const say = async (text: string) => {
+    receive({ type: 'delta', subId: id, text })
+    await new Promise((r) => setTimeout(r, 0))
+  }
+  const reset = () => receive({ type: 'deltaReset', subId: id })
+  run((m) => { m.state = 'open'; m.speakerId = meeting.chairId })
+  reset()
+  return { id, task, chair: meeting.chairId, bob, run, line, live, say, reset }
+}
 
-  // and again when the same one goes on, its words saved: the run's revision says so
-  useStore.getState().receive({ type: 'delta', subId: id, text: '我再補一句' })
-  await settle()
-  expect(useLive.getState().texts[id]).toBe('我再補一句')
-  const more = structuredClone(useStore.getState().world.subTasks[id])
-  more.meeting!.revision++
-  useStore.getState().receive({ type: 'patch', upserts: [{ kind: 'subTask', id, data: more }] })
-  await settle()
-  expect(useLive.getState().texts[id]).toBeUndefined()
+it('keeps what a meeting speaker is writing when the user speaks up in the meeting, and goes on after it', async () => {
+  const m = meetingWorld()
+  await m.say('回答前半段')
+  expect(m.live()).toBe('回答前半段')
+  // another step goes on meanwhile
+  m.line()
+  expect(m.live()).toBe('回答前半段')
+  // the user writes in the meeting: a line, a new revision, the same speaker still speaking
+  m.line(() => {})
+  expect(m.live()).toBe('回答前半段')
+  await m.say('回答後半段')
+  expect(m.live()).toBe('回答前半段回答後半段')
+})
+
+it('keeps a speaker\'s words across a tool round until its call starts over', async () => {
+  const m = meetingWorld()
+  await m.say('先看檔案')
+  // the next call at the model is counted (a new revision) and then starts over with deltaReset
+  m.run((x) => { x.callsTotal++; x.callsInBatch++ })
+  expect(m.live()).toBe('先看檔案')
+  m.reset()
+  expect(m.live()).toBeUndefined()
+  await m.say('看完了')
+  expect(m.live()).toBe('看完了')
+})
+
+it('lets a meeting speaker\'s words go once they are an answer, the same one goes on, or another speaks', async () => {
+  const m = meetingWorld()
+  await m.say('第一段')
+  // the answer is saved: a line, and no one speaking until the next turn
+  m.line((x) => { x.speakerId = undefined })
+  expect(m.live()).toBeUndefined()
+
+  // the same one speaks again
+  m.run((x) => { x.speakerId = m.chair })
+  m.reset()
+  await m.say('同一人再說')
+  expect(m.live()).toBe('同一人再說')
+  m.line((x) => { x.speakerId = undefined })
+  expect(m.live()).toBeUndefined()
+
+  // the floor passes straight to another
+  m.run((x) => { x.speakerId = m.chair })
+  await m.say('主持人的話')
+  m.run((x) => { x.speakerId = m.bob })
+  expect(m.live()).toBeUndefined()
+
+  // a try at the model starts over
+  await m.say('重來前')
+  m.reset()
+  expect(m.live()).toBeUndefined()
+})
+
+it('lets a meeting speaker\'s words go when the meeting stops or ends under them', async () => {
+  const m = meetingWorld()
+  await m.say('說到一半')
+  m.run((x) => { x.state = 'paused'; x.pauseReason = 'limit' })
+  expect(m.live()).toBeUndefined()
+
+  m.run((x) => { x.state = 'closing'; x.pauseReason = undefined; x.speakerId = m.chair })
+  await m.say('結論寫到一半')
+  m.line((x) => { x.state = 'ended'; x.speakerId = undefined; x.summary = '結論' })
+  expect(m.live()).toBeUndefined()
 })
 
 it('clears what a meeting was saying when the meeting ends under it', async () => {

@@ -129,21 +129,21 @@ export const useStore = create<State>()(
             const before = (ev.upserts ?? []).map((p) => [p.id, said(p.id)] as const)
             // an owner's words stream under owner:<task id> until they are a line of the task's conversation
             const owned = (id: string) => s.world.tasks[id]?.coordination?.history.count ?? 0
-            // a meeting's words stream under its run's id, and the run's own document says when the meeting moved on: its
-            // revision grows as a turn starts and as the words are saved, so what was being written is a line. Other steps
-            // going on meanwhile change neither, and are no reason to drop what is being said
+            // a meeting's words stream under its run's id. The backend clears the speaker in the patch that saves their
+            // words, and stops or ends the meeting in the patch that drops them; each try at the model opens with
+            // deltaReset. The revision alone says nothing: the user's words and each call bump it while one speaks on
             const owners = (ev.upserts ?? []).filter((p) => p.kind === 'task').map((p) => [p.id, owned(p.id), s.world.tasks[p.id]?.coordination?.activeMeetingId] as const)
             const meetings = (ev.upserts ?? []).filter((p) => p.kind === 'subTask' && s.world.subTasks[p.id]?.meeting)
-              .map((p) => [p.id, s.world.subTasks[p.id].meeting!.revision] as const)
+              .map((p) => [p.id, s.world.subTasks[p.id].meeting!.speakerId, s.world.subTasks[p.id].meeting!.state] as const)
             applyPatches(s.world, ev, (kind, id) => kind === 'team' && editing(id))
             for (const [id, n] of before) if (said(id) > n) clearLive(id)
             for (const [id, n, meeting] of owners) {
               if (owned(id) > n) clearLive(`owner:${id}`)
               if (meeting && s.world.tasks[id]?.coordination?.activeMeetingId !== meeting) clearLive(meeting)
             }
-            for (const [id, revision] of meetings) {
-              const moved = s.world.subTasks[id]?.meeting
-              if (!moved || moved.revision !== revision) clearLive(id)
+            for (const [id, speaker, state] of meetings) {
+              const now = s.world.subTasks[id]?.meeting
+              if (!now || now.state !== state || (speaker && now.speakerId !== speaker)) clearLive(id)
             }
             if (!s.teamId) {
               const first = Object.values(s.world.teams).sort((a, b) => a.createdAt - b.createdAt)[0]
