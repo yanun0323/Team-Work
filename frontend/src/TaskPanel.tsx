@@ -55,14 +55,22 @@ export function eventLines(a: TaskActivity): string[] {
 export const activityText = (a: TaskActivity) => eventLines(a)[0] ?? ''
 
 /**
- * What the ids the owner writes name in a task: one of its runs, by who works it, and an employee, here or gone. A run
- * of another task, or a word that only looks like an id, is not one.
+ * What the ids the owner writes name in a task: a run, by who works it, and an employee, here or gone; and a record, of
+ * this task or another. A run or record of another task says which; one written as the backend writes ids that no task
+ * has is gone. A word that only looks like an id is not one.
  */
 export function crewIds(w: World, task: Task): IdLookup {
+  const taskOf = (id: string) => (id === task.id || !w.tasks[id] ? undefined : `#${w.tasks[id].number} ${w.tasks[id].title}`)
   return (word) => {
     const s = w.subTasks[word]
-    if (s) return s.taskId === task.id ? { id: s.replicaId ?? undefined, step: stepName(task, s.nodeId) } : null
-    return w.replicas[word] || /^rep-\d+$/.test(word) ? { id: word } : null
+    if (s) return { kind: 'crew', id: s.replicaId ?? undefined, step: w.tasks[s.taskId] ? stepName(w.tasks[s.taskId], s.nodeId) : undefined, task: taskOf(s.taskId) }
+    if (/^sub-\d+$/.test(word)) return { kind: 'crew' }
+    if (w.replicas[word] || /^rep-\d+$/.test(word)) return { kind: 'crew', id: word }
+    for (const t of [task, ...Object.values(w.tasks)]) {
+      const f = t.coordination?.facts.find((x) => x.id === word)
+      if (f) return { kind: 'fact', fact: { kind: f.kind, text: f.text }, task: taskOf(t.id) }
+    }
+    return /^fact-\d+$/.test(word) ? { kind: 'fact' } : null
   }
 }
 

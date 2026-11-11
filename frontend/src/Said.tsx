@@ -2,8 +2,8 @@
 // a file opens to read and a folder in Finder. Files and folders show an outline of one in place of their "#". What a
 // mention can open comes from the sheet the text is on; where it opens nothing, it is drawn the same but stays text.
 
-import { createContext, useContext } from 'react'
-import { tr } from './core/i18n'
+import { createContext, useContext, useId, useRef, type ToggleEvent } from 'react'
+import { colon, tr } from './core/i18n'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { ID_WORD, type IdLookup, type SaidPart } from './mentions'
@@ -34,32 +34,85 @@ const FolderOutline = () => (
 /** How one gone is shown where an id named them: faint, with the step their run was of. */
 export const goneCrew = (step?: string) => (step ? tr('已刪除的員工（{step}）', { step }) : tr('已刪除的員工'))
 
-/** The words for one an id named who is not here: gone, or for a run nobody works yet, its step. */
-const absent = ({ id, step }: { id?: string; step?: string }) => (id || !step ? goneCrew(step) : step)
+/**
+ * The words for one an id named who is not here: gone, or for a run nobody works yet, its step; or for a run no task
+ * has, that it is gone.
+ */
+const absent = ({ id, step }: { id?: string; step?: string }) => (id ? goneCrew(step) : step || tr('已移除的步驟'))
+
+const FACT_KIND = { decision: '決策', constraint: '限制' } as const
+
+/** A record in a few words: its kind and how it starts. */
+const factWords = ({ kind, text }: NonNullable<SaidPart['fact']>) => {
+  const chars = Array.from(text.replace(/\s+/g, ' ').trim())
+  return `${tr(FACT_KIND[kind])}${colon()}${chars.length > 12 ? `${chars.slice(0, 12).join('')}…` : chars.join('')}`
+}
 
 /** A text with the ids `ids` knows written as names, for where only words go, as a label. */
 export function idsAsNames(text: string, ids: IdLookup, replicas: Record<string, { name: string }>) {
   return text.replace(ID_WORD, (word) => {
     const named = ids(word)
     if (!named) return word
+    if (named.kind === 'fact') return named.fact ? factWords(named.fact) : tr('已移除的紀錄')
     return (named.id && replicas[named.id]?.name) || absent(named)
   })
 }
 
-/** An employee named by an id: their face and name, opening them; faint words when they are gone. */
-function CrewChip({ id, step }: { id?: string; step?: string }) {
+/** An employee named by an id: their face and name, opening them, with another task's on hover; faint words when they are gone. */
+function CrewChip({ id, step, task }: { id?: string; step?: string; task?: string }) {
   const act = useContext(SaidContext)
   const r = useStore((s) => (id ? s.world.replicas[id] : undefined))
-  if (!r) return <span className="fx-said-gone">{absent({ id, step })}</span>
+  const title = task && (step ? `${task} · ${step}` : task)
+  if (!r) return <span className="fx-said-gone" title={title}>{absent({ id, step })}</span>
   const body = <><PixelFace look={r.look} name={r.name} size={14} />{r.name}</>
   return act.person && (act.canPerson?.(r.id) ?? true)
-    ? <button type="button" className="fx-said fx-said-crew fx-hit" onClick={() => act.person!(r.id)}>{body}</button>
-    : <span className="fx-said fx-said-crew">{body}</span>
+    ? <button type="button" className="fx-said fx-said-crew fx-hit" title={title} onClick={() => act.person!(r.id)}>{body}</button>
+    : <span className="fx-said fx-said-crew" title={title}>{body}</span>
+}
+
+/**
+ * A record named by its id: its kind and first words, opening to the whole of it and, for another task's, whose it is.
+ * The slip floats over the page, out of reach of the sheet's scrolling and tilt, and closes when what is under it scrolls.
+ */
+function FactChip({ fact, task }: { fact?: SaidPart['fact']; task?: string }) {
+  const slip = useId()
+  const button = useRef<HTMLButtonElement>(null)
+  if (!fact) return <span className="fx-said-gone">{tr('已移除的紀錄')}</span>
+  const place = (e: ToggleEvent<HTMLSpanElement>) => {
+    const at = button.current?.getBoundingClientRect()
+    if (e.newState !== 'open' || !at) return
+    const s = e.currentTarget.style, gap = 6, edge = 8
+    const up = window.innerHeight - at.bottom < 180 && at.top > window.innerHeight - at.bottom
+    s.top = up ? 'auto' : `${at.bottom + gap}px`
+    s.bottom = up ? `${window.innerHeight - at.top + gap}px` : 'auto'
+    s.left = `${Math.max(edge, Math.min(at.left, window.innerWidth - 320 - edge))}px`
+  }
+  const watch = (e: ToggleEvent<HTMLSpanElement>) => {
+    const el = e.currentTarget
+    if (e.newState !== 'open') return
+    const moved = (m: Event) => {
+      if (el.contains(m.target as Node)) return
+      document.removeEventListener('scroll', moved, true)
+      el.hidePopover()
+    }
+    document.addEventListener('scroll', moved, true)
+    el.addEventListener('toggle', () => document.removeEventListener('scroll', moved, true), { once: true })
+  }
+  return (
+    <>
+      <button ref={button} type="button" className="fx-said fx-said-fact fx-hit" popoverTarget={slip}>{factWords(fact)}</button>
+      <span id={slip} popover="auto" className="fx-slip fx-said-slip" onBeforeToggle={place} onToggle={watch}>
+        <b>{tr(FACT_KIND[fact.kind])}</b>{task && <span className="fx-said-slip-task">{task}</span>}
+        <span className="fx-said-slip-text">{fact.text}</span>
+      </span>
+    </>
+  )
 }
 
 /** One mention, as `saidParts` found it. */
 export function SaidChip({ part }: { part: SaidPart }) {
-  if (part.kind === 'crew') return <CrewChip id={part.id} step={part.step} />
+  if (part.kind === 'crew') return <CrewChip id={part.id} step={part.step} task={part.task} />
+  if (part.kind === 'fact') return <FactChip fact={part.fact} task={part.task} />
   return <Mentioned part={part} />
 }
 

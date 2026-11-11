@@ -107,12 +107,19 @@ function peopleAt(text: string, people: Person[]) {
 
 export interface SaidPart {
   text: string
-  /** A mention by its sign, or `crew`: an employee or a run named by its id, as a task's owner writes them. */
-  kind?: Mention['kind'] | 'crew'
+  /**
+   * A mention by its sign; `crew`, an employee or a run named by its id, and `fact`, a task's record named by its id,
+   * as a task's owner writes them.
+   */
+  kind?: Mention['kind'] | 'crew' | 'fact'
   /** Who "@" or an id names; none for a run nobody works yet. */
   id?: string
   /** The step a run named by its id is of. */
   step?: string
+  /** The task, as "#3 title", a run or record of another task is of. */
+  task?: string
+  /** The record a `fact` names; none when no task keeps it. */
+  fact?: { kind: 'constraint' | 'decision'; text: string }
   /** What "#" names, unquoted and without the sign, and whether it is a folder: one written with a "/" at its end. */
   path?: string
   dir?: boolean
@@ -121,13 +128,14 @@ export interface SaidPart {
 }
 
 /**
- * What an id a task's owner wrote names: the employee, who may be gone (none for a run nobody works yet), and for a
- * run, its step; null for an id it does not know, which stays as written.
+ * What an id a task's owner wrote names: an employee, who may be gone (none for a run nobody works yet), and for a
+ * run, its step, or nothing at all for a run no task has; or a record, none when no task keeps it. A run or record of
+ * another task says which. Null for an id it does not know, which stays as written.
  */
-export type IdLookup = (word: string) => { id?: string; step?: string } | null
+export type IdLookup = (word: string) => Pick<SaidPart, 'id' | 'step' | 'task' | 'fact'> & { kind: 'crew' | 'fact' } | null
 
-/** A run's or an employee's id: "sub-12" and "rep-3" as the backend writes them, not inside a longer word or path. */
-export const ID_WORD = /(?<![\w./-])(?:sub|rep)-?\d+(?![\w-])/g
+/** A run's, an employee's or a record's id: "sub-12", "rep-3", "fact-7" as the backend writes them, not inside a longer word or path. */
+export const ID_WORD = /(?<![\w./-])(?:sub|rep|fact)-?\d+(?![\w-])/g
 
 /** What a "#" word names: its path, out of any quotes, and whether it ends with "/". */
 function pathOf(word: string) {
@@ -145,13 +153,13 @@ function pathOf(word: string) {
  * letter only.
  */
 export function saidParts(text: string, people: Person[], signs: string = '@#$', ids?: IdLookup): SaidPart[] {
-  const found: { at: number; end: number; kind: NonNullable<SaidPart['kind']>; id?: string; step?: string }[] = signs.includes('@') ? peopleAt(text, people).map((x) => ({ ...x, kind: '@' as const })) : []
+  const found: ({ at: number; end: number; kind: NonNullable<SaidPart['kind']> } & Pick<SaidPart, 'id' | 'step' | 'task' | 'fact'>)[] = signs.includes('@') ? peopleAt(text, people).map((x) => ({ ...x, kind: '@' as const })) : []
   if (ids) {
     for (const m of text.matchAll(ID_WORD)) {
       const named = ids(m[0])
       const at = m.index, end = at + m[0].length
       if (!named || found.some((x) => at < x.end && end > x.at)) continue
-      found.push({ at, end, kind: 'crew', ...named })
+      found.push({ at, end, ...named })
     }
   }
   const words = [signs.includes('#') && /#(?:"(?:[^"\\\n]|\\.)*"|[^\s#"，。；：！？、（）「」]+)/g, signs.includes('$') && /\$[A-Za-z][\w.:-]*/g].filter((x): x is RegExp => !!x)
@@ -170,7 +178,7 @@ export function saidParts(text: string, people: Person[], signs: string = '@#$',
   for (const x of found) {
     if (x.at > from) out.push({ text: text.slice(from, x.at) })
     const word = text.slice(x.at, x.end)
-    out.push(x.kind === 'crew' ? { text: word, kind: x.kind, id: x.id, step: x.step }
+    out.push(x.kind === 'crew' || x.kind === 'fact' ? { text: word, kind: x.kind, id: x.id, step: x.step, task: x.task, fact: x.fact }
       : x.kind === '@' ? { text: word, kind: x.kind, id: x.id }
       : x.kind === '#' ? { text: word, kind: x.kind, ...pathOf(word) }
       : { text: word, kind: x.kind, skill: word.slice(1) })

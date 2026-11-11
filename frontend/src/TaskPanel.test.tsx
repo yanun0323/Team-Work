@@ -7,7 +7,7 @@ import { setAppLanguage } from './core/i18n'
 import { useStore } from './core/store'
 import { isOwnerTask } from './core/domain/owner'
 import { subsOf } from './core/domain/sim'
-import type { SubTask, Task, TaskActivity, TaskOperation, TaskQuestion } from './core/domain/types'
+import type { SubTask, Task, TaskActivity, TaskFact, TaskOperation, TaskQuestion } from './core/domain/types'
 
 const w = useStore.getState().world
 const owned = Object.values(w.tasks).find(isOwnerTask)!
@@ -296,11 +296,68 @@ describe('a run or an employee the owner names by id', () => {
     expect(html).not.toContain('<button')
   })
 
-  it('leaves alone what only looks like an id: another task\'s run, a record, a path', () => {
-    const other = { ...run('sub-698', kai.id), taskId: 'elsewhere' }
-    const html = drawn([other], () => feedOf([line({ seq: 1, text: '看 sub-698、fact-692 與 logs/sub-1.txt' })]))
-    expect(html).toContain('看 sub-698、fact-692 與 logs/sub-1.txt')
+  it('leaves alone what only looks like an id: a path, a longer word', () => {
+    const html = drawn([run('sub-1', kai.id)], () => feedOf([line({ seq: 1, text: '看 logs/sub-1.txt 與 sub-1x、fact-1a' })]))
+    expect(html).toContain('看 logs/sub-1.txt 與 sub-1x、fact-1a')
     expect(chip(html, kai.name)).toBe(false)
+  })
+
+  it('shows who works another task\'s run, with that task on hover', () => {
+    const elsewhere = Object.values(w.tasks).find((t) => t.id !== owned.id)!
+    const other: SubTask = { ...run('sub-698', kai.id), taskId: elsewhere.id }
+    const html = drawn([other], () => feedOf([line({ seq: 1, text: '看 sub-698 的交付' })]))
+    expect(html).not.toContain('sub-698')
+    expect(chip(html, kai.name)).toBe(true)
+    expect(html).toContain(`title="#${elsewhere.number} ${elsewhere.title}`)
+  })
+
+  it('says faintly that a run is gone when no task has it', () => {
+    const html = drawn([], () => feedOf([line({ seq: 1, text: '看 sub-99999 的交付' })]))
+    expect(html).toContain('<span class="fx-said-gone">已移除的步驟</span>')
+    expect(html).not.toContain('sub-99999')
+    expect(html).not.toContain('<button')
+  })
+
+  /** With these records kept in a task for a moment, what is drawn. */
+  const withFacts = (task: Task, facts: TaskFact[], node: () => React.ReactNode) => {
+    const c = task.coordination ?? (task.coordination = { ...owned.coordination!, facts: [] })
+    const was = c.facts
+    c.facts = [...was, ...facts]
+    try {
+      return drawn([], node)
+    } finally {
+      c.facts = was
+    }
+  }
+  const decided: TaskFact = { id: 'fact-692', kind: 'decision', text: '文件拆成三份：架構、API 參考與開發指南，各自獨立成檔', sourceActivityIds: [] }
+
+  it('shows a decision the owner names by id by its kind and opening words, opening to the whole of it', () => {
+    const html = withFacts(owned, [decided], () => feedOf([line({ seq: 1, text: '依 fact-692 撰寫。' })]))
+    expect(html).not.toContain('fact-692')
+    const button = html.match(/<button[^>]*fx-said-fact[^>]*>.*?<\/button>/s)?.[0] ?? ''
+    expect(button).toContain('決策')
+    expect(button).toContain('文件拆成三份')
+    expect(button).not.toContain('各自獨立成檔')
+    // the whole of it, with its kind, in what the button opens
+    expect(html).toMatch(/popover="auto"[^>]*>.*決策.*文件拆成三份：架構、API 參考與開發指南，各自獨立成檔/s)
+    expect(withFacts(owned, [{ ...decided, kind: 'constraint' }], () => feedOf([line({ seq: 1, text: 'fact-692' })]))).toMatch(/<button[^>]*fx-said-fact[^>]*>.*限制/s)
+  })
+
+  it('shows another task\'s decision, saying whose it is when opened', () => {
+    const elsewhere = Object.values(w.tasks).find((t) => t.id !== owned.id)!
+    const html = withFacts(elsewhere, [decided], () => feedOf([line({ seq: 1, text: '沿用 fact-692。' })]))
+    expect(html).not.toContain('fact-692')
+    expect(html).toMatch(/<button[^>]*fx-said-fact/)
+    expect(html).toMatch(new RegExp(`popover="auto"[^>]*>.*#${elsewhere.number} ${elsewhere.title}`, 's'))
+  })
+
+  it('says faintly that a decision is gone when no task keeps it, in code too and read aloud', () => {
+    const html = drawn([], () => feedOf([line({ seq: 1, text: '依 fact-99999 與 `fact-99998` 撰寫' })]))
+    expect(html.match(/<span class="fx-said-gone">已移除的紀錄<\/span>/g)).toHaveLength(2)
+    expect(html).not.toMatch(/fact-9999/)
+    expect(html).not.toContain('<button')
+    const q: TaskQuestion = { id: 'q9', activityId: 'a9', prompt: '要照 fact-692 做嗎？', options: [{ id: 'approve' }], kind: 'approval', audience: 'user', planVersion: 1, createdAt: 0 }
+    expect(withFacts(owned, [decided], () => <QuestionCard task={owned} q={q} onJump={noop} onAnswer={noop} />)).toContain('aria-label="要照 決策：文件拆成三份')
   })
 
   it('shows who works a run named in code, keeping the rest code', () => {

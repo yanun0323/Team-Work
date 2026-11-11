@@ -1555,6 +1555,17 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 button.fx-said-crew:hover { background: rgb(31 95 168 / 0.12); }
 .fx-said-crew .pixel-face { flex: none; }
 .fx-said-gone { color: var(--muted); }
+/* a task's record the owner named by id: its kind and first words, opening to the whole of it */
+.fx-said-fact { background: none; }
+button.fx-said-fact:hover { background: rgb(31 95 168 / 0.12); }
+/* floating over the page, placed from the button by FactChip */
+.fx-said-slip:popover-open {
+  position: fixed; inset: auto; margin: 0; border: 0; display: grid; gap: 4px; width: max-content;
+  max-width: min(320px, calc(100vw - 16px)); padding: 10px 12px; font-size: 13.5px; line-height: 1.5; color: #1f1d2b;
+}
+.fx-said-slip b { font-weight: 600; }
+.fx-said-slip-task { font-size: 12px; color: var(--muted); }
+.fx-said-slip-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .fx-chat-msg time { flex: none; padding-bottom: 2px; font: 500 10.5px/1 var(--font-mono); color: var(--muted); }
 /* the employee writing back: three dots that light up in turn, and hop when motion is fine */
 .fx-chat-dots { display: inline-flex; align-items: center; gap: 5px; height: 1.55em; vertical-align: top; }
