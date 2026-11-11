@@ -16,7 +16,7 @@ export function changeAsk(c: PendingChange) {
 function fieldName(field: string) {
   switch (field) {
     case 'name': return tr('名稱')
-    case 'prompt': return 'Prompt'
+    case 'prompt': return tr('Prompt')
     case 'comment': return tr('備註')
     case 'tools': return tr('工具')
     case 'skills': return tr('技能')
@@ -28,8 +28,8 @@ function fieldName(field: string) {
     case 'node': return tr('步驟')
     case 'edge': return tr('連線')
     case 'condition': return tr('條件')
-    case 'baseUrl': return 'Base URL'
-    case 'apiKey': return 'API Key'
+    case 'baseUrl': return tr('Base URL')
+    case 'apiKey': return tr('API Key')
     case 'prices': return tr('價格')
     case 'models': return tr('模型')
     case 'blueprint': return tr('藍圖')

@@ -61,6 +61,15 @@ describe('a change card', () => {
     expect(renderToStaticMarkup(<ChangeLines change={change} />)).toContain('Comment')
   })
 
+  it('translates the English field names only where the language has its own word', () => {
+    const lines = { ...change, kind: 'provider' as const, lines: ['prompt', 'baseUrl', 'apiKey'].map((field) => ({ field, before: 'a', after: 'b' })) }
+    expect(renderToStaticMarkup(<ChangeLines change={lines} />)).toMatch(/Prompt.*Base URL.*API Key/)
+    setAppLanguage('ja')
+    expect(renderToStaticMarkup(<ChangeLines change={lines} />)).toMatch(/プロンプト.*ベース URL.*API キー/)
+    setAppLanguage('ko')
+    expect(renderToStaticMarkup(<ChangeLines change={lines} />)).toMatch(/프롬프트.*베이스 URL.*API 키/)
+  })
+
   it('marks the chat as waiting on the user', () => {
     expect(chatSign(chatWorld().chats.c)).toBe('question')
   })

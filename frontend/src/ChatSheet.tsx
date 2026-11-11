@@ -696,10 +696,10 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
         <ol className="fx-room-queue" aria-label={tr('排隊的訊息')}>
           {chat.queue.map((q) => (
             <li key={q.id}>
-              <span className="fx-room-queue-kind">{q.steer ? 'Steer' : 'Queue'}</span>
+              <span className="fx-room-queue-kind">{tr(q.steer ? '插話' : '排隊')}</span>
               <span className="fx-room-queue-text">{q.text || [...(q.images ?? []), ...(q.files ?? [])].map((f) => f.name).join(', ')}</span>
               {!q.steer && (
-                <button type="button" className="fx-tool fx-tool-text fx-hit" onClick={() => act((x) => steerChat(x, chat.id, q.id))}>Steer</button>
+                <button type="button" className="fx-tool fx-tool-text fx-hit" onClick={() => act((x) => steerChat(x, chat.id, q.id))}>{tr('插話')}</button>
               )}
               <button type="button" className="fx-chat-edit fx-hit" aria-label={tr('編輯排隊的訊息')} title={tr('編輯')} disabled={reading} onClick={() => unqueue(q)}>
                 <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">

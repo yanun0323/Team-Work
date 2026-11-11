@@ -194,14 +194,14 @@ export function UsageReport({ stats, providers }: { stats: UsageStats; providers
   return (
     <>
       <dl className="fx-stats-sum">
-        <div><dt>Token</dt><dd>{fmtCount(total.tokens)}</dd></div>
+        <div><dt>{tr('Token')}</dt><dd>{fmtCount(total.tokens)}</dd></div>
         <div><dt>{tr('費用')}</dt><dd>{fmtUsd(total)}</dd></div>
         <div><dt>{tr('快取命中率')}</dt><dd>{fmtCacheRate(total)}</dd></div>
       </dl>
       <DailyChart list={list} providers={stats.providers} colors={colors} shown={shown} onShow={setShown} />
       <table className="fx-stats-table" data-bar={shown !== null ? '' : undefined}>
         <thead>
-          <tr><th scope="col">{tr('供應商與模型')}</th><th scope="col">Token</th><th scope="col">{tr('佔比')}</th><th scope="col">{tr('快取命中率')}</th><th scope="col">{tr('費用')}</th></tr>
+          <tr><th scope="col">{tr('供應商與模型')}</th><th scope="col">{tr('Token')}</th><th scope="col">{tr('佔比')}</th><th scope="col">{tr('快取命中率')}</th><th scope="col">{tr('費用')}</th></tr>
         </thead>
         {rows.map((p) => (
           <tbody key={p.id}>

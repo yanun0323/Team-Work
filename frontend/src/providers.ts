@@ -33,4 +33,4 @@ export const makesImages = (p: { kind: ProviderKind; auth: { kind: string } }) =
 
 /** How a provider is signed in to, in words. */
 export const authLabel = (p: Pick<ModelProvider, 'kind' | 'auth'>) =>
-  p.auth.kind === 'subscription' ? tr('{a} 訂閱', { a: SUBSCRIPTIONS[p.kind] ?? '' }) : 'API Key'
+  p.auth.kind === 'subscription' ? tr('{a} 訂閱', { a: SUBSCRIPTIONS[p.kind] ?? '' }) : tr('API Key')

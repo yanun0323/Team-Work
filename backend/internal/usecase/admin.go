@@ -572,7 +572,7 @@ func checkProvider(p model.ModelProvider) error {
 	if p.BaseURL != "" {
 		u, err := url.Parse(p.BaseURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-			return model.Errorf(model.CodeInvalid, "API 位址要是不含帳密、查詢參數或 # 的 HTTP(S) 網址")
+			return model.Errorf(model.CodeInvalid, "Base URL 要是不含帳密、查詢參數或 # 的 HTTP(S) 網址")
 		}
 	}
 	if p.ContextWindow != 0 && (p.ContextWindow < model.ContextLeast || p.ContextWindow > model.ContextMost) {
