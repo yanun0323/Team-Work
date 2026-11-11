@@ -700,7 +700,8 @@ func readStream(ctx context.Context, body io.Reader, onText func(string), origin
 		}
 	}
 	if ctx.Err() != nil {
-		return model.ModelReply{}, ctx.Err()
+		// tokens a finished response used are still counted; none of its content may run
+		return model.ModelReply{Usage: reply.Usage}, ctx.Err()
 	}
 	if !finished {
 		return model.ModelReply{}, unavailable("ChatGPT 的回覆中斷了")

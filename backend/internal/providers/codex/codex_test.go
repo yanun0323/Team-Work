@@ -534,3 +534,43 @@ func TestFailedRepliesKeepTheirUsage(t *testing.T) {
 		}
 	}
 }
+
+// A response that finished before the call was canceled still used tokens, so they are kept;
+// nothing it asked for may run.
+func TestCanceledAfterFinishedResponseKeepsUsage(t *testing.T) {
+	for _, end := range []string{
+		`"type":"response.completed","response":{`,
+		`"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"},`,
+	} {
+		t.Run(end, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			body := &cancelAtEOF{Reader: strings.NewReader(
+				`data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"c1","name":"read","arguments":"{}"}}
+
+data: {` + end + `"usage":{"input_tokens":10,"output_tokens":5,"input_tokens_details":{"cached_tokens":4}}}}
+`), cancel: cancel}
+			reply, err := readStream(ctx, body, func(string) {}, reasoningOrigin("m"))
+			if err != context.Canceled || len(reply.Content) != 0 {
+				t.Fatalf("err=%v content=%+v", err, reply.Content)
+			}
+			if reply.Usage.Input != 10 || reply.Usage.Output != 5 || reply.Usage.CacheRead != 4 {
+				t.Fatalf("usage lost after terminal response: %+v", reply.Usage)
+			}
+		})
+	}
+}
+
+// cancelAtEOF cancels the call once the whole stream has been read.
+type cancelAtEOF struct {
+	*strings.Reader
+	cancel context.CancelFunc
+}
+
+func (r *cancelAtEOF) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if n == 0 {
+		r.cancel()
+	}
+	return n, err
+}

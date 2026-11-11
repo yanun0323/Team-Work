@@ -167,3 +167,31 @@ data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"prompt_to
 		}
 	}
 }
+
+// A call canceled after its response finished still counts what it used, and logs as canceled.
+func TestCanceledCallsKeepTheUsageTheyReported(t *testing.T) {
+	var buf bytes.Buffer
+	store := &usageStore{}
+	m := meter{Provider: canceledProvider{}, e: &Engine{log: zerolog.New(&buf), store: store, ctx: context.Background(), clock: func() float64 { return 1 }},
+		kind: "openai/subscription", model: "m"}
+	reply, err := m.Complete(context.Background(), model.ModelRequest{Session: "sub-1", Model: "m"}, func(string) {})
+	if err != context.Canceled || len(reply.Content) != 0 {
+		t.Fatalf("err=%v content=%+v", err, reply.Content)
+	}
+	if len(store.got) != 1 || store.got[0].Input != 10 || store.got[0].Output != 5 || store.got[0].CacheRead != 4 {
+		t.Fatalf("usage recorded %+v", store.got)
+	}
+	var line map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
+		t.Fatal(err)
+	}
+	if line["session"] != "sub-1" || line["ok"] != false || line["error"] != "canceled" || line["input"] != float64(10) || line["cacheRead"] != float64(4) {
+		t.Fatalf("logged %v", line)
+	}
+}
+
+type canceledProvider struct{ adapter.Provider }
+
+func (canceledProvider) Complete(context.Context, model.ModelRequest, func(string)) (model.ModelReply, error) {
+	return model.ModelReply{Usage: model.ModelUsage{Input: 10, Output: 5, CacheRead: 4}}, context.Canceled
+}
