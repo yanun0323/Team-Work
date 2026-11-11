@@ -788,3 +788,92 @@ func TestCacheUsagePresenceSurvivesOutputOnlyDelta(t *testing.T) {
 		}
 	}
 }
+
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (w *lockedBuffer) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(p)
+}
+func (w *lockedBuffer) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
+func TestIdleProcessIsReusedWithinCacheLifetime(t *testing.T) {
+	if idleProcess <= 5*time.Minute || idleProcess > time.Hour || newBridge().idle != idleProcess {
+		t.Fatalf("idle process lifetime %v must stay within Claude's one-hour cache", idleProcess)
+	}
+	fakeClaude(t)
+	logs := &lockedBuffer{}
+	b := newBridge()
+	b.log = slog.New(slog.NewJSONHandler(logs, nil))
+	b.idle = 5 * time.Second
+	defer b.close()
+	p := base(t)
+	_, blocks := runTurn(t, b, &p)
+	first := b.sessions[p.Session].child
+	time.Sleep(100 * time.Millisecond) // idle, but within the lifetime
+	for i := range blocks {
+		p.Messages = append(p.Messages, ModelMessage{Role: "tool", CallID: blocks[i].ID, Content: []Block{text(fmt.Sprint("result", i))}})
+	}
+	b.idle = 50 * time.Millisecond
+	runTurn(t, b, &p)
+	if b.sessions[p.Session].child != first {
+		t.Fatal("a request within the idle lifetime restarted the process")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		b.mu.Lock()
+		gone := b.sessions[p.Session] == nil
+		b.mu.Unlock()
+		if gone {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("an idle process outlived its lifetime")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	var events []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var e map[string]any
+		if json.Unmarshal([]byte(line), &e) == nil && e["msg"] == "request_process" {
+			events = append(events, e)
+		}
+	}
+	if len(events) != 2 || events[0]["reused"] != false || events[0]["reason"] != "no_process" || events[1]["reused"] != true {
+		t.Fatalf("process events %v", events)
+	}
+	if strings.Contains(logs.String(), "hello") || strings.Contains(logs.String(), "result0") {
+		t.Fatal("the log quoted the conversation")
+	}
+}
+
+func TestRestartReasons(t *testing.T) {
+	p := base(t)
+	p.Messages = append(p.Messages, ModelMessage{Role: "assistant", Content: []Block{text("hi")}})
+	s := &session{signature: signature(p), expected: p.Messages}
+	next := p
+	next.Messages = append(append([]ModelMessage{}, p.Messages...), ModelMessage{Role: "user", Content: []Block{text("more")}})
+	changed := next
+	changed.System = "other"
+	edited := next
+	edited.Messages = append([]ModelMessage{{Role: "user", Content: []Block{text("edited")}}}, next.Messages[1:]...)
+	odd := next
+	odd.Messages = append(append([]ModelMessage{}, p.Messages...), ModelMessage{Role: "tool", CallID: "x", Content: []Block{text("r")}})
+	for _, c := range []struct {
+		s    *session
+		p    CompleteParams
+		want string
+	}{{nil, next, "no_process"}, {s, next, ""}, {s, changed, "settings_changed"}, {s, edited, "history_changed"}, {s, odd, "unexpected_messages"}} {
+		if got := restartReason(c.s, c.p); got != c.want {
+			t.Errorf("restartReason = %q, want %q", got, c.want)
+		}
+	}
+}

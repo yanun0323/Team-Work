@@ -1,9 +1,15 @@
 package usecase
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/yanun0323/Team-Work/internal/model"
 )
 
@@ -49,5 +55,39 @@ func TestSumUsageFillsDaysInTheAskersZone(t *testing.T) {
 	}
 	if got.Total.Unpriced != 1 || got.Total.Tokens != 730 {
 		t.Fatalf("total %+v", got.Total)
+	}
+}
+
+func TestMeterLogsEachCallsCacheUse(t *testing.T) {
+	var buf bytes.Buffer
+	m := meter{e: &Engine{log: zerolog.New(&buf)}, kind: "anthropic/subscription", model: "opus"}
+	m.logCall("sub-1", model.ModelUsage{Input: 100, Output: 5, CacheRead: 60, CacheWrite: 30, CacheWriteKnown: true}, nil)
+	m.logCall("sub-1", model.ModelUsage{Input: 50, CacheRead: 40}, nil)
+	m.logCall("sub-1", model.ModelUsage{}, model.Errorf(model.CodeUnavailable, "private prompt text"))
+	m.logCall("sub-1", model.ModelUsage{}, fmt.Errorf("wrapped: %w", context.Canceled))
+	var lines []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		var v map[string]any
+		if err := json.Unmarshal([]byte(line), &v); err != nil {
+			t.Fatal(err)
+		}
+		lines = append(lines, v)
+	}
+	if len(lines) != 4 {
+		t.Fatalf("%d lines", len(lines))
+	}
+	first := lines[0]
+	if first["message"] != "model call" || first["session"] != "sub-1" || first["provider"] != "anthropic/subscription" || first["model"] != "opus" ||
+		first["input"] != 100.0 || first["cacheRead"] != 60.0 || first["cacheWrite"] != 30.0 || first["ok"] != true {
+		t.Fatalf("first call %v", first)
+	}
+	if _, ok := lines[1]["cacheWrite"]; ok {
+		t.Fatalf("a provider that does not report cache writes logged one: %v", lines[1])
+	}
+	if lines[2]["ok"] != false || lines[2]["error"] != model.CodeUnavailable || lines[3]["error"] != "canceled" {
+		t.Fatalf("failed calls %v %v", lines[2], lines[3])
+	}
+	if strings.Contains(buf.String(), "private") {
+		t.Fatal("the log quoted an error's text")
 	}
 }

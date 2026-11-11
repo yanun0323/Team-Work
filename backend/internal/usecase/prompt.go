@@ -154,8 +154,10 @@ type promptParts struct {
 }
 
 // compose puts the prompt together. repoRole is the role a blueprint keeps in its repo, if it keeps it there.
+// Memory goes last: it is what changes most often, and a provider's prompt cache keeps only the unchanged start,
+// so a new note must not cost the rules, role, skills and step before it.
 func (p promptParts) compose(repoRole string, skills []skill) string {
-	return p.rules + p.shared + p.role + repoRole + skillsPrompt(skills) + p.memory + p.step
+	return p.rules + p.shared + p.role + repoRole + skillsPrompt(skills) + p.step + p.memory
 }
 
 // rolePart is the role a blueprint has written down.

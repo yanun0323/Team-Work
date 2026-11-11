@@ -497,6 +497,11 @@ func buildRequest(req model.ModelRequest) map[string]any {
 					args = "{}"
 				}
 				input = append(input, map[string]any{"type": "function_call", "call_id": b.ID, "name": b.Name, "arguments": args})
+			case enum.BlockReasoning:
+				if b.Origin == reasoningOrigin(req.Model) && m.Role == enum.RoleAssistant && len(b.Raw) > 0 {
+					flush()
+					input = append(input, b.Raw)
+				}
 			case enum.BlockToolResult:
 				flush()
 				input = append(input, map[string]any{"type": "function_call_output", "call_id": b.ID, "output": b.Text})
@@ -573,14 +578,36 @@ func (c *Client) Complete(ctx context.Context, req model.ModelRequest, onText fu
 	if res.StatusCode != http.StatusOK {
 		return model.ModelReply{}, statusError(res)
 	}
-	return readStream(ctx, res.Body, onText)
+	return readStream(ctx, res.Body, onText, reasoningOrigin(req.Model))
+}
+
+// reasoningOrigin marks the reasoning items this model wrote; only the same model is sent them back.
+func reasoningOrigin(modelID string) string { return "codex:" + modelID }
+
+// reasoningItem is a reasoning item as it can go back as input. Its id is left out: with store false the backend
+// keeps no item for it to name. Nil when the item holds no encrypted content, as there is then nothing to resume.
+func reasoningItem(event string) json.RawMessage {
+	var ev struct {
+		Item map[string]json.RawMessage `json:"item"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(event)), &ev) != nil || len(ev.Item["encrypted_content"]) == 0 || string(ev.Item["encrypted_content"]) == "null" {
+		return nil
+	}
+	delete(ev.Item, "id")
+	raw, err := json.Marshal(ev.Item)
+	if err != nil {
+		return nil
+	}
+	return raw
 }
 
 // readStream reads the reply. Server text never goes into errors, as it can echo the conversation.
-func readStream(ctx context.Context, body io.Reader, onText func(string)) (model.ModelReply, error) {
+// Reasoning items are kept, encrypted content and all, to go back in the next request's input: the model continues
+// from them after a tool call, and the backend caches a start that holds them.
+func readStream(ctx context.Context, body io.Reader, onText func(string), origin string) (model.ModelReply, error) {
 	var reply model.ModelReply
 	var text strings.Builder
-	var calls []model.Block
+	var calls, reasoning []model.Block
 	finished := false
 	sc := bufio.NewScanner(body)
 	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
@@ -623,6 +650,11 @@ func readStream(ctx context.Context, body io.Reader, onText func(string)) (model
 			text.WriteString(ev.Delta)
 			onText(ev.Delta)
 		case "response.output_item.done":
+			if ev.Item.Type == "reasoning" {
+				if raw := reasoningItem(data); raw != nil {
+					reasoning = append(reasoning, model.Block{Type: enum.BlockReasoning, Raw: raw, Origin: origin})
+				}
+			}
 			if ev.Item.Type == "function_call" {
 				args := ev.Item.Arguments
 				if !json.Valid([]byte(args)) {
@@ -657,6 +689,7 @@ func readStream(ctx context.Context, body io.Reader, onText func(string)) (model
 	if !finished {
 		return model.ModelReply{}, unavailable("ChatGPT 的回覆中斷了")
 	}
+	reply.Content = reasoning
 	if text.Len() > 0 {
 		reply.Content = append(reply.Content, model.Block{Type: enum.BlockText, Text: text.String()})
 	}

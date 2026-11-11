@@ -12,7 +12,12 @@ import (
 )
 
 // openAI speaks Chat Completions: OpenAI's, Google's compatible endpoint and anything compatible.
-type openAI struct{ client }
+// openAI speaks /chat/completions. cacheKey sends prompt_cache_key, which only OpenAI's own API takes: other
+// servers that speak it may refuse a parameter they do not know.
+type openAI struct {
+	client
+	cacheKey bool
+}
 
 func (o openAI) auth(req *http.Request) { req.Header.Set("Authorization", "Bearer "+o.key) }
 
@@ -89,6 +94,10 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 	// The default omits the field; explicit levels (including compatible fallback) pass through.
 	if req.Effort != "" {
 		body["reasoning_effort"] = req.Effort
+	}
+	// One step's calls share a key, so OpenAI routes them to the machine that cached their start.
+	if o.cacheKey && req.Session != "" {
+		body["prompt_cache_key"] = req.Session
 	}
 	res, err := o.do(ctx, http.MethodPost, "/chat/completions", body, o.auth)
 	if err != nil {

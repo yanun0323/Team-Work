@@ -118,8 +118,12 @@ func TestMessagesStream(t *testing.T) {
 	if len(reply.Content) != 2 || reply.Content[0].Text != "hi" || string(reply.Content[1].Args) != `{"a":1}` {
 		t.Fatalf("%+v", reply)
 	}
-	if reply.Usage != (model.ModelUsage{Input: 7, Output: 9, CacheRead: 4}) {
+	if reply.Usage != (model.ModelUsage{Input: 7, Output: 9, CacheRead: 4, CacheWriteKnown: true}) {
 		t.Fatalf("%+v", reply.Usage)
+	}
+	written, _, _ := serve(t, enum.ProviderAnthropic, 200, strings.Replace(messagesStream, `"cache_creation_input_tokens":0`, `"cache_creation_input_tokens":2`, 1))
+	if r, err := written.Complete(context.Background(), request, func(string) {}); err != nil || r.Usage != (model.ModelUsage{Input: 9, Output: 9, CacheRead: 4, CacheWrite: 2, CacheWriteKnown: true}) {
+		t.Fatalf("cache writes: %+v %v", r.Usage, err)
 	}
 	if req.Header.Get("x-api-key") != "sk-key" || req.Header.Get("anthropic-version") == "" {
 		t.Fatalf("%v", req.Header)
@@ -307,5 +311,37 @@ func TestTooLongIsToldApartFromOtherRefusals(t *testing.T) {
 	_, err = p.Complete(context.Background(), model.ModelRequest{Model: "m"}, func(string) {})
 	if !errors.As(err, &failure) || failure.Code != model.CodeInvalid {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestOnlyOpenAIGetsAPromptCacheKey(t *testing.T) {
+	for _, c := range []struct {
+		kind    enum.ProviderKind
+		session string
+		want    bool
+	}{{enum.ProviderOpenAI, "sub-1", true}, {enum.ProviderOpenAI, "", false}, {enum.ProviderGoogle, "sub-1", false}, {enum.ProviderCompatible, "sub-1", false}} {
+		p, _, body := serve(t, c.kind, 200, "data: [DONE]\n")
+		req := request
+		req.Session = c.session
+		if _, err := p.Complete(context.Background(), req, func(string) {}); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(string(*body), `"prompt_cache_key":"sub-1"`); got != c.want || (!c.want && strings.Contains(string(*body), "prompt_cache_key")) {
+			t.Errorf("%s session %q: sent prompt_cache_key %v, want %v", c.kind, c.session, got, c.want)
+		}
+	}
+}
+
+func TestKeyedProvidersSkipReasoningBlocks(t *testing.T) {
+	msgs := []model.Message{{Role: enum.RoleAssistant, Content: []model.Block{
+		{Type: enum.BlockReasoning, Raw: json.RawMessage(`{"type":"thinking","signature":"sig-x"}`), Origin: "claude-code:m"},
+		{Type: enum.BlockText, Text: "ok"},
+	}}}
+	a, _ := json.Marshal(anthropicMessages(msgs))
+	o, _ := json.Marshal(chatMessages(model.ModelRequest{Messages: msgs}))
+	for _, body := range []string{string(a), string(o)} {
+		if strings.Contains(body, "sig-x") || !strings.Contains(body, "ok") {
+			t.Fatalf("%s", body)
+		}
 	}
 }

@@ -43,6 +43,12 @@ func blocksFor(blocks []Block) ([]object, error) {
 			if b.Text != "" {
 				out = append(out, object{"type": "text", "text": "[Earlier reasoning]\n" + b.Text})
 			}
+		case "reasoning":
+			var raw object
+			if json.Unmarshal(b.Raw, &raw) != nil || (raw["type"] != "thinking" && raw["type"] != "redacted_thinking") {
+				return nil, rejected("Unsupported conversation block.")
+			}
+			out = append(out, raw)
 		case "image":
 			out = append(out, object{"type": "image", "source": object{"type": "base64", "media_type": b.MimeType, "data": b.Data}})
 		case "tool_call":

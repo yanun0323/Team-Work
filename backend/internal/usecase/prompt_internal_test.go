@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -120,5 +121,31 @@ func TestReviewMayPrepareIgnoredDependenciesButNotChangeSource(t *testing.T) {
 		if !strings.Contains(workTreeRule, want) {
 			t.Errorf("missing environment rule: %s", want)
 		}
+	}
+}
+
+func TestNewMemoryLeavesThePromptBeforeItUnchanged(t *testing.T) {
+	parts := func(notes ...string) promptParts {
+		r := &model.Replica{}
+		for i, n := range notes {
+			r.Memory = append(r.Memory, model.MemoryEntry{ID: fmt.Sprint("m", i), Text: n, Source: "work", At: 86400})
+		}
+		return promptParts{rules: "fixed rules\n", shared: "\n# Company rules\nshared\n", role: "\n# Your role\nrole\n", memory: memorySection(r), step: "\n# This step: x\ndo it\n"}
+	}
+	skills := []skill{{name: "tdd", description: "tests first", path: "/s/tdd/SKILL.md"}}
+	before, after := parts("old note"), parts("old note", "new note")
+	a, b := before.compose("\n# Repo role\n", skills), after.compose("\n# Repo role\n", skills)
+	head := strings.TrimSuffix(a, before.memory)
+	if head == a || !strings.HasPrefix(b, head) || b != head+after.memory {
+		t.Fatalf("memory must come last, after an unchanged start:\n%s\n---\n%s", a, b)
+	}
+	// Only the order changed: the employee is told the same sections as before.
+	for _, part := range []string{before.rules, before.shared, before.role, "\n# Repo role\n", skillsPrompt(skills), before.memory, before.step} {
+		if strings.Count(a, part) != 1 {
+			t.Fatalf("%q should appear once in:\n%s", part, a)
+		}
+	}
+	if len(a) != len(before.rules+before.shared+before.role+"\n# Repo role\n"+skillsPrompt(skills)+before.memory+before.step) {
+		t.Fatal("compose added or dropped text")
 	}
 }

@@ -90,7 +90,8 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 		if err != nil {
 			return turnResult{}, err
 		}
-		if len(reply.Content) == 0 {
+		// reasoning alone says nothing: it is kept only to send back to the model
+		if !slices.ContainsFunc(reply.Content, func(b model.Block) bool { return b.Type != enum.BlockReasoning }) {
 			return turnResult{}, model.Errorf(model.CodeUnavailable, "模型沒有回覆內容")
 		}
 		t.req.Messages = append(t.req.Messages, model.Message{Role: enum.RoleAssistant, Content: reply.Content})
@@ -225,7 +226,11 @@ func (e *Engine) modelSpec(modelID, wanted string) (agentSpec, error) {
 	if price, ok := p.Prices[modelID]; ok {
 		spec.price = &price
 	}
-	spec.provider = meter{Provider: provider, e: e, providerID: p.ID, providerName: p.Name, model: modelID, price: spec.price}
+	kind := string(p.Kind)
+	if spec.subscription {
+		kind += "/subscription"
+	}
+	spec.provider = meter{Provider: provider, e: e, providerID: p.ID, providerName: p.Name, kind: kind, model: modelID, price: spec.price}
 	return spec, nil
 }
 

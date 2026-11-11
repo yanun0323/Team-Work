@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -1812,5 +1813,38 @@ func TestOtherLanguagesReachMessagesAndPresets(t *testing.T) {
 	newEngine(t, r)
 	if r.world().Language != model.LanguageKo || presetFlowOf(t, r.world(), "team-work--feature").Name != "기능 개발" {
 		t.Fatalf("not kept over a restart: %s", r.world().Language)
+	}
+}
+
+// A provider's reasoning stays in the conversation, unchanged, for the provider to read on the next call; the
+// chat shows only what was said.
+func TestReasoningIsKeptForTheNextCall(t *testing.T) {
+	reasoning := model.Block{Type: enum.BlockReasoning, Raw: json.RawMessage(`{"type":"thinking","signature":"sig"}`), Origin: "claude-code:m"}
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		return model.ModelReply{Content: []model.Block{reasoning, {Type: enum.BlockText, Text: "好"}}}, nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	if err := r.e.SayInChat(c.ID, "再說一次", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("second reply", func(w *model.World) bool { return w.Chats[c.ID].ReplyAt == nil && len(w.Chats[c.ID].Messages) == 4 })
+	last := r.fake.seen[len(r.fake.seen)-1].Messages
+	var sent []model.Block
+	for _, m := range last {
+		for _, b := range m.Content {
+			if b.Type == enum.BlockReasoning {
+				sent = append(sent, b)
+			}
+		}
+	}
+	if len(sent) != 1 || string(sent[0].Raw) != string(reasoning.Raw) || sent[0].Origin != reasoning.Origin {
+		t.Fatalf("reasoning sent back: %+v", sent)
+	}
+	if got := r.world().Chats[c.ID].Messages[1].Text; got != "好" {
+		t.Fatalf("the chat shows %q", got)
 	}
 }

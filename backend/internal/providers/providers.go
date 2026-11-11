@@ -197,17 +197,17 @@ func (f *Factory) For(p model.ModelProvider, key string) (adapter.Provider, erro
 		if c.base == "" {
 			c.base = "https://api.openai.com/v1"
 		}
-		return openAI{c}, nil
+		return openAI{client: c, cacheKey: true}, nil
 	case enum.ProviderGoogle:
 		if c.base == "" {
 			c.base = "https://generativelanguage.googleapis.com/v1beta/openai"
 		}
-		return openAI{c}, nil
+		return openAI{client: c}, nil
 	case enum.ProviderCompatible:
 		if c.base == "" {
 			return nil, model.Errorf(model.CodeInvalid, "「%s」沒有填 Base URL", p.Name)
 		}
-		return openAI{c}, nil
+		return openAI{client: c}, nil
 	}
 	return nil, model.Errorf(model.CodeInvalid, "不認識的供應商種類 %s", p.Kind)
 }

@@ -436,3 +436,48 @@ func TestWordsAfterToolResultsFollowTheOutputs(t *testing.T) {
 		t.Fatalf("%s", raw)
 	}
 }
+
+// With store false the backend keeps nothing, so a reasoning item must come back in the input for the model to
+// continue from it after a tool call. Only the model that wrote it is sent it.
+func TestReasoningItemsGoBackToTheSameModel(t *testing.T) {
+	stream := strings.Join([]string{
+		`data: {"type":"response.output_item.done","item":{"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"enc-1"}}`,
+		`data: {"type":"response.output_item.done","item":{"type":"reasoning","id":"rs_2","summary":[]}}`,
+		`data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"c1","name":"read","arguments":"{}"}}`,
+		`data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":2,"input_tokens_details":{"cached_tokens":8}}}}`,
+	}, "\n\n")
+	reply, err := readStream(context.Background(), strings.NewReader(stream), func(string) {}, reasoningOrigin("gpt-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reply.Content) != 2 || reply.Content[0].Type != enum.BlockReasoning || reply.Content[0].Origin != "codex:gpt-a" ||
+		string(reply.Content[0].Raw) != `{"encrypted_content":"enc-1","summary":[],"type":"reasoning"}` || reply.Content[1].Type != enum.BlockToolCall {
+		t.Fatalf("%+v", reply.Content)
+	}
+	conv := []model.Message{
+		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "hi"}}},
+		{Role: enum.RoleAssistant, Content: reply.Content},
+		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "c1", Text: "done"}}},
+	}
+	saved, _ := json.Marshal(conv)
+	conv = nil
+	if err := json.Unmarshal(saved, &conv); err != nil {
+		t.Fatal(err)
+	}
+	sent := func(modelID string) string {
+		raw, _ := json.Marshal(buildRequest(model.ModelRequest{Model: modelID, Messages: conv}))
+		return string(raw)
+	}
+	same := sent("gpt-a")
+	at, call := strings.Index(same, `{"encrypted_content":"enc-1","summary":[],"type":"reasoning"}`), strings.Index(same, `"function_call"`)
+	if at < 0 || call < at || strings.Contains(same, "rs_1") {
+		t.Fatalf("reasoning should precede its call, without its id: %s", same)
+	}
+	if other := sent("gpt-b"); strings.Contains(other, "enc-1") {
+		t.Fatalf("another model got the reasoning: %s", other)
+	}
+	conv[1].Content[0].Origin = "claude-code:gpt-a"
+	if strings.Contains(sent("gpt-a"), "enc-1") {
+		t.Fatal("another provider's reasoning was sent")
+	}
+}

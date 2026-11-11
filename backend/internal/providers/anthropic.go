@@ -114,9 +114,9 @@ func (a anthropic) Complete(ctx context.Context, req model.ModelRequest, onText 
 			} `json:"delta"`
 			Message struct {
 				Usage struct {
-					Input     int `json:"input_tokens"`
-					CacheRead int `json:"cache_read_input_tokens"`
-					CacheMake int `json:"cache_creation_input_tokens"`
+					Input     int  `json:"input_tokens"`
+					CacheRead int  `json:"cache_read_input_tokens"`
+					CacheMake *int `json:"cache_creation_input_tokens"` // nil when not reported
 				} `json:"usage"`
 			} `json:"message"`
 			Usage struct {
@@ -129,8 +129,11 @@ func (a anthropic) Complete(ctx context.Context, req model.ModelRequest, onText 
 		switch ev.Type {
 		case "message_start":
 			u := ev.Message.Usage
-			reply.Usage.Input = u.Input + u.CacheRead + u.CacheMake
 			reply.Usage.CacheRead = u.CacheRead
+			if u.CacheMake != nil {
+				reply.Usage.CacheWrite, reply.Usage.CacheWriteKnown = *u.CacheMake, true
+			}
+			reply.Usage.Input = u.Input + u.CacheRead + reply.Usage.CacheWrite
 		case "content_block_start":
 			open = nil
 			if ev.Block.Type == "tool_use" {

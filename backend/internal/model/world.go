@@ -687,6 +687,10 @@ type Block struct {
 	Data     string          `json:"data,omitempty"`     // base64 image, only while calling a provider
 	ImageRef string          `json:"imageRef,omitempty"` // content hash in attachment storage
 	IsError  bool            `json:"isError,omitempty"`
+	// Raw is a reasoning block as its provider sent it, and Origin the provider and model that wrote it.
+	// Only that provider reads them back, and only for the same model; every other one skips the block.
+	Raw    json.RawMessage `json:"raw,omitempty"`
+	Origin string          `json:"origin,omitempty"`
 }
 
 type Message struct {
@@ -718,6 +722,9 @@ type ModelUsage struct {
 	Input     int
 	Output    int
 	CacheRead int // part of Input
+	// CacheWrite is the part of Input written to the cache; meaningful only when CacheWriteKnown.
+	CacheWrite      int
+	CacheWriteKnown bool
 }
 
 // ModelReply is a finished model call. Tool calls and text are in Content.

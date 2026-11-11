@@ -3,6 +3,7 @@ package usecase
 import (
 	"cmp"
 	"context"
+	"errors"
 	"slices"
 	"time"
 
@@ -16,6 +17,7 @@ type meter struct {
 	e            *Engine
 	providerID   string
 	providerName string
+	kind         string // provider kind, and "/subscription" when signed in rather than keyed
 	model        string
 	price        *model.ModelPrice
 }
@@ -30,8 +32,32 @@ func (m meter) Complete(ctx context.Context, req model.ModelRequest, onText func
 	if u := reply.Usage; u.Input+u.Output > 0 {
 		m.e.recordUsage(model.Usage{ProviderID: m.providerID, ProviderName: m.providerName, Model: m.model}, m.price, u)
 	}
+	m.logCall(req.Session, reply.Usage, err)
 	m.e.noteSignedOut(m.providerID, err)
 	return reply, err
+}
+
+// logCall notes how much of one call's input came from the provider's cache, so a step's hit rate can be worked
+// out from the log. Input counts every input token, cached ones included, for every provider. It never logs the
+// prompt, the conversation or an error's text, which can quote them.
+func (m meter) logCall(session string, u model.ModelUsage, err error) {
+	ev := m.e.log.Info().Str("session", session).Str("provider", m.kind).Str("model", m.model).
+		Int("input", u.Input).Int("output", u.Output).Int("cacheRead", u.CacheRead).Bool("ok", err == nil)
+	if u.CacheWriteKnown {
+		ev = ev.Int("cacheWrite", u.CacheWrite)
+	}
+	if err != nil {
+		code := "other"
+		var me *model.Error
+		switch {
+		case errors.As(err, &me):
+			code = me.Code
+		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+			code = "canceled"
+		}
+		ev = ev.Str("error", code)
+	}
+	ev.Msg("model call")
 }
 
 // recordUsage keeps one call's consumption. It outlives the call, so a stopped run still counts.

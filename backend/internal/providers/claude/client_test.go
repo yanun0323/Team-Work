@@ -20,7 +20,7 @@ func TestToolResultsBecomeTheirOwnMessages(t *testing.T) {
 		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "hi"}, {Type: enum.BlockImage, MimeType: "image/png", Data: "x"}}},
 		{Role: enum.RoleAssistant, Content: []model.Block{{Type: enum.BlockText, Text: "ok"}, {Type: enum.BlockToolCall, ID: "a", Name: "t", Args: json.RawMessage(`{}`)}, {Type: enum.BlockToolCall, ID: "b", Name: "t", Args: json.RawMessage(`{}`)}}},
 		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "a", Text: "1"}, {Type: enum.BlockToolResult, ID: "b", Text: "2", IsError: true}}},
-	})
+	}, "")
 	if len(got) != 4 || got[2].Role != "tool" || got[2].CallID != "a" || got[3].CallID != "b" || !got[3].IsError || got[3].Content[0].Text != "2" {
 		t.Fatalf("%+v", got)
 	}
@@ -63,7 +63,7 @@ func TestLargeImagesInHistoryAreScaledDown(t *testing.T) {
 	got := toMessages([]model.Message{
 		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockImage, MimeType: "image/png", Data: big}}},
 		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "a", Text: "Image a.png", MimeType: "image/png", Data: big}}},
-	})
+	}, "")
 	for _, b := range []Block{got[0].Content[0], got[1].Content[1]} {
 		raw, _ := base64.StdEncoding.DecodeString(b.Data)
 		if cfg, err := png.DecodeConfig(bytes.NewReader(raw)); err != nil || cfg.Width != 2000 || cfg.Height != 1250 || b.MimeType != "image/png" {
@@ -80,7 +80,7 @@ func TestTooManyLargeImagesSaysSo(t *testing.T) {
 }
 
 func TestToolResultKeepsItsImage(t *testing.T) {
-	got := toMessages([]model.Message{{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "a", Text: "Image a.png", MimeType: "image/png", Data: "QUJD"}}}})
+	got := toMessages([]model.Message{{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "a", Text: "Image a.png", MimeType: "image/png", Data: "QUJD"}}}}, "")
 	if len(got) != 1 || got[0].Role != "tool" || len(got[0].Content) != 2 || got[0].Content[1].Type != "image" || got[0].Content[1].Data != "QUJD" {
 		t.Fatalf("%+v", got)
 	}
@@ -102,7 +102,7 @@ func TestWordsAfterToolResultsAreInTheResumedHistory(t *testing.T) {
 		{Role: enum.RoleAssistant, Content: []model.Block{{Type: enum.BlockToolCall, ID: "a", Name: "run_command", Args: json.RawMessage(`{}`)}}},
 		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "a", Text: "ran"}}},
 		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "The task owner tells you while you work: use B"}}},
-	})
+	}, "")
 	m, err := makeMirror(CompleteParams{Cwd: t.TempDir(), Model: "haiku", Messages: msgs})
 	if err != nil {
 		t.Fatal(err)
@@ -119,5 +119,87 @@ func TestWordsAfterToolResultsAreInTheResumedHistory(t *testing.T) {
 	}
 	if len(m.prompt) != 1 || !strings.Contains(m.prompt[0]["text"].(string), "Continue from the conversation above") {
 		t.Fatalf("%+v", m.prompt)
+	}
+}
+
+// Claude keeps earlier thinking in the start it caches, so a signed thinking block must come back exactly, on the
+// live process and in a rebuilt history alike, but only to the model that wrote it.
+func TestSignedThinkingGoesBackToTheSameModel(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	turn := newTurn([]ToolSpec{{Name: "read"}}, func(any) error { return nil })
+	s := &session{results: map[string]object{}, seenMessages: map[string]bool{}, closedMessages: map[string]bool{}}
+	for _, line := range []string{
+		`{"type":"stream_event","event":{"type":"message_start","message":{"id":"m1"}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"plan"}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-1"}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_stop","index":0}}`,
+		`{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"redacted_thinking","data":"secret"}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_stop","index":1}}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"ok"}}}`,
+		`{"type":"assistant","uuid":"u1","message":{"id":"m1","content":[{"type":"thinking","thinking":"plan","signature":"sig-1"}]}}`,
+		`{"type":"assistant","uuid":"u2","message":{"id":"m1","content":[{"type":"redacted_thinking","data":"secret"}]}}`,
+		`{"type":"assistant","uuid":"u3","message":{"id":"m1","content":[{"type":"text","text":"ok"}]}}`,
+		`{"type":"result","stop_reason":"end_turn"}`,
+	} {
+		var f frame
+		if err := json.Unmarshal([]byte(line), &f); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := turn.consume(s, f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var reply []model.Block
+	var kept []Block
+	for _, b := range turn.emitted {
+		reply = appendReply(reply, b, reasoningOrigin("opus"), func(string) {})
+		if b.Type != "thinking" {
+			kept = append(kept, b)
+		}
+	}
+	if len(reply) != 3 || reply[0].Type != enum.BlockReasoning || reply[1].Type != enum.BlockReasoning || reply[2].Text != "ok" ||
+		string(reply[0].Raw) != `{"signature":"sig-1","thinking":"plan","type":"thinking"}` || string(reply[1].Raw) != `{"data":"secret","type":"redacted_thinking"}` ||
+		reply[0].Origin != "claude-code:opus" {
+		t.Fatalf("reply %+v", reply)
+	}
+
+	// Saved, then sent on: what the engine keeps round-trips through JSON.
+	conv := []model.Message{{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "hi"}}}, {Role: enum.RoleAssistant, Content: reply}}
+	saved, _ := json.Marshal(conv)
+	conv = nil
+	if err := json.Unmarshal(saved, &conv); err != nil {
+		t.Fatal(err)
+	}
+	conv = append(conv, model.Message{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "next"}}})
+	p := CompleteParams{Cwd: t.TempDir(), Model: "opus", Messages: toMessages(conv, reasoningOrigin("opus"))}
+	live := &session{signature: signature(p), expected: []ModelMessage{{Role: "user", Content: []Block{text("hi")}}, {Role: "assistant", Content: kept}}}
+	if why := restartReason(live, p); why != "" {
+		t.Fatalf("the live process was restarted: %s", why)
+	}
+	m, err := makeMirror(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.cleanup()
+	history, _ := os.ReadFile(m.path)
+	if !strings.Contains(string(history), `{"signature":"sig-1","thinking":"plan","type":"thinking"},{"data":"secret","type":"redacted_thinking"},{"text":"ok","type":"text"}`) {
+		t.Fatalf("rebuilt history lost the thinking: %s", history)
+	}
+
+	// Another model's, or another provider's, reasoning is never sent.
+	for _, origin := range []string{reasoningOrigin("haiku"), "codex:gpt-5"} {
+		for _, msg := range toMessages(conv, origin) {
+			for _, b := range msg.Content {
+				if b.Type == "reasoning" {
+					t.Fatalf("%s got reasoning written by opus", origin)
+				}
+			}
+		}
+	}
+	other := conv[1]
+	other.Content = []model.Block{{Type: enum.BlockReasoning, Raw: reply[0].Raw, Origin: "codex:gpt-5"}, {Type: enum.BlockText, Text: "ok"}}
+	if got := toMessages([]model.Message{other}, reasoningOrigin("opus")); len(got) != 1 || len(got[0].Content) != 1 || got[0].Content[0].Text != "ok" {
+		t.Fatalf("%+v", got)
 	}
 }

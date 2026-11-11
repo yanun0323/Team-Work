@@ -130,6 +130,13 @@ func (s *session) prompt(ctx context.Context, blocks []object) error {
 	return s.child.send(ctx, object{"type": "user", "message": object{"role": "user", "content": blocks}, "parent_tool_use_id": nil, "session_id": ""})
 }
 
+// idleProcess is how long a finished conversation's Claude Code process waits for its next request. Claude keeps
+// a subscription's main conversation in its prompt cache for an hour (ENABLE_PROMPT_CACHING_1H in
+// https://code.claude.com/docs/en/env-vars), and a live process sends only what is new, so it stays up for most of
+// that hour; restarting it rebuilds the conversation from a transcript, which need not match what was cached. The
+// margin leaves room for the request to reach Claude before the cache runs out.
+const idleProcess = 55 * time.Minute
+
 type bridge struct {
 	log        *slog.Logger
 	mu         sync.Mutex
@@ -138,10 +145,11 @@ type bridge struct {
 	closed     bool
 	work       sync.WaitGroup
 	onMetadata func(string, int)
+	idle       time.Duration // idleProcess, but tests shorten it
 }
 
 func newBridge() *bridge {
-	return &bridge{sessions: map[string]*session{}, active: map[string]context.CancelFunc{}}
+	return &bridge{sessions: map[string]*session{}, active: map[string]context.CancelFunc{}, idle: idleProcess}
 }
 func (b *bridge) close() {
 	b.mu.Lock()
@@ -192,10 +200,26 @@ func sameJSON(a, b any) bool {
 	}
 	return reflect.DeepEqual(xv, yv)
 }
-func reusable(s *session, p CompleteParams) bool {
-	if s.signature != signature(p) || len(p.Messages) <= len(s.expected) || !sameJSON(p.Messages[:len(s.expected)], s.expected) {
-		return false
+
+// restartReason says why a live process cannot take this request, or "" when it can.
+// Only fixed categories: never anything from the conversation.
+func restartReason(s *session, p CompleteParams) string {
+	switch {
+	case s == nil:
+		return "no_process"
+	case s.signature != signature(p):
+		return "settings_changed"
+	case len(p.Messages) <= len(s.expected) || !sameJSON(p.Messages[:len(s.expected)], s.expected):
+		return "history_changed"
 	}
+	if !continues(s, p) {
+		return "unexpected_messages"
+	}
+	return ""
+}
+
+// continues reports whether what follows the history the process holds is what it waits for.
+func continues(s *session, p CompleteParams) bool {
 	extra := p.Messages[len(s.expected):]
 	if len(s.toolIDs) == 0 {
 		for _, m := range extra {
@@ -261,7 +285,7 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 		if s != nil {
 			if keep && !b.closed {
 				b.sessions[key] = s
-				s.timer = time.AfterFunc(5*time.Minute, func() {
+				s.timer = time.AfterFunc(b.idle, func() {
 					b.mu.Lock()
 					defer b.mu.Unlock()
 					if b.sessions[key] == s && b.active[key] == nil {
@@ -278,7 +302,8 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 		b.mu.Unlock()
 		b.work.Done()
 	}()
-	if s != nil && !reusable(s, p) {
+	reason := restartReason(s, p)
+	if s != nil && reason != "" {
 		b.mu.Lock()
 		delete(b.sessions, key)
 		b.mu.Unlock()
@@ -307,7 +332,7 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 			return CompleteResult{}, e
 		}
 		s = &session{child: c, mirror: history, signature: signature(p), tools: p.Tools, pending: map[string]pendingCall{}, results: map[string]object{}, closedMessages: map[string]bool{}, seenMessages: map[string]bool{}}
-		record(log, "request_process", "pid", c.cmd.Process.Pid)
+		record(log, "request_process", "pid", c.cmd.Process.Pid, "reused", false, "reason", reason)
 		initCtx, stop := context.WithTimeout(ctx, 15*time.Second)
 		_, e = s.initialize(initCtx, p.System)
 		stop()
@@ -318,7 +343,7 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 			return CompleteResult{}, e
 		}
 	} else {
-		record(log, "request_process", "pid", s.child.cmd.Process.Pid)
+		record(log, "request_process", "pid", s.child.cmd.Process.Pid, "reused", true)
 		extra := p.Messages[len(s.expected):]
 		if len(s.toolIDs) > 0 {
 			for _, m := range extra {
@@ -389,7 +414,7 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 			raw, _ := json.Marshal(p.Messages)
 			s.expected = nil
 			_ = json.Unmarshal(raw, &s.expected)
-			// callers keep text and tool calls only, so reasoning must not count against reuse
+			// callers keep text, tool calls and signed reasoning blocks; streamed thinking text is not kept
 			var kept []Block
 			for _, block := range turn.emitted {
 				if block.Type != "thinking" {
@@ -449,13 +474,33 @@ func (u tokenUsage) modelUsage() ModelUsage {
 }
 
 type claudeBlock struct {
-	Type     string          `json:"type"`
-	ID       string          `json:"id"`
-	Name     string          `json:"name"`
-	Text     string          `json:"text"`
-	Thinking string          `json:"thinking"`
-	Input    json.RawMessage `json:"input"`
+	Type      string          `json:"type"`
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Text      string          `json:"text"`
+	Thinking  string          `json:"thinking"`
+	Signature string          `json:"signature"`
+	Data      string          `json:"data"` // redacted_thinking
+	Input     json.RawMessage `json:"input"`
 }
+
+// reasoning is a thinking or redacted_thinking block as Claude must get it back: rebuilding a conversation
+// without it changes the start Claude cached, from that block on.
+func (b claudeBlock) reasoning() Block {
+	var raw []byte
+	if b.Type == "redacted_thinking" {
+		raw, _ = json.Marshal(object{"type": b.Type, "data": b.Data})
+	} else {
+		raw, _ = json.Marshal(object{"type": b.Type, "thinking": b.Thinking, "signature": b.Signature})
+	}
+	return Block{Type: "reasoning", Raw: raw}
+}
+
+// signed says whether Claude would take the block back: unsigned thinking cannot be replayed.
+func (b claudeBlock) signed() bool {
+	return (b.Type == "thinking" && b.Signature != "") || (b.Type == "redacted_thinking" && b.Data != "")
+}
+
 type assistantMessage struct {
 	ID         string          `json:"id"`
 	Content    []claudeBlock   `json:"content"`
@@ -477,10 +522,15 @@ type turn struct {
 	calls    map[string]bool
 	partial  map[int]*partialBlock
 	streamed map[string]string
+	thinking map[int]*claudeBlock // stream blocks being assembled, by index
+	// reasoned counts the reasoning blocks sent per message, and framed those its full frames held, so a block both
+	// streamed and repeated in a frame is sent once.
+	reasoned, framed map[string]int
 }
 
 func newTurn(tools []ToolSpec, chunk func(any) error) *turn {
-	return &turn{tools: tools, chunk: chunk, stop: "end_turn", calls: map[string]bool{}, partial: map[int]*partialBlock{}, streamed: map[string]string{}}
+	return &turn{tools: tools, chunk: chunk, stop: "end_turn", calls: map[string]bool{}, partial: map[int]*partialBlock{}, streamed: map[string]string{},
+		thinking: map[int]*claudeBlock{}, reasoned: map[string]int{}, framed: map[string]int{}}
 }
 func (t *turn) send(b Block) error {
 	if err := t.chunk(b); err != nil {
@@ -579,6 +629,7 @@ func (t *turn) consume(s *session, f frame) (bool, error) {
 				Type        string `json:"type"`
 				Text        string `json:"text"`
 				Thinking    string `json:"thinking"`
+				Signature   string `json:"signature"`
 				PartialJSON string `json:"partial_json"`
 				StopReason  string `json:"stop_reason"`
 			} `json:"delta"`
@@ -610,8 +661,12 @@ func (t *turn) consume(s *session, f frame) (bool, error) {
 				t.stop = e.Delta.StopReason
 			}
 		case "content_block_start":
-			if e.ContentBlock.Type == "tool_use" {
+			switch e.ContentBlock.Type {
+			case "tool_use":
 				t.partial[e.Index] = &partialBlock{block: e.ContentBlock}
+			case "thinking", "redacted_thinking":
+				b := e.ContentBlock
+				t.thinking[e.Index] = &b
 			}
 		case "content_block_delta":
 			switch e.Delta.Type {
@@ -622,10 +677,17 @@ func (t *turn) consume(s *session, f frame) (bool, error) {
 						return false, rejected("Claude tool arguments exceed the message limit.")
 					}
 				}
+			case "signature_delta":
+				if b := t.thinking[e.Index]; b != nil {
+					b.Signature += e.Delta.Signature
+				}
 			case "text_delta", "thinking_delta":
 				kind, text := "text", e.Delta.Text
 				if e.Delta.Type == "thinking_delta" {
 					kind, text = "thinking", e.Delta.Thinking
+					if b := t.thinking[e.Index]; b != nil {
+						b.Thinking += text
+					}
 				}
 				if err := t.send(Block{Type: kind, Text: text}); err != nil {
 					return false, err
@@ -633,6 +695,15 @@ func (t *turn) consume(s *session, f frame) (bool, error) {
 				t.streamed[kind] += text
 			}
 		case "content_block_stop":
+			if b := t.thinking[e.Index]; b != nil {
+				delete(t.thinking, e.Index)
+				if b.signed() {
+					t.reasoned[s.messageID]++
+					if err := t.send(b.reasoning()); err != nil {
+						return false, err
+					}
+				}
+			}
 			if b := t.partial[e.Index]; b != nil {
 				delete(t.partial, e.Index)
 				if b.json != "" {
@@ -669,6 +740,15 @@ func (t *turn) consume(s *session, f frame) (bool, error) {
 		}
 		s.seenMessages[delivered] = true
 		for _, b := range f.Message.Content {
+			if b.signed() {
+				t.framed[f.Message.ID]++
+				if t.framed[f.Message.ID] > t.reasoned[f.Message.ID] {
+					t.reasoned[f.Message.ID]++
+					if err := t.send(b.reasoning()); err != nil {
+						return false, err
+					}
+				}
+			}
 			if b.Type == "tool_use" {
 				if err := t.emitCall(b); err != nil {
 					return false, err

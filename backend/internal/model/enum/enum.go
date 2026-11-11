@@ -97,4 +97,6 @@ const (
 	BlockImage      BlockType = "image"
 	BlockToolCall   BlockType = "tool_call"
 	BlockToolResult BlockType = "tool_result"
+	// BlockReasoning is a provider's own record of how its model reasoned, sent back to that model only.
+	BlockReasoning BlockType = "reasoning"
 )

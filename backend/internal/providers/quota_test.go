@@ -22,7 +22,7 @@ func balanceServer(t *testing.T, path, body string) (openAI, string) {
 		io.WriteString(w, body)
 	}))
 	t.Cleanup(srv.Close)
-	return openAI{client{key: "sk-key", http: newHTTP()}}, srv.URL
+	return openAI{client: client{key: "sk-key", http: newHTTP()}}, srv.URL
 }
 
 func TestOpenRouterBalanceIsTheKeysLimitLeft(t *testing.T) {

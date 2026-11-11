@@ -43,6 +43,9 @@ type Block struct {
 	Args     json.RawMessage `json:"args,omitempty"`
 	MimeType string          `json:"mime_type,omitempty"`
 	Data     string          `json:"data,omitempty"`
+	// Raw is a "reasoning" block: a thinking or redacted_thinking block exactly as Claude sent it, signature
+	// included, so a rebuilt conversation starts as the cached one did.
+	Raw json.RawMessage `json:"raw,omitempty"`
 }
 
 type ModelMessage struct {
@@ -222,23 +225,12 @@ func (c *Client) supportedEffort(ctx context.Context, modelID, effort string) st
 // Complete asks for the model's next message.
 func (c *Client) Complete(ctx context.Context, req model.ModelRequest, onText func(string)) (model.ModelReply, error) {
 	params := CompleteParams{Cwd: req.Cwd, Session: req.Session, Model: req.Model, System: req.System, Tools: req.Tools,
-		Thinking: c.supportedEffort(ctx, req.Model, req.Effort), Messages: toMessages(req.Messages)}
+		Thinking: c.supportedEffort(ctx, req.Model, req.Effort), Messages: toMessages(req.Messages, reasoningOrigin(req.Model))}
 	var content []model.Block
+	origin := reasoningOrigin(req.Model)
 	result, err := c.bridge.complete(ctx, params, func(v any) error {
-		b, ok := v.(Block)
-		if !ok {
-			return nil
-		}
-		switch b.Type {
-		case "text":
-			onText(b.Text)
-			if n := len(content); n > 0 && content[n-1].Type == enum.BlockText {
-				content[n-1].Text += b.Text
-			} else {
-				content = append(content, model.Block{Type: enum.BlockText, Text: b.Text})
-			}
-		case "tool_call":
-			content = append(content, model.Block{Type: enum.BlockToolCall, ID: b.ID, Name: b.Name, Args: b.Args})
+		if b, ok := v.(Block); ok {
+			content = appendReply(content, b, origin, onText)
 		}
 		return nil
 	})
@@ -249,10 +241,34 @@ func (c *Client) Complete(ctx context.Context, req model.ModelRequest, onText fu
 		return model.ModelReply{}, safeError(err)
 	}
 	return model.ModelReply{Content: content, Truncated: result.StopReason == "max_tokens",
-		Usage: model.ModelUsage{Input: result.Usage.Input, Output: result.Usage.Output, CacheRead: result.Usage.CacheRead}}, nil
+		Usage: model.ModelUsage{Input: result.Usage.Input, Output: result.Usage.Output, CacheRead: result.Usage.CacheRead,
+			CacheWrite: result.Usage.CacheWrite, CacheWriteKnown: result.Usage.CacheWriteReported}}, nil
 }
 
-func toMessages(msgs []model.Message) []ModelMessage {
+// appendReply adds one streamed block to the reply. Thinking text is not kept: only a signed reasoning block can
+// go back to Claude.
+func appendReply(content []model.Block, b Block, origin string, onText func(string)) []model.Block {
+	switch b.Type {
+	case "text":
+		onText(b.Text)
+		if n := len(content); n > 0 && content[n-1].Type == enum.BlockText {
+			content[n-1].Text += b.Text
+			return content
+		}
+		return append(content, model.Block{Type: enum.BlockText, Text: b.Text})
+	case "tool_call":
+		return append(content, model.Block{Type: enum.BlockToolCall, ID: b.ID, Name: b.Name, Args: b.Args})
+	case "reasoning":
+		return append(content, model.Block{Type: enum.BlockReasoning, Raw: b.Raw, Origin: origin})
+	}
+	return content
+}
+
+// reasoningOrigin marks the reasoning blocks this model wrote. Their signatures hold only for the model that made
+// them, so any other model's, or another provider's, are left out of what is sent.
+func reasoningOrigin(modelID string) string { return "claude-code:" + modelID }
+
+func toMessages(msgs []model.Message, origin string) []ModelMessage {
 	var out []ModelMessage
 	for _, m := range msgs {
 		var plain []Block
@@ -265,6 +281,10 @@ func toMessages(msgs []model.Message) []ModelMessage {
 				plain = append(plain, Block{Type: "image", MimeType: mime, Data: data})
 			case enum.BlockToolCall:
 				plain = append(plain, Block{Type: "tool_call", ID: b.ID, Name: b.Name, Args: b.Args})
+			case enum.BlockReasoning:
+				if b.Origin == origin && m.Role == enum.RoleAssistant && len(b.Raw) > 0 {
+					plain = append(plain, Block{Type: "reasoning", Raw: b.Raw})
+				}
 			case enum.BlockToolResult:
 				content := []Block{{Type: "text", Text: b.Text}}
 				if b.Data != "" {
