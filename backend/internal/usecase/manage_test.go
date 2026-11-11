@@ -653,13 +653,14 @@ func TestCreateTaskWaitsInTodoAndSaysWhereItCameFrom(t *testing.T) {
 	if pinned < 0 || w.Chats[c.ID].Messages[pinned].From != "tool" || !strings.HasPrefix(w.Chats[c.ID].Messages[pinned].Text, "create_task ") {
 		t.Fatalf("%+v", w.Chats[c.ID].Messages)
 	}
-	for _, s := range w.SubTasks {
-		if s.Status != enum.StatusTodo {
-			t.Fatalf("a step ran before the user started the task: %+v", s)
-		}
+	// led by its owner, who dispatches nothing before the user starts it
+	if made.Orchestration != model.OrchestrationOwner || made.Coordination == nil || made.Coordination.StartedAt != nil {
+		t.Fatalf("%+v", made)
 	}
-	if len(w.SubTasks) == 0 {
-		t.Fatal("its first steps are missing")
+	for _, s := range w.SubTasks {
+		if s.TaskID == made.ID {
+			t.Fatalf("a step was made before the user started the task: %+v", s)
+		}
 	}
 	if res := lastResult(t, r); res.IsError || !strings.Contains(res.Text, "to-do") {
 		t.Fatalf("%+v", res)
@@ -991,6 +992,10 @@ func TestTasksMadeByEmployeesStopAtTheDepthLimit(t *testing.T) {
 	flow := r.flow.ID
 	r.fake.mu.Lock()
 	r.fake.reply = func(req model.ModelRequest) (model.ModelReply, error) {
+		// the tasks employees make are led by their owner, who goes through the plan
+		if isOwner(req) {
+			return autoOwner(req), nil
+		}
 		// each task's first step makes the next task, and everything else hands on
 		if lastIsResult(req) || stepOf(req) != "Clarify requirements" {
 			return call("submit_handoff", handoff), nil

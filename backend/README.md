@@ -135,8 +135,12 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `POST /blueprints`、`PUT`/`DELETE /blueprints/:id`、`POST /blueprints/:id/update` | 藍圖；`update` 把 Git 來源移到最新版 |
 | `POST /replicas`、`PATCH /replicas/:id`、`DELETE /replicas/:id?heir=` | 雇用、修改（含記憶）、離職交接 |
 | `POST /tasks`、`PATCH`/`DELETE /tasks/:id` | 任務；新任務留在待辦（`paused: true`、沒有 `pausedAt`），用 `resume` 開始；建立時可附 `images` 和 `files`；帶 `workflow`（完整流程）時任務用這份自訂流程、`workflowId` 為空，流程照任務藍圖的規則檢查，但不會存成任務藍圖；`PATCH` 改標題、說明、人員、負責人，不存在的節點 id 或把節點改成沒有人都會被拒絕。由員工或對話建立的任務有 `origin`（`kind` 為 `employee`、`chat` 或 `airport`，加 `id`、`name`、`depth`） |
-| `POST /tasks/:id/{pause,resume,cancel,merge}` | 暫停、恢復、取消（要先暫停）、合併 |
-| `POST /tasks/:id/return`、`POST /tasks/:id/workflow` | 退回（`feedback`）、更換任務藍圖（`workflowId`，要先暫停） |
+| `POST /tasks/:id/{pause,resume,cancel,merge}` | 暫停、恢復、取消（要先暫停）、合併。負責人主導的任務：開始時要有同公司的負責人；暫停會立刻停止執行；合併要等負責人提交完成，且沒有負責人處理中、未答問題、未處理訊息、停止中或待重新確認的成果 |
+| `POST /tasks/:id/return`、`POST /tasks/:id/workflow` | 退回（`feedback`）、更換任務藍圖（`workflowId`，要先暫停）。負責人主導的任務不能用這個退回（要用 `control` 指定步驟），開始後也不能更換任務藍圖 |
+| `GET /tasks/:id/activity?before=&limit=&version=` | 負責人主導任務的對話，分頁、依 `seq` 由舊到新：`{ version, total, items, hasMore }`。省略 `before` 取最新 50 筆，`limit` 1–100；`version` 不是目前版本時回 `conflict`。舊制任務回 `conflict` |
+| `GET /tasks/:id/activity/:activityId`、`GET /tasks/:id/operations/:operationId` | 讀一則對話紀錄、讀一個操作的狀態（斷線後補查用） |
+| `POST /tasks/:id/messages` | 寫給負責人：`requestId`（1–128 字元）、`text`、`images`、`files`，回 202 `{ operation, activity }`。帶 `mentions`、`replicaId`、`subId` 會被拒絕，訊息只給負責人。同一個 `requestId` 同內容重送回原本那筆，不同內容回 `conflict`。已結束或合併中的任務不能留言；等待合併時留言會回到執行中，要負責人重新提交完成 |
+| `POST /tasks/:id/control` | 使用者操作，回 202 `{ operation }`：`action` 為 `pause`（不需版本）、`resume`、`return`（`subId`、`reason`）、`retry`（`operationId`，只限失敗的負責人處理）或 `answer`（`questionId`、`optionId`、`note`）。除了 `pause` 都要帶 `planVersion`、`controlVersion`，和目前不同時回 `conflict`；`requestId` 規則同上 |
 | `GET /subtasks/:id/file?path=` | 讀子任務交接的檔案（該次 commit 的內容，上限 1 MB，只限文字檔） |
 | `GET /subtasks/:id/diff?path=` | 交接的檔案和子任務開始時的版本逐行比對：`{ lines: [{ op: "same" \| "add" \| "del", text }] }`；檔案是這一步新增的、或子任務開始時沒記下版本就是 `{ lines: null }` |
 | `GET /subtasks/:id/image?path=` | 讀子任務交接的圖片（該次 commit 的內容，上限 25 MB，只限 PNG、JPEG、GIF、WebP），直接回傳圖片本身 |
@@ -197,7 +201,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 
 - **讀對話**：`read_chat` 用對話 ID（對話下方可複製，例如 `chat-805`）讀整段對話：誰說了什麼、員工跑了哪些工具，由舊到新，每次最多 50KB，用 `offset`、`limit` 往下讀。任何員工都能讀任何公司和機場的對話，不受下面的公司範圍限制。
 - **範圍**：公司的員工只能讀取、建立、修改自己公司的任務，也只列得到、只能雇用和修改自己公司的員工；機場服務人員可以跨公司，`create_task` 和 `save_employees` 雇用時要帶 `team_id`。藍圖、任務藍圖和供應商由所有公司共用，修改會影響每間公司。
-- **直接生效**：新增藍圖、新增任務藍圖、新增供應商、`save_employees` 雇用、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。
+- **直接生效**：新增藍圖、新增任務藍圖、新增供應商、`save_employees` 雇用、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。負責人主導且已開始的任務只有使用者能改，`update_task` 會被拒絕。
 - **要確認**：帶 `id` 的 `save_blueprint`、`save_workflow`、`save_provider`、`save_employees`，包括員工修改自己用的藍圖。後端先檢查內容並算出差異，然後暫停，同意前不會寫入。任務的子任務進入等待回覆（`review.kind` 為 `change`），對話則是 `chat.change`；兩者都會保存，重新啟動後還在。同意或拒絕都會回傳給模型，模型接著工作。內容沒有差異時不會暫停。同一輪在這個呼叫之後的工具不會執行，模型會收到 `interrupted`。
 - **不能修改**：`preset-` 開頭的內建項目和來源帶來的（id 含 `--`，例如官方的 `team-work--assistant`）項目（要新增一份自己的）、Git 來源的藍圖。修改要帶 `list_*` 回傳的 `version`，不符就拒絕；等待確認期間內容被改過或刪除時，同意也不會寫入，模型會收到原因。
 - **設定檔**：寫入藍圖、任務藍圖和供應商的規則和介面相同：有外部修改尚未載入時回傳 `conflict`。
@@ -266,7 +270,20 @@ App 帶的十二個員工藍圖（通才、前端工程師、後端工程師、�
 
 技能來源（Git 或本機資料夾）裡，有 `SKILL.md` 的資料夾就是一個技能。Git 來源可以用 `path` 指定 repo 裡的子資料夾，就從那裡開始找；貼上 `/tree/main/pstack` 這種網址時，第一段是版本，其餘是子資料夾。先找 `skills/` 底下，找不到才找來源根目錄；可以分類放（如 `skills/engineering/tdd/SKILL.md`），最多往下四層，會跟著符號連結，略過 `.` 開頭的資料夾和 `node_modules`，技能資料夾裡面不再往下找。
 
+## 負責人主導的任務
+
+新建立的任務（含員工用 `create_task` 建立的）有 `orchestration: "owner"` 和 `coordination`；之前建立、沒有這個欄位的任務照下一節的舊方式執行到底，不會中途切換。
+
+- **計畫與授權**：任務藍圖是開始時的計畫。負責人和流程上指派的員工就是使用者授權的名單（`coordination.authorization`）。負責人可以在名單內派工、改派、加步驟或拿掉沒執行過的步驟（`revise_plan`），每次改動都留紀錄與快照，`planVersion` 加一，只改這個任務的流程副本，不改共用的任務藍圖。要加入名單外的員工、增加預算或修改設定，要問使用者；使用者在 `PATCH` 裡加的人會加入名單。
+- **負責人怎麼工作**：負責人是一位員工，用自己的模型，只有讀取工具和受檢查的調度工具（`read_task`、`read_task_history`、`read_step`、`dispatch_step`、`review_step`、`stop_step`、`return_step`、`answer_employee`、`hold_meeting`、`revise_plan`、`ask_user`、`record_task_fact`、`submit_complete`），不能改檔或執行指令。每次被喚起都先讀正式現況（目標、原始說明、授權、限制與決策、計畫、各步驟、未答問題）和喚起它的事件，舊紀錄用工具查。只有任務開始、使用者留言或回答、員工交接或提問、重試後仍失敗、會議結束、停止或退回完成、恢復時才喚起；同一任務一次只有一輪，處理中到的事件留到下一輪。使用者在負責人處理中留言或操作時，`controlVersion` 加一，負責人這一輪之後的改動都會被拒絕，再以新事件重來。
+- **步驟**：員工照派工時的指示（`instruction`）工作，交接後等負責人審核（`ownerReview`），不會自動交給下一步；只有被接受的成果能當上游。員工可以用 `ask_owner` 問負責人；`ask_user` 和修改確認只有使用者能回答，顯示在 `coordination.questions`。同一任務的工作步驟一次只有一個在寫 work tree，會議和負責人可以同時進行。
+- **暫停與退回**：暫停立刻停止所有執行並阻止新派工，執行真的結束才把操作標成 `applied`；暫停時仍可和負責人討論（可開唯讀會議），但要使用者恢復才會繼續。退回選定的那次執行：任務暫停，該次執行標為 `superseded`，用到它的成果標成 `needsRevalidation`，建一個重做等使用者恢復。不會刪除紀錄、還原檔案或改寫歷史；停止也不會還原已改的檔案或外部操作。執行超過 30 秒沒結束，或伺服器重新啟動時正在執行，標成 `uncertain` 並問使用者，確認前不能恢復。
+- **限制**：負責人的用量算進任務費用。達到上限、一輪呼叫超過 32 個工具、負責人和員工來回問答 8 次或退回 2 次後，負責人停下來問使用者，使用者同意後才重新計算。
+- **紀錄**：對話、操作、待處理事件、計畫快照和原始說明存在 SQLite 的 `taskLog` 紀錄，不放進世界快照；負責人的模型歷史存在 `conv` 的 `owner:<任務 id>`。
+
 ## 執行方式
+
+以下是舊制任務的規則；負責人主導的任務照上一節。
 
 - **起點與完成**：任務藍圖沒有固定的頭尾。沒有上游的節點都是起點，任務開始時同時啟動，各自直接拿到任務說明。所有實際啟動的支線都完成才進入等待合併，條件分支沒選到的不用等；`join: all` 的節點遇到確定不會啟動的上游時，把它當作已結清。負責人只代表誰對任務負責，不會自動接手任何節點。舊資料裡的 `kind: task` 讀入時當作工作節點。
 - **退回**：只有一個上游、且該上游只交給這個節點的工作節點都可以把工作退回上游重做，執行時依任務藍圖的形狀判斷；起點和討論節點不能退回。舊資料裡節點的 `sendBack` 仍讀得進來，但不再使用，讀取時就丟掉。退回不會取消其他支線，一個任務最多退回兩次。多個終點時，等待合併的「退回」和合併由最後完成的終點決定，有上游的終點優先。
@@ -274,7 +291,7 @@ App 帶的十二個員工藍圖（通才、前端工程師、後端工程師、�
 - **合併**：使用者按合併後，先把目標分支合進任務分支，有衝突由負責人解；再以 fast-forward 更新目標分支，然後移除 work tree 與分支。目標分支所在的資料夾有會被覆蓋的未 commit 變更時，合併會失敗並回到等待合併。取消或更換任務藍圖會直接刪除任務分支與 work tree。
 - **失敗**：供應商暫時性錯誤先重試 3 次；之後依公司的「重試次數」重跑，再不行就等使用者選重試或略過。逾時（公司的 `timeoutMin`）同樣處理。
 - **費用**：依供應商的 `prices` 計算。**沒設定價格的模型費用算 0，費用上限對它無效**，子任務 log 會提醒一次。
-- **重新啟動**：進行中的工作回到佇列，從保存的對話接著做。
+- **重新啟動**：進行中的工作回到佇列，從保存的對話接著做（負責人主導的任務改標成 `uncertain`，見上一節）。
 
 ## 思考等級
 

@@ -1234,11 +1234,11 @@ func (e *Engine) MergeTask(id string) error {
 			if e.owner(t) == nil {
 				return model.Errorf(model.CodeInvalid, "要先選這個任務的負責人")
 			}
-			if why := e.unfinished(t, ""); why != "" {
-				return model.Errorf(model.CodeConflict, "%s", why)
-			}
 			if e.runs[ownerKey(t.ID)] != nil {
 				return model.Errorf(model.CodeConflict, "負責人還在處理")
+			}
+			if why := e.unfinished(t, ""); why != "" {
+				return model.Errorf(model.CodeConflict, "%s", why)
 			}
 		}
 		by := t.OwnerID

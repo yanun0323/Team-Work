@@ -277,9 +277,13 @@ func TestOwnerDispatchesEmployeesOnOtherModelsAndGatesEveryHandoff(t *testing.T)
 	for _, want := range []func(model.TaskActivity) bool{
 		func(a model.TaskActivity) bool { return a.Key == "started" },
 		func(a model.TaskActivity) bool { return a.Key == "dispatched" && a.SubID == end.ID },
-		func(a model.TaskActivity) bool { return a.Kind == "handoff" && a.By == bob.ID && a.Name == "Bob" && a.SubID == end.ID && a.NodeID == "end" },
+		func(a model.TaskActivity) bool {
+			return a.Kind == "handoff" && a.By == bob.ID && a.Name == "Bob" && a.SubID == end.ID && a.NodeID == "end"
+		},
 		func(a model.TaskActivity) bool { return a.Key == "accepted" && a.SubID == end.ID },
-		func(a model.TaskActivity) bool { return a.Kind == "message" && a.By == r.owner.ID && a.Text == "All done." },
+		func(a model.TaskActivity) bool {
+			return a.Kind == "message" && a.By == r.owner.ID && a.Text == "All done."
+		},
 	} {
 		if !hasActivity(items, want) {
 			t.Fatalf("missing from the conversation: %+v", items)
@@ -289,6 +293,8 @@ func TestOwnerDispatchesEmployeesOnOtherModelsAndGatesEveryHandoff(t *testing.T)
 	if got.Coordination.OwnerCostUSD <= 0 || got.Coordination.OwnerTokens <= 0 {
 		t.Fatalf("the owner's use was not counted: %+v", got.Coordination)
 	}
+	// merging waits for the owner's decision to end
+	r.wait("owner idle", func(w *model.World) bool { return w.Tasks[task.ID].Coordination.OwnerState == model.OwnerIdle })
 	if err := r.e.MergeTask(task.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -317,9 +323,15 @@ func TestHandoffWaitsForTheOwnerAndIsNotRoutedByTheFlow(t *testing.T) {
 	if subAt(w, task.ID, "驗收") != nil || w.Tasks[task.ID].Stage != enum.StageRunning {
 		t.Fatalf("the next step started without the owner: %+v", w.Tasks[task.ID])
 	}
-	owner := ownerRequests(r)
-	if len(owner) != 2 || !strings.Contains(owner[1].Messages[0].Content[0].Text, "[employee_handoff]") {
-		t.Fatalf("the owner was not woken once by the handoff: %d", len(owner))
+	// each decision starts from the brief alone
+	var woken []model.ModelRequest
+	for _, req := range ownerRequests(r) {
+		if len(req.Messages) == 1 {
+			woken = append(woken, req)
+		}
+	}
+	if len(woken) != 2 || !strings.Contains(woken[1].Messages[0].Content[0].Text, "[employee_handoff]") {
+		t.Fatalf("the owner was not woken once by the handoff: %d", len(woken))
 	}
 	if err := r.e.MergeTask(task.ID); err == nil {
 		t.Fatal("merged a task the owner did not complete")
@@ -634,7 +646,9 @@ func TestEmployeesAskTheOwnerWhoAnswers(t *testing.T) {
 	task := r.ownerTask(r.flow.ID)
 	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
 	items := r.activity(task.ID)
-	if !hasActivity(items, func(a model.TaskActivity) bool { return a.Kind == "question" && a.Text == "A 還是 B？" && a.QuestionID != "" }) ||
+	if !hasActivity(items, func(a model.TaskActivity) bool {
+		return a.Kind == "question" && a.Text == "A 還是 B？" && a.QuestionID != ""
+	}) ||
 		!hasActivity(items, func(a model.TaskActivity) bool { return a.Kind == "message" && a.Text == "用 B" && a.By == r.owner.ID }) {
 		t.Fatalf("%+v", items)
 	}
@@ -760,9 +774,10 @@ func TestBudgetStopsTheOwnerUntilTheUserAddsSome(t *testing.T) {
 func TestLongerRunsThanStopWaitAreUncertainAndBlockResuming(t *testing.T) {
 	t.Cleanup(usecase.SetStopWait(50 * time.Millisecond))
 	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
 	var held atomic.Bool
 	r := newRig(t, nil)
+	// after the rig's own cleanup is registered, so the held call ends before the engine waits for it
+	t.Cleanup(func() { close(release) })
 	r.setReply(func(req model.ModelRequest) (model.ModelReply, error) {
 		if isOwner(req) {
 			return autoOwner(req), nil
@@ -844,7 +859,7 @@ func TestRestartKeepsWaitingMessagesAndCallsRunsUnderWayUncertain(t *testing.T) 
 }
 
 func TestFactsKeepWhatTheUserSet(t *testing.T) {
-	var userEntry string
+	wrote := regexp.MustCompile(`The user wrote \((\S+)\): 不要改 API`)
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
 			return worker(req), nil
@@ -855,7 +870,7 @@ func TestFactsKeepWhatTheUserSet(t *testing.T) {
 		case len(req.Messages) == 1 && strings.Contains(brief, "The user wrote") && strings.Contains(brief, "隨便"):
 			return ownerCall("record_task_fact", map[string]any{"kind": "decision", "text": "改 API", "supersedes": factID(brief)}), nil
 		case len(req.Messages) == 1 && strings.Contains(brief, "The user wrote") && strings.Contains(brief, "不要改 API"):
-			return ownerCall("record_task_fact", map[string]any{"kind": "constraint", "text": "不要改 API", "source_activity_ids": []string{userEntry}}), nil
+			return ownerCall("record_task_fact", map[string]any{"kind": "constraint", "text": "不要改 API", "source_activity_ids": []string{wrote.FindStringSubmatch(brief)[1]}}), nil
 		case len(req.Messages) > 1 && last.Name == "record_task_fact":
 			return say(last.Text), nil
 		}
@@ -867,7 +882,7 @@ func TestFactsKeepWhatTheUserSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	userEntry = res.Activity.ID
+	userEntry := res.Activity.ID
 	w := r.wait("the fact", func(w *model.World) bool { return len(w.Tasks[task.ID].Coordination.Facts) == 1 })
 	f := w.Tasks[task.ID].Coordination.Facts[0]
 	if f.Kind != "constraint" || !slices.Equal(f.SourceActivityIDs, []string{userEntry}) {

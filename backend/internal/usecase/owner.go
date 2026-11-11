@@ -667,6 +667,9 @@ func (e *Engine) ControlTask(id string, in TaskControl) (model.TaskOperation, er
 			}
 			return err
 		}
+		if !slices.Contains([]string{"pause", "resume", "return", "retry", "answer"}, in.Action) {
+			return model.Errorf(model.CodeInvalid, "不認識的操作")
+		}
 		c := t.Coordination
 		if in.Action != "pause" {
 			if in.PlanVersion == nil || in.ControlVersion == nil {
