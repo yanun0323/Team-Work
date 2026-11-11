@@ -51,13 +51,10 @@ func (e *Engine) ReplicaSkills(ctx context.Context, id string) ([]SkillInfo, err
 	return e.skillInfos(ctx, packs), nil
 }
 
-// AirportSkills lists the skills of the airport staff's blueprint.
+// AirportSkills lists every skill the airport staff can use, as airportPacks finds them.
 func (e *Engine) AirportSkills(ctx context.Context) []SkillInfo {
 	e.mu.Lock()
-	var packs []packRoot
-	if bp := e.w.Blueprints[airportBlueprintID]; bp != nil {
-		packs = e.packsOf(bp)
-	}
+	packs := e.airportPacks()
 	e.mu.Unlock()
 	return e.skillInfos(ctx, packs)
 }
