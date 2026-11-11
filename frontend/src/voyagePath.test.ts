@@ -6,7 +6,7 @@ import { ISO_DIR, SCREEN_RIGHT, type Shot } from './camera'
 import { layoutTown, rectCenter } from './layout'
 import {
   approach, approachAt, approachFrame, clearDistance, CRUISE_SPEED, CRUISE_Y, crossing, cruiseZoom, DEPART_CAMERA_SECONDS, departAt, departFrame,
-  departure, groundUnder, inSight, INTRO_GROW, introApproach, newFrame, newPose, planeScale, planeShadow, startIntro, TAKEOFF_SECONDS, useVoyage,
+  departure, groundUnder, inSight, INTRO_GROW, INTRO_ZOOM, introApproach, newFrame, newPose, planeScale, planeShadow, startIntro, TAKEOFF_SECONDS, useVoyage,
   viewDir, wayOut,
 } from './voyagePath'
 
@@ -50,7 +50,7 @@ describe('the startup approach', () => {
   it('starts with the island out of sight, looking down from far out', () => {
     approachFrame(a, 0, f)
     expect(f.tilt).toBe(0)
-    expect(f.zoom).toBeCloseTo(cruiseZoom(shot.zoom))
+    expect(f.zoom).toBeCloseTo(cruiseZoom(shot.zoom, INTRO_ZOOM))
     expect(f.clouds).toBe(1)
     expect(flat(f.target, shot.target)).toBeGreaterThan(clearDistance(view, f.zoom, radius))
   })
@@ -164,9 +164,19 @@ describe('leaving an island', () => {
       expect(p.roll).toBe(0)
     })
 
+    it(`never slows once off the runway, cruising well above its take-off speed (${way})`, () => {
+      expect(CRUISE_SPEED).toBeGreaterThan(d.climbSpeed * 2)
+      let last = 0
+      for (let t = TAKEOFF_SECONDS; t < d.clear + 1; t += 0.01) {
+        departAt(d, t, p)
+        expect(p.speed).toBeGreaterThanOrEqual(last - 1e-9)
+        last = p.speed
+      }
+    })
+
     it(`turns ${home ? 'back at once' : 'only a little'} after the take-off`, () => {
-      // where it heads a second after the take-off
-      departAt(d, TAKEOFF_SECONDS + 0.2, p)
+      // where it heads just after the take-off, still in the turn
+      departAt(d, TAKEOFF_SECONDS + 0.1, p)
       if (home) expect(across(p.dir)).toBeLessThan(across(new THREE.Vector3(1, 0, 0)))
       expect(Math.abs(p.roll)).toBeGreaterThan(0.05)
     })
@@ -199,7 +209,7 @@ describe('leaving an island', () => {
   })
 
   it('flies higher than before: the island is smaller as it goes and comes', () => {
-    expect(cruise).toBeLessThanOrEqual(shot.zoom * 0.3 + 1e-9)
+    expect(cruise).toBeLessThanOrEqual(shot.zoom * 0.45 + 1e-9)
   })
 })
 

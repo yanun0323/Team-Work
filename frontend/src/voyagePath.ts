@@ -17,11 +17,15 @@ import type { Intro } from './boot'
 export const CRUISE_Y = 46
 /** The clouds it flies over. */
 export const CLOUD_Y = 30
-/** The cruise's zoom, as a share of the island's: far enough out for the island to grow as it comes. */
-export const CRUISE_ZOOM = 0.3
+/**
+ * The cruise's zoom between islands, as a share of the island's: far enough out for the island to grow as it comes,
+ * near enough for the one left to go soon; the startup landing comes in from further out.
+ */
+export const CRUISE_ZOOM = 0.45
+export const INTRO_ZOOM = 0.3
 const MIN_CRUISE_ZOOM = 1.5
-/** Cruising speed, in world units per second. */
-export const CRUISE_SPEED = 140
+/** Cruising speed, in world units per second: well above the take-off's, so it never slows once in the air. */
+export const CRUISE_SPEED = 320
 /** The radius of the turn from the runway onto the way out. */
 const TURN_RADIUS = 30
 /** The plane on screen, in pixels nose to tail, whatever the zoom; and its own length. */
@@ -30,17 +34,17 @@ const PLANE_LENGTH = 8.8
 /** How many times its cruising size the plane starts the startup landing at, shrinking as the camera comes down. */
 export const INTRO_GROW = 2
 /** Seconds to come in on another island, once it is there. */
-export const ARRIVAL_SECONDS = 4
+export const ARRIVAL_SECONDS = 2.5
 /** Share of an approach the plane takes to get over the island; the camera settles in the rest, as it flies on. */
 const PLANE_SHARE = 0.7
 /** How long the take-off is, in the airport's own time, sped up this much. */
 const TAKEOFF_FROM = TAKEOFF[0] + 1
-const TAKEOFF_SPEEDUP = 5
+const TAKEOFF_SPEEDUP = 8
 export const TAKEOFF_SECONDS = (TAKEOFF[1] - TAKEOFF_FROM) / TAKEOFF_SPEEDUP
 /** Seconds from the speed it climbs out at to cruising speed. */
-const SPEED_UP = 2
+const SPEED_UP = 0.8
 /** Seconds the camera takes to leave the player's view for the plane's. */
-export const DEPART_CAMERA_SECONDS = 3.2
+export const DEPART_CAMERA_SECONDS = 2.4
 /** How far along the climb the plane reaches cruising height. */
 const CLIMB = 80
 /** Banking: the sideways pull, in world units per second², that leans the plane a radian-ish, and the most it leans. */
@@ -81,7 +85,7 @@ export function clearDistance(view: Pick<View, 'width' | 'height'>, zoom: number
   return Math.hypot(view.width / 2, view.height / 2 / Math.sin(TOP_ELEVATION)) / zoom + radius
 }
 
-export const cruiseZoom = (islandZoom: number) => Math.max(MIN_CRUISE_ZOOM, islandZoom * CRUISE_ZOOM)
+export const cruiseZoom = (islandZoom: number, share = CRUISE_ZOOM) => Math.max(MIN_CRUISE_ZOOM, islandZoom * share)
 
 /** How much bigger than its own size the plane is drawn, so it is never tiny when the camera is far out. */
 export const planeScale = (zoom: number) => Math.max(1, PLANE_PX / (PLANE_LENGTH * zoom))
@@ -388,7 +392,7 @@ const IN = SCREEN_RIGHT.clone().multiplyScalar(0.85).addScaledVector(new THREE.V
  * at least `room` away from it.
  */
 export function introApproach(to: Shot, view: Pick<View, 'width' | 'height'>, radius: number, seconds: number, room = radius): Approach {
-  const zoomFrom = cruiseZoom(to.zoom)
+  const zoomFrom = cruiseZoom(to.zoom, INTRO_ZOOM)
   // far enough out for a stretch of open sea first, as the startup screen clears
   const far = clearDistance(view, zoomFrom, Math.max(room, radius)) * 1.4
   // from a little to one side, so the path curves in

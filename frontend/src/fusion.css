@@ -2032,7 +2032,7 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
 .fusion-stage > .fx-detail { transition: translate 320ms cubic-bezier(0.3, 0.7, 0.4, 1); }
 .fusion-stage[data-away] > :not(.fusion-canvas, .labels) {
   translate: var(--away, 0 calc(-100% - 40px)); visibility: hidden; pointer-events: none;
-  /* --out matches UI_OUT_SECONDS in src/Voyage.tsx; hidden only once off the screen */
+  /* the take-off starts as they go (TAKEOFF_LEAD in src/Voyage.tsx); hidden only once off the screen */
   --out: 400ms;
   transition: translate var(--out) cubic-bezier(0.55, 0, 0.8, 0.4), visibility 0s linear var(--out);
 }

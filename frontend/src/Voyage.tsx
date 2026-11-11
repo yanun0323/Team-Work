@@ -1,8 +1,8 @@
 // The flights that bring the camera to an island (voyagePath.ts), in the scene: the plane the camera follows, the
 // sparse clouds it flies over, and the camera itself while one is under way. The player's controls wait meanwhile;
 // any input skips to the end, or, leaving an island, to out over open sea. The screen's controls and panels
-// are off the screen meanwhile (`away`, fusion.css): leaving an island they slide off before the plane takes off,
-// and they slide back on once it has brought the camera in.
+// are off the screen meanwhile (`away`, fusion.css): leaving an island they slide off as the plane starts its
+// take-off, and they slide back on once it has brought the camera in.
 
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -28,8 +28,8 @@ type Leg =
 /** How far past the screen's edge, in plane lengths, the plane flies on before it goes. */
 const OFF_SCREEN = 0.6
 
-/** Seconds the screen's controls and panels take to slide off it before the plane takes off; fusion.css matches it. */
-const UI_OUT_SECONDS = 0.4
+/** Seconds after the screen's controls and panels start sliding off it (fusion.css) that the take-off starts. */
+const TAKEOFF_LEAD = 0.1
 /** The longest the plane flies on once the camera has landed, if it never leaves the screen. */
 const EXIT_LIMIT = 10
 /** The longest it flies on over open sea for an island that never says it has come (the same one gone to again, say). */
@@ -116,8 +116,8 @@ export function Voyage({ town, landing, clouds }: { town: Town; landing: number;
     const cruise = cruiseZoom(shotNow().zoom)
     const d = departure(new THREE.Vector3(ax, 0, az), runwayObstacles(t), s, cruise, islandRadius(t), home)
     const from = { target: c ? c.target.clone() : shotNow().target, zoom: camera.zoom }
-    // the screen's controls and panels slide off it first; the take-off starts at 0
-    const l: Extract<Leg, { kind: 'depart' }> = { kind: 'depart', t: -UI_OUT_SECONDS, d, from, cruise, swaps: [swap], swapped: false }
+    // the screen's controls and panels start sliding off it; the take-off starts at 0, as they go
+    const l: Extract<Leg, { kind: 'depart' }> = { kind: 'depart', t: -TAKEOFF_LEAD, d, from, cruise, swaps: [swap], swapped: false }
     leg.current = l
     exit.current = null
     pitch.current = 0
@@ -125,7 +125,7 @@ export function Voyage({ town, landing, clouds }: { town: Town; landing: number;
     setGear(true)
     setShown(false)
     useVoyage.setState({ active: true, leaving: true, away: true })
-    setTimeout(() => { if (leg.current === l) swapNow(l) }, (UI_OUT_SECONDS + d.clear) * 1000 + SWAP_LATE_MS)
+    setTimeout(() => { if (leg.current === l) swapNow(l) }, (TAKEOFF_LEAD + d.clear) * 1000 + SWAP_LATE_MS)
   }
 
   useEffect(() => {
@@ -214,7 +214,7 @@ export function Voyage({ town, landing, clouds }: { town: Town; landing: number;
     } else if (l?.kind === 'depart') {
       const before = l.t
       l.t += dt
-      // the screen has cleared: off it goes
+      // off it goes, as the screen clears
       if (before < 0 && l.t >= 0) {
         setShown(true)
         playSound('soundTakeoff')
