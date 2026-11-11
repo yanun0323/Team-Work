@@ -407,3 +407,32 @@ func TestToolImagesFollowAllTheOutputs(t *testing.T) {
 		t.Fatalf("%s", f.bodies[0])
 	}
 }
+
+// What a run is told while it works follows a round of tool results, as a message of the user's after the outputs.
+func TestWordsAfterToolResultsFollowTheOutputs(t *testing.T) {
+	body := buildRequest(model.ModelRequest{Model: "gpt-a", Messages: []model.Message{
+		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "do it"}}},
+		{Role: enum.RoleAssistant, Content: []model.Block{{Type: enum.BlockToolCall, ID: "a", Name: "run_command", Args: json.RawMessage(`{}`)}}},
+		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "a", Text: "ran"}}},
+		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "The task owner tells you while you work: use B"}}},
+	}})
+	raw, _ := json.Marshal(body["input"])
+	var input []struct {
+		Type    string `json:"type"`
+		Role    string `json:"role"`
+		CallID  string `json:"call_id"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &input); err != nil {
+		t.Fatal(err)
+	}
+	if len(input) != 4 || input[2].Type != "function_call_output" || input[2].CallID != "a" {
+		t.Fatalf("%s", raw)
+	}
+	if last := input[3]; last.Type != "message" || last.Role != "user" || len(last.Content) != 1 || last.Content[0].Type != "input_text" || !strings.Contains(last.Content[0].Text, "use B") {
+		t.Fatalf("%s", raw)
+	}
+}

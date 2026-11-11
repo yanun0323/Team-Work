@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"image"
 	"image/png"
+	"os"
 	"strings"
 	"testing"
 
@@ -90,5 +91,33 @@ func TestToolResultKeepsItsImage(t *testing.T) {
 	raw, _ := json.Marshal(history)
 	if !strings.Contains(string(raw), `"media_type":"image/png"`) {
 		t.Fatalf("%s", raw)
+	}
+}
+
+// What a run is told while it works follows a round of tool results; Claude reads it in the history it resumes from.
+func TestWordsAfterToolResultsAreInTheResumedHistory(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	msgs := toMessages([]model.Message{
+		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "do it"}}},
+		{Role: enum.RoleAssistant, Content: []model.Block{{Type: enum.BlockToolCall, ID: "a", Name: "run_command", Args: json.RawMessage(`{}`)}}},
+		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "a", Text: "ran"}}},
+		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "The task owner tells you while you work: use B"}}},
+	})
+	m, err := makeMirror(CompleteParams{Cwd: t.TempDir(), Model: "haiku", Messages: msgs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.cleanup()
+	raw, err := os.ReadFile(m.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := string(raw)
+	result, said := strings.Index(history, `"tool_use_id":"a"`), strings.Index(history, "use B")
+	if result < 0 || said < result || strings.Contains(history, "[no tool result recorded]") {
+		t.Fatalf("%s", history)
+	}
+	if len(m.prompt) != 1 || !strings.Contains(m.prompt[0]["text"].(string), "Continue from the conversation above") {
+		t.Fatalf("%+v", m.prompt)
 	}
 }

@@ -944,6 +944,7 @@ const RECORDED: Record<string, Record<Locale, string>> = {
   'task.returnedByUser': { zh: '退回「{step}」重做：{reason}', en: '"{step}" sent back to redo: {reason}', 'zh-Hans': '退回“{step}”重做：{reason}', ja: '「{step}」を差し戻してやり直し：{reason}', ko: '"{step}" 다시 작업하도록 되돌림: {reason}' },
   'task.returnedByOwner': { zh: '{owner} 退回「{step}」重做：{reason}', en: '{owner} sent "{step}" back to redo: {reason}', 'zh-Hans': '{owner} 退回“{step}”重做：{reason}', ja: '{owner} が「{step}」を差し戻してやり直し：{reason}', ko: '{owner}이(가) "{step}"을(를) 다시 작업하도록 되돌림: {reason}' },
   'task.continued': { zh: '「{step}」接著做', en: '"{step}" goes on', 'zh-Hans': '“{step}”接着做', ja: '「{step}」を続けます', ko: '"{step}" 이어서 진행' },
+  'task.messageUndelivered': { zh: '給「{step}」的插話未送達', en: 'A message to "{step}" was not delivered', 'zh-Hans': '给“{step}”的插话未送达', ja: '「{step}」への割り込みは届きませんでした', ko: '"{step}"에 보낸 메시지가 전달되지 않음' },
   'task.stopping': { zh: '{owner} 停止「{step}」：{reason}', en: '{owner} stopped "{step}": {reason}', 'zh-Hans': '{owner} 停止“{step}”：{reason}', ja: '{owner} が「{step}」を止めました：{reason}', ko: '{owner}이(가) "{step}"을(를) 멈춤: {reason}' },
   'task.meetingCalled': { zh: '{owner} 召開會議：{topic}', en: '{owner} called a meeting: {topic}', 'zh-Hans': '{owner} 召开会议：{topic}', ja: '{owner} が会議を開きました：{topic}', ko: '{owner}이(가) 회의를 열었습니다: {topic}' },
   'task.planChanged': { zh: '{owner} 調整計畫（第 {version} 版）：{reason}', en: '{owner} changed the plan (version {version}): {reason}', 'zh-Hans': '{owner} 调整计划（第 {version} 版）：{reason}', ja: '{owner} が計画を変更（第 {version} 版）：{reason}', ko: '{owner}이(가) 계획 변경({version}판): {reason}' },

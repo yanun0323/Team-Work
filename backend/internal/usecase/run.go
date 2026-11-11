@@ -369,6 +369,9 @@ func (e *Engine) startSub(t *model.Task, s *model.SubTask) {
 	}
 	e.w.Conversations[s.ID] = conv
 	e.dirty[s.ID] = true
+	if node.Kind != enum.NodeTalk { // what the owner told a run that ended with the server, or one being retried
+		conv = append(conv, e.takeSteers(t, s)...)
+	}
 	if node.Kind == enum.NodeTalk { // the chair opens it, and in a meeting knows who else is in it
 		e.launch(t, s, e.talkSpec(t, s, spec), r.ID, e.talkSees(t, s, conv, r.ID))
 		return
@@ -591,7 +594,17 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 			before = s.ExecutionState
 		}
 		e.subExited(in.subID, in.gen)
-		if s := e.w.SubTasks[in.subID]; owned || s != nil && s.ExecutionState != before {
+		unread := false
+		if s := e.w.SubTasks[in.subID]; s != nil && !in.talk && !e.closed && e.runs[in.subID] == nil {
+			// a run being retried reads them when it starts again; any other end is one they came too late for
+			retrying := s.Status == enum.StatusTodo && (s.ExecutionState == "" || s.ExecutionState == model.ExecQueued)
+			if t := e.w.Tasks[in.taskID]; t != nil && t.OwnerLed() && !retrying && e.unreadSteers(t, s.ID) > 0 {
+				e.w.Now = e.clock()
+				e.steersUnread(t, s)
+				unread = true
+			}
+		}
+		if s := e.w.SubTasks[in.subID]; owned || unread || s != nil && s.ExecutionState != before {
 			e.w.Now = e.clock()
 			e.settle()
 		}
@@ -681,6 +694,12 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 			e.apply(in, func(tk *model.Task, s *model.SubTask) { e.talkSays(tk, s, in.speaker, res.Text) })
 			return
 		}
+		// what the owner said meanwhile comes before being told to hand off, and may be why they go on
+		if heard := t.steer(); len(heard) > 0 {
+			t.req.Messages = append(t.req.Messages, heard...)
+			nudges--
+			continue
+		}
 		if nudges == maxNudges {
 			failed("error", i18n.T("員工沒有交接就停下來了"))
 			return
@@ -762,7 +781,27 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 				e.dirty[s.ID] = true
 			})
 		},
+		// what the task's owner told the run meanwhile, read after a round of tool results
+		steer: func() []model.Message {
+			var heard []model.Message
+			if !in.talk && e.steersFor(in) {
+				e.apply(in, func(t *model.Task, s *model.SubTask) {
+					if t.OwnerLed() {
+						heard = e.takeSteers(t, s)
+					}
+				})
+			}
+			return heard
+		},
 	}
+}
+
+// steersFor says whether the owner told a run something it has not read, without saving anything.
+func (e *Engine) steersFor(in subRun) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	t := e.w.Tasks[in.taskID]
+	return e.runs[in.subID] == in.r && t != nil && e.unreadSteers(t, in.subID) > 0
 }
 
 // restartLive empties what the employee of a chat or discussion is writing, for a new try at the model.

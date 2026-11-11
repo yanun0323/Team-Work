@@ -111,6 +111,19 @@ describe('its conversation', () => {
     expect(html).toContain('class="fx-ticket-tag fx-hit" aria-expanded="false"')
   })
 
+  it('signs what the owner told a run at work by the owner and that step, and says faintly when it was not delivered', () => {
+    const sub = subsOf(w, owned.id)[0]
+    const step = owned.workflow.nodes.find((n) => n.id === sub.nodeId)!.name
+    const html = feed([
+      line({ seq: 1, kind: 'message', name: 'Mira', by: owned.ownerId!, text: '改用 B 方案', subId: sub.id, nodeId: sub.nodeId }),
+      line({ seq: 2, kind: 'event', from: 'system', key: 'messageUndelivered', args: { step: '開發' }, text: 'raw', subId: sub.id, nodeId: sub.nodeId }),
+    ])
+    expect(html).toMatch(/fx-chat-name">Mira<\/span>.*改用 B 方案.*fx-ticket-tag fx-hit[^>]*>[^<]*<\/button>/s)
+    expect(html).toContain(`>${step}</button>`)
+    expect(html).toMatch(/class="fx-ticket-event"[^>]*><span>給「開發」的插話未送達/)
+    expect(html).not.toContain('raw')
+  })
+
   it('reads what the backend records in the user\'s language, and lists what a change of the plan changed', () => {
     // as the backend sends them: its keys and arguments
     const backend: TaskActivity[] = [

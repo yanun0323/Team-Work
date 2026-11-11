@@ -41,6 +41,7 @@ const (
 	evUserAnswer     = "user_answer"
 	evResumed        = "resumed"
 	evRecovery       = "recovery"
+	evUndelivered    = "message_undelivered"
 )
 
 // Event states: pending waits for the owner, processing is in the decision under way, handled is done.
@@ -118,6 +119,16 @@ type taskLog struct {
 	Wakes     int `json:"wakes"`
 	// PausedSubs are runs a pause stopped, which go on once the user resumes.
 	PausedSubs []string `json:"pausedSubs,omitempty"`
+	// Steers are what the owner told runs at work that they have not read yet, oldest first.
+	Steers []pendingSteer `json:"steers,omitempty"`
+}
+
+// pendingSteer is something the owner told a run at work, waiting for its next round of tool results.
+type pendingSteer struct {
+	SubID      string  `json:"subId"`
+	Text       string  `json:"text"`
+	ActivityID string  `json:"activityId"`
+	At         float64 `json:"at"`
 }
 
 func newTaskLog() *taskLog {
@@ -149,6 +160,7 @@ func (l *taskLog) snapshot() *taskLog {
 	out.Plans = l.Plans[:len(l.Plans):len(l.Plans)]
 	out.Brief = l.Brief[:len(l.Brief):len(l.Brief)]
 	out.PausedSubs = slices.Clone(l.PausedSubs)
+	out.Steers = slices.Clone(l.Steers)
 	out.Operations, out.Requests, out.Events, out.Commands = maps.Clone(l.Operations), maps.Clone(l.Requests), maps.Clone(l.Events), maps.Clone(l.Commands)
 	return &out
 }

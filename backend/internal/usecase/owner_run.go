@@ -213,6 +213,7 @@ func (e *Engine) ownerSpec(t *model.Task, r *model.Replica) (agentSpec, error) {
 const ownerRules = "You are the owner of a task: you lead it for the user. Employees do the work, each in a step you dispatch with instructions; you do not edit files or run commands yourself. " +
 	"The task's flow is the plan it started from, not a script: dispatch steps that are ready (several at once when they do not depend on each other), review every handoff before anything builds on it, " +
 	"answer employees' questions, send work back when it falls short, and change the plan when the work calls for it, within what the user allowed. " +
+	"To tell a step that is working something without stopping it, use message_step. " +
 	"Every change you make is recorded for the user. Whatever goes beyond what the user allowed (other employees, more budget, settings, merging, anything outside the task or destructive) is the user's decision: ask with ask_user, never decide it for them. " +
 	"Constraints and decisions that must hold for the rest of the task go in record_task_fact; the formal state at the start of every message is what holds, and read_task_history and read_step show the rest on demand. " +
 	"You are woken only by events: the user writing, handoffs, questions, failures, meetings ending and stops. When nothing more can be done until the next one, end your turn with a short message to the user about what happened and what is next; it goes into the task's conversation. " +
@@ -385,6 +386,9 @@ func (e *Engine) taskState(t *model.Task) string {
 		}
 		if s.Rework != nil {
 			fmt.Fprintf(&b, ", redo of %s: %s", s.Rework.From, clip(s.Rework.Reason, 200))
+		}
+		if n := e.unreadSteers(t, s.ID); n > 0 {
+			fmt.Fprintf(&b, ", %d of your messages not read yet", n)
 		}
 		if s.Handoff != nil {
 			fmt.Fprintf(&b, "\n  handoff: %s", clip(s.Handoff.Human.Headline, 300))
@@ -707,6 +711,9 @@ func (e *Engine) ownerTools(in *ownerRun) []adapter.Tool {
 			`{"type":"object","properties":{"sub_id":{"type":"string"},"reason":{"type":"string"}},"required":["sub_id","reason"]}`, e.returnTool(in)),
 		ownerTool("answer_employee", "Answer a question an employee asked you; their step goes on with it.",
 			`{"type":"object","properties":{"question_id":{"type":"string"},"answer":{"type":"string"}},"required":["question_id","answer"]}`, e.answerTool(in)),
+		ownerTool(toolMessageStep, "Tell a step run that is working now something, without stopping it: it reads your words after its current round of tools. "+
+			"It does not answer here; if the run ends first, you are told it was not delivered. For a stopped run use dispatch_step with sub_id; for a question it asked you, answer_employee.",
+			`{"type":"object","properties":{"sub_id":{"type":"string"},"text":{"type":"string"}},"required":["sub_id","text"]}`, e.messageTool(in)),
 		ownerTool("hold_meeting", "Call a meeting of 2 to 6 allowed employees on a topic. Each speaks once, reading only; when it ends you get what was said.",
 			`{"type":"object","properties":{"topic":{"type":"string"},"replica_ids":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":6}},"required":["topic","replica_ids"]}`, e.meetingTool(in)),
 		ownerTool("revise_plan", "Replace the task's plan with nodes and edges as a flow has them, with your reason: add, skip (remove a step never run) or restaff steps. "+
@@ -1136,6 +1143,132 @@ func (e *Engine) answerTool(in *ownerRun) func(context.Context, string, json.Raw
 			return "answered", nil
 		})
 	}
+}
+
+const (
+	toolMessageStep = "message_step"
+	// steerMost is how long one message to a run at work may be, in characters.
+	steerMost = 4000
+	// steerSays opens what the owner tells a run at work, as the employee reads it.
+	steerSays = "The task owner tells you while you work (no need to stop or reply; take it into account, and ask with ask_owner if it is unclear):\n"
+)
+
+func (e *Engine) messageTool(in *ownerRun) func(context.Context, string, json.RawMessage) model.ToolResult {
+	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+		var a struct {
+			SubID string `json:"sub_id"`
+			Text  string `json:"text"`
+		}
+		if err := parseArgs(raw, &a); err != nil {
+			return toolError("%s", safeText(err))
+		}
+		a.Text = strings.TrimSpace(a.Text)
+		if a.Text == "" {
+			return toolError("text is required")
+		}
+		if n := len([]rune(a.Text)); n > steerMost {
+			return toolError("text is %d characters, more than %d: say it shorter", n, steerMost)
+		}
+		return e.ownerChange(in, func(t *model.Task) (string, error) {
+			s := e.w.SubTasks[a.SubID]
+			if s == nil || s.TaskID != t.ID {
+				return "", model.Errorf(model.CodeNotFound, "找不到子任務")
+			}
+			if err := e.mayMessage(t, s); err != nil {
+				return "", err
+			}
+			act := e.addActivity(t, model.TaskActivity{Kind: "message", From: "agent", Text: a.Text, By: in.ownerID, Name: e.replicaName(in.ownerID), SubID: s.ID, NodeID: s.NodeID})
+			l := e.editLog(t.ID)
+			l.Steers = append(slices.Clone(l.Steers), pendingSteer{SubID: s.ID, Text: a.Text, ActivityID: act.ID, At: e.w.Now})
+			return "sent to " + s.ID + "; it reads it after its current round of tools", nil
+		})
+	}
+}
+
+// mayMessage says why a run cannot be told something while it works, and which tool fits instead; nil when it can.
+func (e *Engine) mayMessage(t *model.Task, s *model.SubTask) error {
+	if n := nodeOf(&t.Workflow, s.NodeID); n != nil && n.Kind == enum.NodeTalk {
+		return model.Errorf(model.CodeConflict, "會議不能插話；要補充的話等會議結束後再派工或另開會議")
+	}
+	switch {
+	case !current(s):
+		return model.Errorf(model.CodeConflict, "這次執行已被取代")
+	case s.Status == enum.StatusComplete:
+		return model.Errorf(model.CodeConflict, "這一步已交付，不能插話；要改的話用 return_step 退回重做")
+	case s.Status == enum.StatusReview:
+		return model.Errorf(model.CodeConflict, "這一步停下來等回答，不能插話；它問你的問題用 answer_employee 回答")
+	case s.ExecutionState == model.ExecStopping || s.ExecutionState == model.ExecStopped || s.ExecutionState == model.ExecUncertain:
+		return model.Errorf(model.CodeConflict, "這一步已停止，不能插話；要讓它接著做，用 dispatch_step 帶 sub_id")
+	case e.runs[s.ID] == nil || s.ExecutionState != model.ExecRunning:
+		return model.Errorf(model.CodeConflict, "這一步還沒開始執行，不能插話；等它開始再說")
+	}
+	return nil
+}
+
+// unreadSteers counts what the owner told a run that it has not read yet.
+func (e *Engine) unreadSteers(t *model.Task, subID string) int {
+	l := e.logOf(t.ID)
+	if l == nil {
+		return 0
+	}
+	n := 0
+	for _, p := range l.Steers {
+		if p.SubID == subID {
+			n++
+		}
+	}
+	return n
+}
+
+// takeSteers hands a run what the owner told it meanwhile: they go into its conversation, and are no longer waiting,
+// in the same change. Call it holding the lock.
+func (e *Engine) takeSteers(t *model.Task, s *model.SubTask) []model.Message {
+	if e.unreadSteers(t, s.ID) == 0 {
+		return nil
+	}
+	l := e.editLog(t.ID)
+	var out []model.Message
+	l.Steers = slices.DeleteFunc(slices.Clone(l.Steers), func(p pendingSteer) bool {
+		if p.SubID != s.ID {
+			return false
+		}
+		out = append(out, userText(steerSays+p.Text))
+		return true
+	})
+	e.w.Conversations[s.ID] = append(e.w.Conversations[s.ID], out...)
+	e.dirty[s.ID] = true
+	return out
+}
+
+// steersUnread is a run ending before it read what the owner told it: the owner is told, and so is the conversation.
+// Call it holding the lock.
+func (e *Engine) steersUnread(t *model.Task, s *model.SubTask) {
+	if e.unreadSteers(t, s.ID) == 0 {
+		return
+	}
+	l := e.editLog(t.ID)
+	var said []string
+	l.Steers = slices.DeleteFunc(slices.Clone(l.Steers), func(p pendingSteer) bool {
+		if p.SubID != s.ID {
+			return false
+		}
+		said = append(said, "\n- "+clip(p.Text, 1000))
+		return true
+	})
+	how := "ended"
+	switch {
+	case s.Status == enum.StatusComplete:
+		how = "handed off"
+	case s.Status == enum.StatusReview:
+		how = "stopped to wait for an answer"
+	case s.ExecutionState == model.ExecStopped || s.ExecutionState == model.ExecStopping || s.ExecutionState == model.ExecUncertain:
+		how = "stopped"
+	}
+	name := e.nodeName(t, s.NodeID)
+	e.systemEvent(t, "messageUndelivered", i18n.T("給「%s」的插話未送達", name), map[string]any{"step": name}, s.ID)
+	e.addEvent(t, ownerEvent{Kind: evUndelivered, SubID: s.ID,
+		Text: "Step run " + s.ID + " (" + s.NodeID + ") " + how + " before reading what you told it with message_step:" + strings.Join(said, "") +
+			"\nIf it still matters, say it when you answer, review or send it back, or go on with it (dispatch_step with sub_id) once stopped."})
 }
 
 func (e *Engine) meetingTool(in *ownerRun) func(context.Context, string, json.RawMessage) model.ToolResult {
@@ -1571,6 +1704,7 @@ func (e *Engine) askOwnerTool(in subRun) adapter.Tool {
 				e.logLine(s, enum.LogSystem, i18n.T("等待負責人回覆"), "askOwner", nil)
 				e.addEvent(t, ownerEvent{Kind: evQuestion, SubID: s.ID, QuestionID: q.ID, ActivityID: act.ID,
 					Text: "Step run " + s.ID + " (" + s.NodeID + ") asks you (" + q.ID + "): " + a.Question})
+				e.steersUnread(t, s)
 			})
 			return model.ToolResult{Stop: true}
 		}}
@@ -1599,6 +1733,7 @@ func (e *Engine) handedToOwner(t *model.Task, s *model.SubTask) {
 	}
 	e.addEvent(t, ownerEvent{Kind: evHandoff, Key: "handoff:" + s.ID + ":" + strconv.Itoa(s.RunGeneration), SubID: s.ID,
 		Text: "Step run " + s.ID + " (" + s.NodeID + ") by " + e.replicaName(who) + " " + what + ": " + text + ". Review it with review_step."})
+	e.steersUnread(t, s)
 }
 
 // failedForOwner is a step of an owner-led task that failed after its retries: it stops, and the owner decides.
@@ -1610,6 +1745,7 @@ func (e *Engine) failedForOwner(t *model.Task, s *model.SubTask, detail string) 
 	e.systemEvent(t, "stepFailed", i18n.T("「%s」重試後仍失敗：%s", name, detail), map[string]any{"step": name, "error": detail}, s.ID)
 	e.addEvent(t, ownerEvent{Kind: evFailure, Key: "failed:" + s.ID + ":" + strconv.Itoa(s.Attempts), SubID: s.ID,
 		Text: "Step run " + s.ID + " (" + s.NodeID + ") failed after its retries: " + detail + ". Go on with it (dispatch_step with sub_id), dispatch the step again, or tell the user."})
+	e.steersUnread(t, s)
 	// runs failing one after another stop the owner dispatching them again until the user says to go on
 	l := e.editLog(t.ID)
 	l.Failures++

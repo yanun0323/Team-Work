@@ -388,6 +388,7 @@ func (e *Engine) mirrorReview(t *model.Task, s *model.SubTask) {
 	e.editLogActivityQuestion(t, a.ID, q.ID)
 	e.addEvent(t, ownerEvent{Kind: evQuestion, SubID: s.ID, QuestionID: q.ID, ActivityID: a.ID,
 		Text: "Step run " + s.ID + " (" + s.NodeID + ") asked the user, who alone answers: " + prompt})
+	e.steersUnread(t, s)
 }
 
 // editLogActivityQuestion ties a question to the entry that asked it. The entry is new, so it is still the last one.
@@ -1016,6 +1017,11 @@ func (e *Engine) recoverOwners() {
 					s.Talk.ReplyAt = nil
 				}
 				e.markUncertain(t, s)
+				// what the owner told it stays waiting, and goes with it if it goes on
+				if n := e.unreadSteers(t, s.ID); n > 0 {
+					e.addEvent(t, ownerEvent{Kind: evRecovery, Key: "steers:" + s.ID + ":" + strconv.Itoa(s.RunGeneration), SubID: s.ID,
+						Text: "Step run " + s.ID + " (" + s.NodeID + ") has not read " + strconv.Itoa(n) + " of your messages yet; they go with it if it goes on (dispatch_step with sub_id)."})
+				}
 			}
 		}
 		e.stopsSettled(t)
