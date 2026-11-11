@@ -400,7 +400,7 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
       <Section name={tr('進度')}>
         <Progress wf={task.workflow} subs={subs} open={open} onOpen={onOpen} />
         <MergeRow taskId={task.id} />
-        <dl className="fx-d-facts"><dt>Token</dt><dd>{fmtTokens(taskTokens(w, task))}</dd></dl>
+        <dl className="fx-d-facts"><dt>{tr('Token')}</dt><dd>{fmtTokens(taskTokens(w, task))}</dd></dl>
       </Section>
       {task.description && <div className="fx-doc-note"><Markdown text={task.description} /></div>}
       {task.images.length > 0 && (
@@ -918,7 +918,7 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
           {sub.endedAt !== undefined && <><dt>{tr('結束')}</dt><dd>{fmtClock(sub.endedAt)}</dd></>}
           {sub.attempts > 1 && <><dt>{tr('嘗試')}</dt><dd>{tr('{attempts} 次', { attempts: sub.attempts })}</dd></>}
           <dt>{tr('花費')}</dt><dd>${sub.costUsd.toFixed(2)}</dd>
-          <dt>Token</dt><dd>{fmtTokens(sub.tokens)}</dd>
+          <dt>{tr('Token')}</dt><dd>{fmtTokens(sub.tokens)}</dd>
           {sub.sentBack
             ? <><dt>{tr('退回給')}</dt><dd>{listOf(sub.sentBack.to.map(name))}</dd></>
             : sub.routedTo.length > 0 && <><dt>{tr('交給')}</dt><dd>{listOf(sub.routedTo.map(name))}</dd></>}
@@ -1131,11 +1131,11 @@ function ProviderDetail({ id, editing, onEdit, onGoneProvider, ...h }: Head & {
       <Section name={tr('連線方式')}><p className="fx-d-text">{authLabel(p)}</p></Section>
       {p.auth.kind === 'apiKey' && (
         <>
-          <Section name={tr('API 位址')}><p className="fx-d-text"><code>{providerUrl(p)}</code></p></Section>
-          <Section name="API Key"><p className="fx-d-text"><code>{p.auth.keyHint ? `••••${p.auth.keyHint}` : tr('沒有')}</code></p></Section>
+          <Section name={tr('Base URL')}><p className="fx-d-text"><code>{providerUrl(p)}</code></p></Section>
+          <Section name={tr('API Key')}><p className="fx-d-text"><code>{p.auth.keyHint ? `••••${p.auth.keyHint}` : tr('沒有')}</code></p></Section>
         </>
       )}
-      <Section name="Context window"><p className="fx-d-text"><code>{providerWindow(p).toLocaleString('en-US')}</code></p></Section>
+      <Section name={tr('Context window')}><p className="fx-d-text"><code>{providerWindow(p).toLocaleString('en-US')}</code></p></Section>
       <Section name={tr('模型#list')}>
         {p.models.length === 0 ? <p className="fx-d-muted">{tr('沒有')}</p> : (
           <p className="fx-d-chips fx-d-mono">{p.models.map((m) => <span key={m}>{m}</span>)}</p>
@@ -1179,7 +1179,7 @@ export function ContextWindowField({ value, onChange }: { value: string; onChang
   const id = useId()
   return (
     <div className="fx-field">
-      <label htmlFor={id}>Context window</label>
+      <label htmlFor={id}>{tr('Context window')}</label>
       <span className="fx-unit">
         <input id={id} className="fx-control" type="number" inputMode="numeric" min={8_000} max={10_000_000} step={1_000} value={value}
           placeholder={String(CONTEXT_UNKNOWN)} onChange={(e) => onChange(e.target.value)} />
@@ -1299,7 +1299,7 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
         )}
         {sub && (
           <Switcher label={tr('連線方式')} value={auth} options={['apiKey', 'subscription'] as const}
-            labelOf={(a) => (a === 'apiKey' ? 'API Key' : tr('{sub} 訂閱', { sub }))} onChange={pickAuth} />
+            labelOf={(a) => (a === 'apiKey' ? tr('API Key') : tr('{sub} 訂閱', { sub }))} onChange={pickAuth} />
         )}
         <label className="fx-field">
           <span>{tr('名稱')}</span>
@@ -1309,12 +1309,12 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
         {auth === 'apiKey' ? (
           <>
             <label className="fx-field">
-              <span>{tr('API 位址')}</span>
+              <span>{tr('Base URL')}</span>
               <input className="fx-control" type="url" value={url} required={custom} spellCheck={false} autoComplete="off"
                 placeholder={PROVIDER_KINDS[kind].url || 'http://localhost:11434/v1'} onChange={(e) => setUrl(e.target.value)} />
             </label>
             <label className="fx-field">
-              <span>API Key</span>
+              <span>{tr('API Key')}</span>
               <input className="fx-control" type="password" value={key} required={needKey} spellCheck={false} autoComplete="off"
                 placeholder={old?.auth.kind === 'apiKey' && old.auth.keyHint ? `••••${old.auth.keyHint}` : undefined}
                 onChange={(e) => setKey(e.target.value)} />
@@ -1439,7 +1439,7 @@ function BlueprintFacts({ bp }: { bp: Blueprint }) {
   }, [bp.id, packs])
   return (
     <>
-      {bp.prompt && <Section name="Prompt"><p className="fx-d-text fx-d-quote">{bp.prompt}</p></Section>}
+      {bp.prompt && <Section name={tr('Prompt')}><p className="fx-d-text fx-d-quote">{bp.prompt}</p></Section>}
       {bp.comment && <Section name={tr('備註')}><p className="fx-d-text">{bp.comment}</p></Section>}
       <Section name={tr('技能')}>
         {bp.skills.length === 0 ? <p className="fx-d-muted">{tr('沒有')}</p> : (
@@ -1637,7 +1637,7 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
         ) : (
           <>
             <label className="fx-field fx-field-top">
-              <span>Prompt</span>
+              <span>{tr('Prompt')}</span>
               <textarea className="fx-control" rows={8} value={prompt} placeholder={tr('可留空')} onChange={(e) => setPrompt(e.target.value)} />
             </label>
             <label className="fx-field fx-field-top">
@@ -1773,7 +1773,7 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
           <>
             <BlueprintSelect label={tr('從員工藍圖匯入')} value={listed(from) ?? ''} none onChange={take} />
             <label className="fx-field fx-field-top">
-              <span>Prompt</span>
+              <span>{tr('Prompt')}</span>
               <textarea className="fx-control" rows={8} value={prompt} onChange={(e) => setPrompt(e.target.value)}
                 placeholder={base?.source.kind === 'git' ? tr('留空則使用 {repo} 的 AGENTS.md', { repo: shortRepo(base.source.repo) }) : tr('可留空')} />
             </label>
@@ -2699,7 +2699,7 @@ function StepFields({ flow, id, edit }: { flow: Workflow; id: string; edit: Flow
                 : { kind: 'work', prompt: n.kind === 'task' ? n.prompt : '', replicaIds: n.replicaIds.slice(0, 1) })} />
             {n.kind !== 'talk' && (
               <label className="fx-field fx-field-top">
-                <span>Prompt</span>
+                <span>{tr('Prompt')}</span>
                 <textarea className="fx-control" rows={2} value={n.prompt} onChange={(e) => put({ prompt: e.target.value })} />
               </label>
             )}

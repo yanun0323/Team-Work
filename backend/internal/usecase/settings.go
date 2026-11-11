@@ -131,7 +131,7 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 				return bad(field+".baseUrl", "需要不含帳密、查詢參數或 fragment 的 HTTP(S) 網址")
 			}
 			if p.AuthKind != "apiKey" {
-				return bad(field+".baseUrl", "訂閱登入不能指定 API 網址")
+				return bad(field+".baseUrl", "訂閱登入不能指定 Base URL")
 			}
 		}
 		seen := map[string]bool{}

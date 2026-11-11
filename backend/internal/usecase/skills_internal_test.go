@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
@@ -51,6 +52,39 @@ func TestSkillsInFallsBackToTheRoot(t *testing.T) {
 	}
 	if got := skillsIn(root, "", nil, nil); len(got) != 1 || got[0].name != "review" {
 		t.Fatalf("skills = %+v, want review", got)
+	}
+}
+
+func TestSkillsMarkedUserOnlyStayOutOfThePromptButAnswerToTheirName(t *testing.T) {
+	root := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		path := filepath.Join(root, "skills", name, "SKILL.md")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("release", "---\nname: release\ndescription: 發布新版本\ndisable-model-invocation: true\n---\n\nPublish it.\n")
+	// the same words in the body, not the frontmatter, mark nothing
+	write("guide", "---\nname: guide\ndescription: 寫技能\n---\n\nSet disable-model-invocation: true\n")
+
+	skills := skillsIn(root, "", nil, nil)
+	prompt := skillsPrompt(skills)
+	if strings.Contains(prompt, "release") {
+		t.Fatalf("prompt lists the user-only skill:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- guide: 寫技能") {
+		t.Fatalf("prompt leaves out guide:\n%s", prompt)
+	}
+	if got := mentionedSkills("請用 $release 發布", skills); len(got) != 1 || !strings.Contains(got[0], "Publish it.") {
+		t.Fatalf("$release = %q, want its instructions", got)
+	}
+	at := slices.IndexFunc(skills, func(s skill) bool { return s.name == "release" })
+	if got := skillsPrompt(skills[at : at+1]); got != "" {
+		t.Fatalf("prompt with only user-only skills = %q, want none", got)
 	}
 }
 

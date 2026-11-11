@@ -205,7 +205,7 @@ func (f *Factory) For(p model.ModelProvider, key string) (adapter.Provider, erro
 		return openAI{c}, nil
 	case enum.ProviderCompatible:
 		if c.base == "" {
-			return nil, model.Errorf(model.CodeInvalid, "「%s」沒有填 API 位址", p.Name)
+			return nil, model.Errorf(model.CodeInvalid, "「%s」沒有填 Base URL", p.Name)
 		}
 		return openAI{c}, nil
 	}
@@ -236,7 +236,7 @@ func (c client) do(ctx context.Context, method, path string, body any, auth func
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.base+path, reader)
 	if err != nil {
-		return nil, model.Errorf(model.CodeInvalid, "API 位址不正確")
+		return nil, model.Errorf(model.CodeInvalid, "Base URL 不正確")
 	}
 	auth(req)
 	if body != nil {

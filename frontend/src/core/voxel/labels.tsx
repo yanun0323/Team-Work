@@ -2,7 +2,7 @@
 // instead of a React root per label.
 
 import { useFrame, useThree } from '@react-three/fiber'
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, type ReactNode, type WheelEvent as ReactWheelEvent } from 'react'
 import * as THREE from 'three'
 
 type V3 = [number, number, number]
@@ -22,9 +22,20 @@ export interface LabelSpec {
   onClick?: () => void
 }
 
-export function LabelLayer({ labels }: { labels: LabelSpec[] }) {
+/** A wheel step over a label, to hand on to the map under it: same place, amount and keys. */
+export function wheelCopy(e: WheelEvent): WheelEventInit {
+  const { clientX, clientY, screenX, screenY, deltaX, deltaY, deltaZ, deltaMode, ctrlKey, shiftKey, altKey, metaKey } = e
+  return { clientX, clientY, screenX, screenY, deltaX, deltaY, deltaZ, deltaMode, ctrlKey, shiftKey, altKey, metaKey, bubbles: true, cancelable: true }
+}
+
+/**
+ * `wheelTo`: where a wheel over a label goes on to. The labels sit above the canvas and clickable ones catch the
+ * pointer, so without it the map wouldn't zoom with the pointer on a label.
+ */
+export function LabelLayer({ labels, wheelTo }: { labels: LabelSpec[]; wheelTo?: () => Element | null | undefined }) {
+  const onWheel = wheelTo && ((e: ReactWheelEvent) => void wheelTo()?.dispatchEvent(new WheelEvent('wheel', wheelCopy(e.nativeEvent))))
   return (
-    <div className="labels" aria-hidden={false}>
+    <div className="labels" aria-hidden={false} onWheel={onWheel}>
       {labels.map((l) => {
         const ref = (el: HTMLElement | null) => {
           if (el) {
