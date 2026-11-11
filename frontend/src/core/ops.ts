@@ -105,6 +105,23 @@ export function readTaskActivity(w: World, taskId: string, q: { before?: number;
   return request<ActivityPage>('GET', `${taskPath(taskId)}/activity?${params}`, undefined, signal)
 }
 
+export type MeetingControl = sim.MeetingControl
+
+/** Goes on with a paused meeting for another batch of model calls, ends it, or asks again for its conclusion. */
+export const controlMeeting = (act: (fn: (w: World) => void) => void, taskId: string, meetingId: string, body: MeetingControl) => (MOCK
+  ? simulate(act, (w) => sim.controlMeeting(w, taskId, meetingId, body))
+  : request<{ operation: TaskOperation }>('POST', `${taskPath(taskId)}/meetings/${encodeURIComponent(meetingId)}/control`, body))
+
+/** A page of one meeting's words and conclusion, oldest first; `version` pins the pages to one version of it. */
+export function readMeetingActivity(w: World, taskId: string, meetingId: string, q: { before?: number; limit?: number; version?: string }, signal?: AbortSignal): Promise<ActivityPage> {
+  if (MOCK) return Promise.resolve().then(() => sim.meetingActivityPage(w, taskId, meetingId, q))
+  const params = new URLSearchParams()
+  if (q.before !== undefined) params.set('before', String(q.before))
+  params.set('limit', String(q.limit ?? 50))
+  if (q.version) params.set('version', q.version)
+  return request<ActivityPage>('GET', `${taskPath(taskId)}/meetings/${encodeURIComponent(meetingId)}/activity?${params}`, undefined, signal)
+}
+
 /** One message of a task's conversation, to go back to what a question was asked in. */
 export const readTaskActivityItem = (w: World, taskId: string, id: string, signal?: AbortSignal) => (MOCK
   ? Promise.resolve().then(() => sim.activityItem(w, taskId, id))

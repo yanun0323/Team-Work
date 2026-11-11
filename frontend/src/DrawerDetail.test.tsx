@@ -68,7 +68,7 @@ it('writes the flow of a task its owner runs on its edit sheet, keeping the step
     const unnamed = structuredClone(task.workflow)
     unnamed.nodes.find((n) => n.id === fresh.id)!.name = ''
     const off = sheet({ kind: 'taskEdit', id: task.id }, unnamed)
-    expect(off).toMatch(/<button type="submit" class="fx-save" disabled=""/)
+    expect(off).toMatch(/<button type="submit" class="fx-save[^"]*" disabled=""/)
     expect(off).toContain('有步驟沒有名稱')
   } finally {
     Object.assign(useDraft.getInitialState(), { draft: null })

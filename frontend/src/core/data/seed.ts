@@ -9,7 +9,7 @@ import {
 } from '../domain/sim'
 import { makeHandoff, roleOf } from '../domain/content'
 import { nodeOf } from '../domain/graph'
-import type { Blueprint, GitSource, Locale, Look, ModelProvider, Workflow, WorkflowNode, World } from '../domain/types'
+import type { Blueprint, GitSource, Locale, Look, ModelProvider, Replica, Workflow, WorkflowNode, World } from '../domain/types'
 
 const look = (shirt: string, pants: string, extra: Look['extra']): Look => ({
   skin: '#f2c9a0', hair: '#2b1d14', shirt, pants, extra,
@@ -325,7 +325,7 @@ export function seedWorld(language: Locale = 'zh'): World {
     workflowId: main.id, ownerId: mira.id, orchestration: 'owner', overrides: { '*': { ...calm, route: 1, duration: 40 } },
   })
   const c = coupon.coordination!
-  const { dispatchStep, handBack, ownerSays, taskEvent } = ownerSeed
+  const { dispatchStep, handBack, ownerSays, taskEvent, holdMeeting, endMeeting } = ownerSeed
   const step = (id: string) => nodeOf(coupon.workflow, id)!
   let clock = w.now - 1500
   // each line a minute or two after the last
@@ -360,6 +360,37 @@ export function seedWorld(language: Locale = 'zh'): World {
   dispatchStep(w, coupon, 'n-research', [scoped])
   const researched = finish('n-research')
   stamp(ownerSays(w, coupon, L('研究結論是要改程式，報告這步略過，我派 Kai 開發。', 'The research says the code has to change, so the report step is left out; Kai develops it.')))
+  // Mira holds a meeting in the conversation: the words in it, said in turn, the user's too
+  type Said = [by: Replica | null, zh: string, en: string, mentions?: Replica[]]
+  const meet = (id: string, topic: string, guests: Replica[], words: Said[]) => {
+    coupon.workflow.nodes.push({ id, kind: 'talk', name: topic, prompt: '', replicaIds: guests.map((g) => g.id), handoff: 'all', join: 'any', pos: { x: 0, y: 0 } })
+    const s = holdMeeting(w, coupon, id, topic, guests.map((g) => g.id))
+    last()
+    delete w.mockMeetingQueue![s.id]
+    for (const [by, zh, en, mentions] of words) {
+      postActivity(w, coupon, {
+        kind: 'meeting', from: by ? 'agent' : 'user', text: L(zh, en), meetingVersion: 2, meetingPart: 'speech', meetingId: s.id, subId: s.id, nodeId: id,
+        ...(by ? { by: by.id, name: by.name, look: { ...by.look } } : {}), ...(mentions ? { mentions: mentions.map((r) => r.id) } : {}),
+      })
+      last()
+      if (by) { s.meeting!.callsInBatch++; s.meeting!.callsTotal++; s.costUsd += 0.01; s.tokens += 1200 }
+    }
+    s.meeting!.speakerId = undefined
+    return s
+  }
+  const rules = meet('n-meet-rules', L('優惠碼規則', 'Promo code rules'), [kai, rex], [
+    [mira, '要先定下優惠碼能不能疊加，Kai、Rex 各說一下看法。', 'We need to settle whether promo codes stack. Kai, Rex, your views?'],
+    [kai, '不疊加比較好做，總額計算只要處理一個折扣。', 'Not stacking is simpler: the total handles one discount.'],
+    [rex, '同意，但要測試同時輸入兩組碼時的錯誤訊息。', 'Agreed, but test the error when two codes are entered.'],
+  ])
+  const ruled = stamp(postActivity(w, coupon, {
+    kind: 'meeting', from: 'agent', text: L('結論：一次只能用一組優惠碼；輸入第二組時取代第一組並提示。', 'Conclusion: one promo code at a time; a second replaces the first, with a notice.'),
+    meetingVersion: 2, meetingPart: 'summary', meetingId: rules.id, subId: rules.id, nodeId: rules.nodeId, by: mira.id, name: mira.name, look: { ...mira.look },
+  }))
+  endMeeting(w, coupon, rules as typeof rules & { meeting: NonNullable<typeof rules.meeting> }, ruled.text, ruled.id)
+  last()
+  rules.ownerReview = 'accepted'
+  rules.routed = true
   dispatchStep(w, coupon, 'n-dev', [researched])
   last()
   const told = sayToOwner(w, coupon.id, { requestId: 'seed-limit', text: L('優惠碼不要分大小寫，過期的要說明原因。', 'Promo codes ignore case, and an expired one says why.') })
@@ -372,6 +403,13 @@ export function seedWorld(language: Locale = 'zh'): World {
   c.questions.push({
     id: 'q-theo', activityId: ask.id, prompt, options: [{ id: 'approve' }, { id: 'reject' }], kind: 'approval', audience: 'user', planVersion: c.planVersion, createdAt: ask.at,
   })
+  // a meeting under way now, which Mira chairs: the user asked Ivy, who answered, and Mira went on
+  meet('n-meet-errors', L('過期優惠碼的錯誤訊息', 'The error for an expired code'), [ivy, kai], [
+    [mira, '過期的優惠碼要說明原因，我們來定錯誤訊息怎麼寫。', 'An expired code says why. Let us settle how the error reads.'],
+    [null, '@Ivy 你覺得要不要寫出過期日期？', '@Ivy Should it show the date it expired?', [ivy]],
+    [ivy, '要，寫「這組優惠碼已在 3 月 1 日到期」，比只說無效清楚。', 'Yes: "This code expired on 1 March" says more than "invalid".'],
+    [mira, '好，Kai 確認一下日期格式能跟著語言走嗎？', 'Good. Kai, can the date follow the language?'],
+  ])
   c.ownerCostUsd = 0.09
   c.ownerTokens = 11800
   c.ownerState = 'idle'

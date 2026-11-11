@@ -515,6 +515,8 @@ export interface SubTask {
   review?: Review
   /** A 使用者討論 step's conversation, once the employee has opened it. */
   talk?: Talk
+  /** A meeting held in an owner-led task's conversation; older meetings have none and use `talk` or meeting lines. */
+  meeting?: Meeting
   handoff?: Handoff
   /** The work tree's commit when this sub-task first ran: what its handed files are compared against. */
   baseCommit?: string
@@ -570,6 +572,43 @@ export interface TaskOrigin {
   depth: number
 }
 
+/** Who is in a meeting, as they were when it opened: the chair first. */
+export interface MeetingParticipant {
+  replicaId: string
+  name: string
+  look: Look
+  model: string
+  effort?: string
+}
+
+export type MeetingState = 'open' | 'paused' | 'closing' | 'summaryFailed' | 'ended' | 'cancelled'
+
+/**
+ * A meeting held in an owner-led task's conversation, chaired by its owner (version 2). Its model calls are counted in
+ * batches of 36 the user allows one at a time; `revision` goes up with every saved change.
+ */
+export interface Meeting {
+  version: 2
+  id: string
+  topic: string
+  chairId: string
+  participants: MeetingParticipant[]
+  state: MeetingState
+  revision: number
+  batch: number
+  callsInBatch: number
+  callsTotal: number
+  startedAt: number
+  endedAt?: number
+  /** Who is speaking now. */
+  speakerId?: string
+  pauseReason?: 'limit' | 'budget' | 'taskPaused' | 'recovery' | 'speakerFailed' | 'participantUnavailable' | 'context'
+  closingRequested?: boolean
+  summary?: string
+  summaryActivityId?: string
+  error?: { code: string; message: string }
+}
+
 /** Something said or done in a task its owner runs, as its conversation shows it; `seq` counts from 1 per task. */
 export interface TaskActivity {
   id: string
@@ -594,6 +633,11 @@ export interface TaskActivity {
   args?: Record<string, unknown>
   images?: Attachment[]
   files?: Attachment[]
+  /** 2 for words of a meeting held in the conversation: a speech, or the chair's conclusion. */
+  meetingVersion?: 2
+  meetingPart?: 'speech' | 'summary'
+  /** Who the user asked to answer, in order. */
+  mentions?: string[]
 }
 
 export type TaskOperationStatus = 'received' | 'processing' | 'applied' | 'failed' | 'uncertain'
@@ -603,6 +647,7 @@ export interface TaskOperation {
   id: string
   requestId?: string
   kind: 'message' | 'pause' | 'resume' | 'return' | 'answer' | 'retry' | 'dispatch' | 'stop' | 'plan' | 'complete'
+    | 'meetingContinue' | 'meetingEnd' | 'meetingRetrySummary'
   status: TaskOperationStatus
   at: number
   updatedAt: number
@@ -655,6 +700,8 @@ export interface TaskCoordination {
   /** Every one still open, and the last few closed. */
   operations: TaskOperation[]
   blockedReason?: string
+  /** The meeting under way in the conversation (its run's id), when there is one. */
+  activeMeetingId?: string
 }
 
 export interface Task {
@@ -771,4 +818,6 @@ export interface World {
   events: WorldEvent[]
   /** The simulator's record of each owner-run task's conversation; the backend keeps its own and never sends this. */
   mockActivity?: Record<string, TaskActivity[]>
+  /** The simulator's meetings: who answer next, in order, and when the next one speaks; by the meeting's run. */
+  mockMeetingQueue?: Record<string, { ids: string[]; at: number }>
 }

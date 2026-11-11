@@ -1,7 +1,7 @@
 // A box to write in, for a chat or a task. A word starting with "#", "$" where there are employees or at the airport, or "@" where
 // there are people to mention, opens a list; at the airport "#" offers the user's home folder: arrows move, Tab, Enter or
 // a click picks, Esc closes. With nothing to pick, Enter sends if there is onSend, else it starts a new line, and Tab indents the lines.
-// Shift+Tab always outdents them. Tab never moves the focus.
+// Shift+Tab outdents them. Tab moves the focus only out of an empty box, so the keyboard can still reach what is around it.
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { FileInfo, SkillInfo } from './core/domain/types'
@@ -13,6 +13,9 @@ import { EntryIcon } from './FileIcons'
 import { acceptMention, fileChoices, mentionAt, personChoices, skillChoices, type MentionChoice, type Person } from './mentions'
 import { indentLines } from './indent'
 import { composing } from './ime'
+
+/** Whether Tab indents the box's lines; an empty box has none, and lets the focus go on. */
+export const tabIndents = (value: string) => value !== ''
 
 export function MentionBox({ box, value, teamId, airport, replicaIds = [], people = [], personRow, label, placeholder, rows = 2, below, grow, onChange, onSend }: {
   box?: RefObject<HTMLTextAreaElement | null>
@@ -152,6 +155,7 @@ export function MentionBox({ box, value, teamId, airport, replicaIds = [], peopl
             }
           }
           if (e.key === 'Tab' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+            if (!tabIndents(value)) return
             e.preventDefault()
             const box = e.currentTarget
             const next = indentLines(value, box.selectionStart, box.selectionEnd, e.shiftKey)

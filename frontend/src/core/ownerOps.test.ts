@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 // the real requests, not the simulator
 vi.mock('./mode', () => ({ MOCK: false }))
 
-const { controlTask, readTaskActivity, readTaskActivityItem, readTaskOperation, sayToOwner, updateTask } = await import('./ops')
+const { controlMeeting, controlTask, readMeetingActivity, readTaskActivity, readTaskActivityItem, readTaskOperation, sayToOwner, updateTask } = await import('./ops')
 const { ApiError, emptyWorld } = await import('./backend')
 
 afterEach(() => vi.unstubAllGlobals())
@@ -42,6 +42,19 @@ describe('a task its owner runs, over the API', () => {
     const r = await sayToOwner(act, 'task 1', { requestId: 'r1', text: 'hi' })
     expect(r.operation).toEqual(op)
     expect(sent(f)).toEqual({ path: '/api/v1/tasks/task%201/messages', method: 'POST', body: { requestId: 'r1', text: 'hi' } })
+  })
+
+  it('sends words into a meeting with its id and who is asked, and controls and reads the meeting on its own paths', async () => {
+    const f = answer({ operation: { id: 'op' }, activity: { id: 'a1' } })
+    vi.stubGlobal('fetch', f)
+    await sayToOwner(act, 't', { requestId: 'r1', text: 'hi', meetingId: 'sub-9', mentions: ['rep-2', 'rep-3'] })
+    expect(sent(f).body).toEqual({ requestId: 'r1', text: 'hi', meetingId: 'sub-9', mentions: ['rep-2', 'rep-3'] })
+    await controlMeeting(act, 't', 'sub 9', { requestId: 'c1', action: 'continue', revision: 4 })
+    expect(sent(f, 1)).toEqual({ path: '/api/v1/tasks/t/meetings/sub%209/control', method: 'POST', body: { requestId: 'c1', action: 'continue', revision: 4 } })
+    const page = answer({ version: '7', total: 2, items: [], hasMore: false }, 200)
+    vi.stubGlobal('fetch', page)
+    await readMeetingActivity(emptyWorld(), 't', 'sub-9', { before: 40, limit: 20, version: '7' })
+    expect(sent(page).path).toBe('/api/v1/tasks/t/meetings/sub-9/activity?before=40&limit=20&version=7')
   })
 
   it('pauses with no versions, and decides anything else on the versions the screen showed', async () => {

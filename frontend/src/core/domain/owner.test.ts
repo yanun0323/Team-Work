@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activityPage, controlOwnerTask, createTask, createTeam, flowEditable, hire, newWorkflow, notStarted, OWNER_TIME, sayToOwner, statusOf, subsOf, taskCost, tick, TaskRefusal, updateTask } from './sim'
+import { activityPage, controlMeeting, controlOwnerTask, createTask, MEETING_BATCH, meetingActivityPage, createTeam, flowEditable, hire, newWorkflow, notStarted, OWNER_TIME, sayToOwner, statusOf, subsOf, taskCost, tick, TaskRefusal, updateTask } from './sim'
 import { mergeBlocked, resumeBlock, userQuestions } from './owner'
 import type { Task, World, WorkflowNode } from './types'
 
@@ -257,5 +257,104 @@ describe('the user changing the flow of a task its owner runs', () => {
     updateTask(w, task.id, edit(task, (wf) => { wf.nodes[1].replicaIds = [a.id] }))
     expect(task.workflowId).not.toBe('')
     expect(said(w, task.id).at(-1)?.args).toMatchObject({ what: 'who works the steps', restaffed: 'next：Ivy → Kai' })
+  })
+})
+
+describe('a meeting held in the conversation of a task its owner runs', () => {
+  function meetingSetup() {
+    const s = setup()
+    const n = s.task.workflow.nodes.find((x) => x.id === 'next')!
+    n.kind = 'talk'
+    n.name = '規則'
+    n.replicaIds = [s.owner.id, s.b.id, s.b.id]
+    controlOwnerTask(s.w, s.task.id, { requestId: 'go', action: 'resume', ...versions(s.task) })
+    // the first step done and taken in, the meeting is called
+    for (let i = 0; i < 200 && !s.task.coordination!.activeMeetingId; i++) tick(s.w, 0.5)
+    const sub = s.w.subTasks[s.task.coordination!.activeMeetingId!]
+    return { ...s, sub, m: sub.meeting! }
+  }
+  const mine = (w: World, id: string, m: string) => said(w, id).filter((a) => a.meetingId === m)
+
+  it('is chaired by the owner with one employee or more, the owner not counted twice, and the chair speaks first', () => {
+    const { w, task, owner, b, m } = meetingSetup()
+    expect(m.version).toBe(2)
+    expect(m.chairId).toBe(owner.id)
+    expect(m.participants.map((p) => p.replicaId)).toEqual([owner.id, b.id])
+    run(w, 6)
+    const words = mine(w, task.id, m.id)
+    expect(words[0]).toMatchObject({ kind: 'meeting', meetingVersion: 2, meetingPart: 'speech', by: owner.id })
+    expect(said(w, task.id).some((a) => a.key === 'meetingCalled' && a.args?.topic === '規則')).toBe(true)
+  })
+
+  it('takes the user\'s words only for the meeting under way: those mentioned answer, else the chair', () => {
+    const { w, task, owner, b, m } = meetingSetup()
+    run(w, 30)
+    const before = mine(w, task.id, m.id).length
+    expect(() => sayToOwner(w, task.id, { requestId: 'x', text: 'to owner' })).toThrow(TaskRefusal)
+    expect(() => sayToOwner(w, task.id, { requestId: 'y', text: 'hi', meetingId: m.id, mentions: ['rep-none'] })).toThrow(TaskRefusal)
+    const r = sayToOwner(w, task.id, { requestId: 'z', text: '@Ivy 你呢', meetingId: m.id, mentions: [b.id] })
+    expect(r.activity).toMatchObject({ kind: 'meeting', from: 'user', meetingVersion: 2, mentions: [b.id] })
+    // sent again, it is not said twice
+    expect(sayToOwner(w, task.id, { requestId: 'z', text: '@Ivy 你呢', meetingId: m.id, mentions: [b.id] }).activity.id).toBe(r.activity.id)
+    run(w, 5)
+    sayToOwner(w, task.id, { requestId: 'q', text: '主持人呢', meetingId: m.id })
+    run(w, 5)
+    const after = mine(w, task.id, m.id).slice(before)
+    expect(after.map((a) => (a.from === 'user' ? 'user' : a.by))).toEqual(['user', b.id, 'user', owner.id])
+  })
+
+  it('stops for the user once a batch of model calls is used, and goes on only when told so, on what it showed', () => {
+    const { w, task, m } = meetingSetup()
+    run(w, 30)
+    for (let i = 0; i < MEETING_BATCH; i++) sayToOwner(w, task.id, { requestId: `m${i}`, text: `${i}`, meetingId: m.id })
+    run(w, 400)
+    expect(m.state).toBe('paused')
+    expect(m.pauseReason).toBe('limit')
+    expect(m.callsInBatch).toBe(MEETING_BATCH)
+    expect(said(w, task.id).some((a) => a.key === 'meetingLimitReached' && a.args?.limit === String(MEETING_BATCH))).toBe(true)
+    // nothing more is said while it waits, and words wait their turn
+    const n = mine(w, task.id, m.id).length
+    sayToOwner(w, task.id, { requestId: 'wait', text: 'still here', meetingId: m.id })
+    run(w, 20)
+    expect(mine(w, task.id, m.id).length).toBe(n + 1)
+    expect(() => controlMeeting(w, task.id, m.id, { requestId: 'old', action: 'continue', revision: m.revision - 1 })).toThrow(TaskRefusal)
+    const op = controlMeeting(w, task.id, m.id, { requestId: 'go', action: 'continue', revision: m.revision }).operation
+    expect(op.kind).toBe('meetingContinue')
+    // the same request twice is one more batch, not two
+    controlMeeting(w, task.id, m.id, { requestId: 'go', action: 'continue', revision: 1 })
+    expect([m.batch, m.callsInBatch, m.state]).toEqual([2, 0, 'open'])
+  })
+
+  it('does not go on by itself when the task resumes after a pause', () => {
+    const { w, task, m } = meetingSetup()
+    controlOwnerTask(w, task.id, { requestId: 'p', action: 'pause' })
+    expect([m.state, m.pauseReason]).toEqual(['paused', 'taskPaused'])
+    run(w, 5)
+    controlOwnerTask(w, task.id, { requestId: 'r', action: 'resume', ...versions(task) })
+    run(w, 10)
+    expect(m.state).toBe('paused')
+  })
+
+  it('ends when the user says so with the chair\'s conclusion, one card\'s worth, and the next meeting may open', () => {
+    const { w, task, owner, m, sub } = meetingSetup()
+    run(w, 10)
+    controlMeeting(w, task.id, m.id, { requestId: 'end', action: 'end', revision: m.revision })
+    expect(m.state).toBe('closing')
+    expect(() => sayToOwner(w, task.id, { requestId: 'late', text: 'late', meetingId: m.id })).toThrow(TaskRefusal)
+    expect(() => controlMeeting(w, task.id, m.id, { requestId: 'end2', action: 'end', revision: m.revision })).toThrow(TaskRefusal)
+    run(w, 6)
+    expect(m.state).toBe('ended')
+    expect(task.coordination!.activeMeetingId).toBeUndefined()
+    expect(sub.status).toBe('complete')
+    const summary = said(w, task.id).find((a) => a.id === m.summaryActivityId)!
+    expect(summary).toMatchObject({ meetingPart: 'summary', by: owner.id, text: m.summary })
+    expect(said(w, task.id).some((a) => a.key === 'meetingEnded' && a.args?.topic === '規則')).toBe(true)
+    expect(task.coordination!.operations.find((o) => o.requestId === 'end')!.status).toBe('applied')
+    // its own pages: its words and conclusion alone, oldest first
+    const page = meetingActivityPage(w, task.id, m.id, { limit: 2 })
+    expect(page.items.map((a) => a.id).at(-1)).toBe(summary.id)
+    expect(page.hasMore).toBe(true)
+    expect(page.items.every((a) => a.meetingId === m.id)).toBe(true)
+    expect(() => meetingActivityPage(w, task.id, m.id, { version: 'stale' })).toThrow(TaskRefusal)
   })
 })

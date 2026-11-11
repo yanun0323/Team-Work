@@ -4,14 +4,14 @@
 // action is followed from received to taken effect or failed.
 
 import { useContext, useEffect, useRef, useState } from 'react'
-import { colon, tr, trRecorded } from './core/i18n'
+import { colon, listOf, tr, trRecorded } from './core/i18n'
 import { ApiError } from './core/backend'
 import { shownUrl } from './core/island'
 import { nodeOf } from './core/domain/graph'
 import { currentRun, isOwnerTask, mergeBlocked, operationOf, resumeBlock, uncertain, userQuestions } from './core/domain/owner'
 import { notStarted, statusOf, subsOf, taskCost, taskTokens } from './core/domain/sim'
-import type { Attachment, SubTask, Task, TaskActivity, TaskOperation, TaskQuestion, World } from './core/domain/types'
-import { controlTask, deleteTask, mergeTask, newRequestId, readTaskActivity, readTaskActivityItem, readTaskOperation, sayToOwner, seenVersions, type OwnerControl } from './core/ops'
+import type { Attachment, Meeting, SubTask, Task, TaskActivity, TaskOperation, TaskQuestion, World } from './core/domain/types'
+import { controlMeeting, controlTask, deleteTask, mergeTask, newRequestId, readMeetingActivity, readTaskActivity, readTaskActivityItem, readTaskOperation, sayToOwner, seenVersions, type OwnerControl } from './core/ops'
 import { fmtClock, fmtTokens, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
 import { useNow, useStore } from './core/store'
@@ -23,7 +23,11 @@ import { BranchIcon, CopyIcon, DeleteTool, EditTool, Gone, Heading, type Head } 
 import { ChangeLines } from './ChangeCard'
 import { CopyButton } from './CopyButton'
 import { idsAsNames, SaidChip, SaidContext } from './Said'
-import type { IdLookup } from './mentions'
+import { ALL, type IdLookup } from './mentions'
+import { SentTo } from './ChatSheet'
+import { ChatFaces } from './ChatFaces'
+import { CrewRow } from './Pickers'
+import { activeMeeting, answerers, draftStillGoes, feedRows, meetingActions, meetingMentions, meetingPeople, meetingTakesWords, meetingWord } from './meetingFeed'
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 
@@ -94,6 +98,8 @@ export function runWord(s: SubTask): string {
   if (s.validity === 'needsRevalidation') return tr('待重驗')
   if (s.ownerReview === 'pending') return tr('等負責人確認')
   if (s.status === 'complete') return s.skipped ? tr('略過') : tr('完成')
+  // a meeting held in the conversation has no progress to count
+  if (s.meeting && s.status === 'progressing') return s.meeting.state === 'paused' ? tr('已暫停') : tr('開會中')
   if (s.executionState === 'stopped') return tr('已停止')
   if (s.status === 'progressing') return `${Math.round(s.progress * 100)}%`
   return s.replicaId ? tr('準備開始') : tr('等人接手')
@@ -270,7 +276,7 @@ function OpWord({ op }: { op: TaskOperation | undefined }) {
 }
 
 /** A message, a handoff, a question, a short line, or a meeting's words gathered. */
-export function ActivityRow({ task, a, open, onStep, onImage, flash, op }: {
+export function ActivityRow({ task, a, open, onStep, onImage, flash, op, meeting }: {
   task: Task
   a: TaskActivity
   open: string | null
@@ -278,8 +284,16 @@ export function ActivityRow({ task, a, open, onStep, onImage, flash, op }: {
   onImage?: (key: string, im: Attachment) => void
   flash?: boolean
   op?: TaskOperation
+  /** The meeting held in the conversation the line is words of. */
+  meeting?: Meeting
 }) {
-  const cls = flash ? ' fx-d-flash' : ''
+  const said = a.meetingVersion === 2
+  const cls = `${flash ? ' fx-d-flash' : ''}${said ? ' fx-ticket-meet' : ''}`
+  // the meeting the words were said in, in place of the step
+  const tag = said ? <span className="fx-ticket-tag fx-ticket-meet-tag">{tr('會議')}</span> : null
+  const asked = said && a.mentions?.length && meeting
+    ? a.mentions.flatMap((id) => meeting.participants.filter((p) => p.replicaId === id).map((p) => ({ id, name: p.name, look: p.look })))
+    : []
   const ids = useCrewIds(task)
   const opens = useContext(SaidContext)
   // a task the owner made opens from the line that says so, while it is there
@@ -305,7 +319,8 @@ export function ActivityRow({ task, a, open, onStep, onImage, flash, op }: {
         <div className="fx-chat-said">
           <Attachments a={a} onImage={onImage} />
           {a.text && <div className="fx-chat-bubble"><span className="fx-sr">{tr('你：')}</span><Markdown text={a.text} signs="#" /></div>}
-          <div className="fx-chat-foot"><time>{fmtClock(a.at)}</time>{a.text && <CopyButton text={a.text} />}<OpWord op={op} /></div>
+          {asked.length > 0 && <SentTo people={asked} className="fx-chat-to" />}
+          <div className="fx-chat-foot"><time>{fmtClock(a.at)}</time>{a.text && <CopyButton text={a.text} />}{tag}<OpWord op={op} /></div>
         </div>
       </li>
     )
@@ -318,7 +333,9 @@ export function ActivityRow({ task, a, open, onStep, onImage, flash, op }: {
         <div className="fx-chat-bubble">
           <span className="fx-chat-name">
             {a.name ?? tr('員工')}
+            {said && meeting && a.by === meeting.chairId && <span className="fx-pill fx-chair">{tr('主持人')}</span>}
             {a.kind === 'handoff' && <> · {tr('交付')}</>}
+            {a.meetingPart === 'summary' && <> · {tr('結論')}</>}
             {waiting && <> · <b className="fx-ticket-waiting">{tr('待你回答')}</b></>}
           </span>
           <span className="fx-sr">{colon()}</span>
@@ -328,7 +345,7 @@ export function ActivityRow({ task, a, open, onStep, onImage, flash, op }: {
         <div className="fx-chat-foot">
           <time>{fmtClock(a.at)}</time>
           {a.text && <CopyButton text={a.text} />}
-          <StepTag task={task} a={a} open={open} onStep={onStep} />
+          {tag ?? <StepTag task={task} a={a} open={open} onStep={onStep} />}
         </div>
       </div>
     </li>
@@ -358,6 +375,81 @@ function MeetingRow({ task, lines, open, onStep, expanded, onExpand, flash }: {
   )
 }
 
+/** A meeting's words read in pages of their own, newest first loaded; what is asked for is read again from the top on a change. */
+export function useMeetingActivity(taskId: string, meetingId: string, on: boolean) {
+  const [state, setState] = useState<{ items: TaskActivity[]; version: string; more: boolean; total: number } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [again, setAgain] = useState(0)
+  useEffect(() => {
+    if (!on) return
+    const abort = new AbortController()
+    setBusy(true)
+    setError('')
+    readMeetingActivity(useStore.getState().world, taskId, meetingId, { limit: 50 }, abort.signal)
+      .then((p) => { if (!abort.signal.aborted) setState({ items: p.items, version: p.version, more: p.hasMore, total: p.total }) })
+      .catch((e: Error) => { if (!abort.signal.aborted) setError(e.message) })
+      .finally(() => { if (!abort.signal.aborted) setBusy(false) })
+    return () => abort.abort()
+  }, [taskId, meetingId, on, again])
+  const back = async () => {
+    if (!state || busy) return
+    setBusy(true)
+    setError('')
+    try {
+      const p = await readMeetingActivity(useStore.getState().world, taskId, meetingId, { before: state.items[0]?.seq, limit: 50, version: state.version })
+      setState({ ...state, items: [...p.items, ...state.items], more: p.hasMore, total: p.total })
+    } catch (e) {
+      if ((e as ApiError).code === 'conflict') setAgain((n) => n + 1)
+      else setError((e as Error).message)
+    } finally { setBusy(false) }
+  }
+  return { items: state?.items ?? [], total: state?.total ?? 0, ready: !!state, more: !!state?.more, busy, error, back, retry: () => setAgain((n) => n + 1) }
+}
+
+/** The chair's conclusion of a meeting, as a line, when only the meeting says it. */
+export function summaryLine(m: Meeting): TaskActivity | undefined {
+  if (!m.summary) return undefined
+  const chair = m.participants.find((p) => p.replicaId === m.chairId)
+  return {
+    id: m.summaryActivityId ?? `${m.id}:summary`, seq: 0, at: m.endedAt ?? m.startedAt, kind: 'meeting', from: 'agent', text: m.summary,
+    by: m.chairId, name: chair?.name, look: chair?.look, meetingId: m.id, subId: m.id, meetingVersion: 2, meetingPart: 'summary', planVersion: 0,
+  }
+}
+
+/** A meeting that is over, as one card: its conclusion in view, all it said read on opening it. */
+export function MeetingCard({ task, meeting: m, summary, anchor, open, onStep, onImage, expanded, onExpand, flash }: {
+  task: Task; meeting: Meeting; summary?: TaskActivity; anchor: TaskActivity; open: string | null; onStep: (subId: string) => void
+  onImage?: (key: string, im: Attachment) => void; expanded: boolean; onExpand: () => void; flash?: string
+}) {
+  const words = useMeetingActivity(task.id, m.id, expanded)
+  const conclusion = summary ?? summaryLine(m)
+  const id = `fx-meeting-${m.id}`
+  const said = words.items.filter((a) => a.meetingPart !== 'summary' && a.id !== m.summaryActivityId)
+  return (
+    <li className="fx-ticket-meeting" data-activity={anchor.id} data-meeting={m.id}>
+      <button type="button" className="fx-ticket-fold fx-hit" aria-expanded={expanded} aria-controls={id} onClick={onExpand}>
+        <span className="fx-ticket-faces" aria-hidden="true">{m.participants.slice(0, 4).map((p) => <PixelFace key={p.replicaId} look={p.look} name={p.name} size={18} />)}</span>
+        <span className="fx-ticket-fold-text">{tr('會議：{step}', { step: m.topic })}</span>
+        {words.ready && <span className="fx-d-muted">{tr('{n} 則發言', { n: Math.max(0, words.total - (m.summaryActivityId || m.summary ? 1 : 0)) })}</span>}
+        <svg className="fx-room-fold-mark" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>
+      </button>
+      {expanded && (
+        <ol id={id} className="fx-ticket-meeting-lines">
+          {words.more && <li className="fx-room-earlier"><button type="button" className="fx-hit" disabled={words.busy} onClick={() => void words.back()}>{tr('顯示更早發言')}</button></li>}
+          {words.busy && !words.ready && <li className="fx-d-muted" role="status">{tr('載入中…')}</li>}
+          {words.error && <li className="fx-ticket-notice" role="alert"><p>{tr('讀取對話失敗')}{colon()}{words.error}</p><button type="button" className="fx-chat-act fx-hit" onClick={words.retry}>{tr('重試')}</button></li>}
+          {words.ready && !said.length && <li className="fx-d-muted">{tr('沒有發言')}</li>}
+          {said.map((l) => <ActivityRow key={l.id} task={task} a={l} meeting={m} open={open} onStep={onStep} onImage={onImage} flash={flash === l.id} />)}
+        </ol>
+      )}
+      {conclusion
+        ? <ol className="fx-ticket-meeting-end"><ActivityRow task={task} a={conclusion} meeting={m} open={open} onStep={onStep} onImage={onImage} flash={flash === conclusion.id} /></ol>
+        : m.state === 'cancelled' && <p className="fx-d-muted fx-ticket-meeting-none">{tr('會議已取消，沒有結論')}</p>}
+    </li>
+  )
+}
+
 /** Something the user wrote that the backend has not confirmed, or refused. */
 export interface Unsent {
   requestId: string
@@ -366,6 +458,9 @@ export interface Unsent {
   state: 'sending' | 'sent' | 'failed'
   error?: string
   activityId?: string
+  /** The meeting it was written into, and who it asked to answer; kept when sent again. */
+  meetingId?: string
+  mentions?: string[]
 }
 
 /** The conversation, oldest first: a meeting's words gathered into one line. */
@@ -384,23 +479,26 @@ export function Feed({ task, items, unsent, open, onStep, onImage, expanded, onE
   onResend: (u: Unsent) => void
   onEdit: (u: Unsent) => void
 }) {
+  const subs = useStore((s) => s.world.subTasks)
   const rows: React.ReactNode[] = []
-  for (let i = 0; i < items.length; i++) {
-    const a = items[i]
-    if (a.kind === 'meeting' && a.meetingId) {
-      const lines = [a]
-      while (items[i + 1]?.kind === 'meeting' && items[i + 1].meetingId === a.meetingId) lines.push(items[++i])
-      rows.push(<MeetingRow key={a.id} task={task} lines={lines} open={open} onStep={onStep} flash={flash}
-        expanded={expanded.includes(a.meetingId)} onExpand={() => onExpand(a.meetingId!)} />)
-      continue
+  for (const row of feedRows(items, (id) => (subs[id]?.taskId === task.id ? subs[id].meeting : undefined))) {
+    if (row.kind === 'legacy') {
+      const head = row.lines[0]
+      rows.push(<MeetingRow key={head.id} task={task} lines={row.lines} open={open} onStep={onStep} flash={flash}
+        expanded={expanded.includes(head.meetingId!)} onExpand={() => onExpand(head.meetingId!)} />)
+    } else if (row.kind === 'card') {
+      rows.push(<MeetingCard key={`meeting:${row.meeting.id}`} task={task} meeting={row.meeting} summary={row.summary} anchor={row.anchor} open={open} onStep={onStep}
+        onImage={onImage} flash={flash} expanded={expanded.includes(row.meeting.id)} onExpand={() => onExpand(row.meeting.id)} />)
+    } else {
+      const a = row.a
+      rows.push(<ActivityRow key={a.id} task={task} a={a} meeting={row.meeting} open={open} onStep={onStep} onImage={onImage} flash={flash === a.id} op={ops(a.operationId)} />)
     }
-    rows.push(<ActivityRow key={a.id} task={task} a={a} open={open} onStep={onStep} onImage={onImage} flash={flash === a.id} op={ops(a.operationId)} />)
   }
   const shown = new Set(items.map((a) => a.id))
   for (const u of unsent) {
     if (u.activityId && shown.has(u.activityId)) continue
     rows.push(
-      <li key={u.requestId} className="fx-chat-msg fx-chat-user fx-ticket-unsent">
+      <li key={u.requestId} className={`fx-chat-msg fx-chat-user fx-ticket-unsent${u.meetingId ? ' fx-ticket-meet' : ''}`}>
         <div className="fx-chat-said">
           {u.attachments.length > 0 && <div className="fx-chat-images">{u.attachments.map((f, j) => <FileAttachment key={j} file={f} />)}</div>}
           {u.text && <div className="fx-chat-bubble"><span className="fx-sr">{tr('你：')}</span><Markdown text={u.text} signs="#" /></div>}
@@ -412,6 +510,7 @@ export function Feed({ task, items, unsent, open, onStep, onImage, expanded, onE
                   <button type="button" className="fx-chat-act fx-hit" onClick={() => onEdit(u)}>{tr('編輯')}</button>
                 </>
               : <span className="fx-ticket-op">{OP_WORDS()[u.state === 'sending' ? 'sending' : 'received']}</span>}
+            {u.meetingId && <span className="fx-ticket-tag fx-ticket-meet-tag">{tr('會議')}</span>}
           </div>
         </div>
       </li>,
@@ -572,6 +671,41 @@ function Questions({ task, onJump }: { task: Task; onJump: (activityId: string) 
   )
 }
 
+/** The meeting under way, kept in view above the box: its topic, who is in it, where it stands and what the user can do. */
+export function MeetingBar({ task, meeting: m }: { task: Task; meeting: Meeting }) {
+  const act = useStore((s) => s.act)
+  const tracked = useTracked()
+  const op = useOperation(task, tracked.sent?.operationId)
+  const word = meetingWord(m)
+  const actions = meetingActions(m)
+  const LABELS = { continue: m.pauseReason === 'limit' ? tr('繼續下一輪') : tr('繼續'), end: tr('結束開會'), retrySummary: tr('重試結論') }
+  const sending = tracked.sent?.state === 'sending'
+  const go = (action: 'continue' | 'end' | 'retrySummary') => {
+    const body = { action, revision: m.revision }
+    void tracked.send(`${m.id} ${JSON.stringify(body)}`, (requestId) => controlMeeting(act, task.id, m.id, { requestId, ...body }))
+  }
+  const failed = tracked.sent?.state === 'failed' ? tracked.sent.error : op?.status === 'failed' ? op.error?.message : undefined
+  const problem = failed ?? (m.state !== 'open' ? m.error?.message : undefined)
+  return (
+    <section className="fx-ticket-meet-bar" aria-label={tr('會議')}>
+      <span className="fx-ticket-meet-tag">{tr('會議')}</span>
+      <b className="fx-ticket-meet-topic">{m.topic}</b>
+      <span className="fx-ticket-faces" role="img" aria-label={listOf(m.participants.map((p) => p.name))}>
+        {m.participants.map((p) => <span key={p.replicaId} title={p.replicaId === m.chairId ? `${p.name} · ${tr('主持人')}` : p.name}><PixelFace look={p.look} name={p.name} size={20} /></span>)}
+      </span>
+      {word && <span className={m.state === 'summaryFailed' || m.closingRequested && m.state === 'paused' ? 'fx-ticket-meet-state fx-room-warn' : 'fx-ticket-meet-state'} role="status">{tr(word)}</span>}
+      <span className="fx-ticket-meet-acts">
+        {actions.map((a) => (
+          <button key={a} type="button" className={a === 'end' ? 'fx-chat-act fx-hit' : 'fx-save'} disabled={sending} onClick={() => go(a)}>
+            {sending && tracked.sent?.key.includes(`"${a}"`) ? tr('傳送中…') : LABELS[a]}
+          </button>
+        ))}
+      </span>
+      {problem && <p className="fx-room-warn fx-ticket-meet-error" role="alert">{problem}</p>}
+    </section>
+  )
+}
+
 /** A notice above the box: the owner stopped, a run nobody can vouch for, or the task waiting to be merged. */
 function Notices({ task, subs, onStep }: { task: Task; subs: SubTask[]; onStep: (subId: string) => void }) {
   const act = useStore((s) => s.act)
@@ -616,6 +750,27 @@ function Notices({ task, subs, onStep }: { task: Task; subs: SubTask[]; onStep: 
   return out.length ? <div className="fx-ticket-notices">{out}</div> : null
 }
 
+/** Someone "@" offers in a meeting, as every pick of employees shows them; All, everyone in it. */
+function MeetingPersonRow({ meeting: m, id }: { meeting: Meeting; id: string }) {
+  const r = useStore((s) => s.world.replicas[id])
+  if (id === ALL.id) {
+    const people = m.participants.map((p) => ({ id: p.replicaId, name: p.name, look: p.look }))
+    return (
+      <>
+        <ChatFaces people={people} size={26} />
+        <span className="fx-row-main">
+          <b className="fx-crew-head"><span className="fx-crew-name">{ALL.name}</span></b>
+          <span>{listOf(people.map((x) => x.name))}</span>
+        </span>
+      </>
+    )
+  }
+  const p = m.participants.find((x) => x.replicaId === id)
+  if (r) return <CrewRow r={r} on chair={id === m.chairId} mind={p ? [p.model, p.effort].filter(Boolean).join(' · ') : undefined} />
+  // one who has left since, as they were when it opened
+  return p ? <><span className="fx-pick-picture" aria-hidden="true"><PixelFace look={p.look} name={p.name} size={26} /></span><span className="fx-row-main"><b className="fx-crew-head"><span className="fx-crew-name">{p.name}</span>{id === m.chairId && <span className="fx-pill fx-chair">{tr('主持人')}</span>}</b><span>{p.model}</span></span></> : null
+}
+
 /** A task its owner runs, on its sheet. */
 export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copying, onCopy, onGoneTask, crew, onCrew, onFact, onTask, image, onImage, ...h }: Head & {
   id: string
@@ -652,11 +807,16 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
   const [expanded, setExpanded] = useState<string[]>([])
   const [flash, setFlash] = useState('')
   const [lost, setLost] = useState('')
+  // where the draft in the box was written to: a meeting's id, '' for the owner, null with nothing written
+  const [draftFor, setDraftFor] = useState<string | null>(null)
   const box = useRef<HTMLTextAreaElement>(null)
   const ownerId = task?.ownerId ?? null
   const live = useLiveText(`owner:${id}`)
+  const meeting = activeMeeting(task?.coordination?.activeMeetingId, (x) => (w.subTasks[x]?.taskId === id ? w.subTasks[x] : undefined))
+  const speaking = meeting && (meeting.state === 'open' || meeting.state === 'closing') ? meeting.participants.find((p) => p.replicaId === meeting.speakerId) : undefined
+  const meetingLive = useLiveText(meeting?.id)
   const responding = task?.coordination?.ownerState === 'responding' || task?.coordination?.ownerState === 'queued'
-  const [list, pin] = useStickToBottom<HTMLOListElement>(`${history.items.length}:${unsent.length}:${responding}:${live.length}`)
+  const [list, pin] = useStickToBottom<HTMLOListElement>(`${history.items.length}:${unsent.length}:${responding}:${live.length}:${speaking?.replicaId}:${meetingLive.length}`)
   // a message the backend took in goes once its line is in the conversation
   const shown = history.items.map((a) => a.id).join(' ')
   useEffect(() => {
@@ -684,19 +844,37 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
   const deliver = async (u: Unsent) => {
     setUnsent((all) => all.map((x) => (x.requestId === u.requestId ? { ...x, state: 'sending', error: undefined } : x)))
     try {
-      const r = await sayToOwner(act, task.id, { requestId: u.requestId, text: u.text, ...splitAttachments(u.attachments) })
+      const r = await sayToOwner(act, task.id, {
+        requestId: u.requestId, text: u.text, ...splitAttachments(u.attachments),
+        ...(u.meetingId ? { meetingId: u.meetingId, ...(u.mentions?.length ? { mentions: u.mentions } : {}) } : {}),
+      })
       setUnsent((all) => all.map((x) => (x.requestId === u.requestId ? { ...x, state: 'sent', activityId: r.activity.id } : x)))
     } catch (e) {
       setUnsent((all) => all.map((x) => (x.requestId === u.requestId ? { ...x, state: 'failed', error: (e as Error).message } : x)))
     }
   }
+  const to = meeting?.id ?? ''
+  // a meeting that is ending takes no more words; what is in the box stays
+  const closed = !!meeting && !meetingTakesWords(meeting)
+  const write = (next: string) => {
+    if (!text && !files.length && next) setDraftFor(to)
+    setText(next)
+  }
   const send = () => {
     const words = text.trim()
-    if ((!words && !files.length) || !canSay || reading) return
-    const u: Unsent = { requestId: newRequestId(), text: words, attachments: files, state: 'sending' }
+    if ((!words && !files.length) || !canSay || reading || closed) return
+    // written for a meeting that has ended, or for the owner before one opened: said, and sent only when asked again
+    if (!draftStillGoes(draftFor ?? to, to)) {
+      setDraftFor(to)
+      setRefused(to ? tr('現在正在開會，訊息沒有送出') : tr('這場會議已結束，訊息沒有送出'))
+      return
+    }
+    const mentions = meeting ? meetingMentions(words, meeting) : []
+    const u: Unsent = { requestId: newRequestId(), text: words, attachments: files, state: 'sending', ...(meeting ? { meetingId: meeting.id, mentions } : {}) }
     setUnsent((all) => [...all, u])
     setText('')
     setFiles([])
+    setDraftFor(null)
     setRefused('')
     pin()
     void deliver(u)
@@ -706,6 +884,8 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
     setUnsent((all) => all.filter((x) => x.requestId !== u.requestId))
     setText((now) => [now.trim(), u.text].filter(Boolean).join('\n'))
     setFiles((now) => [...now, ...u.attachments].slice(0, MAX_ATTACHMENTS))
+    // it goes where the box now sends, as the box shows
+    setDraftFor(to)
     box.current?.focus()
   }
   const attach = async (picked: File[]) => {
@@ -716,6 +896,7 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
     try {
       const { added, refused: tooLarge } = await readAttachments(fit)
       if (tooLarge) setRefused(tr('附件每個最大 25MB，最多 6 個'))
+      if (!text && !files.length && added.length) setDraftFor(to)
       setFiles((now) => [...now, ...added].slice(0, MAX_ATTACHMENTS))
     } catch { setRefused(tr('讀取附件失敗，請重試')) }
     finally { setReading(false) }
@@ -810,10 +991,20 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
                 : <p className="fx-chat-bubble"><span className="fx-chat-dots" aria-hidden="true"><span /><span /><span /></span></p>}
             </li>
           )}
+          {speaking && (
+            <li className="fx-chat-msg fx-chat-agent fx-chat-writing fx-ticket-meet">
+              <PixelFace look={speaking.look} name={speaking.name} size={22} />
+              <span className="fx-sr">{tr('{name} 正在處理…', { name: speaking.name })}</span>
+              {meetingLive
+                ? <div className="fx-chat-bubble" aria-hidden="true"><Markdown text={meetingLive} ids={crewIds(w, task)} /></div>
+                : <p className="fx-chat-bubble"><span className="fx-chat-dots" aria-hidden="true"><span /><span /><span /></span></p>}
+            </li>
+          )}
         </ol>
       </div>
       {lost && <p className="fx-room-warn" role="alert">{lost}</p>}
       <Notices task={task} subs={subs} onStep={onOpen} />
+      {meeting && <MeetingBar task={task} meeting={meeting} />}
       <Questions task={task} onJump={(a) => void jump(a)} />
       {said && <p className={said.alert ? 'fx-ticket-said fx-room-warn' : 'fx-ticket-said'} role={said.alert ? 'alert' : 'status'}>{said.text}</p>}
       {canSay ? (
@@ -825,6 +1016,12 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
             void attach(pasted)
           }}>
           {refused && <p className="fx-room-warn fx-room-say-wide" role="alert">{refused}</p>}
+          {meeting && (
+            <div className="fx-room-say-wide fx-ticket-to">
+              <span className="fx-ticket-meet-tag">{tr('會議')}</span>
+              <SentTo people={answerers(text, meeting).map((p) => ({ id: p.replicaId, name: p.name, look: p.look }))} live />
+            </div>
+          )}
           {files.length > 0 && (
             <div className="fx-thumbs fx-room-say-wide">
               {files.map((im, i) => (
@@ -842,9 +1039,10 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
             <input type="file" disabled={reading} multiple className="fx-sr" aria-label={tr('加入附件')}
               onChange={(e) => { void attach([...(e.target.files ?? [])]); e.target.value = '' }} />
           </label>
-          <MentionBox box={box} grow value={text} teamId={task.teamId} label={tr('訊息')}
-            placeholder={tr('對 {name} 說，# 選檔案，可直接貼上截圖', { name: owner!.name })} onChange={setText} onSend={send} />
-          <button type="submit" className="fx-room-send" disabled={(!text.trim() && !files.length) || reading} aria-label={tr('發送')} title={tr('發送')}>
+          <MentionBox box={box} grow value={text} teamId={task.teamId} label={meeting ? tr('會議發言') : tr('訊息')}
+            people={meeting ? meetingPeople(meeting) : []} personRow={meeting ? (pid) => <MeetingPersonRow meeting={meeting} id={pid} /> : undefined}
+            placeholder={meeting ? tr('在會議中發言，@ 指定誰回答，# 選檔案') : tr('對 {name} 說，# 選檔案，可直接貼上截圖', { name: owner!.name })} onChange={write} onSend={send} />
+          <button type="submit" className="fx-room-send" disabled={(!text.trim() && !files.length) || reading || closed} aria-label={tr('發送')} title={tr('發送')}>
             <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
         </form>

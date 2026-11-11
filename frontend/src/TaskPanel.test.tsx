@@ -1,13 +1,13 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { Detail } from './DrawerDetail'
-import { activityText, eventLines, Feed, HistoryState, joinNewest, OwnerRunFacts, QuestionCard, runWord, StepStrip, type Unsent } from './TaskPanel'
+import { activityText, eventLines, Feed, HistoryState, joinNewest, MeetingBar, OwnerRunFacts, QuestionCard, runWord, StepStrip, type Unsent } from './TaskPanel'
 import { SaidContext } from './Said'
 import { setAppLanguage } from './core/i18n'
 import { useStore } from './core/store'
 import { isOwnerTask } from './core/domain/owner'
 import { subsOf } from './core/domain/sim'
-import type { SubTask, Task, TaskActivity, TaskFact, TaskOperation, TaskQuestion } from './core/domain/types'
+import type { Meeting, SubTask, Task, TaskActivity, TaskFact, TaskOperation, TaskQuestion } from './core/domain/types'
 
 const w = useStore.getState().world
 const owned = Object.values(w.tasks).find(isOwnerTask)!
@@ -32,18 +32,40 @@ const feed = (items: TaskActivity[], extra: FeedExtra = {}) => renderToStaticMar
 
 describe('the sheet of a task its owner runs', () => {
   it('shows its owner stamped as chair, its steps, a box that writes to the owner alone, and the question waiting on the user', () => {
+    const c = owned.coordination!
+    const meeting = c.activeMeetingId
+    c.activeMeetingId = undefined
+    try {
+      const html = sheet(owned)
+      const owner = w.replicas[owned.ownerId!]
+      expect(html).toContain('fx-ticket')
+      expect(html).toContain(`${owner.name}</button><span class="fx-pill fx-chair">主持人</span>`)
+      for (const s of subsOf(w, owned.id)) expect(html).toContain(`>${owned.workflow.nodes.find((n) => n.id === s.nodeId)!.name}</span>`)
+      expect(html).toContain('>計畫')
+      expect(html).toContain(`對 ${owner.name} 說，# 選檔案`)
+      // nobody else is written to from here
+      expect(html).not.toContain('@ 找員工')
+      expect(html).not.toContain('結束開會')
+      expect(html).toContain('aria-label="待你回答"')
+      expect(html).toContain('>同意</button>')
+      expect(html).toContain('>原訊息</button>')
+    } finally { c.activeMeetingId = meeting }
+  })
+
+  it('while a meeting is under way, keeps it above the box with its topic, who is in it and a way to end it, and the box writes into it', () => {
+    const m = w.subTasks[owned.coordination!.activeMeetingId!].meeting!
     const html = sheet(owned)
-    const owner = w.replicas[owned.ownerId!]
-    expect(html).toContain('fx-ticket')
-    expect(html).toContain(`${owner.name}</button><span class="fx-pill fx-chair">主持人</span>`)
-    for (const s of subsOf(w, owned.id)) expect(html).toContain(`>${owned.workflow.nodes.find((n) => n.id === s.nodeId)!.name}</span>`)
-    expect(html).toContain('>計畫')
-    expect(html).toContain(`對 ${owner.name} 說，# 選檔案`)
-    // nobody else is written to from here
-    expect(html).not.toContain('@ 找員工')
+    expect(html).toContain('class="fx-ticket-meet-bar" aria-label="會議"')
+    expect(html).toContain(`<b class="fx-ticket-meet-topic">${m.topic}</b>`)
+    for (const p of m.participants) expect(html).toContain(`aria-label="${p.name}"`)
+    expect(html).toContain('>結束開會</button>')
+    // the box says the words go into the meeting, to the chair unless someone is mentioned
+    expect(html).toContain('aria-label="會議發言"')
+    expect(html).toContain('在會議中發言，@ 指定誰回答')
+    expect(html).toMatch(/fx-ticket-to"><span class="fx-ticket-meet-tag">會議<\/span><p class="fx-room-to"[^>]*>送給.*Mira<\/span><\/p>/)
+    expect(html).not.toContain(`對 ${w.replicas[owned.ownerId!].name} 說`)
+    // a question waiting on the user stays in view beside it
     expect(html).toContain('aria-label="待你回答"')
-    expect(html).toContain('>同意</button>')
-    expect(html).toContain('>原訊息</button>')
   })
 
   it('keeps an older task on its own sheet, with no box to the owner', () => {
@@ -442,5 +464,106 @@ describe('a run or an employee the owner names by id', () => {
     const q: TaskQuestion = { id: 'q9', activityId: 'a9', prompt: '要不要改派 sub-696 給別人？', options: [{ id: 'approve' }], kind: 'approval', audience: 'user', planVersion: 1, createdAt: 0 }
     const html = drawn([run('sub-696', kai.id)], () => <QuestionCard task={owned} q={q} onJump={noop} onAnswer={noop} />)
     expect(html).toContain(`aria-label="要不要改派 ${kai.name} 給別人？"`)
+  })
+})
+
+describe('a meeting held in the conversation', () => {
+  const sub = Object.values(w.subTasks).find((s) => s.taskId === owned.id && s.meeting?.state === 'open')!
+  const ended = Object.values(w.subTasks).find((s) => s.taskId === owned.id && s.meeting?.state === 'ended')!
+  const chair = owned.ownerId!
+  const said = (m: Meeting, a: Partial<TaskActivity>) => line({ kind: 'meeting', meetingVersion: 2, meetingPart: 'speech', meetingId: m.id, subId: m.id, ...a })
+  const bar = (m: Partial<Meeting>) => renderToStaticMarkup(<MeetingBar task={owned} meeting={{ ...sub.meeting!, ...m }} />)
+
+  it('shows each word of a meeting under way on its own line, marked as the meeting\'s and with the chair stamped, among the short lines of other steps', () => {
+    const m = sub.meeting!
+    const html = feed([
+      said(m, { seq: 1, by: chair, name: 'Mira', text: '開場' }),
+      line({ seq: 2, kind: 'event', from: 'system', key: 'dispatched', args: { owner: 'Mira', name: 'Kai', step: '開發' }, text: '' }),
+      said(m, { seq: 3, from: 'user', text: '@Ivy 你看呢', mentions: [m.participants[1].replicaId] }),
+      said(m, { seq: 4, by: m.participants[1].replicaId, name: m.participants[1].name, text: '可以' }),
+    ])
+    expect(html.match(/ fx-ticket-meet[" ]/g)).toHaveLength(3)
+    expect(html).toContain('Mira<span class="fx-pill fx-chair">主持人</span>')
+    expect(html).not.toContain(`${m.participants[1].name}<span class="fx-pill fx-chair">`)
+    // the other step's line stays a faint line of its own, in its place
+    expect(html).toMatch(/開場.*class="fx-ticket-event".*Mira 派 Kai 做「開發」.*你看呢.*可以/)
+    // whom the user asked
+    expect(html).toMatch(/你看呢.*送給.*Ivy/)
+    expect(html).not.toContain('class="fx-ticket-fold ')
+  })
+
+  it('folds a meeting that is over into one card where its conclusion is, the conclusion in view, however many lines came between', () => {
+    const m = ended.meeting!
+    const html = feed([
+      said(m, { seq: 1, by: chair, name: 'Mira', text: '第一句' }),
+      line({ seq: 2, kind: 'event', from: 'system', key: 'paused', text: '' }),
+      said(m, { seq: 3, by: chair, name: 'Mira', text: '第二句' }),
+      said(m, { seq: 4, id: m.summaryActivityId, by: chair, name: 'Mira', text: m.summary!, meetingPart: 'summary' }),
+    ])
+    expect(html.match(/class="fx-ticket-fold /g)).toHaveLength(1)
+    expect(html).toMatch(new RegExp(`任務已暫停.*data-activity="${m.summaryActivityId}" data-meeting="${m.id}"`))
+    expect(html).toContain(`會議：${m.topic}`)
+    expect(html).toContain('· 結論')
+    expect(html).toContain(m.summary!.slice(0, 10))
+    expect(html).not.toContain('第一句')
+    expect(html).toContain('aria-expanded="false"')
+  })
+
+  it('shows the card from the meeting itself when only earlier words of it are loaded', () => {
+    const m = ended.meeting!
+    const html = feed([said(m, { seq: 1, by: chair, name: 'Mira', text: '第一句' })])
+    expect(html.match(/class="fx-ticket-fold /g)).toHaveLength(1)
+    expect(html).toContain(m.summary!.slice(0, 10))
+  })
+
+  it('says a cancelled meeting has no conclusion, not that it ended with one', () => {
+    const m = ended.meeting!
+    const was = { ...m }
+    Object.assign(m, { state: 'cancelled', summary: undefined, summaryActivityId: undefined })
+    try {
+      const html = feed([said(m, { seq: 1, by: chair, name: 'Mira', text: '第一句' })])
+      expect(html).toContain('會議已取消，沒有結論')
+      expect(html).not.toContain('· 結論')
+    } finally { Object.assign(m, was) }
+  })
+
+  it('still gathers an older meeting\'s words into one line', () => {
+    const html = feed([line({ seq: 1, kind: 'meeting', meetingId: 'old', nodeId: 'n-report', by: chair, name: 'Mira', text: 'x' }), line({ seq: 2, kind: 'meeting', meetingId: 'old', name: 'Kai', text: 'y' })])
+    expect(html).toContain('2 則發言')
+    expect(html).not.toContain('fx-ticket-meet-tag')
+  })
+
+  it('offers to go on for another batch or end once a batch of calls is used, to retry a conclusion that failed, and nothing while it ends', () => {
+    const limit = bar({ state: 'paused', pauseReason: 'limit' })
+    expect(limit).toContain('>已暫停<')
+    expect(limit).toMatch(/>繼續下一輪<\/button>.*>結束開會<\/button>/)
+    expect(bar({ state: 'paused', pauseReason: 'speakerFailed', error: { code: 'unavailable', message: '模型沒有回應' } })).toMatch(/>繼續<\/button>.*role="alert">模型沒有回應/)
+    const failed = bar({ state: 'summaryFailed', error: { code: 'unavailable', message: '寫不出來' } })
+    expect(failed).toContain('>結論失敗<')
+    expect(failed).toContain('>重試結論</button>')
+    expect(failed).not.toContain('結束開會')
+    expect(bar({ state: 'paused', pauseReason: 'budget', closingRequested: true })).toContain('>重試結論</button>')
+    const closing = bar({ state: 'closing' })
+    expect(closing).toContain('>收尾中…<')
+    expect(closing).not.toContain('<button')
+    expect(bar({ state: 'open' })).toContain('>結束開會</button>')
+    expect(bar({ state: 'paused', pauseReason: 'context' })).not.toContain('>繼續')
+  })
+
+  it('says a meeting under way is in a meeting, or paused, on the steps, not how far along it is', () => {
+    expect(runWord({ ...sub, status: 'progressing', progress: 0.4 })).toBe('開會中')
+    expect(runWord({ ...sub, status: 'progressing', meeting: { ...sub.meeting!, state: 'paused' } })).toBe('已暫停')
+  })
+
+  it('reads the meeting events the backend records, with the same holes', () => {
+    const ev = (key: string, args: Record<string, unknown>) => activityText(line({ kind: 'event', from: 'system', key, args, text: 'raw' }))
+    expect(ev('meetingLimitReached', { topic: 'T', limit: 36 })).toBe('會議「T」已用完這一輪的 36 次模型呼叫，等你決定是否繼續')
+    expect(ev('meetingContinued', { topic: 'T', batch: 2 })).toBe('會議「T」繼續第 2 輪')
+    expect(ev('meetingReplyFailed', { topic: 'T', name: 'Kai', error: 'e' })).toBe('會議「T」中 Kai 回覆失敗：e')
+    expect(ev('meetingSummaryFailed', { topic: 'T', error: 'e' })).toBe('會議「T」的結論沒有寫成：e')
+    expect(ev('meetingCalled', { topic: 'T', owner: 'Mira' })).toBe('Mira 召開會議：T')
+    expect(ev('meetingEnded', { topic: 'T' })).toBe('會議結束：T')
+    setAppLanguage('en')
+    try { expect(ev('meetingContinued', { topic: 'T', batch: 2 })).toBe('Meeting "T" goes on, round 2') } finally { setAppLanguage('zh') }
   })
 })

@@ -11,7 +11,7 @@ import { currentRun, isOwnerTask, ownerStatus, resumeBlock } from './owner'
 import { adoptSources, covers, itemsOf } from './sources'
 import type {
   Chat,
-  Look,
+  Look, Meeting,
   Attachment, Blueprint, GitSource, Locale, LogKind, MemorySource, ModelProvider, ProviderAuth, Replica, Review, Script, SubTask, TalkEnd, Task, Team, Workflow, World,
   FileInfo, SkillInfo, SkillText, TaskActivity, TaskCoordination, TaskOperation,
 } from './types'
@@ -191,7 +191,7 @@ export function tick(w: World, dt: number) {
   const running = (t: Task) => t.stage === 'running' && !t.paused
   const subs = Object.values(w.subTasks).filter((s) => !s.cancelled && running(w.tasks[s.taskId]))
 
-  for (const s of subs) if (s.status === 'progressing') advance(w, w.tasks[s.taskId], s, dt)
+  for (const s of subs) if (s.status === 'progressing' && !s.meeting) advance(w, w.tasks[s.taskId], s, dt)
   for (const s of subs) if (s.talk?.replyAt !== undefined && w.now >= s.talk.replyAt) answer(w, s)
   // an owner decides where finished work goes; only a flow running itself routes it
   for (const s of subs) if (!s.cancelled && s.status === 'complete' && !s.routed && !isOwnerTask(w.tasks[s.taskId])) route(w, w.tasks[s.taskId], s)
@@ -201,6 +201,7 @@ export function tick(w: World, dt: number) {
   dispatch(w)
   for (const c of Object.values(w.chats)) if (c.replyAt !== undefined && w.now >= c.replyAt) answerChat(w, c)
 
+  for (const t of Object.values(w.tasks)) if (isOwnerTask(t) && running(t)) meetingTick(w, t)
   for (const t of Object.values(w.tasks)) if (isOwnerTask(t)) ownerTick(w, t)
   for (const t of Object.values(w.tasks)) {
     if (running(t) && !isOwnerTask(t)) {
@@ -1646,6 +1647,9 @@ export interface OwnerMessage {
   text: string
   images?: Attachment[]
   files?: Attachment[]
+  /** Into the meeting under way, where `mentions` answer in order; else to the owner. */
+  meetingId?: string
+  mentions?: string[]
 }
 
 /** The user tells the owner something. It is kept at once; the owner takes it in on its next turn. */
@@ -1656,6 +1660,8 @@ export function sayToOwner(w: World, taskId: string, m: OwnerMessage): { operati
   if (again) return { operation: again, activity: (w.mockActivity?.[task.id] ?? []).find((a) => a.id === again.messageId)! }
   if (!m.text.trim() && !m.images?.length && !m.files?.length) throw new TaskRefusal(say2(w, '訊息是空的', 'The message is empty'), 'invalid_request')
   if (task.stage !== 'running' && task.stage !== 'awaitMerge') throw ended(w)
+  if (m.meetingId || m.mentions?.length) return sayInMeeting(w, task, m)
+  if (c.activeMeetingId) throw new TaskRefusal(say2(w, '現在正在開會，訊息沒有送出', 'A meeting is under way; the message was not sent'), 'conflict')
   const activity = postActivity(w, task, { kind: 'message', from: 'user', text: m.text.trim(), ...(m.images?.length ? { images: m.images } : {}), ...(m.files?.length ? { files: m.files } : {}) })
   const op = operation(w, task, 'message', m.requestId, { messageId: activity.id })
   activity.operationId = op.id
@@ -1725,6 +1731,8 @@ export function controlOwnerTask(w: World, taskId: string, b: OwnerControl): { o
         settleOp(w, op, 'applied')
         return { operation: op }
       }
+      const meeting = c.activeMeetingId ? w.subTasks[c.activeMeetingId]?.meeting : undefined
+      if (meeting?.state === 'open') pauseMeeting(meeting, 'taskPaused')
       task.paused = true
       task.pausedAt = w.now
       c.controlVersion++
@@ -1849,6 +1857,8 @@ export function activityItem(w: World, taskId: string, id: string): TaskActivity
 function dispatchStep(w: World, task: Task, nodeId: string, from: SubTask[]) {
   const c = task.coordination!
   const n = nodeOf(task.workflow, nodeId)!
+  const guests = [...new Set(n.replicaIds)].filter((r) => r !== task.ownerId && w.replicas[r])
+  if (n.kind === 'talk' && task.ownerId && guests.length) return holdMeeting(w, task, nodeId, n.name, guests.slice(0, MEETING_GUESTS), from)
   const s = spawn(w, task, nodeId, from.map((x) => x.id), from[0]?.id ?? null, w.now)
   s.script = { ...s.script, ask: undefined, fail: undefined, sendBack: undefined }
   s.replicaId = n.replicaIds.find((r) => w.replicas[r]) ?? task.ownerId
@@ -1863,6 +1873,8 @@ function dispatchStep(w: World, task: Task, nodeId: string, from: SubTask[]) {
 
 /** A run's work comes back to the owner: a meeting's words first, then what its employee handed on. */
 function handBack(w: World, task: Task, s: SubTask) {
+  // a meeting held in the conversation brings back its conclusion alone, already there
+  if (s.meeting) return
   const n = nodeOf(task.workflow, s.nodeId)
   if (n?.kind === 'talk') {
     const people = n.replicaIds.filter((r) => w.replicas[r])
@@ -1945,6 +1957,7 @@ function ownerTick(w: World, task: Task) {
   let dispatched = 0
   for (const n of wf.nodes) {
     if (accepted(n.id).length || open(n.id)) continue
+    if (n.kind === 'talk' && c.activeMeetingId) continue
     const ins = inEdges(wf, n.id)
     // the ways in whose step is done and, where that step picks one way on, picked this one
     const chosen = ins.filter((e) => {
@@ -1976,5 +1989,203 @@ function ownerTick(w: World, task: Task) {
   c.ownerState = 'idle'
 }
 
+// ---------- meetings held in the conversation ----------
+
+/** How many employees a meeting holds besides its chair, and how many model calls the user allows at a time. */
+export const MEETING_GUESTS = 6
+export const MEETING_BATCH = 36
+
+const meetingOf = (w: World, task: Task, id: string | undefined) => {
+  const s = id ? w.subTasks[id] : undefined
+  return s?.taskId === task.id && s.meeting ? s as SubTask & { meeting: Meeting } : undefined
+}
+
+const queueOf = (w: World, id: string) => ((w.mockMeetingQueue ??= {})[id] ??= { ids: [], at: w.now })
+
+function pauseMeeting(m: Meeting, why: NonNullable<Meeting['pauseReason']>) {
+  m.state = 'paused'
+  m.pauseReason = why
+  m.speakerId = undefined
+  m.revision++
+}
+
+/** The owner calls a meeting on a talk step: it chairs, opens, then calls on everyone once. */
+function holdMeeting(w: World, task: Task, nodeId: string, topic: string, guests: string[], from: SubTask[] = []): SubTask {
+  const c = task.coordination!
+  const s = spawn(w, task, nodeId, from.map((x) => x.id), from[0]?.id ?? null, w.now)
+  const chair = task.ownerId!
+  s.replicaId = chair
+  s.status = 'progressing'
+  s.startedAt = w.now
+  s.planVersion = c.planVersion
+  s.runGeneration = 1
+  s.executionState = 'running'
+  s.validity = 'current'
+  s.meeting = {
+    version: 2, id: s.id, topic, chairId: chair, state: 'open', revision: 1, batch: 1, callsInBatch: 0, callsTotal: 0, startedAt: w.now,
+    participants: [chair, ...guests].map((id) => {
+      const r = w.replicas[id]
+      return { replicaId: id, name: r.name, look: { ...r.look }, model: r.model, ...(r.effort ? { effort: r.effort } : {}) }
+    }),
+  }
+  c.activeMeetingId = s.id
+  w.mockMeetingQueue = { ...w.mockMeetingQueue, [s.id]: { ids: [chair, ...guests, chair], at: w.now + REPLY_TIME } }
+  taskEvent(w, task, 'meetingCalled', say2(w, '{owner} 召開會議：{topic}', '{owner} called a meeting: {topic}'), { topic, owner: ownerName(w, task) }, { subId: s.id, nodeId })
+  return s
+}
+
+/** The user speaks in the meeting under way: those mentioned answer in order, else the chair. */
+function sayInMeeting(w: World, task: Task & { coordination: TaskCoordination }, m: OwnerMessage) {
+  const c = task.coordination
+  const s = meetingOf(w, task, m.meetingId)
+  if (!s) throw new TaskRefusal(say2(w, '找不到這場會議', 'Meeting not found'), 'not_found')
+  const mt = s.meeting
+  if (c.activeMeetingId !== s.id || mt.state === 'ended' || mt.state === 'cancelled') throw new TaskRefusal(say2(w, '這場會議已結束，訊息沒有送出', 'This meeting is over; the message was not sent'), 'conflict')
+  if (mt.state === 'closing' || mt.state === 'summaryFailed') throw new TaskRefusal(say2(w, '會議正在結束，不能再發言', 'The meeting is ending; no more words'), 'conflict')
+  const mentions = [...new Set(m.mentions ?? [])]
+  if (mentions.some((id) => !mt.participants.some((p) => p.replicaId === id))) throw new TaskRefusal(say2(w, '只能指定這場會議的與會者', 'Only those in this meeting can be asked'), 'invalid_request')
+  const activity = postActivity(w, task, {
+    kind: 'meeting', from: 'user', text: m.text.trim(), meetingVersion: 2, meetingPart: 'speech', meetingId: s.id, subId: s.id, nodeId: s.nodeId,
+    ...(mentions.length ? { mentions } : {}), ...(m.images?.length ? { images: m.images } : {}), ...(m.files?.length ? { files: m.files } : {}),
+  })
+  const op = operation(w, task, 'message', m.requestId, { messageId: activity.id, subId: s.id })
+  activity.operationId = op.id
+  settleOp(w, op, 'applied')
+  const q = queueOf(w, s.id)
+  if (!q.ids.length) q.at = w.now + REPLY_TIME
+  q.ids.push(...(mentions.length ? mentions : [mt.chairId]))
+  mt.revision++
+  return { operation: op, activity }
+}
+
+const MEETING_LINES: [string, string][] = [
+  ['我先說結論：照現在的拆法可行，風險在折扣計算的四捨五入。', 'My take: the split works; the risk is rounding in the discount.'],
+  ['我同意，測試要補一個過期優惠碼的情境。', 'Agreed. We need a test for an expired code.'],
+  ['介面上錯誤訊息要說清楚是過期還是不存在。', 'The error has to say whether the code expired or does not exist.'],
+  ['好，這幾點我記下來了，還有要補充的嗎？', 'Good, I have these down. Anything else?'],
+]
+
+/** One who was called on speaks; the chair sums up once the meeting is ending; each a model call, counted. */
+function meetingTick(w: World, task: Task) {
+  const c = task.coordination!
+  const s = meetingOf(w, task, c.activeMeetingId)
+  if (!s) return
+  const m = s.meeting
+  const q = queueOf(w, s.id)
+  if (m.state === 'closing') {
+    if (w.now < q.at) return
+    count(m, s)
+    const summary = say2(w, '結論：照現在的拆法做，補過期優惠碼的測試，錯誤訊息分清楚過期和不存在。', 'Conclusion: keep the split, add a test for expired codes, and tell expired from unknown in the error.')
+    const a = postActivity(w, task, { kind: 'meeting', from: 'agent', text: summary, meetingVersion: 2, meetingPart: 'summary', meetingId: s.id, subId: s.id, nodeId: s.nodeId, ...byWhom(w, m.chairId) })
+    endMeeting(w, task, s, summary, a.id)
+    return
+  }
+  if (m.state !== 'open') return
+  const next = q.ids[0]
+  m.speakerId = next
+  if (!next || w.now < q.at) return
+  q.ids.shift()
+  count(m, s)
+  const said = MEETING_LINES[m.callsTotal % MEETING_LINES.length]
+  postActivity(w, task, { kind: 'meeting', from: 'agent', text: say2(w, ...said), meetingVersion: 2, meetingPart: 'speech', meetingId: s.id, subId: s.id, nodeId: s.nodeId, ...byWhom(w, next) })
+  q.at = w.now + REPLY_TIME
+  m.speakerId = q.ids[0]
+  m.revision++
+  if (m.callsInBatch >= MEETING_BATCH) {
+    pauseMeeting(m, 'limit')
+    taskEvent(w, task, 'meetingLimitReached', say2(w, '會議「{topic}」已用完這一輪的 {limit} 次模型呼叫，等你決定是否繼續', 'Meeting "{topic}" used this round\'s {limit} model calls; continue?'), { topic: m.topic, limit: String(MEETING_BATCH) }, { subId: s.id, nodeId: s.nodeId })
+  }
+}
+
+function count(m: Meeting, s: SubTask) {
+  if (m.callsInBatch < MEETING_BATCH) m.callsInBatch++
+  m.callsTotal++
+  s.costUsd += 0.01
+  s.tokens += 1200
+}
+
+function endMeeting(w: World, task: Task, s: SubTask & { meeting: Meeting }, summary: string, activityId: string) {
+  const m = s.meeting
+  m.state = 'ended'
+  m.summary = summary
+  m.summaryActivityId = activityId
+  m.speakerId = undefined
+  m.pauseReason = undefined
+  m.endedAt = w.now
+  m.revision++
+  task.coordination!.activeMeetingId = undefined
+  delete w.mockMeetingQueue?.[s.id]
+  s.status = 'complete'
+  s.progress = 1
+  s.endedAt = w.now
+  delete s.executionState
+  for (const op of task.coordination!.operations) if (op.subId === s.id && op.kind === 'meetingEnd' && op.status !== 'applied') settleOp(w, op, 'applied')
+  taskEvent(w, task, 'meetingEnded', say2(w, '會議結束：{topic}', 'Meeting over: {topic}'), { topic: m.topic }, { subId: s.id, nodeId: s.nodeId })
+}
+
+export interface MeetingControl { requestId: string; action: 'continue' | 'end' | 'retrySummary'; revision: number }
+
+/** The user goes on with a paused meeting for another batch, ends it, or asks again for the conclusion. */
+export function controlMeeting(w: World, taskId: string, meetingId: string, b: MeetingControl): { operation: TaskOperation } {
+  const task = ownerTask(w, taskId)
+  const c = task.coordination
+  const s = meetingOf(w, task, meetingId)
+  if (!s) throw new TaskRefusal(say2(w, '找不到這場會議', 'Meeting not found'), 'not_found')
+  const again = c.operations.find((o) => o.requestId === b.requestId)
+  if (again) return { operation: again }
+  const m = s.meeting
+  const kind = b.action === 'continue' ? 'meetingContinue' : b.action === 'end' ? 'meetingEnd' : 'meetingRetrySummary'
+  const stale = () => new TaskRefusal(say2(w, '會議已更新，請確認最新狀態再操作', 'The meeting changed; check where it is and try again'), 'conflict')
+  if (m.state === 'ended' || m.state === 'cancelled') throw new TaskRefusal(say2(w, '這場會議已結束', 'This meeting is over'), 'conflict')
+  if (b.revision > m.revision || (b.action !== 'end' && b.revision !== m.revision)) throw stale()
+  const q = queueOf(w, s.id)
+  if (b.action === 'continue') {
+    if (m.state !== 'paused') throw new TaskRefusal(say2(w, '這場會議沒有暫停', 'This meeting is not paused'), 'conflict')
+    if (m.closingRequested) throw new TaskRefusal(say2(w, '結論沒有寫成，請按重試', 'The conclusion was not written; retry it'), 'conflict')
+    if (task.paused) throw new TaskRefusal(say2(w, '任務已暫停，要先繼續任務', 'The task is paused; continue the task first'), 'conflict')
+    if (m.pauseReason === 'limit' || m.callsInBatch >= MEETING_BATCH) {
+      m.batch++
+      m.callsInBatch = 0
+      taskEvent(w, task, 'meetingContinued', say2(w, '會議「{topic}」繼續第 {batch} 輪', 'Meeting "{topic}" goes on, round {batch}'), { topic: m.topic, batch: String(m.batch) }, { subId: s.id, nodeId: s.nodeId })
+    }
+    m.state = 'open'
+    m.pauseReason = undefined
+    m.error = undefined
+    q.at = w.now + REPLY_TIME
+  } else if (b.action === 'end') {
+    if (m.state === 'closing') throw new TaskRefusal(say2(w, '會議正在結束', 'The meeting is ending'), 'conflict')
+    if (m.state === 'summaryFailed' || m.closingRequested) throw new TaskRefusal(say2(w, '結論沒有寫成，請按重試', 'The conclusion was not written; retry it'), 'conflict')
+    m.state = 'closing'
+    m.closingRequested = true
+    m.pauseReason = undefined
+    m.speakerId = m.chairId
+    q.ids = []
+    q.at = w.now + REPLY_TIME
+  } else {
+    if (m.state !== 'summaryFailed' && !(m.state === 'paused' && m.closingRequested)) throw new TaskRefusal(say2(w, '這場會議現在不能重試結論', 'This meeting cannot retry its conclusion now'), 'conflict')
+    m.state = 'closing'
+    m.pauseReason = undefined
+    m.error = undefined
+    m.speakerId = m.chairId
+    q.at = w.now + REPLY_TIME
+  }
+  m.revision++
+  const op = operation(w, task, kind, b.requestId, { subId: s.id })
+  settleOp(w, op, b.action === 'continue' ? 'applied' : 'processing')
+  return { operation: op }
+}
+
+/** A page of one meeting's words and conclusion, oldest first, in the conversation's order. */
+export function meetingActivityPage(w: World, taskId: string, meetingId: string, q: { before?: number; limit?: number; version?: string }) {
+  const task = ownerTask(w, taskId)
+  if (!w.subTasks[meetingId] || w.subTasks[meetingId].taskId !== task.id) throw new TaskRefusal(say2(w, '找不到這場會議', 'Meeting not found'), 'not_found')
+  const list = (w.mockActivity?.[taskId] ?? []).filter((a) => a.kind === 'meeting' && a.meetingId === meetingId)
+  const version = String(list.at(-1)?.seq ?? 0)
+  if (q.version && q.version !== version) throw new TaskRefusal(say2(w, '對話已經更新', 'The conversation has changed'), 'conflict')
+  const shown = q.before === undefined ? list : list.filter((a) => a.seq < q.before!)
+  const items = shown.slice(-Math.min(100, Math.max(1, q.limit ?? 50)))
+  return { version, total: list.length, items: clone(items), hasMore: items.length < shown.length }
+}
+
 /** Exposed for the seed, which writes an owner-run task partway through. */
-export const ownerSeed = { dispatchStep, handBack, ownerSays, taskEvent }
+export const ownerSeed = { dispatchStep, handBack, ownerSays, taskEvent, holdMeeting, endMeeting }

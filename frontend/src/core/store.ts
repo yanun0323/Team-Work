@@ -129,10 +129,15 @@ export const useStore = create<State>()(
             const before = (ev.upserts ?? []).map((p) => [p.id, said(p.id)] as const)
             // an owner's words stream under owner:<task id> until they are a line of the task's conversation
             const owned = (id: string) => s.world.tasks[id]?.coordination?.history.count ?? 0
-            const tasks = (ev.upserts ?? []).filter((p) => p.kind === 'task').map((p) => [p.id, owned(p.id)] as const)
+            const tasks = (ev.upserts ?? []).filter((p) => p.kind === 'task').map((p) => [p.id, owned(p.id), s.world.tasks[p.id]?.coordination?.activeMeetingId] as const)
             applyPatches(s.world, ev, (kind, id) => kind === 'team' && editing(id))
             for (const [id, n] of before) if (said(id) > n) clearLive(id)
-            for (const [id, n] of tasks) if (owned(id) > n) clearLive(`owner:${id}`)
+            // and a meeting's under its run's id, until they are a line too
+            for (const [id, n, meeting] of tasks) {
+              if (owned(id) <= n) continue
+              clearLive(`owner:${id}`)
+              for (const m of new Set([meeting, s.world.tasks[id]?.coordination?.activeMeetingId])) if (m) clearLive(m)
+            }
             if (!s.teamId) {
               const first = Object.values(s.world.teams).sort((a, b) => a.createdAt - b.createdAt)[0]
               if (first) {
