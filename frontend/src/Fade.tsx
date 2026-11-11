@@ -45,6 +45,9 @@ function seeThrough(m: THREE.Material, appearing: boolean) {
   return c
 }
 
+/** Whether `m` is one of the see-through copies a Fade puts on its meshes while fading. */
+export const isFadeCopy = (m: THREE.Material) => m.userData.fullOpacity !== undefined
+
 const dispose = (m: Mat) => list(m).forEach((x) => x.dispose())
 
 export function Fade({ show, shade, children }: { show: boolean; shade?: { current: number }; children: ReactNode }) {

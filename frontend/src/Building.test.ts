@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { billAt, litShares, LOUNGE_SEAT_D, loungeSeats, moneyTosses, NOOK_SEAT_FRONT, nookPlaces, shoutBursts } from './Building'
+import * as THREE from 'three'
+import { billAt, litShares, plotHitGeometry, LOUNGE_SEAT_D, loungeSeats, moneyTosses, NOOK_SEAT_FRONT, nookPlaces, shoutBursts } from './Building'
 import { NOOK_D, officePlan } from './office'
 import { SHIN_REACH } from './People'
 import { SCREEN_RIGHT } from './camera'
@@ -142,5 +143,18 @@ describe('sofa seats', () => {
       for (const s of seats.slice(0, 2)) expect(shins(m * (s.at[0] - a.x) + a.w / 2)).toBeGreaterThan(LOUNGE_SEAT_D)
       for (const s of seats.slice(2)) expect(shins(s.at[1] - a.z + a.d / 2)).toBeGreaterThan(LOUNGE_SEAT_D)
     }
+  })
+})
+
+describe('plotHitGeometry', () => {
+  it('takes the pointer over every box of the plot as one mesh, and nowhere between them', () => {
+    const mesh = new THREE.Mesh(plotHitGeometry([[[0, 0.06, 0], [4, 0.12, 4]], [[6, 0.5, 0], [0.5, 1, 0.5]]]), new THREE.MeshBasicMaterial())
+    mesh.visible = false
+    mesh.updateMatrixWorld()
+    const down = new THREE.Vector3(0, -1, 0)
+    const top = (x: number) => new THREE.Raycaster(new THREE.Vector3(x, 10, 0), down).intersectObject(mesh)[0]?.point.y
+    expect(top(1)).toBeCloseTo(0.12)
+    expect(top(6)).toBeCloseTo(1)
+    expect(top(4), 'between the paving and the lamp').toBeUndefined()
   })
 })

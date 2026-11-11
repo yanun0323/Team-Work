@@ -10,6 +10,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { AirportInterior } from './AirportInterior'
 import { Fade } from './Fade'
+import { Merged } from './Merged'
 import { ROOF_TOP } from './Building'
 import { AIRPORT, CELL, FLOOR_CELLS, rectCenter, RUNWAY_CELLS, RUNWAY_LINE, BRIDGE_DX, HALL_LIFT, STAND_Z, STANDS, TERMINAL, TOWER, type Town } from './layout'
 import { MAX_FRAME, NO_OUTLINE_LAYER } from './PixelPass'
@@ -77,8 +78,9 @@ const WINDOWS = Array.from({ length: 15 }, (_, i) => -2.25 + i * (4.8 / 14))
 export function Plane({ body, tail, gear = true }: { body: string; tail: string; gear?: boolean }) {
   // less detail: no doors or navigation lights
   const detail = usePrefs((s) => s.detail)
+  // flies as one piece: drawn merged
   return (
-    <>
+    <Merged deps={[body, tail, gear, detail]}>
       {/* fuselage: two crossed boxes for a rounder section, the nose and tail cone tapering in steps */}
       <B p={[0, 1.25, 0]} s={[6.4, 1.1, 0.9]} c={body} />
       <B p={[0, 1.25, 0]} s={[6.4, 0.9, 1.1]} c={body} />
@@ -140,7 +142,7 @@ export function Plane({ body, tail, gear = true }: { body: string; tail: string;
           </group>
         ))}
       </>}
-    </>
+    </Merged>
   )
 }
 
@@ -576,6 +578,8 @@ function GroundCrew() {
   const S = STANDS[1]
   const out = -PI / 2
   return (
+    // all parked: drawn merged
+    <Merged deps={[]}>
     <group position={[0, PAVE, 0]}>
       {/* belt loader up to the rear hold, the baggage train beside its foot */}
       <group position={[S - 2.3, 0, -2.6]}><BeltLoader /></group>
@@ -599,6 +603,7 @@ function GroundCrew() {
       </group>
       <group position={[stallX(4), 0, STALL_Z]} rotation={[0, out, 0]}><Tug /></group>
     </group>
+    </Merged>
   )
 }
 
@@ -665,6 +670,7 @@ export function Airport({ town, open, hover, still, calm, away = false, onHover,
     <group position={[x, 0, z]} onClick={click}
       onPointerOver={(e) => { e.stopPropagation(); onHover(true); document.body.style.cursor = still || open ? '' : 'pointer' }}
       onPointerOut={() => { onHover(false); document.body.style.cursor = '' }}>
+      <Merged deps={[marks]}>
       {/* runway, taxiways and apron, at the plots' paving height */}
       <B p={[0, PAVE / 2, RUNWAY_Z]} s={[RUNWAY_HALF * 2, PAVE, RUNWAY_W]} c={ASPHALT} />
       {TAXI_X.map((tx2) => <B key={tx2} p={[tx2, PAVE / 2 - 0.002, (APRON.z1 + RUNWAY_Z) / 2]} s={[TAXI_W, PAVE, RUNWAY_Z - APRON.z1 + 0.2]} c={TAXI} />)}
@@ -681,8 +687,12 @@ export function Airport({ town, open, hover, still, calm, away = false, onHover,
         <B p={[0.8, PAVE + 0.006, 0]} s={[0.36, 0.01, 2.4]} c={MARK} shadow={false} />
         <B p={[0, PAVE + 0.006, 0]} s={[1.6, 0.01, 0.36]} c={MARK} shadow={false} />
       </group>
+      {/* a jet bridge out to each stand */}
+      {STANDS.map((sx) => <JetBridge key={sx} x={sx} />)}
+      </Merged>
 
       <Fade show={!open}>
+      <Merged deps={[detail]}>
       {/* terminal: a long low hall, glass facing the apron, a white roof with a band of the airport colour */}
       <B p={[tx, TERMINAL.h / 2, tz]} s={[tw, TERMINAL.h, td]} c="#dfe3ea" />
       <B p={[tx, TERMINAL.h * 0.45, TERMINAL.z1 + 0.02]} s={[tw - 1.2, TERMINAL.h * 0.62, 0.06]} c="#5b8ab4" glow={LIT_GLASS} />
@@ -693,9 +703,8 @@ export function Airport({ town, open, hover, still, calm, away = false, onHover,
       {/* air-conditioning units on the roof */}
       {detail && [-12, -5, 6, 13].map((dx) => <B key={dx} p={[tx + dx, TERMINAL.h + 0.6, tz - 0.6]} s={[2.2, 0.6, 1.6]} c="#b9bec8" />)}
       <B p={[tx, TERMINAL.h - 0.25, TERMINAL.z1 + 0.32]} s={[tw + 0.6, 0.3, 0.06]} c="#3b6fb0" shadow={false} />
+      </Merged>
       </Fade>
-      {/* a jet bridge out to each stand */}
-      {STANDS.map((sx) => <JetBridge key={sx} x={sx} />)}
 
       {/* control tower: a shaft with a glass cab and an antenna */}
       <group position={[TOWER.x, 0, TOWER.z]}>

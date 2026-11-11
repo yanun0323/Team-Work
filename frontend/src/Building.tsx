@@ -23,6 +23,7 @@ import { useStore } from './core/store'
 import { boxOnScreen, ISO_DIR, SCREEN_RIGHT, SCREEN_UP } from './camera'
 import { CELL, FLOOR_CELLS, floorsOf, footprintOf, hash, rectCenter, spotCenter, type BuildingLook, type BuildingStyle, type Lot, type Spot, type Town } from './layout'
 import { Fade } from './Fade'
+import { Merged, mergeParts } from './Merged'
 import { usePrefs } from './prefs'
 import { NOOK_COUNTER, NOOK_D, NOOK_W, OFFICE_SCALE, officePlan, WALL, type Area, type OfficePlan } from './office'
 import { OfficeCrew, SHIN_REACH, type Amenities, type CrewMember } from './People'
@@ -640,6 +641,8 @@ function Exterior({ look, w, d, floors, decor, busy }: { look: BuildingLook; w: 
   const pz = d / 2 - PILLAR / 2
   return (
     <>
+      {/* everything but the busy animations stands still: drawn merged; the lit windows only change their materials */}
+      <Merged deps={[style, seed, w, d, floors, decor]}>
       {/* ground floor, set back under the floors above */}
       <mesh position={[0, FLOOR / 2, 0]} material={shop} castShadow receiveShadow>
         <boxGeometry args={[w - LOBBY_INSET * 2, FLOOR, d - LOBBY_INSET * 2]} />
@@ -714,6 +717,7 @@ function Exterior({ look, w, d, floors, decor, busy }: { look: BuildingLook; w: 
       <group position={[0, h + 0.18, 0]} scale={KIT}>
         <Roof style={style} w={w / KIT} d={d / KIT} pal={pal} />
       </group>
+      </Merged>
       {!!busy && busyAnimation === 'money' && <MoneyToss w={w} d={d} h={h} seed={seed} />}
       {!!busy && busyAnimation === 'shout' && <Shout w={w} d={d} h={h} seed={seed} />}
     </>
@@ -748,15 +752,22 @@ export function plotBoxes(town: Town, lot: Lot, detail: boolean): Array<[V3, V3]
 
 /** Neither seen nor shadowing, only there for the pointer. */
 const unseen = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false })
+const UNIT_BOX = new THREE.BoxGeometry()
 
+/** The boxes of `plotBoxes` as one geometry. */
+export function plotHitGeometry(boxes: Array<[V3, V3]>): THREE.BufferGeometry {
+  const turn = new THREE.Quaternion()
+  return mergeParts(boxes.map(([p, s]) => ({
+    geometry: UNIT_BOX,
+    matrix: new THREE.Matrix4().compose(new THREE.Vector3(...p), turn, new THREE.Vector3(...s)),
+  })))
+}
+
+/** One mesh, never drawn: three's raycaster finds hidden meshes all the same. */
 function PlotHit({ boxes }: { boxes: Array<[V3, V3]> }) {
-  return (
-    <>
-      {boxes.map(([p, s], i) => (
-        <mesh key={i} position={p} scale={s} material={unseen}><boxGeometry /></mesh>
-      ))}
-    </>
-  )
+  const geometry = useMemo(() => plotHitGeometry(boxes), [boxes])
+  useEffect(() => () => geometry.dispose(), [geometry])
+  return <mesh geometry={geometry} material={unseen} visible={false} />
 }
 
 /** A see-through grey box over the building, and layers over its plot, while the pointer is on it: it can be clicked. */

@@ -7,6 +7,7 @@ import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { POWER_TOWER, rectCenter, type Town } from './layout'
+import { Merged } from './Merged'
 import { NO_OUTLINE_LAYER } from './PixelPass'
 import { usePrefs } from './prefs'
 import { toon, toonGlow } from './toon'
@@ -111,6 +112,7 @@ export function PowerTower({ town, hover, still, onHover, onSelect }: {
     <group position={[ax + POWER_TOWER.x, 0, az + POWER_TOWER.z]} onClick={click}
       onPointerOver={(e) => { e.stopPropagation(); onHover(true); document.body.style.cursor = still ? '' : 'pointer' }}
       onPointerOut={() => { onHover(false); document.body.style.cursor = '' }}>
+      <Merged deps={[detail, steel]}>
       {/* a concrete pad, fenced at its corners */}
       <B p={[0, PAVE / 2, 0]} s={[POWER_TOWER.w, PAVE, POWER_TOWER.d]} c={PAD} />
       {detail && [-1, 1].flatMap((sx) => [-1, 1].map((sz) => (
@@ -120,6 +122,7 @@ export function PowerTower({ town, hover, still, onHover, onSelect }: {
       {detail && [-1, 1].map((sx) => <B key={`side${sx}`} p={[sx * (half - 0.26), 1.36, 0]} s={[0.1, 0.1, POWER_TOWER.d - 0.52]} c={FENCE} shadow={false} />)}
       {steel.map((b, i) => <B key={i} {...b} />)}
       {DISHES.map(([y, face]) => <Dish key={y} y={y} face={face} />)}
+      </Merged>
       <Beacon />
       {/* the lattice is mostly air: a box the size of the tower takes the pointer, unseen */}
       <mesh position={[0, POWER_TOWER.h / 2, 0]} scale={[POWER_TOWER.w, POWER_TOWER.h + 1, POWER_TOWER.d]} material={HIT}>

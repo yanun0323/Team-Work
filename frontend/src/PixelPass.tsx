@@ -1,7 +1,7 @@
 // Pixel-art look: draw the scene small, blow it up with hard pixel edges, and ink the outlines.
 
 import { useFrame, useThree } from '@react-three/fiber'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 
 /**
@@ -62,6 +62,17 @@ void main() {
 }`
 
 const BACKGROUND_FPS = 5
+
+/**
+ * How often, at most, the sun's shadow map is drawn again: on a 120 Hz screen every other frame, which spares about a
+ * quarter of a frame's draw calls; at 60 Hz or less, every frame. Between them the last map is used with the shadow
+ * matrix it was drawn with (three.js only moves that matrix when it draws the map), so shadows stay where they were
+ * cast, at most a 60th of a second behind what moves.
+ */
+export const SHADOW_FPS = 60
+
+/** Whether the shadow map is due, drawn last at `last` ms; a little early is fine, so frames that come a hair soon don't skip it. */
+export const shadowDue = (now: number, last: number) => now - last >= (1000 / SHADOW_FPS) * 0.75
 /**
  * The longest step, in seconds, any motion takes in one frame: well over a frame at BACKGROUND_FPS, so things keep
  * their speed while another app has focus even if frames come late, but coming back after a long time away doesn't
@@ -162,6 +173,7 @@ export function PixelPass({ pixel = 2 }: { pixel?: number }) {
   const right = useMemo(() => new THREE.Vector3(), [])
   const up = useMemo(() => new THREE.Vector3(), [])
   const kept = useMemo(() => new THREE.Vector3(), [])
+  const shadowAt = useRef(-Infinity)
 
   useFrame(() => {
     const cam = camera as THREE.OrthographicCamera
@@ -185,12 +197,19 @@ export function PixelPass({ pixel = 2 }: { pixel?: number }) {
     cam.updateProjectionMatrix()
     cam.updateMatrixWorld()
 
-    gl.shadowMap.needsUpdate = true
+    const now = performance.now()
+    if (shadowDue(now, shadowAt.current)) {
+      gl.shadowMap.needsUpdate = true
+      shadowAt.current = now
+    }
     gl.setRenderTarget(res.color)
     gl.clear()
     gl.render(scene, cam)
     const override = scene.overrideMaterial
     const bg = scene.background
+    // the colour pass has just brought every matrix up to date; walking the scene for them again costs a lot
+    const autoMatrices = scene.matrixWorldAutoUpdate
+    scene.matrixWorldAutoUpdate = false
     scene.overrideMaterial = res.normals
     scene.background = null
     cam.layers.disable(NO_OUTLINE_LAYER)
@@ -200,6 +219,7 @@ export function PixelPass({ pixel = 2 }: { pixel?: number }) {
     cam.layers.enable(NO_OUTLINE_LAYER)
     scene.overrideMaterial = override
     scene.background = bg
+    scene.matrixWorldAutoUpdate = autoMatrices
 
     cam.position.copy(kept)
     ;[cam.left, cam.right, cam.top, cam.bottom] = frame

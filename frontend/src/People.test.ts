@@ -1,3 +1,4 @@
+import * as THREE from 'three'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Look } from './core/domain/types'
 import { BOTTOMS, FACIALS, HAIR_CUTS, SWIMWEAR, TOPS, type Style } from './figureStyle'
@@ -5,7 +6,7 @@ import { nookPlaces } from './Building'
 import { CELL } from './layout'
 import { officePlan } from './office'
 import { stuckCheck } from './stuckCheck'
-import { headBoxesForTest, HIP, LEG, LEG_SWING, OFFICE_GAP_FOR_TEST, officeForTest, standingBodyForTest, strideOf, waist, pickFollowTarget, type FollowTarget } from './People'
+import { FAR_PARTS, FAR_ZOOM, farAway, farParts, headBoxesForTest, HIP, NEAR_ZOOM, newRig, placeFar, LEG, LEG_SWING, OFFICE_GAP_FOR_TEST, officeForTest, standingBodyForTest, strideOf, waist, pickFollowTarget, type FollowTarget } from './People'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -166,4 +167,87 @@ it('follows only map people by default, without falling back to employees', () =
   expect(pickFollowTarget(2, crew, stroller(0), 'map')).toEqual(stroller(1))
   expect(pickFollowTarget(0, crew, null)).toBeNull()
   expect(pickFollowTarget(0, crew, null, 'all')).toEqual(worker('a'))
+})
+
+const STYLE: Style = { hair: HAIR_CUTS.find((h) => h !== 'bald')!, top: 'tee', bottom: 'pants', facial: FACIALS[0], accent: '#c0453a' }
+
+it('draws people far away below one zoom and in full again only past a higher one', () => {
+  expect(farAway(FAR_ZOOM - 0.1, false)).toBe(true)
+  expect(farAway(FAR_ZOOM + 0.1, false)).toBe(false)
+  // between the two it stays as it was
+  const between = (FAR_ZOOM + NEAR_ZOOM) / 2
+  expect(farAway(between, true)).toBe(true)
+  expect(farAway(between, false)).toBe(false)
+  expect(farAway(NEAR_ZOOM + 0.1, true)).toBe(false)
+})
+
+it('draws a far figure in its clothes\' colours, its head bare when bald and a hat in the hat\'s', () => {
+  const parts = farParts(LOOK, STYLE)
+  expect(parts).toHaveLength(FAR_PARTS)
+  expect(parts.map((p) => p.c)).toEqual([LOOK.pants, LOOK.pants, LOOK.shirt, LOOK.skin, LOOK.hair])
+  const swim = farParts(LOOK, { ...STYLE, bottom: SWIMWEAR.find((b) => b === 'trunks')! })
+  expect(swim[0].c).toBe(LOOK.skin)
+  const bald = farParts(LOOK, { ...STYLE, hair: 'bald' })
+  expect([bald[4].stand, bald[4].sit]).toEqual([null, null])
+  const straw = farParts({ ...LOOK, extra: 'strawhat' }, { ...STYLE, hair: 'bald' })
+  expect(straw[4].c).toBe('#e3c27a')
+  expect(straw[4].stand).not.toBeNull()
+  // the lap only shows seated
+  expect(parts[1].stand).toBeNull()
+  expect(parts[1].sit).not.toBeNull()
+})
+
+/** A rig as `Figure` builds it, at `x` along the parent, seated or standing. */
+function rigAt(parent: THREE.Object3D, x: number, seated: boolean) {
+  const rig = newRig()
+  rig.root = new THREE.Group()
+  rig.root.position.x = x
+  rig.root.scale.setScalar(2)
+  rig.detail = new THREE.Group()
+  rig.seated = new THREE.Group()
+  rig.standing = new THREE.Group()
+  rig.seated.visible = seated
+  rig.standing.visible = !seated
+  rig.detail.add(rig.seated, rig.standing)
+  rig.root.add(rig.detail)
+  parent.add(rig.root)
+  return rig
+}
+
+it('far away, hides each figure\'s detail and puts its boxes where it is, seated or standing', () => {
+  const scene = new THREE.Group()
+  scene.position.y = 5
+  const crowd = new THREE.Group()
+  scene.add(crowd)
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 3 * FAR_PARTS)
+  scene.add(mesh)
+  const rigs = [rigAt(crowd, 10, false), rigAt(crowd, 20, true), rigAt(crowd, 30, false)]
+  // gone indoors: its Fade has hidden it
+  rigs[2].root!.parent!.remove(rigs[2].root!)
+  const hidden = new THREE.Group()
+  hidden.visible = false
+  hidden.add(rigs[2].root!)
+  crowd.add(hidden)
+  const parts = rigs.map(() => farParts(LOOK, STYLE))
+  scene.updateMatrixWorld(true)
+
+  placeFar(mesh, rigs, parts, true)
+  expect(mesh.visible).toBe(true)
+  expect(rigs.every((r) => !r.detail!.visible)).toBe(true)
+  const m = new THREE.Matrix4()
+  const centre = (slot: number) => new THREE.Vector3().setFromMatrixPosition((mesh.getMatrixAt(slot, m), m))
+  const size = (slot: number) => new THREE.Vector3().setFromMatrixScale((mesh.getMatrixAt(slot, m), m))
+  // the head, standing and seated, twice as big as in the figure's units; in the mesh's parent's space
+  const [standHead, sitHead] = [parts[0][3].stand!, parts[0][3].sit!]
+  expect(centre(3).toArray()).toEqual([10, standHead[0][1] * 2, standHead[0][2] * 2].map((v) => expect.closeTo(v)))
+  expect(size(3).x).toBeCloseTo(standHead[1][0] * 2)
+  expect(centre(FAR_PARTS + 3).toArray()).toEqual([20, sitHead[0][1] * 2, sitHead[0][2] * 2].map((v) => expect.closeTo(v)))
+  // the lap only seated; nothing of the one indoors
+  expect(size(1).length()).toBe(0)
+  expect(size(FAR_PARTS + 1).length()).toBeGreaterThan(0)
+  for (let k = 0; k < FAR_PARTS; k++) expect(size(2 * FAR_PARTS + k).length()).toBe(0)
+
+  placeFar(mesh, rigs, parts, false)
+  expect(mesh.visible).toBe(false)
+  expect(rigs.every((r) => r.detail!.visible)).toBe(true)
 })

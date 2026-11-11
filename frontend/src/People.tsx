@@ -6,7 +6,7 @@
 // Movement is driven per frame from refs; React only renders the figures once.
 
 import { useFrame } from '@react-three/fiber'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import type { IdleFollowTarget } from './prefs'
 import type { Look } from './core/domain/types'
@@ -54,6 +54,8 @@ function M({ p, s, c, r, shadow = true }: { p: V3; s: V3; c: string; r?: (m: THR
 /** The moving parts of one figure. */
 export interface Rig {
   root: THREE.Group | null
+  /** Everything drawn of the figure, hidden while it is drawn far away instead (`placeFar`). */
+  detail: THREE.Group | null
   seated: THREE.Group | null
   standing: THREE.Group | null
   legs: Array<THREE.Group | null>
@@ -70,7 +72,7 @@ export interface Rig {
 }
 
 export const newRig = (): Rig => ({
-  root: null, seated: null, standing: null, legs: [null, null], arms: [null, null], shins: [null, null], feet: [null, null], mug: null, drop: 0, stride: 1,
+  root: null, detail: null, seated: null, standing: null, legs: [null, null], arms: [null, null], shins: [null, null], feet: [null, null], mug: null, drop: 0, stride: 1,
 })
 
 export { seedOf } from './figureStyle'
@@ -361,66 +363,68 @@ export const Figure = memo(function Figure({ look, rig, seed, drop = 0, scale = 
   rig.stride = strideOf(st)
   return (
     <group ref={(g) => void (rig.root = g)} scale={scale}>
-      {/* seated at a desk or on a bench: thighs forward, hands reaching to the lap or keyboard */}
-      <group ref={(g) => void (rig.seated = g)}>
-        {swim
-          ? <>
-            {/* bare thighs, the trunks or bikini over the hips */}
-            <M p={[0, 0.3, -0.16]} s={[0.34, 0.12, 0.34]} c={look.skin} />
-            <M p={[0, 0.3, st.bottom === 'trunks' ? -0.08 : -0.05]} s={[0.35, 0.13, st.bottom === 'trunks' ? 0.19 : 0.13]} c={suit} />
-          </>
-          : st.bottom === 'pants'
-          ? <M p={[0, 0.3, -0.16]} s={[0.34, 0.12, 0.34]} c={look.pants} />
-          : <>
-            {/* a skirt over the lap, its hem falling over the knees */}
-            <M p={[0, 0.3, -0.17]} s={[0.38, 0.12, 0.38]} c={skirt} />
-            <M p={[0, st.bottom === 'longskirt' ? 0.15 : 0.2, -0.37]} s={[0.38, st.bottom === 'longskirt' ? 0.22 : 0.1, 0.02]} c={skirt} />
-          </>}
-        {[-1, 1].map((k, i) => <M key={`s${k}`} r={(m) => void (rig.shins[i] = m)} p={[k * 0.09, (0.24 - drop) / 2, -SHIN_Z]} s={[0.12, 0.24 + drop, SHIN_D]} c={legs} />)}
-        {[-1, 1].map((k, i) => <M key={`f${k}`} r={(m) => void (rig.feet[i] = m)} p={[k * 0.09, 0.035 - drop, -0.31]} s={[0.14, 0.07, 0.2]} c={swim ? FLIPFLOP : SHOE} />)}
-        {boxes(torso(0.35, 0.69, 0.42, look, st), 't')}
-        {[-1, 1].map((k) => (
-          <group key={`a${k}`}>
-            <M p={[k * 0.26, 0.58, -0.02]} s={[0.1, 0.18, 0.14]} c={arm} />
-            <M p={[k * 0.26, 0.48, -0.15]} s={[0.1, 0.1, 0.22]} c={lower} />
-            <M p={[k * 0.25, 0.48, -0.28]} s={[0.09, 0.08, 0.08]} c={look.skin} />
-          </group>
-        ))}
-        {boxes(head(0.82, look, st), 'h')}
-      </group>
-      {/* standing: legs and arms hang from hips and shoulders so they can swing */}
-      <group ref={(g) => void (rig.standing = g)} visible={false}>
-        {[-1, 1].map((k, i) => (
-          <group key={`l${k}`} ref={(g) => void (rig.legs[i] = g)} position={[k * HIP[0], HIP[1], HIP[2]]}>
-            {/* under a long skirt only the feet show, stepping out from under the hem */}
-            {st.bottom !== 'longskirt' && <M p={LEG[0]} s={LEG[1]} c={legs} />}
-            {swim
-              ? <>
-                {/* the trunks' legs, or a bikini's sides, swinging with the leg; bare feet on flip-flops */}
-                <M p={[0, st.bottom === 'trunks' ? -0.075 : -0.03, 0]} s={[0.16, st.bottom === 'trunks' ? 0.14 : 0.05, 0.18]} c={suit} />
-                <M p={[0, -0.405, -0.03]} s={[0.16, 0.07, 0.23]} c={look.skin} />
-                <M p={[0, -0.432, -0.03]} s={[0.17, 0.02, 0.24]} c={FLIPFLOP} />
-              </>
-              : <M p={[0, -0.405, -0.03]} s={[0.16, 0.07, 0.23]} c={SHOE} />}
-          </group>
-        ))}
-        {boxes(waist(look, st), 'w')}
-        {boxes(torso(0.48, 0.82, 0.4, look, st, true), 't')}
-        {[-1, 1].map((k, i) => (
-          <group key={`r${k}`} ref={(g) => void (rig.arms[i] = g)} position={[k * 0.25, 0.8, 0]}>
-            <M p={[0, -0.09, 0]} s={[0.1, 0.18, 0.13]} c={arm} />
-            <M p={[0, -0.26, 0]} s={[0.1, 0.16, 0.12]} c={lower} />
-            <M p={[0, -0.38, 0]} s={[0.09, 0.08, 0.1]} c={look.skin} />
-            {/* a mug in the right hand, held out in front */}
-            {k === 1 && (
-              <group ref={(g) => void (rig.mug = g)} position={[0, -0.4, -0.1]} visible={false}>
-                <M p={[0, 0, 0]} s={[0.1, 0.12, 0.1]} c="#f5f5f0" />
-                <M p={[0.065, 0, 0]} s={[0.03, 0.06, 0.04]} c="#f5f5f0" />
-              </group>
-            )}
-          </group>
-        ))}
-        {boxes(head(0.96, look, st), 'h')}
+      <group ref={(g) => void (rig.detail = g)}>
+        {/* seated at a desk or on a bench: thighs forward, hands reaching to the lap or keyboard */}
+        <group ref={(g) => void (rig.seated = g)}>
+          {swim
+            ? <>
+              {/* bare thighs, the trunks or bikini over the hips */}
+              <M p={[0, 0.3, -0.16]} s={[0.34, 0.12, 0.34]} c={look.skin} />
+              <M p={[0, 0.3, st.bottom === 'trunks' ? -0.08 : -0.05]} s={[0.35, 0.13, st.bottom === 'trunks' ? 0.19 : 0.13]} c={suit} />
+            </>
+            : st.bottom === 'pants'
+            ? <M p={[0, 0.3, -0.16]} s={[0.34, 0.12, 0.34]} c={look.pants} />
+            : <>
+              {/* a skirt over the lap, its hem falling over the knees */}
+              <M p={[0, 0.3, -0.17]} s={[0.38, 0.12, 0.38]} c={skirt} />
+              <M p={[0, st.bottom === 'longskirt' ? 0.15 : 0.2, -0.37]} s={[0.38, st.bottom === 'longskirt' ? 0.22 : 0.1, 0.02]} c={skirt} />
+            </>}
+          {[-1, 1].map((k, i) => <M key={`s${k}`} r={(m) => void (rig.shins[i] = m)} p={[k * 0.09, (0.24 - drop) / 2, -SHIN_Z]} s={[0.12, 0.24 + drop, SHIN_D]} c={legs} />)}
+          {[-1, 1].map((k, i) => <M key={`f${k}`} r={(m) => void (rig.feet[i] = m)} p={[k * 0.09, 0.035 - drop, -0.31]} s={[0.14, 0.07, 0.2]} c={swim ? FLIPFLOP : SHOE} />)}
+          {boxes(torso(0.35, 0.69, 0.42, look, st), 't')}
+          {[-1, 1].map((k) => (
+            <group key={`a${k}`}>
+              <M p={[k * 0.26, 0.58, -0.02]} s={[0.1, 0.18, 0.14]} c={arm} />
+              <M p={[k * 0.26, 0.48, -0.15]} s={[0.1, 0.1, 0.22]} c={lower} />
+              <M p={[k * 0.25, 0.48, -0.28]} s={[0.09, 0.08, 0.08]} c={look.skin} />
+            </group>
+          ))}
+          {boxes(head(0.82, look, st), 'h')}
+        </group>
+        {/* standing: legs and arms hang from hips and shoulders so they can swing */}
+        <group ref={(g) => void (rig.standing = g)} visible={false}>
+          {[-1, 1].map((k, i) => (
+            <group key={`l${k}`} ref={(g) => void (rig.legs[i] = g)} position={[k * HIP[0], HIP[1], HIP[2]]}>
+              {/* under a long skirt only the feet show, stepping out from under the hem */}
+              {st.bottom !== 'longskirt' && <M p={LEG[0]} s={LEG[1]} c={legs} />}
+              {swim
+                ? <>
+                  {/* the trunks' legs, or a bikini's sides, swinging with the leg; bare feet on flip-flops */}
+                  <M p={[0, st.bottom === 'trunks' ? -0.075 : -0.03, 0]} s={[0.16, st.bottom === 'trunks' ? 0.14 : 0.05, 0.18]} c={suit} />
+                  <M p={[0, -0.405, -0.03]} s={[0.16, 0.07, 0.23]} c={look.skin} />
+                  <M p={[0, -0.432, -0.03]} s={[0.17, 0.02, 0.24]} c={FLIPFLOP} />
+                </>
+                : <M p={[0, -0.405, -0.03]} s={[0.16, 0.07, 0.23]} c={SHOE} />}
+            </group>
+          ))}
+          {boxes(waist(look, st), 'w')}
+          {boxes(torso(0.48, 0.82, 0.4, look, st, true), 't')}
+          {[-1, 1].map((k, i) => (
+            <group key={`r${k}`} ref={(g) => void (rig.arms[i] = g)} position={[k * 0.25, 0.8, 0]}>
+              <M p={[0, -0.09, 0]} s={[0.1, 0.18, 0.13]} c={arm} />
+              <M p={[0, -0.26, 0]} s={[0.1, 0.16, 0.12]} c={lower} />
+              <M p={[0, -0.38, 0]} s={[0.09, 0.08, 0.1]} c={look.skin} />
+              {/* a mug in the right hand, held out in front */}
+              {k === 1 && (
+                <group ref={(g) => void (rig.mug = g)} position={[0, -0.4, -0.1]} visible={false}>
+                  <M p={[0, 0, 0]} s={[0.1, 0.12, 0.1]} c="#f5f5f0" />
+                  <M p={[0.065, 0, 0]} s={[0.03, 0.06, 0.04]} c="#f5f5f0" />
+                </group>
+              )}
+            </group>
+          ))}
+          {boxes(head(0.96, look, st), 'h')}
+        </group>
       </group>
     </group>
   )
@@ -447,6 +451,117 @@ export function pose(rig: Rig, w: Walker & { phase: number }, seated: boolean, m
   const reach = rig.drop + (seated ? lift : 0)
   rig.shins.forEach((s) => s && (s.position.y = (0.24 - reach) / 2, s.scale.y = 0.24 + reach))
   rig.feet.forEach((f) => f && (f.position.y = 0.035 - reach))
+}
+
+// ---------------------------------------------------------------- far away
+
+/**
+ * Zoomed out past this, people on the island are drawn as a few boxes each (`farParts`), all of them in one instanced
+ * mesh; zoomed back in past `NEAR_ZOOM` they are drawn in full again. Two thresholds, so a zoom resting on one doesn't
+ * flicker between the two. A figure takes some thirty meshes, and three.js's cost goes by meshes, not pixels.
+ */
+export const FAR_ZOOM = 9
+export const NEAR_ZOOM = 10
+
+/** Whether people are drawn far away at `zoom`, given whether they were last frame. */
+export const farAway = (zoom: number, was: boolean) => (was ? zoom < NEAR_ZOOM : zoom < FAR_ZOOM)
+
+/** One box of a far figure: its colour, and where it is and how big standing and seated (null: not there). */
+export interface FarPart {
+  c: string
+  stand: [V3, V3] | null
+  sit: [V3, V3] | null
+}
+
+/** How many boxes a far figure is drawn with, each in the same slot every time. */
+export const FAR_PARTS = 5
+
+/**
+ * A figure as `FAR_PARTS` boxes, in `Figure`'s units and colours: legs (seated: shins, `drop` longer), lap, body with
+ * the arms, head, and the hair or hat on top.
+ */
+export function farParts(look: Look, st: Style, drop = 0): FarPart[] {
+  const swim = isSwimwear(st.bottom)
+  const skirt = st.bottom === 'dress' ? look.shirt : look.pants
+  const lower = swim ? look.skin : st.bottom === 'pants' ? look.pants : skirt
+  const body = swim ? (st.bottom === 'bikini' ? look.shirt : look.skin)
+    : st.top === 'jacket' || st.top === 'vest' || st.top === 'cardigan' ? st.accent : st.top === 'labcoat' ? COAT : look.shirt
+  const top = look.extra === 'cap' ? tone(look.shirt, 0.8)
+    : look.extra === 'beanie' || look.extra === 'beret' ? st.accent
+    : look.extra === 'strawhat' ? '#e3c27a'
+    : st.hair === 'bald' ? null : look.hair
+  return [
+    { c: lower, stand: [[0, 0.23, -0.01], [0.36, 0.46, 0.2]], sit: [[0, (0.24 - drop) / 2, -SHIN_Z], [0.3, 0.24 + drop, SHIN_D]] },
+    { c: lower, stand: null, sit: [[0, 0.3, -0.16], [0.34, 0.12, 0.34]] },
+    { c: body, stand: [[0, 0.65, 0], [0.6, 0.34, 0.22]], sit: [[0, 0.52, 0], [0.62, 0.34, 0.22]] },
+    { c: look.skin, stand: [[0, 0.96, -0.02], [0.3, 0.28, 0.28]], sit: [[0, 0.82, -0.02], [0.3, 0.28, 0.28]] },
+    { c: top ?? look.skin, stand: top ? [[0, 1.13, 0], [0.34, 0.1, 0.34]] : null, sit: top ? [[0, 0.99, 0], [0.34, 0.1, 0.34]] : null },
+  ]
+}
+
+const FAR_BOX = new THREE.BoxGeometry()
+const NOWHERE = new THREE.Matrix4().makeScale(0, 0, 0)
+
+/** Whether `o` and everything holding it are shown: one a Fade has hidden or dropped isn't. */
+function shown(o: THREE.Object3D | null) {
+  if (!o) return false
+  for (let p: THREE.Object3D | null = o; p; p = p.parent) if (!p.visible) return false
+  return true
+}
+
+/**
+ * Each frame, after the figures are posed: far away, hides every figure's detail and puts its boxes (`parts[i]`) in
+ * slots i * FAR_PARTS on of `mesh` where the figure stands, seated or standing as it is posed; near, shows the detail
+ * and hides `mesh`.
+ */
+export function placeFar(mesh: THREE.InstancedMesh, rigs: Rig[], parts: FarPart[][], far: boolean) {
+  mesh.visible = far
+  if (!far) {
+    for (const rig of rigs) if (rig.detail) rig.detail.visible = true
+    return
+  }
+  const at = new THREE.Matrix4()
+  const box = new THREE.Matrix4()
+  // the boxes go in the mesh's parent's space
+  const back = new THREE.Matrix4()
+  if (mesh.parent) back.copy(mesh.parent.matrixWorld).invert()
+  rigs.forEach((rig, i) => {
+    if (rig.detail) rig.detail.visible = false
+    const on = shown(rig.root)
+    if (on) rig.root!.updateWorldMatrix(true, false)
+    const seated = !!rig.seated?.visible
+    parts[i].forEach((part, k) => {
+      const where = seated ? part.sit : part.stand
+      if (!on || !where) return mesh.setMatrixAt(i * FAR_PARTS + k, NOWHERE)
+      box.makeScale(...where[1]).setPosition(...where[0])
+      mesh.setMatrixAt(i * FAR_PARTS + k, at.multiplyMatrices(back, rig.root!.matrixWorld).multiply(box))
+    })
+  })
+  mesh.instanceMatrix.needsUpdate = true
+}
+
+/** The figures in `parts` as boxes, for `placeFar`: colours are set here, places there. */
+function FarCrowd({ parts, bind }: { parts: FarPart[][]; bind: (m: THREE.InstancedMesh | null) => void }) {
+  const ref = useRef<THREE.InstancedMesh>(null)
+  const count = parts.length * FAR_PARTS
+  useLayoutEffect(() => {
+    const mesh = ref.current
+    if (!mesh) return
+    const c = new THREE.Color()
+    parts.forEach((ps, i) => ps.forEach((p, k) => {
+      mesh.setColorAt(i * FAR_PARTS + k, c.set(p.c))
+      mesh.setMatrixAt(i * FAR_PARTS + k, NOWHERE)
+    }))
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    mesh.instanceMatrix.needsUpdate = true
+  }, [parts])
+  if (!count) return null
+  return (
+    <instancedMesh
+      key={count} ref={(m) => void ((ref.current = m), bind(m))} args={[FAR_BOX, toon('#ffffff'), count]}
+      castShadow receiveShadow frustumCulled={false} visible={false} raycast={() => null}
+    />
+  )
 }
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a)
@@ -991,7 +1106,11 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
   const n = useMemo(() => crowdSize(town), [town])
   const looks = useMemo(() => Array.from({ length: n }, (_, i) => lookOf(i)), [n])
   const rigs = useMemo(() => looks.map(newRig), [looks])
-  const swim = useMemo(() => looks.map((look, i) => isSwimwear(styleOf(i * 7 + 3, look.wardrobe, true).bottom)), [looks])
+  const styles = useMemo(() => looks.map((look, i) => styleOf(i * 7 + 3, look.wardrobe, true)), [looks])
+  const swim = useMemo(() => styles.map((st) => isSwimwear(st.bottom)), [styles])
+  const farLooks = useMemo(() => looks.map((look, i) => farParts(look, styles[i], BENCH_LIFT)), [looks, styles])
+  const farMesh = useRef<THREE.InstancedMesh | null>(null)
+  const far = useRef(false)
   const bubbles = useMemo(() => looks.map(() => ({ talk: null as THREE.Group | null, think: null as THREE.Group | null })), [looks])
   // how far each one's gesture has got, on top of the walk: left arm raised and swung out, right arm raised, leaning back
   const bends = useMemo(() => looks.map(() => ({ left: 0, out: 0, right: 0, lean: 0 })), [looks])
@@ -1024,7 +1143,7 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
   // the figure each one was last drawn as: one put back on coming out faces their way at once, rather than turning
   const drawn = useMemo(() => looks.map((): THREE.Group | null => null), [looks])
 
-  useFrame((_, rawDt) => {
+  useFrame(({ camera }, rawDt) => {
     const dt = Math.min(rawDt, MAX_FRAME)
     clock.current += dt
     const scene: Scene = {
@@ -1120,6 +1239,8 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
       insideNow.current = now
       setInside(now)
     }
+    far.current = farAway(camera.zoom, far.current)
+    if (farMesh.current) placeFar(farMesh.current, rigs, farLooks, far.current)
   })
 
   const big = (g: THREE.Group | null) => g?.scale.setScalar(OFFICE_SCALE)
@@ -1135,6 +1256,7 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
           <Bubble kind="think" bind={(g) => void ((bubbles[i].think = g), big(g))} />
         </group>
       ))}
+      <FarCrowd parts={farLooks} bind={(m) => void (farMesh.current = m)} />
     </>
   )
 }
