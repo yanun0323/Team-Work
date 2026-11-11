@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { Detail } from './DrawerDetail'
-import { activityText, eventLines, Feed, HistoryState, joinNewest, QuestionCard, runWord, StepStrip, type Unsent } from './TaskPanel'
+import { activityText, eventLines, Feed, HistoryState, joinNewest, OwnerRunFacts, QuestionCard, runWord, StepStrip, type Unsent } from './TaskPanel'
+import { SaidContext } from './Said'
 import { setAppLanguage } from './core/i18n'
 import { useStore } from './core/store'
 import { isOwnerTask } from './core/domain/owner'
@@ -228,5 +229,60 @@ describe('its steps', () => {
     expect(joining).toContain(`aria-label="員工"`)
     expect(joining).toContain(`${bob.name}</li>`)
     expect(joining).toContain('<code>rep-gone</code>')
+  })
+})
+
+describe('a run or an employee the owner names by id', () => {
+  // the backend's ids, as the owner reads them in its brief and tool results and writes them back to the user
+  const base = subsOf(w, owned.id)[0]
+  const kai = Object.values(w.replicas).find((r) => r.teamId === owned.teamId && r.id !== owned.ownerId)!
+  const run = (id: string, replicaId: string): SubTask => ({ ...base, id, replicaId })
+  /** With these runs in the world for a moment, what is drawn where a click on an employee opens them. */
+  const drawn = (runs: SubTask[], node: () => React.ReactNode) => {
+    for (const s of runs) w.subTasks[s.id] = s
+    try {
+      return renderToStaticMarkup(<SaidContext.Provider value={{ person: noop }}>{node()}</SaidContext.Provider>)
+    } finally {
+      for (const s of runs) delete w.subTasks[s.id]
+    }
+  }
+  /** Whether there is a button with this employee's face and name. */
+  const chip = (html: string, name: string) => (html.match(/<button[^>]*>.*?<\/button>/gs) ?? [])
+    .some((b) => b.includes('class="pixel-face"') && b.replace(/<svg.*?<\/svg>/gs, '').includes(name))
+
+  it('shows who works a run the owner\'s message names, not its id', () => {
+    const html = drawn([run('sub-696', kai.id)], () => feed([
+      line({ seq: 1, by: owned.ownerId!, name: w.replicas[owned.ownerId!].name, text: `我接受了這個交接（sub-696），也請 ${kai.id} 接著核對。` }),
+    ]))
+    expect(html).not.toContain('sub-696')
+    expect(html).not.toContain(kai.id)
+    expect(chip(html, kai.name)).toBe(true)
+  })
+
+  it('shows who works a run named in the owner\'s reason on a short line', () => {
+    const html = drawn([run('sub-696', kai.id)], () => feed([
+      line({ seq: 1, kind: 'event', from: 'system', key: 'rejected', args: { owner: 'Mira', step: '開發', reason: 'sub-696 少了測試' }, text: 'raw', subId: base.id, nodeId: base.nodeId }),
+    ]))
+    expect(html).not.toContain('sub-696')
+    expect(chip(html, kai.name)).toBe(true)
+  })
+
+  it('shows who works a run named in the owner\'s question', () => {
+    const q: TaskQuestion = { id: 'q9', activityId: 'a9', prompt: '要不要改派 sub-696 給別人？', options: [{ id: 'approve' }, { id: 'reject' }], kind: 'approval', audience: 'user', planVersion: 1, createdAt: 0 }
+    const html = drawn([run('sub-696', kai.id)], () => <QuestionCard task={owned} q={q} onJump={noop} onAnswer={noop} />)
+    expect(html).not.toContain('sub-696')
+    expect(chip(html, kai.name)).toBe(true)
+  })
+
+  it('shows who works a run named in what the owner told another run', () => {
+    const told = run('sub-697', kai.id)
+    told.instruction = '接著 sub-696 的交付，只做第 4–8 節。'
+    const html = drawn([run('sub-696', kai.id), told], () => <OwnerRunFacts task={owned} sub={told} />)
+    expect(html).not.toContain('sub-696')
+    expect(chip(html, kai.name)).toBe(true)
+  })
+
+  it('still draws a run whose employee has left', () => {
+    expect(() => drawn([run('sub-696', 'rep-gone')], () => feed([line({ seq: 1, text: '接受了 sub-696' })]))).not.toThrow()
   })
 })
