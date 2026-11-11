@@ -57,7 +57,7 @@ sea *= 0.96 + 0.08 * vnoise(p * 0.07 + t * 0.008);
 // surf along the beach, breathing in and out
 float wl = d - 0.08 * sin(t * 1.4 + p.x * 1.3 + p.y * 0.9);
 float surf = step(wl, 0.12 + 0.12 * n2) * step(-0.4, wl);
-// three foam lines leave the shore, spread, break up and fade
+// three foam lines leave the shore, fade in, spread, break up and fade out
 float foam = 0.0;
 for (int k = 0; k < 3; k++) {
   if (uDetail < 0.5) break;
@@ -65,7 +65,7 @@ for (int k = 0; k < 3; k++) {
   float r = 0.35 + ph * 2.6 + (vnoise(p * 0.6 + float(k) * 5.1) - 0.5) * (0.25 + ph * 0.5);
   float line = step(abs(d - r), 0.07 * (1.0 - ph) + 0.03);
   float broken = step(0.25 + 0.6 * ph, vnoise(p * 1.3 + vec2(float(k) * 11.7, -t * 0.12)));
-  foam = max(foam, line * broken * (1.0 - ph));
+  foam = max(foam, line * broken * smoothstep(0.0, 0.15, ph) * (1.0 - ph));
 }
 // wind ripples on open water: short pale dashes drifting downwind
 vec2 q = mat2(0.8, 0.6, -0.6, 0.8) * p; // q.x runs about along the screen horizontal
