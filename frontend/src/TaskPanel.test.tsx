@@ -135,6 +135,15 @@ describe('its conversation', () => {
     expect(eventLines(line({ kind: 'event', key: 'planChanged', args: { reason: 'x' }, text: '第一行\n第二行' }))).toEqual(['第一行', '第二行'])
   })
 
+  it('offers to copy what the user and each employee wrote, but not a short line', () => {
+    const copies = (a: Partial<TaskActivity>) => feed([line({ seq: 1, ...a })]).includes('aria-label="複製這則訊息"')
+    expect(copies({ from: 'user', text: '改方向' })).toBe(true)
+    expect(copies({ name: 'Kai', text: '做好了' })).toBe(true)
+    expect(copies({ kind: 'handoff', name: 'Kai', text: '交付內容' })).toBe(true)
+    expect(copies({ kind: 'event', from: 'system', text: '派工' })).toBe(false)
+    expect(copies({ from: 'user', text: '' })).toBe(false)
+  })
+
   it('shows an event it does not know, or cannot fill in, as the backend wrote it', () => {
     expect(activityText(line({ kind: 'event', key: 'newKind', text: '新的事件' }))).toBe('新的事件')
     expect(activityText(line({ kind: 'event', key: 'dispatched', args: { node: 'x' }, text: '後端的句子' }))).toBe('後端的句子')
@@ -250,6 +259,8 @@ describe('a run or an employee the owner names by id', () => {
       for (const s of runs) delete w.subTasks[s.id]
     }
   }
+  /** What is drawn, less the button under a message that copies it. */
+  const withoutCopy = (html: string) => html.replace(/<button[^>]*aria-label="複製這則訊息".*?<\/button>/gs, '')
   /** Whether there is a button with this employee's face and name. */
   const chip = (html: string, name: string) => (html.match(/<button[^>]*>.*?<\/button>/gs) ?? [])
     .some((b) => b.includes('class="pixel-face"') && b.replace(/<svg.*?<\/svg>/gs, '').includes(name))
@@ -293,7 +304,7 @@ describe('a run or an employee the owner names by id', () => {
     expect(html).toContain(`<span class="fx-said-gone">已刪除的員工（${step}）</span>`)
     expect(html).toContain('<span class="fx-said-gone">已刪除的員工</span>')
     expect(html).not.toMatch(/sub-696|rep-404/)
-    expect(html).not.toContain('<button')
+    expect(withoutCopy(html)).not.toContain('<button')
   })
 
   it('leaves alone what only looks like an id: a path, a longer word', () => {
@@ -315,7 +326,7 @@ describe('a run or an employee the owner names by id', () => {
     const html = drawn([], () => feedOf([line({ seq: 1, text: '看 sub-99999 的交付' })]))
     expect(html).toContain('<span class="fx-said-gone">已移除的步驟</span>')
     expect(html).not.toContain('sub-99999')
-    expect(html).not.toContain('<button')
+    expect(withoutCopy(html)).not.toContain('<button')
   })
 
   /** With these records kept in a task for a moment, what is drawn. */
@@ -377,7 +388,7 @@ describe('a run or an employee the owner names by id', () => {
     const html = drawn([], () => feedOf([line({ seq: 1, text: '依 fact-99999 與 `fact-99998` 撰寫' })]))
     expect(html.match(/<span class="fx-said-gone">已移除的紀錄<\/span>/g)).toHaveLength(2)
     expect(html).not.toMatch(/fact-9999/)
-    expect(html).not.toContain('<button')
+    expect(withoutCopy(html)).not.toContain('<button')
     const q: TaskQuestion = { id: 'q9', activityId: 'a9', prompt: '要照 fact-692 做嗎？', options: [{ id: 'approve' }], kind: 'approval', audience: 'user', planVersion: 1, createdAt: 0 }
     expect(withFacts(owned, [decided], () => <QuestionCard task={owned} q={q} onJump={noop} onAnswer={noop} />)).toContain('aria-label="要照 決策：文件拆成三份')
   })

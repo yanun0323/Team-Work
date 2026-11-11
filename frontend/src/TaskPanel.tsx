@@ -21,6 +21,7 @@ import { MentionBox } from './MentionBox'
 import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, splitAttachments } from './attachments'
 import { BranchIcon, CopyIcon, DeleteTool, EditTool, Gone, Heading, type Head } from './DrawerDetail'
 import { ChangeLines } from './ChangeCard'
+import { CopyButton } from './CopyButton'
 import { idsAsNames, SaidChip, SaidContext } from './Said'
 import type { IdLookup } from './mentions'
 
@@ -296,7 +297,7 @@ export function ActivityRow({ task, a, open, onStep, onImage, flash, op }: {
         <div className="fx-chat-said">
           <Attachments a={a} onImage={onImage} />
           {a.text && <div className="fx-chat-bubble"><span className="fx-sr">{tr('你：')}</span><Markdown text={a.text} signs="#" /></div>}
-          <div className="fx-chat-foot"><time>{fmtClock(a.at)}</time><OpWord op={op} /></div>
+          <div className="fx-chat-foot"><time>{fmtClock(a.at)}</time>{a.text && <CopyButton text={a.text} />}<OpWord op={op} /></div>
         </div>
       </li>
     )
@@ -318,6 +319,7 @@ export function ActivityRow({ task, a, open, onStep, onImage, flash, op }: {
         <Attachments a={a} onImage={onImage} />
         <div className="fx-chat-foot">
           <time>{fmtClock(a.at)}</time>
+          {a.text && <CopyButton text={a.text} />}
           <StepTag task={task} a={a} open={open} onStep={onStep} />
         </div>
       </div>
