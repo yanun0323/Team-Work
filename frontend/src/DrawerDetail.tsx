@@ -2409,10 +2409,6 @@ function ProjectFileDetail({ teamId, path, ...h }: Head & { teamId: string; path
   )
 }
 
-/**
- * A skill, as a message names it or a source has it: what it is for, where it is, and its instructions. It is read
- * again whenever at, what it is read by, changes.
- */
 /** A task's record: its kind, the whole of it, and the task that keeps it. */
 function FactDetail({ id, ...h }: Head & { id: string }) {
   const w = useStore((s) => s.world)
@@ -2432,6 +2428,10 @@ function FactDetail({ id, ...h }: Head & { id: string }) {
   return <Gone {...h} />
 }
 
+/**
+ * A skill, as a message names it or a source has it: what it is for, where it is, and its instructions. It is read
+ * again whenever at, what it is read by, changes.
+ */
 function SkillDetail({ name, at, read, ...h }: Head & { name: string; at: string; read: (signal: AbortSignal) => Promise<SkillText> }) {
   const [skill, setSkill] = useState<{ found?: SkillText; error?: string }>({})
   useEffect(() => {
