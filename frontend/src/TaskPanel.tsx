@@ -607,12 +607,14 @@ function Notices({ task, subs, onStep }: { task: Task; subs: SubTask[]; onStep: 
 }
 
 /** A task its owner runs, on its sheet. */
-export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copying, onCopy, onGoneTask, crew, onCrew, image, onImage, ...h }: Head & {
+export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copying, onCopy, onGoneTask, crew, onCrew, onFact, image, onImage, ...h }: Head & {
   id: string
   image: string | null
   onImage: (key: string, image: Attachment) => void
   crew: string | null
   onCrew: (id: string) => void
+  /** Opens a record the owner names by id. */
+  onFact: (id: string) => void
   open: string | null
   onOpen: (subId: string) => void
   flowOpen: boolean
@@ -738,7 +740,7 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
         : controlOp.error?.message ?? OP_WORDS()[controlOp.status] }
       : null)
   return (
-    <SaidContext.Provider value={{ person: onCrew, canPerson: (x) => !!w.replicas[x] }}>
+    <SaidContext.Provider value={{ person: onCrew, canPerson: (x) => !!w.replicas[x], fact: onFact }}>
     <div className="fx-room fx-ticket">
       <div className="fx-tools">
         <EditTool onClick={onEdit} open={editing} />

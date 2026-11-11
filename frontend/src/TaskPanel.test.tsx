@@ -245,7 +245,7 @@ describe('a run or an employee the owner names by id', () => {
   const drawn = (runs: SubTask[], node: () => React.ReactNode) => {
     for (const s of runs) w.subTasks[s.id] = s
     try {
-      return renderToStaticMarkup(<SaidContext.Provider value={{ person: noop }}>{node()}</SaidContext.Provider>)
+      return renderToStaticMarkup(<SaidContext.Provider value={{ person: noop, fact: noop }}>{node()}</SaidContext.Provider>)
     } finally {
       for (const s of runs) delete w.subTasks[s.id]
     }
@@ -331,24 +331,46 @@ describe('a run or an employee the owner names by id', () => {
   }
   const decided: TaskFact = { id: 'fact-692', kind: 'decision', text: '文件拆成三份：架構、API 參考與開發指南，各自獨立成檔', sourceActivityIds: [] }
 
-  it('shows a decision the owner names by id by its kind and opening words, opening to the whole of it', () => {
+  it('shows a decision the owner names by id as a button with its kind and opening words, and nothing floating over the page', () => {
     const html = withFacts(owned, [decided], () => feedOf([line({ seq: 1, text: '依 fact-692 撰寫。' })]))
     expect(html).not.toContain('fact-692')
     const button = html.match(/<button[^>]*fx-said-fact[^>]*>.*?<\/button>/s)?.[0] ?? ''
+    expect(button).toMatch(/^<button type="button"/)
     expect(button).toContain('決策')
     expect(button).toContain('文件拆成三份')
     expect(button).not.toContain('各自獨立成檔')
-    // the whole of it, with its kind, in what the button opens
-    expect(html).toMatch(/popover="auto"[^>]*>.*決策.*文件拆成三份：架構、API 參考與開發指南，各自獨立成檔/s)
+    // the whole of it opens on a sheet of its own (factSheet below), not in a popover
+    expect(html).not.toContain('popover')
+    expect(html).not.toContain('各自獨立成檔')
     expect(withFacts(owned, [{ ...decided, kind: 'constraint' }], () => feedOf([line({ seq: 1, text: 'fact-692' })]))).toMatch(/<button[^>]*fx-said-fact[^>]*>.*限制/s)
   })
 
-  it('shows another task\'s decision, saying whose it is when opened', () => {
+  it('shows another task\'s decision as a button too', () => {
     const elsewhere = Object.values(w.tasks).find((t) => t.id !== owned.id)!
     const html = withFacts(elsewhere, [decided], () => feedOf([line({ seq: 1, text: '沿用 fact-692。' })]))
     expect(html).not.toContain('fact-692')
     expect(html).toMatch(/<button[^>]*fx-said-fact/)
-    expect(html).toMatch(new RegExp(`popover="auto"[^>]*>.*#${elsewhere.number} ${elsewhere.title}`, 's'))
+  })
+
+  /** A record's own sheet, as the stack draws it. */
+  const factSheet = (id: string) => (
+    <Detail item={{ kind: 'fact', id }} teamId={owned.teamId} depth={1} covered={false} leaving={false}
+      onGone={noop} onBack={noop} onDone={noop} onClear={noop} onPush={noop} onOpen={noop} />
+  )
+
+  it('shows a decision on its own sheet: its kind as the title, the whole of it, and whose task it is', () => {
+    const html = withFacts(owned, [decided], () => factSheet('fact-692'))
+    expect(html).toMatch(/<h2[^>]*>決策<\/h2>/)
+    expect(html).toContain('文件拆成三份：架構、API 參考與開發指南，各自獨立成檔')
+    expect(html).toContain(`#${owned.number}</span>${owned.title}`)
+    expect(html).not.toContain('fact-692')
+    expect(withFacts(owned, [{ ...decided, kind: 'constraint' }], () => factSheet('fact-692'))).toMatch(/<h2[^>]*>限制<\/h2>/)
+    const elsewhere = Object.values(w.tasks).find((t) => t.id !== owned.id)!
+    expect(withFacts(elsewhere, [decided], () => factSheet('fact-692'))).toContain(`#${elsewhere.number}</span>${elsewhere.title}`)
+  })
+
+  it('says a decision no task keeps any longer is gone, on its sheet', () => {
+    expect(renderToStaticMarkup(factSheet('fact-99999'))).toContain('已經不在了')
   })
 
   it('says faintly that a decision is gone when no task keeps it, in code too and read aloud', () => {

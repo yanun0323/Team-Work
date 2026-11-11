@@ -2,7 +2,7 @@
 // a file opens to read and a folder in Finder. Files and folders show an outline of one in place of their "#". What a
 // mention can open comes from the sheet the text is on; where it opens nothing, it is drawn the same but stays text.
 
-import { createContext, useContext, useId, useRef, type ToggleEvent } from 'react'
+import { createContext, useContext } from 'react'
 import { colon, tr } from './core/i18n'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -12,6 +12,8 @@ export interface SaidActions {
   /** Opens an employee; `canPerson` says whether they are still there to open. */
   person?: (id: string) => void
   canPerson?: (id: string) => boolean
+  /** Opens a task's record by its id. */
+  fact?: (id: string) => void
   file?: (path: string) => void
   folder?: (path: string) => void
   skill?: (name: string) => void
@@ -40,7 +42,7 @@ export const goneCrew = (step?: string) => (step ? tr('已刪除的員工（{ste
  */
 const absent = ({ id, step }: { id?: string; step?: string }) => (id ? goneCrew(step) : step || tr('已移除的步驟'))
 
-const FACT_KIND = { decision: '決策', constraint: '限制' } as const
+export const FACT_KIND = { decision: '決策', constraint: '限制' } as const
 
 /** A record in a few words: its kind and how it starts. */
 const factWords = ({ kind, text }: NonNullable<SaidPart['fact']>) => {
@@ -70,49 +72,19 @@ function CrewChip({ id, step, task }: { id?: string; step?: string; task?: strin
     : <span className="fx-said fx-said-crew" title={title}>{body}</span>
 }
 
-/**
- * A record named by its id: its kind and first words, opening to the whole of it and, for another task's, whose it is.
- * The slip floats over the page, out of reach of the sheet's scrolling and tilt, and closes when what is under it scrolls.
- */
-function FactChip({ fact, task }: { fact?: SaidPart['fact']; task?: string }) {
-  const slip = useId()
-  const button = useRef<HTMLButtonElement>(null)
+/** A record named by its id: its kind and first words, opening the whole of it on a sheet; faint words when it is gone. */
+function FactChip({ id, fact }: { id: string; fact?: SaidPart['fact'] }) {
+  const act = useContext(SaidContext)
   if (!fact) return <span className="fx-said-gone">{tr('已移除的紀錄')}</span>
-  const place = (e: ToggleEvent<HTMLSpanElement>) => {
-    const at = button.current?.getBoundingClientRect()
-    if (e.newState !== 'open' || !at) return
-    const s = e.currentTarget.style, gap = 6, edge = 8
-    const up = window.innerHeight - at.bottom < 180 && at.top > window.innerHeight - at.bottom
-    s.top = up ? 'auto' : `${at.bottom + gap}px`
-    s.bottom = up ? `${window.innerHeight - at.top + gap}px` : 'auto'
-    s.left = `${Math.max(edge, Math.min(at.left, window.innerWidth - 320 - edge))}px`
-  }
-  const watch = (e: ToggleEvent<HTMLSpanElement>) => {
-    const el = e.currentTarget
-    if (e.newState !== 'open') return
-    const moved = (m: Event) => {
-      if (el.contains(m.target as Node)) return
-      document.removeEventListener('scroll', moved, true)
-      el.hidePopover()
-    }
-    document.addEventListener('scroll', moved, true)
-    el.addEventListener('toggle', () => document.removeEventListener('scroll', moved, true), { once: true })
-  }
-  return (
-    <>
-      <button ref={button} type="button" className="fx-said fx-said-fact fx-hit" popoverTarget={slip}>{factWords(fact)}</button>
-      <span id={slip} popover="auto" className="fx-slip fx-said-slip" onBeforeToggle={place} onToggle={watch}>
-        <b>{tr(FACT_KIND[fact.kind])}</b>{task && <span className="fx-said-slip-task">{task}</span>}
-        <span className="fx-said-slip-text">{fact.text}</span>
-      </span>
-    </>
-  )
+  return act.fact
+    ? <button type="button" className="fx-said fx-said-fact fx-hit" onClick={() => act.fact!(id)}>{factWords(fact)}</button>
+    : <span className="fx-said fx-said-fact">{factWords(fact)}</span>
 }
 
 /** One mention, as `saidParts` found it. */
 export function SaidChip({ part }: { part: SaidPart }) {
   if (part.kind === 'crew') return <CrewChip id={part.id} step={part.step} task={part.task} />
-  if (part.kind === 'fact') return <FactChip fact={part.fact} task={part.task} />
+  if (part.kind === 'fact') return <FactChip id={part.text} fact={part.fact} />
   return <Mentioned part={part} />
 }
 

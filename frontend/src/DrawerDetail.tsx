@@ -58,7 +58,7 @@ import { ChatSheet, SentTo, type ChatTaskSeed } from './ChatSheet'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, link, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
 import { isOwnerTask } from './core/domain/owner'
 import { OwnerRunFacts, OwnerTaskDetail, ReturnStep } from './TaskPanel'
-import { SaidContext } from './Said'
+import { FACT_KIND, SaidContext } from './Said'
 
 export type Item =
   | { kind: 'task'; id: string }
@@ -66,6 +66,8 @@ export type Item =
   | { kind: 'flow'; id: string }
   | { kind: 'taskFlow'; id: string }
   | { kind: 'crew'; id: string }
+  /** A task's record (a decision or a constraint), by its id. */
+  | { kind: 'fact'; id: string }
   | { kind: 'blueprint'; id: string }
   | { kind: 'crewEdit'; id: string }
   | { kind: 'newCrew' }
@@ -163,7 +165,7 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               flowOpen={above?.kind === 'taskFlow'} onFlow={() => onPush({ kind: 'taskFlow', id: item.id })}
               onEdit={() => onPush({ kind: 'taskEdit', id: item.id })} onGoneTask={onDone}
               copying={above?.kind === 'newTask'} onCopy={() => onPush({ kind: 'newTask', copyOf: item.id })}
-              crew={above?.kind === 'crew' ? above.id : null} onCrew={(x) => onPush({ kind: 'crew', id: x })}
+              crew={above?.kind === 'crew' ? above.id : null} onCrew={(x) => onPush({ kind: 'crew', id: x })} onFact={(x) => onPush({ kind: 'fact', id: x })}
               image={above?.kind === 'image' ? above.key : null} onImage={(key, image) => onPush({ kind: 'image', key, image, task: item.id })} />
           )}
           {item.kind === 'image' && <ImageDetail item={item} title={title} tid={id} />}
@@ -174,8 +176,10 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           {item.kind === 'sub' && (
             <SubDetail id={item.id} title={title} tid={id} open={above?.kind === 'doc' ? above.path : null}
               onOpen={(path) => onPush({ kind: 'doc', sub: item.id, path })}
-              crew={above?.kind === 'crew' ? above.id : null} onCrew={(x) => onPush({ kind: 'crew', id: x })} />
+              crew={above?.kind === 'crew' ? above.id : null} onCrew={(x) => onPush({ kind: 'crew', id: x })}
+              onFact={(x) => onPush({ kind: 'fact', id: x })} />
           )}
+          {item.kind === 'fact' && <FactDetail id={item.id} title={title} tid={id} />}
           {item.kind === 'doc' && <DocDetail sub={item.sub} path={item.path} title={title} tid={id} />}
           {item.kind === 'file' && (teamId && !MOCK
             ? <FileDetail teamId={teamId} path={item.path} title={title} tid={id} editing={above?.kind === 'fileEdit'}
@@ -313,7 +317,7 @@ function Bar({ value }: { value: number }) {
 }
 
 /** A task someone asked for. The sub-tasks the employees made for it are listed here and open on their own sheet. */
-function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copying, onCopy, onGoneTask, crew, onCrew, image, onImage, ...h }: Head & {
+function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copying, onCopy, onGoneTask, crew, onCrew, onFact, image, onImage, ...h }: Head & {
   id: string
   /** The picture open on the sheet above, by its key, and how to open one. */
   image: string | null
@@ -321,6 +325,8 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
   /** The employee open on the sheet above, and how to open one (the task's owner). */
   crew: string | null
   onCrew: (id: string) => void
+  /** Opens a record its owner names by id. */
+  onFact: (id: string) => void
   open: string | null
   onOpen: (subId: string) => void
   /** Whether its flow, spelled out step by step, is the sheet above. */
@@ -340,7 +346,7 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
   if (!task) return <Gone {...h} />
   if (isOwnerTask(task)) {
     return <OwnerTaskDetail id={id} open={open} onOpen={onOpen} flowOpen={flowOpen} onFlow={onFlow} editing={editing} onEdit={onEdit} copying={copying}
-      onCopy={onCopy} onGoneTask={onGoneTask} crew={crew} onCrew={onCrew} image={image} onImage={onImage} {...h} />
+      onCopy={onCopy} onGoneTask={onGoneTask} crew={crew} onCrew={onCrew} onFact={onFact} image={image} onImage={onImage} {...h} />
   }
   const canPause = task.stage === 'running'
   const remove = () => {
@@ -862,10 +868,11 @@ function TaskFlow({ taskId, crew, onCrew, ...h }: Head & {
 }
 
 /** One piece of a task, made by an employee: who did it, what came in, what they handed on, and their log. */
-function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
+function SubDetail({ id, open, onOpen, crew, onCrew, onFact, ...h }: Head & {
   id: string; open: string | null; onOpen: (path: string) => void
   /** The employee whose sheet lies on this one, if any. */
   crew: string | null; onCrew: (id: string) => void
+  onFact: (id: string) => void
 }) {
   const w = useStore((s) => s.world)
   const sub = w.subTasks[id]
@@ -888,7 +895,7 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
         </p>
       </header>
       {sub.status === 'progressing' && <p className="fx-d-run"><Bar value={sub.progress} /><span className="fx-d-muted">{Math.round(sub.progress * 100)}%</span></p>}
-      <SaidContext.Provider value={{ person: onCrew, canPerson: (x) => !!w.replicas[x] }}><OwnerRunFacts task={task} sub={sub} /></SaidContext.Provider>
+      <SaidContext.Provider value={{ person: onCrew, canPerson: (x) => !!w.replicas[x], fact: onFact }}><OwnerRunFacts task={task} sub={sub} /></SaidContext.Provider>
       <ReturnStep key={sub.id} task={task} sub={sub} />
       {/* the user answers here: a discussion in its chat, anything else under what the employee asks; under an owner, in the task's conversation */}
       {(sub.talk || (nodeOf(wf, sub.nodeId)?.kind === 'talk' && sub.status === 'progressing')) && <Section name={tr('討論')}><Chat key={sub.id} sub={sub} /></Section>}
@@ -2406,6 +2413,25 @@ function ProjectFileDetail({ teamId, path, ...h }: Head & { teamId: string; path
  * A skill, as a message names it or a source has it: what it is for, where it is, and its instructions. It is read
  * again whenever at, what it is read by, changes.
  */
+/** A task's record: its kind, the whole of it, and the task that keeps it. */
+function FactDetail({ id, ...h }: Head & { id: string }) {
+  const w = useStore((s) => s.world)
+  for (const task of Object.values(w.tasks)) {
+    const fact = task.coordination?.facts.find((f) => f.id === id)
+    if (!fact) continue
+    return (
+      <>
+        <header className="fx-d-head">
+          <Heading {...h}>{tr(FACT_KIND[fact.kind])}</Heading>
+          <p className="fx-d-meta"><span><span className="fx-task-no">#{task.number}</span>{task.title}</span></p>
+        </header>
+        <p className="fx-d-text">{fact.text}</p>
+      </>
+    )
+  }
+  return <Gone {...h} />
+}
+
 function SkillDetail({ name, at, read, ...h }: Head & { name: string; at: string; read: (signal: AbortSignal) => Promise<SkillText> }) {
   const [skill, setSkill] = useState<{ found?: SkillText; error?: string }>({})
   useEffect(() => {
