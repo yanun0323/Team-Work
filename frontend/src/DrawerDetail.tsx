@@ -8,7 +8,7 @@ import { shownUrl } from './core/island'
 import { colon, listOf, tr, trRecorded } from './core/i18n'
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { canSendBack, inEdges as stepsIn, nodeOf } from './core/domain/graph'
-import { blueprintUsers, gitSources, notStarted, statusOf, subsOf, type OwnSettings } from './core/domain/sim'
+import { blueprintUsers, gitSources, notStarted, statusOf, subsOf, swappable, type OwnSettings } from './core/domain/sim'
 import { TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type WorkflowNode, type World } from './core/domain/types'
 import { keptState, sourceName, sourceState, sourceText, toolName } from './source'
 import { composing } from './ime'
@@ -2182,14 +2182,15 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
   if (!draft) return null
   const missing = unstaffed(w, draft)
   const ready = draft.title.trim() && missing.length === 0
-  const save = (e: React.FormEvent) => {
-    e.preventDefault()
+  // someone already on a step comes off it: say whether they finish it or hand it over now
+  const swapping = swappable(w, id, draft.staff).length > 0
+  const save = (swap: boolean) => {
     if (!ready) return
-    act((x) => updateTask(x, id, { title: draft.title.trim(), description: draft.description.trim(), staff: draft.staff, ownerId: draft.ownerId }))
+    act((x) => updateTask(x, id, { title: draft.title.trim(), description: draft.description.trim(), staff: draft.staff, ownerId: draft.ownerId, swap }))
     onDone()
   }
   return (
-    <form className="fx-d-form" onSubmit={save}>
+    <form className="fx-d-form" onSubmit={(e) => { e.preventDefault(); save(false) }}>
       <header className="fx-d-head"><Heading {...h}>{tr('編輯 #{number}', { number: task.number })}</Heading></header>
       <div className="fx-fields">
         <label className="fx-field">
@@ -2212,7 +2213,8 @@ function TaskEdit({ id, teamId, open, onOpen, onDone, ...h }: Head & {
         </div>
       </Section>
       <p className="fx-d-actions">
-        <button type="submit" className="fx-save" disabled={!ready}>{tr('儲存')}</button>
+        <button type="submit" className={swapping ? 'fx-save fx-plain' : 'fx-save'} disabled={!ready}>{swapping ? tr('儲存，下一步起生效') : tr('儲存')}</button>
+        {swapping && <button type="button" className="fx-save" disabled={!ready} onClick={() => save(true)}>{tr('儲存並立刻換人')}</button>}
         <Missing draft={draft} missing={missing.length} />
       </p>
     </form>

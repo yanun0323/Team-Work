@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { combine } from './rollup'
 import {
   cancelTask, fire, changeWorkflow, updateReplica, createTask as makeTask, createTeam, notStarted, DEFAULT_MODEL, deleteBlueprint, deleteTask, deleteTeam, gitSources, updateBlueprint, updateSource, deleteWorkflow, duplicateWorkflow, newWorkflow, hire, pauseTask, mergeTask, returnTask,
-  MERGE_TIME, RESOLVE_TIME, resolveReview, resumeTask, statusOf, subsOf, tick,
+  MERGE_TIME, RESOLVE_TIME, TRAVEL, resolveReview, resumeTask, statusOf, subsOf, swappable, swapStaff, tick,
   endTalk, REPLY_TIME, sayInTalk, taskTokens, createChat, handOffChat, rewindChat, retryChat, sayInChat, setChatChair, inviteToChat, MAX_CHAT_PEOPLE, AIRPORT_BLUEPRINT_ID,
 } from './sim'
 import { composePrompt, validate, wouldCreateCycle } from './graph'
@@ -605,6 +605,38 @@ describe('work tree and merge', () => {
     run(w, 80)
     expect(t.stage).toBe('awaitMerge')
     expect(subsOf(w, t.id).filter((s) => s.nodeId === 'end' && s.status === 'complete')).toHaveLength(2)
+  })
+
+  it('sent back after a step changed hands, that step is redone by whoever works it now', () => {
+    const { w, team } = setup([['start', 'a'], ['a', 'end']])
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
+    run(w, 80)
+    const bo = hire(w, team.id, 'bp', 'Bo')
+    t.workflow.nodes.find((n) => n.id === 'a')!.replicaIds = [bo.id]
+    returnTask(w, t.id, '再改')
+    run(w, TRAVEL + 1)
+    expect(subsOf(w, t.id).find((s) => s.rework)!.replicaId).toBe(bo.id)
+  })
+})
+
+describe('restaffing a step under way', () => {
+  it('leaves it with whoever began it unless swapped; then the new employee goes on from where it stopped', () => {
+    const { w, team } = setup([['start', 'a']])
+    const t = createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': { ...calm, duration: 100 } } })
+    run(w, 5)
+    const sub = subsOf(w, t.id).find((s) => s.status === 'progressing')!
+    const was = w.replicas[sub.replicaId!]
+    const bo = hire(w, team.id, 'bp', 'Bo')
+    const staff = { [sub.nodeId]: [bo.id] }
+    expect(swappable(w, t.id, { [sub.nodeId]: [was.id, bo.id] })).toEqual([])
+    expect(swappable(w, t.id, staff)).toEqual([sub])
+    const progress = sub.progress
+    swapStaff(w, t.id, staff)
+    expect(sub).toMatchObject({ replicaId: bo.id, status: 'todo' })
+    expect(sub.log.at(-1)).toMatchObject({ key: 'swapped', args: { from: was.name, to: 'Bo' } })
+    run(w, 1)
+    expect(sub.status).toBe('progressing')
+    expect(sub.progress).toBeGreaterThanOrEqual(progress)
   })
 })
 

@@ -852,7 +852,8 @@ function sendBack(w: World, task: Task, sub: SubTask, members: SubTask[], reason
   const from = nodeOf(wf, sub.nodeId)?.name ?? ''
   for (const u of before.values()) {
     const redo = spawn(w, task, u.nodeId, [...u.upstreamIds], sub.id, w.now, false, round)
-    if (u.replicaId && w.replicas[u.replicaId]) redo.replicaId = u.replicaId
+    // the same employee while they still work the step; otherwise whoever works it now
+    if (u.replicaId && w.replicas[u.replicaId] && nodeOf(wf, u.nodeId)?.replicaIds.includes(u.replicaId)) redo.replicaId = u.replicaId
     redo.rework = { from: sub.id, reason }
     // hand on the way it did the first time, without asking again
     redo.routedTo = [...u.routedTo]
@@ -1230,6 +1231,25 @@ export function hire(
   w.replicas[r.id] = r
   if (own) ownBlueprint(w, r, own)
   return r
+}
+
+/** A task's unfinished sub-tasks begun by someone no longer on their step in `staff`, which has someone for it. */
+export function swappable(w: World, taskId: string, staff: Record<string, string[]>): SubTask[] {
+  return subsOf(w, taskId).filter((s) => {
+    const ids = staff[s.nodeId]
+    return ids && s.replicaId && !s.cancelled && s.status !== 'complete' && !ids.includes(s.replicaId) && ids.some((id) => w.replicas[id])
+  })
+}
+
+/** Hands each of `swappable` to its step's first employee, who goes on from where it stopped, as when someone leaves. */
+export function swapStaff(w: World, taskId: string, staff: Record<string, string[]>) {
+  for (const s of swappable(w, taskId, staff)) {
+    const to = w.replicas[staff[s.nodeId].find((id) => w.replicas[id])!]
+    const from = w.replicas[s.replicaId!]?.name ?? ''
+    s.replicaId = to.id
+    if (s.status === 'progressing') s.status = 'todo'
+    log(s, w.now, 'system', `${from} 換成 ${to.name}`, 'swapped', { from, to: to.name })
+  }
 }
 
 /**

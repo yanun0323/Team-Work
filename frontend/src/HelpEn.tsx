@@ -331,7 +331,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <dt>Task changes by employees</dt><dd>Employees can change the title, description, owner and each step's employees, applied at once. Work under way is not affected, and later steps see the new content.</dd>
           <dt>Cost and tokens</dt><dd>Sub-tasks record their cost, and a task that reaches the company's limit stops and asks you. Tokens leave out cache reads, and subscriptions are counted too; the cost limit ignores tokens.</dd>
           <dt>Done</dt><dd>Once every branch that started is done, the task waits for you to merge. Steps a conditional branch did not pick are not waited for.</dd>
-          <dt>Edit and delete</dt><dd>You can change the title, description, owner and each step's employees; the workflow cannot change once started.</dd>
+          <dt>Edit and delete</dt><dd>You can change the title, description, owner and each step's employees; the workflow cannot change once started. When you change who works a step already under way, "Save, from the next step on" lets the one on it finish, and "Save and swap now" hands it to the new employee at once, who goes on from where it stopped. A step sent back is redone by whoever works it at that time.</dd>
         </dl>
       </>
     ),

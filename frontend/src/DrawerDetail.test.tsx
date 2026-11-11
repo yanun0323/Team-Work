@@ -6,6 +6,35 @@ import { useStore } from './core/store'
 import type { ModelProvider } from './core/domain/types'
 import { AIRPORT_BLUEPRINT, isLocked } from './core/data/presets'
 import { sourceName } from './source'
+import { useDraft } from './draft'
+import { subsOf } from './core/domain/sim'
+
+it('offers to swap at once only when someone already on a step comes off it', () => {
+  const w = useStore.getState().world
+  const sub = Object.values(w.subTasks).find((s) => s.status === 'progressing' && s.replicaId && !s.cancelled)!
+  const task = w.tasks[sub.taskId]
+  const other = Object.values(w.replicas).find((r) => r.teamId === task.teamId && r.id !== sub.replicaId)!
+  const sheet = (staff: Record<string, string[]>) => {
+    Object.assign(useStore.getInitialState(), useStore.getState())
+    Object.assign(useDraft.getInitialState(), { draft: { title: task.title, description: task.description, workflowId: task.workflowId, staff, from: null, taskId: task.id, ownerId: task.ownerId } })
+    const noop = () => {}
+    return renderToStaticMarkup(<Detail item={{ kind: 'taskEdit', id: task.id }} teamId={task.teamId} depth={0} covered={false} leaving={false}
+      onGone={noop} onBack={noop} onDone={noop} onClear={noop} onPush={noop} onOpen={noop} />)
+  }
+  const kept = Object.fromEntries(task.workflow.nodes.map((n) => [n.id, [...n.replicaIds]]))
+  expect(subsOf(w, task.id).filter((s) => s.replicaId && !s.cancelled && s.status !== 'complete')
+    .every((s) => kept[s.nodeId].includes(s.replicaId!))).toBe(true)
+  try {
+    const same = sheet(kept)
+    expect(same).toContain('>儲存</button>')
+    expect(same).not.toContain('儲存並立刻換人')
+    const swapped = sheet({ ...kept, [sub.nodeId]: [other.id] })
+    expect(swapped).toContain('>儲存，下一步起生效</button>')
+    expect(swapped).toContain('>儲存並立刻換人</button>')
+  } finally {
+    Object.assign(useDraft.getInitialState(), { draft: null })
+  }
+})
 
 it('picks no blueprint for an employee whose blueprint is gone, so saving waits for one', () => {
   const w = useStore.getState().world

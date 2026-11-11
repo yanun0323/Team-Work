@@ -139,8 +139,8 @@ export const hasUncommitted = (teamId: string) => (MOCK
   ? Promise.resolve(false)
   : request<{ uncommitted: boolean }>('GET', `/teams/${teamId}/uncommitted`).then((r) => r.uncommitted))
 
-/** Change a task's title, description, staff and owner. */
-export function updateTask(w: World, id: string, p: { title: string; description: string; staff: Record<string, string[]>; ownerId: string | null }) {
+/** Change a task's title, description, staff and owner; with `swap`, steps under way go to their new employee at once. */
+export function updateTask(w: World, id: string, p: { title: string; description: string; staff: Record<string, string[]>; ownerId: string | null; swap?: boolean }) {
   if (!MOCK) return fire_('PATCH', `/tasks/${id}`, p)
   const t = w.tasks[id]
   if (!t) return
@@ -148,6 +148,7 @@ export function updateTask(w: World, id: string, p: { title: string; description
   t.description = p.description
   for (const n of t.workflow.nodes) if (p.staff[n.id]) n.replicaIds = [...p.staff[n.id]]
   t.ownerId = p.ownerId
+  if (p.swap) sim.swapStaff(w, id, p.staff)
 }
 
 // ---------- flows ----------
