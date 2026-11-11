@@ -193,25 +193,27 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 
 | 藍圖勾選 | 可使用 |
 |---|---|
-| `read_file` | `list_tasks`、`list_blueprints`、`list_workflows`、`list_employees`、`list_companies`、`list_providers`、`read_chat` |
+| `read_file` | `list_tasks`、`read_task`、`list_blueprints`、`read_blueprint`、`list_workflows`、`read_workflow`、`list_employees`、`read_employee`、`list_companies`、`read_company`、`list_providers`、`read_provider`、`read_chat` |
 | `write_file` 或 `run_command` | 上面的讀取工具，加上 `create_task`、`update_task`、`save_blueprint`、`save_workflow`、`save_provider`、`save_employees` |
 | `web_search` | 沒有額外工具 |
 
 機場服務人員四個工具都有，所以擁有全部能力。內建的 15 個藍圖都有讀寫能力。任務藍圖的「開會討論」步驟只有讀取工具。沒有刪除工具。錯誤和拒絕都以工具結果回傳給模型。
 
+- **列出與讀取**：`list_*` 只回傳分辨用的欄位：`id` 和 `name`；`list_tasks` 是 `id`、`number`、`title`、`stage`、`status`。機場服務人員呼叫時，`list_tasks` 和 `list_employees` 多一個 `teamId`。細節和修改要用的 `version` 用對應的 `read_*` 帶 id 讀一項，看不到的項目（別家公司的任務、員工、公司，員工的自訂藍圖、隱藏的藍圖和任務藍圖、機場服務人員的藍圖）和不存在的一樣回 `no <種類> <id>`。
+- **讀任務**：`read_task` 帶 `task_id`，先回任務細節（說明、步驟和人員、負責人、來源等），再列每個步驟各次執行的狀態和交接標題，最後是任務對話：負責人主導的任務從最新的往前放，預設 30 則（`limit` 最多 100），整次回傳不超過 50KB，放不下時附上 `before=<編號>`，帶 `before` 只回更早的對話；單一則比整次上限還大才截斷，說明超過 32KB 也會截斷。舊制任務沒有任務對話，會直接說明。不含步驟的指示和執行紀錄。
 - **讀對話**：`read_chat` 用對話 ID（對話下方可複製，例如 `chat-805`）讀整段對話：誰說了什麼、員工跑了哪些工具，由舊到新，每次最多 50KB，用 `offset`、`limit` 往下讀。任何員工都能讀任何公司和機場的對話，不受下面的公司範圍限制。
 - **範圍**：公司的員工只能讀取、建立、修改自己公司的任務，也只列得到、只能雇用和修改自己公司的員工；機場服務人員可以跨公司，`create_task` 和 `save_employees` 雇用時要帶 `team_id`。藍圖、任務藍圖和供應商由所有公司共用，修改會影響每間公司。
 - **直接生效**：新增藍圖、新增任務藍圖、新增供應商、`save_employees` 雇用、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。負責人主導且已開始的任務只有使用者能改，`update_task` 會被拒絕。
 - **要確認**：帶 `id` 的 `save_blueprint`、`save_workflow`、`save_provider`、`save_employees`，包括員工修改自己用的藍圖。後端先檢查內容並算出差異，然後暫停，同意前不會寫入。任務的子任務進入等待回覆（`review.kind` 為 `change`），對話則是 `chat.change`；兩者都會保存，重新啟動後還在。同意或拒絕都會回傳給模型，模型接著工作。內容沒有差異時不會暫停。同一輪在這個呼叫之後的工具不會執行，模型會收到 `interrupted`。
-- **不能修改**：`preset-` 開頭的內建項目和來源帶來的（id 含 `--`，例如官方的 `team-work--assistant`）項目（要新增一份自己的）、Git 來源的藍圖。修改要帶 `list_*` 回傳的 `version`，不符就拒絕；等待確認期間內容被改過或刪除時，同意也不會寫入，模型會收到原因。
+- **不能修改**：`preset-` 開頭的內建項目和來源帶來的（id 含 `--`，例如官方的 `team-work--assistant`）項目（要新增一份自己的）、Git 來源的藍圖。修改要帶 `read_*` 回傳的 `version`，不符就拒絕；等待確認期間內容被改過或刪除時，同意也不會寫入，模型會收到原因。
 - **設定檔**：寫入藍圖、任務藍圖和供應商的規則和介面相同：有外部修改尚未載入時回傳 `conflict`。
 - **生效範圍**：任務建立時留一份任務藍圖，修改共用流程不影響進行中的任務。藍圖不同：同意後正在進行的步驟不變，但每次開始步驟都讀最新藍圖，所以同一任務之後的步驟會用新藍圖。
 - **`create_task`**：帶標題、說明，以及已存的任務藍圖（`workflow_id`）或只給這個任務用的流程（`workflow`，格式同 `save_workflow`，不會加進任務藍圖列表，沒給名稱時用標題），兩者擇一，立即建立，不需要確認；任務和使用者建立的一樣留在待辦（`paused: true`、沒有 `pausedAt`），等使用者按開始（`POST /tasks/:id/resume`）。內建流程的步驟沒有指定員工，有步驟沒有人時會失敗並列出這些步驟，模型應該問使用者後再用 `staff` 或 `owner_id` 重試；模型自己填人選時後端無法分辨。
 - **連鎖深度**：任務中的員工建立的任務，深度是來源任務加 1，最多 3 層（`maxTaskDepth`，暫定值），超過就拒絕並告知模型。從對話建立的任務深度是 0。同時執行的任務數量沒有限制。
 - **`save_blueprint`**：模型不能設定外觀，新藍圖的外觀取自 `presets.json` 的 `looks` 之一。技能用 Git 來源時不會在儲存當下解析 commit，執行時才取 `origin/HEAD`，也不會套用 `ref`；要固定版本請呼叫 `POST /blueprints/:id/update`。
 - **`save_workflow`**：`nodes`、`edges` 是完整的新清單，已存在的節點 id 沒帶的欄位保留原值。模型不指定座標，新節點由後端排版。有迴圈等無效內容會被拒絕。
-- **`save_provider`**：新增時帶 `name`、`kind`、`api_key`（`compatible` 另帶 `base_url`），和介面新增一樣先向供應商查模型清單，Key 或網址錯誤就失敗。修改可改 `name`、`base_url`、`api_key`、`prices`（`prices` 是整份取代），不能改 `kind` 和登入方式；查模型清單在送出確認卡之前做；但只改 `base_url` 而沿用已存的 Key 時，確認前不連新網址，同意寫入後才用已存的 Key 到新網址重新讀模型清單。確認卡列出名稱、網址、Key 最後 4 碼、價格和模型清單的差異。新的 Key 在等待確認期間只放在記憶體，不寫進確認卡和狀態檔，所以重新啟動後同意會失敗並告知模型。訂閱登入要開瀏覽器，工具做不到：可用 `login: subscription` 新增，再請使用者到設定頁登入。`list_providers` 只回傳 Key 最後 4 碼。
-- **`save_employees`**：`employees` 陣列一次處理多位。沒有 `id` 是雇用，要帶 `name`、`blueprint_id`、`model`，`effort` 沒給用 `default`，立即生效；有 `id` 要帶 `list_employees` 回傳的 `version`（只由名字、藍圖、模型、思考等級算出，記憶變動不影響），可改 `name`、`blueprint_id`、`model`、`effort`，同一次呼叫的修改合成一張確認卡，每行標出是哪位員工。任何一項檢查不通過就全部不寫入，包括雇用。同一次呼叫有雇用又有修改時，雇用先生效，使用者拒絕修改也不會撤銷雇用，模型在收到同意或拒絕時一併得知雇了誰。不能設定外觀、自訂藍圖，也不能解雇。`list_providers` 會列出每個模型的思考等級。
+- **`save_provider`**：新增時帶 `name`、`kind`、`api_key`（`compatible` 另帶 `base_url`），和介面新增一樣先向供應商查模型清單，Key 或網址錯誤就失敗。修改可改 `name`、`base_url`、`api_key`、`prices`（`prices` 是整份取代），不能改 `kind` 和登入方式；查模型清單在送出確認卡之前做；但只改 `base_url` 而沿用已存的 Key 時，確認前不連新網址，同意寫入後才用已存的 Key 到新網址重新讀模型清單。確認卡列出名稱、網址、Key 最後 4 碼、價格和模型清單的差異。新的 Key 在等待確認期間只放在記憶體，不寫進確認卡和狀態檔，所以重新啟動後同意會失敗並告知模型。訂閱登入要開瀏覽器，工具做不到：可用 `login: subscription` 新增，再請使用者到設定頁登入。`read_provider` 只回傳 Key 最後 4 碼。
+- **`save_employees`**：`employees` 陣列一次處理多位。沒有 `id` 是雇用，要帶 `name`、`blueprint_id`、`model`，`effort` 沒給用 `default`，立即生效；有 `id` 要帶 `read_employee` 回傳的 `version`（只由名字、藍圖、模型、思考等級算出，記憶變動不影響），可改 `name`、`blueprint_id`、`model`、`effort`，同一次呼叫的修改合成一張確認卡，每行標出是哪位員工。任何一項檢查不通過就全部不寫入，包括雇用。同一次呼叫有雇用又有修改時，雇用先生效，使用者拒絕修改也不會撤銷雇用，模型在收到同意或拒絕時一併得知雇了誰。不能設定外觀、自訂藍圖，也不能解雇。`read_provider` 會列出每個模型的思考等級。
 - **請使用者輸入答案**：`ask_user` 一定要有選項，所以需要使用者打字的答案（例如名字、API Key），員工會在回覆裡直接問。輸入的內容和一般訊息一樣，會留在對話紀錄並交給模型；員工呼叫 `save_provider` 時，對話裡顯示的工具參數也包含 Key。
 
 ## 訂閱登入
@@ -250,7 +252,7 @@ Claude Code 的設定：
 
 ## 預設內容
 
-App 帶的十二個員工藍圖（通才、前端工程師、後端工程師、審查與測試、介面設計工程師、媒體設計師、功能規劃、研究員、寫手、DevOps 工程師、Matt Pocock、Poteto）和四條任務藍圖（「一般任務」「修 Bug」「功能開發」「程式審查」）來自官方來源 [Team-Work-Source](https://github.com/yanun0323/Team-Work-Source)，見下方「官方來源」。真正內建的只剩機場服務人員專用的 `preset-airport`（設定頁看得到，但不能拿來新增員工，`list_blueprints` 也不列），和 App 自己寫的固定文字（「整理需求」「驗收」範本、討論步驟的指示、員工自己做的藍圖可用的外觀），各語言都在 `internal/usecase/presets.json`。`preset-` 開頭的 id 不存進設定檔，也不能修改或刪除；世界資料裡是目前語言的版本，員工收到的一律是英文。自訂項目不能用這個開頭的 id。舊版內建的藍圖（例如 `preset-assistant`）不會自動換成官方來源的那份。
+App 帶的十二個員工藍圖（通才、前端工程師、後端工程師、審查與測試、介面設計工程師、媒體設計師、功能規劃、研究員、寫手、DevOps 工程師、Matt Pocock、Poteto）和四條任務藍圖（「一般任務」「修 Bug」「功能開發」「程式審查」）來自官方來源 [Team-Work-Source](https://github.com/yanun0323/Team-Work-Source)，見下方「官方來源」。真正內建的只剩機場服務人員專用的 `preset-airport`（設定頁看得到，但不能拿來新增員工，`list_blueprints` 也不列，`read_blueprint` 也讀不到），和 App 自己寫的固定文字（「整理需求」「驗收」範本、討論步驟的指示、員工自己做的藍圖可用的外觀），各語言都在 `internal/usecase/presets.json`。`preset-` 開頭的 id 不存進設定檔，也不能修改或刪除；世界資料裡是目前語言的版本，員工收到的一律是英文。自訂項目不能用這個開頭的 id。舊版內建的藍圖（例如 `preset-assistant`）不會自動換成官方來源的那份。
 
 員工的藍圖不存在時（舊版內建的、來源不再帶來的、檔名改了或手動改了員工檔），設定照常載入，員工保留原樣：前端標「藍圖已不存在」，他負責的步驟開工時直接停下來問使用者（`ReviewFailed`，不重試），對話回覆也會失敗，都說明要編輯這位員工重新選擇藍圖。來源更新時拿掉某個藍圖，用它的員工仍會改成自訂設定（見 `putSourced`），不算在內。
 
@@ -275,7 +277,7 @@ App 帶的十二個員工藍圖（通才、前端工程師、後端工程師、�
 新建立的任務（含員工用 `create_task` 建立的）有 `orchestration: "owner"` 和 `coordination`；之前建立、沒有這個欄位的任務照下一節的舊方式執行到底，不會中途切換。
 
 - **計畫與授權**：任務藍圖是開始時的計畫。負責人和流程上指派的員工就是使用者授權的名單（`coordination.authorization`）。負責人可以在名單內派工、改派、加步驟或拿掉沒執行過的步驟（`revise_plan`），每次改動都留紀錄與快照，`planVersion` 加一，只改這個任務的流程副本，不改共用的任務藍圖。要加入名單外的員工、增加預算或修改設定，要問使用者；使用者在 `PATCH` 裡加的人會加入名單。
-- **負責人怎麼工作**：負責人是一位員工，用自己的模型，只有讀取工具和受檢查的調度工具（`read_task`、`read_task_history`、`read_task_entry`、`read_step`、`dispatch_step`、`review_step`、`stop_step`、`return_step`、`answer_employee`、`hold_meeting`、`revise_plan`、`ask_user`、`record_task_fact`、`submit_complete`、`create_task`），不能改檔或執行指令。`create_task` 只在使用者要求或同意時，把任務範圍外的工作開成同公司的新任務（留在待辦，負責人預設是自己，連鎖深度照員工的上限），並在對話留一行 `taskCreated`。負責人不能自己合併：使用者要合併時，`submit_complete` 帶 `ask_merge` 會送出 `merge` 類的問題卡，使用者選「合併」就直接開始合併，不再喚起負責人；這張卡不算擋住合併的未答問題，使用者再留言讓任務回到執行中時會一起收掉。`submit_complete` 的摘要就是給使用者的回報，同一輪最後的文字不會再貼一次。每次被喚起都先讀正式現況（目標、原始說明、授權、限制與決策、計畫、各步驟、未答問題）和喚起它的事件，舊紀錄用工具查。只有任務開始、使用者留言或回答、員工交接或提問、重試後仍失敗、會議結束、停止或退回完成、恢復時才喚起；同一任務一次只有一輪，處理中到的事件留到下一輪。使用者在負責人處理中留言或操作時，`controlVersion` 加一，負責人這一輪之後的改動都會被拒絕，再以新事件重來。
+- **負責人怎麼工作**：負責人是一位員工，用自己的模型，只有讀取工具和受檢查的調度工具（`read_task`（不帶 `task_id` 讀自己的任務：正式現況加上對話；帶 `task_id` 讀同公司的其他任務，和員工讀到的一樣）、`read_task_history`、`read_task_entry`、`read_step`、`dispatch_step`、`review_step`、`stop_step`、`return_step`、`answer_employee`、`hold_meeting`、`revise_plan`、`ask_user`、`record_task_fact`、`submit_complete`、`create_task`），不能改檔或執行指令。`create_task` 只在使用者要求或同意時，把任務範圍外的工作開成同公司的新任務（留在待辦，負責人預設是自己，連鎖深度照員工的上限），並在對話留一行 `taskCreated`。負責人不能自己合併：使用者要合併時，`submit_complete` 帶 `ask_merge` 會送出 `merge` 類的問題卡，使用者選「合併」就直接開始合併，不再喚起負責人；這張卡不算擋住合併的未答問題，使用者再留言讓任務回到執行中時會一起收掉。`submit_complete` 的摘要就是給使用者的回報，同一輪最後的文字不會再貼一次。每次被喚起都先讀正式現況（目標、原始說明、授權、限制與決策、計畫、各步驟、未答問題）和喚起它的事件，舊紀錄用工具查。只有任務開始、使用者留言或回答、員工交接或提問、重試後仍失敗、會議結束、停止或退回完成、恢復時才喚起；同一任務一次只有一輪，處理中到的事件留到下一輪。使用者在負責人處理中留言或操作時，`controlVersion` 加一，負責人這一輪之後的改動都會被拒絕，再以新事件重來。
 - **步驟**：員工照派工時的指示（`instruction`）工作，交接後等負責人審核（`ownerReview`），不會自動交給下一步；只有被接受的成果能當上游。派工時計畫裡排在前面的步驟要先有被接受的成果（`join: any` 的步驟只要一個），負責人沒指定上游時系統補上最新被接受的那次；要略過得先用 `revise_plan` 改計畫。計畫裡每一步都要有被接受的成果、沒有被拒收或停下未完成的執行，負責人才能提交完成，使用者才能合併。員工可以用 `ask_owner` 問負責人；`ask_user` 和修改確認只有使用者能回答，顯示在 `coordination.questions`。同一任務的工作步驟一次只有一個在寫 work tree，會議和負責人可以同時進行。
 - **暫停與退回**：暫停立刻停止所有執行並阻止新派工，執行真的結束才把操作標成 `applied`；暫停時仍可和負責人討論（可開唯讀會議），但要使用者恢復才會繼續。退回選定的那次執行：任務暫停，該次執行標為 `superseded`，用到它的成果標成 `needsRevalidation`，建一個重做等使用者恢復。不會刪除紀錄、還原檔案或改寫歷史；停止也不會還原已改的檔案或外部操作。執行超過 30 秒沒結束，或伺服器重新啟動時正在執行，標成 `uncertain` 並問使用者，確認前不能恢復；使用者確認已停止或要重做後，等它的暫停、退回或停止操作才標成 `applied`。負責人處理失敗時留下一個失敗的 `retry` 操作，重試沿用同一個操作，成功標成 `applied`、再失敗就回到 `failed` 可再重試。
 - **限制**：負責人的用量算進任務費用。達到上限、一輪呼叫超過 32 個工具、負責人和員工來回問答 8 次、退回 2 次，或步驟重試後仍失敗連續 3 次（不論是接著做還是重新派工）後，負責人停下來問使用者，使用者同意後才重新計算。

@@ -109,24 +109,25 @@ func startChat(t *testing.T, r *rig) *model.Chat {
 	return c
 }
 
-// versionFrom runs list_* in a chat and finds the version of one item.
+// versionFrom runs read_* in a chat and finds the version of one item.
 func versionFrom(t *testing.T, r *rig, m *moves, tool, id string) string {
 	t.Helper()
-	inChat(t, r, m, doing(tool, map[string]any{}))
-	var rows []struct {
+	inChat(t, r, m, doing(tool, map[string]any{"id": id}))
+	res := lastResult(t, r)
+	var row struct {
 		ID      string `json:"id"`
 		Version string `json:"version"`
 	}
-	if err := json.Unmarshal([]byte(lastResult(t, r).Text), &rows); err != nil {
+	if res.IsError {
+		t.Fatalf("%s %s: %s", tool, id, res.Text)
+	}
+	if err := json.Unmarshal([]byte(res.Text), &row); err != nil {
 		t.Fatal(err)
 	}
-	for _, row := range rows {
-		if row.ID == id {
-			return row.Version
-		}
+	if row.ID != id || row.Version == "" {
+		t.Fatalf("%s %s: %s", tool, id, res.Text)
 	}
-	t.Fatalf("%s not in %s", id, tool)
-	return ""
+	return row.Version
 }
 
 // inChat has the employee of a new chat make these moves, and waits for it to stop.
@@ -139,7 +140,7 @@ func inChat(t *testing.T, r *rig, m *moves, fn ...func(model.ModelRequest) model
 }
 
 func TestManageToolsFollowTheBlueprint(t *testing.T) {
-	reading := []string{"list_tasks", "list_blueprints", "list_workflows", "list_employees", "list_companies", "list_providers", "read_chat"}
+	reading := []string{"list_tasks", "read_task", "list_blueprints", "read_blueprint", "list_workflows", "read_workflow", "list_employees", "read_employee", "list_companies", "read_company", "list_providers", "read_provider", "read_chat"}
 	writing := []string{"create_task", "update_task", "save_blueprint", "save_workflow", "save_provider", "save_employees"}
 	for _, tc := range []struct {
 		name         string
@@ -323,7 +324,7 @@ func TestInvalidNewFlowIsRefusedAndLeavesNothing(t *testing.T) {
 
 func TestListBlueprintsLeavesOutTheAirportStaff(t *testing.T) {
 	r, m := manageRig(t)
-	versionFrom(t, r, m, "list_blueprints", "team-work--assistant")
+	versionFrom(t, r, m, "read_blueprint", "team-work--assistant")
 	if strings.Contains(lastResult(t, r).Text, `"preset-airport"`) {
 		t.Fatal("the airport staff's blueprint is listed")
 	}
@@ -332,7 +333,7 @@ func TestListBlueprintsLeavesOutTheAirportStaff(t *testing.T) {
 func TestChangingABlueprintWaitsForTheUserInAChat(t *testing.T) {
 	r, m := manageRig(t)
 	id := r.owner.BlueprintID
-	version := versionFrom(t, r, m, "list_blueprints", id)
+	version := versionFrom(t, r, m, "read_blueprint", id)
 	// an employee adding to their own blueprint is no exception
 	args := map[string]any{"id": id, "version": version, "prompt": "新角色", "tools": []string{"readFile", "writeFile", "runCommand", "webSearch"}}
 	c := inChat(t, r, m, doing("save_blueprint", args))
@@ -390,7 +391,7 @@ func TestChangingAFlowWaitsForTheUserInATaskAndSparesTasksUnderWay(t *testing.T)
 	if err := r.e.SaveWorkflow(running.ID, *running); err != nil {
 		t.Fatal(err)
 	}
-	version := versionFrom(t, r, m, "list_workflows", running.ID)
+	version := versionFrom(t, r, m, "read_workflow", running.ID)
 	start, end := running.Nodes[0], running.Nodes[1]
 	m.addTask(doing("save_workflow", map[string]any{"id": running.ID, "version": version, "name": "改過的流程",
 		"nodes": []map[string]any{{"id": start.ID}, {"id": "mid", "name": "中間"}, {"id": end.ID}},
@@ -445,7 +446,7 @@ func TestChangingAFlowWaitsForTheUserInATaskAndSparesTasksUnderWay(t *testing.T)
 func TestChangeRefusedInATaskGoesOn(t *testing.T) {
 	r, m := manageRig(t)
 	bp := r.owner.BlueprintID
-	version := versionFrom(t, r, m, "list_blueprints", bp)
+	version := versionFrom(t, r, m, "read_blueprint", bp)
 	m.addTask(doing("save_blueprint", map[string]any{"id": bp, "version": version, "prompt": "改"}))
 	task := r.task(r.flow.ID)
 	w := r.wait("review", func(w *model.World) bool {
@@ -479,7 +480,7 @@ func TestChangeRefusedInATaskGoesOn(t *testing.T) {
 func TestCardsAreKeptOverARestart(t *testing.T) {
 	r, m := manageRig(t)
 	id := r.owner.BlueprintID
-	version := versionFrom(t, r, m, "list_blueprints", id)
+	version := versionFrom(t, r, m, "read_blueprint", id)
 	c := inChat(t, r, m, doing("save_blueprint", map[string]any{"id": id, "version": version, "prompt": "改"}))
 	r.wait("card", func(w *model.World) bool { return w.Chats[c.ID].Change != nil })
 	r.e.Close()
@@ -533,7 +534,7 @@ func TestWhatCannotBeChangedIsRefused(t *testing.T) {
 func TestEditWhileTheCardIsOpenIsNotOverwritten(t *testing.T) {
 	r, m := manageRig(t)
 	id := r.owner.BlueprintID
-	version := versionFrom(t, r, m, "list_blueprints", id)
+	version := versionFrom(t, r, m, "read_blueprint", id)
 	c := inChat(t, r, m, doing("save_blueprint", map[string]any{"id": id, "version": version, "prompt": "員工改的"}))
 	r.wait("card", func(w *model.World) bool { return w.Chats[c.ID].Change != nil })
 	mine := *r.world().Blueprints[id]
@@ -556,7 +557,7 @@ func TestEditWhileTheCardIsOpenIsNotOverwritten(t *testing.T) {
 func TestSayingSomethingElseRefusesAndCopiesAndRewindsDropTheCard(t *testing.T) {
 	r, m := manageRig(t)
 	id := r.owner.BlueprintID
-	version := versionFrom(t, r, m, "list_blueprints", id)
+	version := versionFrom(t, r, m, "read_blueprint", id)
 	args := map[string]any{"id": id, "version": version, "prompt": "改"}
 
 	c := inChat(t, r, m, doing("save_blueprint", args))
@@ -596,7 +597,7 @@ func TestSayingSomethingElseRefusesAndCopiesAndRewindsDropTheCard(t *testing.T) 
 // A reply can make a task and then stop to ask about a flow: on going on, the model must not be told to make it again.
 func TestWhatRanBeforeAStopIsNotDoneAgain(t *testing.T) {
 	r, m := manageRig(t)
-	version := versionFrom(t, r, m, "list_workflows", r.flow.ID)
+	version := versionFrom(t, r, m, "read_workflow", r.flow.ID)
 	before := len(r.world().Tasks)
 	c := inChat(t, r, m, func(model.ModelRequest) model.ModelReply {
 		return together(
@@ -750,7 +751,7 @@ func TestSaveEmployeesHiresAtOnceAndWaitsForTheUserToChange(t *testing.T) {
 	}
 
 	// changing waits, and a hire in the same call is made at once
-	version := versionFrom(t, r, m, "list_employees", bo.ID)
+	version := versionFrom(t, r, m, "read_employee", bo.ID)
 	args := map[string]any{"employees": []map[string]any{{"id": bo.ID, "version": version, "name": "Bob"}, {"name": "Di", "blueprint_id": r.owner.BlueprintID, "model": "fake"}}}
 	c = inChat(t, r, m, doing("save_employees", args))
 	w = r.wait("card", func(w *model.World) bool { return w.Chats[c.ID].Change != nil })
@@ -793,7 +794,7 @@ func TestSaveEmployeesHiresAtOnceAndWaitsForTheUserToChange(t *testing.T) {
 	}
 
 	// the same again is nothing to change
-	inChat(t, r, m, doing("save_employees", map[string]any{"employees": []map[string]any{{"id": bo.ID, "version": versionFrom(t, r, m, "list_employees", bo.ID), "name": "Bob"}}}))
+	inChat(t, r, m, doing("save_employees", map[string]any{"employees": []map[string]any{{"id": bo.ID, "version": versionFrom(t, r, m, "read_employee", bo.ID), "name": "Bob"}}}))
 	if res := lastResult(t, r); res.IsError || !strings.Contains(res.Text, "nothing to change") {
 		t.Fatalf("%+v", res)
 	}
@@ -805,7 +806,7 @@ func TestSaveEmployeesDoesNotOverwriteAnEmployeeChangedWhileWaiting(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := versionFrom(t, r, m, "list_employees", bo.ID)
+	version := versionFrom(t, r, m, "read_employee", bo.ID)
 	c := inChat(t, r, m, doing("save_employees", map[string]any{"employees": []map[string]any{{"id": bo.ID, "version": version, "name": "Bob"}}}))
 	r.wait("card", func(w *model.World) bool { return w.Chats[c.ID].Change != nil })
 	name := "Bee"
@@ -834,7 +835,7 @@ func TestSaveEmployeesWritesNothingWhenAnyItemIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := versionFrom(t, r, m, "list_employees", r.owner.ID)
+	version := versionFrom(t, r, m, "read_employee", r.owner.ID)
 	before := len(r.world().Replicas)
 	hire := map[string]any{"name": "Cy", "blueprint_id": r.owner.BlueprintID, "model": "fake"}
 	for name, item := range map[string]map[string]any{

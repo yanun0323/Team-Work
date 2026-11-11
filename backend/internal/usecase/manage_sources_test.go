@@ -119,7 +119,7 @@ func TestAChangeKeepsTheVersionTheCardShowed(t *testing.T) {
 	repo := newSkillsRepo(t, "ship")
 	head := repo.git("rev-parse", "HEAD")
 	args := func() map[string]any {
-		return map[string]any{"id": id, "version": versionFrom(t, r, m, "list_blueprints", id), "skills": skillsFrom(repo.dir)}
+		return map[string]any{"id": id, "version": versionFrom(t, r, m, "read_blueprint", id), "skills": skillsFrom(repo.dir)}
 	}
 
 	c := inChat(t, r, m, doing("save_blueprint", args()))
@@ -169,7 +169,7 @@ func TestARepoKeptElsewhileAtAnotherVersionStopsTheChange(t *testing.T) {
 	r, m := manageRig(t)
 	id := r.owner.BlueprintID
 	repo := newSkillsRepo(t, "ship")
-	version := versionFrom(t, r, m, "list_blueprints", id)
+	version := versionFrom(t, r, m, "read_blueprint", id)
 	c := inChat(t, r, m, doing("save_blueprint", map[string]any{"id": id, "version": version, "skills": skillsFrom(repo.dir)}))
 	r.wait("card", func(w *model.World) bool { return w.Chats[c.ID].Change != nil })
 

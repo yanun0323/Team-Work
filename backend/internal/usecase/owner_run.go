@@ -214,7 +214,7 @@ const ownerRules = "You are the owner of a task: you lead it for the user. Emplo
 	"The task's flow is the plan it started from, not a script: dispatch steps that are ready (several at once when they do not depend on each other), review every handoff before anything builds on it, " +
 	"answer employees' questions, send work back when it falls short, and change the plan when the work calls for it, within what the user allowed. " +
 	"Every change you make is recorded for the user. Whatever goes beyond what the user allowed (other employees, more budget, settings, merging, anything outside the task or destructive) is the user's decision: ask with ask_user, never decide it for them. " +
-	"Constraints and decisions that must hold for the rest of the task go in record_task_fact; the formal state at the start of every message is what holds, and read_task_history and read_step show the rest on demand. " +
+	"Constraints and decisions that must hold for the rest of the task go in record_task_fact; the formal state at the start of every message is what holds, and read_task, read_task_history and read_step show the rest on demand; read_task with a task_id reads another task in this company. " +
 	"You are woken only by events: the user writing, handoffs, questions, failures, meetings ending and stops. When nothing more can be done until the next one, end your turn with a short message to the user about what happened and what is next; it goes into the task's conversation. " +
 	"In what the user reads (messages, reasons, questions, instructions), call employees by their names and steps by theirs, never by ids such as sub-12 or rep-3; ids are for tools. " +
 	"When the user pauses the task, only talk: do not dispatch until they resume. When every step that counts is done and accepted, call submit_complete; the user decides about merging. " +
@@ -684,10 +684,10 @@ func ownerTool(name, description, schema string, fn func(context.Context, string
 
 func (e *Engine) ownerTools(in *ownerRun) []adapter.Tool {
 	return []adapter.Tool{
-		ownerTool("read_task", "Read the task's formal state now: plan, step runs, constraints and decisions, open questions.", `{"type":"object","properties":{}}`,
-			func(context.Context, string, json.RawMessage) model.ToolResult {
-				return e.ownerRead(in, func(t *model.Task) model.ToolResult { return model.ToolResult{Text: e.taskState(t)} })
-			}),
+		ownerTool(toolReadTask, "Read a task. Your own, when task_id is left out: its formal state now (plan, step runs, constraints and decisions, open questions), "+
+			"then its conversation, the latest entries fitting in 50KB. Another task in this company, by task_id: its description, steps and how they went, then its conversation. "+
+			"With before, read older entries of the conversation alone.",
+			readTaskSchema(true), e.ownerReadTaskTool(in)),
 		ownerTool("read_task_history", "Read the task's conversation by page, oldest first: the entries before seq before, or the latest.",
 			`{"type":"object","properties":{"before":{"type":"integer"},"limit":{"type":"integer","maximum":100}}}`, e.readHistoryTool(in)),
 		ownerTool("read_task_entry", "Read one entry of the task's conversation in full, with what was attached, by page of its text.",
@@ -730,6 +730,31 @@ func (e *Engine) ownerTools(in *ownerRun) []adapter.Tool {
 			"owner_id is you when left out. Who works its steps is the user's decision: give staff only as they said. If steps have nobody, this fails and lists them; then ask the user with ask_user. "+
 			"For a flow this task alone needs, give it in workflow instead of workflow_id; its steps and edges follow a flow's rules.",
 			string(createTaskSchema(false)), e.ownerCreateTaskTool(in)),
+	}
+}
+
+// ownerReadTaskTool is read_task for the owner: their own task's formal state, or another of the company's as
+// employees read it.
+func (e *Engine) ownerReadTaskTool(in *ownerRun) func(context.Context, string, json.RawMessage) model.ToolResult {
+	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+		a, err := parseRead(raw)
+		if err != nil {
+			return toolError("bad arguments: %v", err)
+		}
+		return e.ownerRead(in, func(t *model.Task) model.ToolResult {
+			if a.TaskID != "" && a.TaskID != t.ID {
+				return e.readTask(manager{teamID: t.TeamID}, a)
+			}
+			head := fmt.Sprintf("Task #%d %q (%s), your own.\n", t.Number, t.Title, t.ID)
+			if a.Before == 0 {
+				head = e.taskState(t)
+			}
+			text, err := e.taskConversation(t, head, a.Before, a.Limit)
+			if err != nil {
+				return toolError("%s", safeText(err))
+			}
+			return model.ToolResult{Text: text}
+		})
 	}
 }
 
