@@ -56,6 +56,8 @@ import { CodeFile } from './Highlight'
 import { learn } from './tutorial'
 import { ChatSheet, SentTo, type ChatTaskSeed } from './ChatSheet'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, link, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
+import { isOwnerTask } from './core/domain/owner'
+import { OwnerRunFacts, OwnerTaskDetail, ReturnStep } from './TaskPanel'
 
 export type Item =
   | { kind: 'task'; id: string }
@@ -335,6 +337,10 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
   const act = useStore((s) => s.act)
   const task = w.tasks[id]
   if (!task) return <Gone {...h} />
+  if (isOwnerTask(task)) {
+    return <OwnerTaskDetail id={id} open={open} onOpen={onOpen} flowOpen={flowOpen} onFlow={onFlow} editing={editing} onEdit={onEdit} copying={copying}
+      onCopy={onCopy} onGoneTask={onGoneTask} crew={crew} onCrew={onCrew} image={image} onImage={onImage} {...h} />
+  }
   const canPause = task.stage === 'running'
   const remove = () => {
     onGoneTask()
@@ -382,6 +388,8 @@ function TaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, onEdit, copyi
           )}
           {task.origin && <span>{tr('由 {name} 建立', { name: task.origin.kind === 'airport' ? tr('機場服務人員') : task.origin.name })}</span>}
           <span>Token {fmtTokens(taskTokens(w, task))}</span>
+          {/* made before owners ran tasks: its flow runs itself, and the owner only merges */}
+          <span className="fx-d-muted">{tr('舊制流程')}</span>
         </p>
       </header>
       {/* the drawing opens as a whole, as flows do in the company file: its title is the button */}
@@ -879,9 +887,11 @@ function SubDetail({ id, open, onOpen, crew, onCrew, ...h }: Head & {
         </p>
       </header>
       {sub.status === 'progressing' && <p className="fx-d-run"><Bar value={sub.progress} /><span className="fx-d-muted">{Math.round(sub.progress * 100)}%</span></p>}
-      {/* the user answers here: a discussion in its chat, anything else under what the employee asks */}
+      <OwnerRunFacts task={task} sub={sub} />
+      <ReturnStep key={sub.id} task={task} sub={sub} />
+      {/* the user answers here: a discussion in its chat, anything else under what the employee asks; under an owner, in the task's conversation */}
       {(sub.talk || (nodeOf(wf, sub.nodeId)?.kind === 'talk' && sub.status === 'progressing')) && <Section name={tr('討論')}><Chat key={sub.id} sub={sub} /></Section>}
-      {sub.review && sub.review.kind !== 'talk' && (
+      {sub.review && sub.review.kind !== 'talk' && !isOwnerTask(task) && (
         <Section name={tr('等你回覆')}>
           <div className="fx-d-text-md fx-d-quote"><Markdown text={askText(w, sub)} /></div>
           {sub.review.change && <ChangeLines change={sub.review.change} />}
@@ -2467,7 +2477,7 @@ export function HideTool({ hidden, onChange, className = '' }: { hidden: boolean
   )
 }
 
-function CopyIcon() {
+export function CopyIcon() {
   return (
     <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
       <rect x="5.5" y="5.5" width="8" height="8" rx="1" fill="none" stroke="currentColor" strokeWidth="1.5" />

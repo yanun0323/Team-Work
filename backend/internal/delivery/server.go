@@ -148,6 +148,11 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/tasks/:id/merge", s.taskAction(engine.MergeTask))
 	api.POST("/tasks/:id/return", s.returnTask)
 	api.POST("/tasks/:id/workflow", s.changeWorkflow)
+	api.GET("/tasks/:id/activity", s.taskActivity)
+	api.GET("/tasks/:id/activity/:activityId", s.taskActivityEntry)
+	api.GET("/tasks/:id/operations/:operationId", s.taskOperation)
+	api.POST("/tasks/:id/messages", s.sayToOwner)
+	api.POST("/tasks/:id/control", s.controlTask)
 
 	api.GET("/subtasks/:id/file", s.handedFile)
 	api.GET("/subtasks/:id/image", s.handedImage)
@@ -700,6 +705,78 @@ func (s *Server) returnTask(c echo.Context) error {
 		return err
 	}
 	return done(c, s.engine.ReturnTask(c.Param("id"), in.Feedback))
+}
+
+// intQuery reads a whole number from the query; missing is 0.
+func intQuery(c echo.Context, name string) (int, error) {
+	raw := c.QueryParam(name)
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, model.Errorf(model.CodeInvalid, "分頁參數不正確")
+	}
+	return n, nil
+}
+
+func (s *Server) taskActivity(c echo.Context) error {
+	before, err := intQuery(c, "before")
+	if err != nil {
+		return err
+	}
+	limit, err := intQuery(c, "limit")
+	if err != nil {
+		return err
+	}
+	if c.QueryParam("limit") != "" && limit == 0 {
+		return model.Errorf(model.CodeInvalid, "分頁參數不正確")
+	}
+	page, err := s.engine.TaskActivity(c.Param("id"), before, limit, c.QueryParam("version"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, page)
+}
+
+func (s *Server) taskActivityEntry(c echo.Context) error {
+	entry, err := s.engine.TaskActivityEntry(c.Param("id"), c.Param("activityId"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, entry)
+}
+
+func (s *Server) taskOperation(c echo.Context) error {
+	op, err := s.engine.TaskOperation(c.Param("id"), c.Param("operationId"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, op)
+}
+
+func (s *Server) sayToOwner(c echo.Context) error {
+	in, err := bind[usecase.TaskMessage](c)
+	if err != nil {
+		return err
+	}
+	out, err := s.engine.SayToOwner(c.Param("id"), in)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusAccepted, out)
+}
+
+func (s *Server) controlTask(c echo.Context) error {
+	in, err := bind[usecase.TaskControl](c)
+	if err != nil {
+		return err
+	}
+	op, err := s.engine.ControlTask(c.Param("id"), in)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusAccepted, map[string]any{"operation": op})
 }
 
 func (s *Server) changeWorkflow(c echo.Context) error {

@@ -19,7 +19,7 @@ func toolText(t *testing.T, r *rig, m *moves, name string, args map[string]any) 
 func TestHiddenBlueprintsAndFlowsAreUnknownToEmployees(t *testing.T) {
 	r, m := manageRig(t)
 	bp, wf := r.owner.BlueprintID, r.flow.ID
-	waiting, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "排好的", WorkflowID: wf, OwnerID: &r.owner.ID})
+	waiting, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "排好的", WorkflowID: wf, OwnerID: &r.owner.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestHiddenCannotBePickedButStaysInUse(t *testing.T) {
 	if _, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: bp, Name: "Bo", Model: "fake"}); err == nil {
 		t.Fatal("hired from a hidden blueprint")
 	}
-	if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "新", WorkflowID: wf, OwnerID: &r.owner.ID}); err == nil {
+	if _, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "新", WorkflowID: wf, OwnerID: &r.owner.ID}); err == nil {
 		t.Fatal("made a task on a hidden flow")
 	}
 	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{BlueprintID: &other.ID}); err == nil {
@@ -117,7 +117,7 @@ func TestHiddenCannotBePickedButStaysInUse(t *testing.T) {
 	if err := r.e.HideWorkflow(wf, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "新", WorkflowID: wf, OwnerID: &r.owner.ID}); err != nil {
+	if _, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "新", WorkflowID: wf, OwnerID: &r.owner.ID}); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.e.DeleteBlueprint(other.ID, ""); err != nil {

@@ -520,6 +520,19 @@ export interface SubTask {
   baseCommit?: string
   log: LogLine[]
   script: Script
+  // ----- a task its owner runs (`orchestration: 'owner'`); none of these on older tasks -----
+  /** The plan version the owner dispatched this run on. */
+  planVersion?: number
+  /** Which run of the step this is; a stop or return makes a new one. */
+  runGeneration?: number
+  /** What the owner told the employee when dispatching it. */
+  instruction?: string
+  /** Whether the owner has taken in what it handed on; only accepted work feeds later steps. */
+  ownerReview?: 'pending' | 'accepted' | 'rejected'
+  /** Work a return made stale: superseded by a redo, or to be checked again because what it read changed. */
+  validity?: 'current' | 'needsRevalidation' | 'superseded'
+  /** Where the run itself stands; `uncertain` is a run the system cannot confirm stopped or finished. */
+  executionState?: 'queued' | 'running' | 'stopping' | 'stopped' | 'uncertain'
 }
 
 /**
@@ -556,6 +569,91 @@ export interface TaskOrigin {
   depth: number
 }
 
+/** Something said or done in a task its owner runs, as its conversation shows it; `seq` counts from 1 per task. */
+export interface TaskActivity {
+  id: string
+  seq: number
+  at: number
+  kind: 'message' | 'handoff' | 'question' | 'event' | 'meeting'
+  from: 'user' | 'agent' | 'system'
+  /** A readable fallback; an event with a `key` is shown in the user's language from it and `args`. */
+  text: string
+  /** Who said it, and their name and look then, for when they have left. */
+  by?: string
+  name?: string
+  look?: Look
+  /** The step run and meeting it came from. */
+  subId?: string
+  nodeId?: string
+  meetingId?: string
+  operationId?: string
+  questionId?: string
+  planVersion: number
+  key?: string
+  args?: Record<string, unknown>
+  images?: Attachment[]
+  files?: Attachment[]
+}
+
+export type TaskOperationStatus = 'received' | 'processing' | 'applied' | 'failed' | 'uncertain'
+
+/** Something the user asked of a task its owner runs, followed until it took effect or failed. */
+export interface TaskOperation {
+  id: string
+  requestId?: string
+  kind: 'message' | 'pause' | 'resume' | 'return' | 'answer' | 'retry' | 'dispatch' | 'stop' | 'plan' | 'complete'
+  status: TaskOperationStatus
+  at: number
+  updatedAt: number
+  messageId?: string
+  subId?: string
+  affectedSubIds?: string[]
+  error?: { code: string; message: string }
+}
+
+/** A question still open in a task its owner runs; only those for the user wait in its panel. */
+export interface TaskQuestion {
+  id: string
+  /** The message it was asked in. */
+  activityId: string
+  prompt: string
+  options: ReviewOption[]
+  kind: 'question' | 'approval' | 'budget' | 'recovery'
+  audience: 'owner' | 'user'
+  subId?: string
+  planVersion: number
+  createdAt: number
+  change?: PendingChange
+}
+
+/** A limit the user set, or a decision made, kept apart from anything a model sums up. */
+export interface TaskFact {
+  id: string
+  kind: 'constraint' | 'decision'
+  text: string
+  sourceActivityIds: string[]
+  supersedes?: string
+}
+
+/** How a task its owner runs stands. */
+export interface TaskCoordination {
+  planVersion: number
+  controlVersion: number
+  /** Set the first time the user starts it. */
+  startedAt?: number
+  ownerState: 'idle' | 'queued' | 'responding' | 'blocked' | 'failed'
+  ownerCostUsd: number
+  ownerTokens: number
+  /** The conversation's version (opaque) and length; read in pages when the panel is open. */
+  history: { version: string; count: number }
+  authorization: { replicaIds: string[]; planChanges: boolean }
+  facts: TaskFact[]
+  questions: TaskQuestion[]
+  /** Every one still open, and the last few closed. */
+  operations: TaskOperation[]
+  blockedReason?: string
+}
+
 export interface Task {
   id: string
   teamId: string
@@ -588,6 +686,9 @@ export interface Task {
   /** Merging will clash with the target branch (decided up front, as the rest of the fake run is). */
   mergeConflict: boolean
   overrides?: Record<string, Partial<Script>>
+  /** `owner`: the owner runs the task, dispatching every step and answering in its conversation. None is the older way, where the flow runs itself. */
+  orchestration?: 'owner'
+  coordination?: TaskCoordination
 }
 
 export type WorldEvent =
@@ -665,4 +766,6 @@ export interface World {
   nextDriftAt: number
   rng: number
   events: WorldEvent[]
+  /** The simulator's record of each owner-run task's conversation; the backend keeps its own and never sends this. */
+  mockActivity?: Record<string, TaskActivity[]>
 }

@@ -397,7 +397,11 @@ func (e *Engine) talkPeople(t *model.Task, s *model.SubTask) []string {
 // talkSpec is a discussion's spec for the one replying, told how a meeting goes round when there is one.
 func (e *Engine) talkSpec(t *model.Task, s *model.SubTask, spec agentSpec) agentSpec {
 	if len(e.talkPeople(t, s)) > 1 {
-		spec.prompt.rules += talkMeetingRule
+		if t.OwnerLed() {
+			spec.prompt.rules += othersRule + "\n"
+		} else {
+			spec.prompt.rules += talkMeetingRule
+		}
 	}
 	return spec
 }
@@ -513,7 +517,7 @@ func (e *Engine) launch(t *model.Task, s *model.SubTask, spec agentSpec, replica
 			session = s.ID + "-" + replicaID
 		}
 	}
-	in := subRun{r: r, subID: s.ID, taskID: t.ID, spec: spec, conv: conv, talk: talk, speaker: speaker, session: session,
+	in := subRun{r: r, subID: s.ID, taskID: t.ID, spec: spec, conv: conv, talk: talk, speaker: speaker, session: session, gen: s.RunGeneration,
 		folder: e.w.Teams[t.TeamID].Folder, dir: e.worktreeOf(t), branch: t.Branch, target: e.w.Teams[t.TeamID].TargetBranch}
 	e.wg.Add(1)
 	go e.runSub(ctx, in)
@@ -549,6 +553,8 @@ type subRun struct {
 	// speaker is who replies in a discussion; session is the provider's, one each in a meeting.
 	speaker, session            string
 	folder, dir, branch, target string
+	// gen is which run of the step this is, in an owner-led task.
+	gen int
 }
 
 // apply changes the world for a run, unless the run was stopped or replaced meanwhile.
@@ -574,9 +580,19 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 	defer func() {
 		e.mu.Lock()
 		defer e.mu.Unlock()
-		if e.runs[in.subID] == in.r {
+		owned := e.runs[in.subID] == in.r
+		if owned {
 			delete(e.runs, in.subID)
 			delete(e.live, in.subID)
+		}
+		// a run being stopped has stopped only now that its goroutine ends
+		before := ""
+		if s := e.w.SubTasks[in.subID]; s != nil {
+			before = s.ExecutionState
+		}
+		e.subExited(in.subID, in.gen)
+		if s := e.w.SubTasks[in.subID]; owned || s != nil && s.ExecutionState != before {
+			e.w.Now = e.clock()
 			e.settle()
 		}
 	}()
@@ -683,6 +699,10 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 // talkSays is an employee's words in a discussion: the opening, which starts it, or a reply, after which the next
 // in the round replies.
 func (e *Engine) talkSays(t *model.Task, s *model.SubTask, by, text string) {
+	if t.OwnerLed() {
+		e.meetingSays(t, s, by, text)
+		return
+	}
 	if s.Talk == nil {
 		delete(e.live, s.ID)
 		s.Talk = &model.Talk{Messages: []model.ChatMessage{}, Speaker: by}
@@ -881,6 +901,11 @@ func (e *Engine) onSubReply(in subRun, tr *turn, calls *int) func(model.ModelRep
 				e.logLine(s, enum.LogSystem, i18n.T("模型 %s 沒有設定價格，費用不列入上限", in.spec.model), "", nil)
 			}
 			goOn = true
+			if t.OwnerLed() && e.taskCost(t) >= e.costLimit(t) {
+				e.budgetHold(t)
+				goOn = false
+				return
+			}
 			if !talking(s) && e.taskCost(t) >= e.costLimit(t) {
 				for _, o := range e.subsOf(t.ID) {
 					if o.ID != s.ID && o.Status == enum.StatusProgressing {
@@ -932,6 +957,9 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if t := e.w.Tasks[in.taskID]; t != nil && t.OwnerLed() {
+		out = append(out, e.askOwnerTool(in))
+	}
 	if s, t := e.w.SubTasks[in.subID], e.w.Tasks[in.taskID]; s != nil && t != nil && e.maySendBack(t, s) {
 		out = append(out, funcTool{model.ToolSpec{Name: "send_back", Description: "The work does not pass: commit what is here and send it back to the steps before this one, to redo.",
 			Parameters: json.RawMessage(`{"type":"object","properties":{"reason":{"type":"string"},"commit_message":{"type":"string","description":"` + commitMessageHow + ` Only needed when files changed."}},"required":["reason"]}`)}, e.sendBackTool(in)})
@@ -1055,6 +1083,9 @@ func (e *Engine) submitHandoff(in subRun) func(context.Context, string, json.Raw
 				e.keepNote(t, s, text)
 			}
 			e.finish(t, s, commit)
+			if t.OwnerLed() {
+				e.handedToOwner(t, s)
+			}
 		})
 		return model.ToolResult{Stop: true}
 	}
@@ -1167,6 +1198,9 @@ func (e *Engine) sendBackTool(in subRun) func(context.Context, string, json.RawM
 				Human: model.HumanSummary{Headline: i18n.T("退回：%s", a.Reason), Did: []string{}, Outputs: []string{}},
 			}
 			e.finish(t, s, commit)
+			if t.OwnerLed() { // only asks: sending back is the owner's call
+				e.handedToOwner(t, s)
+			}
 		})
 		return model.ToolResult{Stop: true}
 	}

@@ -18,7 +18,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <li>Press ＋ New company, pick a spot on the map, then fill in the project folder, name and target branch.</li>
           <li>On the company's Employees tab, add employees: pick a blueprint and a model. The blueprints and workflows the official source brings are ready to use.</li>
           <li>For small things, just ask on the Chats tab. For bigger work, create a task on the Tasks tab: pick a workflow, then choose the task owner and the employees for each step.</li>
-          <li>Employees work through the workflow in turn. Open the task and look at Progress: a step with a red exclamation mark is waiting for you. Open it to reply. When the work is done, press Merge to bring the changes back to your project.</li>
+          <li>The task owner hands each step of the workflow to an employee. Opening the task opens the conversation with the owner, and anything waiting on you stays above the message box. When the work is done, press Merge to bring the changes back to your project.</li>
         </ol>
         <p className="fx-help-pit">In a chat, the employee changes your project folder directly. A task works in a separate copy instead: it cannot see changes you have not committed, and its work reaches your project only when merged.</p>
         <dl>
@@ -316,21 +316,25 @@ export const HELP_EN: Record<string, HelpTopic> = {
     alt: "A task's details: the workflow drawing and each step's progress",
     body: (
       <>
-        <p>A task is a piece of work you give the company: employees work through a workflow in turn, then it waits for you to merge. Use a task for bigger work, work split among several people, or work that should not touch the files you have open; for small things, a chat is enough.</p>
+        <p>A task is a piece of work you give the company: its owner hands each step of a workflow to an employee, takes in what comes back and decides what comes next, and when it is done the task waits for you to merge. Use a task for bigger work, work split among several people, or work that should not touch the files you have open; for small things, a chat is enough.</p>
         <p className="fx-help-pit">When a task starts, it works in a separate copy of the project made from the target branch's latest commit. Changes in your project folder that are not committed are not there; commit them first if the task needs them.</p>
         <dl>
-          <dt>Owner and steps</dt><dd>The task owner answers for the whole task and merges its branch. Who works each step is picked on the task. Apply to all steps has the owner alone do every step.</dd>
+          <dt>Owner and steps</dt><dd>The task owner runs the whole task: it gives each step to an employee with instructions as planned, takes in each handoff before deciding what comes next, reports in the task's conversation, and merges the branch. A task with no owner cannot start. Who works each step is picked on the task, and employees on different models can work together; Apply to all steps has the owner alone do every step.</dd>
+          <dt>Task conversation</dt><dd>Opening a task opens the conversation with its owner. What you write goes to the owner alone: change direction or ask for a meeting at any time. Handoffs, questions and what is said in meetings show under each employee's name; press the tag to open the step. Dispatches, pauses, send-backs and plan changes are short lines, and tool logs stay in the steps. Under each message you send it says Received, In progress or Done, and one that did not get through can be sent again.</dd>
+          <dt>Waiting on you</dt><dd>Questions only you can answer stay above the message box, several at a time, each answered on its own; Original message goes back to where it was asked. Adding someone not on the task, raising the budget, changing settings and merging are yours to decide; the owner cannot answer for you.</dd>
+          <dt>Send a step back</dt><dd>Open a step from the tags at the top and press Send this step back with the reason. Its record stays, a new run redoes it, and later steps that read it are marked To recheck; the task pauses, and the step is redone once you resume. Nothing is deleted or rolled back.</dd>
+          <dt>Older tasks</dt><dd>Tasks created before this version finish the way they started, marked Older flow, with no owner conversation; copy one to run it the new way.</dd>
           <dt>Sub-tasks and handoffs</dt><dd>Each step becomes a sub-task; when done, its employee writes a handoff for the next step. Progress lists each sub-task's state, and opening one shows its log and the files handed off; a file the step changed can be compared with how it was before the step, unified or split.</dd>
           <dt>Branch</dt><dd>Each task has its own branch, shown under the title. Every step commits its work to it.</dd>
           <dt>Four columns</dt><dd>Todo, Progressing, Wait for Review and Complete. A red exclamation mark needs your reply and a green merge icon waits for you to merge; see Replies and discussions.</dd>
-          <dt>Start and pause</dt><dd>A new task waits in To do until you press Start at the top right of its details. The same button then pauses and continues it.</dd>
+          <dt>Start and pause</dt><dd>A new task waits in To do until you press Start at the top right of its details; then the owner starts handing out steps. The same button pauses and continues it. A pause first stops new steps from being handed out and stops the ones under way, and the task cannot continue until they have stopped; while paused you can still talk with the owner, and nothing starts again by itself. Stopping does not undo changed files or anything already done outside.</dd>
           <dt>Attachments</dt><dd>Press ＋ to pick them, or paste a screenshot in the text box. Each file can be up to 25MB, with 6 in total. Images over 3.75MB are shrunk automatically.</dd>
           <dt>Custom flow</dt><dd>Switch Flow to Custom to write this task's flow on the form: start from a blank step, or import a workflow and change it, editing as you would a workflow. A custom flow belongs to this task alone; press Save as workflow to reuse it.</dd>
           <dt>Copy a task</dt><dd>Press Copy at the top right of a task's details to open a new task with the title, description, attachments, workflow and staff filled in.</dd>
           <dt>Tasks from employees</dt><dd>Employees with permission can create tasks, which also wait in To do until you start them; the details show who created it. Employees can create and change tasks only in their own company, and the airport staff can reach every company. Tasks can be created at most 3 levels in a row.</dd>
           <dt>Task changes by employees</dt><dd>Employees can change the title, description, owner and each step's employees, applied at once. Work under way is not affected, and later steps see the new content.</dd>
           <dt>Cost and tokens</dt><dd>Sub-tasks record their cost, and a task that reaches the company's limit stops and asks you. Tokens leave out cache reads, and subscriptions are counted too; the cost limit ignores tokens.</dd>
-          <dt>Done</dt><dd>Once every branch that started is done, the task waits for you to merge. Steps a conditional branch did not pick are not waited for.</dd>
+          <dt>Done</dt><dd>Once the owner has checked that every step is done and nothing is left open, it reports the task done, and the task waits for you to merge. Steps a conditional branch did not pick are not done.</dd>
           <dt>Edit and delete</dt><dd>You can change the title, description, owner and each step's employees; the workflow cannot change once started. When you change who works a step already under way, "Save, from the next step on" lets the one on it finish, and "Save and swap now" hands it to the new employee at once, who goes on from where it stopped. A step sent back is redone by whoever works it at that time.</dd>
         </dl>
       </>
@@ -341,14 +345,14 @@ export const HELP_EN: Record<string, HelpTopic> = {
     alt: 'A discussion in a sub-task: messages between you and the employee, then the message box and End discussion button',
     body: (
       <>
-        <p>When a decision is yours, the task moves to Wait for Review: a red exclamation mark means reply, and a green merge icon means the work is done and waiting for you to merge. Open the step with the badge in Progress to deal with it.</p>
+        <p>When a decision is yours, the task moves to Wait for Review: a red exclamation mark means reply, and a green merge icon means the work is done and waiting for you to merge. Open the task and answer under Waiting on you, above the message box; on an older task, open the step with the badge in Progress.</p>
         <p className="fx-help-pit">Merging updates the target branch in your project folder; if it has changes that are not committed, the merge fails. Sort them out and press Merge again.</p>
         <dl>
           <dt>Answer a question</dt><dd>When an employee has a question, cannot pick the next step, runs out of retries or hits the cost limit, pick an option, write a reply and press Confirm.</dd>
           <dt>Agree to a change</dt><dd>When an employee wants to change a blueprint or workflow, that step lists the changes, before and after. Pick Agree or Refuse, optionally write a reply, and press Confirm.</dd>
           <dt>Meeting</dt><dd>At a green discussion step, the employee reads the earlier handoffs, then asks you, and you can go back and forth many times. With several employees it is a meeting, and who replies works as in Chats.</dd>
           <dt>End discussion</dt><dd>When it is settled, press End discussion and choose Continue to go to the next step, Send back to write what to change, or Stop task.</dd>
-          <dt>Merge</dt><dd>Press Merge to have the task owner merge the branch into the target branch, resolving any conflicts first; or press Send back to write what to change and have it redone.</dd>
+          <dt>Merge</dt><dd>Press Merge to have the task owner merge the branch into the target branch, resolving any conflicts first; to change something, tell the owner. On an older task you can also press Send back to write what to change and have it redone.</dd>
         </dl>
       </>
     ),

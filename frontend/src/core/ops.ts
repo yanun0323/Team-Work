@@ -2,12 +2,12 @@
 // `act((x) => mergeTask(x, id))` the same way in both modes: under `make dev-mock` it runs the simulator, and
 // otherwise it asks the backend, and the answer comes back as a change to the world.
 
-import { localRequest, request } from './backend'
+import { idempotencyKey, localRequest, request } from './backend'
 import { apiBase, remoteIsland } from './island'
 import { tr } from './i18n'
 import { seedWorld } from './data/seed'
 import * as sim from './domain/sim'
-import type { Attachment, Blueprint, Chat, Source, SourceChanges, SourceItem, SourcePreview, Effort, FileInfo, Locale, Look, MemoryEntry, Replica, SkillInfo, SkillText, TalkEnd, Team, Workflow, World } from './domain/types'
+import type { Attachment, Blueprint, Chat, Source, SourceChanges, SourceItem, SourcePreview, Effort, FileInfo, Locale, Look, MemoryEntry, Replica, SkillInfo, SkillText, TalkEnd, Task, TaskActivity, TaskOperation, Team, Workflow, World } from './domain/types'
 import { MOCK } from './mode'
 import { usePrefs } from '../prefs'
 
@@ -45,7 +45,10 @@ export const setLanguage = MOCK
 
 // ---------- tasks ----------
 
-export const createTask = pick('createTask', (_w: World, i: sim.NewTask) => fire_('POST', '/tasks', i))
+// every new task is run by its owner; the backend decides that itself
+export const createTask = MOCK
+  ? (w: World, i: sim.NewTask) => sim.createTask(w, { ...i, orchestration: 'owner' })
+  : (_w: World, i: sim.NewTask) => fire_('POST', '/tasks', i)
 export const deleteTask = pick('deleteTask', (_w: World, id: string) => fire_('DELETE', `/tasks/${id}`))
 export const pauseTask = pick('pauseTask', (_w: World, id: string) => fire_('POST', `/tasks/${id}/pause`))
 export const resumeTask = pick('resumeTask', (_w: World, id: string) => fire_('POST', `/tasks/${id}/resume`))
@@ -55,6 +58,66 @@ export const resolveReview = pick('resolveReview', (_w: World, id: string, optio
   fire_('POST', `/subtasks/${id}/review`, { optionId, note }))
 export const sayInTalk = pick('sayInTalk', (_w: World, id: string, text: string, mentions: string[] = []) => fire_('POST', `/subtasks/${id}/talk`, { text, mentions }))
 export const endTalk = pick('endTalk', (_w: World, id: string, end: TalkEnd) => fire_('POST', `/subtasks/${id}/talk/end`, end))
+
+// ---------- tasks their owner runs ----------
+// These are waited on: the screen shows each one received, being worked on, taken effect or failed. A failed one is
+// sent again with the same requestId, so one that did go through is not done twice.
+
+/** One user action's id, made once and kept across retries of it. */
+export const newRequestId = idempotencyKey
+
+export type OwnerMessage = sim.OwnerMessage
+export type OwnerControl = sim.OwnerControl
+export interface ActivityPage { version: string; total: number; items: TaskActivity[]; hasMore: boolean }
+
+const taskPath = (id: string) => `/tasks/${encodeURIComponent(id)}`
+
+/** Runs a simulator call in the world and hands back a copy of what it returned, or its refusal. */
+function simulate<T>(act: (fn: (w: World) => void) => void, fn: (w: World) => T): Promise<T> {
+  let out: { ok: T } | { error: Error } | undefined
+  act((w) => {
+    try { out = { ok: JSON.parse(JSON.stringify(fn(w))) as T } } catch (e) { out = { error: e as Error } }
+  })
+  if (!out) return Promise.reject(new Error('simulate'))
+  return 'error' in out ? Promise.reject(out.error) : Promise.resolve(out.ok)
+}
+
+/** Tells the task's owner something; only the owner reads it. */
+export const sayToOwner = (act: (fn: (w: World) => void) => void, taskId: string, m: OwnerMessage) => (MOCK
+  ? simulate(act, (w) => sim.sayToOwner(w, taskId, m))
+  : request<{ operation: TaskOperation; activity: TaskActivity }>('POST', `${taskPath(taskId)}/messages`, m))
+
+/** Pauses, starts or resumes, sends a step back, retries the owner or answers one of its questions. */
+export const controlTask = (act: (fn: (w: World) => void) => void, taskId: string, body: OwnerControl) => (MOCK
+  ? simulate(act, (w) => sim.controlOwnerTask(w, taskId, body))
+  : request<{ operation: TaskOperation }>('POST', `${taskPath(taskId)}/control`, body))
+
+/** The versions an action other than a pause is decided on: what the screen showed. */
+export const seenVersions = (t: Task) => ({ planVersion: t.coordination?.planVersion ?? 0, controlVersion: t.coordination?.controlVersion ?? 0 })
+
+/** A page of a task's conversation, oldest first; `version` pins the pages to one version of it. */
+export function readTaskActivity(w: World, taskId: string, q: { before?: number; limit?: number; version?: string }, signal?: AbortSignal): Promise<ActivityPage> {
+  if (MOCK) return Promise.resolve().then(() => sim.activityPage(w, taskId, q))
+  const params = new URLSearchParams()
+  if (q.before !== undefined) params.set('before', String(q.before))
+  params.set('limit', String(q.limit ?? 50))
+  if (q.version) params.set('version', q.version)
+  return request<ActivityPage>('GET', `${taskPath(taskId)}/activity?${params}`, undefined, signal)
+}
+
+/** One message of a task's conversation, to go back to what a question was asked in. */
+export const readTaskActivityItem = (w: World, taskId: string, id: string, signal?: AbortSignal) => (MOCK
+  ? Promise.resolve().then(() => sim.activityItem(w, taskId, id))
+  : request<TaskActivity>('GET', `${taskPath(taskId)}/activity/${encodeURIComponent(id)}`, undefined, signal))
+
+/** Where an action stands, when the task no longer lists it (it closed while the connection was down). */
+export const readTaskOperation = (w: World, taskId: string, id: string, signal?: AbortSignal) => (MOCK
+  ? Promise.resolve().then(() => {
+    const op = w.tasks[taskId]?.coordination?.operations.find((o) => o.id === id)
+    if (!op) throw new sim.TaskRefusal('not found', 'not_found')
+    return op
+  })
+  : request<TaskOperation>('GET', `${taskPath(taskId)}/operations/${encodeURIComponent(id)}`, undefined, signal))
 
 // ---------- chats ----------
 
@@ -141,8 +204,9 @@ export const hasUncommitted = (teamId: string) => (MOCK
 
 /** Change a task's title, description, staff and owner; with `swap`, steps under way go to their new employee at once. */
 export function updateTask(w: World, id: string, p: { title: string; description: string; staff: Record<string, string[]>; ownerId: string | null; swap?: boolean }) {
-  if (!MOCK) return fire_('PATCH', `/tasks/${id}`, p)
+  // a task its owner runs is changed only as the user saw it, so an edit cannot undo what happened since
   const t = w.tasks[id]
+  if (!MOCK) return fire_('PATCH', `/tasks/${id}`, t?.coordination ? { ...p, ...seenVersions(t) } : p)
   if (!t) return
   t.title = p.title
   t.description = p.description

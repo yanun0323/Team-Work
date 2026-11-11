@@ -297,7 +297,7 @@ func TestCreatingABlueprintAndFlowTakesEffectAtOnce(t *testing.T) {
 		t.Fatalf("%v", y)
 	}
 	// it runs
-	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "跑", WorkflowID: made.ID, Staff: map[string][]string{"s": {r.owner.ID}, "a": {r.owner.ID}, "b": {r.owner.ID}, "z": {r.owner.ID}}, OwnerID: &r.owner.ID})
+	task, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "跑", WorkflowID: made.ID, Staff: map[string][]string{"s": {r.owner.ID}, "a": {r.owner.ID}, "b": {r.owner.ID}, "z": {r.owner.ID}}, OwnerID: &r.owner.ID})
 	if err != nil || task == nil {
 		t.Fatal(err)
 	}
@@ -673,7 +673,7 @@ func TestCreateTaskWaitsInTodoAndSaysWhereItCameFrom(t *testing.T) {
 func TestTaskTheUserMakesFromAChatShowsUnderItsLastMessage(t *testing.T) {
 	r, m := manageRig(t)
 	c := inChat(t, r, m)
-	made, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "從對話", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, ChatID: c.ID})
+	made, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "從對話", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, ChatID: c.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -925,7 +925,7 @@ func TestCompaniesAreKeptApart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	theirs, err := r.e.CreateTask(usecase.NewTask{TeamID: other.ID, Title: "別家的任務", WorkflowID: r.flow.ID, OwnerID: &stranger.ID,
+	theirs, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: other.ID, Title: "別家的任務", WorkflowID: r.flow.ID, OwnerID: &stranger.ID,
 		Staff: map[string][]string{"start": {stranger.ID}, "end": {stranger.ID}}})
 	if err != nil {
 		t.Fatal(err)

@@ -5,8 +5,10 @@ import { mockThinking } from '../../providers'
 import { fixedSteps, installPresets } from './presets'
 import { mockText } from './mockText'
 import {
-  adoptSources, AIRPORT_STAFF_LOOK, createTask, createTeam, hire, mergeTask, newWorkflow, pauseTask, remember, resumeTask, REPLY_TIME, sayInTalk, tick,
+  adoptSources, AIRPORT_STAFF_LOOK, controlOwnerTask, createTask, createTeam, hire, mergeTask, newWorkflow, ownerSeed, pauseTask, postActivity, remember, resumeTask, REPLY_TIME, sayInTalk, sayToOwner, subsOf, tick,
 } from '../domain/sim'
+import { makeHandoff, roleOf } from '../domain/content'
+import { nodeOf } from '../domain/graph'
 import type { Blueprint, GitSource, Locale, Look, ModelProvider, Workflow, WorkflowNode, World } from '../domain/types'
 
 const look = (shirt: string, pants: string, extra: Look['extra']): Look => ({
@@ -315,6 +317,74 @@ export function seedWorld(language: Locale = 'zh'): World {
       )),
     ],
   }
+
+  // a task its owner runs, written partway: Mira took in two steps and gave Kai the third; the user set a limit, and
+  // Mira asks the user whether someone outside the task may join
+  const coupon = createTask(w, {
+    teamId: shop.id, title: L('結帳頁加上優惠碼', 'Add promo codes to checkout'), description: L('結帳頁可以輸入優惠碼，折扣即時反映在總額。', 'Let people enter a promo code at checkout, with the discount in the total at once.'),
+    workflowId: main.id, ownerId: mira.id, orchestration: 'owner', overrides: { '*': { ...calm, route: 1, duration: 40 } },
+  })
+  const c = coupon.coordination!
+  const { dispatchStep, handBack, ownerSays, taskEvent } = ownerSeed
+  const step = (id: string) => nodeOf(coupon.workflow, id)!
+  let clock = w.now - 1500
+  // each line a minute or two after the last
+  const stamp = <T extends { at: number }>(x: T, gap = 90) => { clock += gap; x.at = clock; return x }
+  const last = () => stamp(w.mockActivity![coupon.id].at(-1)!)
+  controlOwnerTask(w, coupon.id, { requestId: 'seed-start', action: 'resume', planVersion: c.planVersion, controlVersion: c.controlVersion })
+  c.startedAt = stamp({ at: 0 }).at
+  for (const a of w.mockActivity![coupon.id]) a.at = clock
+  stamp(ownerSays(w, coupon, L('我先請自己整理需求，確認優惠碼的規則後再決定怎麼做。', 'I will sort out the requirements myself first, then decide how to go about the promo code rules.')), 30)
+  const finish = (nodeId: string) => {
+    const s = subsOf(w, coupon.id).find((x) => x.nodeId === nodeId)!
+    last()
+    s.startedAt = clock
+    s.status = 'complete'
+    s.progress = 1
+    s.attempts = 1
+    s.costUsd = 0.21
+    s.tokens = 21400
+    s.routed = true
+    s.endedAt = (clock += 240)
+    s.handoff = makeHandoff(w, roleOf(step(nodeId)), coupon, step(nodeId))
+    delete s.executionState
+    handBack(w, coupon, s)
+    last()
+    s.ownerReview = 'accepted'
+    taskEvent(w, coupon, 'accepted', L('{owner} 接受「{step}」的交付', '{owner} accepted "{step}"'), { owner: mira.name, step: step(nodeId).name }, { subId: s.id, nodeId })
+    last()
+    return s
+  }
+  dispatchStep(w, coupon, start.id, [])
+  const scoped = finish(start.id)
+  dispatchStep(w, coupon, 'n-research', [scoped])
+  const researched = finish('n-research')
+  stamp(ownerSays(w, coupon, L('研究結論是要改程式，報告這步略過，我派 Kai 開發。', 'The research says the code has to change, so the report step is left out; Kai develops it.')))
+  dispatchStep(w, coupon, 'n-dev', [researched])
+  last()
+  const told = sayToOwner(w, coupon.id, { requestId: 'seed-limit', text: L('優惠碼不要分大小寫，過期的要說明原因。', 'Promo codes ignore case, and an expired one says why.') })
+  stamp(told.activity, 200)
+  for (const op of c.operations) op.status = 'applied'
+  stamp(ownerSays(w, coupon, L('收到，已記成這個任務的限制，也轉告 Kai。', 'Got it. That is now a limit on this task, and I have told Kai.')), 40)
+  c.facts.push({ id: 'fact-case', kind: 'constraint', text: told.activity.text, sourceActivityIds: [told.activity.id] })
+  const prompt = L('Kai 想請 Theo 一起補付款流程的測試，但 Theo 不在這個任務的人員名單。要讓 Theo 加入嗎？', 'Kai would like Theo to help test the payment flow, but Theo is not on this task. May Theo join?')
+  const ask = stamp(postActivity(w, coupon, { kind: 'question', from: 'agent', text: prompt, by: mira.id, name: mira.name, look: { ...mira.look }, questionId: 'q-theo' }), 60)
+  c.questions.push({
+    id: 'q-theo', activityId: ask.id, prompt, options: [{ id: 'approve' }, { id: 'reject' }], kind: 'approval', audience: 'user', planVersion: c.planVersion, createdAt: ask.at,
+  })
+  c.ownerCostUsd = 0.09
+  c.ownerTokens = 11800
+  c.ownerState = 'idle'
+  // the sample clock has run only a few minutes: fit the times written above into them, the last a moment ago
+  const first = c.startedAt!
+  const fit = (t: number) => Math.round(w.now * 0.15 + ((t - first) / Math.max(1, clock - first)) * (w.now * 0.85 - 20))
+  for (const a of w.mockActivity![coupon.id]) a.at = fit(a.at)
+  for (const s of subsOf(w, coupon.id)) {
+    if (s.startedAt !== undefined && s.status === 'complete') s.startedAt = fit(s.startedAt)
+    if (s.endedAt !== undefined) s.endedAt = fit(s.endedAt)
+  }
+  c.startedAt = fit(first)
+  for (const q of c.questions) q.createdAt = fit(q.createdAt)
 
   installPresets(w)
   // the tasks above took their staff from the flows; shared flows name nobody

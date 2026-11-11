@@ -81,9 +81,12 @@ type Engine struct {
 	pagedSubs     map[chan Event]bool
 	savedChats    map[string]*model.Chat // detached committed values; chat JSON is not cached in prev
 	dirty         map[string]bool        // conversations changed since the last save
-	subs          map[chan Event]struct{}
-	pending       []Event
-	logins        map[string]*loginRun
+	// taskLogs are owner-led tasks' private records, by task id; logDirty marks those changed since the last save.
+	taskLogs map[string]*taskLog
+	logDirty map[string]bool
+	subs     map[chan Event]struct{}
+	pending  []Event
+	logins   map[string]*loginRun
 	// pendingKeys are API keys waiting on the user's answer to a change, by its KeyRef. They go with a restart.
 	pendingKeys map[string]string
 	// terms is what each company's terminal has shown, by the company's id; under its own lock, as output
@@ -173,6 +176,8 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 		e.cancel()
 		return nil, err
 	}
+	// an owner-led task's run cannot be known to have finished, so it is not simply run again
+	e.recoverOwners()
 	for _, s := range e.w.SubTasks {
 		// nobody works across a restart: back in the queue, keeping the conversation so far
 		if s.Status == enum.StatusProgressing {
@@ -243,6 +248,7 @@ func (e *Engine) change(config bool, fn func() error) error {
 	before := e.rollbackWorld()
 	secrets, runs := maps.Clone(e.secrets), maps.Clone(e.runs)
 	dirty := maps.Clone(e.dirty)
+	logs, logDirty := e.snapshotLogs()
 	undo := func() {
 		// Never expose a committed snapshot to subsequent live mutations.
 		for id, c := range before.Chats {
@@ -252,6 +258,7 @@ func (e *Engine) change(config bool, fn func() error) error {
 		}
 		e.w, e.secrets, e.secretOps = before, secrets, nil
 		e.dirty = dirty
+		e.taskLogs, e.logDirty = logs, logDirty
 		for id, r := range e.runs {
 			if runs[id] != r {
 				e.stopRun(id)
@@ -288,6 +295,13 @@ func (e *Engine) settle() {
 	}
 	if err := e.sync(); err != nil {
 		e.log.Error().Err(err).Msg("save world")
+		return
+	}
+	// what owner-led tasks start is started only once what asked for it is saved
+	if !e.closed && e.launchSaved() {
+		if err := e.sync(); err != nil {
+			e.log.Error().Err(err).Msg("save world")
+		}
 	}
 }
 
@@ -333,6 +347,8 @@ func (e *Engine) load(ctx context.Context) error {
 			err = loadInto(d, e.w.Tasks)
 		case "subTask":
 			err = loadInto(d, e.w.SubTasks)
+		case kindTaskLog:
+			err = e.loadLog(d)
 		case "chat":
 			err = loadInto(d, e.w.Chats)
 			if err == nil {
@@ -350,8 +366,8 @@ func (e *Engine) load(ctx context.Context) error {
 			return fmt.Errorf("read %s %s: %w", d.Kind, d.ID, err)
 		}
 		e.prev[docKey(d.Kind, d.ID)] = d.Data
-		if d.Kind == "chat" {
-			// savedChats detects changes; keep only presence for deletion detection.
+		if d.Kind == "chat" || d.Kind == kindTaskLog {
+			// savedChats and logDirty detect changes; keep only presence for deletion detection.
 			e.prev[docKey(d.Kind, d.ID)] = nil
 		}
 	}
@@ -411,6 +427,7 @@ func (e *Engine) documents() map[string][]byte {
 	encodeAll(now, "task", e.w.Tasks)
 	encodeAll(now, "subTask", e.w.SubTasks)
 	e.chatDocuments(now)
+	e.logDocuments(now)
 	// conversations grow large, and only the ones marked have changed
 	for id := range e.w.Conversations {
 		key := docKey(kindConv, id)
@@ -485,8 +502,8 @@ func (e *Engine) sync() error {
 	}
 	for _, d := range upserts {
 		e.prev[docKey(d.Kind, d.ID)] = d.Data
-		if d.Kind == "chat" {
-			// savedChats detects changes; keep only presence for deletion detection.
+		if d.Kind == "chat" || d.Kind == kindTaskLog {
+			// savedChats and logDirty detect changes; keep only presence for deletion detection.
 			e.prev[docKey(d.Kind, d.ID)] = nil
 		}
 		if d.Kind == "chat" {
@@ -503,17 +520,21 @@ func (e *Engine) sync() error {
 			delete(e.savedChats, d.ID)
 			delete(e.chatSummaries, d.ID)
 		}
+		if d.Kind == kindTaskLog {
+			delete(e.taskLogs, d.ID)
+		}
 	}
 	e.dirty = map[string]bool{}
+	e.logDirty = map[string]bool{}
 	e.releaseConversations()
 	ev := Event{Type: "patch"}
 	for _, d := range upserts {
-		if d.Kind != kindConv && d.Kind != kindMeta {
+		if d.Kind != kindConv && d.Kind != kindMeta && d.Kind != kindTaskLog {
 			ev.Upserts = append(ev.Upserts, Patch{Kind: d.Kind, ID: d.ID, Data: d.Data})
 		}
 	}
 	for _, d := range deletes {
-		if d.Kind != kindConv && d.Kind != kindMeta {
+		if d.Kind != kindConv && d.Kind != kindMeta && d.Kind != kindTaskLog {
 			ev.Deletes = append(ev.Deletes, Patch{Kind: d.Kind, ID: d.ID})
 		}
 	}

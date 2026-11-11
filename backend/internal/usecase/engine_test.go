@@ -306,7 +306,7 @@ func (r *rig) wait(what string, ok func(*model.World) bool) *model.World {
 // task makes a task and starts it, as the user does with the start button.
 func (r *rig) task(wfID string) *model.Task {
 	r.t.Helper()
-	return r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "加功能", Description: "說明", WorkflowID: wfID, OwnerID: &r.owner.ID}))
+	return r.start(r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "加功能", Description: "說明", WorkflowID: wfID, OwnerID: &r.owner.ID}))
 }
 
 // start starts a task just made, which waits in 待辦 until then.
@@ -892,7 +892,7 @@ func TestMergeLeftUnresolvedCanBeTriedAgain(t *testing.T) {
 
 func TestNewTaskWaitsInTodoUntilStarted(t *testing.T) {
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
-	made, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "等著", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID})
+	made, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "等著", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1126,7 +1126,7 @@ func TestSubscriptionSignedOutElsewhere(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: r.flow.ID, OwnerID: &worker.ID,
+	r.start(r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "t", WorkflowID: r.flow.ID, OwnerID: &worker.ID,
 		Staff: map[string][]string{"start": {worker.ID}, "end": {worker.ID}}}))
 	r.wait("signed out", func(w *model.World) bool { return !w.Providers[p.ID].Auth.SignedIn })
 	if _, err := r.e.StartLogin(ctx, p.ID, ""); err != nil {
@@ -1154,7 +1154,7 @@ func TestSubscriptionRunsSayNothingAboutPrices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: r.flow.ID, OwnerID: &worker.ID,
+	task := r.start(r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "t", WorkflowID: r.flow.ID, OwnerID: &worker.ID,
 		Staff: map[string][]string{"start": {worker.ID}, "end": {worker.ID}}}))
 	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
 	s := subAt(w, task.ID, "整理需求")
@@ -1539,7 +1539,7 @@ func TestTaskRunsOnAFlowOfItsOwn(t *testing.T) {
 		Handoff: enum.HandoffAll, Join: enum.JoinAll})
 	own.Edges = []model.WorkflowEdge{{ID: "e1", From: "start", To: "mid"}, {ID: "e2", From: "mid", To: "end"}}
 	before := len(r.world().Workflows)
-	made, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "自訂", WorkflowID: r.flow.ID, Workflow: &own,
+	made, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "自訂", WorkflowID: r.flow.ID, Workflow: &own,
 		Staff: map[string][]string{"mid": {r.owner.ID}}, OwnerID: &r.owner.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -1552,7 +1552,7 @@ func TestTaskRunsOnAFlowOfItsOwn(t *testing.T) {
 	}
 	// it is checked as a blueprint is: no loops
 	own.Edges = append(own.Edges, model.WorkflowEdge{ID: "e3", From: "end", To: "start"})
-	if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "迴圈", Workflow: &own,
+	if _, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "迴圈", Workflow: &own,
 		Staff: map[string][]string{"mid": {r.owner.ID}}, OwnerID: &r.owner.ID}); err == nil {
 		t.Fatal("a flow with a loop was taken")
 	}

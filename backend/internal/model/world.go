@@ -450,6 +450,14 @@ type SubTask struct {
 	SendBackReason string `json:"sendBackReason,omitempty"`
 	// Unpriced records that the cost limit was found not to apply to this run's model.
 	Unpriced bool `json:"unpriced,omitempty"`
+	// In an owner-led task: the plan this run was dispatched on, which run of it this is, what the owner told it,
+	// whether the owner accepted its handoff, whether its result still counts, and what its run is doing.
+	PlanVersion    int    `json:"planVersion,omitempty"`
+	RunGeneration  int    `json:"runGeneration,omitempty"`
+	Instruction    string `json:"instruction,omitempty"`
+	OwnerReview    string `json:"ownerReview,omitempty"`
+	Validity       string `json:"validity,omitempty"`
+	ExecutionState string `json:"executionState,omitempty"`
 }
 
 type Merge struct {
@@ -491,6 +499,9 @@ type Task struct {
 	MergeConflict bool           `json:"mergeConflict"`
 	// Origin is who made the task, when it was not the user. Older tasks have none.
 	Origin *TaskOrigin `json:"origin,omitempty"`
+	// Orchestration is owner when the task's owner leads it; older tasks have none and run by their flow alone.
+	Orchestration string        `json:"orchestration,omitempty"`
+	Coordination  *Coordination `json:"coordination,omitempty"`
 }
 
 // TaskOrigin says who made a task with create_task. Name keeps who it was, for when they are gone.

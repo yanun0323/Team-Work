@@ -34,6 +34,9 @@ func talking(s *model.SubTask) bool {
 
 func (e *Engine) taskCost(t *model.Task) float64 {
 	sum := t.CostCarry
+	if t.Coordination != nil {
+		sum += t.Coordination.OwnerCostUSD
+	}
 	for _, s := range e.subsOf(t.ID) {
 		sum += s.CostUSD
 	}
@@ -42,6 +45,9 @@ func (e *Engine) taskCost(t *model.Task) float64 {
 
 func (e *Engine) taskTokens(t *model.Task) int {
 	sum := t.TokensCarry
+	if t.Coordination != nil {
+		sum += t.Coordination.OwnerTokens
+	}
 	for _, s := range e.subsOf(t.ID) {
 		sum += s.Tokens
 	}
@@ -153,7 +159,7 @@ func (e *Engine) step() {
 	}
 	e.dispatch()
 	for _, t := range e.w.Tasks {
-		if t.Stage != enum.StageRunning || t.Paused {
+		if t.Stage != enum.StageRunning || t.Paused || t.OwnerLed() { // the owner says when theirs is done
 			continue
 		}
 		var live, any bool
@@ -178,7 +184,7 @@ func (e *Engine) routeAll() bool {
 	}
 	for _, s := range sortedSubs(all) {
 		t := e.w.Tasks[s.TaskID]
-		if !s.Cancelled && s.Status == enum.StatusComplete && !s.Routed && t.Stage == enum.StageRunning && !t.Paused {
+		if !s.Cancelled && s.Status == enum.StatusComplete && !s.Routed && t.Stage == enum.StageRunning && !t.Paused && !t.OwnerLed() {
 			moved = e.route(t, s) || moved
 		}
 	}
@@ -342,7 +348,7 @@ func (e *Engine) checkJoins() bool {
 	moved := false
 	for _, s := range e.w.SubTasks {
 		t := e.w.Tasks[s.TaskID]
-		if !s.Waiting || s.Cancelled || t.Stage != enum.StageRunning || t.Paused {
+		if !s.Waiting || s.Cancelled || t.Stage != enum.StageRunning || t.Paused || t.OwnerLed() {
 			continue
 		}
 		pending := false
@@ -401,7 +407,8 @@ func (e *Engine) dispatch() {
 	var ready []*model.SubTask
 	for _, s := range e.w.SubTasks {
 		t := e.w.Tasks[s.TaskID]
-		if s.Status == enum.StatusTodo && !s.Cancelled && !s.Waiting && t.Stage == enum.StageRunning && !t.Paused && e.taskCost(t) < e.costLimit(t) {
+		// an owner-led task's steps start once their dispatch is saved: see launchSaved
+		if s.Status == enum.StatusTodo && !s.Cancelled && !s.Waiting && t.Stage == enum.StageRunning && !t.Paused && !t.OwnerLed() && e.taskCost(t) < e.costLimit(t) {
 			ready = append(ready, s)
 		}
 	}
@@ -441,6 +448,10 @@ func (e *Engine) openReview(t *model.Task, s *model.SubTask, r model.Review) {
 	s.Review = &r
 	s.Status = enum.StatusReview
 	e.logLine(s, enum.LogSystem, i18n.T("等待使用者審核"), "review."+string(r.Kind), nil)
+	if t.OwnerLed() && r.Kind != enum.ReviewTalk {
+		e.mirrorReview(t, s)
+		return
+	}
 	e.notice(Event{Type: "notice", Kind: "review", TaskID: t.ID, SubID: s.ID})
 }
 
@@ -455,6 +466,10 @@ func (e *Engine) fail(t *model.Task, s *model.SubTask, reason, detail string) {
 	if s.Attempts <= limit {
 		e.logLine(s, enum.LogSystem, i18n.T("%s，自動重試 %d/%d", detail, s.Attempts, limit), key, map[string]any{"n": s.Attempts, "max": limit})
 		s.Status = enum.StatusTodo
+		return
+	}
+	if t.OwnerLed() {
+		e.failedForOwner(t, s, detail)
 		return
 	}
 	e.logLine(s, enum.LogSystem, detail, "", nil)
@@ -481,6 +496,16 @@ func (e *Engine) subOf(id string) (*model.SubTask, *model.Task, error) {
 func (e *Engine) statusOf(t *model.Task) enum.Status {
 	if t.Paused && t.PausedStatus != "" {
 		return t.PausedStatus
+	}
+	if t.OwnerLed() && t.Stage == enum.StageRunning {
+		c := t.Coordination
+		switch {
+		case !started(t):
+			return enum.StatusTodo
+		case c.OwnerState == model.OwnerBlocked || c.OwnerState == model.OwnerFailed || slices.ContainsFunc(c.Questions, func(q model.TaskQuestion) bool { return q.Audience == "user" }):
+			return enum.StatusReview
+		}
+		return enum.StatusProgressing
 	}
 	switch t.Stage {
 	case enum.StageDone:
@@ -525,6 +550,9 @@ type NewTask struct {
 	ChatID string `json:"chatId"`
 	// Origin is set when an employee makes the task; a request cannot claim one.
 	Origin *model.TaskOrigin `json:"-"`
+	// Legacy makes a task as they were before owners led them, run by its flow alone. No request can ask for one:
+	// every new task is owner-led.
+	Legacy bool `json:"-"`
 }
 
 func (e *Engine) CreateTask(in NewTask) (*model.Task, error) {
@@ -604,7 +632,11 @@ func (e *Engine) createTask(in NewTask) (*model.Task, error) {
 		t.Paused, t.PausedStatus = true, enum.StatusTodo
 		e.w.Tasks[t.ID] = t
 		e.pinToChat(in, t.ID)
-		e.start(t)
+		if in.Legacy {
+			e.start(t)
+		} else {
+			e.lead(t) // nothing is dispatched until the owner is woken by the start
+		}
 		out = clone(t)
 		return nil
 	}()
@@ -695,6 +727,10 @@ type TaskPatch struct {
 	Staff       map[string][]string `json:"staff"`
 	OwnerID     *string             `json:"ownerId"`
 	Swap        bool                `json:"swap"`
+	// PlanVersion and ControlVersion, when given, are what the user saw of an owner-led task; a task that moved on
+	// since refuses the change.
+	PlanVersion    *int `json:"planVersion,omitempty"`
+	ControlVersion *int `json:"controlVersion,omitempty"`
 }
 
 // UpdateTask edits a task. Without Swap a run under way keeps what it was told and later steps see the change.
@@ -710,6 +746,15 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 	}
 	if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
 		return model.Errorf(model.CodeInvalid, "任務要有標題")
+	}
+	if t.OwnerLed() {
+		c := t.Coordination
+		if p.PlanVersion != nil && *p.PlanVersion != c.PlanVersion || p.ControlVersion != nil && *p.ControlVersion != c.ControlVersion {
+			return model.Errorf(model.CodeConflict, "任務已更新，請確認最新狀態再操作")
+		}
+		if p.Swap && started(t) { // a run is stopped and confirmed before another takes it over
+			return model.Errorf(model.CodeConflict, "由負責人主導的任務不能直接換人接手執行中的步驟")
+		}
 	}
 	if p.OwnerID != nil {
 		if r := e.w.Replicas[*p.OwnerID]; r == nil || r.TeamID != t.TeamID {
@@ -746,6 +791,7 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 			return model.Errorf(model.CodeInvalid, "節點「%s」沒有指派員工", n.Name)
 		}
 	}
+	before := clone(*t)
 	if p.Title != nil {
 		t.Title = strings.TrimSpace(*p.Title)
 	}
@@ -753,10 +799,66 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 		t.Description = *p.Description
 	}
 	t.OwnerID, t.Workflow = next.OwnerID, next.Workflow
+	if t.OwnerLed() {
+		e.editedByUser(t, &before)
+		return nil
+	}
 	if p.Swap {
 		e.swapStaff(t, p.Staff)
 	}
 	return nil
+}
+
+// editedByUser records what the user changed of an owner-led task: who they put on it is allowed from now on, the
+// change is kept, and the owner, told of it, decides again on what it touches.
+func (e *Engine) editedByUser(t, before *model.Task) {
+	c := t.Coordination
+	for _, id := range e.staffOf(t) {
+		if !slices.Contains(c.Authorization.ReplicaIDs, id) {
+			c.Authorization.ReplicaIDs = append(c.Authorization.ReplicaIDs, id)
+		}
+	}
+	var what []string
+	if t.Title != before.Title || t.Description != before.Description {
+		e.editLog(t.ID).Brief = append(e.editLog(t.ID).Brief, briefEdit{At: e.w.Now, Title: t.Title, Description: t.Description})
+		what = append(what, "the title or description")
+	}
+	if !slices.EqualFunc(t.Workflow.Nodes, before.Workflow.Nodes, func(a, b model.WorkflowNode) bool { return slices.Equal(a.ReplicaIDs, b.ReplicaIDs) }) {
+		what = append(what, "who works the steps")
+	}
+	ownerChanged := (t.OwnerID == nil) != (before.OwnerID == nil) || t.OwnerID != nil && *t.OwnerID != *before.OwnerID
+	if ownerChanged {
+		what = append(what, "the owner")
+	}
+	if len(what) == 0 {
+		return
+	}
+	if ownerChanged {
+		// the old owner's decision under way no longer counts; the new one takes up what was waiting
+		if e.runs[ownerKey(t.ID)] != nil {
+			e.stopRun(ownerKey(t.ID))
+			for _, ev := range eventsIn(e.logOf(t.ID), eventProcessing) {
+				e.returnEvents(t, ev.Wake)
+			}
+		}
+		c.ControlVersion++
+		if c.OwnerState == model.OwnerBlocked && c.BlockedReason == "owner" {
+			for _, q := range c.Questions {
+				if q.Audience == "user" && q.Kind == "approval" && len(q.Options) == 0 {
+					dropQuestion(t, q.ID)
+				}
+			}
+			e.unblock(t)
+		}
+		if r := e.owner(t); r != nil {
+			e.systemEvent(t, "ownerChanged", i18n.T("負責人換成 %s", r.Name), map[string]any{"name": r.Name}, "")
+		}
+	}
+	e.newPlan(t, "the user changed "+strings.Join(what, ", "), "user")
+	e.systemEvent(t, "editedByUser", i18n.T("使用者修改了任務"), map[string]any{"what": strings.Join(what, ", ")}, "")
+	if started(t) {
+		e.addEvent(t, ownerEvent{Kind: evUserMessage, Text: "The user changed " + strings.Join(what, ", ") + " of the task. Read the task again and decide what it changes."})
+	}
 }
 
 // swapStaff hands every unfinished sub-task of a restaffed step whose employee is no longer on it to the step's
@@ -787,8 +889,24 @@ func (e *Engine) swapStaff(t *model.Task, staff map[string][]string) {
 
 // ResolveReview is the user's reply to a sub-task waiting on them: an option with a note; a question can
 // also be answered in words alone.
+
+// resolvesChange says whether this answer writes settings, and so has to go through what guards them.
+func (e *Engine) resolvesChange(subID, optionID string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	s := e.w.SubTasks[subID]
+	return s != nil && s.Review != nil && s.Review.Kind == enum.ReviewChange && optionID == optionApprove
+}
+
 func (e *Engine) ResolveReview(subID, optionID, note string) error {
+	return e.resolveReviewOf(subID, optionID, note)
+}
+
+func (e *Engine) resolveReviewOf(subID, optionID, note string) error {
 	resolve := func() error {
+		if s := e.w.SubTasks[subID]; s != nil && e.w.Tasks[s.TaskID] != nil && e.w.Tasks[s.TaskID].OwnerLed() {
+			return model.Errorf(model.CodeConflict, "這個任務由負責人主導，請在任務對話裡回答")
+		}
 		if err := e.resolveReview(subID, optionID, note); err != nil {
 			return err
 		}
@@ -799,14 +917,6 @@ func (e *Engine) ResolveReview(subID, optionID, note string) error {
 		return e.doSettings(resolve)
 	}
 	return e.do(resolve)
-}
-
-// resolvesChange says whether this answer writes settings, and so has to go through what guards them.
-func (e *Engine) resolvesChange(subID, optionID string) bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	s := e.w.SubTasks[subID]
-	return s != nil && s.Review != nil && s.Review.Kind == enum.ReviewChange && optionID == optionApprove
 }
 
 func (e *Engine) resolveReview(subID, optionID, note string) error {
@@ -934,6 +1044,10 @@ func (e *Engine) PauseTask(id string) error {
 		if t.Stage != enum.StageRunning || t.Paused {
 			return model.Errorf(model.CodeConflict, "這個任務現在不能暫停")
 		}
+		if t.OwnerLed() {
+			_, err := e.controlPause(t, TaskControl{})
+			return err
+		}
 		e.pause(t)
 		return nil
 	})
@@ -947,6 +1061,13 @@ func (e *Engine) ResumeTask(id string) error {
 		}
 		if !t.Paused {
 			return model.Errorf(model.CodeConflict, "這個任務沒有暫停")
+		}
+		if t.OwnerLed() {
+			if err := e.beginOwner(t); err != nil {
+				return err
+			}
+			e.newOperation(t, model.TaskOperation{Kind: "resume", Status: model.OpApplied})
+			return nil
 		}
 		// a task that was never started has no PausedAt; starting it is not the pause lesson
 		if t.PausedAt != nil {
@@ -976,6 +1097,7 @@ func (e *Engine) stopTask(t *model.Task) {
 	t.Stage = enum.StageCancelled
 	t.Paused, t.PausedAt, t.PausedStatus = false, nil, ""
 	t.DoneAt = ptr(e.w.Now)
+	e.stopRun(ownerKey(t.ID))
 	for _, s := range e.subsOf(t.ID) {
 		e.stopRun(s.ID)
 		if isLive(s) {
@@ -1035,6 +1157,17 @@ func (e *Engine) ChangeWorkflow(id, workflowID string) error {
 		if !t.Paused {
 			return model.Errorf(model.CodeConflict, "任務要先暫停才能更換任務藍圖")
 		}
+		if t.OwnerLed() {
+			if started(t) { // what was done is kept: the owner changes the plan instead
+				return model.Errorf(model.CodeConflict, "由負責人主導且已開始的任務不能更換任務藍圖")
+			}
+			t.WorkflowID, t.Workflow = workflowID, clone(*wf)
+			e.localize(&t.Workflow, e.w.Language)
+			e.keepOwnStaff(t)
+			t.Coordination.Authorization.ReplicaIDs = e.staffOf(t)
+			e.newPlan(t, "the user changed the flow before starting", "user")
+			return nil
+		}
 		t.CostCarry = e.taskCost(t)
 		t.TokensCarry = e.taskTokens(t)
 		e.dropSubs(t)
@@ -1055,9 +1188,13 @@ func (e *Engine) DeleteTask(id string) error {
 			return err
 		}
 		e.stopRun("merge:" + id)
+		e.stopRun(ownerKey(id))
 		e.dropSubs(t)
 		e.removeTree(t)
 		delete(e.w.Tasks, id)
+		delete(e.w.Conversations, ownerKey(id))
+		delete(e.dirty, ownerKey(id))
+		delete(e.taskLogs, id)
 		return nil
 	})
 }
@@ -1093,6 +1230,17 @@ func (e *Engine) MergeTask(id string) error {
 		if t.Stage != enum.StageAwaitMerge {
 			return model.Errorf(model.CodeConflict, "這個任務現在不能合併")
 		}
+		if t.OwnerLed() {
+			if e.owner(t) == nil {
+				return model.Errorf(model.CodeInvalid, "要先選這個任務的負責人")
+			}
+			if why := e.unfinished(t, ""); why != "" {
+				return model.Errorf(model.CodeConflict, "%s", why)
+			}
+			if e.runs[ownerKey(t.ID)] != nil {
+				return model.Errorf(model.CodeConflict, "負責人還在處理")
+			}
+		}
 		by := t.OwnerID
 		if by == nil || e.w.Replicas[*by] == nil {
 			by = nil
@@ -1121,6 +1269,9 @@ func (e *Engine) ReturnTask(id, feedback string) error {
 		if t.Stage != enum.StageAwaitMerge {
 			return model.Errorf(model.CodeConflict, "這個任務現在不能退回")
 		}
+		if t.OwnerLed() { // the step to send back has to be named: see ControlTask
+			return model.Errorf(model.CodeConflict, "要選擇退回哪一步")
+		}
 		reason := strings.TrimSpace(feedback)
 		if reason == "" {
 			return model.Errorf(model.CodeInvalid, "退回要寫理由")
@@ -1147,6 +1298,9 @@ func (e *Engine) SayInTalk(subID, text string, mentions []string) error {
 		text = strings.TrimSpace(text)
 		if text == "" {
 			return model.Errorf(model.CodeInvalid, "訊息是空的")
+		}
+		if t.OwnerLed() {
+			return model.Errorf(model.CodeConflict, "訊息只能寫給負責人")
 		}
 		if !talking(s) || s.Talk.ReplyAt != nil {
 			return model.Errorf(model.CodeConflict, "現在不能在這裡發言")
@@ -1186,6 +1340,9 @@ func (e *Engine) EndTalk(subID string, end model.TalkEnd) error {
 		s, t, err := e.subOf(subID)
 		if err != nil {
 			return err
+		}
+		if t.OwnerLed() {
+			return model.Errorf(model.CodeConflict, "訊息只能寫給負責人")
 		}
 		if !talking(s) {
 			return model.Errorf(model.CodeConflict, "這個討論已經結束")

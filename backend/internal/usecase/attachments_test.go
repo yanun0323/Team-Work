@@ -57,7 +57,7 @@ func TestFileAttachmentsReachChatsAndTasks(t *testing.T) {
 			})
 			var id string
 			if task {
-				id = r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "files", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, Files: files})).ID
+				id = r.start(r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "files", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, Files: files})).ID
 				r.wait("task", stage(id, enum.StageAwaitMerge))
 				if !slices.Equal(r.world().Tasks[id].Files, files) {
 					t.Fatal("lost task files")
@@ -128,7 +128,7 @@ func TestInvalidFileAttachmentsAreRejectedBeforeMutation(t *testing.T) {
 		if err := r.e.SayInChat(c.ID, "", nil, files); err == nil {
 			t.Fatal("sent invalid files")
 		}
-		if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "bad", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, Files: files}); err == nil {
+		if _, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "bad", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, Files: files}); err == nil {
 			t.Fatal("created invalid task")
 		}
 	}
@@ -191,7 +191,7 @@ func TestUploadedFilesReachChatsAndTasksByReference(t *testing.T) {
 		if err := r.e.SayInChat(c.ID, "", nil, bad); err == nil {
 			t.Fatalf("accepted %+v", bad)
 		}
-		if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "bad", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, Files: bad}); err == nil {
+		if _, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "bad", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, Files: bad}); err == nil {
 			t.Fatalf("task accepted %+v", bad)
 		}
 	}

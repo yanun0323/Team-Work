@@ -50,6 +50,13 @@ const (
 
 const handoffRule = "When done, call submit_handoff with the agent handoff for the next employee and the human summary for the user. It commits your changes, so do not commit them yourself."
 
+// ownerStepRule is for a step of a task its owner leads: the owner reviews the handoff and answers about the work.
+const ownerStepRule = "The task's owner dispatched this step and reviews your handoff before anything builds on it. Ask the owner about the work with ask_owner; ask the user with ask_user only what the user alone can decide."
+
+// ownerMeetingRule is for a meeting a task's owner called: each speaks once, and the owner gets what was said.
+const ownerMeetingRule = "This step is a meeting the task's owner called on the topic in the task message. Each employee in it speaks once, in turn: reply in plain text with your view, in one message. " +
+	"When everyone has spoken, the meeting ends and the owner decides. Do not change files and do not hand off."
+
 const talkRule = "This step is a discussion with the user. Reply in plain text and ask everything you need in one message. The user ends the discussion, so do not hand off. Do not change files."
 
 // talkMeetingRule tells each employee in a discussion held by several how its replies go round, as meetingRule does in
@@ -165,8 +172,13 @@ func (e *Engine) taskPrompt(t *model.Task, team *model.Team, node *model.Workflo
 	wf := e.agentFlow(&t.Workflow)
 	node = nodeOf(wf, node.ID)
 	stepRule := handoffRule
-	if node.Kind == enum.NodeTalk {
+	switch {
+	case node.Kind == enum.NodeTalk && t.OwnerLed():
+		stepRule = ownerMeetingRule
+	case node.Kind == enum.NodeTalk:
 		stepRule = talkRule
+	case t.OwnerLed():
+		stepRule = handoffRule + " " + ownerStepRule
 	}
 	return promptParts{
 		rules:  systemRules + "\n" + mentionRule + "\n" + languageRule(language) + "\n\n" + stepRule + "\n" + taskPriorityRule + "\n",
@@ -242,6 +254,13 @@ func (e *Engine) firstMessage(t *model.Task, s *model.SubTask) model.Message {
 		if u.Handoff.Commit != "" {
 			fmt.Fprintf(&b, "Commit: %s\n", u.Handoff.Commit)
 		}
+	}
+	if s.Instruction != "" {
+		owner := "the task owner"
+		if r := e.owner(t); r != nil {
+			owner = r.Name + ", the task owner"
+		}
+		fmt.Fprintf(&b, "\n# Instructions from %s\n%s\n", owner, s.Instruction)
 	}
 	if s.Rework != nil {
 		fmt.Fprintf(&b, "\n# This step was sent back\nReason: %s\n", s.Rework.Reason)

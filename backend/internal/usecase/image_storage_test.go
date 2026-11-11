@@ -201,7 +201,7 @@ func TestUploadedImagesSurviveRewindForkAndTask(t *testing.T) {
 		return call("submit_handoff", handoff), nil
 	}
 	r.fake.mu.Unlock()
-	task := r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "image", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, Images: images}))
+	task := r.start(r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "image", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, Images: images}))
 	r.wait("task", stage(task.ID, enum.StageAwaitMerge))
 	if r.world().Tasks[task.ID].Images[0].URL != url {
 		t.Fatal("task lost reference")

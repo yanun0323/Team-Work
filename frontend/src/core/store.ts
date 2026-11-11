@@ -127,8 +127,12 @@ export const useStore = create<State>()(
             // what was being written has become a message
             const said = (id: string) => s.world.chats[id]?.history?.count ?? (s.world.chats[id]?.messages ?? s.world.subTasks[id]?.talk?.messages ?? []).length
             const before = (ev.upserts ?? []).map((p) => [p.id, said(p.id)] as const)
+            // an owner's words stream under owner:<task id> until they are a line of the task's conversation
+            const owned = (id: string) => s.world.tasks[id]?.coordination?.history.count ?? 0
+            const tasks = (ev.upserts ?? []).filter((p) => p.kind === 'task').map((p) => [p.id, owned(p.id)] as const)
             applyPatches(s.world, ev, (kind, id) => kind === 'team' && editing(id))
             for (const [id, n] of before) if (said(id) > n) clearLive(id)
+            for (const [id, n] of tasks) if (owned(id) > n) clearLive(`owner:${id}`)
             if (!s.teamId) {
               const first = Object.values(s.world.teams).sort((a, b) => a.createdAt - b.createdAt)[0]
               if (first) {

@@ -7,12 +7,13 @@ import { installPresets, localizeFlow } from '../data/presets'
 import { canReach, canSendBack, feedsOnly, inEdges, nodeOf, outEdges, startsOf } from './graph'
 import { between, chance, hex, pick, uid } from './rng'
 import { taskStatus } from './rollup'
+import { currentRun, isOwnerTask, ownerStatus, resumeBlock } from './owner'
 import { adoptSources, covers, itemsOf } from './sources'
 import type {
   Chat,
   Look,
   Attachment, Blueprint, GitSource, Locale, LogKind, MemorySource, ModelProvider, ProviderAuth, Replica, Review, Script, SubTask, TalkEnd, Task, Team, Workflow, World,
-  FileInfo, SkillInfo, SkillText,
+  FileInfo, SkillInfo, SkillText, TaskActivity, TaskCoordination, TaskOperation,
 } from './types'
 
 export * from './sources'
@@ -34,15 +35,16 @@ export const subsOf = (w: World, taskId: string) =>
 /** Still has work to do or a handoff to make. */
 export const isLive = (s: SubTask) => !s.cancelled && !(s.status === 'complete' && s.routed)
 
+/** What a task has cost: its steps, runs dropped before, and on a task its owner runs, the owner's own thinking. */
 export const taskCost = (w: World, task: Task) =>
-  task.costCarry + subsOf(w, task.id).reduce((sum, s) => sum + s.costUsd, 0)
+  task.costCarry + (task.coordination?.ownerCostUsd ?? 0) + subsOf(w, task.id).reduce((sum, s) => sum + s.costUsd, 0)
 
 export const taskTokens = (w: World, task: Task) =>
-  task.tokensCarry + subsOf(w, task.id).reduce((sum, s) => sum + s.tokens, 0)
+  task.tokensCarry + (task.coordination?.ownerTokens ?? 0) + subsOf(w, task.id).reduce((sum, s) => sum + s.tokens, 0)
 
 export const costLimit = (w: World, task: Task) => w.teams[task.teamId].settings.costLimitUsd + task.budgetBonus
 
-export const statusOf = (w: World, task: Task) => taskStatus(task, subsOf(w, task.id))
+export const statusOf = (w: World, task: Task) => (isOwnerTask(task) ? ownerStatus(task, subsOf(w, task.id)) : taskStatus(task, subsOf(w, task.id)))
 
 /** The sample world's own words, in its language: what the simulator writes that no key translates. {holes} take args. */
 const say2 = (w: World, zh: string, en: string, args?: Record<string, string>) =>
@@ -90,6 +92,8 @@ export interface NewTask {
   files?: Attachment[]
   /** The company chat the user made it from; it shows under the chat's last message. */
   chatId?: string
+  /** Run by its owner, as every new task is; the simulator's own tests leave it out to run a flow by itself. */
+  orchestration?: 'owner'
 }
 
 /** A flow is shared, so a task's copy of it keeps only people from the task's own company. */
@@ -130,6 +134,12 @@ export function createTask(w: World, input: NewTask): Task {
   const chat = input.chatId ? w.chats[input.chatId] : undefined
   const at = chat?.teamId === input.teamId ? chat.messages[chat.messages.length - 1] : undefined
   if (at) at.tasks = [...(at.tasks ?? []), task.id]
+  if (input.orchestration === 'owner') {
+    // nothing runs until the user starts it; then the owner dispatches the first steps
+    task.orchestration = 'owner'
+    task.coordination = newCoordination(task)
+    return task
+  }
   start(w, task)
   return task
 }
@@ -183,15 +193,17 @@ export function tick(w: World, dt: number) {
 
   for (const s of subs) if (s.status === 'progressing') advance(w, w.tasks[s.taskId], s, dt)
   for (const s of subs) if (s.talk?.replyAt !== undefined && w.now >= s.talk.replyAt) answer(w, s)
-  for (const s of subs) if (!s.cancelled && s.status === 'complete' && !s.routed) route(w, w.tasks[s.taskId], s)
+  // an owner decides where finished work goes; only a flow running itself routes it
+  for (const s of subs) if (!s.cancelled && s.status === 'complete' && !s.routed && !isOwnerTask(w.tasks[s.taskId])) route(w, w.tasks[s.taskId], s)
   for (const s of Object.values(w.subTasks)) if (s.waiting && !s.cancelled && running(w.tasks[s.taskId])) checkJoin(w, s)
   // a merge waits for its owner; it goes before new work so the owner is not handed the next step first
   for (const t of Object.values(w.tasks)) if (t.stage === 'merging') stepMerge(w, t)
   dispatch(w)
   for (const c of Object.values(w.chats)) if (c.replyAt !== undefined && w.now >= c.replyAt) answerChat(w, c)
 
+  for (const t of Object.values(w.tasks)) if (isOwnerTask(t)) ownerTick(w, t)
   for (const t of Object.values(w.tasks)) {
-    if (running(t)) {
+    if (running(t) && !isOwnerTask(t)) {
       const all = subsOf(w, t.id).filter((s) => !s.cancelled)
       if (all.length && all.every((s) => !isLive(s))) {
         t.stage = 'awaitMerge'
@@ -262,7 +274,8 @@ function advance(w: World, task: Task, sub: SubTask, dt: number) {
     return
   }
   if (sub.progress >= 1) {
-    if (nodeOf(task.workflow, sub.nodeId)?.kind === 'talk') openTalk(w, task, sub)
+    // under an owner a meeting runs among its people; the user asks the owner instead of joining it
+    if (nodeOf(task.workflow, sub.nodeId)?.kind === 'talk' && !isOwnerTask(task)) openTalk(w, task, sub)
     else complete(w, task, sub)
   }
 }
@@ -1025,8 +1038,9 @@ export function pauseTask(w: World, taskId: string) {
   }
 }
 
-/** A task made and not yet started: paused with no pausedAt. It shows as 待辦, not 已暫停. */
+/** A task made and not yet started: paused with no pausedAt, or one its owner runs that the user has not started. It shows as 待辦, not 已暫停. */
 export function notStarted(task: Task): boolean {
+  if (isOwnerTask(task)) return task.coordination?.startedAt === undefined
   return task.paused && task.pausedAt == null
 }
 
@@ -1078,6 +1092,7 @@ export function deleteTask(w: World, taskId: string) {
   if (!w.tasks[taskId]) return
   for (const s of subsOf(w, taskId)) delete w.subTasks[s.id]
   delete w.tasks[taskId]
+  if (w.mockActivity) delete w.mockActivity[taskId]
   w.events = w.events.filter((e) => !('taskId' in e) || e.taskId !== taskId)
 }
 
@@ -1438,3 +1453,407 @@ export function setLanguage(w: World, language: Locale) {
   installPresets(w)
   for (const t of Object.values(w.tasks)) localizeFlow(t.workflow, language)
 }
+
+// ---------- tasks their owner runs ----------
+// The simulator plays the owner simply: it takes in what the user says and replies, dispatches each step whose way in
+// is done, takes in what comes back a moment later, and reports the task done. The backend's owner is a model.
+
+/** Seconds the simulated owner takes to answer, take in a handoff, or confirm a stop. */
+export const OWNER_TIME = 3
+export const STOP_TIME = 1
+
+/** A request the simulator turns down, as the backend would: `code` is the API's error code. */
+export class TaskRefusal extends Error {
+  constructor(message: string, readonly code: string) {
+    super(message)
+  }
+}
+
+export function newCoordination(task: Task): TaskCoordination {
+  const staff = task.workflow.nodes.flatMap((n) => n.replicaIds)
+  return {
+    planVersion: 1, controlVersion: 1, ownerState: 'idle', ownerCostUsd: 0, ownerTokens: 0,
+    history: { version: '0', count: 0 },
+    authorization: { replicaIds: [...new Set([...(task.ownerId ? [task.ownerId] : []), ...staff])], planChanges: true },
+    facts: [], questions: [], operations: [],
+  }
+}
+
+function ownerTask(w: World, id: string): Task & { coordination: TaskCoordination } {
+  const t = w.tasks[id]
+  if (!t) throw new TaskRefusal(say2(w, '找不到這個任務', 'Task not found'), 'not_found')
+  if (!isOwnerTask(t) || !t.coordination) throw new TaskRefusal(say2(w, '這是舊制任務，沒有負責人對話', 'This task runs the older way and has no owner conversation'), 'conflict')
+  return t as Task & { coordination: TaskCoordination }
+}
+
+/** Who said something, as they were then. */
+const byWhom = (w: World, id: string | null | undefined) => {
+  const r = id ? w.replicas[id] : undefined
+  return r ? { by: r.id, name: r.name, look: { ...r.look } } : {}
+}
+
+export function postActivity(w: World, task: Task, a: Omit<TaskActivity, 'id' | 'seq' | 'at' | 'planVersion'>): TaskActivity {
+  const list = ((w.mockActivity ??= {})[task.id] ??= [])
+  const c = task.coordination!
+  const item: TaskActivity = { id: uid(w, 'act'), seq: list.length + 1, at: w.now, planVersion: c.planVersion, ...a }
+  list.push(item)
+  c.history = { version: String(item.seq), count: item.seq }
+  return item
+}
+
+const taskEvent = (w: World, task: Task, key: string, text: string, args: Record<string, string> = {}, extra: Partial<TaskActivity> = {}) =>
+  postActivity(w, task, { kind: 'event', from: 'system', key, text: text.replace(/\{(\w+)\}/g, (hole, k: string) => args[k] ?? hole), args, ...extra })
+
+const ownerSays = (w: World, task: Task, text: string) =>
+  postActivity(w, task, { kind: 'message', from: 'agent', text, ...byWhom(w, task.ownerId) })
+
+const ownerName = (w: World, task: Task) => (task.ownerId ? w.replicas[task.ownerId]?.name : undefined) ?? ''
+
+function operation(w: World, task: Task, kind: TaskOperation['kind'], requestId: string, extra: Partial<TaskOperation> = {}): TaskOperation {
+  const c = task.coordination!
+  const op: TaskOperation = { id: uid(w, 'op'), requestId, kind, status: 'received', at: w.now, updatedAt: w.now, ...extra }
+  c.operations.push(op)
+  // every open one, and the last 20 closed
+  const closed = c.operations.filter((o) => o.status === 'applied' || o.status === 'failed')
+  if (closed.length > 20) {
+    const old = new Set(closed.slice(0, closed.length - 20).map((o) => o.id))
+    c.operations = c.operations.filter((o) => !old.has(o.id))
+  }
+  return c.operations[c.operations.length - 1]
+}
+
+const settleOp = (w: World, op: TaskOperation, status: TaskOperation['status']) => {
+  op.status = status
+  op.updatedAt = w.now
+}
+
+const ended = (w: World) => new TaskRefusal(say2(w, '這個任務已經結束，不能再這樣做', 'This task has ended; that is no longer possible'), 'conflict')
+
+export interface OwnerMessage {
+  requestId: string
+  text: string
+  images?: Attachment[]
+  files?: Attachment[]
+}
+
+/** The user tells the owner something. It is kept at once; the owner takes it in on its next turn. */
+export function sayToOwner(w: World, taskId: string, m: OwnerMessage): { operation: TaskOperation; activity: TaskActivity } {
+  const task = ownerTask(w, taskId)
+  const c = task.coordination
+  const again = c.operations.find((o) => o.requestId === m.requestId)
+  if (again) return { operation: again, activity: (w.mockActivity?.[task.id] ?? []).find((a) => a.id === again.messageId)! }
+  if (!m.text.trim() && !m.images?.length && !m.files?.length) throw new TaskRefusal(say2(w, '訊息是空的', 'The message is empty'), 'invalid_request')
+  if (task.stage !== 'running' && task.stage !== 'awaitMerge') throw ended(w)
+  const activity = postActivity(w, task, { kind: 'message', from: 'user', text: m.text.trim(), ...(m.images?.length ? { images: m.images } : {}), ...(m.files?.length ? { files: m.files } : {}) })
+  const op = operation(w, task, 'message', m.requestId, { messageId: activity.id })
+  activity.operationId = op.id
+  c.controlVersion++
+  c.ownerState = 'queued'
+  // what the owner reported done has to be looked at again with this in mind
+  if (task.stage === 'awaitMerge') task.stage = 'running'
+  return { operation: op, activity }
+}
+
+export type OwnerControl =
+  | { requestId: string; action: 'pause' }
+  | { requestId: string; action: 'resume'; planVersion: number; controlVersion: number }
+  | { requestId: string; action: 'return'; subId: string; reason: string; planVersion: number; controlVersion: number }
+  | { requestId: string; action: 'retry'; operationId: string; planVersion: number; controlVersion: number }
+  | { requestId: string; action: 'answer'; questionId: string; optionId: string; note?: string; planVersion: number; controlVersion: number }
+
+/** Every run that read `sub`'s work, and every run that read theirs. */
+function readersOf(w: World, task: Task, sub: SubTask): SubTask[] {
+  const found = new Set([sub.id])
+  const out: SubTask[] = []
+  for (let grew = true; grew;) {
+    grew = false
+    for (const s of subsOf(w, task.id)) {
+      if (!found.has(s.id) && currentRun(s) && s.upstreamIds.some((u) => found.has(u))) {
+        found.add(s.id)
+        out.push(s)
+        grew = true
+      }
+    }
+  }
+  return out
+}
+
+/** Asks the runs given to stop: none goes on, and each is stopped once that is confirmed. */
+function askStop(w: World, runs: SubTask[]) {
+  const asked: string[] = []
+  for (const s of runs) {
+    if (s.status !== 'progressing' && s.executionState !== 'running') continue
+    s.status = 'todo'
+    s.executionState = 'stopping'
+    log(s, w.now, 'system', '任務已暫停，中斷工作', 'paused')
+    asked.push(s.id)
+  }
+  return asked
+}
+
+/** The user pauses, starts or resumes, sends a step back, retries the owner or answers a question. */
+export function controlOwnerTask(w: World, taskId: string, b: OwnerControl): { operation: TaskOperation } {
+  const task = ownerTask(w, taskId)
+  const c = task.coordination
+  const again = c.operations.find((o) => o.requestId === b.requestId)
+  if (again) return { operation: again }
+  if (task.stage !== 'running' && task.stage !== 'awaitMerge') throw ended(w)
+  // a pause goes through whatever the screen showed; anything else is decided on what the user saw
+  if (b.action !== 'pause' && (b.planVersion !== c.planVersion || b.controlVersion !== c.controlVersion)) {
+    throw new TaskRefusal(say2(w, '任務在你看到之後有了變化，請看過最新狀態再試', 'The task changed after you saw it; check where it is now and try again'), 'conflict')
+  }
+  const subs = subsOf(w, task.id)
+  switch (b.action) {
+    case 'pause': {
+      const op = operation(w, task, 'pause', b.requestId)
+      if (task.paused) {
+        settleOp(w, op, 'applied')
+        return { operation: op }
+      }
+      task.paused = true
+      task.pausedAt = w.now
+      c.controlVersion++
+      op.affectedSubIds = askStop(w, subs.filter(currentRun))
+      settleOp(w, op, op.affectedSubIds.length ? 'processing' : 'applied')
+      taskEvent(w, task, 'paused', say2(w, '任務已暫停', 'Task paused'), {}, { operationId: op.id })
+      return { operation: op }
+    }
+    case 'resume': {
+      const why = resumeBlock(task, subs)
+      if (why) {
+        throw new TaskRefusal(why === 'owner' ? say2(w, '先選任務負責人', 'Pick the task owner first')
+          : why === 'stopping' ? say2(w, '還在停止執行中的步驟，等停好再繼續', 'Steps are still being stopped; continue once they have')
+          : why === 'uncertain' ? say2(w, '有步驟無法確認是否已停止，請先確認', 'A step may still be running; check it first')
+          : say2(w, '先回答待決的問題', 'Answer the open question first'), 'conflict')
+      }
+      if (!task.paused) throw new TaskRefusal(say2(w, '任務沒有暫停', 'The task is not paused'), 'conflict')
+      const first = c.startedAt === undefined
+      task.paused = false
+      task.pausedAt = undefined
+      task.pausedStatus = undefined
+      c.controlVersion++
+      if (first) {
+        c.startedAt = w.now
+        c.ownerState = 'queued'
+      }
+      // a run stopped by the pause starts again as a new run
+      for (const s of subs) {
+        if (currentRun(s) && s.executionState === 'stopped') {
+          s.executionState = 'queued'
+          s.runGeneration = (s.runGeneration ?? 1) + 1
+        }
+      }
+      const op = operation(w, task, 'resume', b.requestId)
+      settleOp(w, op, 'applied')
+      taskEvent(w, task, first ? 'started' : 'resumed', first ? say2(w, '任務開始', 'Task started') : say2(w, '任務繼續', 'Task resumed'), {}, { operationId: op.id })
+      return { operation: op }
+    }
+    case 'return': {
+      const sub = w.subTasks[b.subId]
+      if (!sub || sub.taskId !== task.id || !currentRun(sub)) throw new TaskRefusal(say2(w, '這一步已經有新的重做，不能再退回', 'This step has been redone since; it cannot be sent back'), 'conflict')
+      const reason = b.reason.trim()
+      if (!reason) throw new TaskRefusal(say2(w, '請寫退回原因', 'Say why it goes back'), 'invalid_request')
+      // the task stops where it is: nothing new is dispatched until the user resumes
+      task.paused = true
+      task.pausedAt ??= w.now
+      if (task.stage === 'awaitMerge') task.stage = 'running'
+      c.controlVersion++
+      const readers = readersOf(w, task, sub)
+      const op = operation(w, task, 'return', b.requestId, { subId: sub.id, affectedSubIds: [sub.id, ...readers.map((s) => s.id)] })
+      const asked = askStop(w, [sub, ...readers])
+      sub.validity = 'superseded'
+      for (const s of readers) s.validity = 'needsRevalidation'
+      const redo = spawn(w, task, sub.nodeId, [...sub.upstreamIds], sub.parentId, w.now)
+      redo.script = { ...redo.script, ask: undefined, fail: undefined, sendBack: undefined }
+      redo.replicaId = sub.replicaId
+      redo.rework = { from: sub.id, reason }
+      redo.instruction = sub.instruction
+      redo.planVersion = c.planVersion
+      redo.runGeneration = (sub.runGeneration ?? 1) + 1
+      redo.executionState = 'queued'
+      redo.validity = 'current'
+      settleOp(w, op, asked.length ? 'processing' : 'applied')
+      const step = nodeOf(task.workflow, sub.nodeId)?.name ?? sub.nodeId
+      taskEvent(w, task, 'returned', say2(w, '「{step}」退回重做：{reason}', '"{step}" sent back to redo: {reason}'), { step, reason }, { subId: sub.id, nodeId: sub.nodeId, operationId: op.id })
+      return { operation: op }
+    }
+    case 'retry': {
+      const failed = c.operations.find((o) => o.id === b.operationId && o.status === 'failed')
+      if (!failed) throw new TaskRefusal(say2(w, '沒有可以重試的失敗', 'Nothing failed to retry'), 'conflict')
+      c.ownerState = 'queued'
+      c.blockedReason = undefined
+      const op = operation(w, task, 'retry', b.requestId)
+      settleOp(w, op, 'applied')
+      return { operation: op }
+    }
+    case 'answer': {
+      const q = c.questions.find((x) => x.id === b.questionId && x.audience === 'user')
+      if (!q) throw new TaskRefusal(say2(w, '這個問題已經回答過，或不再適用', 'This question was answered already or no longer applies'), 'conflict')
+      const option = q.options.find((o) => o.id === b.optionId)
+      if (!option) throw new TaskRefusal(say2(w, '沒有這個選項', 'No such option'), 'invalid_request')
+      c.questions = c.questions.filter((x) => x.id !== q.id)
+      c.controlVersion++
+      const label = option.label ?? (option.id === 'approve' ? say2(w, '同意', 'Agree') : option.id === 'reject' ? say2(w, '拒絕', 'Refuse') : option.id)
+      const said = postActivity(w, task, { kind: 'message', from: 'user', text: [label, b.note?.trim()].filter(Boolean).join('\n'), questionId: q.id })
+      if (q.kind === 'approval' && option.id === 'approve' && q.change?.kind === 'employees') {
+        for (const l of q.change.lines) if (l.after && w.replicas[l.after] && !c.authorization.replicaIds.includes(l.after)) c.authorization.replicaIds.push(l.after)
+      }
+      const op = operation(w, task, 'answer', b.requestId, { messageId: said.id })
+      said.operationId = op.id
+      c.ownerState = 'queued'
+      return { operation: op }
+    }
+  }
+}
+
+/** A page of a task's conversation, oldest first: the newest `limit` before `before` (exclusive), or the newest. */
+export function activityPage(w: World, taskId: string, q: { before?: number; limit?: number; version?: string }) {
+  const task = ownerTask(w, taskId)
+  const list = w.mockActivity?.[taskId] ?? []
+  const version = task.coordination.history.version
+  if (q.version && q.version !== version) throw new TaskRefusal(say2(w, '對話已經更新', 'The conversation has changed'), 'conflict')
+  const end = q.before === undefined ? list.length : Math.max(0, Math.min(q.before - 1, list.length))
+  const start = Math.max(0, end - Math.min(100, Math.max(1, q.limit ?? 50)))
+  return { version, total: list.length, items: clone(list.slice(start, end)), hasMore: start > 0 }
+}
+
+export function activityItem(w: World, taskId: string, id: string): TaskActivity {
+  ownerTask(w, taskId)
+  const a = w.mockActivity?.[taskId]?.find((x) => x.id === id)
+  if (!a) throw new TaskRefusal(say2(w, '找不到這則訊息', 'Message not found'), 'not_found')
+  return clone(a)
+}
+
+/** The owner gives a step to its employee, with what to do. */
+function dispatchStep(w: World, task: Task, nodeId: string, from: SubTask[]) {
+  const c = task.coordination!
+  const n = nodeOf(task.workflow, nodeId)!
+  const s = spawn(w, task, nodeId, from.map((x) => x.id), from[0]?.id ?? null, w.now)
+  s.script = { ...s.script, ask: undefined, fail: undefined, sendBack: undefined }
+  s.replicaId = n.replicaIds.find((r) => w.replicas[r]) ?? task.ownerId
+  s.instruction = n.prompt || say2(w, '依任務說明完成「{step}」', 'Do "{step}" as the task asks', { step: n.name })
+  s.planVersion = c.planVersion
+  s.runGeneration = 1
+  s.executionState = 'queued'
+  s.validity = 'current'
+  const name = (s.replicaId ? w.replicas[s.replicaId]?.name : undefined) ?? ''
+  taskEvent(w, task, 'dispatched', say2(w, '{owner} 派 {name} 做「{step}」', '{owner} gave "{step}" to {name}'), { owner: ownerName(w, task), name, step: n.name }, { subId: s.id, nodeId })
+}
+
+/** A run's work comes back to the owner: a meeting's words first, then what its employee handed on. */
+function handBack(w: World, task: Task, s: SubTask) {
+  const n = nodeOf(task.workflow, s.nodeId)
+  if (n?.kind === 'talk') {
+    const people = n.replicaIds.filter((r) => w.replicas[r])
+    const lines = [s.script.talk?.opening, ...(s.script.talk?.replies ?? [])].filter((x): x is string => !!x)
+    people.forEach((r, i) => {
+      if (lines[i]) postActivity(w, task, { kind: 'meeting', from: 'agent', text: lines[i], ...byWhom(w, r), subId: s.id, nodeId: s.nodeId, meetingId: s.id })
+    })
+  }
+  postActivity(w, task, { kind: 'handoff', from: 'agent', text: s.handoff?.human.headline ?? '', ...byWhom(w, s.replicaId), subId: s.id, nodeId: s.nodeId })
+}
+
+/** The simulated owner's turn: confirm stops, answer the user, take in work, dispatch what can start, report done. */
+function ownerTick(w: World, task: Task) {
+  const c = task.coordination
+  if (!c) return
+  const subs = subsOf(w, task.id)
+  for (const op of c.operations) {
+    if ((op.kind === 'pause' || op.kind === 'return') && op.status === 'processing' && w.now >= op.updatedAt + STOP_TIME) {
+      for (const id of op.affectedSubIds ?? []) {
+        const s = w.subTasks[id]
+        if (s?.executionState === 'stopping') s.executionState = 'stopped'
+      }
+      settleOp(w, op, 'applied')
+      taskEvent(w, task, 'stopped', say2(w, '執行中的步驟都已停止', 'Every running step has stopped'), {}, { operationId: op.id })
+    }
+  }
+  for (const s of subs) if (currentRun(s) && s.status === 'progressing') s.executionState = 'running'
+  if (task.stage !== 'running') return
+  // what the user said comes first: taken in, then answered
+  let busy = false
+  for (const op of c.operations) {
+    if ((op.kind !== 'message' && op.kind !== 'answer') || (op.status !== 'received' && op.status !== 'processing')) continue
+    busy = true
+    if (op.status === 'received') {
+      settleOp(w, op, 'processing')
+      c.ownerState = 'responding'
+    } else if (w.now >= op.updatedAt + OWNER_TIME) {
+      settleOp(w, op, 'applied')
+      c.ownerCostUsd += 0.012
+      c.ownerTokens += 1400
+      ownerSays(w, task, task.paused
+        ? say2(w, '收到。任務暫停中，我先記下來，等你繼續後照這個方向安排。', 'Got it. The task is paused, so I have noted it, and will plan by it once you continue.')
+        : say2(w, '收到，接下來的安排會照這個方向調整。', 'Got it. I will plan the next steps around it.'))
+    }
+  }
+  if (busy) return
+  if (c.startedAt === undefined || task.paused) {
+    c.ownerState = 'idle'
+    return
+  }
+  const live = subs.filter(currentRun)
+  // finished work comes back to the owner, who takes it in a moment later
+  for (const s of live) {
+    if (s.status === 'complete' && !s.ownerReview) {
+      s.ownerReview = 'pending'
+      s.routed = true
+      handBack(w, task, s)
+    }
+  }
+  for (const s of live) {
+    if (s.ownerReview === 'pending' && w.now >= (s.endedAt ?? w.now) + OWNER_TIME) {
+      s.ownerReview = 'accepted'
+      c.ownerCostUsd += 0.008
+      c.ownerTokens += 900
+      const step = nodeOf(task.workflow, s.nodeId)?.name ?? s.nodeId
+      taskEvent(w, task, 'accepted', say2(w, '{owner} 接受「{step}」的交付', '{owner} accepted "{step}"'), { owner: ownerName(w, task), step }, { subId: s.id, nodeId: s.nodeId })
+    }
+  }
+  if (live.some((s) => s.ownerReview === 'pending')) {
+    c.ownerState = 'responding'
+    return
+  }
+  // a run sent back has to be redone, and the runs that read it are checked again once it is
+  for (const s of live) {
+    if (s.validity === 'needsRevalidation' && s.ownerReview === 'accepted' && !live.some((o) => o.ownerReview !== 'accepted' && s.upstreamIds.includes(o.id))) s.validity = 'current'
+  }
+  const wf = task.workflow
+  const accepted = (nodeId: string) => live.filter((s) => s.nodeId === nodeId && s.ownerReview === 'accepted')
+  const open = (nodeId: string) => live.some((s) => s.nodeId === nodeId && s.ownerReview !== 'accepted')
+  let dispatched = 0
+  for (const n of wf.nodes) {
+    if (accepted(n.id).length || open(n.id)) continue
+    const ins = inEdges(wf, n.id)
+    // the ways in whose step is done and, where that step picks one way on, picked this one
+    const chosen = ins.filter((e) => {
+      const done = accepted(e.from)
+      if (!done.length) return false
+      const outs = outEdges(wf, e.from)
+      if (nodeOf(wf, e.from)?.handoff !== 'pickOne' || outs.length < 2) return true
+      const r = done[done.length - 1].script.route
+      return outs[(typeof r === 'number' ? r : 0) % outs.length].to === n.id
+    })
+    if (ins.length && (n.join === 'all' ? chosen.length < ins.length : !chosen.length)) continue
+    dispatchStep(w, task, n.id, chosen.flatMap((e) => accepted(e.from).slice(-1)))
+    dispatched++
+  }
+  if (dispatched) {
+    c.ownerCostUsd += 0.006
+    c.ownerTokens += 700
+    c.ownerState = 'idle'
+    return
+  }
+  if (live.length && live.every((s) => s.ownerReview === 'accepted' && s.validity !== 'needsRevalidation') && !c.questions.length) {
+    task.stage = 'awaitMerge'
+    c.ownerState = 'idle'
+    taskEvent(w, task, 'completed', say2(w, '{owner} 回報完成，等你決定合併', '{owner} reported it done; merging is up to you'), { owner: ownerName(w, task) })
+    ownerSays(w, task, say2(w, '每一步都完成並確認過了，可以合併。要改什麼也可以直接跟我說。', 'Every step is done and checked; it is ready to merge. Tell me if anything should change.'))
+    w.events.push({ kind: 'awaitMerge', taskId: task.id })
+    return
+  }
+  c.ownerState = 'idle'
+}
+
+/** Exposed for the seed, which writes an owner-run task partway through. */
+export const ownerSeed = { dispatchStep, handBack, ownerSays, taskEvent }

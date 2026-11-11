@@ -155,7 +155,7 @@ func TestEmployeesAreToldPresetsInEnglish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task := r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "加功能", WorkflowID: "team-work--bugfix", OwnerID: &pm.ID,
+	task := r.start(r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "加功能", WorkflowID: "team-work--bugfix", OwnerID: &pm.ID,
 		Staff: map[string][]string{"reproduce": {pm.ID}, "fix": {pm.ID}, "verify": {pm.ID}}}))
 	if task.Workflow.Nodes[0].Name != "重現問題" {
 		t.Fatalf("the task shows %q", task.Workflow.Nodes[0].Name)
@@ -200,10 +200,10 @@ func TestFlowsAreShared(t *testing.T) {
 	if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: wf.ID}); err == nil {
+	if _, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "t", WorkflowID: wf.ID}); err == nil {
 		t.Fatal("a step with only someone from another company was staffed")
 	}
-	task := r.start(r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: wf.ID, Staff: map[string][]string{wf.Nodes[1].ID: {r.owner.ID}}}))
+	task := r.start(r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "t", WorkflowID: wf.ID, Staff: map[string][]string{wf.Nodes[1].ID: {r.owner.ID}}}))
 	for _, n := range task.Workflow.Nodes {
 		if slices.Contains(n.ReplicaIDs, bo.ID) {
 			t.Fatal("staff from another company came along")

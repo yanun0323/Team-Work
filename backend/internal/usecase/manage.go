@@ -505,8 +505,13 @@ func (e *Engine) updateTaskTool(m manager) func(context.Context, string, json.Ra
 			return toolError("nothing to change")
 		}
 		err := e.act(m, false, func() error {
-			if t := e.w.Tasks[a.TaskID]; t == nil || !m.reaches(t.TeamID) {
+			t := e.w.Tasks[a.TaskID]
+			if t == nil || !m.reaches(t.TeamID) {
 				return model.Errorf(model.CodeNotFound, "找不到任務")
+			}
+			// what the user allowed an owner-led task is theirs to change, not an employee's
+			if t.OwnerLed() && started(t) {
+				return model.Errorf("forbidden", "由負責人主導且已開始的任務只有使用者能修改")
 			}
 			return e.updateTask(a.TaskID, TaskPatch{Title: a.Title, Description: a.Description, Staff: a.Staff, OwnerID: a.OwnerID})
 		})

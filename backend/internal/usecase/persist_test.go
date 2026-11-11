@@ -66,7 +66,7 @@ func TestAChangeThatCannotBeSavedFails(t *testing.T) {
 	if _, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"}); err == nil {
 		t.Fatal("a chat that was not saved was made")
 	}
-	if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "沒存到", WorkflowID: r.flow.ID}); err == nil {
+	if _, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "沒存到", WorkflowID: r.flow.ID}); err == nil {
 		t.Fatal("a task that was not saved was made")
 	}
 	time.Sleep(200 * time.Millisecond)

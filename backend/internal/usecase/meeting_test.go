@@ -331,7 +331,7 @@ func TestTalkWithSeveralIsAMeeting(t *testing.T) {
 	if err := r.e.SaveWorkflow(wf.ID, wf); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: wf.ID, Staff: map[string][]string{start: two}}); err == nil {
+	if _, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "t", WorkflowID: wf.ID, Staff: map[string][]string{start: two}}); err == nil {
 		t.Fatal("a task with two employees on a work step was accepted")
 	}
 	task := r.task(wf.ID)
