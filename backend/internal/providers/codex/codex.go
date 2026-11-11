@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -584,30 +585,41 @@ func (c *Client) Complete(ctx context.Context, req model.ModelRequest, onText fu
 // reasoningOrigin marks the reasoning items this model wrote; only the same model is sent them back.
 func reasoningOrigin(modelID string) string { return "codex:" + modelID }
 
-// reasoningItem is a reasoning item as it can go back as input. Its id is left out: with store false the backend
-// keeps no item for it to name. Nil when the item holds no encrypted content, as there is then nothing to resume.
+// reasoningItem is a reasoning item exactly as the backend sent it, id and all, as Codex itself sends it back
+// (codex-rs/protocol/src/models.rs, ResponseItem::Reasoning). Nil when the item holds no encrypted content: with
+// store false the backend keeps nothing, so such an item has nothing to resume from.
 func reasoningItem(event string) json.RawMessage {
 	var ev struct {
-		Item map[string]json.RawMessage `json:"item"`
+		Item json.RawMessage `json:"item"`
 	}
-	if json.Unmarshal([]byte(strings.TrimSpace(event)), &ev) != nil || len(ev.Item["encrypted_content"]) == 0 || string(ev.Item["encrypted_content"]) == "null" {
+	var fields struct {
+		Encrypted *string `json:"encrypted_content"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(event)), &ev) != nil || json.Unmarshal(ev.Item, &fields) != nil || fields.Encrypted == nil || *fields.Encrypted == "" {
 		return nil
 	}
-	delete(ev.Item, "id")
-	raw, err := json.Marshal(ev.Item)
-	if err != nil {
-		return nil
-	}
-	return raw
+	return ev.Item
 }
 
 // readStream reads the reply. Server text never goes into errors, as it can echo the conversation.
 // Reasoning items are kept, encrypted content and all, to go back in the next request's input: the model continues
-// from them after a tool call, and the backend caches a start that holds them.
+// from them after a tool call, and the backend caches a start that holds them. Content keeps the order of the
+// response's output items, as OpenAI asks of history sent back by hand.
 func readStream(ctx context.Context, body io.Reader, onText func(string), origin string) (model.ModelReply, error) {
 	var reply model.ModelReply
 	var text strings.Builder
-	var calls, reasoning []model.Block
+	var content []model.Block
+	flush := func() { // text so far goes where its message item ended
+		if text.Len() == 0 {
+			return
+		}
+		if n := len(content); n > 0 && content[n-1].Type == enum.BlockText {
+			content[n-1].Text += text.String()
+		} else {
+			content = append(content, model.Block{Type: enum.BlockText, Text: text.String()})
+		}
+		text.Reset()
+	}
 	finished := false
 	sc := bufio.NewScanner(body)
 	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
@@ -650,9 +662,10 @@ func readStream(ctx context.Context, body io.Reader, onText func(string), origin
 			text.WriteString(ev.Delta)
 			onText(ev.Delta)
 		case "response.output_item.done":
+			flush()
 			if ev.Item.Type == "reasoning" {
 				if raw := reasoningItem(data); raw != nil {
-					reasoning = append(reasoning, model.Block{Type: enum.BlockReasoning, Raw: raw, Origin: origin})
+					content = append(content, model.Block{Type: enum.BlockReasoning, Raw: raw, Origin: origin})
 				}
 			}
 			if ev.Item.Type == "function_call" {
@@ -660,7 +673,7 @@ func readStream(ctx context.Context, body io.Reader, onText func(string), origin
 				if !json.Valid([]byte(args)) {
 					args = "{}" // the tool will say what is missing
 				}
-				calls = append(calls, model.Block{Type: enum.BlockToolCall, ID: ev.Item.CallID, Name: ev.Item.Name, Args: json.RawMessage(args)})
+				content = append(content, model.Block{Type: enum.BlockToolCall, ID: ev.Item.CallID, Name: ev.Item.Name, Args: json.RawMessage(args)})
 			}
 		case "response.completed", "response.incomplete":
 			u := ev.Response.Usage
@@ -689,13 +702,11 @@ func readStream(ctx context.Context, body io.Reader, onText func(string), origin
 	if !finished {
 		return model.ModelReply{}, unavailable("ChatGPT 的回覆中斷了")
 	}
-	reply.Content = reasoning
-	if text.Len() > 0 {
-		reply.Content = append(reply.Content, model.Block{Type: enum.BlockText, Text: text.String()})
+	flush()
+	if reply.Truncated { // never run partial tool arguments
+		content = slices.DeleteFunc(content, func(b model.Block) bool { return b.Type == enum.BlockToolCall })
 	}
-	if !reply.Truncated { // never run partial tool arguments
-		reply.Content = append(reply.Content, calls...)
-	}
+	reply.Content = content
 	return reply, nil
 }
 

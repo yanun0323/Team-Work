@@ -1564,3 +1564,50 @@ func copyOf[T any](v T) T {
 	_ = json.Unmarshal(raw, &out)
 	return out
 }
+
+// A step's reasoning is saved with its conversation and, after a restart, goes back unchanged and in its place on
+// the next call; the provider decides whether it may read it.
+func TestStepReasoningSurvivesARestart(t *testing.T) {
+	reasoning := model.Block{Type: enum.BlockReasoning, Raw: json.RawMessage(`{"type":"reasoning","id":"rs_1","encrypted_content":"enc","summary":[]}`), Origin: "codex:fake"}
+	stuck := make(chan struct{})
+	var once sync.Once
+	block := true
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if block {
+			once.Do(func() { close(stuck) })
+			reply := call("run_command", map[string]any{"command": "sleep 30"})
+			reply.Content = append([]model.Block{reasoning}, reply.Content...)
+			return reply, nil
+		}
+		return call("submit_handoff", handoff), nil
+	})
+	task := r.task(r.flow.ID)
+	<-stuck
+	r.wait("conversation saved", func(w *model.World) bool {
+		s := subAt(w, task.ID, "整理需求")
+		return s != nil && len(s.Log) > 2
+	})
+	r.e.Close()
+	r.store.Close()
+	r.fake.mu.Lock()
+	block = false
+	r.fake.seen = nil
+	r.fake.mu.Unlock()
+
+	newEngine(t, r)
+	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	r.fake.mu.Lock()
+	defer r.fake.mu.Unlock()
+	if len(r.fake.seen) == 0 {
+		t.Fatal("no call after the restart")
+	}
+	var kept []model.Block
+	for _, m := range r.fake.seen[0].Messages {
+		if m.Role == enum.RoleAssistant && len(m.Content) > 0 && m.Content[0].Type == enum.BlockReasoning {
+			kept = m.Content
+		}
+	}
+	if len(kept) != 2 || string(kept[0].Raw) != string(reasoning.Raw) || kept[0].Origin != reasoning.Origin || kept[1].Type != enum.BlockToolCall {
+		t.Fatalf("reasoning after a restart: %+v", kept)
+	}
+}

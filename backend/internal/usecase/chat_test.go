@@ -1847,4 +1847,27 @@ func TestReasoningIsKeptForTheNextCall(t *testing.T) {
 	if got := r.world().Chats[c.ID].Messages[1].Text; got != "好" {
 		t.Fatalf("the chat shows %q", got)
 	}
+
+	// a chat handed off from here carries the reasoning too, after a restart
+	r.e.Close()
+	newEngine(t, r)
+	fork, err := r.e.HandOffChat(c.ID, 1, r.owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.SayInChat(fork.ID, "接著說", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("fork reply", chatDone(fork.ID))
+	sent = nil
+	for _, m := range r.fake.seen[len(r.fake.seen)-1].Messages {
+		for _, b := range m.Content {
+			if b.Type == enum.BlockReasoning {
+				sent = append(sent, b)
+			}
+		}
+	}
+	if len(sent) != 1 || string(sent[0].Raw) != string(reasoning.Raw) || sent[0].Origin != reasoning.Origin {
+		t.Fatalf("reasoning in the handed-off chat: %+v", sent)
+	}
 }

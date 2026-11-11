@@ -47,6 +47,10 @@ func TestCompleteThroughTheChild(t *testing.T) {
 	if len(reply.Content) == 0 || reply.Content[0].Type != enum.BlockText || reply.Content[0].Text != text.String() {
 		t.Fatalf("%+v %q", reply, text.String())
 	}
+	// the child reports no cache writes, so none are claimed
+	if reply.Usage.Input == 0 || reply.Usage.CacheWriteKnown || reply.Usage.CacheWrite != 0 {
+		t.Fatalf("usage %+v", reply.Usage)
+	}
 	if ids, err := c.Models(context.Background()); err != nil || len(ids) == 0 {
 		t.Fatalf("%v %v", ids, err)
 	}

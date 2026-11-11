@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -438,10 +439,16 @@ func TestWordsAfterToolResultsFollowTheOutputs(t *testing.T) {
 }
 
 // With store false the backend keeps nothing, so a reasoning item must come back in the input for the model to
-// continue from it after a tool call. Only the model that wrote it is sent it.
+// continue from it after a tool call: exactly as it came, id included, where it came among the output items. Only the
+// model that wrote it is sent it.
 func TestReasoningItemsGoBackToTheSameModel(t *testing.T) {
+	first := `{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"plan"}],"encrypted_content":"enc-1","status":"completed"}`
+	second := `{"id":"rs_3","type":"reasoning","encrypted_content":"enc-3","summary":[]}`
 	stream := strings.Join([]string{
-		`data: {"type":"response.output_item.done","item":{"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"enc-1"}}`,
+		`data: {"type":"response.output_item.done","item":` + first + `}`,
+		`data: {"type":"response.output_text.delta","delta":"look"}`,
+		`data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"look"}]}}`,
+		`data: {"type":"response.output_item.done","item":` + second + `}`,
 		`data: {"type":"response.output_item.done","item":{"type":"reasoning","id":"rs_2","summary":[]}}`,
 		`data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"c1","name":"read","arguments":"{}"}}`,
 		`data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":2,"input_tokens_details":{"cached_tokens":8}}}}`,
@@ -450,10 +457,16 @@ func TestReasoningItemsGoBackToTheSameModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reply.Content) != 2 || reply.Content[0].Type != enum.BlockReasoning || reply.Content[0].Origin != "codex:gpt-a" ||
-		string(reply.Content[0].Raw) != `{"encrypted_content":"enc-1","summary":[],"type":"reasoning"}` || reply.Content[1].Type != enum.BlockToolCall {
+	var kinds []enum.BlockType
+	for _, b := range reply.Content {
+		kinds = append(kinds, b.Type)
+	}
+	if !slices.Equal(kinds, []enum.BlockType{enum.BlockReasoning, enum.BlockText, enum.BlockReasoning, enum.BlockToolCall}) ||
+		string(reply.Content[0].Raw) != first || string(reply.Content[2].Raw) != second || reply.Content[0].Origin != "codex:gpt-a" {
 		t.Fatalf("%+v", reply.Content)
 	}
+
+	// Saved as the engine saves it, then sent on.
 	conv := []model.Message{
 		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "hi"}}},
 		{Role: enum.RoleAssistant, Content: reply.Content},
@@ -464,20 +477,41 @@ func TestReasoningItemsGoBackToTheSameModel(t *testing.T) {
 	if err := json.Unmarshal(saved, &conv); err != nil {
 		t.Fatal(err)
 	}
-	sent := func(modelID string) string {
-		raw, _ := json.Marshal(buildRequest(model.ModelRequest{Model: modelID, Messages: conv}))
-		return string(raw)
+	input := func(modelID string) []string {
+		raw, _ := json.Marshal(buildRequest(model.ModelRequest{Model: modelID, Messages: conv})["input"])
+		var items []json.RawMessage
+		if err := json.Unmarshal(raw, &items); err != nil {
+			t.Fatal(err)
+		}
+		out := make([]string, len(items))
+		for i, item := range items {
+			out[i] = string(item)
+		}
+		return out
 	}
-	same := sent("gpt-a")
-	at, call := strings.Index(same, `{"encrypted_content":"enc-1","summary":[],"type":"reasoning"}`), strings.Index(same, `"function_call"`)
-	if at < 0 || call < at || strings.Contains(same, "rs_1") {
-		t.Fatalf("reasoning should precede its call, without its id: %s", same)
+	same := input("gpt-a")
+	if len(same) != 6 || same[1] != first || !strings.Contains(same[2], `"look"`) || same[3] != second ||
+		!strings.Contains(same[4], `"function_call"`) || !strings.Contains(same[5], `"function_call_output"`) {
+		t.Fatalf("reasoning should go back unchanged, in its place: %q", same)
 	}
-	if other := sent("gpt-b"); strings.Contains(other, "enc-1") {
-		t.Fatalf("another model got the reasoning: %s", other)
+	for _, other := range [][]string{input("gpt-b"), func() []string {
+		conv[1].Content[0].Origin, conv[1].Content[2].Origin = "claude-code:gpt-a", "anthropic:gpt-a"
+		return input("gpt-a")
+	}()} {
+		if len(other) != 4 || strings.Contains(strings.Join(other, ""), "enc-") {
+			t.Fatalf("another model or provider got the reasoning: %q", other)
+		}
 	}
-	conv[1].Content[0].Origin = "claude-code:gpt-a"
-	if strings.Contains(sent("gpt-a"), "enc-1") {
-		t.Fatal("another provider's reasoning was sent")
+}
+
+// Conversations saved before reasoning was kept have no such blocks, and go out as they did.
+func TestOldConversationsGoOutUnchanged(t *testing.T) {
+	var conv []model.Message
+	if err := json.Unmarshal([]byte(`[{"role":"user","content":[{"type":"text","text":"hi"}]},{"role":"assistant","content":[{"type":"text","text":"ok"},{"type":"tool_call","id":"c1","name":"t","args":{}}]},{"role":"user","content":[{"type":"tool_result","id":"c1","text":"done"}]}]`), &conv); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(buildRequest(model.ModelRequest{Model: "gpt-a", Messages: conv})["input"])
+	if string(raw) != `[{"content":[{"text":"hi","type":"input_text"}],"role":"user","type":"message"},{"content":[{"text":"ok","type":"output_text"}],"role":"assistant","type":"message"},{"arguments":"{}","call_id":"c1","name":"t","type":"function_call"},{"call_id":"c1","output":"done","type":"function_call_output"}]` {
+		t.Fatalf("%s", raw)
 	}
 }
