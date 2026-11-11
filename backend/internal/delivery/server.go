@@ -101,6 +101,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.PATCH("/providers/:id", s.updateProvider)
 	api.DELETE("/providers/:id", s.deleteProvider)
 	api.POST("/providers/:id/models", s.refreshModels)
+	api.POST("/models/stale", s.refreshStaleModels)
 	api.POST("/providers/:id/login", s.startLogin)
 	api.POST("/providers/:id/login/paste", s.pasteLogin)
 	api.DELETE("/providers/:id/login", s.cancelLogin)
@@ -506,6 +507,13 @@ func (s *Server) deleteProvider(c echo.Context) error {
 
 func (s *Server) refreshModels(c echo.Context) error {
 	return done(c, s.engine.RefreshModels(c.Request().Context(), c.Param("id")))
+}
+
+// refreshStaleModels is a list of models being opened: providers not asked for ModelsFresh are asked again, in the
+// background, and the answer comes back as a change to the world.
+func (s *Server) refreshStaleModels(c echo.Context) error {
+	s.engine.RefreshStaleModels(usecase.ModelsFresh)
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (s *Server) startLogin(c echo.Context) error {

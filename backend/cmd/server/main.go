@@ -69,6 +69,8 @@ func run() error {
 	}
 	// runs stop first, so nothing is saved to a closing database
 	defer engine.Close()
+	// a provider may have put out models since the last run
+	engine.RefreshStaleModels(0)
 	// a repo a blueprint names is kept as a source with no version until it is first read, and the official source
 	// starts on the copy built in until its newest version is found
 	go func() {

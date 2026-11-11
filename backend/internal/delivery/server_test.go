@@ -262,6 +262,9 @@ func TestSubscriptionLoginEndpoints(t *testing.T) {
 	if code, _ := send(t, "POST", api+"/providers/"+q["id"].(string)+"/models", ""); code != http.StatusNoContent {
 		t.Fatalf("refresh: %d", code)
 	}
+	if code, _ := send(t, "POST", api+"/models/stale", ""); code != http.StatusNoContent {
+		t.Fatalf("refresh stale: %d", code)
+	}
 }
 
 func TestClaudeCodeEndpoints(t *testing.T) {

@@ -599,6 +599,7 @@ func (e *Engine) discover(ctx context.Context, p model.ModelProvider, key string
 // setModels records what a provider reported, and puts employees on a level their model no longer takes back on
 // the default. Call it on a provider in the world, holding the lock.
 func (e *Engine) setModels(p *model.ModelProvider, specs []model.ModelSpec) {
+	e.modelsAt[p.ID] = e.clock()
 	p.Models, p.Thinking = modelsOf(specs)
 	e.resetEfforts()
 }
@@ -678,6 +679,7 @@ func (e *Engine) AddProvider(ctx context.Context, in NewProvider) (*model.ModelP
 		p.ID = e.uid("mp")
 		if p.Auth.Kind == "apiKey" {
 			e.setSecret(p.ID, key)
+			e.modelsAt[p.ID] = e.clock()
 		}
 		e.w.Providers[p.ID] = &p
 		if in.ImageDefault && model.MakesImages(p) {
@@ -709,6 +711,9 @@ func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch
 	return e.doSettings(func() error {
 		if err := e.writeProvider(ctx, next); err != nil {
 			return err
+		}
+		if next.provider.Auth.Kind == "apiKey" {
+			e.modelsAt[id] = e.clock()
 		}
 		if in.ImageDefault != nil && *in.ImageDefault && model.MakesImages(next.provider) {
 			e.w.Preferences.ImageProvider = id
@@ -1019,6 +1024,11 @@ func (e *Engine) noteSignedOut(id string, err error) {
 
 // RefreshModels asks a provider again what it offers. A failure keeps the list it has.
 func (e *Engine) RefreshModels(ctx context.Context, id string) error {
+	return e.refreshModels(ctx, id, true)
+}
+
+// refreshModels asks a provider again what it offers; noteSignedOut marks a subscription whose sign-in is gone.
+func (e *Engine) refreshModels(ctx context.Context, id string, noteSignedOut bool) error {
 	e.mu.Lock()
 	p := e.w.Providers[id]
 	if p == nil {
@@ -1026,10 +1036,13 @@ func (e *Engine) RefreshModels(ctx context.Context, id string) error {
 		return model.Errorf(model.CodeNotFound, "找不到供應商")
 	}
 	copied, key := *clone(p), e.secrets[id]
+	e.modelsAt[id] = e.clock()
 	e.mu.Unlock()
 	models, err := e.discover(ctx, copied, key)
 	if err != nil {
-		e.noteSignedOut(id, err)
+		if noteSignedOut {
+			e.noteSignedOut(id, err)
+		}
 		return err
 	}
 	return e.doSettings(func() error {
@@ -1038,6 +1051,34 @@ func (e *Engine) RefreshModels(ctx context.Context, id string) error {
 		}
 		return nil
 	})
+}
+
+// ModelsFresh is how long a provider's models are taken as they are before a list to pick from asks again.
+const ModelsFresh = 8 * time.Hour
+
+// RefreshStaleModels asks again, in the background, each provider that can answer and was last asked maxAge ago or
+// more; 0 asks them all. Nobody waits on it, so a failure is only logged: the list stays, and so does the sign-in.
+func (e *Engine) RefreshStaleModels(maxAge time.Duration) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return
+	}
+	now := e.clock()
+	for id, p := range e.w.Providers {
+		at, asked := e.modelsAt[id]
+		if asked && now-at < maxAge.Seconds() || e.logins[id] != nil || p.Auth.Kind == "subscription" && !p.Auth.SignedIn {
+			continue
+		}
+		e.modelsAt[id] = now // a second look while this one asks leaves it be
+		e.wg.Add(1)
+		go func() {
+			defer e.wg.Done()
+			if err := e.refreshModels(e.ctx, id, false); err != nil && e.ctx.Err() == nil {
+				e.log.Warn().Err(err).Str("provider", id).Msg("read models again")
+			}
+		}()
+	}
 }
 
 // refreshLater reads a provider's models again once the change under way is written. Call it holding the lock.

@@ -47,6 +47,8 @@ type script struct {
 	login     *adapter.LoginFlow
 	loggedOut bool
 	models    []model.ModelSpec
+	// listed is how many times the models were asked for.
+	listed int
 	// asked is each address a provider was made for, with the key it was given.
 	asked   []string
 	askedMu sync.Mutex // apart from mu, which tests hold to keep a reply waiting
@@ -73,6 +75,7 @@ func (s *script) Complete(_ context.Context, req model.ModelRequest, onText func
 func (s *script) Models(context.Context) ([]model.ModelSpec, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.listed++
 	if s.models != nil {
 		return s.models, nil
 	}
