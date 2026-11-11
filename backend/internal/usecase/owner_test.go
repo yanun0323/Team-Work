@@ -276,7 +276,9 @@ func TestOwnerDispatchesEmployeesOnOtherModelsAndGatesEveryHandoff(t *testing.T)
 	items := r.activity(task.ID)
 	for _, want := range []func(model.TaskActivity) bool{
 		func(a model.TaskActivity) bool { return a.Key == "started" },
-		func(a model.TaskActivity) bool { return a.Key == "dispatched" && a.SubID == end.ID },
+		func(a model.TaskActivity) bool {
+			return a.Key == "dispatched" && a.SubID == end.ID && a.Args["step"] == "驗收" && a.Args["name"] == "Bob" && a.Args["owner"] == "Ada"
+		},
 		func(a model.TaskActivity) bool {
 			return a.Kind == "handoff" && a.By == bob.ID && a.Name == "Bob" && a.SubID == end.ID && a.NodeID == "end"
 		},
@@ -735,8 +737,11 @@ func TestOwnerChangesThePlanWithinWhatWasAllowed(t *testing.T) {
 	if len(w.Workflows[r.flow.ID].Nodes) != 2 {
 		t.Fatal("the shared flow changed")
 	}
-	if !hasActivity(r.activity(task.ID), func(a model.TaskActivity) bool { return a.Key == "planChanged" && a.Args["reason"] == "add docs" }) {
-		t.Fatal("the change was not recorded")
+	if !hasActivity(r.activity(task.ID), func(a model.TaskActivity) bool {
+		return a.Key == "planChanged" && a.Args["reason"] == "add docs" && a.Args["added"] == "文件" && a.Args["linked"] == "整理需求 → 文件" &&
+			fmt.Sprint(a.Args["version"]) == "2" && a.Args["owner"] == "Ada" && strings.Contains(a.Text, "整理需求 → 文件")
+	}) {
+		t.Fatalf("the change was not recorded as it was: %+v", r.activity(task.ID))
 	}
 }
 
@@ -816,6 +821,11 @@ func TestLongerRunsThanStopWaitAreUncertainAndBlockResuming(t *testing.T) {
 		t.Fatal(err)
 	}
 	w = r.world()
+	for _, o := range w.Tasks[task.ID].Coordination.Operations {
+		if o.ID == op.ID && o.Status != model.OpApplied {
+			t.Fatalf("the pause stays %s once the user confirmed the run stopped", o.Status)
+		}
+	}
 	plan, control = versions(w.Tasks[task.ID])
 	if _, err := r.e.ControlTask(task.ID, usecase.TaskControl{RequestID: "go2", Action: "resume", PlanVersion: plan, ControlVersion: control}); err != nil {
 		t.Fatal(err)
@@ -975,5 +985,253 @@ func TestOlderTasksKeepTheirWayAndRefuseTheNewOnes(t *testing.T) {
 	}
 	if err := r.e.ReturnTask(task.ID, "再做"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestOwnerCannotDispatchAStepBeforeWhatItBuildsOnIsAccepted(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if !isOwner(req) {
+			return worker(req), nil
+		}
+		last := req.Messages[len(req.Messages)-1].Content[0]
+		switch {
+		case len(req.Messages) == 1 && strings.Contains(req.Messages[0].Content[0].Text, "[task_started]"):
+			return ownerCall("dispatch_step", map[string]any{"node_id": "end", "instructions": "skip what comes before"}), nil
+		case last.Name == "dispatch_step" && last.IsError:
+			return say("refused: " + last.Text), nil
+		}
+		return say("idle"), nil
+	})
+	task := r.ownerTask(r.flow.ID)
+	w := r.wait("the refusal", func(w *model.World) bool {
+		return hasActivity(r.activity(task.ID), func(a model.TaskActivity) bool {
+			return strings.HasPrefix(a.Text, "refused: ") && strings.Contains(a.Text, "整理需求")
+		})
+	})
+	if s := subAt(w, task.ID, "驗收"); s != nil {
+		t.Fatalf("a step ran before the step it builds on, with the plan as it was: %+v", s)
+	}
+}
+
+func TestOwnerFillsInTheAcceptedStepsBeforeWhenNotNamed(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if !isOwner(req) {
+			return worker(req), nil
+		}
+		brief := req.Messages[0].Content[0].Text
+		last := req.Messages[len(req.Messages)-1].Content[0]
+		switch {
+		case len(req.Messages) == 1 && strings.Contains(brief, "[task_started]"):
+			return ownerCall("dispatch_step", map[string]any{"node_id": "start", "instructions": "go"}), nil
+		case len(req.Messages) == 1 && strings.Contains(brief, "[employee_handoff]") && strings.Contains(brief, "(start)"):
+			return ownerCall("review_step", map[string]any{"sub_id": readView(brief).runs[0].id, "decision": "accept"}), nil
+		case last.Name == "review_step" && strings.HasPrefix(last.Text, "accepted"):
+			return ownerCall("dispatch_step", map[string]any{"node_id": "end", "instructions": "check"}), nil
+		}
+		return say("ok"), nil
+	})
+	task := r.ownerTask(r.flow.ID)
+	w := r.wait("the next step", func(w *model.World) bool { return subAt(w, task.ID, "驗收") != nil })
+	start, end := subAt(w, task.ID, "整理需求"), subAt(w, task.ID, "驗收")
+	if !slices.Equal(end.UpstreamIDs, []string{start.ID}) {
+		t.Fatalf("the step does not build on the one before it: %v", end.UpstreamIDs)
+	}
+}
+
+func TestRejectedHandoffKeepsTheTaskFromBeingDone(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if !isOwner(req) {
+			return worker(req), nil
+		}
+		brief := req.Messages[0].Content[0].Text
+		last := req.Messages[len(req.Messages)-1].Content[0]
+		switch {
+		case len(req.Messages) == 1 && strings.Contains(brief, "[task_started]"):
+			return ownerCall("dispatch_step", map[string]any{"node_id": "start", "instructions": "go"}), nil
+		case len(req.Messages) == 1 && strings.Contains(brief, "[employee_handoff]"):
+			return ownerCall("review_step", map[string]any{"sub_id": readView(brief).runs[0].id, "decision": "reject", "reason": "not done"}), nil
+		case last.Name == "review_step":
+			return ownerCall("submit_complete", map[string]any{"summary": "done"}), nil
+		case last.Name == "submit_complete":
+			return say("complete: " + last.Text), nil
+		}
+		return say("idle"), nil
+	})
+	task := r.ownerTask(r.flow.ID)
+	w := r.wait("the owner to try", func(w *model.World) bool {
+		return hasActivity(r.activity(task.ID), func(a model.TaskActivity) bool { return strings.HasPrefix(a.Text, "complete: ") })
+	})
+	if w.Tasks[task.ID].Stage != enum.StageRunning {
+		t.Fatalf("a task with a rejected handoff and a step never run was reported done: %s", w.Tasks[task.ID].Stage)
+	}
+	if err := r.e.MergeTask(task.ID); err == nil {
+		t.Fatal("merged with a rejected handoff")
+	}
+}
+
+func TestRunsFailingOneAfterAnotherStopTheOwner(t *testing.T) {
+	var failures atomic.Int64
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if !isOwner(req) {
+			failures.Add(1)
+			return model.ModelReply{}, fmt.Errorf("worker failure")
+		}
+		if len(req.Messages) > 1 {
+			return say("idle"), nil
+		}
+		v := readView(req.Messages[0].Content[0].Text)
+		if len(v.runs) == 0 {
+			return ownerCall("dispatch_step", map[string]any{"node_id": "start", "instructions": "go"}), nil
+		}
+		// a stubborn owner: the stopped run goes on, or the step is dispatched anew
+		for i, s := range v.runs {
+			if strings.Contains(s.rest, "run stopped") && s.counts() {
+				if i%2 == 0 {
+					return ownerCall("dispatch_step", map[string]any{"sub_id": s.id, "instructions": "again"}), nil
+				}
+				return ownerCall("dispatch_step", map[string]any{"node_id": "start", "instructions": "anew"}), nil
+			}
+		}
+		return say("idle"), nil
+	})
+	task := r.ownerTask(r.flow.ID)
+	w := r.wait("the owner to stop", func(w *model.World) bool {
+		c := w.Tasks[task.ID].Coordination
+		return c.OwnerState == model.OwnerBlocked && c.BlockedReason == "loop"
+	})
+	if !slices.ContainsFunc(w.Tasks[task.ID].Coordination.Questions, func(q model.TaskQuestion) bool { return q.Audience == "user" && q.Kind == "approval" }) {
+		t.Fatal("the user was not asked")
+	}
+	seen := failures.Load()
+	time.Sleep(300 * time.Millisecond)
+	if failures.Load() != seen {
+		t.Fatalf("failed runs went on being dispatched: %d then %d", seen, failures.Load())
+	}
+}
+
+func TestRetryingAFailedDecisionSettlesIt(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return model.ModelReply{}, fmt.Errorf("failure") })
+	task := r.ownerTask(r.flow.ID)
+	failed := func(w *model.World) (model.TaskOperation, bool) {
+		for _, o := range w.Tasks[task.ID].Coordination.Operations {
+			if o.Kind == "retry" && o.Status == model.OpFailed {
+				return o, true
+			}
+		}
+		return model.TaskOperation{}, false
+	}
+	w := r.wait("failed", func(w *model.World) bool {
+		_, ok := failed(w)
+		return ok && w.Tasks[task.ID].Coordination.OwnerState == model.OwnerFailed
+	})
+	old, _ := failed(w)
+	// failing again leaves one failure to retry
+	p, c := versions(w.Tasks[task.ID])
+	if _, err := r.e.ControlTask(task.ID, usecase.TaskControl{RequestID: "retry-1", Action: "retry", OperationID: old.ID, PlanVersion: p, ControlVersion: c}); err != nil {
+		t.Fatal(err)
+	}
+	w = r.wait("failed again", func(w *model.World) bool {
+		o, err := r.e.TaskOperation(task.ID, old.ID)
+		return err == nil && o.Status == model.OpFailed && w.Tasks[task.ID].Coordination.OwnerState == model.OwnerFailed
+	})
+	open := 0
+	for _, o := range w.Tasks[task.ID].Coordination.Operations {
+		if o.Kind == "retry" && o.Status != model.OpApplied {
+			open++
+		}
+	}
+	if open != 1 {
+		t.Fatalf("%d retries left open: %+v", open, w.Tasks[task.ID].Coordination.Operations)
+	}
+	r.setReply(func(model.ModelRequest) (model.ModelReply, error) { return say("recovered"), nil })
+	p, c = versions(w.Tasks[task.ID])
+	op, err := r.e.ControlTask(task.ID, usecase.TaskControl{RequestID: "retry-2", Action: "retry", OperationID: old.ID, PlanVersion: p, ControlVersion: c})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = r.wait("applied", func(w *model.World) bool {
+		o, err := r.e.TaskOperation(task.ID, op.ID)
+		return err == nil && o.Status == model.OpApplied && w.Tasks[task.ID].Coordination.OwnerState == model.OwnerIdle
+	})
+	for _, o := range w.Tasks[task.ID].Coordination.Operations {
+		if o.Status == model.OpProcessing || o.Status == model.OpFailed || o.Status == model.OpReceived {
+			t.Fatalf("an operation never settles once the retry worked: %+v", o)
+		}
+	}
+}
+
+func TestOwnerReadsAnEntryOfTheConversationInFull(t *testing.T) {
+	long := strings.Repeat("x", 700) + "NEVER_DELETE_THIS"
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		brief := req.Messages[0].Content[0].Text
+		last := req.Messages[len(req.Messages)-1].Content[0]
+		switch {
+		case len(req.Messages) == 1 && strings.Contains(brief, "[user_message]"):
+			return ownerCall("read_task_history", map[string]any{"limit": 100}), nil
+		case last.Name == "read_task_history":
+			id := regexp.MustCompile(`read_task_entry (\S+) reads it all`).FindStringSubmatch(last.Text)
+			if id == nil {
+				return say("not clipped"), nil
+			}
+			return ownerCall("read_task_entry", map[string]any{"activity_id": id[1]}), nil
+		}
+		return say("idle"), nil
+	})
+	task := r.ownerTask(r.flow.ID)
+	r.wait("idle", func(w *model.World) bool { return w.Tasks[task.ID].Coordination.OwnerState == model.OwnerIdle })
+	if _, err := r.e.SayToOwner(task.ID, usecase.TaskMessage{RequestID: "long", Text: long}); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("read", func(w *model.World) bool {
+		return hasActivity(r.activity(task.ID), func(a model.TaskActivity) bool { return a.Text == "idle" && a.Seq > 3 })
+	})
+	found := false
+	for _, req := range ownerRequests(r) {
+		for _, m := range req.Messages {
+			for _, b := range m.Content {
+				if b.Type == enum.BlockToolResult && b.Name == "read_task_entry" {
+					found = true
+					if !strings.Contains(b.Text, long) {
+						t.Fatalf("the entry did not come back whole: %s", b.Text)
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the owner could not find a way to the whole entry")
+	}
+}
+
+func TestRestaffingIsRecordedWithWhoGaveWayToWhom(t *testing.T) {
+	var bob *model.Replica
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if !isOwner(req) {
+			return worker(req), nil
+		}
+		if len(req.Messages) == 1 && strings.Contains(req.Messages[0].Content[0].Text, "[task_started]") {
+			return ownerCall("revise_plan", map[string]any{"reason": "換人", "edges": []map[string]any{{"from": "start", "to": "end"}},
+				"nodes": []map[string]any{{"id": "start", "name": "整理需求", "replica_ids": []string{r0ID}}, {"id": "end", "name": "驗收", "replica_ids": []string{r0ID}}}}), nil
+		}
+		return say("ok"), nil
+	})
+	r0ID = r.owner.ID
+	var err error
+	bob, err = r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.world().Replicas[r.owner.ID].BlueprintID, Name: "Bob", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "t", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, Staff: map[string][]string{"end": {bob.ID}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.ResumeTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("the plan to change", func(w *model.World) bool { return w.Tasks[task.ID].Coordination.PlanVersion == 2 })
+	if !hasActivity(r.activity(task.ID), func(a model.TaskActivity) bool {
+		return a.Key == "planChanged" && a.Args["restaffed"] == "驗收：Bob → Ada" && a.Args["linked"] == "" && a.Args["unlinked"] == "" && strings.Contains(a.Text, "驗收：Bob → Ada")
+	}) {
+		t.Fatalf("%+v", r.activity(task.ID))
 	}
 }

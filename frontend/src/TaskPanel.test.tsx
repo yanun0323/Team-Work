@@ -1,11 +1,12 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { Detail } from './DrawerDetail'
-import { activityText, Feed, HistoryState, joinNewest, QuestionCard, runWord, StepStrip, type Unsent } from './TaskPanel'
+import { activityText, eventLines, Feed, HistoryState, joinNewest, QuestionCard, runWord, StepStrip, type Unsent } from './TaskPanel'
+import { setAppLanguage } from './core/i18n'
 import { useStore } from './core/store'
 import { isOwnerTask } from './core/domain/owner'
 import { subsOf } from './core/domain/sim'
-import type { SubTask, Task, TaskActivity, TaskOperation } from './core/domain/types'
+import type { SubTask, Task, TaskActivity, TaskOperation, TaskQuestion } from './core/domain/types'
 
 const w = useStore.getState().world
 const owned = Object.values(w.tasks).find(isOwnerTask)!
@@ -57,12 +58,19 @@ describe('the sheet of a task its owner runs', () => {
       expect(sheet(owned)).toMatch(/還有待處理的事，處理完才能合併<\/p><button type="button" class="fx-save fx-danger" disabled="">合併/)
       owned.coordination!.questions = []
       const subs = subsOf(w, owned.id)
-      const kept = subs.map((s) => ({ s, review: s.ownerReview, state: s.executionState }))
-      for (const s of subs) { s.ownerReview = 'accepted'; s.executionState = undefined }
+      const kept = subs.map((s) => ({ s, review: s.ownerReview, state: s.executionState, status: s.status }))
+      for (const s of subs) { s.ownerReview = 'accepted'; s.executionState = undefined; s.status = 'complete' }
       try {
         expect(sheet(owned)).toMatch(/負責人回報完成，等你合併<\/p><button type="button" class="fx-save fx-danger">合併/)
+        // a handoff the owner turned down, or a run not done, keeps it from being merged
+        subs[0].ownerReview = 'rejected'
+        expect(sheet(owned)).toMatch(/還有待處理的事，處理完才能合併<\/p><button type="button" class="fx-save fx-danger" disabled="">合併/)
+        subs[0].ownerReview = 'accepted'
+        subs[0].status = 'todo'
+        subs[0].executionState = 'stopped'
+        expect(sheet(owned)).toMatch(/還有待處理的事，處理完才能合併/)
       } finally {
-        for (const k of kept) { k.s.ownerReview = k.review; k.s.executionState = k.state }
+        for (const k of kept) { k.s.ownerReview = k.review; k.s.executionState = k.state; k.s.status = k.status }
       }
     } finally {
       owned.stage = was
@@ -98,6 +106,30 @@ describe('its conversation', () => {
     expect(html).not.toContain('raw')
     expect(html).toContain('Kai · 交付')
     expect(html).toContain('class="fx-ticket-tag fx-hit" aria-expanded="false"')
+  })
+
+  it('reads what the backend records in the user\'s language, and lists what a change of the plan changed', () => {
+    // as the backend sends them: its keys and arguments
+    const backend: TaskActivity[] = [
+      line({ seq: 1, kind: 'event', from: 'system', key: 'dispatched', args: { step: '驗收', name: 'Bob', owner: 'Ada', instructions: 'check' }, text: '派工「驗收」給 Bob' }),
+      line({ seq: 2, kind: 'event', from: 'system', key: 'returnedByUser', args: { step: '整理需求', reason: '需求漏了' }, text: '退回「整理需求」重做：需求漏了' }),
+      line({ seq: 3, kind: 'event', from: 'system', key: 'stepFailed', args: { step: '開發', error: 'timeout' }, text: '「開發」重試後仍失敗：timeout' }),
+      line({ seq: 4, kind: 'event', from: 'system', key: 'planChanged', text: '負責人調整計畫（第 3 版）：換人\n改派：驗收：Ada → Bob',
+        args: { reason: '換人', version: 3, owner: 'Ada', added: '', skipped: '', changed: '驗收', restaffed: '驗收：Ada → Bob', linked: '整理需求 → 文件', unlinked: '' } }),
+    ]
+    setAppLanguage('en')
+    try {
+      expect(backend.map(activityText)).toEqual(['Ada gave "驗收" to Bob', '"整理需求" sent back to redo: 需求漏了', '"開發" still failed after retrying: timeout', 'Ada changed the plan (version 3): 換人'])
+      expect(eventLines(backend[3])).toEqual(['Ada changed the plan (version 3): 換人', 'Reassigned: 驗收：Ada → Bob', 'New dependencies: 整理需求 → 文件'])
+    } finally {
+      setAppLanguage('zh')
+    }
+    const html = feed([backend[3]])
+    expect(html).toContain('Ada 調整計畫（第 3 版）：換人')
+    expect(html).toContain('改派：驗收：Ada → Bob')
+    expect(html).toContain('新增依賴：整理需求 → 文件')
+    // one this version cannot fill in shows every line the backend wrote
+    expect(eventLines(line({ kind: 'event', key: 'planChanged', args: { reason: 'x' }, text: '第一行\n第二行' }))).toEqual(['第一行', '第二行'])
   })
 
   it('shows an event it does not know, or cannot fill in, as the backend wrote it', () => {
@@ -180,5 +212,21 @@ describe('its steps', () => {
     // nothing picked yet: it cannot be sent
     expect(html).toMatch(/<button type="submit" class="fx-save" disabled="">確認<\/button>/)
     expect(html).toContain('role="alert">任務在你看到之後有了變化')
+  })
+
+  it('shows what a change the user is asked to agree to changes, and who would join', () => {
+    const bob = Object.values(w.replicas).find((r) => r.teamId === owned.teamId && r.id !== owned.ownerId)!
+    // as the backend sends them: an employee asking to change a blueprint, and the owner asking for someone to join
+    const change: TaskQuestion = { id: 'q1', activityId: 'a1', prompt: '要修改「開發者」嗎？', options: [{ id: 'approve' }, { id: 'reject' }], kind: 'approval', audience: 'user', planVersion: 1, createdAt: 0,
+      subId: 'sub-1', change: { kind: 'blueprint', targetId: 'bp-1', name: '開發者', lines: [{ field: 'prompt', before: '舊的說明', after: '新的說明' }] } }
+    const join: TaskQuestion = { id: 'q2', activityId: 'a2', prompt: '讓他加入？', options: [{ id: 'approve' }, { id: 'reject' }], kind: 'approval', audience: 'user', planVersion: 1, createdAt: 0,
+      replicaIds: [bob.id, 'rep-gone'] }
+    const asked = renderToStaticMarkup(<QuestionCard task={owned} q={change} onJump={noop} onAnswer={noop} />)
+    expect(asked).toContain('<del><span class="fx-sr">修改前 </span>舊的說明</del>')
+    expect(asked).toContain('<ins><span class="fx-sr">修改後 </span>新的說明</ins>')
+    const joining = renderToStaticMarkup(<QuestionCard task={owned} q={join} onJump={noop} onAnswer={noop} />)
+    expect(joining).toContain(`aria-label="員工"`)
+    expect(joining).toContain(`${bob.name}</li>`)
+    expect(joining).toContain('<code>rep-gone</code>')
   })
 })

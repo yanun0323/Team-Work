@@ -84,9 +84,11 @@ type Engine struct {
 	// taskLogs are owner-led tasks' private records, by task id; logDirty marks those changed since the last save.
 	taskLogs map[string]*taskLog
 	logDirty map[string]bool
-	subs     map[chan Event]struct{}
-	pending  []Event
-	logins   map[string]*loginRun
+	// actsDirty marks the logs whose conversation has to be saved to its own document.
+	actsDirty map[string]bool
+	subs      map[chan Event]struct{}
+	pending   []Event
+	logins    map[string]*loginRun
 	// pendingKeys are API keys waiting on the user's answer to a change, by its KeyRef. They go with a restart.
 	pendingKeys map[string]string
 	// terms is what each company's terminal has shown, by the company's id; under its own lock, as output
@@ -248,7 +250,7 @@ func (e *Engine) change(config bool, fn func() error) error {
 	before := e.rollbackWorld()
 	secrets, runs := maps.Clone(e.secrets), maps.Clone(e.runs)
 	dirty := maps.Clone(e.dirty)
-	logs, logDirty := e.snapshotLogs()
+	logs, logDirty, actsDirty := e.snapshotLogs()
 	undo := func() {
 		// Never expose a committed snapshot to subsequent live mutations.
 		for id, c := range before.Chats {
@@ -258,7 +260,7 @@ func (e *Engine) change(config bool, fn func() error) error {
 		}
 		e.w, e.secrets, e.secretOps = before, secrets, nil
 		e.dirty = dirty
-		e.taskLogs, e.logDirty = logs, logDirty
+		e.taskLogs, e.logDirty, e.actsDirty = logs, logDirty, actsDirty
 		for id, r := range e.runs {
 			if runs[id] != r {
 				e.stopRun(id)
@@ -349,6 +351,8 @@ func (e *Engine) load(ctx context.Context) error {
 			err = loadInto(d, e.w.SubTasks)
 		case kindTaskLog:
 			err = e.loadLog(d)
+		case kindTaskActs:
+			// read when needed, as conversations are
 		case "chat":
 			err = loadInto(d, e.w.Chats)
 			if err == nil {
@@ -366,7 +370,7 @@ func (e *Engine) load(ctx context.Context) error {
 			return fmt.Errorf("read %s %s: %w", d.Kind, d.ID, err)
 		}
 		e.prev[docKey(d.Kind, d.ID)] = d.Data
-		if d.Kind == "chat" || d.Kind == kindTaskLog {
+		if d.Kind == "chat" || d.Kind == kindTaskLog || d.Kind == kindTaskActs {
 			// savedChats and logDirty detect changes; keep only presence for deletion detection.
 			e.prev[docKey(d.Kind, d.ID)] = nil
 		}
@@ -470,6 +474,7 @@ func (e *Engine) sync() error {
 	}
 	if len(upserts)+len(deletes)+len(changes)+len(e.secretOps) == 0 {
 		e.releaseConversations()
+		e.releaseLogs()
 		e.flushPending()
 		return nil
 	}
@@ -502,7 +507,7 @@ func (e *Engine) sync() error {
 	}
 	for _, d := range upserts {
 		e.prev[docKey(d.Kind, d.ID)] = d.Data
-		if d.Kind == "chat" || d.Kind == kindTaskLog {
+		if d.Kind == "chat" || d.Kind == kindTaskLog || d.Kind == kindTaskActs {
 			// savedChats and logDirty detect changes; keep only presence for deletion detection.
 			e.prev[docKey(d.Kind, d.ID)] = nil
 		}
@@ -526,15 +531,17 @@ func (e *Engine) sync() error {
 	}
 	e.dirty = map[string]bool{}
 	e.logDirty = map[string]bool{}
+	e.actsDirty = map[string]bool{}
 	e.releaseConversations()
+	e.releaseLogs()
 	ev := Event{Type: "patch"}
 	for _, d := range upserts {
-		if d.Kind != kindConv && d.Kind != kindMeta && d.Kind != kindTaskLog {
+		if d.Kind != kindConv && d.Kind != kindMeta && d.Kind != kindTaskLog && d.Kind != kindTaskActs {
 			ev.Upserts = append(ev.Upserts, Patch{Kind: d.Kind, ID: d.ID, Data: d.Data})
 		}
 	}
 	for _, d := range deletes {
-		if d.Kind != kindConv && d.Kind != kindMeta && d.Kind != kindTaskLog {
+		if d.Kind != kindConv && d.Kind != kindMeta && d.Kind != kindTaskLog && d.Kind != kindTaskActs {
 			ev.Deletes = append(ev.Deletes, Patch{Kind: d.Kind, ID: d.ID})
 		}
 	}

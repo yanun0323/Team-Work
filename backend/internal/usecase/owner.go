@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,6 +22,8 @@ const (
 	maxOwnerExchanges = 8
 	// maxOwnerTools bounds the tools one decision of the owner calls.
 	maxOwnerTools = 32
+	// maxOwnerFailures bounds the runs that fail one after another, whoever dispatched them again.
+	maxOwnerFailures = 3
 	// optionContinue lets the owner go on past a limit; optionAddBudget and optionPause answer a budget question.
 	optionContinue  = "continue"
 	optionAddBudget = "addBudget"
@@ -162,7 +165,7 @@ func (e *Engine) markUncertain(t *model.Task, s *model.SubTask) {
 	}
 	name := e.nodeName(t, s.NodeID)
 	text := i18n.T("無法確認「%s」的執行是否已結束；停止不會還原已改的檔案或外部操作，請確認現況", name)
-	a := e.systemEvent(t, "uncertain", text, map[string]any{"node": name}, s.ID)
+	a := e.systemEvent(t, "uncertain", text, map[string]any{"step": name}, s.ID)
 	e.askUserQuestion(t, model.TaskQuestion{ActivityID: a.ID, Prompt: text, Kind: "recovery", SubID: s.ID,
 		Options: []model.ReviewOption{{ID: optionStopped, Label: i18n.T("已確認停止")}, {ID: optionRedo, Label: i18n.T("重做這一步")}}})
 	e.addEvent(t, ownerEvent{Kind: evRecovery, Key: "uncertain:" + s.ID + ":" + strconv.Itoa(s.RunGeneration), SubID: s.ID,
@@ -190,14 +193,16 @@ func (e *Engine) subExited(subID string, gen int) {
 	}
 }
 
-// stopsSettled finishes the operations that were waiting for runs to stop.
+// stopsSettled finishes the operations that were waiting for runs to stop, and those left uncertain once the user
+// said what became of the runs.
 func (e *Engine) stopsSettled(t *model.Task) {
 	l := e.logOf(t.ID)
 	if l == nil {
 		return
 	}
-	for _, op := range l.Operations {
-		if op.Status != model.OpProcessing || (op.Kind != "pause" && op.Kind != "return" && op.Kind != "stop") {
+	for _, id := range slices.Sorted(maps.Keys(l.Operations)) {
+		op := l.Operations[id]
+		if op.Status != model.OpProcessing && op.Status != model.OpUncertain || (op.Kind != "pause" && op.Kind != "return" && op.Kind != "stop") {
 			continue
 		}
 		waiting, unsure := false, false
@@ -211,7 +216,9 @@ func (e *Engine) stopsSettled(t *model.Task) {
 			continue
 		}
 		if unsure {
-			e.setOperation(t, op.ID, model.OpUncertain, nil)
+			if op.Status != model.OpUncertain {
+				e.setOperation(t, op.ID, model.OpUncertain, nil)
+			}
 			continue
 		}
 		e.setOperation(t, op.ID, model.OpApplied, nil)
@@ -375,10 +382,7 @@ func (e *Engine) mirrorReview(t *model.Task, s *model.SubTask) {
 
 // editLogActivityQuestion ties a question to the entry that asked it. The entry is new, so it is still the last one.
 func (e *Engine) editLogActivityQuestion(t *model.Task, activityID, questionID string) {
-	l := e.editLog(t.ID)
-	if n := len(l.Activities); n > 0 && l.Activities[n-1].ID == activityID {
-		l.Activities[n-1].QuestionID = questionID
-	}
+	e.touchLast(t, activityID, func(a *model.TaskActivity) { a.QuestionID = questionID })
 }
 
 // ---------- starting, pausing, resuming ----------
@@ -479,9 +483,9 @@ func (e *Engine) TaskActivity(id string, before, limit int, version string) (Act
 	if limit < 1 || limit > activityMost || before < 0 {
 		return ActivityPage{}, model.Errorf(model.CodeInvalid, "分頁參數不正確")
 	}
-	all := []model.TaskActivity{}
-	if l := e.logOf(t.ID); l != nil {
-		all = l.Activities
+	all, err := e.activities(t.ID)
+	if err != nil {
+		return ActivityPage{}, err
 	}
 	now := strconv.Itoa(len(all))
 	if version != "" && version != now {
@@ -503,12 +507,14 @@ func (e *Engine) TaskActivityEntry(id, activityID string) (model.TaskActivity, e
 	if err != nil {
 		return model.TaskActivity{}, err
 	}
-	if l := e.logOf(t.ID); l != nil {
-		if a := activityByID(l, activityID); a != nil {
-			return *a, nil
-		}
+	a, err := e.activityByID(t.ID, activityID)
+	if err != nil {
+		return model.TaskActivity{}, err
 	}
-	return model.TaskActivity{}, model.Errorf(model.CodeNotFound, "找不到這則紀錄")
+	if a == nil {
+		return model.TaskActivity{}, model.Errorf(model.CodeNotFound, "找不到這則紀錄")
+	}
+	return *a, nil
 }
 
 // TaskOperation reads where an operation got to, for a client that lost track of it.
@@ -803,11 +809,14 @@ func (e *Engine) rework(t *model.Task, s *model.SubTask, reason, by string) *mod
 	redo.ParentID = s.ParentID
 	redo.Rework = &model.Rework{From: s.ID, Reason: reason}
 	name := e.nodeName(t, s.NodeID)
-	key := "returnedByUser"
+	key, args := "returnedByUser", map[string]any{"step": name, "reason": reason}
 	if by == "owner" {
 		key = "returnedByOwner"
+		if o := e.owner(t); o != nil {
+			args["owner"] = o.Name
+		}
 	}
-	e.systemEvent(t, key, i18n.T("退回「%s」重做：%s", name, reason), map[string]any{"node": name, "reason": reason}, redo.ID)
+	e.systemEvent(t, key, i18n.T("退回「%s」重做：%s", name, reason), args, redo.ID)
 	return redo
 }
 
@@ -855,22 +864,25 @@ func (e *Engine) controlRetry(t *model.Task, in TaskControl) (model.TaskOperatio
 	if op.Status != model.OpFailed || t.Coordination.OwnerState != model.OwnerFailed {
 		return model.TaskOperation{}, model.Errorf(model.CodeConflict, "只有失敗的負責人處理可以重試")
 	}
-	retry := e.newOperation(t, model.TaskOperation{Kind: "retry", RequestID: in.RequestID, Status: model.OpProcessing})
-	e.setOperation(t, op.ID, model.OpProcessing, nil)
+	// the failure is what is retried: it is applied once the owner's next decision is, or fails again to be retried again
 	edit := e.editLog(t.ID)
+	op.RequestID, op.Status, op.Error, op.UpdatedAt = in.RequestID, model.OpProcessing, nil, e.w.Now
+	edit.Operations[op.ID] = op
 	for id, ev := range edit.Events {
-		if ev.State == eventProcessing {
-			ev.State, ev.Wake = eventPending, ""
-			edit.Events[id] = ev
+		if ev.State == eventHandled {
+			continue
+		}
+		ev.State, ev.Wake = eventPending, ""
+		edit.Events[id] = ev
+		if o, ok := edit.Operations[ev.OperationID]; ok && o.Status == model.OpFailed {
+			o.Status, o.Error, o.UpdatedAt = model.OpProcessing, nil, e.w.Now
+			edit.Operations[o.ID] = o
 		}
 	}
-	// the retry is applied once the owner's next decision is
-	retry.AffectedSubIDs = nil
-	edit.Operations[retry.ID] = retry
-	ev := ownerEvent{Kind: evUserAnswer, OperationID: retry.ID, Text: "The user asked you to try again after your last decision failed."}
-	e.addEvent(t, ev)
+	e.showOperations(t)
+	e.addEvent(t, ownerEvent{Kind: evUserAnswer, OperationID: op.ID, Text: "The user asked you to try again after your last decision failed."})
 	t.Coordination.OwnerState = model.OwnerQueued
-	return retry, nil
+	return op, nil
 }
 
 // controlAnswer is the user answering one of the task's questions. The answer binds to that question alone.
@@ -936,7 +948,7 @@ func (e *Engine) controlAnswer(t *model.Task, in TaskControl) (model.TaskOperati
 		}
 	case in.OptionID == optionContinue:
 		l := e.editLog(t.ID)
-		l.Exchanges, l.Returns = 0, 0
+		l.Exchanges, l.Returns, l.Failures = 0, 0, 0
 		e.unblock(t)
 	case question.Kind == "approval" && len(question.ReplicaIDs) > 0:
 		if in.OptionID == optionApprove {

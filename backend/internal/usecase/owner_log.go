@@ -1,21 +1,32 @@
 package usecase
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"slices"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/pkg/jsonx"
 )
 
-// kindTaskLog is the document an owner-led task keeps apart from what clients get with the world: its whole
-// conversation, every operation, the owner's events and what was already done for each request and tool call.
-const kindTaskLog = "taskLog"
+// kindTaskLog is the document an owner-led task keeps apart from what clients get with the world: every operation,
+// the owner's events, what was already done for each request and tool call, and the newest entries of its
+// conversation. kindTaskActs is the rest of the conversation, which grows without end: it is read in when needed and
+// let go once saved while the owner is not deciding, as conversations are.
+const (
+	kindTaskLog  = "taskLog"
+	kindTaskActs = "taskActs"
+)
+
+// tailMost is how many entries the log keeps of the conversation before they go to its own document, once it is read in.
+const tailMost = 32
 
 // Owner events, the only things that wake a task's owner.
 const (
@@ -78,10 +89,18 @@ type briefEdit struct {
 	Description string  `json:"description"`
 }
 
-// taskLog is an owner-led task's private record. Activities, Plans and Brief only grow and their entries never
-// change, so a rollback keeps their slices; the maps are copied, and their values are replaced, never changed in place.
+// taskLog is an owner-led task's private record. Tail, Plans and Brief only grow and their entries never change once
+// the change that added them is done, so a rollback keeps their slices; the maps are copied, and their values are
+// replaced, never changed in place.
 type taskLog struct {
-	Activities []model.TaskActivity           `json:"activities"`
+	// Activities is the conversation as logs kept it before it had a document of its own; it moves there when read.
+	Activities []model.TaskActivity `json:"activities,omitempty"`
+	// ActivityCount is how many entries the conversation has; Tail are its newest, not yet in its own document.
+	ActivityCount int                  `json:"activityCount"`
+	Tail          []model.TaskActivity `json:"tail,omitempty"`
+	// acts is the whole conversation while it is read in, which loaded says.
+	acts       []model.TaskActivity
+	loaded     bool
 	Operations map[string]model.TaskOperation `json:"operations"`
 	Requests   map[string]requestRecord       `json:"requests"`
 	Events     map[string]ownerEvent          `json:"events"`
@@ -91,16 +110,18 @@ type taskLog struct {
 	Plans    []planSnapshot    `json:"plans"`
 	Brief    []briefEdit       `json:"brief"`
 	// Exchanges counts questions between the owner and employees and Returns the work sent back since the user last
-	// let the owner go on; Wakes counts the owner's decisions.
+	// let the owner go on; Failures counts the runs that failed after their retries since one last handed off;
+	// Wakes counts the owner's decisions.
 	Exchanges int `json:"exchanges"`
 	Returns   int `json:"returns"`
+	Failures  int `json:"failures,omitempty"`
 	Wakes     int `json:"wakes"`
 	// PausedSubs are runs a pause stopped, which go on once the user resumes.
 	PausedSubs []string `json:"pausedSubs,omitempty"`
 }
 
 func newTaskLog() *taskLog {
-	return &taskLog{Activities: []model.TaskActivity{}, Operations: map[string]model.TaskOperation{}, Requests: map[string]requestRecord{},
+	return &taskLog{acts: []model.TaskActivity{}, loaded: true, Operations: map[string]model.TaskOperation{}, Requests: map[string]requestRecord{},
 		Events: map[string]ownerEvent{}, Commands: map[string]string{}}
 }
 
@@ -118,15 +139,13 @@ func (l *taskLog) fill() {
 	if l.Commands == nil {
 		l.Commands = map[string]string{}
 	}
-	if l.Activities == nil {
-		l.Activities = []model.TaskActivity{}
-	}
 }
 
 // snapshot is a copy a failed change goes back to.
 func (l *taskLog) snapshot() *taskLog {
 	out := *l
-	out.Activities = l.Activities[:len(l.Activities):len(l.Activities)]
+	out.Tail = l.Tail[:len(l.Tail):len(l.Tail)]
+	out.acts = l.acts[:len(l.acts):len(l.acts)]
 	out.Plans = l.Plans[:len(l.Plans):len(l.Plans)]
 	out.Brief = l.Brief[:len(l.Brief):len(l.Brief)]
 	out.PausedSubs = slices.Clone(l.PausedSubs)
@@ -134,13 +153,13 @@ func (l *taskLog) snapshot() *taskLog {
 	return &out
 }
 
-// snapshotLogs is every log as it is, for a change that fails to go back to.
-func (e *Engine) snapshotLogs() (map[string]*taskLog, map[string]bool) {
+// snapshotLogs is every log as it is, and which changed, for a change that fails to go back to.
+func (e *Engine) snapshotLogs() (map[string]*taskLog, map[string]bool, map[string]bool) {
 	out := make(map[string]*taskLog, len(e.taskLogs))
 	for id, l := range e.taskLogs {
 		out[id] = l.snapshot()
 	}
-	return out, maps.Clone(e.logDirty)
+	return out, maps.Clone(e.logDirty), maps.Clone(e.actsDirty)
 }
 
 // logOf is a task's log for reading; nil for a task with none.
@@ -156,35 +175,45 @@ func (e *Engine) editLog(taskID string) *taskLog {
 		}
 		e.taskLogs[taskID] = l
 	}
-	if e.logDirty == nil {
-		e.logDirty = map[string]bool{}
-	}
-	e.logDirty[taskID] = true
+	e.markLog(taskID)
 	return l
 }
 
-// logDocuments adds the logs to what is saved: changed ones as JSON, the rest by presence alone.
+// logDocuments adds the logs to what is saved: changed ones as JSON, the rest by presence alone. A conversation's own
+// document has every entry but those still in the log's tail.
 func (e *Engine) logDocuments(docs map[string][]byte) {
 	for id, l := range e.taskLogs {
 		if e.w.Tasks[id] == nil {
 			continue // the task is gone, and its log with it
 		}
-		key := docKey(kindTaskLog, id)
-		if !e.logDirty[id] {
-			if old, ok := e.prev[key]; ok {
-				docs[key] = old
-				continue
+		keep := func(key string, dirty bool, v any) {
+			if !dirty {
+				if old, ok := e.prev[key]; ok {
+					docs[key] = old
+					return
+				}
+				if v == nil {
+					return
+				}
+			}
+			if raw, err := jsonx.Marshal(v); err == nil {
+				docs[key] = raw
 			}
 		}
-		if raw, err := jsonx.Marshal(l); err == nil {
-			docs[key] = raw
+		keep(docKey(kindTaskLog, id), e.logDirty[id], l)
+		var acts any
+		if l.loaded && len(l.acts) > len(l.Tail) {
+			acts = l.acts[:len(l.acts)-len(l.Tail)]
 		}
+		keep(docKey(kindTaskActs, id), e.actsDirty[id] && l.loaded, acts)
 	}
 }
 
-// loadLog reads a task's log from disk.
+// loadLog reads a task's log from disk; its conversation is read when needed. A log that still has its whole
+// conversation in it is read in with it, and saved apart.
 func (e *Engine) loadLog(d model.Doc) error {
 	l := newTaskLog()
+	l.loaded = false
 	if err := jsonx.Unmarshal(d.Data, l); err != nil {
 		return err
 	}
@@ -193,23 +222,114 @@ func (e *Engine) loadLog(d model.Doc) error {
 		e.taskLogs = map[string]*taskLog{}
 	}
 	e.taskLogs[d.ID] = l
+	switch {
+	case len(l.Activities) > 0:
+		l.acts, l.loaded = append(l.Activities, l.Tail...), true
+		l.ActivityCount, l.Activities = len(l.acts), nil
+		e.markLog(d.ID)
+		e.actsDirty[d.ID] = true
+	case l.ActivityCount == len(l.Tail):
+		l.acts, l.loaded = slices.Clone(l.Tail), true
+	}
 	return nil
 }
 
-// addActivity puts an entry in the task's conversation and returns it.
+func (e *Engine) markLog(taskID string) {
+	if e.logDirty == nil {
+		e.logDirty = map[string]bool{}
+	}
+	if e.actsDirty == nil {
+		e.actsDirty = map[string]bool{}
+	}
+	e.logDirty[taskID] = true
+}
+
+// activities is a task's whole conversation, oldest first, read in when it is not. Call it holding the lock.
+func (e *Engine) activities(taskID string) ([]model.TaskActivity, error) {
+	l := e.taskLogs[taskID]
+	if l == nil {
+		return []model.TaskActivity{}, nil
+	}
+	if l.loaded {
+		return l.acts, nil
+	}
+	base, err := e.readActs(taskID, l)
+	if err != nil {
+		e.log.Error().Err(err).Str("task", taskID).Msg("read task conversation")
+		return nil, model.Errorf(model.CodeUnavailable, "讀取任務對話失敗，請稍後重試；原有紀錄未變更")
+	}
+	l.acts, l.loaded = append(base[:len(base):len(base)], l.Tail...), true
+	return l.acts, nil
+}
+
+// readActs reads what of a conversation is not in its log's tail.
+func (e *Engine) readActs(taskID string, l *taskLog) ([]model.TaskActivity, error) {
+	base := []model.TaskActivity{}
+	if l.ActivityCount <= len(l.Tail) {
+		return base, nil
+	}
+	ctx := e.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	raw, err := e.store.LoadDoc(ctx, kindTaskActs, taskID)
+	if err == nil {
+		err = jsonx.Unmarshal(raw, &base)
+	}
+	if err == nil && len(base)+len(l.Tail) != l.ActivityCount {
+		err = fmt.Errorf("task conversation has %d entries, its log counts %d", len(base)+len(l.Tail), l.ActivityCount)
+	}
+	return base, err
+}
+
+// releaseLogs lets go of the conversations read in, once saved, of tasks whose owner is not deciding.
+func (e *Engine) releaseLogs() {
+	for id, l := range e.taskLogs {
+		if !l.loaded || e.runs[ownerKey(id)] != nil || e.actsDirty[id] || e.logDirty[id] {
+			continue
+		}
+		if _, saved := e.prev[docKey(kindTaskActs, id)]; saved || l.ActivityCount == len(l.Tail) {
+			l.acts, l.loaded = nil, false
+		}
+	}
+}
+
+// addActivity puts an entry in the task's conversation and returns it. It needs no reading in: the entry waits in the
+// log's tail, which goes to the conversation's own document once that is read in and the tail is long.
 func (e *Engine) addActivity(t *model.Task, a model.TaskActivity) model.TaskActivity {
 	l := e.editLog(t.ID)
-	a.Seq = len(l.Activities) + 1
+	l.ActivityCount++
+	a.Seq = l.ActivityCount
 	a.ID = t.ID + "-a" + strconv.Itoa(a.Seq)
 	a.At = e.w.Now
 	if t.Coordination != nil {
 		a.PlanVersion = t.Coordination.PlanVersion
 	}
-	l.Activities = append(l.Activities, a)
+	if l.loaded && len(l.Tail) >= tailMost {
+		l.Tail = nil
+		e.actsDirty[t.ID] = true
+	}
+	l.Tail = append(l.Tail, a)
+	if l.loaded {
+		l.acts = append(l.acts, a)
+	}
 	if t.Coordination != nil {
-		t.Coordination.History = model.ActivityHistory{Version: strconv.Itoa(len(l.Activities)), Count: len(l.Activities)}
+		t.Coordination.History = model.ActivityHistory{Version: strconv.Itoa(l.ActivityCount), Count: l.ActivityCount}
 	}
 	return a
+}
+
+// touchLast changes the entry just added, still the newest, in the change that added it.
+func (e *Engine) touchLast(t *model.Task, id string, fn func(*model.TaskActivity)) {
+	l := e.editLog(t.ID)
+	if n := len(l.Tail); n > 0 && l.Tail[n-1].ID == id {
+		fn(&l.Tail[n-1])
+	}
+	if n := len(l.acts); l.loaded && n > 0 && l.acts[n-1].ID == id {
+		fn(&l.acts[n-1])
+	}
 }
 
 // systemEvent is a short line in the task's conversation: key and args for clients to translate, text in case they cannot.
@@ -340,19 +460,26 @@ func (e *Engine) replay(t *model.Task, requestID, print string) (*model.TaskOper
 	op := l.Operations[rec.OperationID]
 	var act *model.TaskActivity
 	if rec.ActivityID != "" {
-		if a := activityByID(l, rec.ActivityID); a != nil {
-			act = a
+		a, err := e.activityByID(t.ID, rec.ActivityID)
+		if err != nil {
+			return nil, nil, err
 		}
+		act = a
 	}
 	return &op, act, nil
 }
 
-func activityByID(l *taskLog, id string) *model.TaskActivity {
-	for i := range l.Activities {
-		if l.Activities[i].ID == id {
-			a := l.Activities[i]
-			return &a
+// activityByID is an entry of a task's conversation, or nil.
+func (e *Engine) activityByID(taskID, id string) (*model.TaskActivity, error) {
+	all, err := e.activities(taskID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range all {
+		if all[i].ID == id {
+			a := all[i]
+			return &a, nil
 		}
 	}
-	return nil
+	return nil, nil
 }

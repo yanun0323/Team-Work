@@ -82,7 +82,7 @@ func (s *Store) LoadDocs(ctx context.Context, lazyConversations ...bool) ([]mode
 	var rows []docRow
 	query := s.db.WithContext(ctx).Model(&docRow{})
 	if len(lazyConversations) > 0 && lazyConversations[0] {
-		query = query.Select("kind, id, CASE WHEN kind = 'conv' THEN NULL ELSE data END AS data")
+		query = query.Select("kind, id, CASE WHEN kind IN ('conv', 'taskActs') THEN NULL ELSE data END AS data")
 	}
 	if err := query.Find(&rows).Error; err != nil {
 		return nil, err
@@ -96,8 +96,13 @@ func (s *Store) LoadDocs(ctx context.Context, lazyConversations ...bool) ([]mode
 
 // LoadConversation distinguishes a missing record from an empty conversation.
 func (s *Store) LoadConversation(ctx context.Context, id string) ([]byte, error) {
+	return s.LoadDoc(ctx, "conv", id)
+}
+
+// LoadDoc reads one document LoadDocs left without its data; a missing one is an error.
+func (s *Store) LoadDoc(ctx context.Context, kind, id string) ([]byte, error) {
 	var row docRow
-	if err := s.db.WithContext(ctx).Where("kind = ? AND id = ?", "conv", id).Take(&row).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("kind = ? AND id = ?", kind, id).Take(&row).Error; err != nil {
 		return nil, err
 	}
 	return row.Data, nil

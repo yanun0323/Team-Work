@@ -40,7 +40,8 @@ export function mergeBlocked(t: Task, subs: SubTask[]) {
   if (!c) return false
   return c.questions.length > 0 || c.ownerState === 'queued' || c.ownerState === 'responding'
     || c.operations.some((o) => o.status === 'received' || o.status === 'processing' || o.status === 'uncertain')
-    || subs.some((s) => currentRun(s) && (s.executionState === 'stopping' || s.executionState === 'uncertain' || s.validity === 'needsRevalidation' || s.ownerReview === 'pending'))
+    || subs.some((s) => currentRun(s) && (s.executionState === 'stopping' || s.executionState === 'uncertain' || s.validity === 'needsRevalidation'
+      || s.status !== 'complete' || s.ownerReview === 'pending' || s.ownerReview === 'rejected'))
 }
 
 /** Where an owner-run task stands on the board. Not started is 待辦; anything waiting on the user 待回覆. */

@@ -624,6 +624,8 @@ export interface TaskQuestion {
   planVersion: number
   createdAt: number
   change?: PendingChange
+  /** Employees the user is asked to let work on the task. */
+  replicaIds?: string[]
 }
 
 /** A limit the user set, or a decision made, kept apart from anything a model sums up. */

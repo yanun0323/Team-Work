@@ -1195,6 +1195,7 @@ func (e *Engine) DeleteTask(id string) error {
 		delete(e.w.Conversations, ownerKey(id))
 		delete(e.dirty, ownerKey(id))
 		delete(e.taskLogs, id)
+		delete(e.actsDirty, id)
 		return nil
 	})
 }

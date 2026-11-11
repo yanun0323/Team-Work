@@ -145,6 +145,10 @@ func (e *Engine) wakeOwner(t *model.Task) bool {
 		e.ownerFailed(t, nil, err)
 		return true
 	}
+	if _, err := e.activities(t.ID); err != nil { // the brief ends with the latest of the conversation
+		e.ownerFailed(t, nil, err)
+		return true
+	}
 	l := e.editLog(t.ID)
 	l.Wakes++
 	wake := key + "-" + strconv.Itoa(l.Wakes)
@@ -217,11 +221,10 @@ func (e *Engine) ownerBrief(t *model.Task, events []ownerEvent) string {
 	for _, ev := range events {
 		fmt.Fprintf(&b, "- [%s] %s\n", ev.Kind, ev.Text)
 	}
-	l := e.logOf(t.ID)
-	if l != nil && len(l.Activities) > 0 {
-		from := max(0, len(l.Activities)-10)
-		fmt.Fprintf(&b, "\n# Latest in the conversation (%d entries in all; older ones with read_task_history)\n", len(l.Activities))
-		for _, a := range l.Activities[from:] {
+	if all, _ := e.activities(t.ID); len(all) > 0 {
+		from := max(0, len(all)-10)
+		fmt.Fprintf(&b, "\n# Latest in the conversation (%d entries in all; older ones with read_task_history, one in full with read_task_entry)\n", len(all))
+		for _, a := range all[from:] {
 			b.WriteString(activityLine(a))
 		}
 	}
@@ -237,7 +240,63 @@ func activityLine(a model.TaskActivity) string {
 	if a.SubID != "" {
 		where = " (" + a.SubID + ")"
 	}
-	return fmt.Sprintf("- %s #%d %s %s%s: %s\n", a.ID, a.Seq, a.Kind, who, where, clip(a.Text, 600))
+	text := clip(a.Text, 600)
+	if text != a.Text {
+		text += " (clipped: read_task_entry " + a.ID + " reads it all)"
+	}
+	return fmt.Sprintf("- %s #%d %s %s%s: %s%s\n", a.ID, a.Seq, a.Kind, who, where, text, attachmentNote(a.Images, a.Files))
+}
+
+// entryPage is how much of one entry read_task_entry gives at a time, in characters.
+const entryPage = 20000
+
+func (e *Engine) readEntryTool(in *ownerRun) func(context.Context, string, json.RawMessage) model.ToolResult {
+	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+		var a struct {
+			ID     string `json:"activity_id"`
+			Offset int    `json:"offset"`
+		}
+		if err := parseArgs(raw, &a); err != nil {
+			return toolError("%s", safeText(err))
+		}
+		return e.ownerRead(in, func(t *model.Task) model.ToolResult {
+			all, err := e.activities(t.ID)
+			if err != nil {
+				return toolError("%s", safeText(err))
+			}
+			i := slices.IndexFunc(all, func(x model.TaskActivity) bool { return x.ID == a.ID })
+			if i < 0 {
+				return toolError("no entry %s in this task", a.ID)
+			}
+			x := all[i]
+			who := x.From
+			if x.Name != "" {
+				who = x.Name
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "%s #%d %s by %s", x.ID, x.Seq, x.Kind, who)
+			if x.SubID != "" {
+				fmt.Fprintf(&b, ", step run %s", x.SubID)
+			}
+			if x.QuestionID != "" {
+				fmt.Fprintf(&b, ", question %s", x.QuestionID)
+			}
+			for _, im := range x.Images {
+				fmt.Fprintf(&b, "\nAttached image: %s", im.Name)
+			}
+			for _, f := range x.Files {
+				fmt.Fprintf(&b, "\nAttached file: %s, read-only path: %s", f.Name, e.attachmentPath(t.ID, f))
+			}
+			text := []rune(x.Text)
+			from := min(max(a.Offset, 0), len(text))
+			to := min(from+entryPage, len(text))
+			fmt.Fprintf(&b, "\nText %d-%d of %d characters:\n%s", from, to, len(text), string(text[from:to]))
+			if to < len(text) {
+				fmt.Fprintf(&b, "\nMore: offset=%d", to)
+			}
+			return model.ToolResult{Text: b.String()}
+		})
+	}
 }
 
 // taskState is the task's formal state, as the owner reads it: none of it lives only in a summary.
@@ -449,18 +508,25 @@ func (e *Engine) ownerFailed(t *model.Task, in *ownerRun, err error) {
 		failure.Code = known.Code
 	}
 	l := e.editLog(t.ID)
+	retried := ""
 	for _, ev := range l.Events {
-		if in != nil && ev.State == eventProcessing && ev.Wake == in.wake && ev.OperationID != "" {
+		// a decision that failed before it began failed for the events still waiting
+		mine := in != nil && ev.State == eventProcessing && ev.Wake == in.wake || in == nil && ev.State == eventPending
+		if mine && ev.OperationID != "" {
 			e.setOperation(t, ev.OperationID, model.OpFailed, failure)
+			if l.Operations[ev.OperationID].Kind == "retry" {
+				retried = ev.OperationID
+			}
 		}
 	}
-	op := e.newOperation(t, model.TaskOperation{Kind: "retry", Status: model.OpFailed, Error: failure})
+	// a retry that failed is retried again; only a new failure needs an operation of its own
+	op, ok := l.Operations[retried]
+	if !ok {
+		op = e.newOperation(t, model.TaskOperation{Kind: "retry", Status: model.OpFailed, Error: failure})
+	}
 	t.Coordination.OwnerState = model.OwnerFailed
 	a := e.systemEvent(t, "ownerFailed", i18n.T("負責人處理失敗：%s", failure.Message), map[string]any{"error": failure.Message}, "")
-	l = e.editLog(t.ID)
-	if n := len(l.Activities); n > 0 && l.Activities[n-1].ID == a.ID {
-		l.Activities[n-1].OperationID = op.ID
-	}
+	e.touchLast(t, a.ID, func(a *model.TaskActivity) { a.OperationID = op.ID })
 }
 
 // ownerTurn is the owner's model-and-tools loop: what they read and write is kept in their conversation, and what
@@ -613,6 +679,8 @@ func (e *Engine) ownerTools(in *ownerRun) []adapter.Tool {
 			}),
 		ownerTool("read_task_history", "Read the task's conversation by page, oldest first: the entries before seq before, or the latest.",
 			`{"type":"object","properties":{"before":{"type":"integer"},"limit":{"type":"integer","maximum":100}}}`, e.readHistoryTool(in)),
+		ownerTool("read_task_entry", "Read one entry of the task's conversation in full, with what was attached, by page of its text.",
+			`{"type":"object","properties":{"activity_id":{"type":"string"},"offset":{"type":"integer"}},"required":["activity_id"]}`, e.readEntryTool(in)),
 		ownerTool("read_step", "Read a step run in full: its instructions, handoff, open question and log, by page.",
 			`{"type":"object","properties":{"sub_id":{"type":"string"},"log_offset":{"type":"integer"}},"required":["sub_id"]}`, e.readStepTool(in)),
 		ownerTool("dispatch_step", "Start a step of the plan with your instructions, by an allowed employee (the step's first when left out). "+
@@ -658,21 +726,24 @@ func (e *Engine) readHistoryTool(in *ownerRun) func(context.Context, string, jso
 			return toolError("%s", safeText(err))
 		}
 		return e.ownerRead(in, func(t *model.Task) model.ToolResult {
-			l := e.logOf(t.ID)
-			if l == nil || len(l.Activities) == 0 {
+			all, err := e.activities(t.ID)
+			if err != nil {
+				return toolError("%s", safeText(err))
+			}
+			if len(all) == 0 {
 				return model.ToolResult{Text: "The conversation is empty."}
 			}
 			limit := a.Limit
 			if limit <= 0 || limit > activityMost {
 				limit = 30
 			}
-			end := len(l.Activities)
+			end := len(all)
 			if a.Before > 0 {
 				end = min(a.Before-1, end)
 			}
 			start := max(0, end-limit)
 			var b strings.Builder
-			for _, x := range l.Activities[start:end] {
+			for _, x := range all[start:end] {
 				b.WriteString(activityLine(x))
 			}
 			if start > 0 {
@@ -781,27 +852,71 @@ func (e *Engine) dispatchTool(in *ownerRun) func(context.Context, string, json.R
 					return "", model.Errorf(model.CodeConflict, "這一步已有進行中的執行")
 				}
 			}
-			upstream := []string{}
-			for _, id := range a.UpstreamIDs {
-				u := e.w.SubTasks[id]
-				if u == nil || u.TaskID != t.ID || !current(u) || u.Status != enum.StatusComplete || u.OwnerReview != model.ReviewAccepted || u.Validity == model.ValidNeedsRevalidation {
-					return "", model.Errorf(model.CodeInvalid, "上游 %s 不是已接受的有效成果", id)
-				}
-				if !slices.Contains(upstream, id) {
-					upstream = append(upstream, id)
-				}
+			upstream, err := e.upstreamOf(t, n, a.UpstreamIDs)
+			if err != nil {
+				return "", err
 			}
-			for _, o := range e.subsOf(t.ID) { // what was stopped of this step no longer counts
-				if o.NodeID == n.ID && current(o) && o.Status != enum.StatusComplete && o.ExecutionState == model.ExecStopped {
+			for _, o := range e.subsOf(t.ID) { // what was stopped or turned down of this step no longer counts
+				stopped := o.Status != enum.StatusComplete && o.ExecutionState == model.ExecStopped
+				rejected := o.Status == enum.StatusComplete && o.OwnerReview == model.ReviewRejected
+				if o.NodeID == n.ID && current(o) && (stopped || rejected) {
 					o.Validity = model.ValidSuperseded
 				}
 			}
 			s := e.newRun(t, n.ID, who, a.Instructions, upstream)
 			name := e.replicaName(who)
-			e.systemEvent(t, "dispatched", i18n.T("派工「%s」給 %s", n.Name, name), map[string]any{"node": n.Name, "name": name, "instructions": clip(a.Instructions, 300)}, s.ID)
+			e.systemEvent(t, "dispatched", i18n.T("派工「%s」給 %s", n.Name, name), map[string]any{"step": n.Name, "name": name, "owner": e.replicaName(in.ownerID), "instructions": clip(a.Instructions, 300)}, s.ID)
 			return "dispatched " + s.ID, nil
 		})
 	}
+}
+
+// accepted says whether a run's handoff was accepted and still counts, so others may build on it.
+func accepted(s *model.SubTask) bool {
+	return current(s) && s.Status == enum.StatusComplete && s.OwnerReview == model.ReviewAccepted && s.Validity != model.ValidNeedsRevalidation
+}
+
+// upstreamOf is what a run of a step builds on: the accepted runs the owner named, and for each step the plan has
+// before it that they did not name, its latest accepted run. A step waits for every step before it, or for one when it
+// joins any; leaving one out is a change of the plan, made with revise_plan where the user can see it.
+func (e *Engine) upstreamOf(t *model.Task, n *model.WorkflowNode, named []string) ([]string, error) {
+	upstream := []string{}
+	for _, id := range named {
+		u := e.w.SubTasks[id]
+		if u == nil || u.TaskID != t.ID || !accepted(u) {
+			return nil, model.Errorf(model.CodeInvalid, "上游 %s 不是已接受的有效成果", id)
+		}
+		if !slices.Contains(upstream, id) {
+			upstream = append(upstream, id)
+		}
+	}
+	var before []string
+	for _, edge := range t.Workflow.Edges {
+		if edge.To == n.ID && !slices.Contains(before, edge.From) {
+			before = append(before, edge.From)
+		}
+	}
+	var missing []string
+	for _, from := range before {
+		if slices.ContainsFunc(upstream, func(id string) bool { return e.w.SubTasks[id].NodeID == from }) {
+			continue
+		}
+		latest := ""
+		for _, s := range e.subsOf(t.ID) {
+			if s.NodeID == from && accepted(s) {
+				latest = s.ID
+			}
+		}
+		if latest == "" {
+			missing = append(missing, e.nodeName(t, from))
+			continue
+		}
+		upstream = append(upstream, latest)
+	}
+	if len(missing) > 0 && (n.Join != enum.JoinAny || len(missing) == len(before)) {
+		return nil, model.Errorf(model.CodeConflict, "「%s」要等「%s」的成果被接受才能派工；不做的話先用 revise_plan 調整計畫", n.Name, strings.Join(missing, "、"))
+	}
+	return upstream, nil
 }
 
 // continueRun has a stopped run go on, told what the owner adds.
@@ -828,7 +943,7 @@ func (e *Engine) continueRun(t *model.Task, subID, instructions string) (string,
 	s.ExecutionState = model.ExecQueued
 	s.Status = enum.StatusTodo
 	name := e.nodeName(t, s.NodeID)
-	e.systemEvent(t, "continued", i18n.T("「%s」接著做", name), map[string]any{"node": name}, s.ID)
+	e.systemEvent(t, "continued", i18n.T("「%s」接著做", name), map[string]any{"step": name}, s.ID)
 	return "queued " + s.ID + " to go on", nil
 }
 
@@ -855,10 +970,10 @@ func (e *Engine) reviewTool(in *ownerRun) func(context.Context, string, json.Raw
 			case "accept":
 				s.OwnerReview = model.ReviewAccepted
 				s.Validity = model.ValidCurrent
-				e.systemEvent(t, "accepted", i18n.T("負責人接受「%s」的交付", name), map[string]any{"node": name}, s.ID)
+				e.systemEvent(t, "accepted", i18n.T("負責人接受「%s」的交付", name), map[string]any{"step": name, "owner": e.replicaName(in.ownerID)}, s.ID)
 			case "reject":
 				s.OwnerReview = model.ReviewRejected
-				e.systemEvent(t, "rejected", i18n.T("負責人不接受「%s」的交付：%s", name, a.Reason), map[string]any{"node": name, "reason": a.Reason}, s.ID)
+				e.systemEvent(t, "rejected", i18n.T("負責人不接受「%s」的交付：%s", name, a.Reason), map[string]any{"step": name, "reason": a.Reason, "owner": e.replicaName(in.ownerID)}, s.ID)
 			default:
 				return "", model.Errorf(model.CodeInvalid, "decision 要是 accept 或 reject")
 			}
@@ -890,7 +1005,7 @@ func (e *Engine) stopTool(in *ownerRun) func(context.Context, string, json.RawMe
 			}
 			e.editLog(t.ID).Operations[op.ID] = op
 			name := e.nodeName(t, s.NodeID)
-			e.systemEvent(t, "stopping", i18n.T("負責人停止「%s」：%s", name, a.Reason), map[string]any{"node": name, "reason": a.Reason}, s.ID)
+			e.systemEvent(t, "stopping", i18n.T("負責人停止「%s」：%s", name, a.Reason), map[string]any{"step": name, "reason": a.Reason, "owner": e.replicaName(in.ownerID)}, s.ID)
 			e.stopsSettled(t)
 			return "stopping " + s.ID + "; you are told once it has stopped", nil
 		})
@@ -1018,7 +1133,7 @@ func (e *Engine) meetingTool(in *ownerRun) func(context.Context, string, json.Ra
 			t.Workflow.Nodes = append(t.Workflow.Nodes, node)
 			e.newPlan(t, "meeting: "+a.Topic, "owner")
 			s := e.newRun(t, node.ID, people[0], a.Topic, []string{})
-			e.systemEvent(t, "meetingCalled", i18n.T("負責人召開會議：%s", node.Name), map[string]any{"topic": a.Topic}, s.ID)
+			e.systemEvent(t, "meetingCalled", i18n.T("負責人召開會議：%s", node.Name), map[string]any{"topic": a.Topic, "owner": e.replicaName(in.ownerID)}, s.ID)
 			return "meeting " + s.ID + " called; you are woken when it ends", nil
 		})
 	}
@@ -1089,14 +1204,49 @@ func (e *Engine) planTool(in *ownerRun) func(context.Context, string, json.RawMe
 			for _, s := range e.subsOf(t.ID) {
 				ran[s.NodeID] = true
 			}
-			var added, removed, changed []string
+			var added, removed, changed, restaffed, linked, unlinked []string
+			staff := func(ids []string) string {
+				names := []string{}
+				for _, id := range ids {
+					names = append(names, e.replicaName(id))
+				}
+				if len(names) == 0 {
+					return "-"
+				}
+				return strings.Join(names, "、")
+			}
 			for _, n := range wf.Nodes {
 				old := nodeOf(&t.Workflow, n.ID)
 				switch {
 				case old == nil:
 					added = append(added, n.Name)
-				case old.Name != n.Name || old.Prompt != n.Prompt || !slices.Equal(old.ReplicaIDs, n.ReplicaIDs) || old.Kind != n.Kind:
+				case !slices.Equal(old.ReplicaIDs, n.ReplicaIDs):
+					restaffed = append(restaffed, n.Name+"："+staff(old.ReplicaIDs)+" → "+staff(n.ReplicaIDs))
+					fallthrough
+				case old.Name != n.Name || old.Prompt != n.Prompt || old.Kind != n.Kind:
 					changed = append(changed, n.Name)
+				}
+			}
+			edgeName := func(w *model.Workflow, edge model.WorkflowEdge) string {
+				name := func(id string) string {
+					if n := nodeOf(w, id); n != nil {
+						return n.Name
+					}
+					return id
+				}
+				return name(edge.From) + " → " + name(edge.To)
+			}
+			has := func(w *model.Workflow, edge model.WorkflowEdge) bool {
+				return slices.ContainsFunc(w.Edges, func(x model.WorkflowEdge) bool { return x.From == edge.From && x.To == edge.To })
+			}
+			for _, edge := range wf.Edges {
+				if !has(&t.Workflow, edge) {
+					linked = append(linked, edgeName(&wf, edge))
+				}
+			}
+			for _, edge := range t.Workflow.Edges {
+				if !has(&wf, edge) {
+					unlinked = append(unlinked, edgeName(&t.Workflow, edge))
 				}
 			}
 			for _, n := range t.Workflow.Nodes {
@@ -1109,8 +1259,17 @@ func (e *Engine) planTool(in *ownerRun) func(context.Context, string, json.RawMe
 			}
 			t.Workflow.Nodes, t.Workflow.Edges = wf.Nodes, wf.Edges
 			e.newPlan(t, a.Reason, "owner")
-			args := map[string]any{"reason": a.Reason, "added": strings.Join(added, "、"), "skipped": strings.Join(removed, "、"), "changed": strings.Join(changed, "、")}
-			e.systemEvent(t, "planChanged", i18n.T("負責人調整計畫：%s", a.Reason), args, "")
+			version := t.Coordination.PlanVersion
+			args := map[string]any{"reason": a.Reason, "version": version, "owner": e.replicaName(in.ownerID), "added": strings.Join(added, "、"), "skipped": strings.Join(removed, "、"),
+				"changed": strings.Join(changed, "、"), "restaffed": strings.Join(restaffed, "；"), "linked": strings.Join(linked, "、"), "unlinked": strings.Join(unlinked, "、")}
+			text := i18n.T("負責人調整計畫（第 %d 版）：%s", version, a.Reason)
+			for _, part := range []struct{ label, value string }{{i18n.T("新增"), args["added"].(string)}, {i18n.T("略過"), args["skipped"].(string)},
+				{i18n.T("改派"), args["restaffed"].(string)}, {i18n.T("新增依賴"), args["linked"].(string)}, {i18n.T("移除依賴"), args["unlinked"].(string)}} {
+				if part.value != "" {
+					text += "\n" + part.label + "：" + part.value
+				}
+			}
+			e.systemEvent(t, "planChanged", text, args, "")
 			return fmt.Sprintf("plan version %d", t.Coordination.PlanVersion), nil
 		})
 	}
@@ -1184,10 +1343,13 @@ func (e *Engine) factTool(in *ownerRun) func(context.Context, string, json.RawMe
 
 // recordFact keeps a constraint or decision. A constraint the user set changes only with newer words of the user's.
 func (e *Engine) recordFact(t *model.Task, kind, text string, sources []string, supersedes string) (string, error) {
-	l := e.logOf(t.ID)
+	all, err := e.activities(t.ID)
+	if err != nil {
+		return "", err
+	}
 	seqOf := map[string]int{}
 	fromUser := map[string]bool{}
-	for _, a := range l.Activities {
+	for _, a := range all {
 		seqOf[a.ID] = a.Seq
 		fromUser[a.ID] = a.From == "user"
 	}
@@ -1245,7 +1407,7 @@ func (e *Engine) completeTool(in *ownerRun) func(context.Context, string, json.R
 			}
 			t.Stage = enum.StageAwaitMerge
 			e.addActivity(t, model.TaskActivity{Kind: "message", From: "agent", Text: strings.TrimSpace(a.Summary), By: in.ownerID, Name: e.replicaName(in.ownerID)})
-			e.systemEvent(t, "completed", i18n.T("負責人提交完成，等待使用者決定是否合併"), nil, "")
+			e.systemEvent(t, "completed", i18n.T("負責人提交完成，等待使用者決定是否合併"), map[string]any{"owner": e.replicaName(in.ownerID)}, "")
 			e.notice(Event{Type: "notice", Kind: "awaitMerge", TaskID: t.ID})
 			return "the task waits for the user to merge", nil
 		})
@@ -1266,14 +1428,22 @@ func (e *Engine) unfinished(t *model.Task, wake string) string {
 			return i18n.T("還有步驟在執行或無法確認")
 		case s.Validity == model.ValidNeedsRevalidation:
 			return i18n.T("還有成果需要重新確認")
-		case s.Status != enum.StatusComplete && s.ExecutionState != model.ExecStopped:
+		case s.Status != enum.StatusComplete:
 			return i18n.T("還有步驟沒完成")
-		case s.Status == enum.StatusComplete && s.OwnerReview == model.ReviewPending:
+		case s.OwnerReview == model.ReviewPending:
 			return i18n.T("還有交付沒有審核")
+		case s.OwnerReview == model.ReviewRejected:
+			return i18n.T("「%s」的交付沒有被接受，要退回重做或重新派工", e.nodeName(t, s.NodeID))
 		}
 	}
 	if !any {
 		return i18n.T("還沒有任何步驟完成")
+	}
+	// every step of the plan is done and accepted; one left out is taken out of the plan where the user sees it
+	for _, n := range t.Workflow.Nodes {
+		if !slices.ContainsFunc(e.subsOf(t.ID), func(s *model.SubTask) bool { return s.NodeID == n.ID && accepted(s) }) {
+			return i18n.T("計畫裡的「%s」還沒有被接受的成果；不做的話要先調整計畫", n.Name)
+		}
 	}
 	if len(t.Coordination.Questions) > 0 {
 		return i18n.T("還有問題沒有回答")
@@ -1329,6 +1499,9 @@ func (e *Engine) askOwnerTool(in subRun) adapter.Tool {
 func (e *Engine) handedToOwner(t *model.Task, s *model.SubTask) {
 	s.OwnerReview = model.ReviewPending
 	s.Routed = true
+	if l := e.logOf(t.ID); l != nil && l.Failures > 0 {
+		e.editLog(t.ID).Failures = 0
+	}
 	who := ""
 	if s.ReplicaID != nil {
 		who = *s.ReplicaID
@@ -1353,9 +1526,16 @@ func (e *Engine) failedForOwner(t *model.Task, s *model.SubTask, detail string) 
 	s.ExecutionState = model.ExecStopped
 	e.logLine(s, enum.LogSystem, detail, "", nil)
 	name := e.nodeName(t, s.NodeID)
-	e.systemEvent(t, "stepFailed", i18n.T("「%s」重試後仍失敗：%s", name, detail), map[string]any{"node": name, "error": detail}, s.ID)
+	e.systemEvent(t, "stepFailed", i18n.T("「%s」重試後仍失敗：%s", name, detail), map[string]any{"step": name, "error": detail}, s.ID)
 	e.addEvent(t, ownerEvent{Kind: evFailure, Key: "failed:" + s.ID + ":" + strconv.Itoa(s.Attempts), SubID: s.ID,
 		Text: "Step run " + s.ID + " (" + s.NodeID + ") failed after its retries: " + detail + ". Go on with it (dispatch_step with sub_id), dispatch the step again, or tell the user."})
+	// runs failing one after another stop the owner dispatching them again until the user says to go on
+	l := e.editLog(t.ID)
+	l.Failures++
+	if l.Failures >= maxOwnerFailures && t.Coordination.OwnerState != model.OwnerBlocked {
+		e.block(t, "loop", model.TaskQuestion{Kind: "approval", Prompt: i18n.T("步驟連續失敗 %d 次，已停下來等你決定", l.Failures),
+			Options: []model.ReviewOption{{ID: optionContinue, Label: i18n.T("讓負責人繼續")}}})
+	}
 }
 
 // meetingSays is an employee's words in a meeting the owner called; when everyone has spoken it ends.

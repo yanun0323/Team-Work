@@ -1751,6 +1751,7 @@ button:is(.fx-said-person, .fx-said-skill):hover { background: rgb(31 95 168 / 0
   padding-inline: 8%; font-size: 12px; line-height: 1.45; color: var(--muted); text-align: center; overflow-wrap: anywhere;
 }
 .fx-ticket-event time { font: 500 10.5px/1 var(--font-mono); }
+.fx-ticket-event-more { display: block; }
 .fx-ticket-tag {
   display: inline-block; max-width: 16em; margin: 0; padding: 1px 6px; border: 0; border-radius: 2px; background: var(--note-work);
   box-shadow: var(--lift); color: var(--ink-2); font: inherit; font-size: 11.5px; font-weight: 600; line-height: 1.5;
@@ -1797,6 +1798,9 @@ button.fx-ticket-tag:hover { color: var(--ink); }
 .fx-ticket-ask-head > .fx-d-text-md { flex: 1; min-width: 0; color: var(--ink); overflow-wrap: anywhere; }
 .fx-ticket-ask-head > .fx-chat-act { flex: none; }
 .fx-ticket-ask .fx-choice { text-align: start; text-wrap: pretty; }
+.fx-ticket-ask-crew { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--ink); }
+.fx-ticket-ask-crew li { display: inline-flex; align-items: center; gap: 5px; }
+.fx-ticket-ask-crew svg { border-radius: 2px; }
 .fx-ticket-ask-say { display: flex; gap: 8px; }
 .fx-ticket-ask-say .fx-control { flex: 1; min-width: 0; }
 .fx-ticket-said { flex: none; margin: 0; font-size: 12.5px; color: var(--ink-2); }

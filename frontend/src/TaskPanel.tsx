@@ -20,6 +20,7 @@ import { Markdown, MarkdownLine } from './Markdown'
 import { MentionBox } from './MentionBox'
 import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, splitAttachments } from './attachments'
 import { BranchIcon, CopyIcon, DeleteTool, EditTool, Gone, Heading, type Head } from './DrawerDetail'
+import { ChangeLines } from './ChangeCard'
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 
@@ -28,17 +29,29 @@ const SAID_FOR = 6
 
 const stepName = (t: Task, nodeId: string | undefined) => (nodeId ? nodeOf(t.workflow, nodeId)?.name ?? nodeId : '')
 
-/** An event in the user's language: by its key when this version knows it, else as the backend wrote it. */
-export function activityText(a: TaskActivity) {
-  if (!a.key) return a.text
+/** What of a change of the plan an event lists after its reason. */
+const PLAN_PARTS = ['added', 'skipped', 'restaffed', 'linked', 'unlinked'] as const
+
+/**
+ * An event in the user's language, a line each: by its key when this version knows it, else as the backend wrote it.
+ * A change of the plan lists what it added, skipped, gave to someone else and linked or unlinked.
+ */
+export function eventLines(a: TaskActivity): string[] {
+  const recorded = a.text.split('\n').filter(Boolean)
+  if (!a.key) return recorded
   const key = `task.${a.key}`
   const template = trRecorded(key)
-  if (template === key) return a.text
+  if (template === key) return recorded
   // a line whose words this version would leave holes in reads as the backend wrote it
   const args = Object.fromEntries(Object.entries(a.args ?? {}).map(([k, v]) => [k, String(v)]))
   const holes = [...template.matchAll(/\{(\w+)\}/g)].map((m) => m[1])
-  return holes.every((h) => h in args) ? trRecorded(key, args) : a.text
+  if (!holes.every((h) => h in args)) return recorded
+  const parts = a.key === 'planChanged' ? PLAN_PARTS.filter((p) => args[p]).map((p) => trRecorded(`task.plan.${p}`, { value: args[p] })) : []
+  return [trRecorded(key, args), ...parts]
 }
+
+export const activityText = (a: TaskActivity) => eventLines(a)[0] ?? ''
+
 
 /** What a step's run is doing, in a word, or '' when its bar or handoff says it. */
 export function runWord(s: SubTask): string {
@@ -236,9 +249,13 @@ export function ActivityRow({ task, a, open, onStep, onImage, flash, op }: {
 }) {
   const cls = flash ? ' fx-d-flash' : ''
   if (a.kind === 'event') {
+    const [head, ...more] = eventLines(a)
     return (
       <li className={`fx-ticket-event${cls}`} data-activity={a.id}>
-        <span><MarkdownLine text={activityText(a)} noLinks /></span>
+        <span>
+          <MarkdownLine text={head ?? ''} noLinks />
+          {more.map((m, i) => <span key={i} className="fx-ticket-event-more"><MarkdownLine text={m} noLinks /></span>)}
+        </span>
         {a.subId && <StepTag task={task} a={a} open={open} onStep={onStep} />}
         <time>{fmtClock(a.at)}</time>
       </li>
@@ -445,6 +462,7 @@ export function QuestionCard({ task, q, onJump, onAnswer, state }: {
   const [choice, setChoice] = useState('')
   const [note, setNote] = useState('')
   const owner = useStore((s) => (task.ownerId ? s.world.replicas[task.ownerId] : undefined))
+  const replicas = useStore((s) => s.world.replicas)
   return (
     <form className="fx-ticket-ask" aria-label={q.prompt} onSubmit={(e) => { e.preventDefault(); if (choice) onAnswer(choice, note) }}>
       <div className="fx-ticket-ask-head">
@@ -452,6 +470,15 @@ export function QuestionCard({ task, q, onJump, onAnswer, state }: {
         <div className="fx-d-text-md"><Markdown text={q.prompt} /></div>
         <button type="button" className="fx-chat-act fx-hit" onClick={() => onJump(q.activityId)}>{tr('原訊息')}</button>
       </div>
+      {q.change && <ChangeLines change={q.change} />}
+      {!!q.replicaIds?.length && (
+        <ul className="fx-ticket-ask-crew" aria-label={tr('員工')}>
+          {q.replicaIds.map((id) => {
+            const r = replicas[id]
+            return <li key={id}>{r ? <><PixelFace look={r.look} name={r.name} size={18} />{r.name}</> : <code>{id}</code>}</li>
+          })}
+        </ul>
+      )}
       {q.options.length > 0 && (
         <div className="fx-d-choices" role="group" aria-label={tr('選項')}>
           {q.options.map((o) => (
