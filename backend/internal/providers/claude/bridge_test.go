@@ -115,6 +115,16 @@ func TestClaudeChild(t *testing.T) {
 			case "result":
 				write(object{"type": "result", "subtype": "error_during_execution", "is_error": true, "errors": []string{"private-token: tool failed"}, "result": "private-output"})
 				continue
+			case "usage-stream":
+				write(object{"type": "stream_event", "event": object{"type": "message_start", "message": object{"id": "u", "usage": object{"input_tokens": 3, "cache_read_input_tokens": 4, "cache_creation_input_tokens": 2}}}})
+				write(object{"type": "stream_event", "event": object{"type": "content_block_start", "index": 0, "content_block": object{"type": "tool_use", "id": "c0", "name": "mcp__mho__read", "input": object{}}}})
+				write(object{"type": "stream_event", "event": object{"type": "content_block_stop", "index": 0}})
+				write(object{"type": "result", "subtype": "error_during_execution", "is_error": true, "errors": []string{"private-token"}, "result": "private-output"})
+				continue
+			case "usage-result":
+				write(object{"type": "result", "subtype": "error_during_execution", "is_error": true, "errors": []string{"private-token"}, "result": "private-output",
+					"usage": object{"input_tokens": 5, "cache_read_input_tokens": 1}})
+				continue
 			case "exit":
 				fmt.Fprintln(os.Stderr, "fetch failed: private-token private-prompt")
 				os.Exit(23)

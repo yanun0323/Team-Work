@@ -207,3 +207,33 @@ func TestSignedThinkingGoesBackToTheSameModel(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+// A turn that fails after Claude reported usage still says what it used, so it is counted, but leaves nothing to act on.
+func TestFailedTurnsKeepTheirUsage(t *testing.T) {
+	for _, c := range []struct {
+		mode        string
+		input, read int
+		write       int
+		writeKnown  bool
+	}{{"usage-stream", 9, 4, 2, true}, {"usage-result", 6, 1, 0, false}} {
+		fakeClaude(t)
+		t.Setenv("MHO_TEST_CLAUDE_FAILURE", c.mode)
+		cl, err := New(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reply, err := cl.Complete(context.Background(), model.ModelRequest{Cwd: t.TempDir(), Session: "s", Model: "haiku", System: "sys",
+			Tools:    []model.ToolSpec{{Name: "read", Parameters: json.RawMessage(`{"type":"object"}`)}},
+			Messages: []model.Message{{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "hello"}}}}}, func(string) {})
+		cl.Close()
+		if err == nil || len(reply.Content) != 0 {
+			t.Fatalf("%s: %v %+v", c.mode, err, reply.Content)
+		}
+		if u := reply.Usage; u.Input != c.input || u.CacheRead != c.read || u.CacheWrite != c.write || u.CacheWriteKnown != c.writeKnown {
+			t.Fatalf("%s: usage %+v", c.mode, u)
+		}
+		if strings.Contains(err.Error(), "private") {
+			t.Fatalf("%s: %v", c.mode, err)
+		}
+	}
+}

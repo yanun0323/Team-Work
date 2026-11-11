@@ -515,3 +515,22 @@ func TestOldConversationsGoOutUnchanged(t *testing.T) {
 		t.Fatalf("%s", raw)
 	}
 }
+
+// A reply that ends unfinished or failed still says what it used, so it is counted, but leaves nothing to act on.
+func TestFailedRepliesKeepTheirUsage(t *testing.T) {
+	for _, end := range []string{
+		`"type":"response.incomplete","response":{"incomplete_details":{"reason":"content_filter"},`,
+		`"type":"response.failed","response":{"error":{"code":"server_error"},`,
+	} {
+		f := &fake{stream: strings.ReplaceAll(stream, `"type":"response.completed","response":{`, end)}
+		c, secrets := setup(t, f)
+		signIn(t, c, secrets, time.Now().Add(time.Hour).UnixMilli())
+		reply, err := c.Complete(context.Background(), request, func(string) {})
+		if err == nil || len(reply.Content) != 0 {
+			t.Fatalf("%s: %v %+v", end, err, reply.Content)
+		}
+		if u := reply.Usage; u.Input != 10 || u.Output != 5 || u.CacheRead != 4 || u.CacheWriteKnown {
+			t.Fatalf("%s: usage %+v", end, u)
+		}
+	}
+}

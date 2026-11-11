@@ -98,10 +98,12 @@ func chatView(conv []model.Message, compact *model.ChatCompact) []model.Message 
 	return append([]model.Message{said}, conv[compact.Upto:]...)
 }
 
+// tokensAbout is a rough guess at what a message takes to send. Saved reasoning is sent back too, so its raw size
+// counts the same rough way, though the provider's real count for it (encrypted or signed) can differ.
 func tokensAbout(m model.Message) int {
 	n := 0
 	for _, b := range m.Content {
-		n += (len(b.Text) + len(b.Args)) / 4
+		n += (len(b.Text) + len(b.Args) + len(b.Raw)) / 4
 		if b.Type == enum.BlockImage || b.Data != "" || b.ImageRef != "" {
 			n += imageTokens
 		}

@@ -680,7 +680,7 @@ func readStream(ctx context.Context, body io.Reader, onText func(string), origin
 			reply.Usage = model.ModelUsage{Input: u.Input, Output: u.Output, CacheRead: u.Details.Cached}
 			if ev.Type == "response.incomplete" {
 				if ev.Response.Incomplete.Reason != "max_output_tokens" {
-					return model.ModelReply{}, rejected("ChatGPT 沒有完成這次回覆")
+					return model.ModelReply{Usage: reply.Usage}, rejected("ChatGPT 沒有完成這次回覆")
 				}
 				reply.Truncated = true
 			}
@@ -689,11 +689,14 @@ func readStream(ctx context.Context, body io.Reader, onText func(string), origin
 			code := ev.Code
 			if ev.Type == "response.failed" {
 				code = ev.Response.Error.Code
+				// a failed response can still report what it used, so it is counted
+				u := ev.Response.Usage
+				reply.Usage = model.ModelUsage{Input: u.Input, Output: u.Output, CacheRead: u.Details.Cached}
 			}
 			if code == "context_length_exceeded" {
-				return model.ModelReply{}, overflowed()
+				return model.ModelReply{Usage: reply.Usage}, overflowed()
 			}
-			return model.ModelReply{}, rejected("ChatGPT 無法回覆（%s）", orUnknown(code))
+			return model.ModelReply{Usage: reply.Usage}, rejected("ChatGPT 無法回覆（%s）", orUnknown(code))
 		}
 	}
 	if ctx.Err() != nil {

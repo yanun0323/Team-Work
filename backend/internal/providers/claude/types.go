@@ -234,15 +234,15 @@ func (c *Client) Complete(ctx context.Context, req model.ModelRequest, onText fu
 		}
 		return nil
 	})
-	if err != nil {
+	usage := model.ModelUsage{Input: result.Usage.Input, Output: result.Usage.Output, CacheRead: result.Usage.CacheRead,
+		CacheWrite: result.Usage.CacheWrite, CacheWriteKnown: result.Usage.CacheWriteReported}
+	if err != nil { // only what was used, nothing to act on
 		if ctx.Err() != nil {
-			return model.ModelReply{}, ctx.Err()
+			return model.ModelReply{Usage: usage}, ctx.Err()
 		}
-		return model.ModelReply{}, safeError(err)
+		return model.ModelReply{Usage: usage}, safeError(err)
 	}
-	return model.ModelReply{Content: content, Truncated: result.StopReason == "max_tokens",
-		Usage: model.ModelUsage{Input: result.Usage.Input, Output: result.Usage.Output, CacheRead: result.Usage.CacheRead,
-			CacheWrite: result.Usage.CacheWrite, CacheWriteKnown: result.Usage.CacheWriteReported}}, nil
+	return model.ModelReply{Content: content, Truncated: result.StopReason == "max_tokens", Usage: usage}, nil
 }
 
 // appendReply adds one streamed block to the reply. Thinking text is not kept: only a signed reasoning block can

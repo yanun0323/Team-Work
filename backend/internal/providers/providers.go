@@ -337,6 +337,12 @@ func readSSE(r io.Reader, event func([]byte) (bool, error)) error {
 	return nil
 }
 
+// failed is a failed call's reply: only the usage the provider already reported, so it is still counted, and nothing
+// to act on.
+func failed(reply model.ModelReply, err error) (model.ModelReply, error) {
+	return model.ModelReply{Usage: reply.Usage}, err
+}
+
 func validCalls(calls []model.Block) error {
 	seen := map[string]bool{}
 	for _, c := range calls {

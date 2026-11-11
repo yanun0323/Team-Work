@@ -172,12 +172,12 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 	})
 	if err != nil {
 		if ctx.Err() != nil {
-			return model.ModelReply{}, ctx.Err()
+			return failed(reply, ctx.Err())
 		}
-		return model.ModelReply{}, err
+		return failed(reply, err)
 	}
 	if !finished {
-		return model.ModelReply{}, model.Errorf(model.CodeUnavailable, "模型回覆沒有結束就中斷了")
+		return failed(reply, model.Errorf(model.CodeUnavailable, "模型回覆沒有結束就中斷了"))
 	}
 	if text.Len() > 0 {
 		reply.Content = append(reply.Content, model.Block{Type: enum.BlockText, Text: text.String()})
@@ -196,7 +196,7 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 		blocks = append(blocks, *calls[i])
 	}
 	if err := validCalls(blocks); err != nil {
-		return model.ModelReply{}, err
+		return failed(reply, err)
 	}
 	reply.Content = append(reply.Content, blocks...)
 	return reply, nil

@@ -5,12 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/yanun0323/Team-Work/internal/adapter"
 	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/providers"
 )
 
 func TestSumUsageFillsDaysInTheAskersZone(t *testing.T) {
@@ -89,5 +95,75 @@ func TestMeterLogsEachCallsCacheUse(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "private") {
 		t.Fatal("the log quoted an error's text")
+	}
+}
+
+type usageStore struct {
+	adapter.Store
+	got []model.Usage
+}
+
+func (s *usageStore) AddUsage(_ context.Context, u model.Usage) error {
+	s.got = append(s.got, u)
+	return nil
+}
+
+// A call that fails after its provider reported usage is still metered and logged, with no reply to act on.
+func TestFailedCallsKeepTheUsageTheyReported(t *testing.T) {
+	cases := []struct {
+		kind              enum.ProviderKind
+		stream            string
+		input, read       int
+		write, writeKnown any
+	}{
+		{enum.ProviderAnthropic, `data: {"type":"message_start","message":{"usage":{"input_tokens":3,"cache_read_input_tokens":4,"cache_creation_input_tokens":2}}}
+
+data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"c1","name":"t"}}
+
+data: {"type":"content_block_stop","index":0}
+
+data: {"type":"error","error":{"type":"overloaded_error","message":"private text"}}
+
+`, 9, 4, 2.0, true},
+		{enum.ProviderAnthropic, `data: {"type":"message_start","message":{"usage":{"input_tokens":3,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+
+`, 3, 0, 0.0, true},
+		{enum.ProviderOpenAI, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"{}"}}]}}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":4}}}
+
+`, 10, 4, nil, false},
+	}
+	for _, c := range cases {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, c.stream) }))
+		p, err := providers.NewFactory(nil, nil).For(model.ModelProvider{Name: "x", Kind: c.kind, BaseURL: srv.URL, Auth: model.ProviderAuth{Kind: "apiKey"}}, "sk")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		store := &usageStore{}
+		m := meter{Provider: p, e: &Engine{log: zerolog.New(&buf), store: store, ctx: context.Background(), clock: func() float64 { return 1 }},
+			kind: string(c.kind), model: "m"}
+		reply, err := m.Complete(context.Background(), model.ModelRequest{Session: "sub-1", Model: "m",
+			Messages: []model.Message{userText("secret prompt")}}, func(string) {})
+		srv.Close()
+		if err == nil || len(reply.Content) != 0 {
+			t.Fatalf("%s: failure %v gave a reply to act on: %+v", c.kind, err, reply.Content)
+		}
+		if len(store.got) != 1 || store.got[0].Input != c.input || store.got[0].CacheRead != c.read {
+			t.Fatalf("%s: usage recorded %+v", c.kind, store.got)
+		}
+		var line map[string]any
+		if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
+			t.Fatal(err)
+		}
+		write, known := line["cacheWrite"]
+		if line["session"] != "sub-1" || line["ok"] != false || line["input"] != float64(c.input) || line["cacheRead"] != float64(c.read) ||
+			known != c.writeKnown || write != c.write {
+			t.Fatalf("%s: logged %v", c.kind, line)
+		}
+		if strings.Contains(buf.String(), "private") || strings.Contains(buf.String(), "secret") {
+			t.Fatalf("%s: the log quoted the conversation or the error: %s", c.kind, buf.String())
+		}
 	}
 }

@@ -384,11 +384,11 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 	for {
 		f, e := s.child.next(ctx)
 		if e != nil {
-			return CompleteResult{}, e
+			return turn.failed(), e
 		}
 		if f.Type == "control_request" {
 			if e = s.control(ctx, f); e != nil {
-				return CompleteResult{}, e
+				return turn.failed(), e
 			}
 			continue
 		}
@@ -402,11 +402,11 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 		}
 		done, e := turn.consume(s, f)
 		if e != nil {
-			return CompleteResult{}, e
+			return turn.failed(), e
 		}
 		if done {
 			if ctx.Err() != nil {
-				return CompleteResult{}, ctx.Err()
+				return turn.failed(), ctx.Err()
 			}
 			// Clone request history: callers may reuse their slices for the next turn.
 			// Decode into a new slice: decoding reuses existing buffers, and the last assistant message's
@@ -467,6 +467,11 @@ func (u *tokenUsage) UnmarshalJSON(data []byte) error {
 		}
 	}
 	return nil
+}
+
+// failed is a failed turn's result: only the usage Claude already reported, so it is still counted.
+func (t *turn) failed() CompleteResult {
+	return CompleteResult{Usage: t.usage.modelUsage()}
 }
 
 func (u tokenUsage) modelUsage() ModelUsage {
@@ -780,6 +785,9 @@ func (t *turn) consume(s *session, f frame) (bool, error) {
 			return true, nil
 		}
 	case "result":
+		if t.usage == (tokenUsage{}) {
+			t.usage = f.Usage
+		}
 		if len(t.partial) != 0 {
 			return false, unavailable("Claude stopped before completing its tool arguments.")
 		}
@@ -792,9 +800,6 @@ func (t *turn) consume(s *session, f frame) (bool, error) {
 			t.stop = "max_tokens"
 		} else {
 			t.stop = "end_turn"
-		}
-		if t.usage == (tokenUsage{}) {
-			t.usage = f.Usage
 		}
 		return true, nil
 	}

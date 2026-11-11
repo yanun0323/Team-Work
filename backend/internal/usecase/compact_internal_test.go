@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -96,5 +97,59 @@ func TestSummarizeCarriesTheSummaryThroughEveryPart(t *testing.T) {
 		if !strings.Contains(read, fmt.Sprintf("user: %d ", i)) {
 			t.Fatalf("line %d was never read", i)
 		}
+	}
+}
+
+// Saved reasoning is sent back with every call, so a conversation heavy with it but short in words must still count
+// as long and be summed up, keeping each tool call with its result.
+func TestReasoningCountsTowardCompacting(t *testing.T) {
+	heavy := strings.Repeat("thought ", 10_000)
+	for name, raw := range map[string]string{
+		"claude": `{"type":"thinking","thinking":"` + heavy + `","signature":"s"}`,
+		"codex":  `{"type":"reasoning","id":"rs_1","encrypted_content":"` + heavy + `"}`,
+	} {
+		var conv []model.Message
+		for i := range 20 {
+			id := fmt.Sprintf("call_%d", i)
+			conv = append(conv, userText("hi"),
+				model.Message{Role: enum.RoleAssistant, Content: []model.Block{
+					{Type: enum.BlockReasoning, Raw: json.RawMessage(raw), Origin: name + ":m"},
+					{Type: enum.BlockToolCall, ID: id, Name: "read_file", Args: json.RawMessage(`{}`)},
+				}},
+				model.Message{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: id, Text: "ok"}}},
+				model.Message{Role: enum.RoleAssistant, Content: []model.Block{{Type: enum.BlockText, Text: "ok"}}})
+		}
+		if n := tokensOf(conv); n < 20*(len(raw)/4) {
+			t.Fatalf("%s: reasoning not counted: %d tokens", name, n)
+		}
+		cut := compactCut(conv, 0, 32_000)
+		if cut == 0 {
+			t.Fatalf("%s: a reasoning-heavy conversation cannot be summed up", name)
+		}
+		if conv[cut].Role != enum.RoleAssistant {
+			t.Fatalf("%s: cut at a %s message", name, conv[cut].Role)
+		}
+		calls := map[string]bool{}
+		for _, m := range conv[cut:] {
+			for _, b := range m.Content {
+				if b.Type == enum.BlockToolCall {
+					calls[b.ID] = true
+				}
+				if b.Type == enum.BlockToolResult && !calls[b.ID] {
+					t.Fatalf("%s: result %s kept without its call", name, b.ID)
+				}
+			}
+		}
+	}
+}
+
+// Conversations saved before reasoning was kept are estimated as before.
+func TestOldConversationEstimateUnchanged(t *testing.T) {
+	m := model.Message{Role: enum.RoleAssistant, Content: []model.Block{
+		{Type: enum.BlockText, Text: strings.Repeat("a", 400)},
+		{Type: enum.BlockToolCall, ID: "c", Name: "x", Args: json.RawMessage(strings.Repeat("1", 40))},
+	}}
+	if got := tokensAbout(m); got != 110 {
+		t.Fatalf("got %d, want 110", got)
 	}
 }
