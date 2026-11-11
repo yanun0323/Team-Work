@@ -21,7 +21,7 @@ import { keptState, sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, makesImages, PROVIDER_KINDS } from './providers'
 import { Chevron, Select, Toggle, useAutoGrow } from './Controls'
-import { hideBlueprint, hideWorkflow, remoteWindowReason, setLanguage } from './core/ops'
+import { hideBlueprint, hideWorkflow, refreshStaleModels, remoteWindowReason, setLanguage } from './core/ops'
 import { useRemote } from './core/island'
 import { Chats, TABS as COMPANY_TABS, tabOr, type Tab as CompanyTab } from './DrawerTabs'
 import { airportTabOr, AIRPORT_TABS, AUTO_TABS, AUTO_VIEWS, BUSY_ANIMATIONS, DAYLIGHTS, DEFAULT_PREFS, IDLE_FOLLOW_TARGETS, type IdleFollowTarget, IDLE_FOLLOWS, MAP_CLICKS, type AirportTab, type AutoTab, type AutoView, type MapClick, type BusyAnimation, usePrefs, type LogOrder, type Prefs, ZOOM_SENSITIVITY, COMPACT_DEFAULTS, COMPACT_SHARE } from './prefs'
@@ -432,7 +432,7 @@ export function ChatTitleFields({ model, effort, onChange: set }: { model: strin
         onChange={(on) => set(on ? { chatTitleModel: models[0] ?? '', chatTitleEffort: DEFAULT_EFFORT } : { chatTitleModel: '', chatTitleEffort: '' })} />
       {model && (
         <>
-          <Select label={tr('模型')} value={model} options={models.includes(model) ? models : [...models, model]}
+          <Select label={tr('模型')} value={model} options={models.includes(model) ? models : [...models, model]} onOpen={refreshStaleModels}
             groups={modelGroups(w).map((g) => ({ label: g.label, count: g.models.length }))}
             groupOf={(m) => modelGroups(w).findIndex((g) => g.models.includes(m))}
             onChange={(m) => set({ chatTitleModel: m, chatTitleEffort: effortsOf(w, m).includes(effort) ? effort : DEFAULT_EFFORT })} />

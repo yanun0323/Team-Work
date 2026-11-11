@@ -19,7 +19,7 @@ import { Gone, Heading, DeleteTool, PinTool, type Head } from './DrawerDetail'
 import { composing } from './ime'
 import { fmtClock, fmtTokens, teamReplicas, useAtBottom, useStickToBottom } from './core/model'
 import type { Attachment, Chat, ChatHandoff, Look, Made, QueuedMessage } from './core/domain/types'
-import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, openFolder, readChat, renameChat, resolveChatChange, retryChat, rewindChat, sayInChat, setChatChair, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
+import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, openFolder, readChat, refreshStaleModels, renameChat, resolveChatChange, retryChat, rewindChat, sayInChat, setChatChair, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
 import { AIRPORT_STAFF_LOOK, canHandOff, MAX_CHAT_PEOPLE, roundActor } from './core/domain/sim'
 import { HandOffIcon, HandOffMenu } from './HandOffMenu'
 import { useLiveOutput, useLiveText } from './core/live'
@@ -557,7 +557,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
               <Heading {...h}>{name}</Heading>
               {!!chat?.tokens && <span>{fmtTokens(chat.tokens)} Token</span>}
             </div>
-            <Select label={tr('模型')} value={mindModel} disabled={writing} options={modelsOf(w).includes(mindModel) || !mindModel ? modelsOf(w) : [...modelsOf(w), mindModel]}
+            <Select label={tr('模型')} value={mindModel} disabled={writing} options={modelsOf(w).includes(mindModel) || !mindModel ? modelsOf(w) : [...modelsOf(w), mindModel]} onOpen={refreshStaleModels}
               groups={modelGroups(w).map((g) => ({ label: g.label, count: g.models.length }))}
               groupOf={(m) => modelGroups(w).findIndex((g) => g.models.includes(m))}
               onChange={(m) => changeMind(m, mindEffort)} />

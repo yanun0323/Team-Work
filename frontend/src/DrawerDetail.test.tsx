@@ -76,6 +76,25 @@ it('shows how many tokens a provider\'s models can read: its own, the one set, o
   }
 })
 
+it('offers to read a provider\'s models again only when it can answer', () => {
+  const w = useStore.getState().world
+  const sheet = (p: ModelProvider) => {
+    w.providers[p.id] = p
+    Object.assign(useStore.getInitialState(), useStore.getState())
+    const noop = () => {}
+    return renderToStaticMarkup(<Detail item={{ kind: 'provider', id: p.id }} teamId="" depth={0} covered={false} leaving={false}
+      onGone={noop} onBack={noop} onDone={noop} onClear={noop} onPush={noop} onOpen={noop} />)
+  }
+  const base = { name: 'P', kind: 'anthropic' as const, baseUrl: '', models: [] }
+  try {
+    expect(sheet({ ...base, id: 'r1', auth: { kind: 'apiKey', keyHint: 'x' } })).toContain('aria-label="重新讀取模型"')
+    expect(sheet({ ...base, id: 'r2', auth: { kind: 'subscription', signedIn: true } })).toContain('aria-label="重新讀取模型"')
+    expect(sheet({ ...base, id: 'r3', auth: { kind: 'subscription' } })).not.toContain('重新讀取模型')
+  } finally {
+    for (const id of ['r1', 'r2', 'r3']) delete w.providers[id]
+  }
+})
+
 it('says where a task blueprint that cannot be edited comes from, and nothing for one of your own', () => {
   const w = useStore.getState().world
   const mine = Object.values(w.workflows).find((f) => !isLocked(f.id))!

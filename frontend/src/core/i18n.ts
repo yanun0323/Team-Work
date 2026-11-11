@@ -624,6 +624,8 @@ const en = {
   '儲存中…': 'Saving…',
   '捨棄修改': 'Discard changes',
   '重新讀取': 'Reload',
+  '重新讀取模型': 'Reload models',
+  '正在讀取模型': 'Reading models',
   '在 Finder 顯示': 'Show in Finder',
   '無法預覽這個檔案': 'Can’t preview this file',
   '{count} 個檔案還沒儲存': ({ count: n }) => `${count(n, 'file')} not saved`,

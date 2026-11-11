@@ -380,6 +380,10 @@ export const startLogin = (id: string, method?: 'browser' | 'device') => request
 export const pasteLogin = (id: string, value: string) => request('POST', `/providers/${id}/login/paste`, { value })
 export const cancelLogin = (id: string) => request('DELETE', `/providers/${id}/login`)
 export const logout = (id: string) => request('POST', `/providers/${id}/logout`)
+/** Asks a provider for its models now; settles once the answer is in the world. */
+export const refreshModels = (id: string): Promise<void> => (MOCK ? Promise.resolve() : request('POST', `/providers/${id}/models`).then(() => undefined))
+/** A list of models is being opened: providers not asked for a while are asked again, in the background. */
+export const refreshStaleModels = () => { if (!MOCK) request('POST', '/models/stale').catch(() => {}) }
 
 // ---------- the repo of a new company ----------
 

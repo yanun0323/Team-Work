@@ -48,7 +48,7 @@ import { addProvider, fixedContext, providerUsers, updateProvider, type Provider
 import { handedImageUrl, readHandedDiff, readHandedFile, request } from './core/backend'
 import { DiffNote, useDocView, useRoomForSplit, ViewSwitch } from './HandedDiff'
 import { tally, type DiffLine } from './diffView'
-import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fire, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, mergeTask, pauseTask, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
+import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fire, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, mergeTask, pauseTask, refreshModels, refreshStaleModels, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { NotesSheet } from './Notes'
 import { FileDetail, FileEdit } from './FileSheets'
@@ -1119,6 +1119,7 @@ function ProviderDetail({ id, editing, onEdit, onGoneProvider, ...h }: Head & {
   return (
     <>
       <div className="fx-tools">
+        {(p.auth.kind === 'apiKey' || p.auth.signedIn) && <RefreshModelsTool id={id} />}
         <EditTool onClick={onEdit} open={editing} />
         <DeleteTool what={tr('供應商')} onConfirm={remove} disabled={crew.length > 0} why={tr('還有 {length} 位員工使用這個供應商，無法刪除', { length: crew.length })} />
       </div>
@@ -1145,6 +1146,28 @@ function ProviderDetail({ id, editing, onEdit, onGoneProvider, ...h }: Head & {
         )}
       </Section>
     </>
+  )
+}
+
+/**
+ * Asks a provider for its models now, turning while it waits; the list comes back as a change to the world. It stays
+ * focusable while it turns, so the keyboard does not lose its place; a second press then does nothing.
+ */
+function RefreshModelsTool({ id }: { id: string }) {
+  const [busy, setBusy] = useState(false)
+  const refresh = async () => {
+    if (busy) return
+    setBusy(true)
+    await attempt(() => refreshModels(id))
+    setBusy(false)
+  }
+  const label = busy ? tr('正在讀取模型') : tr('重新讀取模型')
+  return (
+    <button type="button" className="fx-tool fx-hit fx-spin-tool" aria-busy={busy} aria-label={label} title={label} onClick={refresh}>
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+        <path d="M13 8a5 5 0 1 1-1.46-3.54M12.8 2v3h-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
   )
 }
 
@@ -1737,7 +1760,7 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
           <span>{tr('名字')}</span>
           <input className="fx-control" value={name} onChange={(e) => setName(e.target.value)} required />
         </label>
-        <Select label={tr('模型')} value={model} options={modelsOf(w)} onChange={setModel}
+        <Select label={tr('模型')} value={model} options={modelsOf(w)} onChange={setModel} onOpen={refreshStaleModels}
           groups={modelGroups(w).map((g) => ({ label: g.label, count: g.models.length }))}
           groupOf={(m) => modelGroups(w).findIndex((g) => g.models.includes(m))} />
         <Select label={tr('思考等級')} value={level} options={levels} onChange={setEffort} />

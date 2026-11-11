@@ -122,7 +122,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
     alt: "A model provider's details: connection, models and the employees using it",
     body: (
       <>
-        <p>Model providers supply the models employees can use, and you need at least one before adding employees. The types are Anthropic, OpenAI, Google Gemini and OpenAI compatible (such as DeepSeek or a local Ollama), signed in with an API key or a subscription. Providers list their models, so you do not type them.</p>
+        <p>Model providers supply the models employees can use, and you need at least one before adding employees. The types are Anthropic, OpenAI, Google Gemini and OpenAI compatible (such as DeepSeek or a local Ollama), signed in with an API key or a subscription. Providers list their models, so you do not type them. The list is read again when the app starts, and in the background when you open a model list more than 8 hours after the last read; to see a new model at once, press Reload models at the top right of the provider's page.</p>
         <p className="fx-help-pit">If a subscription signs out elsewhere or expires, the provider goes back to signed out and replies fail: press Sign in again under the message, then Reply again once signed in.</p>
         <dl>
           <dt>API key</dt><dd>The screen shows only the last four characters. The full key is kept in this computer's database, not in the settings files. OpenAI compatible also needs an API address.</dd>

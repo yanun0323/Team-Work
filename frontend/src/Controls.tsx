@@ -30,8 +30,10 @@ export const Check = () => (
  * A select-only combobox (WAI-ARIA pattern): a button showing the value, opening a listbox on a paper slip.
  * Arrows, Home/End and typing a letter move; Enter, Space or a click picks; Escape or Tab closes.
  */
-export function Select({ label, value, options, labelOf = (o) => o, onChange, shownAs, rowOf, groups, groupOf, disabled, picked: isPicked }: {
+export function Select({ label, value, options, labelOf = (o) => o, onChange, onOpen, shownAs, rowOf, groups, groupOf, disabled, picked: isPicked }: {
   label: string
+  /** Called each time the list opens. */
+  onOpen?: () => void
   disabled?: boolean
   value: string
   options: string[]
@@ -63,6 +65,7 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, sh
   const show = (at = Math.max(0, options.indexOf(value))) => {
     setActive(at)
     setOpen(true)
+    onOpen?.()
   }
   const pick = (i: number) => {
     if (several) {
