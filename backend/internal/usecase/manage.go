@@ -30,6 +30,7 @@ const (
 	toolSaveWorkflow   = "save_workflow"
 	toolListProviders  = "list_providers"
 	toolSaveProvider   = "save_provider"
+	toolSaveEmployees  = "save_employees"
 
 	optionApprove = "approve"
 	optionReject  = "reject"
@@ -37,6 +38,7 @@ const (
 	changeBlueprint = "blueprint"
 	changeWorkflow  = "workflow"
 	changeProvider  = "provider"
+	changeEmployees = "employees"
 
 	// maxTaskDepth is how many tasks in a row employees working on tasks can make, each from the one before.
 	maxTaskDepth = 3
@@ -44,7 +46,7 @@ const (
 
 // isChangeTool says whether a tool can stop to have the user agree to what it writes.
 func isChangeTool(name string) bool {
-	return name == toolSaveBlueprint || name == toolSaveWorkflow || name == toolSaveProvider
+	return name == toolSaveBlueprint || name == toolSaveWorkflow || name == toolSaveProvider || name == toolSaveEmployees
 }
 
 // manager is who is using the tools: an employee on a task, or in a chat.
@@ -140,9 +142,9 @@ func (e *Engine) manageTools(m manager, allowed []enum.Tool, writing bool) []ada
 			lister(toolListTasks, "List the tasks you can reach, with their steps and who works them.", func() any { return e.listTasks(m) }),
 			lister(toolListBlueprints, "List all blueprints with the version to pass to save_blueprint. Built-in blueprints, ones from Git and ones a source provides cannot be changed.", e.listBlueprints),
 			lister(toolListWorkflows, "List all task flows with the version to pass to save_workflow. Built-in flows and ones a source provides cannot be changed.", e.listWorkflows),
-			lister(toolListEmployees, "List the employees you can reach.", func() any { return e.listEmployees(m) }),
+			lister(toolListEmployees, "List the employees you can reach, with the version to pass to save_employees.", func() any { return e.listEmployees(m) }),
 			lister(toolListCompanies, "List the companies you can reach.", func() any { return e.listCompanies(m) }),
-			lister(toolListProviders, "List the model providers with the version to pass to save_provider. API keys are never shown, only their last 4 characters.", e.listProviders),
+			lister(toolListProviders, "List the model providers with the version to pass to save_provider, their models and each model's thinking levels. API keys are never shown, only their last 4 characters.", e.listProviders),
 			e.readChatTool(),
 		)
 	}
@@ -153,6 +155,7 @@ func (e *Engine) manageTools(m manager, allowed []enum.Tool, writing bool) []ada
 			funcTool{model.ToolSpec{Name: toolSaveBlueprint, Description: saveBlueprintDescription, Parameters: json.RawMessage(saveBlueprintSchema)}, e.saveBlueprintTool(m)},
 			funcTool{model.ToolSpec{Name: toolSaveWorkflow, Description: saveWorkflowDescription, Parameters: json.RawMessage(saveWorkflowSchema)}, e.saveWorkflowTool(m)},
 			funcTool{model.ToolSpec{Name: toolSaveProvider, Description: saveProviderDescription, Parameters: json.RawMessage(saveProviderSchema)}, e.saveProviderTool(m)},
+			funcTool{model.ToolSpec{Name: toolSaveEmployees, Description: saveEmployeesDescription, Parameters: saveEmployeesSchema(m)}, e.saveEmployeesTool(m)},
 		)
 	}
 	return out
@@ -283,6 +286,8 @@ func (e *Engine) listEmployees(m manager) any {
 		BlueprintID string `json:"blueprintId"`
 		Blueprint   string `json:"blueprint"`
 		Model       string `json:"model"`
+		Effort      string `json:"effort"`
+		Version     string `json:"version"`
 	}
 	out := []row{}
 	for _, r := range e.w.Replicas {
@@ -296,7 +301,7 @@ func (e *Engine) listEmployees(m manager) any {
 				blueprint = "(custom)"
 			}
 		}
-		out = append(out, row{r.ID, r.TeamID, r.Name, r.BlueprintID, blueprint, r.Model})
+		out = append(out, row{r.ID, r.TeamID, r.Name, r.BlueprintID, blueprint, r.Model, r.Effort, employeeVersion(r)})
 	}
 	slices.SortFunc(out, func(a, b row) int { return strings.Compare(a.ID, b.ID) })
 	return out
@@ -330,12 +335,13 @@ func (e *Engine) listProviders() any {
 		SignedIn bool                        `json:"signedIn,omitempty"`
 		BaseURL  string                      `json:"baseUrl"`
 		Models   []string                    `json:"models"`
+		Thinking map[string][]string         `json:"thinking,omitempty"`
 		Prices   map[string]model.ModelPrice `json:"prices,omitempty"`
 		Window   int                         `json:"contextWindow"`
 	}
 	out := []row{}
 	for _, p := range e.w.Providers {
-		out = append(out, row{p.ID, versionOf(p), p.Name, p.Kind, p.Auth.Kind, p.Auth.KeyHint, p.Auth.SignedIn, p.BaseURL, p.Models, p.Prices, model.ContextWindow(*p)})
+		out = append(out, row{p.ID, versionOf(p), p.Name, p.Kind, p.Auth.Kind, p.Auth.KeyHint, p.Auth.SignedIn, p.BaseURL, p.Models, p.Thinking, p.Prices, model.ContextWindow(*p)})
 	}
 	slices.SortFunc(out, func(a, b row) int { return strings.Compare(a.ID, b.ID) })
 	return out
@@ -1292,6 +1298,187 @@ func (e *Engine) workflowDiff(before, after *model.Workflow) []model.ChangeLine 
 	return lines
 }
 
+// ---------- employees ----------
+
+const saveEmployeesDescription = "Hire or change employees, several in one call. An item without id hires one at once: name, blueprint_id from list_blueprints " +
+	"and model from list_providers are needed; effort is one of the model's thinking levels, its default when left out. " +
+	"An item with id and the version from list_employees changes that employee: the fields you leave out stay. " +
+	"The changes are shown to the user together and you stop until they agree or refuse, which is what this call then returns. " +
+	"If any item is refused, nothing is written; hires stand even when the user refuses the changes. Hire only when the user asked for it; who works a task's steps is theirs to decide."
+
+func saveEmployeesSchema(m manager) json.RawMessage {
+	team := ""
+	if m.teamID == "" {
+		team = `"team_id":{"type":"string","description":"The company to hire into, from list_companies"},`
+	}
+	return json.RawMessage(`{"type":"object","properties":{` + team + `"employees":{"type":"array","minItems":1,"items":{"type":"object","properties":{` +
+		`"id":{"type":"string"},"version":{"type":"string"},"name":{"type":"string"},"blueprint_id":{"type":"string"},"model":{"type":"string"},"effort":{"type":"string"}}}}},` +
+		`"required":["employees"]}`)
+}
+
+// employeeVersion is the version of what save_employees changes about an employee; their notes changing does not move it.
+func employeeVersion(r *model.Replica) string {
+	return versionOf(struct{ Name, BlueprintID, Model, Effort string }{r.Name, r.BlueprintID, r.Model, r.Effort})
+}
+
+func patchOf(c model.EmployeeChange) ReplicaPatch {
+	return ReplicaPatch{Name: c.Name, BlueprintID: c.BlueprintID, Model: c.Model, Effort: c.Effort}
+}
+
+func (e *Engine) saveEmployeesTool(m manager) func(context.Context, string, json.RawMessage) model.ToolResult {
+	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+		var a struct {
+			TeamID    string `json:"team_id"`
+			Employees []struct {
+				model.EmployeeChange
+				BlueprintID *string `json:"blueprint_id"`
+			} `json:"employees"`
+		}
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return toolError("invalid arguments: %v", err)
+		}
+		if len(a.Employees) == 0 {
+			return toolError("employees is required")
+		}
+		var hired []string
+		var change *model.PendingChange
+		err := e.act(m, true, func() error {
+			// everything is checked before anything is written, since a refusal does not undo what came before it
+			var hires []NewReplica
+			var edits []model.EmployeeChange
+			var lines []model.ChangeLine
+			var names []string
+			for _, in := range a.Employees {
+				c := in.EmployeeChange
+				c.BlueprintID = in.BlueprintID
+				if c.ID == "" {
+					hire, err := e.hireFor(m, a.TeamID, c)
+					if err != nil {
+						return err
+					}
+					hires = append(hires, hire)
+					continue
+				}
+				r := e.w.Replicas[c.ID]
+				if r == nil || !m.reaches(r.TeamID) {
+					return model.Errorf(model.CodeNotFound, "找不到員工 %s", c.ID)
+				}
+				if slices.ContainsFunc(edits, func(x model.EmployeeChange) bool { return x.ID == c.ID }) {
+					return model.Errorf(model.CodeInvalid, "同一位員工只能出現一次：%s", r.Name)
+				}
+				if c.Version != employeeVersion(r) {
+					return model.Errorf(model.CodeConflict, "%s 的版本不符，內容已經被改過，請重新讀取", r.Name)
+				}
+				effort, err := e.checkPatch(c.ID, patchOf(c))
+				if err != nil {
+					return err
+				}
+				if diff := e.employeeDiff(r, c, effort); len(diff) > 0 {
+					edits, lines, names = append(edits, c), append(lines, diff...), append(names, r.Name)
+				}
+			}
+			for _, in := range hires {
+				r, err := e.hire(in)
+				if err != nil {
+					return err
+				}
+				hired = append(hired, fmt.Sprintf("%s (%s, version %s)", r.Name, r.ID, employeeVersion(r)))
+			}
+			if len(edits) > 0 {
+				change = &model.PendingChange{Kind: changeEmployees, Name: strings.Join(names, "、"), Lines: lines, Employees: edits, Hired: strings.Join(hired, ", ")}
+			}
+			return nil
+		})
+		if err != nil {
+			return toolError("%s", safeText(err))
+		}
+		if change != nil {
+			return waitForUser(m, change, nil)
+		}
+		if len(hired) > 0 {
+			return model.ToolResult{Text: "hired " + strings.Join(hired, ", ")}
+		}
+		return model.ToolResult{Text: "that is what they already are; nothing to change"}
+	}
+}
+
+// hireFor is one employee save_employees would hire, into the employee's own company or, for the airport's staff, the
+// one named; checked, not yet hired. Call it holding the lock.
+func (e *Engine) hireFor(m manager, teamID string, c model.EmployeeChange) (NewReplica, error) {
+	if c.Version != "" {
+		return NewReplica{}, model.Errorf(model.CodeInvalid, "新員工沒有版本；要修改既有的員工請帶 id")
+	}
+	if m.teamID != "" {
+		if teamID != "" && teamID != m.teamID {
+			return NewReplica{}, model.Errorf(model.CodeInvalid, "只能雇用到自己的公司")
+		}
+		teamID = m.teamID
+	} else if teamID == "" {
+		return NewReplica{}, model.Errorf(model.CodeInvalid, "要用 team_id 指定公司")
+	}
+	in := NewReplica{TeamID: teamID}
+	for _, x := range []struct {
+		to   *string
+		from *string
+	}{{&in.Name, c.Name}, {&in.BlueprintID, c.BlueprintID}, {&in.Model, c.Model}, {&in.Effort, c.Effort}} {
+		if x.from != nil {
+			*x.to = *x.from
+		}
+	}
+	if in.BlueprintID == "" || in.Model == "" {
+		return NewReplica{}, model.Errorf(model.CodeInvalid, "雇用要有 name、blueprint_id 和 model")
+	}
+	_, _, err := e.checkHire(in)
+	return in, err
+}
+
+// employeeDiff is what a change to r would do, for the user to read; effort is the level they end up with.
+func (e *Engine) employeeDiff(r *model.Replica, c model.EmployeeChange, effort string) []model.ChangeLine {
+	var lines []model.ChangeLine
+	add := func(field, was, is string) {
+		if was != is {
+			lines = append(lines, model.ChangeLine{Field: field, Node: r.Name, Before: was, After: is})
+		}
+	}
+	if c.Name != nil {
+		add("name", r.Name, strings.TrimSpace(*c.Name))
+	}
+	if c.BlueprintID != nil {
+		add("blueprint", e.blueprintName(r.BlueprintID), e.blueprintName(*c.BlueprintID))
+	}
+	if c.Model != nil {
+		add("model", r.Model, *c.Model)
+	}
+	add("effort", r.Effort, effort)
+	return lines
+}
+
+func (e *Engine) blueprintName(id string) string {
+	if b := e.w.Blueprints[id]; b != nil {
+		return b.Name
+	}
+	return id
+}
+
+// settleEmployees writes the changes to employees the user agreed to, all or none. Call it holding the lock.
+func (e *Engine) settleEmployees(c *model.PendingChange) (string, bool) {
+	for _, x := range c.Employees {
+		r := e.w.Replicas[x.ID]
+		if r == nil || employeeVersion(r) != x.Version {
+			return staleChange, true
+		}
+		if _, err := e.checkPatch(x.ID, patchOf(x)); err != nil {
+			return "The user agreed, but nothing was written: " + safeText(err), true
+		}
+	}
+	var done []string
+	for _, x := range c.Employees {
+		_ = e.updateReplica(x.ID, patchOf(x)) // checked above
+		done = append(done, fmt.Sprintf("%s is now version %s", x.ID, employeeVersion(e.w.Replicas[x.ID])))
+	}
+	return "The user agreed and it is written; " + strings.Join(done, ", ") + ".", false
+}
+
 // ---------- the user's answer ----------
 
 // settleChange writes a change the user agreed to, unless what it would replace moved on while they read it. It says
@@ -1308,7 +1495,7 @@ func (e *Engine) settleChange(c *model.PendingChange, agreed bool, note string) 
 		delete(e.pendingKeys, c.KeyRef)
 	}
 	if !agreed {
-		return "The user refused the change, so nothing was written." + said, true
+		return hiredToo(c, "The user refused the change, so nothing was written."+said), true
 	}
 	if c == nil {
 		return "The change is gone, so nothing was written.", true
@@ -1335,6 +1522,9 @@ func (e *Engine) settleChange(c *model.PendingChange, agreed bool, note string) 
 		if err = e.saveWorkflow(c.TargetID, *clone(c.Workflow)); err == nil {
 			version = versionOf(e.w.Workflows[c.TargetID])
 		}
+	case changeEmployees:
+		text, isError := e.settleEmployees(c)
+		return hiredToo(c, text+said), isError
 	case changeProvider:
 		now := e.w.Providers[c.TargetID]
 		if now == nil || versionOf(now) != c.Version || c.Provider == nil {
@@ -1361,6 +1551,14 @@ func (e *Engine) settleChange(c *model.PendingChange, agreed bool, note string) 
 		return "The user agreed, but it could not be written: " + safeText(err), true
 	}
 	return fmt.Sprintf("The user agreed and it is written; %s %s is now version %s.%s", c.Kind, c.TargetID, version, said), false
+}
+
+// hiredToo adds who the same call already hired to what the model is told.
+func hiredToo(c *model.PendingChange, text string) string {
+	if c == nil || c.Hired == "" {
+		return text
+	}
+	return "Hired at once: " + c.Hired + ". The changes: " + text
 }
 
 const staleChange = "The user agreed, but nothing was written: it was edited or removed while waiting. Read it again if the change is still needed."

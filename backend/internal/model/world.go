@@ -205,10 +205,11 @@ type Review struct {
 	Change *PendingChange `json:"change,omitempty"`
 }
 
-// PendingChange is a change to a blueprint, flow or model provider that an employee asked for, written only once the
-// user agrees. Version is what the target's version was when asked; a target that has moved on since is not overwritten.
+// PendingChange is a change to a blueprint, flow, model provider or employees that an employee asked for, written only
+// once the user agrees. Version is what the target's version was when asked; a target that has moved on since is not
+// overwritten. A change to employees has no target of its own: each in Employees carries its own version.
 type PendingChange struct {
-	Kind      string         `json:"kind"` // blueprint, workflow or provider
+	Kind      string         `json:"kind"` // blueprint, workflow, provider or employees
 	TargetID  string         `json:"targetId"`
 	Name      string         `json:"name"`
 	Version   string         `json:"version"`
@@ -217,13 +218,27 @@ type PendingChange struct {
 	Workflow  *Workflow      `json:"workflow,omitempty"`
 	Provider  *ModelProvider `json:"provider,omitempty"`
 	// KeyRef names a new API key for Provider. The key is held in memory only, never saved or sent to clients.
-	KeyRef string `json:"keyRef,omitempty"`
+	KeyRef    string           `json:"keyRef,omitempty"`
+	Employees []EmployeeChange `json:"employees,omitempty"`
+	// Hired says who the same call already hired, for the model to be told with the user's answer.
+	Hired string `json:"hired,omitempty"`
+}
+
+// EmployeeChange is what an employee asked to change about one employee; a nil field stays.
+type EmployeeChange struct {
+	ID          string  `json:"id"`
+	Version     string  `json:"version"`
+	Name        *string `json:"name,omitempty"`
+	BlueprintID *string `json:"blueprintId,omitempty"`
+	Model       *string `json:"model,omitempty"`
+	Effort      *string `json:"effort,omitempty"`
 }
 
 // ChangeLine is one difference, for the user to read. Field says what changed: name, prompt, comment, tools, skills,
 // source (a repo a blueprint brings, kept as a new source at the version in After),
 // or for a flow's step (named by Node) also kind, staff, assignment, handoff, join; node and edge are a whole step or
 // connection added or removed, and condition a connection's. A provider's are name, baseUrl, apiKey, prices and models.
+// An employee's (named by Node) are name, blueprint, model and effort.
 type ChangeLine struct {
 	Field  string `json:"field"`
 	Node   string `json:"node,omitempty"`

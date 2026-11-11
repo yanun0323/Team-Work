@@ -1279,45 +1279,64 @@ type NewReplica struct {
 func (e *Engine) Hire(in NewReplica) (*model.Replica, error) {
 	var out *model.Replica
 	err := e.doSettings(func() error {
-		bp := e.hireableBlueprint(in.BlueprintID, "")
-		if in.Custom != nil {
-			bp = in.Custom
+		r, err := e.hire(in)
+		if err == nil {
+			out = clone(r)
 		}
-		if e.w.Teams[in.TeamID] == nil || bp == nil {
-			return model.Errorf(model.CodeNotFound, "找不到公司或藍圖")
-		}
-		if in.Custom == nil && e.blueprintHidden(in.BlueprintID) {
-			return model.Errorf(model.CodeInvalid, "這個藍圖已隱藏")
-		}
-		if strings.TrimSpace(in.Name) == "" {
-			return model.Errorf(model.CodeInvalid, "員工要有名字")
-		}
-		if e.providerFor(in.Model) == nil {
-			return model.Errorf(model.CodeInvalid, "沒有模型供應商提供 %s", in.Model)
-		}
-		effort := in.Effort
-		if effort == "" {
-			effort = model.ThinkingDefault
-		}
-		if !e.takesEffort(in.Model, effort) {
-			return model.Errorf(model.CodeInvalid, "%s 沒有思考等級 %s", in.Model, effort)
-		}
-		look := bp.Look
-		if in.Look != nil {
-			look = *in.Look
-		}
-		r := &model.Replica{ID: e.uid("rep"), TeamID: in.TeamID, BlueprintID: in.BlueprintID, Name: strings.TrimSpace(in.Name), Look: look,
-			Model: in.Model, Effort: effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now}
-		if in.Custom != nil {
-			if err := e.ownBlueprint(r, *in.Custom); err != nil {
-				return err
-			}
-		}
-		e.w.Replicas[r.ID] = r
-		out = clone(r)
-		return nil
+		return err
 	})
 	return out, err
+}
+
+// checkHire refuses an employee that could not be hired, and says the blueprint and thinking level they would have.
+// Call it holding the lock.
+func (e *Engine) checkHire(in NewReplica) (*model.Blueprint, string, error) {
+	bp := e.hireableBlueprint(in.BlueprintID, "")
+	if in.Custom != nil {
+		bp = in.Custom
+	}
+	if e.w.Teams[in.TeamID] == nil || bp == nil {
+		return nil, "", model.Errorf(model.CodeNotFound, "找不到公司或藍圖")
+	}
+	if in.Custom == nil && e.blueprintHidden(in.BlueprintID) {
+		return nil, "", model.Errorf(model.CodeInvalid, "這個藍圖已隱藏")
+	}
+	if strings.TrimSpace(in.Name) == "" {
+		return nil, "", model.Errorf(model.CodeInvalid, "員工要有名字")
+	}
+	if e.providerFor(in.Model) == nil {
+		return nil, "", model.Errorf(model.CodeInvalid, "沒有模型供應商提供 %s", in.Model)
+	}
+	effort := in.Effort
+	if effort == "" {
+		effort = model.ThinkingDefault
+	}
+	if !e.takesEffort(in.Model, effort) {
+		return nil, "", model.Errorf(model.CodeInvalid, "%s 沒有思考等級 %s", in.Model, effort)
+	}
+	return bp, effort, nil
+}
+
+// hire adds the employee; it writes nothing when checkHire refuses. Call it holding the lock, inside a change to the
+// settings.
+func (e *Engine) hire(in NewReplica) (*model.Replica, error) {
+	bp, effort, err := e.checkHire(in)
+	if err != nil {
+		return nil, err
+	}
+	look := bp.Look
+	if in.Look != nil {
+		look = *in.Look
+	}
+	r := &model.Replica{ID: e.uid("rep"), TeamID: in.TeamID, BlueprintID: in.BlueprintID, Name: strings.TrimSpace(in.Name), Look: look,
+		Model: in.Model, Effort: effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now}
+	if in.Custom != nil {
+		if err := e.ownBlueprint(r, *in.Custom); err != nil {
+			return nil, err
+		}
+	}
+	e.w.Replicas[r.ID] = r
+	return r, nil
 }
 
 // ReplicaPatch changes an employee; a nil field stays. Memory replaces all of it, for the user's own edits.
@@ -1337,70 +1356,84 @@ func (e *Engine) UpdateReplica(id string, p ReplicaPatch) error {
 	if p.Name == nil && p.BlueprintID == nil && p.Model == nil && p.Effort == nil && p.Look == nil && p.Custom == nil {
 		change = e.do
 	}
-	return change(func() error {
-		r := e.w.Replicas[id]
-		if r == nil {
-			return model.Errorf(model.CodeNotFound, "找不到員工")
+	return change(func() error { return e.updateReplica(id, p) })
+}
+
+// checkPatch refuses a change to employee id that could not be made, and says the thinking level they would have.
+// Call it holding the lock.
+func (e *Engine) checkPatch(id string, p ReplicaPatch) (effort string, err error) {
+	r := e.w.Replicas[id]
+	if r == nil {
+		return "", model.Errorf(model.CodeNotFound, "找不到員工")
+	}
+	if p.Name != nil && strings.TrimSpace(*p.Name) == "" {
+		return "", model.Errorf(model.CodeInvalid, "員工要有名字")
+	}
+	if p.Model != nil && e.providerFor(*p.Model) == nil {
+		return "", model.Errorf(model.CodeInvalid, "沒有模型供應商提供 %s", *p.Model)
+	}
+	if p.BlueprintID != nil && e.hireableBlueprint(*p.BlueprintID, id) == nil {
+		return "", model.Errorf(model.CodeNotFound, "找不到藍圖")
+	}
+	// one already on a hidden blueprint keeps it, but nobody moves onto one
+	if p.BlueprintID != nil && p.Custom == nil && *p.BlueprintID != r.BlueprintID && e.blueprintHidden(*p.BlueprintID) {
+		return "", model.Errorf(model.CodeInvalid, "這個藍圖已隱藏")
+	}
+	if p.Custom != nil {
+		try := *p.Custom
+		try.Name = r.Name
+		if err := checkBlueprint(&try); err != nil {
+			return "", err
 		}
-		if p.Name != nil && strings.TrimSpace(*p.Name) == "" {
-			return model.Errorf(model.CodeInvalid, "員工要有名字")
-		}
-		if p.Model != nil && e.providerFor(*p.Model) == nil {
-			return model.Errorf(model.CodeInvalid, "沒有模型供應商提供 %s", *p.Model)
-		}
-		if p.BlueprintID != nil && e.hireableBlueprint(*p.BlueprintID, id) == nil {
-			return model.Errorf(model.CodeNotFound, "找不到藍圖")
-		}
-		// one already on a hidden blueprint keeps it, but nobody moves onto one
-		if p.BlueprintID != nil && p.Custom == nil && *p.BlueprintID != r.BlueprintID && e.blueprintHidden(*p.BlueprintID) {
-			return model.Errorf(model.CodeInvalid, "這個藍圖已隱藏")
-		}
-		if p.Custom != nil {
-			try := *p.Custom
-			try.Name = r.Name
-			if err := checkBlueprint(&try); err != nil {
-				return err
-			}
-		}
-		// a level goes with its model: without a new one, a new model may have to fall back on the default
-		modelID, effort := r.Model, r.Effort
-		if p.Model != nil {
-			modelID = *p.Model
-		}
-		if p.Effort != nil {
-			effort = *p.Effort
-		} else if !e.takesEffort(modelID, effort) {
-			effort = model.ThinkingDefault
-		}
-		if !e.takesEffort(modelID, effort) {
-			return model.Errorf(model.CodeInvalid, "%s 沒有思考等級 %s", modelID, effort)
-		}
-		r.Effort = effort
-		if p.BlueprintID != nil && p.Custom == nil && *p.BlueprintID != r.BlueprintID {
-			e.dropOwnBlueprint(r)
-			r.BlueprintID = *p.BlueprintID
-		}
-		if p.Name != nil {
-			r.Name = strings.TrimSpace(*p.Name)
-		}
-		if p.Model != nil {
-			r.Model = *p.Model
-		}
-		if p.Look != nil {
-			r.Look = *p.Look
-		}
-		if p.Memory != nil {
-			r.Memory = *p.Memory
-		}
-		if p.Custom != nil {
-			return e.ownBlueprint(r, *p.Custom)
-		}
-		// their own settings go by their name and look
-		if b := e.w.Blueprints[r.BlueprintID]; b != nil && b.Owner == r.ID {
-			b.Name, b.Look = r.Name, r.Look
-		}
-		return nil
-	})
+	}
+	// a level goes with its model: without a new one, a new model may have to fall back on the default
+	modelID, effort := r.Model, r.Effort
+	if p.Model != nil {
+		modelID = *p.Model
+	}
+	if p.Effort != nil {
+		effort = *p.Effort
+	} else if !e.takesEffort(modelID, effort) {
+		effort = model.ThinkingDefault
+	}
+	if !e.takesEffort(modelID, effort) {
+		return "", model.Errorf(model.CodeInvalid, "%s 沒有思考等級 %s", modelID, effort)
+	}
+	return effort, nil
+}
+
+// updateReplica changes employee id; it writes nothing when checkPatch refuses. Call it holding the lock.
+func (e *Engine) updateReplica(id string, p ReplicaPatch) error {
+	effort, err := e.checkPatch(id, p)
+	if err != nil {
+		return err
+	}
+	r := e.w.Replicas[id]
+	r.Effort = effort
+	if p.BlueprintID != nil && p.Custom == nil && *p.BlueprintID != r.BlueprintID {
+		e.dropOwnBlueprint(r)
+		r.BlueprintID = *p.BlueprintID
+	}
+	if p.Name != nil {
+		r.Name = strings.TrimSpace(*p.Name)
+	}
+	if p.Model != nil {
+		r.Model = *p.Model
+	}
+	if p.Look != nil {
+		r.Look = *p.Look
+	}
+	if p.Memory != nil {
+		r.Memory = *p.Memory
+	}
+	if p.Custom != nil {
+		return e.ownBlueprint(r, *p.Custom)
+	}
+	// their own settings go by their name and look
+	if b := e.w.Blueprints[r.BlueprintID]; b != nil && b.Owner == r.ID {
+		b.Name, b.Look = r.Name, r.Look
+	}
+	return nil
 }
 
 // Fire lets an employee go, handing everything still theirs to the heir; a job under way starts again with them.

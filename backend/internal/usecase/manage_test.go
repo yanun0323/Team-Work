@@ -140,7 +140,7 @@ func inChat(t *testing.T, r *rig, m *moves, fn ...func(model.ModelRequest) model
 
 func TestManageToolsFollowTheBlueprint(t *testing.T) {
 	reading := []string{"list_tasks", "list_blueprints", "list_workflows", "list_employees", "list_companies", "list_providers", "read_chat"}
-	writing := []string{"create_task", "update_task", "save_blueprint", "save_workflow", "save_provider"}
+	writing := []string{"create_task", "update_task", "save_blueprint", "save_workflow", "save_provider", "save_employees"}
 	for _, tc := range []struct {
 		name         string
 		tools        []enum.Tool
@@ -716,6 +716,150 @@ func TestCreateTaskAsksForMissingStaffInsteadOfPicking(t *testing.T) {
 	}
 	inChat(t, r, m, doing("create_task", map[string]any{"title": "有人做", "workflow_id": wf.ID, "owner_id": r.owner.ID, "staff": map[string][]string{"start": {r.owner.ID}, "mid": {r.owner.ID}}}))
 	if res := lastResult(t, r); res.IsError {
+		t.Fatalf("%+v", res)
+	}
+}
+
+func TestSaveEmployeesHiresAtOnceAndWaitsForTheUserToChange(t *testing.T) {
+	r, m := manageRig(t)
+	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bo", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := func(w *model.World, name string) *model.Replica {
+		for _, x := range w.Replicas {
+			if x.Name == name {
+				return x
+			}
+		}
+		return nil
+	}
+
+	// hiring needs no agreement
+	c := inChat(t, r, m, doing("save_employees", map[string]any{"employees": []map[string]any{{"name": "Cy", "blueprint_id": r.owner.BlueprintID, "model": "fake"}}}))
+	w := r.world()
+	if w.Chats[c.ID].Change != nil {
+		t.Fatal("it asked for a confirmation")
+	}
+	if cy := named(w, "Cy"); cy == nil || cy.TeamID != r.team.ID || cy.BlueprintID != r.owner.BlueprintID || cy.Model != "fake" || cy.Effort != model.ThinkingDefault {
+		t.Fatalf("%+v", cy)
+	}
+	if res := lastResult(t, r); res.IsError || !strings.Contains(res.Text, "hired Cy") {
+		t.Fatalf("%+v", res)
+	}
+
+	// changing waits, and a hire in the same call is made at once
+	version := versionFrom(t, r, m, "list_employees", bo.ID)
+	args := map[string]any{"employees": []map[string]any{{"id": bo.ID, "version": version, "name": "Bob"}, {"name": "Di", "blueprint_id": r.owner.BlueprintID, "model": "fake"}}}
+	c = inChat(t, r, m, doing("save_employees", args))
+	w = r.wait("card", func(w *model.World) bool { return w.Chats[c.ID].Change != nil })
+	if w.Replicas[bo.ID].Name != "Bo" {
+		t.Fatal("written before agreeing")
+	}
+	if named(w, "Di") == nil {
+		t.Fatal("the hire waited too")
+	}
+	card := w.Chats[c.ID].Change
+	if card.Kind != "employees" || card.Name != "Bo" || len(card.Lines) != 1 {
+		t.Fatalf("%+v", card)
+	}
+	if l := card.Lines[0]; l.Field != "name" || l.Node != "Bo" || l.Before != "Bo" || l.After != "Bob" {
+		t.Fatalf("%+v", l)
+	}
+	if err := r.e.ResolveChatChange(c.ID, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply after no", func(w *model.World) bool { return w.Chats[c.ID].ReplyAt == nil && w.Chats[c.ID].Change == nil })
+	if res := lastResult(t, r); !res.IsError || !strings.Contains(res.Text, "refused") || !strings.Contains(res.Text, "Hired at once: Di") {
+		t.Fatalf("%+v", res)
+	}
+	if r.world().Replicas[bo.ID].Name != "Bo" {
+		t.Fatal("written after no")
+	}
+
+	args = map[string]any{"employees": []map[string]any{{"id": bo.ID, "version": version, "name": "Bob"}}}
+	c = inChat(t, r, m, doing("save_employees", args))
+	r.wait("card", func(w *model.World) bool { return w.Chats[c.ID].Change != nil })
+	if err := r.e.ResolveChatChange(c.ID, true, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply after yes", func(w *model.World) bool { return w.Chats[c.ID].ReplyAt == nil && w.Chats[c.ID].Change == nil })
+	if got := r.world().Replicas[bo.ID]; got.Name != "Bob" {
+		t.Fatalf("%+v", got)
+	}
+	if res := lastResult(t, r); res.IsError || !strings.Contains(res.Text, "agreed") {
+		t.Fatalf("%+v", res)
+	}
+
+	// the same again is nothing to change
+	inChat(t, r, m, doing("save_employees", map[string]any{"employees": []map[string]any{{"id": bo.ID, "version": versionFrom(t, r, m, "list_employees", bo.ID), "name": "Bob"}}}))
+	if res := lastResult(t, r); res.IsError || !strings.Contains(res.Text, "nothing to change") {
+		t.Fatalf("%+v", res)
+	}
+}
+
+func TestSaveEmployeesDoesNotOverwriteAnEmployeeChangedWhileWaiting(t *testing.T) {
+	r, m := manageRig(t)
+	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bo", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := versionFrom(t, r, m, "list_employees", bo.ID)
+	c := inChat(t, r, m, doing("save_employees", map[string]any{"employees": []map[string]any{{"id": bo.ID, "version": version, "name": "Bob"}}}))
+	r.wait("card", func(w *model.World) bool { return w.Chats[c.ID].Change != nil })
+	name := "Bee"
+	if err := r.e.UpdateReplica(bo.ID, usecase.ReplicaPatch{Name: &name}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.ResolveChatChange(c.ID, true, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", func(w *model.World) bool { return w.Chats[c.ID].ReplyAt == nil && w.Chats[c.ID].Change == nil })
+	if got := r.world().Replicas[bo.ID].Name; got != "Bee" {
+		t.Fatal(got)
+	}
+	if res := lastResult(t, r); !res.IsError || !strings.Contains(res.Text, "nothing was written") {
+		t.Fatalf("%+v", res)
+	}
+}
+
+func TestSaveEmployeesWritesNothingWhenAnyItemIsRefused(t *testing.T) {
+	r, m := manageRig(t)
+	other, err := r.e.CreateTeam(t.Context(), usecase.NewTeam{Name: "別家", Folder: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stranger, err := r.e.Hire(usecase.NewReplica{TeamID: other.ID, BlueprintID: r.owner.BlueprintID, Name: "Zed", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := versionFrom(t, r, m, "list_employees", r.owner.ID)
+	before := len(r.world().Replicas)
+	hire := map[string]any{"name": "Cy", "blueprint_id": r.owner.BlueprintID, "model": "fake"}
+	for name, item := range map[string]map[string]any{
+		"stale version":   {"id": r.owner.ID, "version": "old", "name": "X"},
+		"unknown id":      {"id": "nope", "version": version, "name": "X"},
+		"other company":   {"id": stranger.ID, "version": version, "name": "X"},
+		"no model":        {"name": "Dee", "blueprint_id": r.owner.BlueprintID},
+		"unknown model":   {"id": r.owner.ID, "version": version, "model": "nope"},
+		"unknown effort":  {"id": r.owner.ID, "version": version, "effort": "nope"},
+		"blank name":      {"id": r.owner.ID, "version": version, "name": " "},
+		"no blueprint":    {"name": "Dee", "blueprint_id": "nope", "model": "fake"},
+		"hire as version": {"name": "Dee", "version": version, "blueprint_id": r.owner.BlueprintID, "model": "fake"},
+	} {
+		c := inChat(t, r, m, doing("save_employees", map[string]any{"employees": []map[string]any{hire, item}}))
+		if res := lastResult(t, r); !res.IsError {
+			t.Errorf("%s: %+v", name, res)
+		}
+		w := r.world()
+		if w.Chats[c.ID].Change != nil || len(w.Replicas) != before || w.Replicas[r.owner.ID].Name != r.owner.Name {
+			t.Fatalf("%s: something was written: %+v %d/%d %q %+v", name, w.Chats[c.ID].Change, len(w.Replicas), before, w.Replicas[r.owner.ID].Name, lastResult(t, r))
+		}
+	}
+	// the same employee twice in one call
+	inChat(t, r, m, doing("save_employees", map[string]any{"employees": []map[string]any{
+		{"id": r.owner.ID, "version": version, "name": "X"}, {"id": r.owner.ID, "version": version, "name": "Y"}}}))
+	if res := lastResult(t, r); !res.IsError {
 		t.Fatalf("%+v", res)
 	}
 }

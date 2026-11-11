@@ -384,7 +384,7 @@ func chatSees(conv []model.Message, speaker string, names map[string]string) []m
 // actsOutside says whether a tool reaches outside the chat, which only the round's actor may do.
 func actsOutside(name string) bool {
 	switch name {
-	case toolAskUser, toolCreateTask, toolUpdateTask, toolSaveBlueprint, toolSaveWorkflow, toolSaveProvider:
+	case toolAskUser, toolCreateTask, toolUpdateTask, toolSaveBlueprint, toolSaveWorkflow, toolSaveProvider, toolSaveEmployees:
 		return true
 	}
 	return false

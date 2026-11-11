@@ -110,7 +110,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 - `run_command` 優先用 `bash`，輸出超過 2000 行或 50KB 時只回最後一段，完整輸出存到資料目錄的 `outputs/<task-or-chat-id>/` 並附上路徑，員工可用 `read_file` 讀取。
 - `web_search` 使用 Exa 免金鑰的公開服務，有使用額度。所有員工共用一個佇列，一次只送一個請求；Exa 回報額度用完（HTTP 429 或免費額度提示）時，工具回傳 `rate_limited` 錯誤，並依 `Retry-After` 暫停，沒有給時暫停 30 秒；暫停期限存在 `search-cooldown.json`，重啟後沿用。每次嘗試、限流和被暫停擋下都會寫進伺服器 log，不記搜尋內容。有網路搜尋權限就同時有 `web_fetch`：把公開網頁轉成編號段落（一次最多 100 段，用 `offset`、`limit` 續讀），只支援 HTML 和純文字、最大 2MB，不執行 JavaScript。連線前會檢查實際 IP，擋掉內網、本機和非 80、443 的連接埠，轉址也一樣檢查。
 - `run_command` **沒有沙盒**：員工能做到伺服器使用者能做的任何事。只雇用你信任其指示的藍圖，也留意任務內容與網頁可能夾帶指示。
-- **修改確認可以被 `run_command` 繞過**（已知限制）：有這個工具的員工仍可能直接改藍圖或流程的設定檔，再觸發重新載入（`POST /settings/reload`，即 `ReloadSettings`），不會出現確認卡。確認只約束 `save_blueprint`、`save_workflow`、`save_provider` 這三個工具。
+- **修改確認可以被 `run_command` 繞過**（已知限制）：有這個工具的員工仍可能直接改藍圖或流程的設定檔，再觸發重新載入（`POST /settings/reload`，即 `ReloadSettings`），不會出現確認卡。確認只約束 `save_blueprint`、`save_workflow`、`save_provider`、`save_employees` 這四個工具。
 
 ## API
 
@@ -185,28 +185,29 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 
 ## 員工的管理工具
 
-任務中的員工、公司對話的員工和機場服務人員，可以用工具讀取任務、藍圖、任務藍圖和模型供應商，並新增或修改。能用哪些工具由藍圖勾選的工具決定，藍圖可選的工具仍是原本四個；實作在 `internal/usecase/manage.go`。
+任務中的員工、公司對話的員工和機場服務人員，可以用工具讀取任務、藍圖、任務藍圖、模型供應商和員工，並新增或修改。能用哪些工具由藍圖勾選的工具決定，藍圖可選的工具仍是原本四個；實作在 `internal/usecase/manage.go`。
 
 | 藍圖勾選 | 可使用 |
 |---|---|
 | `read_file` | `list_tasks`、`list_blueprints`、`list_workflows`、`list_employees`、`list_companies`、`list_providers`、`read_chat` |
-| `write_file` 或 `run_command` | 上面的讀取工具，加上 `create_task`、`update_task`、`save_blueprint`、`save_workflow`、`save_provider` |
+| `write_file` 或 `run_command` | 上面的讀取工具，加上 `create_task`、`update_task`、`save_blueprint`、`save_workflow`、`save_provider`、`save_employees` |
 | `web_search` | 沒有額外工具 |
 
 機場服務人員四個工具都有，所以擁有全部能力。內建的 15 個藍圖都有讀寫能力。任務藍圖的「開會討論」步驟只有讀取工具。沒有刪除工具。錯誤和拒絕都以工具結果回傳給模型。
 
 - **讀對話**：`read_chat` 用對話 ID（對話下方可複製，例如 `chat-805`）讀整段對話：誰說了什麼、員工跑了哪些工具，由舊到新，每次最多 50KB，用 `offset`、`limit` 往下讀。任何員工都能讀任何公司和機場的對話，不受下面的公司範圍限制。
-- **範圍**：公司的員工只能讀取、建立、修改自己公司的任務，也只列得到自己公司的員工和公司；機場服務人員可以跨公司，`create_task` 要帶 `team_id`。藍圖、任務藍圖和供應商由所有公司共用，修改會影響每間公司。
-- **直接生效**：新增藍圖、新增任務藍圖、新增供應商、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。
-- **要確認**：帶 `id` 的 `save_blueprint`、`save_workflow`、`save_provider`，包括員工修改自己用的藍圖。後端先檢查內容並算出差異，然後暫停，同意前不會寫入。任務的子任務進入等待回覆（`review.kind` 為 `change`），對話則是 `chat.change`；兩者都會保存，重新啟動後還在。同意或拒絕都會回傳給模型，模型接著工作。內容沒有差異時不會暫停。同一輪在這個呼叫之後的工具不會執行，模型會收到 `interrupted`。
+- **範圍**：公司的員工只能讀取、建立、修改自己公司的任務，也只列得到、只能雇用和修改自己公司的員工；機場服務人員可以跨公司，`create_task` 和 `save_employees` 雇用時要帶 `team_id`。藍圖、任務藍圖和供應商由所有公司共用，修改會影響每間公司。
+- **直接生效**：新增藍圖、新增任務藍圖、新增供應商、`save_employees` 雇用、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。
+- **要確認**：帶 `id` 的 `save_blueprint`、`save_workflow`、`save_provider`、`save_employees`，包括員工修改自己用的藍圖。後端先檢查內容並算出差異，然後暫停，同意前不會寫入。任務的子任務進入等待回覆（`review.kind` 為 `change`），對話則是 `chat.change`；兩者都會保存，重新啟動後還在。同意或拒絕都會回傳給模型，模型接著工作。內容沒有差異時不會暫停。同一輪在這個呼叫之後的工具不會執行，模型會收到 `interrupted`。
 - **不能修改**：`preset-` 開頭的內建項目和來源帶來的（id 含 `--`，例如官方的 `team-work--assistant`）項目（要新增一份自己的）、Git 來源的藍圖。修改要帶 `list_*` 回傳的 `version`，不符就拒絕；等待確認期間內容被改過或刪除時，同意也不會寫入，模型會收到原因。
 - **設定檔**：寫入藍圖、任務藍圖和供應商的規則和介面相同：有外部修改尚未載入時回傳 `conflict`。
 - **生效範圍**：任務建立時留一份任務藍圖，修改共用流程不影響進行中的任務。藍圖不同：同意後正在進行的步驟不變，但每次開始步驟都讀最新藍圖，所以同一任務之後的步驟會用新藍圖。
-- **`create_task`**：帶標題、說明、任務藍圖，立即建立，不需要確認；任務和使用者建立的一樣留在待辦（`paused: true`、沒有 `pausedAt`），等使用者按開始（`POST /tasks/:id/resume`）。內建流程的步驟沒有指定員工，有步驟沒有人時會失敗並列出這些步驟，模型應該問使用者後再用 `staff` 或 `owner_id` 重試；模型自己填人選時後端無法分辨。
+- **`create_task`**：帶標題、說明，以及已存的任務藍圖（`workflow_id`）或只給這個任務用的流程（`workflow`，格式同 `save_workflow`，不會加進任務藍圖列表，沒給名稱時用標題），兩者擇一，立即建立，不需要確認；任務和使用者建立的一樣留在待辦（`paused: true`、沒有 `pausedAt`），等使用者按開始（`POST /tasks/:id/resume`）。內建流程的步驟沒有指定員工，有步驟沒有人時會失敗並列出這些步驟，模型應該問使用者後再用 `staff` 或 `owner_id` 重試；模型自己填人選時後端無法分辨。
 - **連鎖深度**：任務中的員工建立的任務，深度是來源任務加 1，最多 3 層（`maxTaskDepth`，暫定值），超過就拒絕並告知模型。從對話建立的任務深度是 0。同時執行的任務數量沒有限制。
 - **`save_blueprint`**：模型不能設定外觀，新藍圖的外觀取自 `presets.json` 的 `looks` 之一。技能用 Git 來源時不會在儲存當下解析 commit，執行時才取 `origin/HEAD`，也不會套用 `ref`；要固定版本請呼叫 `POST /blueprints/:id/update`。
 - **`save_workflow`**：`nodes`、`edges` 是完整的新清單，已存在的節點 id 沒帶的欄位保留原值。模型不指定座標，新節點由後端排版。有迴圈等無效內容會被拒絕。
 - **`save_provider`**：新增時帶 `name`、`kind`、`api_key`（`compatible` 另帶 `base_url`），和介面新增一樣先向供應商查模型清單，Key 或網址錯誤就失敗。修改可改 `name`、`base_url`、`api_key`、`prices`（`prices` 是整份取代），不能改 `kind` 和登入方式；查模型清單在送出確認卡之前做；但只改 `base_url` 而沿用已存的 Key 時，確認前不連新網址，同意寫入後才用已存的 Key 到新網址重新讀模型清單。確認卡列出名稱、網址、Key 最後 4 碼、價格和模型清單的差異。新的 Key 在等待確認期間只放在記憶體，不寫進確認卡和狀態檔，所以重新啟動後同意會失敗並告知模型。訂閱登入要開瀏覽器，工具做不到：可用 `login: subscription` 新增，再請使用者到設定頁登入。`list_providers` 只回傳 Key 最後 4 碼。
+- **`save_employees`**：`employees` 陣列一次處理多位。沒有 `id` 是雇用，要帶 `name`、`blueprint_id`、`model`，`effort` 沒給用 `default`，立即生效；有 `id` 要帶 `list_employees` 回傳的 `version`（只由名字、藍圖、模型、思考等級算出，記憶變動不影響），可改 `name`、`blueprint_id`、`model`、`effort`，同一次呼叫的修改合成一張確認卡，每行標出是哪位員工。任何一項檢查不通過就全部不寫入，包括雇用。同一次呼叫有雇用又有修改時，雇用先生效，使用者拒絕修改也不會撤銷雇用，模型在收到同意或拒絕時一併得知雇了誰。不能設定外觀、自訂藍圖，也不能解雇。`list_providers` 會列出每個模型的思考等級。
 - **請使用者輸入答案**：`ask_user` 一定要有選項，所以需要使用者打字的答案（例如名字、API Key），員工會在回覆裡直接問。輸入的內容和一般訊息一樣，會留在對話紀錄並交給模型；員工呼叫 `save_provider` 時，對話裡顯示的工具參數也包含 Key。
 
 ## 訂閱登入
