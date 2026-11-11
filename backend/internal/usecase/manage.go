@@ -143,6 +143,7 @@ func (e *Engine) manageTools(m manager, allowed []enum.Tool, writing bool) []ada
 			lister(toolListEmployees, "List the employees you can reach.", func() any { return e.listEmployees(m) }),
 			lister(toolListCompanies, "List the companies you can reach.", func() any { return e.listCompanies(m) }),
 			lister(toolListProviders, "List the model providers with the version to pass to save_provider. API keys are never shown, only their last 4 characters.", e.listProviders),
+			e.readChatTool(m),
 		)
 	}
 	if write && writing {

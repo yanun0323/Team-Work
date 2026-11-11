@@ -139,7 +139,7 @@ func inChat(t *testing.T, r *rig, m *moves, fn ...func(model.ModelRequest) model
 }
 
 func TestManageToolsFollowTheBlueprint(t *testing.T) {
-	reading := []string{"list_tasks", "list_blueprints", "list_workflows", "list_employees", "list_companies", "list_providers"}
+	reading := []string{"list_tasks", "list_blueprints", "list_workflows", "list_employees", "list_companies", "list_providers", "read_chat"}
 	writing := []string{"create_task", "update_task", "save_blueprint", "save_workflow", "save_provider"}
 	for _, tc := range []struct {
 		name         string
