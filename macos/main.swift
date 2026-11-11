@@ -50,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         buildMenu()
 
         let configuration = WKWebViewConfiguration()
+        allowFullFrameRate(configuration.preferences)
         if smoke { configuration.websiteDataStore = .nonPersistent() }
         configuration.userContentController.add(self, name: "quit")
         configuration.userContentController.add(self, name: "language")
@@ -73,6 +74,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         // The window opens once this page has painted (see didFinish), so it never flashes white.
         if let boot = bootPage { webView.loadFileURL(boot, allowingReadAccessTo: boot.deletingLastPathComponent()) } else { bootFinished() }
         do { try startBackend() } catch { fail(say("無法啟動後端：\(error.localizedDescription)", "Could not start the backend: \(error.localizedDescription)", "无法启动后端：\(error.localizedDescription)", "バックエンドを起動できません：\(error.localizedDescription)", "백엔드를 시작할 수 없습니다: \(error.localizedDescription)")) }
+    }
+
+    /// WebKit holds the page to about 60 frames a second, half the rate of a 120Hz ProMotion screen, through a feature
+    /// with no public switch. Turning it off lets the town follow the screen. It goes through WebKit's private feature
+    /// list, the one Safari's Feature Flags menu uses, and does nothing if a later WebKit no longer has it.
+    private func allowFullFrameRate(_ preferences: WKPreferences) {
+        let list = NSSelectorFromString("_features")
+        let set = NSSelectorFromString("_setEnabled:forFeature:")
+        guard WKPreferences.responds(to: list), preferences.responds(to: set),
+              let features = WKPreferences.perform(list)?.takeUnretainedValue() as? [NSObject],
+              let feature = features.first(where: { ($0.value(forKey: "key") as? String) == "PreferPageRenderingUpdatesNear60FPSEnabled" })
+        else { return }
+        typealias SetEnabled = @convention(c) (AnyObject, Selector, Bool, AnyObject) -> Void
+        unsafeBitCast(preferences.method(for: set), to: SetEnabled.self)(preferences, set, false, feature)
     }
 
     private func bootFinished() {
