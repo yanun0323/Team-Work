@@ -110,7 +110,8 @@ export const HELP_EN: Record<string, HelpTopic> = {
         <p className="fx-help-pit">The airport staff's commands can reach the whole computer, not just one project folder, and they create or change tasks without asking you first.</p>
         <dl>
           <dt>How it differs from a company chat</dt><dd>Type # to pick a file or folder from your home folder one level at a time, not from a project folder. You can change the model and thinking level in the chat, except during a reply. Everything else (attachments, queue, editing, handing over…) works as in a company's Chats.</dd>
-          <dt>Blueprint</dt><dd>They work by the built-in Airport Staff blueprint, which gives their role, tools and skills; it cannot be used to add employees.</dd>
+          <dt>Blueprint</dt><dd>They work by the built-in Airport Staff blueprint, which gives their role and tools; it cannot be used to add employees.</dd>
+          <dt>Skills</dt><dd>They can use every skill: the skill folders in your home folder, the skills each blueprint uses, and all the skills of every source in Airport → Sources. Skills sharing a name count once, the home folder's first.</dd>
           <dt>Working folder</dt><dd>The airport folder in the data directory.</dd>
           <dt>Unread mark</dt><dd>Replies you have not seen and chats waiting for your answer show on the blue mark on the airport's name tag on the map.</dd>
         </dl>

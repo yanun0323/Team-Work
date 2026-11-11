@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -749,7 +750,7 @@ func (e *Engine) airportChatSpec(c *model.Chat) (agentSpec, error) {
 	if err := os.MkdirAll(e.airportFolder(), 0o700); err != nil {
 		return agentSpec{}, err
 	}
-	spec.name, spec.allowed, spec.packs = c.Name, slices.Clone(bp.Tools), e.packsOf(bp)
+	spec.name, spec.allowed, spec.packs = c.Name, slices.Clone(bp.Tools), e.airportPacks()
 	mention := ""
 	if home, err := os.UserHomeDir(); err == nil { // what "#" offers, so read_file can open what the user names
 		spec.read = []string{home}
@@ -761,6 +762,32 @@ func (e *Engine) airportChatSpec(c *model.Chat) (agentSpec, error) {
 		role:   e.rolePart(bp),
 	}
 	return spec, nil
+}
+
+// airportPacks are every skill the airport staff can use: their own blueprint's first, then every other blueprint's
+// as it picks them, then the whole of every source, each in the order of its id. The same name counts once, the first
+// pack's. Call it holding the lock.
+func (e *Engine) airportPacks() []packRoot {
+	var packs []packRoot
+	if bp := e.w.Blueprints[airportBlueprintID]; bp != nil {
+		packs = e.packsOf(bp)
+	}
+	for _, id := range slices.Sorted(maps.Keys(e.w.Blueprints)) {
+		if id != airportBlueprintID {
+			packs = append(packs, e.packsOf(e.w.Blueprints[id])...)
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(e.w.Sources)) {
+		s := e.w.Sources[id]
+		if s.Kind == "local" {
+			if !e.folderOff(s.Path) {
+				packs = append(packs, packRoot{source: model.BlueprintSource{Kind: "local", Path: s.Path}})
+			}
+			continue
+		}
+		packs = append(packs, packRoot{source: model.BlueprintSource{Kind: s.Kind, Repo: s.Repo, Commit: s.Commit}})
+	}
+	return packs
 }
 
 // airportFolder is where the airport staff work.

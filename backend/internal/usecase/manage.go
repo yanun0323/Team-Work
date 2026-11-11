@@ -2,8 +2,6 @@ package usecase
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -113,8 +111,8 @@ func (e *Engine) managerOfChat(in chatRun) manager {
 	return m
 }
 
-// mayManage is what a blueprint's tools allow: read_file reads tasks, blueprints, flows and providers, write_file and
-// run_command also change them.
+// mayManage is what a blueprint's tools allow: read_file lists and reads tasks, blueprints, flows, employees, companies
+// and providers; write_file and run_command also change them.
 func mayManage(allowed []enum.Tool) (read, write bool) {
 	write = slices.Contains(allowed, enum.ToolWriteFile) || slices.Contains(allowed, enum.ToolRunCommand)
 	return write || slices.Contains(allowed, enum.ToolReadFile), write
@@ -126,27 +124,7 @@ func (e *Engine) manageTools(m manager, allowed []enum.Tool, writing bool) []ada
 	read, write := mayManage(allowed)
 	var out []adapter.Tool
 	if read {
-		noArgs := json.RawMessage(`{"type":"object","properties":{}}`)
-		lister := func(name, description string, list func() any) adapter.Tool {
-			return funcTool{model.ToolSpec{Name: name, Description: description, Parameters: noArgs}, func(context.Context, string, json.RawMessage) model.ToolResult {
-				e.mu.Lock()
-				defer e.mu.Unlock()
-				raw, err := json.Marshal(list())
-				if err != nil {
-					return toolError("could not read: %v", err)
-				}
-				return model.ToolResult{Text: string(raw)}
-			}}
-		}
-		out = append(out,
-			lister(toolListTasks, "List the tasks you can reach, with their steps and who works them.", func() any { return e.listTasks(m) }),
-			lister(toolListBlueprints, "List all blueprints with the version to pass to save_blueprint. Built-in blueprints, ones from Git and ones a source provides cannot be changed.", e.listBlueprints),
-			lister(toolListWorkflows, "List all task flows with the version to pass to save_workflow. Built-in flows and ones a source provides cannot be changed.", e.listWorkflows),
-			lister(toolListEmployees, "List the employees you can reach, with the version to pass to save_employees.", func() any { return e.listEmployees(m) }),
-			lister(toolListCompanies, "List the companies you can reach.", func() any { return e.listCompanies(m) }),
-			lister(toolListProviders, "List the model providers with the version to pass to save_provider, their models and each model's thinking levels. API keys are never shown, only their last 4 characters.", e.listProviders),
-			e.readChatTool(),
-		)
+		out = append(out, e.readingTools(m)...)
 	}
 	if write && writing {
 		out = append(out,
@@ -158,192 +136,6 @@ func (e *Engine) manageTools(m manager, allowed []enum.Tool, writing bool) []ada
 			funcTool{model.ToolSpec{Name: toolSaveEmployees, Description: saveEmployeesDescription, Parameters: saveEmployeesSchema(m)}, e.saveEmployeesTool(m)},
 		)
 	}
-	return out
-}
-
-// ---------- reading ----------
-
-// versionOf is a blueprint's or flow's version, from its content: any edit gives a new one.
-func versionOf(v any) string {
-	raw, _ := json.Marshal(v)
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:8])
-}
-
-func (m manager) reaches(teamID string) bool { return m.teamID == "" || m.teamID == teamID }
-
-func (e *Engine) listTasks(m manager) any {
-	type step struct {
-		ID         string        `json:"id"`
-		Kind       enum.NodeKind `json:"kind"`
-		Name       string        `json:"name"`
-		ReplicaIDs []string      `json:"replicaIds"`
-	}
-	type row struct {
-		ID          string            `json:"id"`
-		TeamID      string            `json:"teamId"`
-		Number      int               `json:"number"`
-		Title       string            `json:"title"`
-		Description string            `json:"description"`
-		Stage       enum.TaskStage    `json:"stage"`
-		Status      enum.Status       `json:"status"`
-		Paused      bool              `json:"paused"`
-		WorkflowID  string            `json:"workflowId"`
-		OwnerID     *string           `json:"ownerId"`
-		Steps       []step            `json:"steps"`
-		Origin      *model.TaskOrigin `json:"origin,omitempty"`
-	}
-	out := []row{}
-	for _, t := range e.w.Tasks {
-		if !m.reaches(t.TeamID) {
-			continue
-		}
-		steps := make([]step, len(t.Workflow.Nodes))
-		for i, n := range t.Workflow.Nodes {
-			steps[i] = step{ID: n.ID, Kind: n.Kind, Name: n.Name, ReplicaIDs: n.ReplicaIDs}
-		}
-		out = append(out, row{t.ID, t.TeamID, t.Number, t.Title, t.Description, t.Stage, e.statusOf(t), t.Paused, t.WorkflowID, t.OwnerID, steps, t.Origin})
-	}
-	slices.SortFunc(out, func(a, b row) int {
-		if c := strings.Compare(a.TeamID, b.TeamID); c != 0 {
-			return c
-		}
-		return a.Number - b.Number
-	})
-	return out
-}
-
-func (e *Engine) listBlueprints() any {
-	type row struct {
-		ID       string            `json:"id"`
-		Version  string            `json:"version"`
-		Name     string            `json:"name"`
-		Source   string            `json:"source"`
-		Editable bool              `json:"editable"`
-		Prompt   string            `json:"prompt"`
-		Comment  string            `json:"comment"`
-		Tools    []enum.Tool       `json:"tools"`
-		Skills   []model.SkillPack `json:"skills"`
-	}
-	out := []row{}
-	for _, b := range e.w.Blueprints {
-		// an employee's own settings are theirs, not one to hire from; nor are the airport staff's, nor hidden ones
-		if b.Owner != "" || b.ID == airportBlueprintID || e.blueprintHidden(b.ID) {
-			continue
-		}
-		out = append(out, row{b.ID, versionOf(b), b.Name, b.Source.Kind, !model.IsLockedID(b.ID) && b.Source.Kind != "git", b.Prompt, b.Comment, b.Tools, e.writtenPacks(b.Skills)})
-	}
-	slices.SortFunc(out, func(a, b row) int { return strings.Compare(a.ID, b.ID) })
-	return out
-}
-
-func (e *Engine) listWorkflows() any {
-	type node struct {
-		ID         string           `json:"id"`
-		Kind       enum.NodeKind    `json:"kind"`
-		Name       string           `json:"name"`
-		Prompt     string           `json:"prompt"`
-		ReplicaIDs []string         `json:"replicaIds"`
-		Handoff    enum.HandoffMode `json:"handoff"`
-		Join       enum.JoinMode    `json:"join"`
-	}
-	type edge struct {
-		From      string `json:"from"`
-		To        string `json:"to"`
-		Condition string `json:"condition,omitempty"`
-	}
-	type row struct {
-		ID       string `json:"id"`
-		Version  string `json:"version"`
-		Name     string `json:"name"`
-		Editable bool   `json:"editable"`
-		Nodes    []node `json:"nodes"`
-		Edges    []edge `json:"edges"`
-	}
-	out := []row{}
-	for _, wf := range e.w.Workflows {
-		if e.workflowHidden(wf.ID) {
-			continue
-		}
-		r := row{ID: wf.ID, Version: versionOf(wf), Name: wf.Name, Editable: !model.IsLockedID(wf.ID), Nodes: []node{}, Edges: []edge{}}
-		for _, n := range wf.Nodes {
-			r.Nodes = append(r.Nodes, node{n.ID, n.Kind, n.Name, n.Prompt, n.ReplicaIDs, n.Handoff, n.Join})
-		}
-		for _, x := range wf.Edges {
-			r.Edges = append(r.Edges, edge{x.From, x.To, x.Condition})
-		}
-		out = append(out, r)
-	}
-	slices.SortFunc(out, func(a, b row) int { return strings.Compare(a.ID, b.ID) })
-	return out
-}
-
-func (e *Engine) listEmployees(m manager) any {
-	type row struct {
-		ID          string `json:"id"`
-		TeamID      string `json:"teamId"`
-		Name        string `json:"name"`
-		BlueprintID string `json:"blueprintId"`
-		Blueprint   string `json:"blueprint"`
-		Model       string `json:"model"`
-		Effort      string `json:"effort"`
-		Version     string `json:"version"`
-	}
-	out := []row{}
-	for _, r := range e.w.Replicas {
-		if !m.reaches(r.TeamID) {
-			continue
-		}
-		blueprint := ""
-		if b := e.w.Blueprints[r.BlueprintID]; b != nil {
-			blueprint = b.Name
-			if b.Owner != "" {
-				blueprint = "(custom)"
-			}
-		}
-		out = append(out, row{r.ID, r.TeamID, r.Name, r.BlueprintID, blueprint, r.Model, r.Effort, employeeVersion(r)})
-	}
-	slices.SortFunc(out, func(a, b row) int { return strings.Compare(a.ID, b.ID) })
-	return out
-}
-
-func (e *Engine) listCompanies(m manager) any {
-	type row struct {
-		ID           string `json:"id"`
-		Name         string `json:"name"`
-		Folder       string `json:"folder"`
-		TargetBranch string `json:"targetBranch"`
-	}
-	out := []row{}
-	for _, t := range e.w.Teams {
-		if m.reaches(t.ID) {
-			out = append(out, row{t.ID, t.Name, t.Folder, t.TargetBranch})
-		}
-	}
-	slices.SortFunc(out, func(a, b row) int { return strings.Compare(a.ID, b.ID) })
-	return out
-}
-
-func (e *Engine) listProviders() any {
-	type row struct {
-		ID       string                      `json:"id"`
-		Version  string                      `json:"version"`
-		Name     string                      `json:"name"`
-		Kind     enum.ProviderKind           `json:"kind"`
-		Login    string                      `json:"login"`
-		KeyHint  string                      `json:"keyHint,omitempty"`
-		SignedIn bool                        `json:"signedIn,omitempty"`
-		BaseURL  string                      `json:"baseUrl"`
-		Models   []string                    `json:"models"`
-		Thinking map[string][]string         `json:"thinking,omitempty"`
-		Prices   map[string]model.ModelPrice `json:"prices,omitempty"`
-		Window   int                         `json:"contextWindow"`
-	}
-	out := []row{}
-	for _, p := range e.w.Providers {
-		out = append(out, row{p.ID, versionOf(p), p.Name, p.Kind, p.Auth.Kind, p.Auth.KeyHint, p.Auth.SignedIn, p.BaseURL, p.Models, p.Thinking, p.Prices, model.ContextWindow(*p)})
-	}
-	slices.SortFunc(out, func(a, b row) int { return strings.Compare(a.ID, b.ID) })
 	return out
 }
 
@@ -538,7 +330,7 @@ func (e *Engine) updateTaskTool(m manager) func(context.Context, string, json.Ra
 
 // ---------- blueprints ----------
 
-const saveBlueprintDescription = "Without id, create a blueprint; it can be used at once. With id and the version from list_blueprints, change one: the fields you leave out stay, " +
+const saveBlueprintDescription = "Without id, create a blueprint; it can be used at once. With id and the version from read_blueprint, change one: the fields you leave out stay, " +
 	"and you stop until the user agrees or refuses, which is what this call then returns. Built-in blueprints cannot be changed, so make a new one instead; nor can ones from Git or a source. " +
 	"A skills repo not used before is read first and kept at the version read; one that cannot be read or has no skills is refused."
 
@@ -873,7 +665,7 @@ func skillsText(packs []model.SkillPack) string {
 
 // ---------- providers ----------
 
-const saveProviderDescription = "Without id, add a model provider; it can be used at once. With id and the version from list_providers, change one: the fields you leave out stay, " +
+const saveProviderDescription = "Without id, add a model provider; it can be used at once. With id and the version from read_provider, change one: the fields you leave out stay, " +
 	"and you stop until the user agrees or refuses, which is what this call then returns. A provider with an API key is asked for its models first, so a wrong key or base URL fails here. " +
 	"A subscription cannot be signed in from here: add it with login subscription, then ask the user to sign in on the settings page."
 
@@ -961,7 +753,7 @@ func (e *Engine) saveProviderTool(m manager) func(context.Context, string, json.
 			return toolError("no provider with id %s", a.ID)
 		}
 		if a.Version != versionOf(&before) {
-			return toolError("version does not match: it was changed since; read it again with list_providers")
+			return toolError("version does not match: it was changed since; read it again with read_provider")
 		}
 		patch := ProviderPatch{Name: a.Name, BaseURL: a.BaseURL, Prices: a.Prices, ContextWindow: a.Window}
 		newKey := a.APIKey != nil && strings.TrimSpace(*a.APIKey) != ""
@@ -1036,7 +828,7 @@ func pricesText(prices map[string]model.ModelPrice) string {
 
 // ---------- flows ----------
 
-const saveWorkflowDescription = "Without id, create a task flow; it can be used at once. With id and the version from list_workflows, replace one: nodes and edges are the whole new list, " +
+const saveWorkflowDescription = "Without id, create a task flow; it can be used at once. With id and the version from read_workflow, replace one: nodes and edges are the whole new list, " +
 	"and in a node that has an id already what you leave out stays. Then you stop until the user agrees or refuses, which is what this call then returns. Tasks under way keep the flow they started with. Built-in flows and ones a source provides cannot be changed, so make a new one instead. " +
 	"A step nothing leads to is a start: a task starts every start at once, each with the task as given. A step that leads nowhere is a last step, and the task is done once every branch that ran is done. No cycles. Kind task is only in old flows; use work. " +
 	"A work step may send work back to the one step before it when that step hands on to it alone. Do not give positions: they are worked out for you. Node ids are yours to choose, unique in the flow. " +
@@ -1310,8 +1102,8 @@ func (e *Engine) workflowDiff(before, after *model.Workflow) []model.ChangeLine 
 // ---------- employees ----------
 
 const saveEmployeesDescription = "Hire or change employees, several in one call. An item without id hires one at once: name, blueprint_id from list_blueprints " +
-	"and model from list_providers are needed; effort is one of the model's thinking levels, its default when left out. " +
-	"An item with id and the version from list_employees changes that employee: the fields you leave out stay. " +
+	"and model from read_provider are needed; effort is one of the model's thinking levels, its default when left out. " +
+	"An item with id and the version from read_employee changes that employee: the fields you leave out stay. " +
 	"The changes are shown to the user together and you stop until they agree or refuse, which is what this call then returns. " +
 	"If any item is refused, nothing is written; hires stand even when the user refuses the changes. Hire only when the user asked for it; who works a task's steps is theirs to decide."
 
