@@ -365,10 +365,11 @@ body { margin: 0; overflow: hidden; }
 .fx-task-title { font-size: 13.5px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
 .fx-task-no { margin-inline-end: 5px; font: 500 11px/1 var(--font-mono); color: var(--muted); }
 .fx-task .fx-pill { justify-self: start; }
-.fx-task-foot { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
-.fx-task-progress { display: flex; min-width: 0; font-size: 12px; line-height: 1.2; color: var(--muted); white-space: pre; }
+/* progress on its own line above the tokens, both to the right; a long step name gives way, not the count */
+.fx-task-foot { display: grid; justify-items: end; gap: 4px; min-width: 0; }
+.fx-task-progress { display: flex; max-width: 100%; min-width: 0; font-size: 12px; line-height: 1.2; color: var(--muted); white-space: pre; }
 .fx-task-step { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.fx-task-tokens { flex: none; margin-left: auto; font: 500 11px/1.2 var(--font-mono); color: var(--muted); text-align: end; }
+.fx-task-tokens { font: 500 11px/1.2 var(--font-mono); color: var(--muted); text-align: end; }
 
 /* flows: left to right, each step a sticky note; space, not rules, between flows */
 .fx-flows { display: grid; gap: 30px; }
