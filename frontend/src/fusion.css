@@ -28,12 +28,11 @@ body { margin: 0; overflow: hidden; }
 }
 .label.leaving { opacity: 0; pointer-events: none; }
 .label-fusion {
-  /* a bare button placed by the label layer; the paper slip inside is what shows and tilts */
+  /* a bare button placed by the label layer; the paper slip inside is what shows and tilts. The pointer goes
+     through to the map under it, which does what a click on the label would; the button is for the keyboard */
   padding: 0;
   border: 0;
   background: none;
-  pointer-events: auto;
-  cursor: pointer;
 }
 .fx-tag {
   /* a slip of newsprint taped up over the roof, like the company file */
