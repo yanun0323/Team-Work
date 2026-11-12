@@ -42,6 +42,25 @@ export const taskCost = (w: World, task: Task) =>
 export const taskTokens = (w: World, task: Task) =>
   task.tokensCarry + (task.coordination?.ownerTokens ?? 0) + subsOf(w, task.id).reduce((sum, s) => sum + s.tokens, 0)
 
+/**
+ * How far a task has got, for its card: the steps at work now in flow order, and how many of the flow's steps
+ * are done. None before it starts or once it is over. On a task its owner runs a step is done only once the owner
+ * accepted its current run, as the backend counts it (owner_run.go). Branches never taken still count in the total,
+ * so a task waiting to merge shows every step done.
+ */
+export function progressOf(w: World, task: Task): { now: string[]; done: number; total: number } | undefined {
+  const order = task.workflow.nodes.map((n) => n.id)
+  if (!order.length || notStarted(task) || task.stage === 'done' || task.stage === 'cancelled') return undefined
+  if (task.stage === 'awaitMerge' || task.stage === 'merging') return { now: [], done: order.length, total: order.length }
+  const owner = isOwnerTask(task)
+  const subs = subsOf(w, task.id).filter((s) => (owner ? currentRun(s) : !s.cancelled) && order.includes(s.nodeId))
+  const done = new Set(subs.filter((s) => s.status === 'complete'
+    && (!owner || (s.ownerReview === 'accepted' && s.validity !== 'needsRevalidation'))).map((s) => s.nodeId))
+  // dispatched and not yet finished, short of a join still collecting what feeds it
+  const now = new Set(subs.filter((s) => s.status !== 'complete' && !s.waiting).map((s) => s.nodeId))
+  return { now: order.filter((id) => now.has(id)), done: done.size, total: order.length }
+}
+
 export const costLimit = (w: World, task: Task) => w.teams[task.teamId].settings.costLimitUsd + task.budgetBonus
 
 export const statusOf = (w: World, task: Task) => (isOwnerTask(task) ? ownerStatus(task, subsOf(w, task.id)) : taskStatus(task, subsOf(w, task.id)))

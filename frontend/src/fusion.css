@@ -28,12 +28,11 @@ body { margin: 0; overflow: hidden; }
 }
 .label.leaving { opacity: 0; pointer-events: none; }
 .label-fusion {
-  /* a bare button placed by the label layer; the paper slip inside is what shows and tilts */
+  /* a bare button placed by the label layer; the paper slip inside is what shows and tilts. The pointer goes
+     through to the map under it, which does what a click on the label would; the button is for the keyboard */
   padding: 0;
   border: 0;
   background: none;
-  pointer-events: auto;
-  cursor: pointer;
 }
 .fx-tag {
   /* a slip of newsprint taped up over the roof, like the company file */
@@ -365,7 +364,10 @@ body { margin: 0; overflow: hidden; }
 .fx-task-title { font-size: 13.5px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
 .fx-task-no { margin-inline-end: 5px; font: 500 11px/1 var(--font-mono); color: var(--muted); }
 .fx-task .fx-pill { justify-self: start; }
-.fx-task-tokens { justify-self: end; font: 500 11px/1.2 var(--font-mono); color: var(--muted); text-align: end; }
+.fx-task-foot { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.fx-task-progress { display: flex; min-width: 0; font-size: 12px; line-height: 1.2; color: var(--muted); white-space: pre; }
+.fx-task-step { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fx-task-tokens { flex: none; margin-left: auto; font: 500 11px/1.2 var(--font-mono); color: var(--muted); text-align: end; }
 
 /* flows: left to right, each step a sticky note; space, not rules, between flows */
 .fx-flows { display: grid; gap: 30px; }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activityPage, controlMeeting, controlOwnerTask, createTask, MEETING_BATCH, meetingActivityPage, createTeam, flowEditable, hire, newWorkflow, notStarted, OWNER_TIME, sayToOwner, statusOf, subsOf, taskCost, tick, TaskRefusal, updateTask } from './sim'
+import { activityPage, controlMeeting, controlOwnerTask, createTask, MEETING_BATCH, meetingActivityPage, createTeam, flowEditable, hire, newWorkflow, notStarted, OWNER_TIME, progressOf, sayToOwner, statusOf, subsOf, taskCost, tick, TaskRefusal, updateTask } from './sim'
 import { mergeBlocked, resumeBlock, userQuestions } from './owner'
 import type { Task, World, WorkflowNode } from './types'
 
@@ -28,6 +28,28 @@ const run = (w: World, seconds: number) => { for (let i = 0; i < seconds * 2; i+
 const said = (w: World, id: string) => activityPage(w, id, { limit: 100 }).items
 
 describe('a task its owner runs', () => {
+  it('shows on its card the step at work and how many steps the owner accepted', () => {
+    const { w, task, start } = setup()
+    expect(progressOf(w, task)).toBeUndefined()
+    controlOwnerTask(w, task.id, { requestId: 'r1', action: 'resume', ...versions(task) })
+    run(w, 2)
+    expect(progressOf(w, task)).toEqual({ now: [start.id], done: 0, total: 2 })
+    // handed on but not yet accepted: not done
+    run(w, 8)
+    expect(progressOf(w, task)).toEqual({ now: [], done: 0, total: 2 })
+    run(w, OWNER_TIME + 1)
+    expect(progressOf(w, task)).toEqual({ now: ['next'], done: 1, total: 2 })
+    // a run a return replaced no longer counts
+    subsOf(w, task.id)[0].validity = 'superseded'
+    expect(progressOf(w, task)?.done).toBe(0)
+    subsOf(w, task.id)[0].validity = 'current'
+    run(w, 20)
+    expect(task.stage).toBe('awaitMerge')
+    expect(progressOf(w, task)).toEqual({ now: [], done: 2, total: 2 })
+    task.stage = 'done'
+    expect(progressOf(w, task)).toBeUndefined()
+  })
+
   it('waits in 待辦 with nothing dispatched until the user starts it', () => {
     const { w, task } = setup()
     expect(notStarted(task)).toBe(true)

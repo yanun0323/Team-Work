@@ -2,7 +2,7 @@
 // instead of a React root per label.
 
 import { useFrame, useThree } from '@react-three/fiber'
-import { useMemo, type ReactNode, type WheelEvent as ReactWheelEvent } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import * as THREE from 'three'
 
 type V3 = [number, number, number]
@@ -22,20 +22,21 @@ export interface LabelSpec {
   onClick?: () => void
 }
 
-/** A wheel step over a label, to hand on to the map under it: same place, amount and keys. */
-export function wheelCopy(e: WheelEvent): WheelEventInit {
-  const { clientX, clientY, screenX, screenY, deltaX, deltaY, deltaZ, deltaMode, ctrlKey, shiftKey, altKey, metaKey } = e
-  return { clientX, clientY, screenX, screenY, deltaX, deltaY, deltaZ, deltaMode, ctrlKey, shiftKey, altKey, metaKey, bubbles: true, cancelable: true }
+/**
+ * Stacking order for a label from its projected depth (-1 near to 1 far): nearer labels cover farther ones, and a
+ * lifted label is over them all.
+ */
+export function labelDepth(z: number, lifted: boolean): number {
+  return Math.round((1 - z) * 10000) + (lifted ? 20001 : 0)
 }
 
 /**
- * `wheelTo`: where a wheel over a label goes on to. The labels sit above the canvas and clickable ones catch the
- * pointer, so without it the map wouldn't zoom with the pointer on a label.
+ * Labels only show names: the pointer goes through them to the map (the building under a label does what its
+ * label's click does), while clickable ones stay buttons for the keyboard.
  */
-export function LabelLayer({ labels, wheelTo }: { labels: LabelSpec[]; wheelTo?: () => Element | null | undefined }) {
-  const onWheel = wheelTo && ((e: ReactWheelEvent) => void wheelTo()?.dispatchEvent(new WheelEvent('wheel', wheelCopy(e.nativeEvent))))
+export function LabelLayer({ labels }: { labels: LabelSpec[] }) {
   return (
-    <div className="labels" aria-hidden={false} onWheel={onWheel}>
+    <div className="labels" aria-hidden={false}>
       {labels.map((l) => {
         const ref = (el: HTMLElement | null) => {
           if (el) {
@@ -77,6 +78,7 @@ export function LabelProjector() {
       const x = ((v.x + 1) / 2) * size.width
       const y = ((1 - v.y) / 2) * size.height
       el.style.visibility = 'visible'
+      el.style.zIndex = String(labelDepth(v.z, el.classList.contains('lifted')))
       el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -50%)`
     }
   })
