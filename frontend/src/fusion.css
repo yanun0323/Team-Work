@@ -2200,3 +2200,11 @@ button.fx-ticket-tag:hover { color: var(--ink); }
 @media (prefers-reduced-motion: reduce) {
   .fusion-stage > :not(.fusion-canvas, .labels), .fusion-stage[data-away] > :not(.fusion-canvas, .labels) { transition: none; }
 }
+
+/* a paired computer has this place open: the slip is outlined, with who is there hanging below it */
+.fx-tag-visited { outline: 2px dashed #24579e; outline-offset: 3px; }
+.fx-tag-visitors {
+  position: absolute; top: calc(100% + 6px); inset-inline-start: 50%; translate: -50% 0; max-width: 220px; overflow: hidden;
+  padding: 2px 7px; border-radius: 4px; background: #24579e; color: #fff; font: 700 11px/1.4 var(--font-sans);
+  white-space: nowrap; text-overflow: ellipsis; rotate: none;
+}

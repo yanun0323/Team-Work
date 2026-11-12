@@ -64,11 +64,9 @@
 
 - 「只開放某間公司」這類細分權限；把藍圖複製到對方的島。
 - 讓電腦只能當控制端或只能當被控制端的全機設定。
-- 修改配對電腦的名稱（顯示對方回報的電腦名稱就好）。
 - 在對方的島上時，繼續收本機的即時更新和通知（回到自己的島就會收到最新狀態）。
 - 自架中繼站、改用其他連線方案。
 - 讓對方的基地台可以被遠端管理（遠端入口一律擋下基地台相關 API）。
-- 「它現在正在操作我」的即時提示。
 
 ## 6. 主要流程
 
@@ -203,6 +201,9 @@
 | `peer_denied` | 403 | 對方沒有允許這台操作它。 |
 | `peer_unpaired` | 403 | 對方已解除配對（本機轉接時，把對方回的 401 換成這個）。 |
 | `remote_unavailable` | 403 | 這個功能在遠端不能用。 |
+| `peer_readonly` | 403 | 對方只開放檢視：遠端入口只放行 GET（終端機、`/folders`、`/branches` 除外）。 |
+| `peer_kicked` | 403 | 對方剛把這台踢出，30 秒內不能再進；之後可自行前往。 |
+| `peer_blocked` | 403 | 對方封鎖了這台（1 小時或到手動解除）。仍可解除配對。 |
 | `incompatible` | 409 | 遠端相容版本不一樣。 |
 | `pair_rejected` / `pair_expired` / `pair_busy` / `pair_self` | 用在 `outgoing.code` | 配對結果，見 7.2。 |
 
@@ -253,7 +254,11 @@ interface Towers {
 | `POST /api/v1/towers/pairing/reject` | `{ "requestId": string }` | 204 | 404 `not_found` |
 | `POST /api/v1/towers/pair` | `{ "address": string }` | 202 `Towers['outgoing']`；結果之後從 `GET /towers` 讀 | 400 `invalid_request`（格式錯誤，立即回）、400 `pair_self`、409 `conflict`（已經有一筆在進行） |
 | `DELETE /api/v1/towers/outgoing` | — | 204（取消進行中的請求，或清掉已顯示的結果） | — |
-| `PATCH /api/v1/towers/peers/:id` | `{ "allowInbound": boolean }` | 200 `Peer` | 404 `not_found` |
+| `PATCH /api/v1/towers/peers/:id` | `{ "allowInbound"?: boolean, "access"?: "view" \| "operate" }` | 200 `Peer`；從操作切到檢視會關掉對方已開的連線 | 400 `invalid_request`、404 `not_found` |
+| `PUT /api/v1/towers/profile` | `{ "name": string }`（1–40 字、單行） | 200 `Towers['me']`；對方下次檢查時看到新名稱 | 400 `invalid_request` |
+| `POST /api/v1/towers/peers/:id/kick` | — | 204；立即關掉對方的連線並移出訪客清單 | 404 `not_found` |
+| `POST /api/v1/towers/peers/:id/block` | `{ "for": "hour" \| "manual" }` | 200 `Peer`（`blockedUntil` 為 Unix 秒，`-1` 是到手動解除），保存在 `tower-private.json` | 400 `invalid_request`、404 `not_found` |
+| `DELETE /api/v1/towers/peers/:id/block` | — | 200 `Peer` | 404 `not_found` |
 | `POST /api/v1/towers/peers/:id/check` | — | 200 `Peer`（立即檢查，最多等 15 秒） | 404 `not_found` |
 | `DELETE /api/v1/towers/peers/:id` | — | 204 | 404 `not_found` |
 | `GET /api/v1/towers/peers/:id/employees/:rid` | — | 200 複製預覽：對方員工的名字、外觀、藍圖、技能來源（各來源在對方讀到的技能，讀不到為 `null`），加上本機的模型、思考等級，以及 `modelOk`、`effortOk`、`presetOk` | 404 `not_found`、502 `unavailable`、403 `peer_denied`／`peer_unpaired`、409 `incompatible`（對方太舊，沒有匯出員工的 API） |
@@ -384,3 +389,10 @@ interface Towers {
 - 沒有一定要誰先做完。介面只照第 7 節；要改介面，先在交接裡寫清楚，並更新這份文件。
 - 兩邊共用的只有這份文件。`docs/power-tower.md` 由寫規格的人負責，前後端改到介面時，在同一份文件第 7 節更新，並在交接裡說明。
 - 整合測試（兩台真的電腦）做不到的話，在最後的交接寫明。手動測試步驟建議如下：兩台電腦各開 Team Work → B 按等待配對 → A 輸入位址 → B 同意 → A 前往 B → 建一個任務 → 關掉 A → 確認 B 上的任務繼續 → 重開 A 再前往，確認進度是最新的、任務只有一個。
+
+## 訪客、權限與封鎖
+
+- 每台配對電腦有 `access`：`view`（只能看）或 `operate`（可操作）。新配對一律是 `view`；這個欄位出現前就存在的配對讀進來時當作 `operate`，維持原本能做的事。權限在遠端入口（`delivery/gateway.go`）逐一請求檢查，含 WebSocket；從 `operate` 改成 `view`、踢出、封鎖都會換掉該電腦的租約，已開的連線立刻關閉。
+- 訪客對 `POST /api/v1/chats/:id/read` 與 `POST /api/v1/sources/:id/seen` 一律回 204 而不轉進本機 API，所以訪客打開公司、機場的對話不會清掉島主的未讀提示；島主本機照舊。
+- 訪客的每個分頁每 10 秒經遠端入口送 `POST /api/v1/presence`（`{ page, place, gone? }`，`place` 是 `""`、`airport` 或 `team:{id}`）。是哪台電腦只看通行證，不看內容；同一台的多個分頁合成一位，30 秒沒回報就移除。`GET /api/v1/towers` 的 `visitors` 列出目前的訪客，島主地圖上框出他們開著的公司或機場。訪客彼此看不到。
+- 基地台可改本機名稱（`PUT /towers/profile`），配對的另一台在定時檢查（`/tower/v1/hello`）時更新顯示的名稱。基地台顯示本機的遠端相容版本。

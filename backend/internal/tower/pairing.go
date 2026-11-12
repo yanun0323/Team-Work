@@ -297,7 +297,7 @@ func (s *Service) Decide(requestID string, approve bool) (Peer, error) {
 		return Peer{}, missing()
 	}
 	token := secret()
-	peer := savedPeer{Peer: Peer{ID: p.wire.ID, Name: p.wire.Name, Protocol: p.wire.Protocol, Status: "checking", AllowInbound: true, PairedAt: time.Now().Unix()}, Address: p.wire.Address, Token: p.wire.Token, InboundHash: hash(token)}
+	peer := savedPeer{Peer: Peer{ID: p.wire.ID, Name: p.wire.Name, Protocol: p.wire.Protocol, Status: "checking", AllowInbound: true, Access: AccessView, PairedAt: time.Now().Unix()}, Address: p.wire.Address, Token: p.wire.Token, InboundHash: hash(token)}
 	old, exists := s.disk.Peers[peer.ID]
 	s.disk.Peers[peer.ID] = peer
 	if err := s.saveLocked(); err != nil {
@@ -442,7 +442,7 @@ func (s *Service) runPair(ctx context.Context, address string, o *Outgoing) {
 			s.pairFailed(o, model.Errorf("pair_self", "不能和自己配對"))
 			return
 		}
-		peer := savedPeer{Peer: Peer{ID: remote.ID, Name: remote.Name, Protocol: remote.Protocol, Status: "online", AllowInbound: false, PairedAt: time.Now().Unix(), LastSeenAt: time.Now().Unix()}, Address: remote.Address, Token: remote.Token, InboundHash: hash(token)}
+		peer := savedPeer{Peer: Peer{ID: remote.ID, Name: remote.Name, Protocol: remote.Protocol, Status: "online", AllowInbound: false, Access: AccessView, PairedAt: time.Now().Unix(), LastSeenAt: time.Now().Unix()}, Address: remote.Address, Token: remote.Token, InboundHash: hash(token)}
 		old, exists := s.disk.Peers[peer.ID]
 		s.disk.Peers[peer.ID] = peer
 		if s.saveLocked() != nil {

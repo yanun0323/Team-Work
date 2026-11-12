@@ -5,12 +5,13 @@ vi.mock('./mode', () => ({ MOCK: false }))
 import { emptyWorld } from './backend'
 import { useIsland } from './island'
 import { useStore } from './store'
-import { goHome, goTo, leftPeer, watchIsland, type Peer } from './towers'
+import { goHome, goTo, isBlocked, leftPeer, presencePlace, reportPresence, visitorsAt, watchIsland, watchVisitors, useVisitors, type Peer } from './towers'
+import { readChat, seeSource } from './ops'
 import { DEFAULT_PREFS, usePrefs } from '../prefs'
 import { setFailureHandler } from './ops'
 import { updateTutorial, learn } from '../tutorial'
 
-const peer = (p: Partial<Peer> = {}): Peer => ({ id: 'b', name: 'Studio', status: 'online', allowInbound: false, pairedAt: 1, ...p })
+const peer = (p: Partial<Peer> = {}): Peer => ({ id: 'b', name: 'Studio', status: 'online', allowInbound: false, pairedAt: 1, access: 'view', ...p })
 const answer = (status: number, body: unknown) => vi.fn(async () => new Response(JSON.stringify(body), { status }))
 const turn = () => new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -141,5 +142,79 @@ describe("another island's world", () => {
     updateTutorial({ hidden: true })
     await turn()
     expect((f.mock.calls as unknown as Array<[string]>)[0][0]).toBe('/api/v1/tutorial')
+  })
+})
+
+describe('visiting another island', () => {
+  beforeEach(() => { vi.stubGlobal('window', { setInterval, clearInterval, setTimeout, clearTimeout, addEventListener: () => {}, removeEventListener: () => {} }) })
+  const calls = (f: ReturnType<typeof vi.fn>) => (f.mock.calls as unknown as Array<[string, RequestInit]>).map(([url, init]) => [url, init.body ? JSON.parse(init.body as string) : undefined])
+
+  it('leaves its unread marks alone, while this island still clears them', async () => {
+    setFailureHandler(() => {})
+    const f = vi.fn(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', f)
+    useIsland.setState({ island: { id: 'b', name: 'Studio' } })
+    readChat(useStore.getState().world, 'c1')
+    seeSource(useStore.getState().world, 's1')
+    await turn()
+    expect(f).not.toHaveBeenCalled()
+    useIsland.setState({ island: null })
+    readChat(useStore.getState().world, 'c1')
+    seeSource(useStore.getState().world, 's1')
+    await turn()
+    expect(calls(f).map(([url]) => url)).toEqual(['/api/v1/chats/c1/read', '/api/v1/sources/s1/seen'])
+  })
+
+  it('tells the island what this page has open, again after a change, and that it has gone on leaving', async () => {
+    const f = vi.fn(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', f)
+    let place = presencePlace('t1', false)
+    const presence = reportPresence(() => place, 60_000)
+    await turn()
+    expect(f).not.toHaveBeenCalled() // nothing to tell on this computer's own island
+    useIsland.setState({ island: { id: 'b', name: 'Studio' } })
+    await turn()
+    place = presencePlace(null, true)
+    presence.tell()
+    useIsland.setState({ island: null })
+    await turn()
+    presence.stop()
+    const sent = calls(f)
+    expect(sent.map(([url]) => url)).toEqual(['/api/v1/remote/b/presence', '/api/v1/remote/b/presence', '/api/v1/remote/b/presence'])
+    const page = (sent[0][1] as { page: string }).page
+    expect(page).toMatch(/^[A-Za-z0-9_-]{1,64}$/)
+    expect(sent.map(([, body]) => body)).toEqual([{ page, place: 'team:t1' }, { page, place: 'airport' }, { page, gone: true }])
+  })
+
+  it('goes home saying why when the island sends it away', async () => {
+    const stop = watchIsland(60_000)
+    useIsland.setState({ island: { id: 'b', name: 'Studio' } })
+    vi.stubGlobal('fetch', answer(403, { error: { code: 'peer_kicked', message: '對方已請這台離開，請稍後再前往' } }))
+    reportPresence(() => '', 60_000).stop()
+    await turn()
+    await turn()
+    stop()
+    expect(useIsland.getState().notice).toBe('對方已請這台離開，請稍後再前往')
+  })
+})
+
+describe('visitors on this island', () => {
+  beforeEach(() => { vi.stubGlobal('window', { setInterval, clearInterval, setTimeout, clearTimeout, addEventListener: () => {}, removeEventListener: () => {} }) })
+  it('lists who has each place open, read from the tower while at home', async () => {
+    vi.stubGlobal('fetch', answer(200, { me: { id: 'a', name: 'A', protocol: 1 }, pairing: null, outgoing: null, peers: [], visitors: [{ id: 'b', name: 'Studio', places: ['airport', 'team:t1'] }] }))
+    const stop = watchVisitors(60_000)
+    await turn()
+    await turn()
+    stop()
+    const v = useVisitors.getState().visitors
+    expect(visitorsAt(v, 'team:t1')).toEqual(['Studio'])
+    expect(visitorsAt(v, 'team:t2')).toEqual([])
+  })
+
+  it('tells a block until lifted from one that has run out', () => {
+    expect(isBlocked({ blockedUntil: -1 })).toBe(true)
+    expect(isBlocked({ blockedUntil: 200 }, 100)).toBe(true)
+    expect(isBlocked({ blockedUntil: 200 }, 300)).toBe(false)
+    expect(isBlocked({})).toBe(false)
   })
 })

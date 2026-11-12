@@ -40,6 +40,32 @@ type Peer struct {
 	LastSeenAt   int64  `json:"lastSeenAt,omitempty"`
 	PairedAt     int64  `json:"pairedAt"`
 	Message      string `json:"message,omitempty"`
+	// Access is what it may do on this island once allowed in: AccessView or AccessOperate.
+	Access string `json:"access"`
+	// BlockedUntil keeps it out until this Unix time; BlockedForever until unblocked by hand; 0 is not blocked.
+	BlockedUntil int64 `json:"blockedUntil,omitempty"`
+}
+
+const (
+	AccessView     = "view"
+	AccessOperate  = "operate"
+	BlockedForever = -1
+	// kickCooldown keeps a kicked computer out long enough for all its pages to notice and go home.
+	kickCooldown = 30 * time.Second
+	// presenceLifetime is how long a page's last report keeps it on the visitor list.
+	presenceLifetime = 30 * time.Second
+	maxPresencePages = 16
+)
+
+// Visitor is a paired computer looking at this island now, and the places its pages have open.
+type Visitor struct {
+	ID     string   `json:"id"`
+	Name   string   `json:"name"`
+	Places []string `json:"places"`
+}
+type presence struct {
+	place string
+	at    time.Time
 }
 type Request struct {
 	Identity
@@ -62,6 +88,7 @@ type View struct {
 	Pairing  *Pairing  `json:"pairing"`
 	Outgoing *Outgoing `json:"outgoing"`
 	Peers    []Peer    `json:"peers"`
+	Visitors []Visitor `json:"visitors"`
 }
 
 type savedPeer struct {
@@ -124,11 +151,14 @@ type Service struct {
 	pairing        *waiting
 	outgoing       *Outgoing
 	outgoingCancel context.CancelFunc
+	presence       map[string]map[string]presence
+	kicked         map[string]time.Time
+	now            func() time.Time
 }
 
 func New(ctx context.Context, dir string, transport Transport) (*Service, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{ctx: ctx, cancel: cancel, transport: transport, file: filepath.Join(dir, "tower-private.json"), leases: map[string]lease{}}
+	s := &Service{ctx: ctx, cancel: cancel, transport: transport, file: filepath.Join(dir, "tower-private.json"), leases: map[string]lease{}, presence: map[string]map[string]presence{}, kicked: map[string]time.Time{}, now: time.Now}
 	raw, err := os.ReadFile(s.file)
 	if err == nil {
 		err = json.Unmarshal(raw, &s.disk)
@@ -153,7 +183,12 @@ func New(ctx context.Context, dir string, transport Transport) (*Service, error)
 		return nil, err
 	}
 	s.disk.Me.Protocol = Protocol
-	for id := range s.disk.Peers {
+	for id, p := range s.disk.Peers {
+		// pairs made before access modes keep the control they had
+		if p.Access != AccessView && p.Access != AccessOperate {
+			p.Access = AccessOperate
+			s.disk.Peers[id] = p
+		}
 		s.newLeaseLocked(id)
 	}
 	return s, nil
@@ -305,6 +340,7 @@ func (s *Service) View() View {
 	for _, p := range s.disk.Peers {
 		v.Peers = append(v.Peers, p.Peer)
 	}
+	v.Visitors = s.visitorsLocked()
 	sort.Slice(v.Peers, func(i, j int) bool {
 		if v.Peers[i].PairedAt == v.Peers[j].PairedAt {
 			return v.Peers[i].ID < v.Peers[j].ID
@@ -329,6 +365,7 @@ func (s *Service) SetAllowed(id string, allow bool) (Peer, error) {
 	}
 	if old.AllowInbound != allow {
 		s.newLeaseLocked(id)
+		delete(s.presence, id)
 	}
 	return p.Peer, nil
 }
@@ -349,6 +386,8 @@ func (s *Service) Unpair(ctx context.Context, id string) error {
 	s.newLeaseLocked(id)
 	s.leases[id].cancel()
 	delete(s.leases, id)
+	delete(s.presence, id)
+	delete(s.kicked, id)
 	s.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -371,6 +410,12 @@ func (s *Service) Authorize(token string, allowDisabled bool) (Peer, context.Con
 			if !p.Revoked && subtle.ConstantTimeCompare([]byte(digest), []byte(p.InboundHash)) == 1 {
 				if !allowDisabled && !p.AllowInbound {
 					return Peer{}, nil, model.Errorf("peer_denied", "對方沒有允許這台操作它")
+				}
+				if !allowDisabled && s.blockedLocked(p.Peer) {
+					return Peer{}, nil, model.Errorf("peer_blocked", "對方已封鎖這台，暫時不能前往")
+				}
+				if until, ok := s.kicked[id]; !allowDisabled && ok && s.now().Before(until) {
+					return Peer{}, nil, model.Errorf("peer_kicked", "對方已請這台離開，請稍後再前往")
 				}
 				return p.Peer, s.leases[id].ctx, nil
 			}
@@ -397,6 +442,7 @@ func (s *Service) RemoteUnpair(id string) error {
 		return unavailable()
 	}
 	s.newLeaseLocked(id)
+	delete(s.presence, id)
 	return nil
 }
 func incompatible(remote Identity) *model.Error {
@@ -444,6 +490,9 @@ func (s *Service) Check(ctx context.Context, id string) (Peer, error) {
 			var identity Identity
 			if json.NewDecoder(resp.Body).Decode(&identity) == nil && identity.ID == id {
 				p.Protocol = identity.Protocol
+				if name, err := CleanName(identity.Name); err == nil {
+					p.Name = name
+				}
 				p.LastSeenAt = time.Now().Unix()
 				p.Status = "online"
 				p.Message = ""
@@ -458,6 +507,15 @@ func (s *Service) Check(ctx context.Context, id string) (Peer, error) {
 		case 403:
 			p.Status = "denied"
 			p.Message = i18n.T("對方沒有允許這台操作它")
+			var failed struct {
+				Error struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&failed) == nil && (failed.Error.Code == "peer_blocked" || failed.Error.Code == "peer_kicked") && failed.Error.Message != "" {
+				p.Message = failed.Error.Message
+			}
 		}
 	}
 	s.mu.Lock()
@@ -470,6 +528,8 @@ func (s *Service) Check(ctx context.Context, id string) (Peer, error) {
 		return current.Peer, nil
 	}
 	p.AllowInbound = current.AllowInbound
+	p.Access = current.Access
+	p.BlockedUntil = current.BlockedUntil
 	if p.Status == "unpaired" {
 		p.Revoked = true
 		p.InboundHash = ""

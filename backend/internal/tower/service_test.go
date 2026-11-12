@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/yanun0323/Team-Work/internal/model"
 	"io"
 	"net"
 	"net/http"
@@ -35,6 +36,9 @@ func testService(t *testing.T, n *memoryNetwork) *Service {
 		_, _, err := s.Authorize(bearer(r), false)
 		if err != nil {
 			w.WriteHeader(403)
+			if known, ok := err.(*model.Error); ok {
+				json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": known.Code, "message": known.Message}})
+			}
 			return
 		}
 		json.NewEncoder(w).Encode(s.View().Me)

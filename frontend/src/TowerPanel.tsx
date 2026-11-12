@@ -7,9 +7,11 @@ import { colon, tr } from './core/i18n'
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { MOCK } from './core/mode'
 import { useIsland } from './core/island'
+import { useStore } from './core/store'
 import {
-  allowPeer, approvePairing, clearOutgoing, goTo, leftPeer, pairWith, readTowers, rejectPairing, startPairing, stopPairing, unpairPeer,
-  type Outgoing, type Pairing, type Peer, type PeerStatus, type Towers,
+  allowPeer, approvePairing, blockPeer, clearOutgoing, goTo, isBlocked, kickPeer, leftPeer, pairWith, readTowers, rejectPairing, setPeerAccess, setProfile,
+  startPairing, stopPairing, unblockPeer, unpairPeer,
+  type Outgoing, type Pairing, type Peer, type PeerAccess, type PeerStatus, type Towers, type Visitor,
 } from './core/towers'
 
 /** How often the open panel reads the tower again, in milliseconds. */
@@ -101,6 +103,8 @@ export function TowerBody({ towers, error, refresh, here = null }: {
     <div className="fx-d-groups fx-tower">
       {MOCK && <p className="fx-pill fx-prereq">{tr('模擬模式不能配對')}</p>}
       {error && <p className="fx-tower-error" role="alert">{error}</p>}
+      <ProfileSection name={towers.me.name} protocol={towers.me.protocol} refresh={refresh} />
+      <VisitorsSection visitors={towers.visitors} home={here === null} refresh={refresh} />
       <section className="fx-d-group" aria-labelledby="fx-tower-peers">
         <h4 id="fx-tower-peers">{tr('已配對的電腦')}</h4>
         {towers.peers.length ? (
@@ -185,10 +189,111 @@ function PeerRow({ peer, me, here, refresh }: { peer: Peer; me: number; here: bo
             onChange={(e) => { const on = e.target.checked; void run(() => allowPeer(peer.id, on)) }} />
           {tr('允許它操作我')}
         </label>
+        {peer.allowInbound && <AccessSwitch access={peer.access} disabled={busy || MOCK} label={nameId}
+          onChange={(a) => void run(() => setPeerAccess(peer.id, a))} />}
         <button type="button" className={asking ? 'fx-tool fx-tool-ask fx-hit' : 'fx-tool fx-hit fx-tower-unpair'} disabled={busy}
           aria-describedby={nameId} onClick={unpair} onBlur={() => setAsking(false)}>
           {asking ? tr('確定解除配對') : tr('解除配對')}
         </button>
+      </div>
+      {isBlocked(peer) && (
+        <div className="fx-tower-acts">
+          <span className="fx-pill">{peer.blockedUntil === -1 ? tr('已封鎖') : tr('封鎖到 {time}', { time: timeOf(peer.blockedUntil ?? 0) })}</span>
+          <button type="button" className="fx-tool fx-hit fx-tool-text" disabled={busy || MOCK} aria-describedby={nameId}
+            onClick={() => void run(() => unblockPeer(peer.id))}>{tr('解除封鎖')}</button>
+        </div>
+      )}
+      {error && <p className="fx-tower-error" role="alert">{error}</p>}
+    </li>
+  )
+}
+
+/** A clock time, for when a block ends. */
+const timeOf = (unix: number) => new Date(unix * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+const ACCESS: readonly PeerAccess[] = ['view', 'operate']
+const ACCESS_LABELS = { view: '檢視', operate: '操作#access' } as const satisfies Record<PeerAccess, string>
+
+/** Whether a computer let in may only look, or work this island too. */
+function AccessSwitch({ access, disabled, label, onChange }: { access: PeerAccess; disabled: boolean; label: string; onChange: (a: PeerAccess) => void }) {
+  const name = useId()
+  return (
+    <div className="fx-switcher fx-tower-access" role="radiogroup" aria-labelledby={label}
+      style={{ '--count': ACCESS.length, '--at': Math.max(0, ACCESS.indexOf(access)) } as CSSProperties}>
+      <span className="fx-switcher-thumb" aria-hidden="true" />
+      {ACCESS.map((a) => (
+        <label key={a} className="fx-switcher-option">
+          <input type="radio" name={name} checked={a === access} disabled={disabled} onChange={() => onChange(a)} />
+          <span>{tr(ACCESS_LABELS[a])}</span>
+        </label>
+      ))}
+    </div>
+  )
+}
+
+/** This computer's name, as other towers show it. */
+function ProfileSection({ name, protocol, refresh }: { name: string; protocol: number; refresh: () => Promise<void> }) {
+  const { busy, error, setError, run } = useAction(refresh)
+  const [draft, setDraft] = useState(name)
+  const fieldId = useId()
+  // a rename saved elsewhere shows once nothing is being typed over it
+  const [shown, setShown] = useState(name)
+  if (name !== shown) {
+    setShown(name)
+    if (draft === shown) setDraft(name)
+  }
+  const typed = draft.trim()
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    if (!typed) return setError(tr('請輸入名稱'))
+    void run(() => setProfile(typed))
+  }
+  return (
+    <section className="fx-d-group" aria-labelledby="fx-tower-me">
+      <h4 id="fx-tower-me"><label htmlFor={fieldId}>{tr('這台的名稱')}</label></h4>
+      <form className="fx-tower-line" onSubmit={submit} noValidate>
+        <input id={fieldId} className="fx-control" value={draft} maxLength={40} autoComplete="off" disabled={MOCK}
+          aria-invalid={!!error || undefined} onChange={(e) => { setDraft(e.target.value); if (error) setError('') }} />
+        <button type="submit" className="fx-save" disabled={busy || MOCK || typed === name}>{busy ? tr('儲存中…') : tr('儲存')}</button>
+      </form>
+      {/* only computers on the same link version can go to each other's islands */}
+      <p className="fx-tower-hint">{tr('連線版本 {n}', { n: protocol })}</p>
+      {error && <p className="fx-tower-error" role="alert">{error}</p>}
+    </section>
+  )
+}
+
+/** The paired computers on this island now: where each is, and sending it away. */
+function VisitorsSection({ visitors, home, refresh }: { visitors: Visitor[]; home: boolean; refresh: () => Promise<void> }) {
+  return (
+    <section className="fx-d-group" aria-labelledby="fx-tower-visitors">
+      <h4 id="fx-tower-visitors">{tr('正在這座島上')}</h4>
+      {visitors.length
+        ? <ul className="fx-list fx-tower-peers">{visitors.map((v) => <VisitorRow key={v.id} visitor={v} home={home} refresh={refresh} />)}</ul>
+        : <p className="fx-tower-empty">{tr('目前沒有其他電腦')}</p>}
+    </section>
+  )
+}
+
+function VisitorRow({ visitor, home, refresh }: { visitor: Visitor; home: boolean; refresh: () => Promise<void> }) {
+  const nameId = useId()
+  const { busy, error, run } = useAction(refresh)
+  const teams = useStore((s) => s.world.teams)
+  // the places are this island's: named only while it is the one shown
+  const places = home ? visitor.places.map((p) => (p === 'airport' ? tr('機場') : teams[p.slice(5)]?.name)).filter(Boolean).join(', ') : ''
+  return (
+    <li className="fx-tower-peer">
+      <div className="fx-row-main">
+        <b id={nameId}>{visitor.name}</b>
+        {places && <span className="fx-tower-status">{places}</span>}
+      </div>
+      <div className="fx-tower-acts">
+        <button type="button" className="fx-tool fx-hit fx-tool-text" disabled={busy || MOCK} aria-describedby={nameId}
+          onClick={() => void run(() => kickPeer(visitor.id))}>{tr('踢出')}</button>
+        <button type="button" className="fx-tool fx-hit fx-tool-text" disabled={busy || MOCK} aria-describedby={nameId}
+          onClick={() => void run(() => blockPeer(visitor.id, 'hour'))}>{tr('封鎖 1 小時')}</button>
+        <button type="button" className="fx-tool fx-hit fx-tool-text" disabled={busy || MOCK} aria-describedby={nameId}
+          onClick={() => void run(() => blockPeer(visitor.id, 'manual'))}>{tr('封鎖')}</button>
       </div>
       {error && <p className="fx-tower-error" role="alert">{error}</p>}
     </li>

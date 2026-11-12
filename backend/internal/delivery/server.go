@@ -299,7 +299,7 @@ func (s *Server) handleError(err error, c echo.Context) {
 			status = http.StatusUnauthorized
 		case "pair_self":
 			status = http.StatusBadRequest
-		case codeForbidden, "peer_denied", "peer_unpaired", "remote_unavailable":
+		case codeForbidden, "peer_denied", "peer_unpaired", "remote_unavailable", "peer_blocked", "peer_kicked", "peer_readonly":
 			status = http.StatusForbidden
 		}
 	case errors.As(err, &web) && web.Code < 500:

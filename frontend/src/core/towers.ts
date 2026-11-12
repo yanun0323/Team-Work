@@ -2,8 +2,9 @@
 // Its requests always go to this computer's backend, whichever island is shown (docs/power-tower.md, 7.2).
 
 import { travel } from '../boot'
-import { ApiError, connectAhead, localRequest, setIslandRefusedHandler } from './backend'
-import { useIsland, type Island } from './island'
+import { create } from 'zustand'
+import { ApiError, connectAhead, idempotencyKey, localRequest, request, setIslandRefusedHandler } from './backend'
+import { LOCAL_BASE, useIsland, type Island } from './island'
 import { MOCK } from './mode'
 import { useStore } from './store'
 
@@ -21,7 +22,16 @@ export interface Peer {
   pairedAt: number
   /** Why it is not online, ready to show. */
   message?: string
+  /** What it may do on this island once allowed in. */
+  access: PeerAccess
+  /** Kept out until this Unix time; -1 until unblocked by hand; absent when not blocked. */
+  blockedUntil?: number
 }
+
+export type PeerAccess = 'view' | 'operate'
+
+/** A paired computer on this island now, with the places its pages have open: `airport` or `team:{id}`. */
+export interface Visitor { id: string; name: string; places: string[] }
 
 export interface PairRequest { id: string; name: string; protocol: number; compatible: boolean }
 
@@ -46,15 +56,16 @@ export interface Towers {
   pairing: Pairing | null
   outgoing: Outgoing | null
   peers: Peer[]
+  visitors: Visitor[]
 }
 
 /** The tower as the mock shows it: this computer alone, with nothing to pair with. */
-export const MOCK_TOWERS: Towers = { me: { id: 'mock', name: 'Team Work', protocol: 1 }, pairing: null, outgoing: null, peers: [] }
+export const MOCK_TOWERS: Towers = { me: { id: 'mock', name: 'Team Work', protocol: 1 }, pairing: null, outgoing: null, peers: [], visitors: [] }
 
 /** The tower as it is now; a backend with nothing paired may send no list at all. */
 export const readTowers = (signal?: AbortSignal) => (MOCK
   ? Promise.resolve(MOCK_TOWERS)
-  : localRequest<Towers>('GET', '/towers', undefined, signal).then((t) => ({ ...t, peers: t.peers ?? [] })))
+  : localRequest<Towers>('GET', '/towers', undefined, signal).then((t) => ({ ...t, peers: t.peers ?? [], visitors: t.visitors ?? [] })))
 export const startPairing = () => localRequest<Pairing>('POST', '/towers/pairing')
 export const stopPairing = () => localRequest('DELETE', '/towers/pairing')
 export const approvePairing = (requestId: string) => localRequest<Peer>('POST', '/towers/pairing/approve', { requestId })
@@ -62,6 +73,13 @@ export const rejectPairing = (requestId: string) => localRequest('POST', '/tower
 export const pairWith = (address: string) => localRequest<Outgoing>('POST', '/towers/pair', { address })
 export const clearOutgoing = () => localRequest('DELETE', '/towers/outgoing')
 export const allowPeer = (id: string, allowInbound: boolean) => localRequest<Peer>('PATCH', `/towers/peers/${encodeURIComponent(id)}`, { allowInbound })
+export const setPeerAccess = (id: string, access: PeerAccess) => localRequest<Peer>('PATCH', `/towers/peers/${encodeURIComponent(id)}`, { access })
+export const setProfile = (name: string) => localRequest<Towers['me']>('PUT', '/towers/profile', { name })
+export const kickPeer = (id: string) => localRequest('POST', `/towers/peers/${encodeURIComponent(id)}/kick`)
+export const blockPeer = (id: string, span: 'hour' | 'manual') => localRequest<Peer>('POST', `/towers/peers/${encodeURIComponent(id)}/block`, { for: span })
+export const unblockPeer = (id: string) => localRequest<Peer>('DELETE', `/towers/peers/${encodeURIComponent(id)}/block`)
+/** Whether a paired computer is kept out now, at `now` in Unix seconds. */
+export const isBlocked = (p: Pick<Peer, 'blockedUntil'>, now = Date.now() / 1000) => p.blockedUntil === -1 || (p.blockedUntil ?? 0) > now
 export const checkPeer = (id: string) => localRequest<Peer>('POST', `/towers/peers/${encodeURIComponent(id)}/check`)
 export const unpairPeer = (id: string) => localRequest('DELETE', `/towers/peers/${encodeURIComponent(id)}`)
 
@@ -144,3 +162,74 @@ export function watchIsland(every = 5000) {
 export function leftPeer(id: string) {
   if (useIsland.getState().island?.id === id) goHome()
 }
+
+/** This page, among the pages a computer has open on another island: the island counts the computer once. */
+const PAGE = idempotencyKey().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64)
+
+/** How often a page on another island says what it has open; the island drops a page silent for 30 seconds. */
+export const PRESENCE_MS = 10_000
+
+/** What the screen has open, as another island is told it: `airport`, `team:{id}`, or nothing. */
+export const presencePlace = (selected: string | null, airport: boolean) => (selected ? `team:${selected}` : airport ? 'airport' : '')
+
+/**
+ * While another island is shown, tells it now and every few seconds what this page has open, so its owner sees who
+ * is there; leaving it, or closing the page, says this page has gone. `tell` says it again at once, after a change.
+ */
+export function reportPresence(place: () => string, every = PRESENCE_MS) {
+  if (MOCK) return { tell: () => {}, stop: () => {} }
+  let last: Island | null = null
+  const gone = (island: Island) => {
+    // the island left may refuse now; that refusal must not send home from the island shown
+    void fetch(`${LOCAL_BASE}/remote/${encodeURIComponent(island.id)}/presence`, {
+      method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey() },
+      body: JSON.stringify({ page: PAGE, gone: true }),
+    }).catch(() => {})
+  }
+  const tell = () => {
+    const island = useIsland.getState().island
+    if (last && last.id !== island?.id) gone(last)
+    last = island
+    if (island) request('POST', '/presence', { page: PAGE, place: place() }).catch(() => {})
+  }
+  tell()
+  const timer = window.setInterval(tell, every)
+  const off = useIsland.subscribe((s, before) => { if (s.island?.id !== before.island?.id) tell() })
+  const unload = () => { if (last) gone(last) }
+  window.addEventListener('pagehide', unload)
+  return {
+    tell,
+    stop: () => {
+      window.clearInterval(timer)
+      off()
+      window.removeEventListener('pagehide', unload)
+      unload()
+    },
+  }
+}
+
+/** The paired computers on this island now, read every few seconds while this computer's own island is shown. */
+export const useVisitors = create<{ visitors: Visitor[] }>(() => ({ visitors: [] }))
+
+export function watchVisitors(every = 5000) {
+  if (MOCK) return () => {}
+  let live = true
+  const read = async () => {
+    if (useIsland.getState().island) return useVisitors.setState({ visitors: [] })
+    try {
+      const t = await readTowers()
+      if (live && !useIsland.getState().island) useVisitors.setState({ visitors: t.visitors })
+    } catch {
+      // keep the last list until the tower answers again
+    }
+  }
+  void read()
+  const timer = window.setInterval(() => void read(), every)
+  return () => {
+    live = false
+    window.clearInterval(timer)
+  }
+}
+
+/** Who has `place` open, by name, for its tag on the map. */
+export const visitorsAt = (visitors: Visitor[], place: string) => visitors.filter((v) => v.places.includes(place)).map((v) => v.name)

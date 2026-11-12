@@ -80,7 +80,7 @@ export const idempotencyKey = () =>
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
 
 /** Refusals that mean the island shown can no longer be used from here. */
-export const LOST_ISLAND_CODES = ['peer_denied', 'peer_unpaired', 'incompatible'] as const
+export const LOST_ISLAND_CODES = ['peer_denied', 'peer_unpaired', 'incompatible', 'peer_blocked', 'peer_kicked'] as const
 
 /** Told when another island's backend turns a request down for good; the island watch takes the screen home. */
 let onIslandRefused: (e: ApiError) => void = () => {}

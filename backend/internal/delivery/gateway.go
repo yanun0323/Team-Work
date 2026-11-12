@@ -51,7 +51,7 @@ func remoteError(w http.ResponseWriter, err error) {
 	switch known.Code {
 	case "unauthorized":
 		status = 401
-	case "peer_denied", "peer_unpaired", "remote_unavailable":
+	case "peer_denied", "peer_unpaired", "remote_unavailable", "peer_blocked", "peer_kicked", "peer_readonly":
 		status = 403
 	case model.CodeNotFound:
 		status = 404
@@ -108,6 +108,33 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if blockedRemote(p, r.Method) {
 		remoteError(w, deniedRemote())
+		return
+	}
+	if p == "/api/v1/presence" && r.Method == "POST" {
+		var in struct {
+			Page  string `json:"page"`
+			Place string `json:"place"`
+			Gone  bool   `json:"gone"`
+		}
+		if json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&in) != nil {
+			remoteError(w, invalidRemote())
+			return
+		}
+		if err := g.service.Visit(peer.ID, in.Page, in.Place, in.Gone); err != nil {
+			remoteError(w, err)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(204)
+		return
+	}
+	// A visitor only looks: what it opens stays unread for this computer's own user.
+	if r.Method == "POST" && marksSeen(p) {
+		w.WriteHeader(204)
+		return
+	}
+	if peer.Access != tower.AccessOperate && !viewable(p, r.Method) {
+		remoteError(w, model.Errorf("peer_readonly", "對方只開放檢視，不能在那座島上操作"))
 		return
 	}
 	var body []byte
@@ -253,6 +280,23 @@ func blockedRemote(p, method string) bool {
 		return true
 	}
 	return strings.HasPrefix(p, "/api/v1/teams/") && strings.HasSuffix(p, "/open-folder")
+}
+
+// marksSeen is a request that only clears an unread mark, the way opening a chat or a source does.
+func marksSeen(p string) bool {
+	parts := strings.Split(strings.TrimPrefix(p, "/api/v1/"), "/")
+	return len(parts) == 3 && parts[1] != "" && (parts[0] == "chats" && parts[2] == "read" || parts[0] == "sources" && parts[2] == "seen")
+}
+
+// viewable is what a computer allowed only to look may still reach: reads, but not a terminal or this computer's folders.
+func viewable(p, method string) bool {
+	if method != "GET" && method != "HEAD" {
+		return false
+	}
+	if p == "/api/v1/airport/terminal" || p == "/api/v1/folders" || p == "/api/v1/branches" {
+		return false
+	}
+	return !(strings.HasPrefix(p, "/api/v1/teams/") && strings.HasSuffix(p, "/terminal"))
 }
 func remoteWorkPreference(key string) bool {
 	switch key {

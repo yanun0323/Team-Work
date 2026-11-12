@@ -157,7 +157,8 @@ export const retryChat = pick('retryChat', (_w: World, id: string) => fire_('POS
 export const stopChat = pick('stopChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/stop`))
 export const steerChat = pick('steerChat', (_w: World, id: string, queued: string) => fire_('POST', `/chats/${id}/queue/${queued}/steer`))
 export const unqueueChat = pick('unqueueChat', (_w: World, id: string, queued: string) => fire_('DELETE', `/chats/${id}/queue/${queued}`))
-export const readChat = pick('readChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/read`))
+// a visitor only looks: unread marks are left for the island's own user (the island ignores them from visitors too)
+export const readChat = pick('readChat', (_w: World, id: string) => { if (!remoteIsland()) fire_('POST', `/chats/${id}/read`) })
 export const skipChatQuestion = pick('skipChatQuestion', (_w: World, id: string) => fire_('POST', `/chats/${id}/question/skip`))
 export const deleteChat = pick('deleteChat', (_w: World, id: string) => fire_('DELETE', `/chats/${id}`))
 
@@ -507,7 +508,7 @@ export function checkSource(act: (fn: (w: World) => void) => void, id: string): 
 }
 
 export const applySource = pick('applySource', (_w: World, id: string) => fire_('POST', `/sources/${id}/apply`))
-export const seeSource = pick('seeSource', (_w: World, id: string) => fire_('POST', `/sources/${id}/seen`))
+export const seeSource = pick('seeSource', (_w: World, id: string) => { if (!remoteIsland()) fire_('POST', `/sources/${id}/seen`) })
 export const setSourceAutoApply = pick('setSourceAutoApply', (_w: World, id: string, on: boolean) => fire_('PUT', `/sources/${id}/auto-apply`, { on }))
 export const deleteSource = pick('deleteSource', (_w: World, id: string) => fire_('DELETE', `/sources/${id}`))
 

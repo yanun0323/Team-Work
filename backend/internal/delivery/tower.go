@@ -70,17 +70,72 @@ func (s *Server) EnableTowers(service *tower.Service) {
 		return c.JSON(202, v)
 	})
 	api.DELETE("/towers/outgoing", func(c echo.Context) error { service.CancelOutgoing(); return c.NoContent(204) })
-	api.PATCH("/towers/peers/:id", func(c echo.Context) error {
+	api.PUT("/towers/profile", func(c echo.Context) error {
 		in, err := bind[struct {
-			Allow *bool `json:"allowInbound"`
+			Name string `json:"name"`
 		}](c)
 		if err != nil {
 			return err
 		}
-		if in.Allow == nil {
+		v, err := service.SetProfile(in.Name)
+		if err != nil {
+			return err
+		}
+		return c.JSON(200, v)
+	})
+	api.PATCH("/towers/peers/:id", func(c echo.Context) error {
+		in, err := bind[struct {
+			Allow  *bool   `json:"allowInbound"`
+			Access *string `json:"access"`
+		}](c)
+		if err != nil {
+			return err
+		}
+		if in.Allow == nil && in.Access == nil {
 			return model.Errorf(model.CodeInvalid, "請指定是否允許對方操作這台電腦")
 		}
-		v, err := service.SetAllowed(c.Param("id"), *in.Allow)
+		var v tower.Peer
+		if in.Access != nil {
+			if v, err = service.SetAccess(c.Param("id"), *in.Access); err != nil {
+				return err
+			}
+		}
+		if in.Allow != nil {
+			if v, err = service.SetAllowed(c.Param("id"), *in.Allow); err != nil {
+				return err
+			}
+		}
+		return c.JSON(200, v)
+	})
+	api.POST("/towers/peers/:id/kick", func(c echo.Context) error {
+		if err := service.Kick(c.Param("id")); err != nil {
+			return err
+		}
+		return c.NoContent(204)
+	})
+	api.POST("/towers/peers/:id/block", func(c echo.Context) error {
+		in, err := bind[struct {
+			For string `json:"for"`
+		}](c)
+		if err != nil {
+			return err
+		}
+		var d time.Duration
+		switch in.For {
+		case "hour":
+			d = time.Hour
+		case "manual":
+		default:
+			return model.Errorf(model.CodeInvalid, "封鎖時間只能是一小時或手動解除")
+		}
+		v, err := service.Block(c.Param("id"), d)
+		if err != nil {
+			return err
+		}
+		return c.JSON(200, v)
+	})
+	api.DELETE("/towers/peers/:id/block", func(c echo.Context) error {
+		v, err := service.Unblock(c.Param("id"))
 		if err != nil {
 			return err
 		}
@@ -274,6 +329,13 @@ func proxyTowerSocket(c echo.Context, service *tower.Service, r *http.Request, a
 				return model.Errorf("peer_unpaired", "對方已解除配對")
 			}
 			if response.StatusCode == 403 {
+				var failed struct {
+					Error model.Error `json:"error"`
+				}
+				if json.NewDecoder(io.LimitReader(response.Body, 1<<16)).Decode(&failed) == nil && failed.Error.Message != "" &&
+					(failed.Error.Code == "peer_blocked" || failed.Error.Code == "peer_kicked" || failed.Error.Code == "peer_readonly") {
+					return &model.Error{Code: failed.Error.Code, Message: failed.Error.Message}
+				}
 				return model.Errorf("peer_denied", "對方沒有允許這台操作它")
 			}
 			if response.StatusCode == 409 {

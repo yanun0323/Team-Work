@@ -11,7 +11,7 @@ import { HELIPAD } from './Airport'
 const refresh = async () => {}
 const body = (towers: Towers | null, error = '') => renderToStaticMarkup(<TowerBody towers={towers} error={error} refresh={refresh} />)
 const me = { id: 'a', name: 'MacBook', protocol: 1 }
-const towers = (t: Partial<Towers> = {}): Towers => ({ me, pairing: null, outgoing: null, peers: [], ...t })
+const towers = (t: Partial<Towers> = {}): Towers => ({ me, pairing: null, outgoing: null, peers: [], visitors: [], ...t })
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -47,9 +47,9 @@ describe('the power tower panel', () => {
 
   it('lists each computer with its status in words, its switch and its actions, all named', () => {
     const html = body(towers({ peers: [
-      { id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1 },
-      { id: 'c', name: 'Mini', status: 'incompatible', allowInbound: false, pairedAt: 2, protocol: 2 },
-      { id: 'd', name: 'Air', status: 'denied', allowInbound: false, pairedAt: 3, message: 'Air 沒有允許這台操作它' },
+      { id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'operate' },
+      { id: 'c', name: 'Mini', status: 'incompatible', allowInbound: false, pairedAt: 2, protocol: 2, access: 'view' },
+      { id: 'd', name: 'Air', status: 'denied', allowInbound: false, pairedAt: 3, message: 'Air 沒有允許這台操作它', access: 'view' },
     ] }))
     expect(html).toContain('Studio')
     expect(html).toContain('在線')
@@ -68,7 +68,7 @@ describe('the power tower panel', () => {
   })
 
   it("marks the island shown instead of offering to go there", () => {
-    const html = renderToStaticMarkup(<TowerBody towers={towers({ peers: [{ id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1 }] })}
+    const html = renderToStaticMarkup(<TowerBody towers={towers({ peers: [{ id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'operate' }] })}
       error="" refresh={refresh} here="b" />)
     expect(html).toContain('目前所在')
     expect(html).not.toContain('>前往<')
@@ -152,6 +152,34 @@ describe('which island is shown', () => {
     expect(html).toContain('role="alert"')
     expect(html).toContain('Studio 已解除配對')
     expect(html).toContain('aria-label="關閉"')
+  })
+})
+
+describe('the people on this island, from the tower', () => {
+  it("shows this computer's name to edit and the link version it connects on", () => {
+    const html = body(towers())
+    expect(html).toMatch(/<label for="[^"]+">這台的名稱<\/label>/)
+    expect(html).toContain('value="MacBook"')
+    expect(html).toContain('連線版本 1')
+    expect(html).toContain('目前沒有其他電腦')
+  })
+
+  it('lists each visitor once with where it is, and ways to send it away or keep it out', () => {
+    const html = body(towers({ visitors: [{ id: 'b', name: 'Studio', places: ['airport'] }] }))
+    expect(html).toContain('Studio')
+    expect(html).toContain('機場')
+    for (const act of ['踢出', '封鎖 1 小時', '封鎖']) expect(html).toMatch(new RegExp(`<button[^>]*>${act}</button>`))
+  })
+
+  it('switches between looking and working for a computer let in, and lifts a block', () => {
+    const html = body(towers({ peers: [
+      { id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'view', blockedUntil: -1 },
+      { id: 'c', name: 'Mini', status: 'online', allowInbound: false, pairedAt: 2, access: 'view' },
+    ] }))
+    expect(html.match(/<input type="radio"[^>]*checked=""[^>]*\/><span>檢視<\/span>/g)).toHaveLength(1)
+    expect(html).toContain('<span>操作</span>')
+    expect(html).toContain('已封鎖')
+    expect(html.match(/<button[^>]*>解除封鎖<\/button>/g)).toHaveLength(1)
   })
 })
 

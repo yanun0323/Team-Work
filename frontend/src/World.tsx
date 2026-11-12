@@ -19,7 +19,7 @@ import { StaffingPanel } from './StaffingPanel'
 import { TowerPanel } from './TowerPanel'
 import { IslandBar } from './IslandBar'
 import { useIsland } from './core/island'
-import { watchIsland } from './core/towers'
+import { presencePlace, reportPresence, useVisitors, visitorsAt, watchIsland, watchVisitors } from './core/towers'
 import { Ambient, shadowHalf } from './Ambient'
 import { fitSunShadow, seenPoints, SHADOW_MAP, sunDepthBias, sunNormalBias } from './sunShadow'
 import { Building, BuildingPreview, CUT, FLOOR, ROOF_TOP } from './Building'
@@ -119,6 +119,12 @@ export function TagWork({ chats, tasks }: ReturnType<typeof teamWork>) {
       <span className="fx-sr">{label}</span>
     </span>
   )
+}
+
+/** On a tag, the paired computers that have it open now, by name. */
+export function TagVisitors({ names }: { names: string[] }) {
+  if (!names.length) return null
+  return <span className="fx-tag-visitors" title={names.join(', ')}>{names.join(', ')}</span>
 }
 
 /** On a company's tag: its unread chats and the tasks waiting for a reply, apart. */
@@ -286,6 +292,17 @@ export function World() {
     setMoving(null)
   }, [islandId])
   useEffect(() => (MOCK ? undefined : watchIsland()), [])
+  // the computers on this island, for their marks on the map; and, on another island, what this page has open there
+  useEffect(() => watchVisitors(), [])
+  const place = presencePlace(selected, byAirport && panel === 'settings')
+  const placeNow = useRef(place)
+  placeNow.current = place
+  const presence = useRef<ReturnType<typeof reportPresence> | null>(null)
+  useEffect(() => {
+    presence.current = reportPresence(() => placeNow.current)
+    return () => presence.current?.stop()
+  }, [])
+  useEffect(() => presence.current?.tell(), [place])
   // a clicked notification: whatever is under way on the map gives way, then its company or the airport opens, which
   // opens the task or chat itself. One gone by now opens nothing; declining to leave unsaved files stays put
   const asked = useOpenRequest((s) => s.asked)
@@ -477,6 +494,7 @@ export function World() {
   const crewNames = useStore((s) => (selected ? teamReplicas(s.world, selected).map((r) => `${r.id}\t${r.name}`).join('\n') : ''))
   // the airport's tag is in words, so it changes with the language
   const language = useStore((s) => s.world.language)
+  const visitors = useVisitors((s) => s.visitors)
   const labels = useMemo(() => {
     // People move about, so each tag follows the point its person writes every frame
     const crew = crewNames.split('\n').filter(Boolean).map((line): LabelSpec => {
@@ -490,7 +508,7 @@ export function World() {
     const airport: LabelSpec = {
       id: 'fusion-airport', at: [ax + AIRPORT_TAG[0], AIRPORT_TAG[1], az + AIRPORT_TAG[2]],
       tone: hovered === AIRPORT_ID && !open && !settingsOpen && !placing && !editing ? 'fusion lifted' : 'fusion',
-      text: <span className="fx-tag"><TagWork {...teamWork(useStore.getState().world, '')} />{tr('機場')}<TagAlerts {...teamAlerts(useStore.getState().world, '')} /></span>,
+      text: <span className={visitorsAt(visitors, 'airport').length ? 'fx-tag fx-tag-visited' : 'fx-tag'}><TagWork {...teamWork(useStore.getState().world, '')} />{tr('機場')}<TagAlerts {...teamAlerts(useStore.getState().world, '')} /><TagVisitors names={visitorsAt(visitors, 'airport')} /></span>,
       onClick: selectAirport,
     }
     const tower: LabelSpec = {
@@ -513,7 +531,7 @@ export function World() {
         // the slip is an inner element: tilting the button itself would swing it round the screen corner,
         // because its tilt applies after the transform that places it. The tilt goes by the company's place
         // in town, so it doesn't change when the open company's tag leaves
-        text: <span className={i % 2 ? 'fx-tag' : 'fx-tag fx-tag-right'}><TagWork {...teamWork(useStore.getState().world, l.id)} />{l.name}<TagAlerts {...teamAlerts(useStore.getState().world, l.id)} /></span>,
+        text: <span className={`${i % 2 ? 'fx-tag' : 'fx-tag fx-tag-right'}${visitorsAt(visitors, `team:${l.id}`).length ? ' fx-tag-visited' : ''}`}><TagWork {...teamWork(useStore.getState().world, l.id)} />{l.name}<TagAlerts {...teamAlerts(useStore.getState().world, l.id)} /><TagVisitors names={visitorsAt(visitors, `team:${l.id}`)} /></span>,
         // with a company open, another company's tag goes straight to that company
         onClick: () => (helpOpen ? close() : editing ? pickMoving(l.id) : placing ? close() : settingsOpen ? close() : setSelected(l.id)),
       }
@@ -521,7 +539,7 @@ export function World() {
     // the open company's own name is in the drawer, and its roof is cut away
     return [...(panel === 'settings' ? [] : [airport]), ...(panel === 'tower' ? [] : [tower]), ...(panel === 'staffing' ? [] : [staffing]), ...tags.filter((t) => t.id !== `fusion-${open?.id}`), ...crew]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [town, open, crewNames, followedCrew, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language, alerts])
+  }, [town, open, crewNames, followedCrew, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language, alerts, visitors])
 
   // the names wait while a plane brings the camera in, then fade in on the island
   const voyaging = useVoyage((s) => s.active)
