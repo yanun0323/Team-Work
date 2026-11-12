@@ -19,7 +19,8 @@ body { margin: 0; overflow: hidden; }
 @keyframes fx-fade-out { to { opacity: 0; } }
 
 /* ---------- labels over the 3D view ---------- */
-.labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+/* isolation keeps each label's depth z-index inside this layer, under the panels drawn over the map */
+.labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; isolation: isolate; }
 .label {
   position: absolute; left: 0; top: 0; will-change: transform; white-space: nowrap; user-select: none;
   /* fades in when it mounts; `backwards` only, so the leaving fade below can take over */
