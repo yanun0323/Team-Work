@@ -48,7 +48,7 @@ import { addProvider, fixedContext, providerUsers, updateProvider, type Provider
 import { handedImageUrl, readHandedDiff, readHandedFile, request } from './core/backend'
 import { DiffNote, useDocView, useRoomForSplit, ViewSwitch } from './HandedDiff'
 import { tally, type DiffLine } from './diffView'
-import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fire, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, mergeTask, pauseTask, refreshModels, refreshStaleModels, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
+import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fire, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, pauseTask, refreshModels, refreshStaleModels, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { NotesSheet } from './Notes'
 import { FileDetail, FileEdit } from './FileSheets'
@@ -58,6 +58,7 @@ import { ChatSheet, SentTo, type ChatTaskSeed } from './ChatSheet'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, link, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
 import { isOwnerTask } from './core/domain/owner'
 import { OwnerRunFacts, OwnerTaskDetail, ReturnStep } from './TaskPanel'
+import { MergeButton, MergeFailureView } from './MergeFailure'
 import { FACT_KIND, SaidContext } from './Said'
 
 export type Item =
@@ -716,12 +717,13 @@ function MergeRow({ taskId }: { taskId: string }) {
           <div className="fx-d-merge-acts">
             <WaitBadge merge inline />
             {!returning && <>
-              <button type="button" className="fx-save fx-danger" onClick={() => act((x) => mergeTask(x, taskId))}>{tr('合併')}</button>
+              <MergeButton task={task} />
               <button type="button" className="fx-save fx-plain" onClick={() => setReturning(true)}>{tr('退回')}</button>
             </>}
           </div>
         )}
       </div>
+      {waiting && m?.failure && <MergeFailureView failure={m.failure} git />}
       {waiting && returning && (
         <form className="fx-d-merge-back" onSubmit={(e) => { e.preventDefault(); sendBack() }}
           onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setReturning(false) } }}>

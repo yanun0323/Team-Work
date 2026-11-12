@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
@@ -88,6 +89,16 @@ func TestMergeRefusedByUncommittedChangesSaysWhyAndKeepsThem(t *testing.T) {
 		t.Errorf("something was stashed: %s", stashed)
 	}
 
+	// what failed is kept for the screen to say again, and the card to merge does not come back
+	if f := got.Merge.Failure; f == nil || f.Kind != model.MergeUncommitted || len(f.Files) != 1 || f.Files[0] != "AGENTS.md" || f.Target == "" {
+		t.Errorf("failure kept as %+v", got.Merge.Failure)
+	}
+	for _, q := range got.Coordination.Questions {
+		if q.Kind == "merge" {
+			t.Errorf("a card to merge is back: %+v", q)
+		}
+	}
+
 	// the merge's own record names the file in the way
 	last := got.Merge.Log[len(got.Merge.Log)-1].Text
 	if !strings.Contains(last, "AGENTS.md") {
@@ -129,23 +140,59 @@ func TestMergeRefusedByUncommittedChangesSucceedsOnceCleared(t *testing.T) {
 	task := r.task(r.flow.ID)
 	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
 	os.WriteFile(agents, []byte("mine\n"), 0o644)
+	_, events, cancel, err := r.e.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
 
 	if err := r.e.MergeTask(task.ID); err != nil {
 		t.Fatal(err)
 	}
-	r.wait("the merge to fail", func(w *model.World) bool {
+	if err := r.e.MergeTask(task.ID); err == nil { // pressed again while it merges
+		t.Error("a second merge started while the first was under way")
+	}
+	w := r.wait("the merge to fail", func(w *model.World) bool {
 		x := w.Tasks[task.ID]
 		return x.Stage == enum.StageAwaitMerge && x.Merge != nil && x.Merge.StartedAt == nil
 	})
 	if raw, _ := os.ReadFile(agents); string(raw) != "mine\n" {
 		t.Fatalf("the user's edit was changed: %q", raw)
 	}
+	if f := w.Tasks[task.ID].Merge.Failure; f == nil || f.Kind != model.MergeUncommitted {
+		t.Fatalf("failure kept as %+v", f)
+	}
+	// the notice says it failed, not that the task can be merged
+	for told := ""; told != "mergeFailed"; {
+		select {
+		case ev := <-events:
+			if ev.Type == "notice" && ev.TaskID == task.ID {
+				if told = ev.Kind; told != "mergeFailed" {
+					t.Fatalf("noticed %s", told)
+				}
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("no notice that the merge failed")
+		}
+	}
+
+	// work sent back and done again is new work: the old failure no longer says anything of it
+	if err := r.e.ReturnTask(task.ID, "再做一次"); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("await merge again", func(w *model.World) bool {
+		x := w.Tasks[task.ID]
+		return x.Stage == enum.StageAwaitMerge && x.Merge.Failure == nil
+	})
 
 	gitOut(t, r.folder, "checkout", "--", "AGENTS.md") // the user puts their edit aside themselves
 	if err := r.e.MergeTask(task.ID); err != nil {
 		t.Fatal(err)
 	}
-	r.wait("done", stage(task.ID, enum.StageDone))
+	w = r.wait("done", stage(task.ID, enum.StageDone))
+	if f := w.Tasks[task.ID].Merge.Failure; f != nil {
+		t.Errorf("the failure stayed after merging: %+v", f)
+	}
 	if raw, _ := os.ReadFile(agents); string(raw) != "task version\n" {
 		t.Fatalf("AGENTS.md = %q", raw)
 	}

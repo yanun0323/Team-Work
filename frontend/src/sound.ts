@@ -25,8 +25,8 @@ const aircraft = (key: SoundEffect) => key === 'soundTakeoff' || key === 'soundL
 /** Each effect's share of the effects volume: planes and the sea sit back in the mix. */
 const trim = (key: SoundEffect) => aircraft(key) ? 0.6 : key === 'soundWaves' ? 0.2 : 1
 
-/** What a notice is about: a task waiting on a reply or, with `merge`, on its merge; or a chat with a reply unread. */
-export type NoticeTarget = { kind: 'task'; id: string; merge: boolean } | { kind: 'chat'; id: string }
+/** What a notice is about: a task waiting on a reply or, with `merge`, on its merge, or whose merge `failed`; or a chat with a reply unread. */
+export type NoticeTarget = { kind: 'task'; id: string; merge: boolean; failed?: boolean } | { kind: 'chat'; id: string }
 
 /** Use actual notice events, not badge counts: two tasks can exchange places without changing the count. Each fresh batch is one call, one target per task. */
 export function subscribeNoticeSound(notify: (targets: NoticeTarget[]) => void) {
@@ -38,9 +38,11 @@ export function subscribeNoticeSound(notify: (targets: NoticeTarget[]) => void) 
     if (!state.loaded || state.offline) return
     const targets = new Map<string, NoticeTarget>()
     for (const { event } of fresh) {
-      if (event.kind !== 'review' && event.kind !== 'awaitMerge') continue
+      if (event.kind !== 'review' && event.kind !== 'awaitMerge' && event.kind !== 'mergeFailed') continue
       const task = state.world.tasks[event.taskId]
-      if (task && task.stage !== 'cancelled' && task.stage !== 'done' && state.world.teams[task.teamId]) targets.set(task.id, { kind: 'task', id: task.id, merge: event.kind === 'awaitMerge' })
+      if (task && task.stage !== 'cancelled' && task.stage !== 'done' && state.world.teams[task.teamId]) {
+        targets.set(task.id, { kind: 'task', id: task.id, merge: event.kind !== 'review', ...(event.kind === 'mergeFailed' && { failed: true }) })
+      }
     }
     if (targets.size) notify([...targets.values()])
   })

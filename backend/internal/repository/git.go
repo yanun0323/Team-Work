@@ -364,9 +364,56 @@ func (g *Git) MergeTarget(ctx context.Context, dir, target string) (bool, error)
 	if _, err := git(ctx, dir, args...); err == nil {
 		return false, nil
 	} else if unmerged, _ := git(ctx, dir, "diff", "--name-only", "--diff-filter=U"); unmerged == "" {
+		if !exists(ctx, dir, target) {
+			return false, &model.MergeBlocked{Kind: model.MergeNoTarget, Err: err}
+		}
+		if files := inTheWay(ctx, dir, "HEAD", target); len(files) > 0 {
+			return false, &model.MergeBlocked{Kind: model.MergeWorktreeDirty, Files: files, Err: err}
+		}
 		return false, err
 	}
 	return true, nil
+}
+
+// exists is whether ref names a commit.
+func exists(ctx context.Context, dir, ref string) bool {
+	_, err := git(ctx, dir, "rev-parse", "-q", "--verify", ref+"^{commit}")
+	return err == nil
+}
+
+// inTheWay lists the files of dir with changes not committed, untracked ones too, that bringing in what changed from
+// base to the side of from would overwrite: what git refuses a merge for. It reads, never touches, the files.
+func inTheWay(ctx context.Context, dir, base, from string) []string {
+	status, err := gitRaw(ctx, dir, "status", "--porcelain", "-z", "--untracked-files=all")
+	if err != nil || status == "" {
+		return nil
+	}
+	dirty := map[string]bool{}
+	fields := strings.Split(status, "\x00")
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		if len(f) < 4 {
+			continue
+		}
+		dirty[f[3:]] = true
+		if f[0] == 'R' || f[0] == 'C' { // the name it had follows
+			i++
+			if i < len(fields) {
+				dirty[fields[i]] = true
+			}
+		}
+	}
+	changed, err := gitRaw(ctx, dir, "diff", "--name-only", "-z", base+"..."+from)
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, name := range strings.Split(changed, "\x00") {
+		if name != "" && dirty[name] {
+			files = append(files, name)
+		}
+	}
+	return files
 }
 
 func (g *Git) FinishMerge(ctx context.Context, dir, author string) error {
@@ -379,11 +426,15 @@ func (g *Git) FinishMerge(ctx context.Context, dir, author string) error {
 	if err != nil {
 		return err
 	}
+	var marked []string
 	for _, name := range strings.Split(changed, "\n") {
 		raw, err := os.ReadFile(filepath.Join(dir, name))
 		if name != "" && err == nil && conflictMarks.Match(raw) {
-			return model.Errorf(model.CodeConflict, "還有檔案沒解完衝突：%s", name)
+			marked = append(marked, name)
 		}
+	}
+	if len(marked) > 0 {
+		return &model.MergeBlocked{Kind: model.MergeUnresolved, Files: marked, Err: model.Errorf(model.CodeConflict, "還有檔案沒解完衝突：%s", strings.Join(marked, ", "))}
 	}
 	if _, err := git(ctx, dir, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err != nil {
 		return nil // whoever resolved it committed it too
@@ -401,9 +452,23 @@ func (g *Git) Land(ctx context.Context, folder, branch, target string) error {
 	}
 	if current == target {
 		_, err = git(ctx, folder, "merge", "--ff-only", branch)
-		return err
+	} else {
+		_, err = git(ctx, folder, "fetch", ".", branch+":"+target)
 	}
-	_, err = git(ctx, folder, "fetch", ".", branch+":"+target)
+	if err == nil {
+		return nil
+	}
+	if !exists(ctx, folder, target) {
+		return &model.MergeBlocked{Kind: model.MergeNoTarget, Err: err}
+	}
+	if current == target { // only then are the folder's files in play
+		if files := inTheWay(ctx, folder, target, branch); len(files) > 0 {
+			return &model.MergeBlocked{Kind: model.MergeUncommitted, Files: files, Err: err}
+		}
+	}
+	if _, ahead := git(ctx, folder, "merge-base", "--is-ancestor", target, branch); ahead != nil {
+		return &model.MergeBlocked{Kind: model.MergeMoved, Err: err}
+	}
 	return err
 }
 

@@ -554,6 +554,23 @@ export interface Merge {
   startedAt?: number
   endsAt?: number
   log: LogLine[]
+  /** Why the last try failed, while the task waits to be merged again. */
+  failure?: MergeFailure
+}
+
+/** Why a merge failed, as the backend tells it apart. */
+export type MergeFailureKind = 'uncommitted' | 'moved' | 'unresolved' | 'noTarget' | 'worktreeDirty' | 'resolveFailed' | 'unknown'
+
+export interface MergeFailure {
+  kind: MergeFailureKind
+  target: string
+  /** The first few files in the way, and how many more there are. */
+  files?: string[]
+  more?: number
+  /** resolveFailed: what the model call said, in short. */
+  reason?: string
+  /** Git's own words, without paths of this computer. */
+  detail?: string
 }
 
 /** An attachment URL, or a legacy inline data URL. */
@@ -744,6 +761,7 @@ export interface Task {
 export type WorldEvent =
   | { kind: 'review'; taskId: string; subId: string }
   | { kind: 'awaitMerge'; taskId: string }
+  | { kind: 'mergeFailed'; taskId: string }
   | { kind: 'blueprintUpdated'; blueprintId: string; commit: string }
 
 /** The kind of API a model provider speaks. */

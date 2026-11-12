@@ -1828,6 +1828,17 @@ button.fx-ticket-tag:hover { color: var(--ink); }
 .fx-ticket-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; font-size: 13px; color: var(--accent); }
 .fx-ticket-notice p { flex: 1 1 14em; margin: 0; }
 .fx-ticket-merge { color: var(--ink-2); }
+/* why a merge failed: the word in red, why and what next, the files in the way, and in the conversation git's own words */
+.fx-merge-fail { flex: 1 1 14em; min-width: 0; display: grid; gap: 6px; color: var(--ink-2); text-align: start; }
+.fx-merge-fail p { margin: 0; }
+.fx-merge-fail-head { color: var(--accent); }
+.fx-merge-fail-files { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; padding: 0; list-style: none; }
+.fx-merge-fail-files code { font: 500 12px/1.4 var(--font-mono); overflow-wrap: anywhere; }
+.fx-merge-fail-git summary { width: fit-content; font-size: 12px; color: var(--muted); cursor: pointer; }
+.fx-merge-fail-git pre { max-height: 14em; margin: 4px 0 0; padding: 8px 10px; overflow: auto; border-radius: 3px; background: var(--note-work); font: 500 11.5px/1.45 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.fx-room-log .fx-ticket-event-merge { justify-content: stretch; padding-inline: 0; text-align: start; font-size: 12.5px; }
+.fx-ticket-event-merge .fx-merge-fail { flex-basis: 100%; }
+.fx-d-merge > .fx-merge-fail { padding-inline-start: 46px; font-size: 13px; }
 .fx-ticket-asks { flex: none; display: flex; flex-direction: column; gap: 8px; max-height: 42%; padding: 10px; border: 1.5px dashed var(--accent); border-radius: 4px; }
 .fx-ticket-count { font: 600 11px/1 var(--font-mono); color: var(--accent); }
 .fx-ticket-ask-list { min-height: 0; display: grid; gap: 14px; margin: -3px; padding: 3px; overflow-y: auto; overscroll-behavior: contain; }

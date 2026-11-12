@@ -231,6 +231,8 @@ const ownerRules = "You are the owner of a task: you lead it for the user. Emplo
 	"When the user pauses the task, only talk: do not dispatch until they resume. When every step that counts is done and accepted, call submit_complete; the user decides about merging. " +
 	"Its summary is your report to the user: end your turn after it without repeating it. " +
 	"You cannot merge yourself: when the user asks you to merge, call submit_complete with ask_merge, and they get a card that merges with one press. " +
+	"When a merge failed, the formal state says why under Last merge failed: explain it to the user and what they have to clear, then they press merge themselves; " +
+	"never say the task was merged, and do not call submit_complete again just because a merge failed. " +
 	"Work outside this task, such as a problem found on the way, can go into another task with create_task, but only when the user asked for it or agreed to your proposal; what this task needs goes into its plan instead. " +
 	"Never tell the user to do by hand what one of your tools does, and do not offer what no tool of yours does.\n" +
 	unseenThinkingRule
@@ -415,6 +417,9 @@ func (e *Engine) taskState(t *model.Task) string {
 			fmt.Fprintf(&b, "\n  handoff: %s", clip(s.Handoff.Human.Headline, 300))
 		}
 		b.WriteString("\n")
+	}
+	if t.Merge != nil && t.Merge.Failure != nil {
+		b.WriteString(mergeFailureState(t.Merge.Failure))
 	}
 	if len(c.Questions) > 0 {
 		b.WriteString("\n## Open questions\n")
@@ -1732,6 +1737,9 @@ func (e *Engine) completeTool(in *ownerRun) func(context.Context, string, json.R
 				return "", model.Errorf(model.CodeConflict, "%s", why)
 			}
 			t.Stage = enum.StageAwaitMerge
+			if t.Merge != nil { // a merge that failed before: this completion is what to merge now
+				t.Merge.Failure = nil
+			}
 			said := e.addActivity(t, model.TaskActivity{Kind: "message", From: "agent", Text: strings.TrimSpace(a.Summary), By: in.ownerID, Name: e.replicaName(in.ownerID)})
 			e.systemEvent(t, "completed", i18n.T("負責人提交完成，等待使用者決定是否合併"), map[string]any{"owner": e.replicaName(in.ownerID)}, "")
 			in.completed = true

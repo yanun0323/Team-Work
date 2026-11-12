@@ -25,7 +25,7 @@ export type ServerEvent =
   | { type: 'deltaReset'; subId: string }
   | { type: 'toolOutput'; subId: string; text?: string }
   | { type: 'language'; language: Locale }
-  | { type: 'notice'; kind: 'review' | 'awaitMerge'; taskId: string; subId?: string }
+  | { type: 'notice'; kind: 'review' | 'awaitMerge' | 'mergeFailed'; taskId: string; subId?: string }
 
 const BOOKS: Record<string, keyof World> = {
   team: 'teams', provider: 'providers', blueprint: 'blueprints', source: 'sources', replica: 'replicas', workflow: 'workflows', task: 'tasks', subTask: 'subTasks', chat: 'chats',

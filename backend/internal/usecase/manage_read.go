@@ -237,6 +237,8 @@ func (e *Engine) taskDetails(t *model.Task) string {
 		OwnerID     *string           `json:"ownerId"`
 		Steps       []step            `json:"steps"`
 		Origin      *model.TaskOrigin `json:"origin,omitempty"`
+		// LastMergeFailure is why pressing merge last failed, while the task waits to be merged again.
+		LastMergeFailure *model.MergeFailure `json:"lastMergeFailure,omitempty"`
 	}
 	steps := make([]step, len(t.Workflow.Nodes))
 	for i, n := range t.Workflow.Nodes {
@@ -246,8 +248,12 @@ func (e *Engine) taskDetails(t *model.Task) string {
 	if len(description) > readTaskDescription {
 		description = strings.ToValidUTF8(description[:readTaskDescription], "") + fmt.Sprintf("…[description cut: %d bytes in all]", len(t.Description))
 	}
+	var failed *model.MergeFailure
+	if t.Merge != nil {
+		failed = t.Merge.Failure
+	}
 	raw, _ := json.Marshal(details{t.ID, t.TeamID, t.Number, t.Title, description, t.Stage, e.statusOf(t), t.Paused, t.OwnerLed(),
-		t.WorkflowID, t.OwnerID, steps, t.Origin})
+		t.WorkflowID, t.OwnerID, steps, t.Origin, failed})
 	var b strings.Builder
 	b.Write(raw)
 	b.WriteString("\n\n# How the steps went\n")

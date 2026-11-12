@@ -176,6 +176,9 @@ func (e *Engine) step() {
 		}
 		if any && !live {
 			t.Stage = enum.StageAwaitMerge
+			if t.Merge != nil { // a merge that failed before the work was sent back; this is new work
+				t.Merge.Failure = nil
+			}
 			e.notice(Event{Type: "notice", Kind: "awaitMerge", TaskID: t.ID})
 		}
 	}

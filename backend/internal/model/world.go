@@ -467,7 +467,49 @@ type Merge struct {
 	StartedAt *float64  `json:"startedAt,omitempty"`
 	EndsAt    *float64  `json:"endsAt,omitempty"`
 	Log       []LogLine `json:"log"`
+	// Failure is why the last try failed, while the task waits to be merged again; a new try or a new completion
+	// clears it.
+	Failure *MergeFailure `json:"failure,omitempty"`
 }
+
+// Why a merge failed.
+const (
+	// MergeUncommitted: the project folder has changes not committed to files the merge would overwrite.
+	MergeUncommitted = "uncommitted"
+	// MergeMoved: the target branch moved on while merging.
+	MergeMoved = "moved"
+	// MergeUnresolved: the target branch moved on in a way that clashes, and the clash was not resolved.
+	MergeUnresolved = "unresolved"
+	// MergeNoTarget: the target branch does not exist.
+	MergeNoTarget = "noTarget"
+	// MergeWorktreeDirty: the task's work tree has changes not committed to files the merge would overwrite.
+	MergeWorktreeDirty = "worktreeDirty"
+	// MergeResolveFailed: the model call resolving a clash failed.
+	MergeResolveFailed = "resolveFailed"
+	// MergeUnknown: none of these; Detail is all there is.
+	MergeUnknown = "unknown"
+)
+
+// MergeFailure is why a merge failed, for the user to read and clear, and for the task's owner to explain.
+type MergeFailure struct {
+	Kind   string   `json:"kind"`
+	Target string   `json:"target"`
+	Files  []string `json:"files,omitempty"`  // the first few in the way
+	More   int      `json:"more,omitempty"`   // how many more there are
+	Reason string   `json:"reason,omitempty"` // MergeResolveFailed: what the model call said, in short
+	Detail string   `json:"detail,omitempty"` // git's own words, without paths of this computer
+}
+
+// MergeBlocked is git refusing a step of a merge for a reason it was checked for: one of the Merge kinds, and the
+// files in the way.
+type MergeBlocked struct {
+	Kind  string
+	Files []string
+	Err   error
+}
+
+func (b *MergeBlocked) Error() string { return b.Err.Error() }
+func (b *MergeBlocked) Unwrap() error { return b.Err }
 
 type Attachment struct {
 	Name     string `json:"name"`

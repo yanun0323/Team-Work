@@ -37,6 +37,14 @@ it('words a task notice by what it waits for, and sounds only where the app itse
   expect(noticeOf(w, { kind: 'task', id: 'gone', merge: true }, DEFAULT_PREFS)).toBeNull()
 })
 
+it('says a merge failed and why, not that the task can be merged', () => {
+  const w = sample()
+  w.tasks.k1.merge = { replicaId: null, conflict: false, log: [], failure: { kind: 'uncommitted', target: 'main', files: ['AGENTS.md'] } }
+  expect(noticeOf(w, { kind: 'task', id: 'k1', merge: true, failed: true }, DEFAULT_PREFS)).toEqual({
+    kind: 'task', id: 'k1', title: '合併失敗', subtitle: '北極星', body: '#7 修登入：專案資料夾有未提交的修改擋住合併', sound: true,
+  })
+})
+
 it('shows who replied in a chat and what they said last, flattened and clipped', () => {
   const w = sample()
   expect(noticeOf(w, { kind: 'chat', id: 'c1' }, DEFAULT_PREFS)).toMatchObject({ kind: 'chat', id: 'c1', title: 'Kai', subtitle: '機場 · 幫我看看', body: '第一行 第二行' })

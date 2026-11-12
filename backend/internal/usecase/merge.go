@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
 	"github.com/yanun0323/Team-Work/internal/i18n"
@@ -92,14 +93,25 @@ func (e *Engine) runMerge(ctx context.Context, in mergeRun) {
 	}
 	e.applyMerge(in, func(t *model.Task) {
 		if err != nil {
-			var known *model.Error
-			if !errors.As(err, &known) {
-				e.log.Error().Err(err).Str("task", t.ID).Msg("merge failed")
+			f := mergeFailure(in, err)
+			e.log.Error().Err(err).Str("task", t.ID).Str("kind", f.Kind).Msg("merge failed")
+			text := mergeFailureText(f)
+			if f.Kind != model.MergeUnknown { // which says it failed already
+				text = i18n.T("合併失敗：%s", text)
 			}
-			e.mergeLog(t, i18n.T("合併失敗：%s", safeText(err)))
+			line := text
+			if f.Kind == model.MergeUnknown && f.Detail != "" { // the only lead there is
+				line += "\n" + f.Detail
+			}
+			e.mergeLog(t, line)
 			t.Merge.StartedAt = nil
+			t.Merge.Failure = &f
 			t.Stage = enum.StageAwaitMerge
-			e.notice(Event{Type: "notice", Kind: "awaitMerge", TaskID: t.ID})
+			if t.OwnerLed() {
+				args := map[string]any{"kind": f.Kind, "target": f.Target, "files": f.Files, "more": f.More, "reason": f.Reason, "detail": f.Detail}
+				e.systemEvent(t, "mergeFailed", text, args, "")
+			}
+			e.notice(Event{Type: "notice", Kind: "mergeFailed", TaskID: t.ID})
 			return
 		}
 		e.mergeLog(t, i18n.T("已合併回 %s，移除 work tree", in.target))
@@ -122,10 +134,10 @@ func (e *Engine) doMerge(ctx context.Context, in mergeRun) error {
 			e.mergeLog(t, i18n.T("和 %s 有衝突，先解衝突", in.target))
 		})
 		if in.spec == nil {
-			return model.Errorf(model.CodeConflict, "和 %s 有衝突，但沒有員工可以解", in.target)
+			return &model.MergeBlocked{Kind: model.MergeUnresolved, Err: model.Errorf(model.CodeConflict, "和 %s 有衝突，但沒有員工可以解", in.target)}
 		}
 		if err := e.resolveConflict(ctx, in); err != nil {
-			return err
+			return resolveFailed{err}
 		}
 		if err := e.git.FinishMerge(ctx, in.dir, in.spec.name); err != nil {
 			return err
@@ -133,8 +145,7 @@ func (e *Engine) doMerge(ctx context.Context, in mergeRun) error {
 		e.applyMerge(in, func(t *model.Task) { e.mergeLog(t, i18n.T("衝突已解決")) })
 	}
 	if err := e.git.Land(ctx, in.folder, in.branch, in.target); err != nil {
-		e.log.Error().Err(err).Str("task", in.taskID).Msg("land branch")
-		return model.Errorf(model.CodeConflict, "無法更新 %s：目標分支可能有未 commit 的變更，或又前進了，處理後再按一次合併", in.target)
+		return err
 	}
 	// landed: the merge is done even if the tidying up is not
 	if err := e.git.Remove(ctx, in.folder, in.dir, in.branch); err != nil {
@@ -142,6 +153,114 @@ func (e *Engine) doMerge(ctx context.Context, in mergeRun) error {
 	}
 	e.removeOutputs(in.taskID)
 	return nil
+}
+
+// resolveFailed is the model call resolving a clash failing.
+type resolveFailed struct{ err error }
+
+func (r resolveFailed) Error() string { return r.err.Error() }
+func (r resolveFailed) Unwrap() error { return r.err }
+
+const (
+	// mergeFilesShown is how many of the files in a merge's way its failure names; it counts the rest.
+	mergeFilesShown = 5
+	// mergeDetailMost is how much of git's words a merge's failure keeps, in characters: enough for git's message and
+	// a list of files, short enough to read on the screen.
+	mergeDetailMost = 2000
+)
+
+// mergeFailure says why a merge failed, as far as it can tell, with git's words as they are, less the paths of this
+// computer: the project and work tree folders become relative and the home folder ~.
+func mergeFailure(in mergeRun, err error) model.MergeFailure {
+	f := model.MergeFailure{Kind: model.MergeUnknown, Target: in.target}
+	var files []string
+	var blocked *model.MergeBlocked
+	var resolve resolveFailed
+	switch {
+	case errors.As(err, &blocked):
+		f.Kind, files = blocked.Kind, blocked.Files
+	case errors.As(err, &resolve):
+		f.Kind = model.MergeResolveFailed
+		var said *model.Error
+		if errors.As(err, &said) {
+			f.Reason = said.Message
+		} else {
+			f.Reason = clip(withoutPaths(err.Error(), in.folder, in.dir), 200)
+		}
+	}
+	if len(files) > mergeFilesShown {
+		f.Files, f.More = files[:mergeFilesShown], len(files)-mergeFilesShown
+	} else {
+		f.Files = files
+	}
+	f.Detail = withoutPaths(err.Error(), in.folder, in.dir)
+	if r := []rune(f.Detail); len(r) > mergeDetailMost {
+		f.Detail = string(r[:mergeDetailMost]) + "…"
+	}
+	return f
+}
+
+// withoutPaths takes the folders of this computer out of text: each of dirs as relative, and the home folder as ~.
+func withoutPaths(text string, dirs ...string) string {
+	for _, dir := range dirs {
+		if dir = strings.TrimRight(dir, string(filepath.Separator)); dir != "" {
+			text = strings.ReplaceAll(text, dir+string(filepath.Separator), "")
+			text = strings.ReplaceAll(text, dir, ".")
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimRight(home, string(filepath.Separator)) != "" {
+		text = strings.ReplaceAll(text, strings.TrimRight(home, string(filepath.Separator)), "~")
+	}
+	return text
+}
+
+// mergeFailureText says a merge's failure in a sentence or two, with what to do next, in the current language. The
+// screen says the same from the failure itself.
+func mergeFailureText(f model.MergeFailure) string {
+	files := strings.Join(f.Files, "、")
+	if f.More > 0 {
+		files = i18n.T("%s 等 %d 個", files, len(f.Files)+f.More)
+	}
+	switch f.Kind {
+	case model.MergeUncommitted:
+		return i18n.T("專案資料夾裡的 %s 有未提交的修改，這次合併會覆蓋它們。請先自行提交或暫存，再按合併。", files)
+	case model.MergeMoved:
+		return i18n.T("%s 在合併期間有新的提交。請再按一次合併。", f.Target)
+	case model.MergeUnresolved:
+		if files == "" {
+			return i18n.T("%s 在這段期間有新的提交，自動解決衝突沒有成功。請處理後再合併。", f.Target)
+		}
+		return i18n.T("%s 在這段期間有新的提交，自動解決衝突沒有成功（%s）。請處理後再合併。", f.Target, files)
+	case model.MergeNoTarget:
+		return i18n.T("找不到目標分支 %s。請確認專案設定的分支名稱。", f.Target)
+	case model.MergeWorktreeDirty:
+		return i18n.T("任務的工作資料夾還有未提交的檔案（%s），所以沒有合併。請負責人派一步提交或清掉它們，再按合併。", files)
+	case model.MergeResolveFailed:
+		return i18n.T("自動解決衝突時，模型呼叫失敗：%s。可以再按一次合併。", f.Reason)
+	}
+	return i18n.T("合併失敗，原因無法判斷。")
+}
+
+// mergeFailureState is a merge's failure as the task's owner reads it in the task's formal state.
+func mergeFailureState(f *model.MergeFailure) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n## Last merge failed\nThe user pressed merge and it failed; the task still waits to be merged, and nothing of theirs was changed. "+
+		"Only the user can merge, once they have cleared what is in the way.\nKind: %s\nTarget branch: %s\n", f.Kind, f.Target)
+	if len(f.Files) > 0 {
+		fmt.Fprintf(&b, "Files in the way: %s", strings.Join(f.Files, ", "))
+		if f.More > 0 {
+			fmt.Fprintf(&b, " and %d more", f.More)
+		}
+		b.WriteString("\n")
+	}
+	if f.Reason != "" {
+		fmt.Fprintf(&b, "Reason: %s\n", f.Reason)
+	}
+	fmt.Fprintf(&b, "Told the user: %s\n", mergeFailureText(*f))
+	if f.Detail != "" {
+		fmt.Fprintf(&b, "Git said: %s\n", clip(f.Detail, 600))
+	}
+	return b.String()
 }
 
 func (e *Engine) resolveConflict(ctx context.Context, in mergeRun) error {

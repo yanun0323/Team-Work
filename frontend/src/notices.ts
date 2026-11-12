@@ -2,11 +2,12 @@
 // clicked notification is about. Outside the app nothing listens, so nothing is sent.
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import { tr } from './core/i18n'
+import { colon, tr } from './core/i18n'
 import { teamAlerts } from './core/model'
 import { useStore } from './core/store'
 import type { World } from './core/domain/types'
 import { chatPreview } from './crew'
+import { mergeFailureShort } from './MergeFailure'
 import { usePrefs, type Prefs } from './prefs'
 import { subscribeChatSound, subscribeNoticeSound, type NoticeTarget } from './sound'
 
@@ -37,6 +38,10 @@ export function noticeOf(w: World, target: NoticeTarget, prefs: Pick<Prefs, 'mut
   if (target.kind === 'task') {
     const task = w.tasks[target.id]
     if (!task) return null
+    const failure = task.merge?.failure
+    if (target.failed && failure) {
+      return { kind: 'task', id: task.id, title: tr('合併失敗'), subtitle: place(task.teamId), body: clip(`#${task.number} ${task.title}${colon()}${mergeFailureShort(failure)}`), sound }
+    }
     return { kind: 'task', id: task.id, title: `#${task.number} ${task.title}`, subtitle: place(task.teamId), body: target.merge ? tr('可以合併') : tr('需要回覆'), sound }
   }
   const chat = w.chats[target.id]
