@@ -1177,12 +1177,13 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
 @media (prefers-reduced-motion: no-preference) { :is(.fx-ring > span, .fx-quota-balance) { animation: fx-quota-in 320ms ease-out; } }
 .fx-settings-trigger { display: grid; place-items: center; width: 44px; padding: 0; }
 .fx-settings-trigger:disabled { background-color: #d6d4cf; color: #76747c; cursor: not-allowed; filter: grayscale(1); }
-/* dev builds only: the frame rate, put the town at any time of day, and in the simulator play a clean Mac */
+/* dev builds only: the frame rate, put the town at any time of day, and in the simulator play a clean Mac.
+   Lower left, raised to leave room for the island slip (.fx-island) and its way home while visiting another island */
 .fx-debug {
-  position: absolute; bottom: 22px; inset-inline-end: 22px; z-index: 4;
-  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  position: absolute; bottom: 96px; inset-inline-start: 22px; z-index: 4;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
 }
-.fx-fps { padding: 4px 0; min-width: 7ch; text-align: end; }
+.fx-fps { padding: 4px 0; min-width: 7ch; text-align: start; }
 .fx-fps + .fx-fps { margin-left: 1ch; }
 .fx-daylight-debug {
   display: flex; align-items: center; gap: 4px; padding: 6px 10px; rotate: 0.6deg;
@@ -2181,9 +2182,9 @@ button.fx-ticket-tag:hover { color: var(--ink); }
    they sit by, and come back from it once it lands. One that appears meanwhile waits off the screen and comes in
    with the rest. Off the screen they are out of reach of the pointer and the keyboard. `translate` leaves the
    panels' own transform animations (fx-paste) to them; the names on the map fade out on their own (World.tsx). */
-.fusion-stage > :is(.fx-top-left, .fx-island) { --away: calc(-100% - 40px) 0; }
+.fusion-stage > :is(.fx-top-left, .fx-island, .fx-debug) { --away: calc(-100% - 40px) 0; }
 .fusion-stage > .fx-detail { --away: calc(-100% - 55vw) 0; }
-.fusion-stage > :is(.fx-corner, .fx-drawer, .fx-debug) { --away: calc(100% + 40px) 0; }
+.fusion-stage > :is(.fx-corner, .fx-drawer) { --away: calc(100% + 40px) 0; }
 .fusion-stage > .fx-help { --away: 0 100vh; }
 .fusion-stage > .fx-map-tip { --away: 0 calc(-100% - 40px); }
 .fusion-stage > :not(.fusion-canvas, .labels) { transition: translate 480ms cubic-bezier(0.2, 0.8, 0.3, 1); }
