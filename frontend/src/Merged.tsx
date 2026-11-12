@@ -81,19 +81,38 @@ export function mergeParts(parts: Part[]): THREE.BufferGeometry {
 /** Takes no pointer: the meshes it was merged from do. */
 const noRaycast = () => {}
 
+/** `userData` for something that moves inside a `Merged`: it and everything under it are left as they are. */
+export const LIVE = Object.freeze({ live: true })
+
+/** Whether `o` is marked `LIVE`. */
+const isLive = (o: THREE.Object3D) => o.userData.live === true
+
+/** Its children move, or show and hide, inside a `Merged`: left out of the merge. */
+export function Live({ children }: { children: ReactNode }) {
+  return <group userData={LIVE}>{children}</group>
+}
+
+/** Whether a `Merged` draws `mesh` as part of a merged one, `mesh` itself hidden. */
+export const mergedAway = (mesh: THREE.Object3D) => mesh.userData.mergedAway === true
+
 /**
  * Merges the meshes under `root` that can be: one mesh per material, shadow, layers, draw order and shadow material,
  * in `root`'s own space. Multi-material, instanced and see-through meshes are left as they are (see-through ones are
  * sorted one by one, so merging them would change their order). The meshes merged are hidden and every object under
- * `root` stops working out its matrix each frame. Returns the new meshes, not yet added to `root`.
+ * `root` stops working out its matrix each frame, except what is marked `LIVE`, which is left out altogether. Returns
+ * the new meshes, not yet added to `root`.
  */
 export function mergeStatic(root: THREE.Object3D): THREE.Mesh[] {
   const groups = new Map<string, { mesh: THREE.Mesh; parts: Part[] }>()
-  root.traverse((o) => {
-    if (o === root) return
+  const visit = (o: THREE.Object3D) => {
+    if (isLive(o)) return
     // whatever React set since the last build
     o.updateMatrix()
     o.matrixAutoUpdate = false
+    take(o)
+    for (const c of o.children) visit(c)
+  }
+  const take = (o: THREE.Object3D) => {
     const mesh = o as THREE.Mesh
     if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || (mesh as THREE.SkinnedMesh).isSkinnedMesh) return
     const material = mesh.material
@@ -105,7 +124,9 @@ export function mergeStatic(root: THREE.Object3D): THREE.Mesh[] {
     if (!group) groups.set(key, (group = { mesh, parts: [] }))
     group.parts.push({ geometry: mesh.geometry, matrix })
     mesh.visible = false
-  })
+    mesh.userData.mergedAway = true
+  }
+  for (const c of root.children) visit(c)
   return [...groups.values()].map(({ mesh: like, parts }) => {
     const mesh = new THREE.Mesh(mergeParts(parts), like.material)
     mesh.castShadow = like.castShadow
@@ -134,8 +155,8 @@ function fading(root: THREE.Object3D) {
  * Its children are drawn merged (`mergeStatic`): the group itself, and what holds it, may still move. The meshes stay,
  * hidden, so the pointer finds them and their events bubble as before.
  *
- * Nothing under it may move, turn, scale, show or hide on its own; only shared materials may change (a glow, a
- * scrolling texture). It is built when it mounts and again whenever `deps` change, so list everything its children's
+ * Nothing under it may move, turn, scale, show or hide on its own, except under a `Live` (or `LIVE` userData); only
+ * shared materials may change (a glow, a scrolling texture). It is built when it mounts and again whenever `deps` change, so list everything its children's
  * shapes depend on. A Fade round it may fade the merged meshes; a rebuild waits for the fade to end.
  */
 export function Merged({ deps, children }: { deps: DependencyList; children: ReactNode }) {

@@ -5,7 +5,7 @@
 // One figure for both, in office units (about 1.15 tall standing), seated or standing with a walk cycle.
 // Movement is driven per frame from refs; React only renders the figures once.
 
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import type { IdleFollowTarget } from './prefs'
@@ -14,6 +14,8 @@ import { anchors } from './core/voxel/labels'
 import { BODY_SHARE, coordinateTraffic, walkingRoute, beginAvoidance, openSpot, separate, spotTaken, UNHINDERED, walkAround, type Avoider } from './avoid'
 import { ARRIVAL_GAP, benchMate, indoors, islandPlaces, ISLAND_GAP, ISLAND_SPEED, newcomer, settleCount, stepCrowd, townsfolk, type Scene, type Townsfolk } from './crowd'
 import { Fade, FADE_SECONDS } from './Fade'
+import { batchFigure } from './FigureBatch'
+import { LIVE } from './Merged'
 import { light } from './daylight'
 import { isSwimwear, seedOf, styleOf, type Style } from './figureStyle'
 import { BEACH, BEACH_TOP } from './Island'
@@ -22,6 +24,7 @@ import { hash, type Town } from './layout'
 import { OFFICE_SCALE, type OfficePlan } from './office'
 import { MAX_FRAME } from './PixelPass'
 import { toon } from './toon'
+import { UNIT } from './core/voxel/kit'
 import {
   benchSeats, cellPos, crowdSize, freeCells, headingOf, inSteps, isFree, officeGrid, resettle, townGrid,
   type BenchSeat, type P, type Walker,
@@ -45,9 +48,7 @@ type V3 = [number, number, number]
 /** `shadow` false: neither casts nor catches a shadow (the bubbles, which float in the air as signs, not things). */
 function M({ p, s, c, r, shadow = true }: { p: V3; s: V3; c: string; r?: (m: THREE.Mesh | null) => void; shadow?: boolean }) {
   return (
-    <mesh ref={r} position={p} scale={s} material={toon(c)} castShadow={shadow} receiveShadow={shadow} raycast={() => null}>
-      <boxGeometry />
-    </mesh>
+    <mesh ref={r} position={p} scale={s} geometry={UNIT} material={toon(c)} castShadow={shadow} receiveShadow={shadow} raycast={() => null} />
   )
 }
 
@@ -361,8 +362,11 @@ export const Figure = memo(function Figure({ look, rig, seed, drop = 0, scale = 
   const lower = swim ? look.skin : forearm
   rig.drop = drop
   rig.stride = strideOf(st)
+  const scene = useThree((s) => s.scene)
+  useLayoutEffect(() => (rig.root ? batchFigure(scene, rig.root) : undefined), [scene, rig])
   return (
-    <group ref={(g) => void (rig.root = g)} scale={scale}>
+    // it moves, so a `Merged` round it leaves it out
+    <group ref={(g) => void (rig.root = g)} scale={scale} userData={LIVE}>
       <group ref={(g) => void (rig.detail = g)}>
         {/* seated at a desk or on a bench: thighs forward, hands reaching to the lap or keyboard */}
         <group ref={(g) => void (rig.seated = g)}>

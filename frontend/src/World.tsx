@@ -41,6 +41,8 @@ import { MOCK } from './core/mode'
 import { attempt } from './core/ops'
 import { Ocean } from './Ocean'
 import { followed, pickFollowTarget, Strollers, type FollowTarget } from './People'
+import { FigureBatch } from './FigureBatch'
+import { ShaderWarmup } from './ShaderWarmup'
 import { crowdSize } from './walk'
 import { watchIdle } from './idleFollow'
 import { NO_OUTLINE_LAYER, PixelPass } from './PixelPass'
@@ -625,6 +627,8 @@ export function World() {
         panOnly={autoView === 'pan'} blocked={(settingsOpen && (autoView === 'panZoom' || !(airportShown || towerShown || staffingShown))) || helpOpen} wide={(placing || editing) && !selected ? town.middle : null}
         following={following !== null} held={pressHeld} landing={landing} />
       <LabelProjector />
+      <FigureBatch />
+      <ShaderWarmup />
       <PixelPass pixel={2} />
       {import.meta.env.DEV && <FrameCounter />}
     </Canvas>

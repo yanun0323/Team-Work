@@ -14,7 +14,9 @@ import { OFFICE_SCALE } from './office'
 import { Figure, lookOf, newRig, pose, type Rig } from './People'
 import { usePrefs } from './prefs'
 import { toon } from './toon'
+import { UNIT } from './core/voxel/kit'
 import { IndoorRoom } from './IndoorLight'
+import { Live, Merged } from './Merged'
 import { MAX_FRAME } from './PixelPass'
 import { advance, inSteps, type P, type Walker } from './walk'
 
@@ -24,9 +26,7 @@ const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-mo
 
 function B({ p, s, c, shadow = true }: { p: V3; s: V3; c: string; shadow?: boolean }) {
   return (
-    <mesh position={p} scale={s} material={toon(c)} castShadow={shadow} receiveShadow>
-      <boxGeometry />
-    </mesh>
+    <mesh position={p} scale={s} geometry={UNIT} material={toon(c)} castShadow={shadow} receiveShadow />
   )
 }
 
@@ -400,14 +400,14 @@ function Escalator({ z, up }: { z: number; up: boolean }) {
       <mesh position={[mid, midY - 0.2, z]} rotation={[0, 0, -angle]} scale={[length, 0.4, STEPS_W + 0.1]} material={toon('#333845')} castShadow receiveShadow>
         <boxGeometry />
       </mesh>
-      {Array.from({ length: count }, (_, i) => (
+      <Live>{Array.from({ length: count }, (_, i) => (
         <group key={i} ref={(g) => void (steps.current[i] = g)} position={[place(i, 0)[0], place(i, 0)[1], z]}>
           {/* a real stair: tread, riser and a yellow edge */}
           <B p={[0, -0.02, 0]} s={[STEP_GAP, 0.04, STEPS_W - 0.06]} c="#8b92a1" />
           <B p={[STEP_GAP / 2 - 0.02, -0.1, 0]} s={[0.04, STEP_GAP * SLOPE, STEPS_W - 0.06]} c="#565c6b" shadow={false} />
           <B p={[-STEP_GAP / 2 + 0.03, 0.002, 0]} s={[0.05, 0.01, STEPS_W - 0.06]} c="#f2c14e" shadow={false} />
         </group>
-      ))}
+      ))}</Live>
       {[-1, 1].map((side) => (
         <group key={side}>
           <mesh position={[mid, midY + 0.42, z + side * (STEPS_W / 2 + 0.05)]} rotation={[0, 0, -angle]} scale={[length, 0.84, 0.1]} material={toon('#eef1f5')} castShadow>
@@ -556,10 +556,11 @@ function TowerCab() {
 export function AirportInterior() {
   const crowd = usePrefs((s) => s.crowd)
   const detail = usePrefs((s) => s.detail)
+  // what stands still is drawn merged; people and the escalators' steps move on their own
   return (
-    <>
+    <Merged deps={[crowd, detail]}>
       <group position={[0, HALL_LIFT, 0]}><Terminal crowd={crowd} detail={detail} /></group>
       <TowerCab />
-    </>
+    </Merged>
   )
 }

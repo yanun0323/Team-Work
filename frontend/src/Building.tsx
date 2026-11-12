@@ -20,6 +20,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import * as THREE from 'three'
 import { activity, teamBusy, teamReplicas } from './core/model'
 import { useStore } from './core/store'
+import { UNIT } from './core/voxel/kit'
 import { boxOnScreen, ISO_DIR, SCREEN_RIGHT, SCREEN_UP } from './camera'
 import { CELL, FLOOR_CELLS, floorsOf, footprintOf, hash, rectCenter, spotCenter, type BuildingLook, type BuildingStyle, type Lot, type Spot, type Town } from './layout'
 import { Fade } from './Fade'
@@ -537,9 +538,7 @@ function Awning({ len, at, turn, pal }: { len: number; at: V3; turn: number; pal
 
 function B({ p, s, c, r, shadow = true }: { p: V3; s: V3; c: string; r?: V3; shadow?: boolean }) {
   return (
-    <mesh position={p} rotation={r} scale={s} material={toon(c)} castShadow={shadow} receiveShadow>
-      <boxGeometry />
-    </mesh>
+    <mesh position={p} rotation={r} scale={s} geometry={UNIT} material={toon(c)} castShadow={shadow} receiveShadow />
   )
 }
 
@@ -840,6 +839,7 @@ function CutAway({ lot }: { lot: Lot }) {
   const [wx0, wx1] = plan.mirror ? [-w / 2 + 1.2, w / 2 - shelfGap] : [-w / 2 + shelfGap, w / 2 - 1.2]
   return (
     <>
+      <Merged deps={[lot, plan, decor]}>
       <B p={[0, FLOOR_TOP / 2, 0]} s={[w - WALL, FLOOR_TOP, d - WALL]} c="#d9cdb6" />
       {/* stone tiles over the whole floor, one texture tile per cell so they line up with the ground grid */}
       <Floor kind="tile" variant={decor.tile} a={{ x: 0, z: 0, w: w - WALL, d: d - WALL }} y={FLOOR_TOP + 0.002} perUnit={1} />
@@ -857,6 +857,7 @@ function CutAway({ lot }: { lot: Lot }) {
       {/* the two walls facing the camera, 15% */}
       <Clear p={[0, CUT / 2, hz]} s={[w, CUT, WALL]} c={pal.wall} />
       <Clear p={[hx, CUT / 2, 0]} s={[WALL, CUT, d - WALL * 2]} c={pal.wall} />
+      </Merged>
       <Office teamId={lot.id} plan={plan} decor={decor} trim={pal.trim} seed={seed} />
       {/* lit evenly after dark, like ceiling panels */}
       {/* a little past the walls, so no wall face sits on its edge, and above the paving round the building */}
@@ -1869,9 +1870,13 @@ function Office({ teamId, plan, decor, trim, seed }: { teamId: string; plan: Off
     sofa: [...nookPlaces(plan).sofa, ...(plan.lounge && decor.corner === 'sofa' ? loungeSeats(plan.lounge, plan.mirror) : [])],
     coffee: coffeeSpots(plan, decor),
   }), [plan, decor])
+  // what changes the furniture: the screens light up while someone is at work
+  const stations = crew.slice(0, plan.seats.length).map((r) => `${r.id}${r.busy ? '+' : '-'}`).join()
   // drawn in office units; scaled about the floor plate's top so things still stand on it
   return (
     <group position={[0, FLOOR_TOP * (1 - OFFICE_SCALE), 0]} scale={OFFICE_SCALE}>
+      <OfficeCrew teamId={teamId} seed={seed} plan={plan} crew={crew} floor={FLOOR_TOP} amenities={amenities} />
+      <Merged deps={[plan, decor, detail, trim, seed, stations]}>
       {desks && <Floor kind="wood" variant={k.wood} a={desks} y={COVER_Y} perUnit={OFFICE_SCALE} />}
       {plan.meeting && <Floor kind="carpet" variant={k.carpet} a={grow(plan.meeting, 0.3)} y={COVER_Y} perUnit={OFFICE_SCALE} />}
       {plan.lounge && <Floor kind="wood" variant={k.wood} a={grow(plan.lounge, 0.3)} y={COVER_Y} perUnit={OFFICE_SCALE} />}
@@ -1881,7 +1886,6 @@ function Office({ teamId, plan, decor, trim, seed }: { teamId: string; plan: Off
       {crew.slice(0, plan.seats.length).map((r, i) => (
         <Station key={r.id} x={plan.seats[i][0]} z={plan.seats[i][1]} busy={r.busy} k={k} setup={Math.floor(hash(seed, i, 41) * 12)} detail={detail} />
       ))}
-      <OfficeCrew teamId={teamId} seed={seed} plan={plan} crew={crew} floor={FLOOR_TOP} amenities={amenities} />
       {plan.reception && <Mirrored on={plan.mirror} x={plan.reception.x}><Reception a={{ ...plan.reception, x: 0 }} trim={trim} k={k} /></Mirrored>}
       {plan.meeting && <Meeting a={plan.meeting} k={k} />}
       {/* the sofa backs onto the room's side wall, whichever side that is */}
@@ -1890,6 +1894,7 @@ function Office({ teamId, plan, decor, trim, seed }: { teamId: string; plan: Off
       <Mirrored on={plan.mirror} x={plan.nook.x}><Nook z={plan.nook.z} k={k} /></Mirrored>
       {detail && plan.plants.map(([x, z], i) => <Plant key={i} x={x} z={z} pot={k.pot} kind={Math.floor(hash(seed, i, 31) * 5)} />)}
       {plan.cooler && <Cooler x={plan.cooler[0]} z={plan.cooler[1]} />}
+      </Merged>
     </group>
   )
 }

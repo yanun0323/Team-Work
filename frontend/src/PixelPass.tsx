@@ -61,6 +61,22 @@ void main() {
   #include <colorspace_fragment>
 }`
 
+const keptPrograms = new WeakSet<object>()
+
+/**
+ * Keeps every shader program the renderer has built: three.js drops one as soon as no material uses it, and builds it
+ * again, slowly, the next time one does. There are a few dozen at most, one for each kind of surface, so keeping them
+ * all costs little.
+ */
+export function keepPrograms(gl: Pick<THREE.WebGLRenderer, 'info'>) {
+  // info is missing only on the stand-in renderers of tests
+  for (const p of gl.info?.programs ?? []) {
+    if (keptPrograms.has(p)) continue
+    keptPrograms.add(p)
+    p.usedTimes++
+  }
+}
+
 const BACKGROUND_FPS = 5
 
 /**
@@ -232,6 +248,7 @@ export function PixelPass({ pixel = 2 }: { pixel?: number }) {
     u.uDepthStep.value = texel * 3
     gl.setRenderTarget(null)
     gl.render(res.quadScene, res.quadCamera)
+    keepPrograms(gl)
   }, 1)
 
   return null

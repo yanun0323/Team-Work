@@ -1,7 +1,7 @@
 import { act, createRoot, extend } from '@react-three/fiber'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mergeParts, mergeStatic, Merged } from './Merged'
+import { LIVE, mergedAway, mergeParts, mergeStatic, Merged } from './Merged'
 
 extend({ Group: THREE.Group, Mesh: THREE.Mesh, BoxGeometry: THREE.BoxGeometry })
 
@@ -107,6 +107,24 @@ describe('mergeStatic', () => {
     root.add(...merged)
     expect(hitFromAbove(root, 3, 0)?.object).toBe(a)
     expect(hitFromAbove(root, 0, 0)).toBeUndefined()
+  })
+
+  it('leaves out what is marked live, and everything under it, still working out its matrices', () => {
+    const root = new THREE.Group()
+    const still = box(red, [1, 0, 0])
+    const person = new THREE.Group()
+    person.userData = LIVE
+    const arm = new THREE.Group()
+    const hand = box(red, [3, 0, 0])
+    arm.add(hand)
+    person.add(arm)
+    root.add(still, person)
+
+    const merged = mergeStatic(root)
+    expect(merged.map((m) => m.geometry.getAttribute('position').count)).toEqual([24])
+    expect([still.visible, mergedAway(still)]).toEqual([false, true])
+    expect([hand.visible, mergedAway(hand)]).toEqual([true, false])
+    for (const o of [person, arm, hand]) expect(o.matrixAutoUpdate).toBe(true)
   })
 
   it('stops the meshes working out their matrices each frame, and catches up with what React set on a rebuild', () => {

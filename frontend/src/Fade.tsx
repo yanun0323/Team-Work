@@ -13,6 +13,7 @@
 import { useFrame } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as THREE from 'three'
+import { mergedAway } from './Merged'
 import { NO_OUTLINE_LAYER } from './PixelPass'
 import { fadingShadow } from './shadowFade'
 
@@ -31,9 +32,8 @@ interface Saved {
   depth: THREE.Material | undefined
 }
 
-const list = (m: Mat) => (Array.isArray(m) ? m : [m])
-
-function seeThrough(m: THREE.Material, appearing: boolean) {
+/** The see-through copy of `m` a Fade draws in its place; `appearing`: fading in, so a solid one still writes depth. */
+export function seeThrough(m: THREE.Material, appearing: boolean) {
   const c = m.clone()
   c.transparent = true
   // already see-through materials (the front walls) keep their own depth setting
@@ -48,8 +48,6 @@ function seeThrough(m: THREE.Material, appearing: boolean) {
 /** Whether `m` is one of the see-through copies a Fade puts on its meshes while fading. */
 export const isFadeCopy = (m: THREE.Material) => m.userData.fullOpacity !== undefined
 
-const dispose = (m: Mat) => list(m).forEach((x) => x.dispose())
-
 export function Fade({ show, shade, children }: { show: boolean; shade?: { current: number }; children: ReactNode }) {
   // stays mounted while fading out
   const [mounted, setMounted] = useState(show)
@@ -58,7 +56,19 @@ export function Fade({ show, shade, children }: { show: boolean; shade?: { curre
   // every appearance starts from nothing
   const level = useRef(0)
   const saved = useRef(new Map<THREE.Mesh, Saved>())
+  // one see-through copy of each material, however many meshes share it: they all fade alike
+  const copies = useRef(new Map<THREE.Material, THREE.Material>())
   const shadow = useMemo(fadingShadow, [])
+
+  const copyOf = (m: THREE.Material, appearing: boolean) => {
+    let c = copies.current.get(m)
+    if (!c) copies.current.set(m, (c = seeThrough(m, appearing)))
+    return c
+  }
+  const dropCopies = () => {
+    for (const c of copies.current.values()) c.dispose()
+    copies.current.clear()
+  }
 
   const restore = () => {
     for (const [mesh, s] of saved.current) {
@@ -66,15 +76,15 @@ export function Fade({ show, shade, children }: { show: boolean; shade?: { curre
       mesh.layers.mask = s.layers
       mesh.castShadow = s.castShadow
       mesh.customDepthMaterial = s.depth
-      dispose(s.copy)
     }
     saved.current.clear()
+    dropCopies()
   }
 
   // dropped mid-fade (the whole building went): free the copies
   useEffect(() => () => {
-    for (const s of saved.current.values()) dispose(s.copy)
     saved.current.clear()
+    dropCopies()
     shadow.material.dispose()
   }, [shadow])
 
@@ -114,25 +124,25 @@ export function Fade({ show, shade, children }: { show: boolean; shade?: { curre
     }
     g.traverse((o) => {
       const mesh = o as THREE.Mesh
-      if (!mesh.isMesh) return
+      // drawn as part of a merged mesh, which fades in its place
+      if (!mesh.isMesh || mergedAway(mesh)) return
       let s = saved.current.get(mesh)
       // first frame of the fade, or React handed the mesh a new material mid-fade
       if (!s || mesh.material !== s.copy) {
-        if (s) dispose(s.copy)
         const own = mesh.material
-        const copy = Array.isArray(own) ? own.map((x) => seeThrough(x, show)) : seeThrough(own, show)
+        const copy = Array.isArray(own) ? own.map((x) => copyOf(x, show)) : copyOf(own, show)
         s = { own, copy, layers: s?.layers ?? mesh.layers.mask, castShadow: s?.castShadow ?? mesh.castShadow, depth: s ? s.depth : mesh.customDepthMaterial }
         saved.current.set(mesh, s)
         mesh.material = copy
         mesh.layers.set(NO_OUTLINE_LAYER)
         mesh.customDepthMaterial = shadow.material
       }
-      for (const m of list(s.copy)) {
-        m.opacity = (m.userData.fullOpacity as number) * k
-        // turned around mid-fade: follow the new direction
-        if (m.userData.solid) m.depthWrite = show
-      }
     })
+    for (const m of copies.current.values()) {
+      m.opacity = (m.userData.fullOpacity as number) * k
+      // turned around mid-fade: follow the new direction
+      if (m.userData.solid) m.depthWrite = show
+    }
   })
 
   if (!mounted) return null

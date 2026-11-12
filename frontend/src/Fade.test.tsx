@@ -87,3 +87,44 @@ it.each([1 / 60, 30])('restores a building when it reappears before removal comm
     depth.dispose()
   }
 })
+
+it('fades the meshes sharing a material through one copy of it, and leaves what Merged draws in their place alone', async () => {
+  const canvas = {} as HTMLCanvasElement
+  const gl = { render: vi.fn(), setSize: vi.fn(), setPixelRatio: vi.fn(), domElement: canvas } as unknown as THREE.WebGLRenderer
+  const root = createRoot(canvas)
+  roots.push(root)
+  await root.configure({ gl, frameloop: 'never', dpr: 1, size: { width: 800, height: 600, top: 0, left: 0 } })
+
+  const shared = new THREE.MeshBasicMaterial()
+  const other = new THREE.MeshBasicMaterial()
+  const geometry = new THREE.BoxGeometry()
+  const a = new THREE.Mesh(geometry, shared)
+  const b = new THREE.Mesh(geometry, shared)
+  const c = new THREE.Mesh(geometry, other)
+  // drawn as part of a merged mesh, hidden
+  const away = new THREE.Mesh(geometry, shared)
+  away.visible = false
+  away.userData.mergedAway = true
+  const view = (show: boolean) => <Fade show={show}>
+    {[a, b, c, away].map((m, i) => <primitive key={i} object={m} dispose={null} />)}
+  </Fade>
+  let state!: ReturnType<ReturnType<typeof root.render>['getState']>
+  await act(async () => { state = root.render(view(true)).getState() })
+  await act(async () => { state.advance(FADE_SECONDS / 2) })
+
+  expect(a.material).not.toBe(shared)
+  expect(a.material).toBe(b.material)
+  expect(c.material).not.toBe(a.material)
+  expect((a.material as THREE.Material).opacity).toBeGreaterThan(0)
+  expect((a.material as THREE.Material).opacity).toBeLessThan(1)
+  expect(away.material).toBe(shared)
+  expect(away.layers.mask).toBe(1)
+
+  const copy = a.material as THREE.Material
+  const disposed = vi.fn()
+  copy.addEventListener('dispose', disposed)
+  await act(async () => { state.advance(FADE_SECONDS * 2) })
+  expect([a.material, b.material, c.material]).toEqual([shared, shared, other])
+  expect(disposed).toHaveBeenCalledTimes(1)
+  geometry.dispose()
+})

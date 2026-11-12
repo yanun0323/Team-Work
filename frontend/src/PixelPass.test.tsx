@@ -1,7 +1,7 @@
 import { act, createRoot } from '@react-three/fiber'
 import * as THREE from 'three'
 import { afterEach, expect, it, vi } from 'vitest'
-import { PixelPass, shadowDue } from './PixelPass'
+import { keepPrograms, PixelPass, shadowDue } from './PixelPass'
 
 const roots: ReturnType<typeof createRoot>[] = []
 afterEach(async () => {
@@ -56,4 +56,16 @@ it('works out the scene\'s matrices once a frame, for the colour pass, not again
   state.advance(0)
   expect(drawn.filter(([s]) => s === state.scene).map(([, auto]) => auto), 'colour pass, then normal pass').toEqual([true, false])
   expect(state.scene.matrixWorldAutoUpdate, 'given back after the frame').toBe(true)
+})
+
+it('keeps every shader program built, so one no material uses any more is not built again', () => {
+  const first = { usedTimes: 1 }
+  const later = { usedTimes: 2 }
+  const gl = { info: { programs: [first] } } as unknown as THREE.WebGLRenderer
+  keepPrograms(gl)
+  keepPrograms(gl)
+  expect(first.usedTimes).toBe(2)
+  ;(gl.info.programs as unknown[]).push(later)
+  keepPrograms(gl)
+  expect([first.usedTimes, later.usedTimes]).toEqual([2, 3])
 })
