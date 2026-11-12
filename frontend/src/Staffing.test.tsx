@@ -8,8 +8,7 @@ import { copyReplica } from './core/ops'
 import { useStore } from './core/store'
 import { Detail, type Item } from './DrawerDetail'
 import { lastStaff } from './draft'
-import { HELIPAD } from './Airport'
-import { AIRPORT, CELL, POWER_TOWER, STAFFING, canPlace, layoutTown, rectCenter } from './layout'
+import { AIRPORT, CELL, PLOT_CELLS, RUNWAY_CELLS, RUNWAY_LINE, STAFFING, STAFFING_LOT, canPlace, layoutTown, placeProblem, shownSpots } from './layout'
 import { CopyForm, copyLevel, packLine } from './StaffingSheets'
 import type { CopyPreview } from './core/ops'
 
@@ -189,21 +188,46 @@ describe('copying from another island', () => {
 })
 
 describe('where the staffing agency stands', () => {
-  it('is on the airfield, clear of the power tower, the helipad and the runway, and no company goes on it', () => {
-    const half = { x: AIRPORT.w * CELL / 2, z: AIRPORT.d * CELL / 2 }
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-      expect(Math.abs(STAFFING.x + sx * STAFFING.w / 2)).toBeLessThan(half.x)
-      expect(Math.abs(STAFFING.z + sz * STAFFING.d / 2)).toBeLessThan(half.z)
-    }
-    const apart = (x: number, z: number, w: number, d: number) =>
-      Math.abs(STAFFING.x - x) >= (STAFFING.w + w) / 2 || Math.abs(STAFFING.z - z) >= (STAFFING.d + d) / 2
-    expect(apart(POWER_TOWER.x, POWER_TOWER.z, POWER_TOWER.w, POWER_TOWER.d)).toBe(true)
-    expect(apart(HELIPAD.x, HELIPAD.z, HELIPAD.r * 2 + 1, HELIPAD.r * 2 + 1)).toBe(true)
-    // the runway runs along x, three cells wide, its line RUNWAY_LINE cells from the far edge (Airport.tsx)
-    expect(STAFFING.z + STAFFING.d / 2).toBeLessThan((16 - AIRPORT.d / 2) * CELL - 3 * CELL / 2)
+  it('has its own ground past the airport east end, clear of the runway line, that no company can take', () => {
+    expect(STAFFING_LOT.x).toBeGreaterThanOrEqual(AIRPORT.x + AIRPORT.w)
+    expect(STAFFING_LOT.z).toBeGreaterThanOrEqual(AIRPORT.z)
+    expect(STAFFING_LOT.z + STAFFING_LOT.d).toBeLessThanOrEqual(AIRPORT.z + AIRPORT.d)
+    // the runway's line, with the approach kept clear of trees either side of it (layout.ts APPROACH_CELLS)
+    expect(STAFFING_LOT.z + STAFFING_LOT.d).toBeLessThanOrEqual(AIRPORT.z + RUNWAY_LINE - RUNWAY_CELLS / 2 - 3)
+    expect(STAFFING.w).toBeLessThanOrEqual(STAFFING_LOT.w * CELL)
+    expect(STAFFING.d).toBeLessThanOrEqual(STAFFING_LOT.d * CELL)
     const town = layoutTown([])
-    const [ax, az] = rectCenter(town, town.airport)
-    const cell = (v: number, mid: number) => Math.floor((mid + v) / CELL)
-    expect(canPlace(town, [cell(STAFFING.x, ax) - 2, cell(STAFFING.z, az) - 2])).toBe(false)
+    expect(town.staffing).toEqual({ ...STAFFING_LOT, x: STAFFING_LOT.x + town.cols / 2, z: STAFFING_LOT.z + town.rows / 2 })
+    for (let z = town.staffing.z; z < town.staffing.z + town.staffing.d; z++) for (let x = town.staffing.x; x < town.staffing.x + town.staffing.w; x++) {
+      expect(town.ground[z * town.cols + x]).toBe('pave')
+    }
+    const on: [number, number] = [STAFFING_LOT.x - 4, STAFFING_LOT.z - 2]
+    expect(canPlace(town, on)).toBe(false)
+    expect(placeProblem(town, on)).toBe('taken')
+  })
+
+  it('shows a company saved on its ground at the nearest free spot, and leaves the others where they are', () => {
+    const plot = (at: [number, number]) => ({ x: at[0], z: at[1], w: PLOT_CELLS, d: PLOT_CELLS })
+    const apart = (a: { x: number; z: number; w: number; d: number }, b: typeof a, gap: number) =>
+      a.x >= b.x + b.w + gap || b.x >= a.x + a.w + gap || a.z >= b.z + b.d + gap || b.z >= a.z + a.d + gap
+    const saved: [number, number] = [STAFFING_LOT.x - 3, STAFFING_LOT.z - 3]
+    const elsewhere: [number, number] = [40, 20]
+    const town = layoutTown([
+      { id: 'on', name: 'On', members: 1, at: saved },
+      { id: 'off', name: 'Off', members: 1, at: elsewhere },
+    ])
+    const [on, off] = town.lots
+    expect(off.at).toEqual(elsewhere)
+    expect(on.at).not.toEqual(saved)
+    for (const r of [STAFFING_LOT, AIRPORT, plot(off.at)]) expect(apart(plot(on.at), r, 2)).toBe(true)
+    // the nearest: no spot closer to the saved one is clear
+    const d = (on.at[0] - saved[0]) ** 2 + (on.at[1] - saved[1]) ** 2
+    for (let dz = -8; dz <= 8; dz++) for (let dx = -8; dx <= 8; dx++) {
+      if (dx * dx + dz * dz >= d) continue
+      const p = plot([saved[0] + dx, saved[1] + dz])
+      expect([STAFFING_LOT, AIRPORT, plot(off.at)].every((r) => apart(p, r, 2)), `${dx},${dz}`).toBe(false)
+    }
+    // the same saved spots always show the same way
+    expect(shownSpots([saved, elsewhere])).toEqual([on.at, elsewhere])
   })
 })

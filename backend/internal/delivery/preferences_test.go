@@ -74,8 +74,8 @@ func TestCompanyPlotEndpoints(t *testing.T) {
 func TestPlotMustFitExpandedIsland(t *testing.T) {
 	api := setup(t).URL + "/api/v1"
 	folder, _ := json.Marshal(t.TempDir())
-	// Nearest-edge distance allowed this before; its far edge exceeds land + 32.
-	body := `{"name":"outside","folder":` + string(folder) + `,"plot":{"at":[52,-24],"style":"villa","seed":1}}`
+	// Nearest-edge distance allows this; its far edge exceeds land + 32 (the land reaches x 37, past the staffing agency's ground).
+	body := `{"name":"outside","folder":` + string(folder) + `,"plot":{"at":[64,-24],"style":"villa","seed":1}}`
 	if code, response := send(t, "POST", api+"/teams", body); code != http.StatusBadRequest {
 		t.Fatalf("%d %v", code, response)
 	}

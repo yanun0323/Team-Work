@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"math"
 	"slices"
 	"sort"
 
@@ -21,18 +22,103 @@ type plotRect struct{ x, z, w, d int }
 
 var airportRect = plotRect{-20, -30, 40, 20}
 
+// staffingRect is the staffing agency's ground, past the airport's east end (STAFFING_LOT).
+var staffingRect = plotRect{22, -30, 10, 10}
+
+// reservedRects is ground no company stands on, with reservedGap cells of grass kept round it.
+var reservedRects = []plotRect{airportRect, staffingRect}
+
+const reservedGap = 2
+
 func overlapsPlot(a, b plotRect, gap int) bool {
 	return a.x < b.x+b.w+gap && b.x < a.x+a.w+gap && a.z < b.z+b.d+gap && b.z < a.z+a.d+gap
 }
 
-func (e *Engine) currentPlotLand() plotLand {
-	var plots []plotRect
-	for _, t := range e.w.Teams {
-		if t.Plot != nil {
-			plots = append(plots, plotRect{t.Plot.At[0], t.Plot.At[1], plotCells, plotCells})
+func onReserved(r plotRect) bool {
+	for _, k := range reservedRects {
+		if overlapsPlot(r, k, reservedGap) {
+			return true
 		}
 	}
-	return makePlotLand(plots)
+	return false
+}
+
+type shownPlot struct {
+	id   string
+	rect plotRect
+}
+
+// shownPlots places every company's plot where the island shows it: as saved, unless it is on reserved
+// ground (saved before that ground was kept), in which case it goes to the nearest spot clear of the
+// reserved ground and of the other plots. The saved plot is left as it is. Companies go in the order they
+// were founded. Keep in step with shownSpots in frontend/src/layout.ts.
+func (e *Engine) shownPlots() []shownPlot {
+	teams := make([]*model.Team, 0, len(e.w.Teams))
+	for _, t := range e.w.Teams {
+		if t.Plot != nil && len(t.Plot.At) == 2 {
+			teams = append(teams, t)
+		}
+	}
+	sort.Slice(teams, func(i, j int) bool {
+		if teams[i].CreatedAt != teams[j].CreatedAt {
+			return teams[i].CreatedAt < teams[j].CreatedAt
+		}
+		return teams[i].ID < teams[j].ID
+	})
+	out := make([]shownPlot, len(teams))
+	var taken []plotRect
+	for i, t := range teams {
+		out[i] = shownPlot{t.ID, plotRect{t.Plot.At[0], t.Plot.At[1], plotCells, plotCells}}
+		if !onReserved(out[i].rect) {
+			taken = append(taken, out[i].rect)
+		}
+	}
+	free := func(r plotRect) bool {
+		if onReserved(r) {
+			return false
+		}
+		for _, o := range taken {
+			if overlapsPlot(r, o, reservedGap) {
+				return false
+			}
+		}
+		return true
+	}
+	for i := range out {
+		saved := out[i].rect
+		if !onReserved(saved) {
+			continue
+		}
+		// ring by ring outward, the nearest by straight distance; on a tie the first found, row by row
+		best, bestD := saved, math.MaxInt
+		for r := 1; r*r <= bestD && r <= 1024; r++ {
+			for dz := -r; dz <= r; dz++ {
+				for dx := -r; dx <= r; dx++ {
+					if max(dx, -dx, dz, -dz) != r {
+						continue
+					}
+					c := plotRect{saved.x + dx, saved.z + dz, plotCells, plotCells}
+					if d := dx*dx + dz*dz; d < bestD && free(c) {
+						best, bestD = c, d
+					}
+				}
+			}
+		}
+		out[i].rect = best
+		taken = append(taken, best)
+	}
+	return out
+}
+
+func (e *Engine) currentPlotLand() plotLand {
+	shown := e.shownPlots()
+	plots := make([]plotRect, len(shown))
+	for i, s := range shown {
+		plots[i] = s.rect
+	}
+	land := makePlotLand(plots)
+	land.shown = shown
+	return land
 }
 
 func (e *Engine) checkPlot(id string, p *model.Plot) error {
@@ -49,15 +135,14 @@ func (e *Engine) checkPlotOnLand(id string, p *model.Plot, land plotLand) error 
 		return bad()
 	}
 	r := plotRect{x, z, plotCells, plotCells}
-	if overlapsPlot(r, airportRect, 2) {
+	if onReserved(r) {
 		return bad()
 	}
-	for key, t := range e.w.Teams {
-		if key == id || t.Plot == nil {
+	for _, o := range land.shown {
+		if o.id == id {
 			continue
 		}
-		o := plotRect{t.Plot.At[0], t.Plot.At[1], plotCells, plotCells}
-		if overlapsPlot(r, o, 0) {
+		if overlapsPlot(r, o.rect, 0) {
 			return model.Errorf(model.CodeConflict, "公司用地不能重疊")
 		}
 	}

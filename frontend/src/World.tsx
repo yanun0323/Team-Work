@@ -446,9 +446,9 @@ export function World() {
       return { x: x + POWER_TOWER.x, z: z + POWER_TOWER.z, w: POWER_TOWER.w * 4, d: POWER_TOWER.d * 4, height: POWER_TOWER.h + 2 }
     }
     if (staffingShown) {
-      const [x, z] = rectCenter(town, town.airport)
+      const [x, z] = rectCenter(town, town.staffing)
       // the rotunda with its lawn round it
-      return { x: x + STAFFING.x, z: z + STAFFING.z, w: STAFFING.w * 2.4, d: STAFFING.d * 2.4, height: STAFFING.h + 2 }
+      return { x, z, w: STAFFING.w * 2.4, d: STAFFING.d * 2.4, height: STAFFING.h + 2 }
     }
     if (airportShown) {
       const [x, z] = rectCenter(town, town.airport)
@@ -497,8 +497,9 @@ export function World() {
       text: <span className="fx-tag fx-tag-right">{tr('基地台')}</span>,
       onClick: selectTower,
     }
+    const [sx, sz] = rectCenter(town, town.staffing)
     const staffing: LabelSpec = {
-      id: 'fusion-staffing', at: [ax + STAFFING.x, STAFFING.h + 1.6, az + STAFFING.z],
+      id: 'fusion-staffing', at: [sx, STAFFING.h + 1.6, sz],
       tone: hovered === STAFFING_HOVER && !open && !settingsOpen && !placing && !editing ? 'fusion lifted' : 'fusion',
       text: <span className="fx-tag">{tr('人力資源公司')}</span>,
       onClick: selectStaffing,
@@ -1213,7 +1214,7 @@ function Batch({ boxes, glow }: { boxes: Box[]; glow?: string }) {
 function Pavement({ town }: { town: Town }) {
   const boxes = useMemo(() => {
     const out: Box[] = []
-    for (const l of town.lots) for (let z = l.plot.z; z < l.plot.z + l.plot.d; z++) for (let x = l.plot.x; x < l.plot.x + l.plot.w; x++) {
+    for (const r of [...town.lots.map((l) => l.plot), town.staffing]) for (let z = r.z; z < r.z + r.d; z++) for (let x = r.x; x < r.x + r.w; x++) {
       const [cx, cz] = cellCenter(town, x, z)
       out.push({ p: [cx, 0.04, cz], s: [CELL, 0.08, CELL], c: (x + z) % 2 ? '#c9c4d6' : '#d3cfdf' })
     }

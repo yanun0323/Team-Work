@@ -14,9 +14,10 @@ it('requires the entire plot to fit within 32 cells of existing land', () => {
   const town = layoutTown([])
   // The old nearest-rectangle test accepts this even though its far edge is outside the expansion.
   expect(REACH_CELLS).toBe(32)
-  expect(canPlace(town, [52, -24])).toBe(false)
+  // the land reaches x 37 on these rows, past the staffing agency's ground: within 32 is up to x 69
+  expect(canPlace(town, [64, -24])).toBe(false)
+  expect(canPlace(town, [54, -24])).toBe(true)
   expect(canPlace(town, [36, -24])).toBe(true)
-  expect(canPlace(town, [22, -24])).toBe(true)
   for (let z = -60; z < 40; z += 4) for (let x = -60; x < 60; x += 4) {
     if (!canPlace(town, [x, z])) continue
     for (let dz = 0; dz < PLOT_CELLS; dz++) for (let dx = 0; dx < PLOT_CELLS; dx++) {

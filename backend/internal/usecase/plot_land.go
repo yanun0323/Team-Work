@@ -17,6 +17,8 @@ type plotLand struct {
 	cols, rows int
 	cells      []bool
 	sums       []int
+	// shown holds every company's plot where the island shows it (shownPlots).
+	shown []shownPlot
 }
 
 func landHash(values ...int) float64 {
@@ -29,7 +31,7 @@ func landHash(values ...int) float64 {
 }
 
 func makePlotLand(plots []plotRect) plotLand {
-	rects := append([]plotRect{airportRect}, plots...)
+	rects := append(append([]plotRect{}, reservedRects...), plots...)
 	hx, hz := plotCells/2+landPadding, plotCells/2+landPadding
 	for _, r := range rects {
 		hx = max(hx, -r.x+landPadding, r.x+r.w+landPadding)

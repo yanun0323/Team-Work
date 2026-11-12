@@ -1,7 +1,8 @@
 // The staffing agency (人力資源公司), drawn as a domed rotunda: a round stone plinth with steps up to it, a ring of
 // columns round a cream drum, a patina-green dome with a lantern and a flag on top, and a giant name badge on a stand
 // out front. Round where every company is a box, low where the power tower is tall, it reads as one of the island's
-// own buildings (layout.ts `STAFFING`). Clicking it opens the agency's file, where its shared employees are kept.
+// own buildings, on its paved ground past the airport's east end (layout.ts `STAFFING_LOT`). Clicking it opens the
+// agency's file, where its shared employees are kept.
 
 import { type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
@@ -64,7 +65,7 @@ export function StaffingAgency({ town, hover, still, onHover, onSelect }: {
   onHover: (on: boolean) => void
   onSelect: () => void
 }) {
-  const [ax, az] = rectCenter(town, town.airport)
+  const [cx, cz] = rectCenter(town, town.staffing)
   const columns = useMemo(() => Array.from({ length: COLUMNS.n }, (_, i) => {
     const a = (i / COLUMNS.n) * Math.PI * 2 + Math.PI / COLUMNS.n
     return [Math.sin(a) * COLUMNS.r, Math.cos(a) * COLUMNS.r] as const
@@ -77,7 +78,7 @@ export function StaffingAgency({ town, hover, still, onHover, onSelect }: {
     if (e.delta <= 5 && !still) onSelect()
   }
   return (
-    <group position={[ax + STAFFING.x, 0, az + STAFFING.z]} onClick={click}
+    <group position={[cx, 0, cz]} onClick={click}
       onPointerOver={(e) => { e.stopPropagation(); onHover(true); document.body.style.cursor = still ? '' : 'pointer' }}
       onPointerOut={() => { onHover(false); document.body.style.cursor = '' }}>
       <Merged deps={[columns, windows]}>
