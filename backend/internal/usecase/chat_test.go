@@ -241,6 +241,49 @@ func TestTypingInsteadOfPickingIsANewMessage(t *testing.T) {
 	}
 }
 
+// Skipping a question clears it without waking the employee; they learn it was set aside with the next message.
+func TestSkipChatQuestion(t *testing.T) {
+	calls := 0
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		calls++
+		if calls == 1 {
+			return call("ask_user", map[string]any{"reply": "用哪個？", "options": []string{"甲", "乙"}}), nil
+		}
+		return say("好"), nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "開始"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("question", func(w *model.World) bool { c := w.Chats[c.ID]; return c.ReplyAt == nil && c.Question != nil })
+	if err := r.e.SkipChatQuestion(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	got := r.world().Chats[c.ID]
+	if got.Question != nil || got.ReplyAt != nil || len(got.Messages) != 2 || calls != 1 {
+		t.Fatalf("question %+v, reply %v, %d messages, %d calls", got.Question, got.ReplyAt, len(got.Messages), calls)
+	}
+	// skipping again, or with nothing open, does nothing
+	if err := r.e.SkipChatQuestion(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.SkipChatQuestion("nope"); err == nil {
+		t.Fatal("skipped in a chat that is not there")
+	}
+
+	if err := r.e.SayInChat(c.ID, "另一件事", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", func(w *model.World) bool { c := w.Chats[c.ID]; return c.ReplyAt == nil && len(c.Messages) == 4 })
+	seen := r.fake.seen[len(r.fake.seen)-1].Messages
+	if n := len(seen); n != 4 || seen[2].Content[0].Type != enum.BlockToolResult || seen[3].Content[0].Text != "另一件事" {
+		t.Fatalf("%+v", seen)
+	}
+	if got := seen[2].Content[0].Text; !strings.Contains(got, "set this question aside") {
+		t.Fatalf("the employee was not told the question was set aside: %q", got)
+	}
+}
+
 // In a chat the user answers ask_user by picking, so a question with nothing to pick is sent back to be asked in words.
 func TestChatAskUserNeedsOptions(t *testing.T) {
 	calls := 0

@@ -537,6 +537,27 @@ func (e *Engine) ReadChat(id string) error {
 	})
 }
 
+// SkipChatQuestion sets aside the question waiting on the user without answering it. The employee is not woken:
+// the open ask_user gets its result now, and they read it with the user's next message.
+func (e *Engine) SkipChatQuestion(id string) error {
+	return e.do(func() error {
+		c := e.w.Chats[id]
+		if c == nil {
+			return model.Errorf(model.CodeNotFound, "找不到對話")
+		}
+		if c.Question == nil || c.ReplyAt != nil {
+			return nil
+		}
+		if err := e.loadConversation(c.ID); err != nil {
+			return err
+		}
+		e.w.Conversations[c.ID] = answerPending(e.w.Conversations[c.ID], chatAskDismissed, "")
+		c.Question = nil
+		e.dirty[c.ID] = true
+		return nil
+	})
+}
+
 // DeleteChat removes a chat and stops its reply. What the employee already changed in the folder stays.
 func (e *Engine) DeleteChat(id string) error {
 	return e.do(func() error {
@@ -948,6 +969,9 @@ const chatAskReplyHow = "Your complete reply, shown as an ordinary message befor
 const chatAskUserSchema = `{"type":"object","properties":{"reply":{"type":"string","minLength":1,"description":"` + chatAskReplyHow + `"},"options":{"type":"array","items":{"type":"string"},"minItems":1,"description":"What the user picks from"}},"required":["reply","options"]}`
 
 // chatAskSkipped is what an open ask_user in a chat gets when the user writes instead of picking.
+// chatAskDismissed is what it gets when the user sets it aside without picking or writing anything.
+const chatAskDismissed = "The user set this question aside without picking an option. Leave it unless they bring it up."
+
 const chatAskSkipped = "The user did not pick an option; they wrote a new message instead, which is not an answer to it: see their next message."
 
 // chatMemoryTools let the employee keep and drop notes while chatting. The chat already shows each call.

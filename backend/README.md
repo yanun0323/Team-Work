@@ -169,6 +169,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | `PATCH /chats/:id/pin` | 釘選或取消釘選對話（`pinned`）：釘選的對話記下 `pinnedAt`，在列表排最上面；已經釘選的再釘一次不改時間 |
 | `PATCH /chats/:id/mind` | 更換機場對話下一次回覆的 `model` 和 `effort`；回覆中或公司對話會拒絕 |
 | `POST /chats/:id/read` | 標記已讀，清除對話的 `unread` |
+| `POST /chats/:id/question/skip` | 略過等待中的 `ask_user`：清除 `chat.question`，不喚起員工；這次提問的工具結果記為使用者略過，員工在下一則訊息時讀到。回覆中或沒有提問時不做事 |
 | `POST /chats/:id/rewind` | 收回第 `index` 則使用者訊息和它之後的所有內容，並中斷回覆；資料夾裡的改動不會還原 |
 | `POST /chats/:id/handoff` | 把對話複製到第 `index` 則訊息為止，交給同公司的員工 `replicaId`（原本的員工就是單純複製；機場對話傳空字串），回傳新對話；從員工訊息複製會保留到該段回覆結束，只有正在寫的那段回覆不能複製。交給別人時新對話的 `handoffs` 記下從哪則訊息起換人（`before`、`replicaId`、`name`），接手的員工會被告知前面哪些回覆不是自己寫的；員工離開公司後，對話仍可交給別人 |
 | `POST /chats/:id/task-draft` | 把對話整理成任務的 `title` 和 `description`，不會建立任務；會議由這一輪能對外動作的人整理 |
