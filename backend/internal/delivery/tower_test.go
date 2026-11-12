@@ -39,14 +39,31 @@ func (offlineTower) Listen(context.Context, json.RawMessage) (net.Listener, stri
 func (offlineTower) Dial(context.Context, string) (net.Conn, error) {
 	return nil, errors.New("offline")
 }
+
+// pairedTower is a tower whose one peer has been allowed to operate it.
 func pairedTower(t *testing.T, transport tower.Transport) *tower.Service {
 	t.Helper()
 	dir := t.TempDir()
+	writePeer(t, dir, map[string]any{"access": "operate"})
+	return openTower(t, dir, transport)
+}
+
+// writePeer saves the test peer as tower-private.json, with extra fields on top of the ones every pair has.
+func writePeer(t *testing.T, dir string, extra map[string]any) {
+	t.Helper()
 	sum := sha256.Sum256([]byte(testToken))
-	raw, _ := json.Marshal(map[string]any{"Me": map[string]any{"id": "me", "name": "Me", "protocol": 1}, "Peers": map[string]any{"peer": map[string]any{"id": "peer", "name": "Peer", "protocol": 1, "allowInbound": true, "status": "online", "Address": "test-address", "Token": testToken, "InboundHash": hex.EncodeToString(sum[:])}}})
+	peer := map[string]any{"id": "peer", "name": "Peer", "protocol": 1, "allowInbound": true, "status": "online", "Address": "test-address", "Token": testToken, "InboundHash": hex.EncodeToString(sum[:])}
+	for k, v := range extra {
+		peer[k] = v
+	}
+	raw, _ := json.Marshal(map[string]any{"Me": map[string]any{"id": "me", "name": "Me", "protocol": 1}, "Peers": map[string]any{"peer": peer}})
 	if err := os.WriteFile(filepath.Join(dir, "tower-private.json"), raw, 0600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func openTower(t *testing.T, dir string, transport tower.Transport) *tower.Service {
+	t.Helper()
 	s, err := tower.New(context.Background(), dir, transport)
 	if err != nil {
 		t.Fatal(err)

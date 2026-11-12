@@ -184,9 +184,9 @@ func New(ctx context.Context, dir string, transport Transport) (*Service, error)
 	}
 	s.disk.Me.Protocol = Protocol
 	for id, p := range s.disk.Peers {
-		// pairs made before access modes keep the control they had
+		// pairs made before access modes, or with an unknown value, may only look until granted control
 		if p.Access != AccessView && p.Access != AccessOperate {
-			p.Access = AccessOperate
+			p.Access = AccessView
 			s.disk.Peers[id] = p
 		}
 		s.newLeaseLocked(id)

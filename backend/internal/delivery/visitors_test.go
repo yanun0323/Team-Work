@@ -42,6 +42,34 @@ func TestGatewayVisitorKeepsUnreadMarks(t *testing.T) {
 	}
 }
 
+// A pair saved before access modes existed has no access field: after the upgrade it may only look,
+// until this computer's user grants it control, and that grant survives a restart.
+func TestGatewayUpgradedPairOnlyLooksUntilGranted(t *testing.T) {
+	dir := t.TempDir()
+	writePeer(t, dir, nil)
+	var reached int
+	api := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached++; w.WriteHeader(200) })
+	service := openTower(t, dir, offlineTower{})
+	g := NewGateway(service, api)
+	if w := gatewayRequest(g, "GET", "/api/v1/world", testToken, "", ""); w.Code != 200 {
+		t.Fatal("the upgraded pair lost its pairing", w.Code, w.Body.String())
+	}
+	if w := gatewayRequest(g, "POST", "/api/v1/tasks", testToken, "k1", `{}`); w.Code != 403 || errorCode(t, w) != "peer_readonly" {
+		t.Fatal("an upgraded pair acted without being granted control", w.Code, w.Body.String())
+	}
+	if reached != 1 {
+		t.Fatal(reached)
+	}
+	if _, err := service.SetAccess("peer", "operate"); err != nil {
+		t.Fatal(err)
+	}
+	service.Close()
+	g = NewGateway(openTower(t, dir, offlineTower{}), api)
+	if w := gatewayRequest(g, "POST", "/api/v1/tasks", testToken, "k2", `{}`); w.Code != 200 {
+		t.Fatal("the granted control was lost on restart", w.Code, w.Body.String())
+	}
+}
+
 func TestGatewayViewAccessOnlyReads(t *testing.T) {
 	service := pairedTower(t, offlineTower{})
 	var reached int

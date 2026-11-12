@@ -215,11 +215,13 @@ const ACCESS: readonly PeerAccess[] = ['view', 'operate']
 const ACCESS_LABELS = { view: '檢視', operate: '操作#access' } as const satisfies Record<PeerAccess, string>
 
 /** Whether a computer let in may only look, or work this island too. */
-function AccessSwitch({ access, disabled, label, onChange }: { access: PeerAccess; disabled: boolean; label: string; onChange: (a: PeerAccess) => void }) {
+function AccessSwitch({ access: given, disabled, label, onChange }: { access: PeerAccess; disabled: boolean; label: string; onChange: (a: PeerAccess) => void }) {
   const name = useId()
+  // only an explicit grant shows as operate; anything missing or unknown is view, as the backend treats it
+  const access: PeerAccess = given === 'operate' ? 'operate' : 'view'
   return (
     <div className="fx-switcher fx-tower-access" role="radiogroup" aria-labelledby={label}
-      style={{ '--count': ACCESS.length, '--at': Math.max(0, ACCESS.indexOf(access)) } as CSSProperties}>
+      style={{ '--count': ACCESS.length, '--at': ACCESS.indexOf(access) } as CSSProperties}>
       <span className="fx-switcher-thumb" aria-hidden="true" />
       {ACCESS.map((a) => (
         <label key={a} className="fx-switcher-option">

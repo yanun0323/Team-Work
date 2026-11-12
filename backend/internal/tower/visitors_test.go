@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestNewPairsOnlyLookAndOldPairsKeepControl(t *testing.T) {
+func TestNewPairsOnlyLook(t *testing.T) {
 	n := &memoryNetwork{}
 	a, b := testService(t, n), testService(t, n)
 	pair(t, a, b)
@@ -19,18 +19,47 @@ func TestNewPairsOnlyLookAndOldPairsKeepControl(t *testing.T) {
 	if p := a.View().Peers[0]; p.Access != AccessView {
 		t.Fatal(p)
 	}
-	// a pair saved before access modes existed has no access field: it keeps the control it had
+}
+
+// A pair saved before access modes existed has no access field: it keeps its identity but may only look,
+// and control granted afterwards is saved, not reset on the next start.
+func TestUpgradedPairStartsViewAndKeepsGrantedAccess(t *testing.T) {
+	n := &memoryNetwork{}
 	dir := t.TempDir()
-	raw := `{"Me":{"id":"me","name":"Me","protocol":1},"Peers":{"old":{"id":"old","name":"Old","allowInbound":true,"protocol":1,"pairedAt":1,"InboundHash":"x"}}}`
+	token := strings.Repeat("a", 64)
+	raw := `{"Me":{"id":"me","name":"Me","protocol":1},"Peers":{"old":{"id":"old","name":"Old","allowInbound":true,"protocol":1,"pairedAt":1,"Token":"t","InboundHash":"` + hash(token) + `"}}}`
 	if err := os.WriteFile(filepath.Join(dir, "tower-private.json"), []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}
-	s, err := New(context.Background(), dir, n)
-	if err != nil {
+	open := func() *Service {
+		s, err := New(context.Background(), dir, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	s := open()
+	if p := s.View().Peers[0]; p.Access != AccessView || p.Name != "Old" || p.ID != "old" || !p.AllowInbound {
+		t.Fatal(p)
+	}
+	if p, _, err := s.Authorize(token, false); err != nil || p.ID != "old" || p.Access != AccessView {
+		t.Fatal("the upgraded pair must still be recognised, looking only", p, err)
+	}
+	if _, err := s.SetAccess("old", AccessOperate); err != nil {
 		t.Fatal(err)
 	}
+	s.Close()
+	s = open()
+	if p, _, err := s.Authorize(token, false); err != nil || p.Access != AccessOperate {
+		t.Fatal("granted control was reset on restart", p, err)
+	}
+	if _, err := s.SetAccess("old", AccessView); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s = open()
 	defer s.Close()
-	if p := s.View().Peers[0]; p.Access != AccessOperate || p.Name != "Old" {
+	if p := s.View().Peers[0]; p.Access != AccessView {
 		t.Fatal(p)
 	}
 }

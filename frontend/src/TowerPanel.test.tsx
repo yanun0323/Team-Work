@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clockOf, TowerBody, updateWhich } from './TowerPanel'
 import { IslandSlip } from './IslandBar'
 import { useIsland } from './core/island'
-import { MOCK_TOWERS, readTowers, type Towers } from './core/towers'
+import { MOCK_TOWERS, readTowers, type Peer, type Towers } from './core/towers'
 import { AIRPORT, CELL, POWER_TOWER, canPlace, layoutTown, rectCenter } from './layout'
 import { listFolders } from './FolderBrowser'
 import { HELIPAD } from './Airport'
@@ -65,6 +65,16 @@ describe('the power tower panel', () => {
     expect(html.match(/<button[^>]*>解除配對<\/button>/g)).toHaveLength(3)
     // never colour alone
     expect(html).toContain('data-status="denied"')
+  })
+
+  it('shows a computer whose access is missing or unknown as view only', () => {
+    for (const access of [undefined, 'admin']) {
+      const peer = { id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access } as unknown as Peer
+      const html = body(towers({ peers: [peer] }))
+      expect(html).toMatch(/<input type="radio"[^>]*checked=""[^>]*><span>檢視<\/span>/)
+      expect(html).toMatch(/<input type="radio"[^>]*><span>操作<\/span>/)
+      expect(html).not.toMatch(/<input type="radio"[^>]*checked=""[^>]*><span>操作<\/span>/)
+    }
   })
 
   it("marks the island shown instead of offering to go there", () => {

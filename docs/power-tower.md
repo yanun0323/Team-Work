@@ -392,7 +392,7 @@ interface Towers {
 
 ## 訪客、權限與封鎖
 
-- 每台配對電腦有 `access`：`view`（只能看）或 `operate`（可操作）。新配對一律是 `view`；這個欄位出現前就存在的配對讀進來時當作 `operate`，維持原本能做的事。權限在遠端入口（`delivery/gateway.go`）逐一請求檢查，含 WebSocket；從 `operate` 改成 `view`、踢出、封鎖都會換掉該電腦的租約，已開的連線立刻關閉。
+- 每台配對電腦有 `access`：`view`（只能看）或 `operate`（可操作）。新配對一律是 `view`；這個欄位出現前就存在的配對（沒有 `access`）或值不認得時，讀進來也當作 `view`，配對身分不變，要島主手動切到 `operate`；切換後立刻存檔，重開後保持。權限在遠端入口（`delivery/gateway.go`）逐一請求檢查，含 WebSocket；從 `operate` 改成 `view`、踢出、封鎖都會換掉該電腦的租約，已開的連線立刻關閉。
 - 訪客對 `POST /api/v1/chats/:id/read` 與 `POST /api/v1/sources/:id/seen` 一律回 204 而不轉進本機 API，所以訪客打開公司、機場的對話不會清掉島主的未讀提示；島主本機照舊。
 - 訪客的每個分頁每 10 秒經遠端入口送 `POST /api/v1/presence`（`{ page, place, gone? }`，`place` 是 `""`、`airport` 或 `team:{id}`）。是哪台電腦只看通行證，不看內容；同一台的多個分頁合成一位，30 秒沒回報就移除。`GET /api/v1/towers` 的 `visitors` 列出目前的訪客，島主地圖上框出他們開著的公司或機場。訪客彼此看不到。
 - 基地台可改本機名稱（`PUT /towers/profile`），配對的另一台在定時檢查（`/tower/v1/hello`）時更新顯示的名稱。基地台顯示本機的遠端相容版本。
