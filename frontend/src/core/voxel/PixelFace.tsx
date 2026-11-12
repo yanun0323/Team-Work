@@ -121,9 +121,28 @@ export function facePixels(extra: Look['extra'], style: Style): FacePixel[] {
   return px
 }
 
-/** An employee's face as pixel art, so 2D panels show the same person as the scene. */
-export function PixelFace({ look, name, size = 28 }: { look: Look; name: string; size?: number }) {
-  const st = styleOf(look.style ?? seedOf(name), look.wardrobe)
+/** The face drawn by each look, as a picture's address; cleared once it holds this many, as names typed make new ones. */
+const faces = new Map<string, string>()
+const MOST_FACES = 500
+
+/**
+ * The face of `look` as an SVG picture's address, made once for each look. A panel can show hundreds of faces at once
+ * (every chat in a long list), and drawn as rectangles each was a couple of dozen elements to build.
+ */
+export function faceUrl(look: Look, name: string): string {
+  const seed = look.style ?? seedOf(name)
+  const key = `${seed}|${look.wardrobe}|${look.skin}|${look.hair}|${look.shirt}|${look.extra}`
+  let url = faces.get(key)
+  if (!url) {
+    if (faces.size >= MOST_FACES) faces.clear()
+    url = `data:image/svg+xml,${encodeURIComponent(faceSvg(look, styleOf(seed, look.wardrobe)))}`
+    faces.set(key, url)
+  }
+  return url
+}
+
+/** The face as a stand-alone SVG document. */
+function faceSvg(look: Look, st: Style) {
   const colour: Record<FacePart, string> = {
     skin: look.skin,
     shine: shade(look.skin, 1.08),
@@ -151,10 +170,17 @@ export function PixelFace({ look, name, size = 28 }: { look: Look; name: string;
     flower: '#f28bb0',
     flowerMid: '#ffcf5a',
   }
+  const rects = facePixels(look.extra, st).map(([x, y, w, h, part]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${colour[part]}"/>`)
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" shape-rendering="crispEdges">${rects.join('')}</svg>`
+}
+
+/** An employee's face as pixel art, so 2D panels show the same person as the scene. */
+export function PixelFace({ look, name, size = 28 }: { look: Look; name: string; size?: number }) {
+  // an svg still, so the panels' styles for faces apply as before
   return (
-    <svg className="pixel-face" width={size} height={size} viewBox="0 0 10 10" shapeRendering="crispEdges" role="img" aria-label={name}>
+    <svg className="pixel-face" width={size} height={size} viewBox="0 0 10 10" role="img" aria-label={name}>
       <title>{name}</title>
-      {facePixels(look.extra, st).map(([x, y, w, h, part], i) => <rect key={i} x={x} y={y} width={w} height={h} fill={colour[part]} />)}
+      <image href={faceUrl(look, name)} width="10" height="10" />
     </svg>
   )
 }

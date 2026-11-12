@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { Chats } from './DrawerTabs'
+import { Chats, FIRST_CHATS } from './DrawerTabs'
 import { useStore } from './core/store'
 import { describe, expect, it } from 'vitest'
 import { attachable, type Encode, fitImage, splitAttachments } from './attachments'
@@ -419,6 +419,30 @@ describe('a meeting on the list', () => {
       expect(stack).not.toMatch(/>\+\d/)
     } finally {
       delete w.chats[chat.id]
+    }
+  })
+})
+
+describe('a long list of chats', () => {
+  it('draws only the first of them as it opens, in order, the rest coming after', () => {
+    // rendered on the server, effects never run: what shows is what a list draws as it opens
+    const w = useStore.getState().world
+    const teamId = Object.keys(w.teams)[0]
+    const replicaId = teamReplicas(w, teamId)[0].id
+    const made = Array.from({ length: FIRST_CHATS + 5 }, (_, i) => createChat(w, { teamId, replicaId, text: `第 ${i} 個` }))
+    // each later than the one before, and than anything else on the list
+    made.forEach((c, i) => {
+      c.createdAt = 1e15 + i
+      for (const m of c.messages) m.at = 1e15 + i
+    })
+    try {
+      const html = renderToStaticMarkup(createElement(Chats, { teamId, open: null, onOpen: () => {} }))
+      expect(html.match(/class="fx-chat-item/g)).toHaveLength(FIRST_CHATS)
+      // in the list's own order: the latest drawn, the oldest left for after
+      expect(html).toContain(`第 ${made.length - 1} 個`)
+      expect(html).not.toContain('第 0 個')
+    } finally {
+      for (const c of made) delete w.chats[c.id]
     }
   })
 })

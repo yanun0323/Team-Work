@@ -1,7 +1,7 @@
 // What each tab of the company file shows. All of it reads the live world, so it moves with the simulation.
 
 import { listOf, tr, type Key } from './core/i18n'
-import { useEffect } from 'react'
+import { startTransition, useEffect, useState } from 'react'
 import { nodeOf } from './core/domain/graph'
 import type { Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
@@ -60,11 +60,21 @@ function Empty({ children }: { children: string }) {
   return <p className="fx-empty">{children}</p>
 }
 
+/**
+ * How many chats a list draws as it opens. A company can have hundreds, more than a screen holds many times over; the
+ * rest are drawn right after, in pieces that leave the frames free, so opening the company doesn't hold up the camera.
+ */
+export const FIRST_CHATS = 40
+
 /** A company's chats or, with no company, the airport's: the pinned on top, then the latest activity first, and a new one. */
 export function Chats(p: Opens) {
   const w = useStore((s) => s.world)
   const chats = Object.values(w.chats).filter((c) => c.teamId === p.teamId).sort(chatOrder)
   const needs = usePrereqs(p.teamId, p.teamId ? 'chats' : 'airportChats')
+  // the company whose whole list is drawn
+  const [whole, setWhole] = useState<string | null>(null)
+  useEffect(() => { startTransition(() => setWhole(p.teamId)) }, [p.teamId])
+  const shown = whole === p.teamId ? chats : chats.slice(0, FIRST_CHATS)
   return (
     <div className="fx-d-groups fx-crew-groups">
       <Prereqs list={needs} />
@@ -72,7 +82,7 @@ export function Chats(p: Opens) {
       {!chats.length && <Empty>{tr('還沒有對話')}</Empty>}
       {chats.length > 0 && (
         <ul className="fx-list">
-          {chats.map((c, i) => {
+          {shown.map((c, i) => {
             const pinned = c.pinnedAt !== undefined
             // a rule under the last pinned chat sets the pinned apart from the rest
             const lastPinned = pinned && i + 1 < chats.length && chats[i + 1].pinnedAt === undefined
