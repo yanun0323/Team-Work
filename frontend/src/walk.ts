@@ -3,6 +3,7 @@
 
 import { CELL, cellCenter, hash, TREE_CELLS, type Town } from './layout'
 import type { Area, OfficePlan } from './office'
+import { blockedCells } from './staffingGrounds'
 
 export type P = [number, number]
 
@@ -255,6 +256,8 @@ export function townGrid(town: Town): Grid {
     for (const p of l.props) block(p.x, p.z, p.w, p.d)
   }
   for (const t of town.trees) block(t.x, t.z, TREE_CELLS, TREE_CELLS)
+  // the staffing agency's rotunda and what stands round it
+  for (const [x, z] of blockedCells(town, town.staffing)) free[z * town.cols + x] = 0
   const [x0, z0] = cellCenter(town, 0, 0)
   return { cols: town.cols, rows: town.rows, free, x0, z0, step: CELL }
 }

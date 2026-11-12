@@ -12,7 +12,7 @@ import type { IdleFollowTarget } from './prefs'
 import type { Look } from './core/domain/types'
 import { anchors } from './core/voxel/labels'
 import { BODY_SHARE, coordinateTraffic, walkingRoute, beginAvoidance, openSpot, separate, spotTaken, UNHINDERED, walkAround, type Avoider } from './avoid'
-import { benchMate, indoors, islandPlaces, ISLAND_GAP, ISLAND_SPEED, stepCrowd, townsfolk, type Scene, type Townsfolk } from './crowd'
+import { ARRIVAL_GAP, benchMate, indoors, islandPlaces, ISLAND_GAP, ISLAND_SPEED, newcomer, settleCount, stepCrowd, townsfolk, type Scene, type Townsfolk } from './crowd'
 import { Fade, FADE_SECONDS } from './Fade'
 import { light } from './daylight'
 import { isSwimwear, seedOf, styleOf, type Style } from './figureStyle'
@@ -1086,12 +1086,25 @@ const GESTURE = 12
 /** How fast someone on a bench turns towards whoever sits beside them, per second. */
 const BENCH_TURN_SPEED = 3
 
+/** The first `size` of a list made one at a time by `make`; what was made is kept, so someone keeps their figure as others come and go. */
+function useKept<T>(size: number, make: (i: number) => T): T[] {
+  const made = useRef<T[]>([])
+  return useMemo(() => {
+    while (made.current.length < size) made.current.push(make(made.current.length))
+    return made.current.slice(0, size)
+    // what `make` gives for an index never changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [size])
+}
+
 /**
  * People out on the island, two to five per building. They walk about the paving and the grass and sit on the
  * benches, talking with whoever sits beside them; stop to chat, and sometimes walk on together; wave at someone
  * passing; look out to sea, or paddle on the beach in their swimwear; and look up at a
  * company's front door. After dark some go indoors and the rest stand about under the lamps; by day they come out
- * again. `field` is the land's, for the beach. With reduced motion they stand where they are.
+ * again. When the island needs more people, newcomers come out of the staffing agency one after another; when it
+ * needs fewer, the last ones walk in there and are gone. `field` is the land's, for the beach. With reduced motion
+ * they stand where they are, and come and go at once.
  */
 export function Strollers({ town, field }: { town: Town; field?: Field }) {
   const grid = useMemo(() => townGrid(town), [town])
@@ -1103,20 +1116,36 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
     const d = sample(field, field.sdf, x, z)
     return d > 0.25 && d < BEACH - 0.25
   })), [town, grid, field])
+  // how many the island needs, and how many are out: those, and any still on their way out through the staffing agency
   const n = useMemo(() => crowdSize(town), [town])
-  const looks = useMemo(() => Array.from({ length: n }, (_, i) => lookOf(i)), [n])
-  const rigs = useMemo(() => looks.map(newRig), [looks])
-  const styles = useMemo(() => looks.map((look, i) => styleOf(i * 7 + 3, look.wardrobe, true)), [looks])
+  const [kept, setKept] = useState(n)
+  if (n > kept) setKept(n)
+  const size = Math.max(n, kept)
+  const looks = useKept(size, lookOf)
+  const rigs = useKept(size, newRig)
+  const styles = useKept(size, (i) => styleOf(i * 7 + 3, looks[i].wardrobe, true))
   const swim = useMemo(() => styles.map((st) => isSwimwear(st.bottom)), [styles])
-  const farLooks = useMemo(() => looks.map((look, i) => farParts(look, styles[i], BENCH_LIFT)), [looks, styles])
+  const farLooks = useKept(size, (i) => farParts(looks[i], styles[i], BENCH_LIFT))
   const farMesh = useRef<THREE.InstancedMesh | null>(null)
   const far = useRef(false)
-  const bubbles = useMemo(() => looks.map(() => ({ talk: null as THREE.Group | null, think: null as THREE.Group | null })), [looks])
+  const bubbles = useKept(size, () => ({ talk: null as THREE.Group | null, think: null as THREE.Group | null }))
   // how far each one's gesture has got, on top of the walk: left arm raised and swung out, right arm raised, leaning back
-  const bends = useMemo(() => looks.map(() => ({ left: 0, out: 0, right: 0, lean: 0 })), [looks])
+  const bends = useKept(size, () => ({ left: 0, out: 0, right: 0, lean: 0 }))
 
+  // one list for good: people carry on as others come and go
+  const folk = useRef<Townsfolk[]>([])
   const people = useMemo(() => {
+    const all = folk.current
+    if (all.length) {
+      // newcomers come out of the staffing agency one after another, or are simply there with reduced motion
+      for (let k = 0; all.length < size; k++) all.push((!calm && newcomer(places, k * ARRIVAL_GAP)) || placed(all.length))
+      return all
+    }
     const taken = new Set<BenchSeat>()
+    function placed(i: number): Townsfolk {
+      const [x, z] = cellPos(grid, ...(paved.length ? paved : cells)[Math.floor(hash(i, 6) * (paved.length || cells.length))])
+      return townsfolk({ x, z, route: [], heading: hash(i, 7) * Math.PI * 2, mode: 'standing', wait: rand(0.2, 3), seat: null, toSeat: false })
+    }
     const initial = looks.map((_, i): Townsfolk => {
       // about a third start on a bench, the rest standing somewhere on the paving
       const seat = i % 3 === 0 ? seats.find((s, k) => !taken.has(s) && hash(i, k, 5) < 0.4) ?? null : null
@@ -1124,14 +1153,14 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
         taken.add(seat)
         return townsfolk({ x: seat.at[0], z: seat.at[1], route: [], heading: seat.heading, mode: 'sitting', wait: rand(3, 14), seat, toSeat: false })
       }
-      const [x, z] = cellPos(grid, ...(paved.length ? paved : cells)[Math.floor(hash(i, 6) * (paved.length || cells.length))])
-      return townsfolk({ x, z, route: [], heading: hash(i, 7) * Math.PI * 2, mode: 'standing', wait: rand(0.2, 3), seat: null, toSeat: false })
+      return placed(i)
     })
     resettle(initial, grid, seats, ISLAND_GAP * BODY_SHARE)
-    return initial
-    // only a new crowd starts over: when a building grows the grid changes, and people carry on from where they are
+    all.push(...initial)
+    return all
+    // only the count adds anyone: when a building grows the grid changes, and people carry on from where they are
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [looks])
+  }, [size])
   useEffect(() => {
     resettle(people.filter((p) => !p.home), grid, seats, ISLAND_GAP * BODY_SHARE)
     for (const p of people) Object.assign(p, UNHINDERED)
@@ -1141,7 +1170,7 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
   const [inside, setInside] = useState<boolean[]>([])
   const insideNow = useRef<boolean[]>([])
   // the figure each one was last drawn as: one put back on coming out faces their way at once, rather than turning
-  const drawn = useMemo(() => looks.map((): THREE.Group | null => null), [looks])
+  const drawn = useRef<Array<THREE.Group | null>>([])
 
   useFrame(({ camera }, rawDt) => {
     const dt = Math.min(rawDt, MAX_FRAME)
@@ -1149,6 +1178,9 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
     const scene: Scene = {
       grid, seats, cells, paved, places, swim, night: light.glow, followed: followed.stroller,
     }
+    // those no longer needed head for the staffing agency, and are let go once in
+    const left = settleCount(people, n, calm)
+    if (left < size) setKept(left)
     const moved = people.map(() => 0)
     if (!calm) inSteps(dt, (step) => {
       stepCrowd(people, scene, step)
@@ -1174,9 +1206,9 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
         ground += (BEACH_TOP - ground) * past * past * (3 - 2 * past)
       }
       pose(rig, p, sitting, moved[i] / OFFICE_SCALE, sitting ? BENCH_TOP - CHAIR_TOP * OFFICE_SCALE : ground, dt)
-      if (rig.root && rig.root !== drawn[i]) {
+      if (rig.root && rig.root !== drawn.current[i]) {
         rig.root.rotation.y = p.heading
-        drawn[i] = rig.root
+        drawn.current[i] = rig.root
       }
 
       // what the arms and the bubbles show
@@ -1235,7 +1267,7 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
     })
     // fading out over the last steps in, so they are gone just as they reach the doors
     const now = people.map((p) => indoors(p, ISLAND_SPEED * FADE_SECONDS))
-    if (now.some((v, i) => v !== !!insideNow.current[i])) {
+    if (now.length !== insideNow.current.length || now.some((v, i) => v !== insideNow.current[i])) {
       insideNow.current = now
       setInside(now)
     }
@@ -1249,7 +1281,8 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
       {/* figures are built in office units */}
       {looks.map((look, i) => (
         <group key={i}>
-          <Fade show={!inside[i]}>
+          {/* a newcomer starts out of sight, inside the staffing agency's door */}
+          <Fade show={!(inside[i] ?? people[i]?.home)}>
             <Figure look={look} rig={rigs[i]} seed={i * 7 + 3} drop={BENCH_LIFT} scale={OFFICE_SCALE} beach />
           </Fade>
           <Bubble kind="talk" bind={(g) => void ((bubbles[i].talk = g), big(g))} />
