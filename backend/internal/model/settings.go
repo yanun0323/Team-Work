@@ -133,8 +133,7 @@ func RuntimeDoc(d Doc) (Doc, error) {
 			TeamID  string        `json:"teamId"`
 			Memory  []MemoryEntry `json:"memory"`
 			HiredAt float64       `json:"hiredAt"`
-			CopyKey string        `json:"copyKey,omitempty"`
-		}{r.ID, r.TeamID, r.Memory, r.HiredAt, r.CopyKey}
+		}{r.ID, r.TeamID, r.Memory, r.HiredAt}
 	case "provider":
 		var p ModelProvider
 		if err := json.Unmarshal(d.Data, &p); err != nil {

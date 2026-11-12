@@ -113,6 +113,7 @@ func (e *Engine) rollbackWorld() *model.World {
 		}
 	}
 	out.Conversations = maps.Clone(w.Conversations)
+	out.Copies = maps.Clone(w.Copies)
 	return out
 }
 

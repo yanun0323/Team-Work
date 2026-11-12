@@ -1658,8 +1658,13 @@ func (e *Engine) MoveReplica(id, to, heirID string) (*model.Replica, error) {
 			own = clone(b)
 		}
 		moved := &model.Replica{ID: e.uid("rep"), TeamID: to, BlueprintID: r.BlueprintID, Name: r.Name, Look: r.Look,
-			Model: r.Model, Effort: r.Effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now, CopyKey: r.CopyKey}
+			Model: r.Model, Effort: r.Effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now}
 		e.letGo(r, heir)
+		for k, v := range e.w.Copies {
+			if v == r.ID { // a copy sent again finds who it hired where they went
+				e.w.Copies[k] = moved.ID
+			}
+		}
 		if own != nil {
 			own.ID, own.Owner = e.uid("bp"), moved.ID
 			e.w.Blueprints[own.ID] = own

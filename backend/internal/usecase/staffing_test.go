@@ -192,7 +192,7 @@ func TestStaffingHandsOverToSomeoneWhoCanWorkThere(t *testing.T) {
 		t.Fatalf("moved = %+v", w.Replicas[moved.ID])
 	}
 	// a company employee may hand over to the agency, the company keeping someone of its own
-	if err := r.e.Fire(moved.ID, ""); err == nil {
+	if err := r.e.Fire(moved.ID, r.owner.ID); err == nil {
 		t.Fatal("a company employee left without an heir")
 	}
 }
@@ -415,6 +415,51 @@ func TestCopyRetriedAfterARestartHiresNobodyNew(t *testing.T) {
 	three, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "peer\x00rep-1\x00k2"})
 	if err != nil || three.Replica.ID == one.Replica.ID || countNamed(r.world(), "Bo") != 2 {
 		t.Fatalf("another: %+v %v", three, err)
+	}
+}
+
+// A copy whose employee was let go since is not made again by the same request, after a restart too: the request is
+// remembered apart from whoever it hired.
+func TestCopyOfSomeoneLetGoIsNotMadeAgain(t *testing.T) {
+	r, _, reopen := diskRig(t)
+	one, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "k1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.Fire(one.Replica.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	reopen()
+	count := len(r.world().Replicas)
+	if _, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "k1"}); codeOf(err) != model.CodeConflict {
+		t.Fatalf("sent again: %v", err)
+	}
+	if w := r.world(); countNamed(w, "Bo") != 0 || len(w.Replicas) != count {
+		t.Fatal("the same request hired someone again")
+	}
+}
+
+// Moved first and then let go, the copy is not made again either.
+func TestCopyMovedAndLetGoIsNotMadeAgain(t *testing.T) {
+	r, _, reopen := diskRig(t)
+	one, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "k1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved, err := r.e.MoveReplica(one.Replica.ID, r.team.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopen()
+	if err := r.e.Fire(moved.ID, r.owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	reopen()
+	if _, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "k1"}); codeOf(err) != model.CodeConflict {
+		t.Fatalf("sent again: %v", err)
+	}
+	if countNamed(r.world(), "Bo") != 0 {
+		t.Fatal("the same request hired someone again")
 	}
 }
 

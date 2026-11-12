@@ -113,9 +113,6 @@ type Replica struct {
 	Effort      string        `json:"effort"`
 	Memory      []MemoryEntry `json:"memory"`
 	HiredAt     float64       `json:"hiredAt"`
-	// CopyKey is the hash of the request that copied them here from another island, so the same request sent again
-	// hires nobody new; it stays with them when they move.
-	CopyKey string `json:"copyKey,omitempty"`
 }
 
 type Point struct {
@@ -642,6 +639,10 @@ type World struct {
 	SubTasks      map[string]*SubTask       `json:"subTasks"`
 	Chats         map[string]*Chat          `json:"chats"`
 	Conversations map[string][]Message      `json:"-"`
+	// Copies are the copies from other islands made here: the hash of each request to the employee it hired, who
+	// may have moved or been let go since. Kept apart from the employees, so the same request sent again never hires
+	// anyone, whatever became of them.
+	Copies map[string]string `json:"-"`
 }
 
 // The languages of the app and of what employees write to the user.
@@ -687,6 +688,7 @@ func NewWorld() *World {
 		Teams: map[string]*Team{}, Providers: map[string]*ModelProvider{}, Blueprints: map[string]*Blueprint{}, Sources: map[string]*Source{},
 		Replicas: map[string]*Replica{}, Workflows: map[string]*Workflow{}, Tasks: map[string]*Task{},
 		SubTasks: map[string]*SubTask{}, Chats: map[string]*Chat{}, Conversations: map[string][]Message{},
+		Copies: map[string]string{},
 	}
 }
 

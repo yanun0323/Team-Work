@@ -321,18 +321,27 @@ func copyKey(key string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// copiedBy is the employee a copy with this key hired, kept with the employee so a restart does not forget it and a
-// save that failed takes it back with everything else. Callers hold e.mu.
-func (e *Engine) copiedBy(key string) *model.Replica {
-	if key == "" {
-		return nil
+// copiedBy reports whether a copy with this key was made, and the employee it hired if they are still here. The key
+// is saved with the world, apart from the employee, so a restart does not forget it, letting them go does not either,
+// and a save that failed takes it back with everything else. Callers hold e.mu.
+func (e *Engine) copiedBy(key string) (*model.Replica, bool) {
+	id, ok := e.w.Copies[key]
+	if key == "" || !ok {
+		return nil, false
 	}
-	for _, r := range e.w.Replicas {
-		if r.CopyKey == key {
-			return r
-		}
+	return e.w.Replicas[id], true
+}
+
+// copiedAgain answers a copy sent again: who it hired, or a refusal once they are gone, never someone new.
+func copiedAgain(r *model.Replica, x ReplicaExport, mode string) (CopyResult, error) {
+	if r == nil {
+		return CopyResult{}, model.Errorf(model.CodeConflict, "這位員工已經複製過，複製來的員工已不在這座島上；要再複製請重新開始")
 	}
-	return nil
+	out := CopyResult{Replica: clone(r), Missing: []string{}}
+	if !model.IsPresetID(r.BlueprintID) {
+		out.Missing = copyMissing(x, mode)
+	}
+	return out, nil
 }
 
 // copyMissing is the skill sources of x that copying it this way leaves to be picked again.
@@ -354,7 +363,8 @@ func copyMissing(x ReplicaExport, mode string) []string {
 
 // CopyReplica hires x into the staffing agency as someone new. With SkillsFiles, the skills' files are kept under
 // this computer's data folder as a folder source of their own. Nothing is hired when anything is refused, and a
-// request sent again with the same key hires nobody new: the key is kept with whoever it hired.
+// request sent again with the same key hires nobody new: the key is kept apart from whoever it hired, who may
+// be gone by then.
 func (e *Engine) CopyReplica(x ReplicaExport, o CopyOptions) (CopyResult, error) {
 	if o.Skills == "" {
 		o.Skills = SkillsSource
@@ -363,23 +373,13 @@ func (e *Engine) CopyReplica(x ReplicaExport, o CopyOptions) (CopyResult, error)
 		return CopyResult{}, model.Errorf(model.CodeInvalid, "不認識的技能複製方式")
 	}
 	key := copyKey(o.Key)
-	again := func(r *model.Replica) CopyResult {
-		out := CopyResult{Replica: clone(r), Missing: []string{}}
-		if !model.IsPresetID(r.BlueprintID) {
-			out.Missing = copyMissing(x, o.Skills)
-		}
-		return out
-	}
 	e.mu.Lock()
-	done := e.copiedBy(key)
-	var out CopyResult
-	if done != nil {
-		out = again(done)
-	}
+	done, made := e.copiedBy(key)
 	e.mu.Unlock()
-	if done != nil {
-		return out, nil
+	if made {
+		return copiedAgain(done, x, o.Skills)
 	}
+	var out CopyResult
 	// their level is kept, or one picked with the model: none is put in its place
 	modelID, effort := cmpOr(o.Model, x.Model), cmpOr(o.Effort, x.Effort)
 	var folder string
@@ -391,9 +391,10 @@ func (e *Engine) CopyReplica(x ReplicaExport, o CopyOptions) (CopyResult, error)
 	}
 	hired := false
 	err := e.doSettings(func() error {
-		if done := e.copiedBy(key); done != nil { // the same request, waiting on the lock while this one was made
-			out = again(done)
-			return nil
+		if done, made := e.copiedBy(key); made { // the same request, waiting on the lock while this one was made
+			var err error
+			out, err = copiedAgain(done, x, o.Skills)
+			return err
 		}
 		if strings.TrimSpace(x.Name) == "" {
 			return model.Errorf(model.CodeInvalid, "員工要有名字")
@@ -405,7 +406,7 @@ func (e *Engine) CopyReplica(x ReplicaExport, o CopyOptions) (CopyResult, error)
 			return model.Errorf(model.CodeInvalid, "%s 沒有思考等級 %s，請重新選擇思考等級", modelID, effort)
 		}
 		r := &model.Replica{ID: e.uid("rep"), TeamID: model.StaffingID, Name: strings.TrimSpace(x.Name), Look: x.Look,
-			Model: modelID, Effort: effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now, CopyKey: key}
+			Model: modelID, Effort: effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now}
 		missing := []string{}
 		if id := x.Blueprint.PresetID; id != "" && e.w.Blueprints[id] != nil {
 			r.BlueprintID = id
@@ -438,6 +439,12 @@ func (e *Engine) CopyReplica(x ReplicaExport, o CopyOptions) (CopyResult, error)
 			}
 		}
 		e.w.Replicas[r.ID] = r
+		if key != "" {
+			if e.w.Copies == nil {
+				e.w.Copies = map[string]string{}
+			}
+			e.w.Copies[key] = r.ID
+		}
 		out = CopyResult{Replica: clone(r), Missing: missing}
 		hired = true
 		return nil

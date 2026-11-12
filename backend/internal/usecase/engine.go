@@ -325,11 +325,15 @@ func (e *Engine) load(ctx context.Context) error {
 		switch d.Kind {
 		case kindMeta:
 			var meta struct {
-				Seq      int    `json:"seq"`
-				Language string `json:"language"`
+				Seq      int               `json:"seq"`
+				Language string            `json:"language"`
+				Copies   map[string]string `json:"copies"`
 			}
 			err = jsonx.Unmarshal(d.Data, &meta)
 			e.w.Seq = meta.Seq
+			if meta.Copies != nil {
+				e.w.Copies = meta.Copies
+			}
 			if meta.Language != "" {
 				e.w.Language = meta.Language
 			}
@@ -418,7 +422,11 @@ func encodeAll[T any](docs map[string][]byte, kind string, all map[string]*T) {
 // documents captures the public entities plus private runtime records for change detection.
 func (e *Engine) documents() map[string][]byte {
 	now := map[string][]byte{}
-	meta, _ := jsonx.Marshal(map[string]any{"seq": e.w.Seq, "language": e.w.Language})
+	m := map[string]any{"seq": e.w.Seq, "language": e.w.Language}
+	if len(e.w.Copies) > 0 {
+		m["copies"] = e.w.Copies
+	}
+	meta, _ := jsonx.Marshal(m)
 	now[docKey(kindMeta, "world")] = meta
 	prefs, _ := jsonx.Marshal(e.w.Preferences)
 	now[docKey("preferences", "world")] = prefs
