@@ -243,6 +243,7 @@ const en = {
   '使用中的員工': 'Employees using it',
   '{a} 訂閱': '{a} subscription',
   '編輯 {name}': 'Edit {name}',
+  '複製 {name}': 'Copy {name}',
   '新增模型供應商': 'New model provider',
   '{sub} 訂閱': '{sub} subscription',
   '名稱不可為空': 'Name cannot be empty',

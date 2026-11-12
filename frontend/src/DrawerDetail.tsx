@@ -72,7 +72,8 @@ export type Item =
   | { kind: 'fact'; id: string }
   | { kind: 'blueprint'; id: string }
   | { kind: 'crewEdit'; id: string }
-  | { kind: 'newCrew' }
+  /** With copyOf, the sheet starts filled in from that employee. */
+  | { kind: 'newCrew'; copyOf?: string }
   | { kind: 'fire'; id: string }
   /** Moving an employee between a company and the staffing agency. */
   | { kind: 'move'; id: string }
@@ -112,7 +113,7 @@ export type Item =
   | { kind: 'newSource' }
 
 export const itemKey = (x: Item) =>
-  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' || x.kind === 'newSource' ? x.kind : x.kind === 'staff' || x.kind === 'flowStep' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' || x.kind === 'fileEdit' ? `${x.kind}:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'sourceSkill' ? `sourceSkill:${x.source}:${x.path}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
+  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newCrew' && x.copyOf ? `newCrew:${x.copyOf}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' || x.kind === 'newSource' ? x.kind : x.kind === 'staff' || x.kind === 'flowStep' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' || x.kind === 'fileEdit' ? `${x.kind}:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'sourceSkill' ? `sourceSkill:${x.source}:${x.path}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 const HANDOFF = { pickOne: '交給其中一個下一步', all: '交給所有下一步' } as const
@@ -215,9 +216,10 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           )}
           {item.kind === 'crew' && (
             <CrewDetail id={item.id} title={title} tid={id} editing={above?.kind === 'crewEdit'} firing={above?.kind === 'fire'}
-              moving={above?.kind === 'move'} copying={above?.kind === 'copyHome'}
+              moving={above?.kind === 'move'} copying={above?.kind === 'copyHome'} duplicating={above?.kind === 'newCrew'}
               onEdit={() => onPush({ kind: 'crewEdit', id: item.id })} onFire={() => onPush({ kind: 'fire', id: item.id })}
-              onMove={() => onPush({ kind: 'move', id: item.id })} onCopy={() => onPush({ kind: 'copyHome', id: item.id })} />
+              onMove={() => onPush({ kind: 'move', id: item.id })} onCopy={() => onPush({ kind: 'copyHome', id: item.id })}
+              onDuplicate={() => onPush({ kind: 'newCrew', copyOf: item.id })} />
           )}
           {item.kind === 'provider' && (
             <ProviderDetail id={item.id} title={title} tid={id} editing={above?.kind === 'providerEdit'}
@@ -243,7 +245,8 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           )}
           {item.kind === 'newSource' && <NewSource title={title} tid={id} onDone={onDone} />}
           {(item.kind === 'crewEdit' || item.kind === 'newCrew') && (
-            <CrewEdit id={item.kind === 'crewEdit' ? item.id : null} teamId={teamId} title={title} tid={id} onDone={onDone} />
+            <CrewEdit id={item.kind === 'crewEdit' ? item.id : null} copyOf={item.kind === 'newCrew' ? item.copyOf : undefined} teamId={teamId}
+              title={title} tid={id} onDone={onDone} />
           )}
           {item.kind === 'fire' && <Fire id={item.id} title={title} tid={id} onDone={onClear} />}
           {item.kind === 'move' && <MoveSheet id={item.id} title={title} tid={id} onDone={onClear} />}
@@ -1016,16 +1019,19 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
   )
 }
 
-function CrewDetail({ id, editing, firing, moving, copying, onEdit, onFire, onMove, onCopy, ...h }: Head & {
+function CrewDetail({ id, editing, firing, moving, copying, duplicating, onEdit, onFire, onMove, onCopy, onDuplicate, ...h }: Head & {
   id: string
   editing: boolean
   firing: boolean
   moving: boolean
   copying: boolean
+  /** The sheet hiring a copy of them, where they work, is open. */
+  duplicating: boolean
   onEdit: () => void
   onFire: () => void
   onMove: () => void
   onCopy: () => void
+  onDuplicate: () => void
 }) {
   const w = useStore((s) => s.world)
   // on another computer's island, its employees can be copied to this computer's staffing agency
@@ -1045,6 +1051,11 @@ function CrewDetail({ id, editing, firing, moving, copying, onEdit, onFire, onMo
         {remote && !MOCK && (
           <button type="button" className="fx-tool fx-hit" onClick={onCopy} aria-expanded={copying}
             aria-label={tr('複製到我的人力資源公司')} title={tr('複製到我的人力資源公司')}>
+            <CopyIcon />
+          </button>
+        )}
+        {!remote && (
+          <button type="button" className="fx-tool fx-hit" onClick={onDuplicate} aria-expanded={duplicating} aria-label={tr('複製')} title={tr('複製')}>
             <CopyIcon />
           </button>
         )}
@@ -1730,35 +1741,50 @@ export function Reroll({ onClick, label }: { onClick: () => void; label: string 
 
 const NAMES = ['Nova', 'Orin', 'Pip', 'Quill', 'Rune', 'Sage', 'Tess', 'Uma', 'Vex', 'Wren', 'Yuki', 'Zed', 'Bo', 'Cleo', 'Dax', 'Eli']
 
+/** The first free `name-1`, `name-2`… for a copy of someone, as a copied flow is named. */
+export function copyName(w: World, name: string) {
+  const taken = new Set(Object.values(w.replicas).map((x) => x.name))
+  let n = 1
+  while (taken.has(`${name}-${n}`)) n++
+  return `${name}-${n}`
+}
+
 /**
  * Hire someone (`id` null) or change an employee, as a draft: nothing changes until it is saved. Their look
- * (the face here and the figure in the office) can be rolled again at random.
+ * (the face here and the figure in the office) can be rolled again at random. With `copyOf`, a new hire starts as a
+ * copy of that employee, where they work: settings, model and look, but none of their memory.
  */
-function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; teamId: string; onDone: () => void }) {
+function CrewEdit({ id, copyOf, teamId: here, onDone, ...h }: Head & { id: string | null; copyOf?: string; teamId: string; onDone: () => void }) {
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const r = id ? w.replicas[id] : undefined
+  const src = !id && copyOf ? w.replicas[copyOf] : undefined
+  // what the form starts from: the one being changed, or the one being copied
+  const seed = r ?? src
+  const teamId = src?.teamId ?? here
   // their own settings, when they work by those rather than a blueprint
-  const mine = r && isCustom(w, r) ? w.blueprints[r.blueprintId] : undefined
+  const mine = seed && isCustom(w, seed) ? w.blueprints[seed.blueprintId] : undefined
   const listed = (x?: string) => (x && w.blueprints[x] && !w.blueprints[x].owner ? x : undefined)
-  const [name, setName] = useState(() => r?.name ?? NAMES.find((n) => !Object.values(w.replicas).some((x) => x.name === n)) ?? 'Nova')
+  const [name, setName] = useState(() => r?.name ?? (src ? copyName(w, src.name) : NAMES.find((n) => !Object.values(w.replicas).some((x) => x.name === n)) ?? 'Nova'))
   const [mode, setMode] = useState<'blueprint' | 'custom'>(mine ? 'custom' : 'blueprint')
   // one whose blueprint is gone picks another here: none is picked for them
-  const [bp, setBp] = useState(() => (r && blueprintGone(w, r) ? '' : listed(mine ? mine.from : r?.blueprintId) ?? unhidden(hireList(w), usePrefs.getState().hiddenBlueprints)[0]?.id ?? ''))
+  // so is one for a copy whose blueprint is hidden, which cannot be hired from
+  const [bp, setBp] = useState(() => (seed && (blueprintGone(w, seed) || (src && !mine && usePrefs.getState().hiddenBlueprints.includes(src.blueprintId)))
+    ? '' : listed(mine ? mine.from : seed?.blueprintId) ?? unhidden(hireList(w), usePrefs.getState().hiddenBlueprints)[0]?.id ?? ''))
   // the settings of their own being written, and what they were copied from: theirs, or the blueprint copied
   const [base, setBase] = useState<Blueprint | undefined>(mine)
   const [prompt, setPrompt] = useState(mine?.prompt ?? '')
   const [packs, setPacks] = useState<SkillPack[]>(() => (mine ? ownPacks(mine) : []))
   const [tools, setTools] = useState<Tool[]>(mine?.tools ?? ['readFile', 'writeFile'])
-  const [model, setModel] = useState(r?.model ?? (MOCK ? DEFAULT_MODEL : modelsOf(w)[0] ?? ''))
-  const [effort, setEffort] = useState(r?.effort ?? DEFAULT_EFFORT)
+  const [model, setModel] = useState(seed?.model ?? (MOCK ? DEFAULT_MODEL : modelsOf(w)[0] ?? ''))
+  const [effort, setEffort] = useState(seed?.effort ?? DEFAULT_EFFORT)
   // what the model takes decides; another model that doesn't take this level starts on the default
   const levels = effortsOf(w, model)
   const level = levels.includes(effort) ? effort : DEFAULT_EFFORT
-  const [look, setLook] = useState<Look>(() => r?.look ?? randomLook())
+  const [look, setLook] = useState<Look>(() => (seed ? { ...seed.look } : randomLook()))
   // what a new hire needs may go while this is open; changing an employee needs nothing of it
   const needs = usePrereqs(teamId, 'crew').filter((x) => !id && x.blocks)
-  if (id && !r) return <Gone {...h} />
+  if ((id && !r) || (copyOf && !id && !src)) return <Gone {...h} />
   const picked = w.blueprints[bp]
   const from = base && (base.owner ? base.from : base.id)
   // filling in their own settings from a blueprint, or blank ones for none: what was written here gives way to it
@@ -1789,7 +1815,7 @@ function CrewEdit({ id, teamId, onDone, ...h }: Head & { id: string | null; team
     <form className="fx-d-form" onSubmit={save}>
       <header className="fx-d-head fx-d-who">
         <PixelFace look={look} name={name || '?'} size={52} />
-        <Heading {...h}>{r ? tr('編輯 {name}', { name: r.name }) : tr('新增員工')}</Heading>
+        <Heading {...h}>{r ? tr('編輯 {name}', { name: r.name }) : src ? tr('複製 {name}', { name: src.name }) : tr('新增員工')}</Heading>
       </header>
       <div className="fx-fields">
         <div className="fx-field fx-field-top">

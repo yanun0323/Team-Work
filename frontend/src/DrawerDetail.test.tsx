@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { DeleteTool, Detail, type Item } from './DrawerDetail'
+import { copyName, DeleteTool, Detail, type Item } from './DrawerDetail'
 import { blueprintChoices } from './Pickers'
 import { useStore } from './core/store'
 import type { ModelProvider } from './core/domain/types'
@@ -260,4 +260,29 @@ it('deletes a blueprint in use by moving everyone on it, in every company, to an
     for (const id of ['bp-old', 'bp-spare']) delete w.blueprints[id]
     delete w.teams['team-far']
   }
+})
+
+it('copies an employee into a new hire sheet filled in from them, where they work', () => {
+  const w = useStore.getState().world
+  const r = Object.values(w.replicas).find((x) => x.teamId in w.teams && x.model !== 'claude-sonnet-5')!
+  Object.assign(useStore.getInitialState(), useStore.getState())
+  const noop = () => {}
+  const sheet = (item: Item, teamId: string) => renderToStaticMarkup(<Detail item={item} teamId={teamId} depth={0} covered={false} leaving={false}
+    onGone={noop} onBack={noop} onDone={noop} onClear={noop} onPush={noop} onOpen={noop} />)
+  expect(sheet({ kind: 'crew', id: r.id }, r.teamId)).toContain('aria-label="複製"')
+  // opened from another company's sheet stack, it still hires into theirs
+  const html = sheet({ kind: 'newCrew', copyOf: r.id }, 'elsewhere')
+  expect(html).toContain(`複製 ${r.name}`)
+  expect(html).toContain(`value="${r.name}-1"`)
+  expect(html).toContain(r.model)
+  expect(html).toContain('>新增</button>')
+  expect(sheet({ kind: 'newCrew', copyOf: 'gone' }, r.teamId)).not.toContain('>新增</button>')
+})
+
+it('names a copy with the first free number', () => {
+  const w = structuredClone(useStore.getState().world)
+  const r = Object.values(w.replicas)[0]
+  expect(copyName(w, r.name)).toBe(`${r.name}-1`)
+  w.replicas.x = { ...r, id: 'x', name: `${r.name}-1` }
+  expect(copyName(w, r.name)).toBe(`${r.name}-2`)
 })
