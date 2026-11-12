@@ -1,12 +1,15 @@
 package usecase_test
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
@@ -223,6 +226,230 @@ func TestMeetingTheUserCallsInSomeoneWhoJoins(t *testing.T) {
 		t.Fatalf("Carol did not get the meeting so far: %d", len(asked))
 	}
 	if s := meetingSub(w, task.ID); s.Meeting.Summary != "Carol 也同意" || s.Meeting.Batch != 2 {
+		t.Fatalf("%+v", s.Meeting)
+	}
+}
+
+// A second steer replaces the first: those the user asked before, still waiting, give way too.
+func TestMeetingTheUsersLatestWordsReplaceWhatTheyAskedBefore(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	r, task, people := meetingRig(t, []string{"Bob", "Carol"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
+		said := sentText(req)
+		switch {
+		case isChair(req) && strings.Contains(said, "算了"):
+			return ownerCall("end_meeting", map[string]any{"summary": "主持人回答了"}), true
+		case isChair(req):
+			return say("@Bob 你先"), true
+		case isMember(req) && strings.HasSuffix(req.Session, people[0].ID):
+			once.Do(func() { close(entered); <-release })
+			return say("我問 @Carol"), true
+		case isMember(req):
+			return say("Carol 不該說話"), true
+		}
+		return model.ModelReply{}, false
+	})
+	<-entered
+	m := meetingSub(r.world(), task.ID)
+	if _, err := r.e.SayToOwner(task.ID, usecase.TaskMessage{RequestID: "s1", Text: "@Carol 你說", MeetingID: m.ID, Mentions: []string{people[1].ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.SayToOwner(task.ID, usecase.TaskMessage{RequestID: "s2", Text: "算了，主持人說", MeetingID: m.ID}); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	w := r.wait("the chair answering the latest words", meetingState(task.ID, model.MeetingEnded))
+	if n := len(sessionsOf(r, m.ID, people[1].ID)); n != 0 {
+		t.Fatalf("Carol, asked by the user before, spoke %d times", n)
+	}
+	var order []string
+	for _, a := range speeches(r, task.ID) {
+		order = append(order, a.From+":"+a.Text)
+	}
+	if !slices.Equal(order, []string{"agent:@Bob 你先", "user:@Carol 你說", "user:算了，主持人說", "agent:我問 @Carol"}) {
+		t.Fatalf("%q", order)
+	}
+	if s := meetingSub(w, task.ID); s.Meeting.Summary != "主持人回答了" {
+		t.Fatalf("%+v", s.Meeting)
+	}
+}
+
+func TestMeetingPausedTheUsersLatestWordsReplaceWhatTheyAskedBefore(t *testing.T) {
+	r, task, people := meetingRig(t, []string{"Bob", "Carol"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
+		switch {
+		case isChair(req) && strings.Contains(sentText(req), "Bob: "):
+			return ownerCall("end_meeting", map[string]any{"summary": "Bob 說完了"}), true
+		case isChair(req) && reminded(req):
+			return say(""), true
+		case isChair(req):
+			return say("開始"), true
+		case isMember(req) && strings.HasSuffix(req.Session, people[0].ID):
+			return say("我說完了"), true
+		case isMember(req):
+			return say("Carol 不該說話"), true
+		}
+		return model.ModelReply{}, false
+	})
+	w := r.wait("the batch used up", meetingIs(task.ID, func(m *model.Meeting) bool { return m.PauseReason == "limit" }))
+	m := meetingSub(w, task.ID)
+	// out of budget, the meeting stays paused through both
+	settings := r.world().Teams[r.team.ID].Settings
+	limit := settings.CostLimitUSD
+	settings.CostLimitUSD = 0.000001
+	if err := r.e.UpdateTeam(r.team.ID, usecase.TeamPatch{Settings: &settings}); err != nil {
+		t.Fatal(err)
+	}
+	for i, who := range []*model.Replica{people[1], people[0]} {
+		if _, err := r.e.SayToOwner(task.ID, usecase.TaskMessage{RequestID: who.Name, Text: "@" + who.Name + " 你說", MeetingID: m.ID, Mentions: []string{who.ID}}); err != nil {
+			t.Fatal(i, err)
+		}
+	}
+	settings.CostLimitUSD = limit
+	if err := r.e.UpdateTeam(r.team.ID, usecase.TeamPatch{Settings: &settings}); err != nil {
+		t.Fatal(err)
+	}
+	got := meetingSub(r.world(), task.ID).Meeting
+	if got.State != model.MeetingPaused {
+		t.Fatalf("%+v", got)
+	}
+	if _, err := r.e.ControlMeeting(task.ID, m.ID, usecase.MeetingControl{RequestID: "go", Action: "continue", Revision: got.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	w = r.wait("Bob answering, then the chair ending it", meetingState(task.ID, model.MeetingEnded))
+	if n := len(sessionsOf(r, m.ID, people[1].ID)); n != 0 {
+		t.Fatalf("Carol, asked by the user before, spoke %d times", n)
+	}
+	if n := len(sessionsOf(r, m.ID, people[0].ID)); n != 1 {
+		t.Fatalf("Bob spoke %d times", n)
+	}
+	if s := meetingSub(w, task.ID); s.Meeting.Summary != "Bob 說完了" {
+		t.Fatalf("%+v", s.Meeting)
+	}
+}
+
+// The chair, speaking when the user calls on someone, ends the meeting on what it had: it gives way instead, whether or
+// not it read the user's words at its tools.
+func TestMeetingTheChairEndingItAfterTheUserSteeredGivesWay(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		tools bool
+	}{{"without reading it", false}, {"after reading it at its tools", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			entered, release := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			r, task, people := meetingRig(t, []string{"Bob"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
+				said := sentText(req)
+				switch {
+				case isChair(req) && strings.Contains(said, "Bob: "):
+					return ownerCall("end_meeting", map[string]any{"summary": "聽完 Bob 才結束"}), true
+				case isChair(req) && tc.tools && strings.Contains(said, "The user: @Bob"):
+					return ownerCall("end_meeting", map[string]any{"summary": "太早"}), true
+				case isChair(req):
+					once.Do(func() { close(entered); <-release })
+					if tc.tools {
+						return ownerCall("read_file", map[string]any{"path": "not-here.txt"}), true
+					}
+					return ownerCall("end_meeting", map[string]any{"summary": "太早"}), true
+				case isMember(req):
+					return say("我來回答使用者"), true
+				}
+				return model.ModelReply{}, false
+			})
+			<-entered
+			m := meetingSub(r.world(), task.ID)
+			if _, err := r.e.SayToOwner(task.ID, usecase.TaskMessage{RequestID: "steer", Text: "@Bob 你怎麼看", MeetingID: m.ID, Mentions: []string{people[0].ID}}); err != nil {
+				t.Fatal(err)
+			}
+			close(release)
+			w := r.wait("Bob answering, then the chair ending it", meetingState(task.ID, model.MeetingEnded))
+			if n := len(sessionsOf(r, m.ID, people[0].ID)); n != 1 {
+				t.Fatalf("Bob spoke %d times", n)
+			}
+			if tc.tools {
+				first := sessionsOf(r, m.ID, r.owner.ID)
+				if len(first) < 2 || !strings.Contains(sentText(first[1]), "The user: @Bob") {
+					t.Fatal("the chair did not read the user's words at its tools")
+				}
+			}
+			var order []string
+			for _, a := range speeches(r, task.ID) {
+				order = append(order, a.From+":"+a.Text)
+			}
+			if !slices.Equal(order, []string{"user:@Bob 你怎麼看", "agent:我來回答使用者"}) {
+				t.Fatalf("%q", order)
+			}
+			if s := meetingSub(w, task.ID); s.Meeting.Summary != "聽完 Bob 才結束" {
+				t.Fatalf("%+v", s.Meeting)
+			}
+		})
+	}
+}
+
+// Calling in more than the meeting holds is refused whole: no one joins, nothing is said, no turn changes.
+func TestMeetingRefusesJoinersPastSixEmployees(t *testing.T) {
+	var done atomic.Bool
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("idle"), nil })
+	wf := *r.flow
+	wf.Nodes = slices.Clone(wf.Nodes)
+	var ids []string
+	for i := 0; i < 7; i++ {
+		p, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: fmt.Sprintf("Member %d", i+1), Model: "fake"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, p.ID)
+		wf.Nodes = append(wf.Nodes, model.WorkflowNode{ID: fmt.Sprintf("work-%d", i), Kind: enum.NodeWork, Name: p.Name,
+			ReplicaIDs: []string{p.ID}, Handoff: enum.HandoffAll, Join: enum.JoinAll})
+	}
+	r.setReply(func(req model.ModelRequest) (model.ModelReply, error) {
+		switch {
+		case isOwner(req) && len(req.Messages) == 1 && strings.Contains(sentText(req), "[task_started]"):
+			return ownerCall("hold_meeting", map[string]any{"topic": "人數", "replica_ids": ids[:5]}), nil
+		case isChair(req) && reminded(req) && done.Load():
+			return ownerCall("end_meeting", map[string]any{"summary": "人數沒變"}), nil
+		case isChair(req) && reminded(req):
+			return say(""), nil
+		case isChair(req):
+			return say("開始"), nil
+		}
+		return say("idle"), nil
+	})
+	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "meeting capacity", Workflow: &wf, OwnerID: &r.owner.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.ResumeTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	w := r.wait("the batch used up", meetingIs(task.ID, func(m *model.Meeting) bool { return m.PauseReason == "limit" }))
+	m := meetingSub(w, task.ID).Meeting
+	before, said, calls := *m, len(speeches(r, task.ID)), len(meetingRequests(r))
+	if len(before.Participants) != 6 {
+		t.Fatalf("%+v", before.Participants)
+	}
+	if _, err := r.e.SayToOwner(task.ID, usecase.TaskMessage{RequestID: "two", Text: "@Member 6 @Member 7", MeetingID: m.ID, Mentions: ids[5:]}); err == nil {
+		t.Fatal("a seventh employee joined")
+	}
+	assertMeetingQuiet(t, r, calls)
+	got := meetingSub(r.world(), task.ID).Meeting
+	if got.Revision != before.Revision || len(got.Participants) != 6 || got.State != model.MeetingPaused || len(speeches(r, task.ID)) != said {
+		t.Fatalf("the refused message changed the meeting: %+v", got)
+	}
+	if hasActivity(r.activity(task.ID), func(a model.TaskActivity) bool { return a.Key == "meetingJoined" }) {
+		t.Fatal("someone was said to join")
+	}
+	// who was due before still is: the chair, asked again, and not the two refused
+	done.Store(true)
+	if _, err := r.e.ControlMeeting(task.ID, m.ID, usecase.MeetingControl{RequestID: "go", Action: "continue", Revision: got.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	w = r.wait("the chair ending it", meetingState(task.ID, model.MeetingEnded))
+	for _, id := range ids[5:] {
+		if n := len(sessionsOf(r, m.ID, id)); n != 0 {
+			t.Fatalf("a refused employee spoke %d times", n)
+		}
+	}
+	if s := meetingSub(w, task.ID); s.Meeting.Summary != "人數沒變" || len(s.Meeting.Participants) != 6 {
 		t.Fatalf("%+v", s.Meeting)
 	}
 }

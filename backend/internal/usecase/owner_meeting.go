@@ -427,6 +427,9 @@ func (e *Engine) passFloor(t *model.Task, s *model.SubTask, turn meetingTurn, as
 	if len(st.Queue) > 0 && st.Queue[0] == turn {
 		st.Queue = st.Queue[1:]
 	}
+	if m.SpeakerID == turn.Speaker {
+		m.SpeakerID = "" // so the user steering now keeps none of the turns left
+	}
 	// one called on again, already due, answers once, now
 	st.Queue = slices.DeleteFunc(slices.Clone(st.Queue), func(x meetingTurn) bool { return !x.ByUser && slices.Contains(asked, x.Speaker) })
 	n := 0
@@ -1072,20 +1075,30 @@ func (e *Engine) endMeetingTool(in *meetingRun) func(context.Context, string, js
 			if m.State != model.MeetingOpen && m.State != model.MeetingClosing {
 				return "", model.Errorf(model.CodeConflict, "這場會議現在不能結束")
 			}
-			said, err := e.meetingTranscript(t, s.ID)
-			if err != nil {
-				return "", err
-			}
-			st := e.stateOf(t, s.ID)
-			// the user wrote after what the chair read: the conclusion must take it in
-			if slices.ContainsFunc(said[min(st.Seen[m.ChairID], len(said)):], func(a model.TaskActivity) bool { return a.From == "user" }) {
-				if !in.turn.Summary {
-					e.closeMeeting(t, s, false, "")
-				} else {
+			// the user steered since this turn began, even if the chair read it at their tools: the meeting goes on with
+			// those the user asked, or the chair answering them, as sayInMeeting queued
+			if !in.turn.Summary {
+				if m.State != model.MeetingOpen {
+					return "", model.Errorf(model.CodeConflict, "這場會議現在不能結束")
+				}
+				if e.steeredSince(t, s, in.from) {
+					e.passFloor(t, s, in.turn, nil)
+					m.Revision++
+					e.afterCall(t, s)
+					return "The user wrote meanwhile; the meeting goes on with those they asked, so it did not end.", nil
+				}
+			} else {
+				said, err := e.meetingTranscript(t, s.ID)
+				if err != nil {
+					return "", err
+				}
+				// the user wrote after what the chair read: the conclusion must take it in
+				st := e.stateOf(t, s.ID)
+				if slices.ContainsFunc(said[min(st.Seen[m.ChairID], len(said)):], func(a model.TaskActivity) bool { return a.From == "user" }) {
 					st.Queue = []meetingTurn{{Speaker: m.ChairID, Summary: true}}
 					e.keepState(t, s.ID, st)
+					return "The user wrote since; you are asked for the conclusion again with what they said.", nil
 				}
-				return "The user wrote since; you are asked for the conclusion again with what they said.", nil
 			}
 			e.endMeeting(t, s, a.Summary)
 			return "The meeting ended.", nil
@@ -1172,14 +1185,11 @@ func (e *Engine) sayInMeeting(t *model.Task, in TaskMessage, text string, print 
 	if len(answer) == 0 {
 		answer = []string{m.ChairID}
 	}
-	// the user steers: who speaks now finishes, what the user asked before still stands, and the turns still waiting
-	// give way to those the user asks now, who pass the floor on from there
+	// the user steers: who speaks now finishes, and every turn still waiting, even one the user asked for before,
+	// gives way to those the user asks now, who pass the floor on from there
 	n := 0
-	if len(st.Queue) > 0 && m.SpeakerID != "" {
+	if len(st.Queue) > 0 && m.SpeakerID != "" && st.Queue[0].Speaker == m.SpeakerID {
 		n = 1
-	}
-	for n < len(st.Queue) && st.Queue[n].ByUser {
-		n++
 	}
 	var turns []meetingTurn
 	for _, id := range answer {

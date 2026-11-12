@@ -388,6 +388,27 @@ describe('a meeting held in the conversation of a task its owner runs', () => {
     expect(m.participants).toHaveLength(3)
   })
 
+  it('keeps only the user\'s latest words: one without @ has the chair answer, even while paused', () => {
+    const { w, task, owner, a, b, m } = meetingSetup()
+    run(w, 30)
+    sayToOwner(w, task.id, { requestId: 'ivy', text: '@Ivy 你呢', meetingId: m.id, mentions: [b.id] })
+    sayToOwner(w, task.id, { requestId: 'chair', text: '算了，主持人說', meetingId: m.id })
+    const before = mine(w, task.id, m.id).length
+    run(w, 5)
+    expect(mine(w, task.id, m.id).slice(before).map((x) => x.by)).toEqual([owner.id])
+    // paused with the task, the second still replaces the first
+    controlOwnerTask(w, task.id, { requestId: 'p', action: 'pause' })
+    sayToOwner(w, task.id, { requestId: 'ivy2', text: '@Ivy 你呢', meetingId: m.id, mentions: [b.id] })
+    sayToOwner(w, task.id, { requestId: 'kai', text: '@Kai 你來說', meetingId: m.id, mentions: [a.id] })
+    run(w, 5)
+    expect(m.state).toBe('paused')
+    controlOwnerTask(w, task.id, { requestId: 'r', action: 'resume', ...versions(task) })
+    controlMeeting(w, task.id, m.id, { requestId: 'again', action: 'continue', revision: m.revision })
+    const paused = mine(w, task.id, m.id).length
+    run(w, 5)
+    expect(mine(w, task.id, m.id).slice(paused).map((x) => x.by)).toEqual([a.id])
+  })
+
   it('does not go on by itself when the task resumes after a pause', () => {
     const { w, task, m } = meetingSetup()
     controlOwnerTask(w, task.id, { requestId: 'p', action: 'pause' })
