@@ -96,3 +96,38 @@ func TestMergeFailureTextNamesWhatIsInTheWay(t *testing.T) {
 		}
 	}
 }
+
+// What a model said, failing to resolve a clash, is told as git's words are: no path of this computer, and short.
+func TestMergeFailureOfTheModelShowsNoPathAndIsShort(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip(err)
+	}
+	in := mergeRun{folder: filepath.Join(home, "private-project"), dir: filepath.Join(home, "private-tree"), target: "main"}
+	f := mergeFailure(in, resolveFailed{model.Errorf(model.CodeInvalid, "cannot open %s/secret.txt and %s/x %s", in.folder, "/Volumes/PrivateClient/t", strings.Repeat("字", mergeReasonMost))})
+	if f.Kind != model.MergeResolveFailed || strings.Contains(f.Reason, home) || strings.Contains(f.Reason, "PrivateClient") ||
+		!strings.HasPrefix(f.Reason, "cannot open secret.txt and …/x 字") {
+		t.Fatalf("reason %q", f.Reason)
+	}
+	if n := len([]rune(f.Reason)); n != mergeReasonMost+1 || !strings.HasSuffix(f.Reason, "…") {
+		t.Fatalf("reason of %d characters", n)
+	}
+}
+
+// Any path from the root, on any system, keeps only its last name, and the words around it stay.
+func TestWithoutPathsTakesOutEveryPath(t *testing.T) {
+	for text, want := range map[string]string{
+		"fatal: refusing to fetch into branch 'refs/heads/main' checked out at '/Volumes/PrivateClient/another-tree'": "fatal: refusing to fetch into branch 'refs/heads/main' checked out at '…/another-tree'",
+		"error: cannot open /Volumes/PrivateClient/another-tree/src/a.go: denied":                                     "error: cannot open …/a.go: denied",
+		`fatal: "/Users/someone/My Drive/proj/b.txt" is in the way`:                                                   `fatal: "…/b.txt" is in the way`,
+		"unable to unlink /home/bob/repo/c.txt (busy)":                                                                "unable to unlink …/c.txt (busy)",
+		`could not lock C:\Users\me\proj\.git\index.lock, and D:/work/x/`:                                             `could not lock …/index.lock, and …/x`,
+		`share at \\server\share\e.txt`:                                                                               `share at …/e.txt`,
+		"keeps refs/heads/main, origin/main, ~/x and https://host/a/b":                                                "keeps refs/heads/main, origin/main, ~/x and https://host/a/b",
+		"at /": "at …",
+	} {
+		if got := withoutPaths(text, "/x/proj"); got != want {
+			t.Errorf("withoutPaths(%q) = %q, want %q", text, got, want)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package usecase_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,5 +196,65 @@ func TestMergeRefusedByUncommittedChangesSucceedsOnceCleared(t *testing.T) {
 	}
 	if raw, _ := os.ReadFile(agents); string(raw) != "task version\n" {
 		t.Fatalf("AGENTS.md = %q", raw)
+	}
+}
+
+// A merge git refuses with a path of another checkout, here the target branch checked out in a work tree of the
+// user's own: neither the failure, its record nor the task's conversation shows that path, and git's reason stays.
+func TestMergeFailureShowsNoPathOfAnotherCheckout(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if !isOwner(req) {
+			if lastIsResult(req) {
+				return call("submit_handoff", handoff), nil
+			}
+			return call("write_file", map[string]string{"path": "a.txt", "content": "task\n"}), nil
+		}
+		reply := autoOwner(req)
+		if reply.Content[0].Name == "submit_complete" {
+			return ownerCall("submit_complete", map[string]any{"summary": "做完了", "ask_merge": true}), nil
+		}
+		return reply, nil
+	})
+	task := r.ownerTask(r.flow.ID)
+	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	r.ownerIdle(task.ID)
+
+	target := gitOut(t, r.folder, "branch", "--show-current")
+	parent := filepath.Join(t.TempDir(), "PrivateClient")
+	other := filepath.Join(parent, "another-tree")
+	gitOut(t, r.folder, "checkout", "-q", "-b", "other")
+	gitOut(t, r.folder, "worktree", "add", "-q", other, target)
+	private := []string{parent}
+	if real, err := filepath.EvalSymlinks(parent); err == nil {
+		private = append(private, real)
+	}
+
+	if err := r.e.MergeTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	w := r.wait("the merge to fail", func(w *model.World) bool {
+		x := w.Tasks[task.ID]
+		return x.Merge != nil && x.Merge.StartedAt == nil && x.Merge.Failure != nil
+	})
+	got := w.Tasks[task.ID]
+	f := got.Merge.Failure
+	if got.Stage != enum.StageAwaitMerge || f.Detail == "" || !strings.Contains(f.Detail, "another-tree") {
+		t.Fatalf("stage %s, failure %+v", got.Stage, f)
+	}
+	shown := []string{f.Detail, f.Reason, f.Target, strings.Join(f.Files, " ")}
+	for _, line := range got.Merge.Log {
+		shown = append(shown, line.Text)
+	}
+	for _, a := range r.activity(task.ID) {
+		if a.Key == "mergeFailed" {
+			shown = append(shown, a.Text, fmt.Sprint(a.Args))
+		}
+	}
+	for _, text := range shown {
+		for _, p := range private {
+			if strings.Contains(text, p) {
+				t.Errorf("%q shows %s", text, p)
+			}
+		}
 	}
 }

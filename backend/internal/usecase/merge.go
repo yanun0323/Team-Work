@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
@@ -167,12 +168,15 @@ const (
 	// mergeDetailMost is how much of git's words a merge's failure keeps, in characters: enough for git's message and
 	// a list of files, short enough to read on the screen.
 	mergeDetailMost = 2000
+	// mergeReasonMost is how much of a reason, a file or a branch a merge's failure keeps, in characters.
+	mergeReasonMost = 200
 )
 
 // mergeFailure says why a merge failed, as far as it can tell, with git's words as they are, less the paths of this
-// computer: the project and work tree folders become relative and the home folder ~.
+// computer. Whatever of it the user or the owner reads is told as mergeShown tells it.
 func mergeFailure(in mergeRun, err error) model.MergeFailure {
-	f := model.MergeFailure{Kind: model.MergeUnknown, Target: in.target}
+	shown := func(text string, most int) string { return clip(withoutPaths(text, in.folder, in.dir), most) }
+	f := model.MergeFailure{Kind: model.MergeUnknown, Target: shown(in.target, mergeReasonMost)}
 	var files []string
 	var blocked *model.MergeBlocked
 	var resolve resolveFailed
@@ -181,26 +185,29 @@ func mergeFailure(in mergeRun, err error) model.MergeFailure {
 		f.Kind, files = blocked.Kind, blocked.Files
 	case errors.As(err, &resolve):
 		f.Kind = model.MergeResolveFailed
+		reason := err.Error()
 		var said *model.Error
 		if errors.As(err, &said) {
-			f.Reason = said.Message
-		} else {
-			f.Reason = clip(withoutPaths(err.Error(), in.folder, in.dir), 200)
+			reason = said.Message
 		}
+		f.Reason = shown(reason, mergeReasonMost)
 	}
 	if len(files) > mergeFilesShown {
-		f.Files, f.More = files[:mergeFilesShown], len(files)-mergeFilesShown
-	} else {
-		f.Files = files
+		files, f.More = files[:mergeFilesShown], len(files)-mergeFilesShown
 	}
-	f.Detail = withoutPaths(err.Error(), in.folder, in.dir)
-	if r := []rune(f.Detail); len(r) > mergeDetailMost {
-		f.Detail = string(r[:mergeDetailMost]) + "…"
+	for _, file := range files {
+		f.Files = append(f.Files, shown(file, mergeReasonMost))
 	}
+	f.Detail = shown(err.Error(), mergeDetailMost)
 	return f
 }
 
-// withoutPaths takes the folders of this computer out of text: each of dirs as relative, and the home folder as ~.
+// absPath is a path from the root of a computer: /…, C:\… or C:/…, or \\server\…, whole when quoted, else up to a space
+// or the punctuation around it. What comes before it is kept as it is.
+var absPath = regexp.MustCompile(`(^|[\s(=\[<,])((?:/|[A-Za-z]:[\\/]|\\\\)[^\s'"\x60)\]>,]*)|'((?:/|[A-Za-z]:[\\/]|\\\\)[^'\n]*)'|"((?:/|[A-Za-z]:[\\/]|\\\\)[^"\n]*)"|\x60((?:/|[A-Za-z]:[\\/]|\\\\)[^\x60\n]*)\x60`)
+
+// withoutPaths takes the folders of this computer out of text: each of dirs as relative, the home folder as ~, and any
+// other path from the root as …/ and its last name, which still tells which file or folder it was.
 func withoutPaths(text string, dirs ...string) string {
 	for _, dir := range dirs {
 		if dir = strings.TrimRight(dir, string(filepath.Separator)); dir != "" {
@@ -211,7 +218,28 @@ func withoutPaths(text string, dirs ...string) string {
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimRight(home, string(filepath.Separator)) != "" {
 		text = strings.ReplaceAll(text, strings.TrimRight(home, string(filepath.Separator)), "~")
 	}
-	return text
+	return absPath.ReplaceAllStringFunc(text, func(m string) string {
+		sub := absPath.FindStringSubmatch(m)
+		switch {
+		case sub[2] != "":
+			return sub[1] + lastName(sub[2])
+		case sub[3] != "":
+			return "'" + lastName(sub[3]) + "'"
+		case sub[4] != "":
+			return `"` + lastName(sub[4]) + `"`
+		}
+		return "`" + lastName(sub[5]) + "`"
+	})
+}
+
+// lastName is a path from the root less all but its last name.
+func lastName(path string) string {
+	trimmed := strings.TrimRight(path, `/\`)
+	name := trimmed[strings.LastIndexAny(trimmed, `/\`)+1:]
+	if name == "" || strings.HasSuffix(name, ":") && len(name) == 2 {
+		return "…"
+	}
+	return "…/" + name
 }
 
 // mergeFailureText says a merge's failure in a sentence or two, with what to do next, in the current language. The
