@@ -53,6 +53,11 @@ export const deleteTask = pick('deleteTask', (_w: World, id: string) => fire_('D
 export const pauseTask = pick('pauseTask', (_w: World, id: string) => fire_('POST', `/tasks/${id}/pause`))
 export const resumeTask = pick('resumeTask', (_w: World, id: string) => fire_('POST', `/tasks/${id}/resume`))
 export const mergeTask = pick('mergeTask', (_w: World, id: string) => fire_('POST', `/tasks/${id}/merge`))
+/** Asks to merge, for a button that waits on it: true once taken, false when refused, the refusal shown as any other. */
+export const requestMerge = MOCK
+  ? (act: (fn: (w: World) => void) => void, id: string) => { act((w) => sim.mergeTask(w, id)); return Promise.resolve(true) }
+  : (_act: (fn: (w: World) => void) => void, id: string) =>
+    request('POST', `/tasks/${id}/merge`).then(() => true, (e: Error) => { onFailure(e.message); return false })
 export const returnTask = pick('returnTask', (_w: World, id: string, feedback: string) => fire_('POST', `/tasks/${id}/return`, { feedback }))
 export const resolveReview = pick('resolveReview', (_w: World, id: string, optionId: string, note = '') =>
   fire_('POST', `/subtasks/${id}/review`, { optionId, note }))

@@ -11,7 +11,7 @@ import { nodeOf } from './core/domain/graph'
 import { currentRun, isOwnerTask, mergeBlocked, operationOf, resumeBlock, uncertain, userQuestions } from './core/domain/owner'
 import { notStarted, statusOf, subsOf, taskCost, taskTokens } from './core/domain/sim'
 import type { Attachment, Meeting, SubTask, Task, TaskActivity, TaskOperation, TaskQuestion, World } from './core/domain/types'
-import { controlMeeting, controlTask, deleteTask, mergeTask, newRequestId, readMeetingActivity, readTaskActivity, readTaskActivityItem, readTaskOperation, sayToOwner, seenVersions, type OwnerControl } from './core/ops'
+import { controlMeeting, controlTask, deleteTask, newRequestId, readMeetingActivity, readTaskActivity, readTaskActivityItem, readTaskOperation, sayToOwner, seenVersions, type OwnerControl } from './core/ops'
 import { fmtClock, fmtTokens, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
 import { useNow, useStore } from './core/store'
@@ -27,6 +27,7 @@ import { ALL, type IdLookup } from './mentions'
 import { SentTo } from './ChatSheet'
 import { ChatFaces } from './ChatFaces'
 import { CrewRow } from './Pickers'
+import { failureOf, MergeButton, mergeFailureLine, MergeFailureView } from './MergeFailure'
 import { activeMeeting, answerers, draftStillGoes, feedRows, meetingActions, meetingMentions, meetingPeople, meetingTakesWords, meetingWord } from './meetingFeed'
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
@@ -47,6 +48,8 @@ const PLAN_PARTS: Record<string, readonly string[]> = {
  * A change of the plan lists what it added, skipped or removed, changed, gave to someone else and linked or unlinked.
  */
 export function eventLines(a: TaskActivity): string[] {
+  const failed = failureOf(a)
+  if (failed) return [mergeFailureLine(failed)]
   const recorded = a.text.split('\n').filter(Boolean)
   if (!a.key) return recorded
   const key = `task.${a.key}`
@@ -299,6 +302,15 @@ export function ActivityRow({ task, a, open, onStep, onImage, flash, op, meeting
   // a task the owner made opens from the line that says so, while it is there
   const made = a.key === 'taskCreated' && typeof a.args?.taskId === 'string' ? a.args.taskId : ''
   const madeThere = useStore((s) => !!made && !!s.world.tasks[made])
+  const failed = a.kind === 'event' ? failureOf(a) : null
+  if (failed) {
+    return (
+      <li className={`fx-ticket-event fx-ticket-event-merge${cls}`} data-activity={a.id}>
+        <MergeFailureView failure={failed} git />
+        <time>{fmtClock(a.at)}</time>
+      </li>
+    )
+  }
   if (a.kind === 'event') {
     const [head, ...more] = eventLines(a)
     const line = <MarkdownLine text={head ?? ''} noLinks ids={ids} />
@@ -714,6 +726,7 @@ function Notices({ task, subs, onStep }: { task: Task; subs: SubTask[]; onStep: 
   const failed = c.operations.filter((o) => o.status === 'failed' && o.kind !== 'message').at(-1)
   const lost = uncertain(subs)
   const replicas = useStore((s) => s.world.replicas)
+  const targetBranch = useStore((s) => s.world.teams[task.teamId]?.targetBranch ?? 'main')
   const ids = useCrewIds(task)
   const out: React.ReactNode[] = []
   if (c.ownerState === 'blocked' || c.ownerState === 'failed') {
@@ -738,12 +751,15 @@ function Notices({ task, subs, onStep }: { task: Task; subs: SubTask[]; onStep: 
       </div>,
     )
   }
-  if (task.stage === 'awaitMerge') {
-    const blocked = mergeBlocked(task, subs)
+  if (task.stage === 'awaitMerge' || task.stage === 'merging') {
+    const merging = task.stage === 'merging'
+    const blocked = !merging && mergeBlocked(task, subs)
+    const failure = merging ? undefined : task.merge?.failure
     out.push(
-      <div key="merge" className="fx-ticket-notice fx-ticket-merge">
-        <p>{blocked ? tr('還有待處理的事，處理完才能合併') : tr('負責人回報完成，等你合併')}</p>
-        <button type="button" className="fx-save fx-danger" disabled={blocked} onClick={() => act((x) => mergeTask(x, task.id))}>{tr('合併')}</button>
+      <div key="merge" className="fx-ticket-notice fx-ticket-merge" role={failure ? 'alert' : undefined}>
+        {failure ? <MergeFailureView failure={failure} />
+          : <p>{merging ? tr('正在合併到 {target}', { target: targetBranch }) : blocked ? tr('還有待處理的事，處理完才能合併') : tr('負責人回報完成，等你合併')}</p>}
+        <MergeButton task={task} disabled={blocked} />
       </div>,
     )
   }

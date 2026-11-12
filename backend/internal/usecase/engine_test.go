@@ -898,7 +898,8 @@ func TestMergeLeftUnresolvedCanBeTriedAgain(t *testing.T) {
 	// the employee says it is done, but left the markers in: the task comes back and master is untouched
 	r.wait("failed merge", func(w *model.World) bool {
 		m := w.Tasks[task.ID].Merge
-		return w.Tasks[task.ID].Stage == enum.StageAwaitMerge && m != nil && strings.Contains(m.Log[len(m.Log)-1].Text, "沒解完")
+		return w.Tasks[task.ID].Stage == enum.StageAwaitMerge && m != nil && m.Failure != nil && m.Failure.Kind == model.MergeUnresolved &&
+			strings.Contains(m.Log[len(m.Log)-1].Text, "f.txt")
 	})
 	if raw, _ := os.ReadFile(filepath.Join(r.folder, "f.txt")); string(raw) != "target\n" {
 		t.Fatalf("master changed: %q", raw)

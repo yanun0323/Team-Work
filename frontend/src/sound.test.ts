@@ -312,6 +312,10 @@ it('sounds once per fresh notice batch, never for existing notices, rerenders or
     useStore.setState({ offline: true, toasts: [{ id: 7, event: review }] })
     useStore.setState({ offline: false })
     expect(notify).toHaveBeenCalledTimes(3)
+    // a merge that failed is a notice of its own
+    useStore.setState({ toasts: [{ id: 8, event: { kind: 'mergeFailed', taskId: task.id } }] })
+    expect(notify).toHaveBeenCalledTimes(4)
+    expect(notify).toHaveBeenLastCalledWith([{ kind: 'task', id: task.id, merge: true, failed: true }])
   } finally { unsubscribe(); useStore.setState(initial) }
 })
 

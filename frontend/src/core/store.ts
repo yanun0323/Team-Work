@@ -155,7 +155,7 @@ export const useStore = create<State>()(
             break
           }
           case 'notice':
-            s.toasts.push({ id: ++toastSeq, event: ev.kind === 'review' ? { kind: 'review', taskId: ev.taskId, subId: ev.subId ?? '' } : { kind: 'awaitMerge', taskId: ev.taskId } })
+            s.toasts.push({ id: ++toastSeq, event: ev.kind === 'review' ? { kind: 'review', taskId: ev.taskId, subId: ev.subId ?? '' } : { kind: ev.kind, taskId: ev.taskId } })
             s.toasts = s.toasts.slice(-4)
             break
         }

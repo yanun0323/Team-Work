@@ -3,7 +3,8 @@
 
 import type { ButtonHTMLAttributes } from 'react'
 import { tr } from './core/i18n'
-import { notStarted, statusOf, subsOf, taskTokens } from './core/domain/sim'
+import { notStarted, progressOf, statusOf, subsOf, taskTokens } from './core/domain/sim'
+import { nodeOf } from './core/domain/graph'
 import type { Made, Task } from './core/domain/types'
 import { fmtTokens } from './core/model'
 import { useStore } from './core/store'
@@ -30,6 +31,10 @@ export function TaskCard({ task, className, ...button }: { task: Task } & Button
     .map((s) => w.replicas[s.replicaId as string])
     .filter((r, i, all) => r && all.indexOf(r) === i)
   const tokens = taskTokens(w, task)
+  const p = progressOf(w, task)
+  // the step at work now, "+n" for others alongside it, then steps done of the flow's; a long name gives way first
+  const step = p?.now.length ? nodeOf(task.workflow, p.now[0])?.name ?? p.now[0] : ''
+  const more = p && p.now.length > 1 ? ` +${p.now.length - 1}` : ''
   return (
     <button type="button" className={`fx-task fx-hit${className ? ` ${className}` : ''}`} {...button}>
       {/* waiting on the user: red to answer, green to merge */}
@@ -44,7 +49,12 @@ export function TaskCard({ task, className, ...button }: { task: Task } & Button
       {((task.paused && !notStarted(task)) || task.stage === 'merging') && (
         <span className="fx-pill">{task.stage === 'merging' ? tr('合併中') : tr('已暫停')}</span>
       )}
-      {tokens > 0 && <span className="fx-task-tokens">{fmtTokens(tokens)} Token</span>}
+      {(p || tokens > 0) && (
+        <span className="fx-task-foot">
+          {p && <span className="fx-task-progress">{step && <span className="fx-task-step">{step}</span>}{step && `${more} · `}{p.done}/{p.total}</span>}
+          {tokens > 0 && <span className="fx-task-tokens">{fmtTokens(tokens)} Token</span>}
+        </span>
+      )}
     </button>
   )
 }
