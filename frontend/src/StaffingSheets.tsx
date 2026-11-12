@@ -119,6 +119,14 @@ export function CopyHomeSheet({ id, ...h }: Head & { id: string }) {
   )
 }
 
+/**
+ * The thinking level a copy goes with: the one chosen while the model picked takes it, else '' for the user to pick;
+ * no level is put in its place.
+ */
+export function copyLevel(preview: CopyPreview, model: string, effort: Effort | ''): Effort | '' {
+  return model && effort && (preview.thinking[model] ?? []).includes(effort) ? effort : ''
+}
+
 /** The choices of a copy, once what it would give is known; `send` copies, with the key of this one copy. */
 export function CopyForm({ preview, send }: {
   preview: CopyPreview
@@ -127,21 +135,21 @@ export function CopyForm({ preview, send }: {
   const [mode, setMode] = useState<SkillCopy>('source')
   // their own model and level when this island has them; otherwise the user picks, nothing is put in their place
   const [model, setModel] = useState(preview.modelOk ? preview.model : '')
-  const [effort, setEffort] = useState<Effort>(preview.effortOk ? preview.effort : 'default')
+  const [effort, setEffort] = useState<Effort | ''>(preview.effortOk ? preview.effort : '')
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState('')
   const [done, setDone] = useState<{ name: string; missing: string[] } | null>(null)
   // one copy, however many times it is sent: a retry of one that did go through makes nobody new
   const key = useRef(idempotencyKey())
-  const levels = (preview.thinking[model] ?? ['default']) as Effort[]
-  const level = levels.includes(effort) ? effort : 'default'
+  const levels = (preview.thinking[model] ?? []) as Effort[]
+  const level = copyLevel(preview, model, effort)
   const levelGone = preview.modelOk && !preview.effortOk && model === preview.model
   const go = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!model || busy) return
+    if (!model || !level || busy) return
     setBusy(true)
     setFailed('')
-    send({ skills: mode, model, effort: level }, key.current).then(
+    send({ skills: mode, model, effort: level as Effort }, key.current).then(
       (res) => { setBusy(false); setDone({ name: res.replica.name, missing: res.missing }) },
       (err: Error) => { setBusy(false); setFailed(err.message) })
   }
@@ -167,7 +175,8 @@ export function CopyForm({ preview, send }: {
         shownAs={(m) => (m ? <span>{m}</span> : <span className="fx-d-muted">{tr('選擇模型')}</span>)} />
       {!preview.modelOk && <p className="fx-room-warn" role="note">{tr('這座島沒有 {model}，請選擇要用的模型', { model: preview.model })}</p>}
       {levelGone && <p className="fx-room-warn" role="note">{tr('{model} 沒有思考等級 {effort}，請重新選擇', { model: preview.model, effort: preview.effort })}</p>}
-      <Select label={tr('思考等級')} value={level} options={levels} onChange={(x) => setEffort(x as Effort)} disabled={!model} />
+      <Select label={tr('思考等級')} value={level} options={levels} onChange={(x) => setEffort(x as Effort)} disabled={!model}
+        shownAs={(x) => (x ? <span>{x}</span> : <span className="fx-d-muted">{tr('選擇思考等級')}</span>)} />
       <Switcher label={tr('技能')} value={mode} options={['source', 'files'] as const}
         labelOf={(x) => (x === 'source' ? tr('只複製技能來源設定') : tr('連技能檔案一起複製'))} onChange={setMode} />
       <Section name={tr('技能來源')}>
@@ -186,7 +195,7 @@ export function CopyForm({ preview, send }: {
         )}
       </Section>
       {failed && <p className="fx-room-warn" role="alert">{failed}</p>}
-      <button type="submit" className="fx-save" disabled={!model || busy}>{busy ? tr('複製中…') : failed ? tr('重試') : tr('複製')}</button>
+      <button type="submit" className="fx-save" disabled={!model || !level || busy}>{busy ? tr('複製中…') : failed ? tr('重試') : tr('複製')}</button>
     </form>
   )
 }

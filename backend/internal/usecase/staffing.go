@@ -2,13 +2,14 @@ package usecase
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/yanun0323/Team-Work/internal/i18n"
 	"github.com/yanun0323/Team-Work/internal/model"
@@ -34,9 +35,6 @@ const (
 	copyTotalMost = 16 << 20
 	copyFilesMost = 1000
 )
-
-// copyKeep is how long a copy is remembered by its request key, so sending it again does not hire twice.
-const copyKeep = 10 * time.Minute
 
 // ReplicaExport is an employee as another island copies them.
 type ReplicaExport struct {
@@ -84,13 +82,14 @@ type ExportFile struct {
 	Data []byte `json:"data"`
 }
 
-// withoutCredentials drops a user name and password written into a repo's address.
+// withoutCredentials drops a user name and password written into a repo's address, and its query and fragment, where a
+// token can be too.
 func withoutCredentials(repo string) string {
 	u, err := url.Parse(repo)
-	if err != nil || u.User == nil || u.Scheme == "" {
+	if err != nil || u.Scheme == "" {
 		return repo
 	}
-	u.User = nil
+	u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
 	return u.String()
 }
 
@@ -145,7 +144,7 @@ func (e *Engine) ExportReplica(ctx context.Context, id string, files bool) (Repl
 	seen := map[string]bool{}
 	total, count := 0, 0
 	for i, p := range packs {
-		found, _, problems := e.loadSkills(ctx, []packRoot{p}) // reading them can take a while: not under the lock
+		found, roots, problems := e.loadSkills(ctx, []packRoot{p}) // reading them can take a while: not under the lock
 		x := ExportPack{Kind: p.source.Kind, Repo: withoutCredentials(p.source.Repo), Commit: p.source.Commit, Path: p.source.Path,
 			Include: p.include, Exclude: p.exclude}
 		if i < len(refs) {
@@ -172,7 +171,7 @@ func (e *Engine) ExportReplica(ctx context.Context, id string, files bool) (Repl
 				continue
 			}
 			seen[s.name] = true
-			skill, size, err := skillFolder(s)
+			skill, size, err := skillFolder(s, roots[0])
 			if err != nil {
 				return out, err
 			}
@@ -187,12 +186,17 @@ func (e *Engine) ExportReplica(ctx context.Context, id string, files bool) (Repl
 	return out, nil
 }
 
-// skillFolder reads the files of a skill's folder: regular files only, never what a link leads to, and none hidden.
-func skillFolder(s skill) (ExportSkill, int, error) {
-	dir := filepath.Dir(s.path)
+// skillFolder reads the files of a skill's folder in the source read at root: regular files only, never what a link
+// leads to, and none hidden. A folder that a link in the source leads out of it to is refused: root itself may be a
+// link, as the folder picked is whatever it leads to.
+func skillFolder(s skill, root string) (ExportSkill, int, error) {
 	out := ExportSkill{Name: s.name, Files: []ExportFile{}}
+	dir, err := filepath.EvalSymlinks(filepath.Dir(s.path))
+	if err != nil || !insideDir(root, dir) {
+		return out, 0, model.Errorf(model.CodeInvalid, "技能 %s 的資料夾在技能來源之外，請改用只複製技能來源設定", s.name)
+	}
 	size := 0
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -307,13 +311,50 @@ type CopyResult struct {
 	Missing []string       `json:"missing"`
 }
 
-type copied struct {
-	at     time.Time
-	result CopyResult
+// copyKey is what a copy's request key is kept as on the employee it hired: the key is the other computer's and the
+// browser's, so only its hash is kept.
+func copyKey(key string) string {
+	if key == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:])
+}
+
+// copiedBy is the employee a copy with this key hired, kept with the employee so a restart does not forget it and a
+// save that failed takes it back with everything else. Callers hold e.mu.
+func (e *Engine) copiedBy(key string) *model.Replica {
+	if key == "" {
+		return nil
+	}
+	for _, r := range e.w.Replicas {
+		if r.CopyKey == key {
+			return r
+		}
+	}
+	return nil
+}
+
+// copyMissing is the skill sources of x that copying it this way leaves to be picked again.
+func copyMissing(x ReplicaExport, mode string) []string {
+	missing := []string{}
+	for _, p := range x.Packs {
+		switch {
+		case p.Kind == "missing" || p.Skills == nil:
+			missing = append(missing, packLabel(p))
+		case mode == SkillsFiles:
+			// the files came along, or there were none to bring
+		case p.Kind == "git" && filepath.IsLocal(filepath.FromSlash(cmpOr(strings.Trim(p.Path, "/"), "."))):
+		default:
+			missing = append(missing, packLabel(p))
+		}
+	}
+	return missing
 }
 
 // CopyReplica hires x into the staffing agency as someone new. With SkillsFiles, the skills' files are kept under
-// this computer's data folder as a folder source of their own. Nothing is hired when anything is refused.
+// this computer's data folder as a folder source of their own. Nothing is hired when anything is refused, and a
+// request sent again with the same key hires nobody new: the key is kept with whoever it hired.
 func (e *Engine) CopyReplica(x ReplicaExport, o CopyOptions) (CopyResult, error) {
 	if o.Skills == "" {
 		o.Skills = SkillsSource
@@ -321,18 +362,26 @@ func (e *Engine) CopyReplica(x ReplicaExport, o CopyOptions) (CopyResult, error)
 	if o.Skills != SkillsSource && o.Skills != SkillsFiles {
 		return CopyResult{}, model.Errorf(model.CodeInvalid, "不認識的技能複製方式")
 	}
-	if o.Key != "" {
-		e.mu.Lock()
-		done, ok := e.copies[o.Key]
-		e.mu.Unlock()
-		if ok {
-			return done.result, nil
+	key := copyKey(o.Key)
+	again := func(r *model.Replica) CopyResult {
+		out := CopyResult{Replica: clone(r), Missing: []string{}}
+		if !model.IsPresetID(r.BlueprintID) {
+			out.Missing = copyMissing(x, o.Skills)
 		}
+		return out
 	}
+	e.mu.Lock()
+	done := e.copiedBy(key)
+	var out CopyResult
+	if done != nil {
+		out = again(done)
+	}
+	e.mu.Unlock()
+	if done != nil {
+		return out, nil
+	}
+	// their level is kept, or one picked with the model: none is put in its place
 	modelID, effort := cmpOr(o.Model, x.Model), cmpOr(o.Effort, x.Effort)
-	if o.Model != "" && o.Effort == "" {
-		effort = model.ThinkingDefault
-	}
 	var folder string
 	if o.Skills == SkillsFiles && len(x.Files) > 0 {
 		var err error
@@ -340,14 +389,11 @@ func (e *Engine) CopyReplica(x ReplicaExport, o CopyOptions) (CopyResult, error)
 			return CopyResult{}, err
 		}
 	}
-	var out CopyResult
-	added := false
+	hired := false
 	err := e.doSettings(func() error {
-		if o.Key != "" {
-			if done, ok := e.copies[o.Key]; ok {
-				out = done.result
-				return nil
-			}
+		if done := e.copiedBy(key); done != nil { // the same request, waiting on the lock while this one was made
+			out = again(done)
+			return nil
 		}
 		if strings.TrimSpace(x.Name) == "" {
 			return model.Errorf(model.CodeInvalid, "員工要有名字")
@@ -359,7 +405,7 @@ func (e *Engine) CopyReplica(x ReplicaExport, o CopyOptions) (CopyResult, error)
 			return model.Errorf(model.CodeInvalid, "%s 沒有思考等級 %s，請重新選擇思考等級", modelID, effort)
 		}
 		r := &model.Replica{ID: e.uid("rep"), TeamID: model.StaffingID, Name: strings.TrimSpace(x.Name), Look: x.Look,
-			Model: modelID, Effort: effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now}
+			Model: modelID, Effort: effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now, CopyKey: key}
 		missing := []string{}
 		if id := x.Blueprint.PresetID; id != "" && e.w.Blueprints[id] != nil {
 			r.BlueprintID = id
@@ -376,22 +422,15 @@ func (e *Engine) CopyReplica(x ReplicaExport, o CopyOptions) (CopyResult, error)
 				e.w.Sources[src.ID] = src
 				bp.Skills = append(bp.Skills, model.SkillPack{SourceID: src.ID, Exclude: []string{}})
 			}
-			for _, p := range x.Packs {
-				switch {
-				case p.Kind == "missing" || p.Skills == nil:
-					missing = append(missing, packLabel(p))
-				case folder != "" || o.Skills == SkillsFiles:
-					// the files came along, or there were none to bring
-				case p.Kind == "git":
+			missing = copyMissing(x, o.Skills)
+			if o.Skills == SkillsSource {
+				for _, p := range x.Packs {
 					sub := strings.Trim(p.Path, "/")
-					if !filepath.IsLocal(filepath.FromSlash(cmpOr(sub, "."))) {
-						missing = append(missing, packLabel(p))
+					if p.Kind != "git" || p.Skills == nil || !filepath.IsLocal(filepath.FromSlash(cmpOr(sub, "."))) {
 						continue
 					}
 					bp.Skills = append(bp.Skills, model.SkillPack{Source: &model.BlueprintSource{Kind: "git", Repo: githubAddress(p.Repo), Ref: p.Ref, Commit: p.Commit, Path: sub},
 						Include: p.Include, Exclude: cmpSlice(p.Exclude)})
-				default:
-					missing = append(missing, packLabel(p))
 				}
 			}
 			if err := e.ownBlueprint(r, bp); err != nil {
@@ -400,23 +439,10 @@ func (e *Engine) CopyReplica(x ReplicaExport, o CopyOptions) (CopyResult, error)
 		}
 		e.w.Replicas[r.ID] = r
 		out = CopyResult{Replica: clone(r), Missing: missing}
-		if o.Key != "" { // kept at once, so the same request waiting on the lock finds it; dropped again if not saved
-			for k, c := range e.copies {
-				if time.Since(c.at) > copyKeep {
-					delete(e.copies, k)
-				}
-			}
-			e.copies[o.Key] = copied{at: time.Now(), result: out}
-			added = true
-		}
+		hired = true
 		return nil
 	})
-	if err != nil && added {
-		e.mu.Lock()
-		delete(e.copies, o.Key)
-		e.mu.Unlock()
-	}
-	if err != nil || (out.Replica != nil && folder != "" && !e.usesFolder(folder)) {
+	if err != nil || !hired {
 		os.RemoveAll(folder) // nothing hired with it, or the same copy was already made
 	}
 	return out, err
@@ -441,18 +467,6 @@ func packLabel(p ExportPack) string {
 		return p.Path
 	}
 	return i18n.T("技能來源已不存在")
-}
-
-// usesFolder says whether a source reads folder.
-func (e *Engine) usesFolder(folder string) bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	for _, s := range e.w.Sources {
-		if s.Kind == "local" && s.Path == folder {
-			return true
-		}
-	}
-	return false
 }
 
 // writeCopiedSkills keeps the skills' files in a folder of their own under the data folder, as skills/<name>/...,

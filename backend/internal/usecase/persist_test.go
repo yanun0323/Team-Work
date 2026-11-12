@@ -15,14 +15,15 @@ import (
 	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
-// brokenDisk is a store whose writes fail while broken is set, as with a full disk.
+// brokenDisk is a store whose writes fail while broken is set, as with a full disk, and for the next fails writes.
 type brokenDisk struct {
 	*repository.Store
 	broken atomic.Bool
+	fails  atomic.Int32
 }
 
 func (s *brokenDisk) Apply(ctx context.Context, upserts, deletes []model.Doc, secrets []model.SecretChange, settings ...model.SettingsChange) error {
-	if s.broken.Load() {
+	if s.broken.Load() || s.fails.Add(-1) >= 0 {
 		return errors.New("disk full")
 	}
 	return s.Store.Apply(ctx, upserts, deletes, secrets, settings...)

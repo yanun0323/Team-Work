@@ -113,6 +113,9 @@ type Replica struct {
 	Effort      string        `json:"effort"`
 	Memory      []MemoryEntry `json:"memory"`
 	HiredAt     float64       `json:"hiredAt"`
+	// CopyKey is the hash of the request that copied them here from another island, so the same request sent again
+	// hires nobody new; it stays with them when they move.
+	CopyKey string `json:"copyKey,omitempty"`
 }
 
 type Point struct {

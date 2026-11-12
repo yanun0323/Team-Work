@@ -1658,7 +1658,7 @@ func (e *Engine) MoveReplica(id, to, heirID string) (*model.Replica, error) {
 			own = clone(b)
 		}
 		moved := &model.Replica{ID: e.uid("rep"), TeamID: to, BlueprintID: r.BlueprintID, Name: r.Name, Look: r.Look,
-			Model: r.Model, Effort: r.Effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now}
+			Model: r.Model, Effort: r.Effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now, CopyKey: r.CopyKey}
 		e.letGo(r, heir)
 		if own != nil {
 			own.ID, own.Owner = e.uid("bp"), moved.ID

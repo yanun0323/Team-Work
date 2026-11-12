@@ -10,7 +10,7 @@ import { Detail, type Item } from './DrawerDetail'
 import { lastStaff } from './draft'
 import { HELIPAD } from './Airport'
 import { AIRPORT, CELL, POWER_TOWER, STAFFING, canPlace, layoutTown, rectCenter } from './layout'
-import { CopyForm, packLine } from './StaffingSheets'
+import { CopyForm, copyLevel, packLine } from './StaffingSheets'
 import type { CopyPreview } from './core/ops'
 
 const world = (): World => structuredClone(seedWorld('zh'))
@@ -150,6 +150,23 @@ describe('copying from another island', () => {
     const html = renderToStaticMarkup(<CopyForm preview={preview({ models: ['claude-x'], thinking: { 'claude-x': ['default', 'high'] }, modelOk: true, effortOk: true })} send={() => new Promise(() => {})} />)
     expect(html).not.toContain('請選擇要用的模型')
     expect(html).toMatch(/<button type="submit" class="fx-save">複製<\/button>/)
+  })
+
+  it('has a thinking level their model does not take picked, not put in its place', () => {
+    const html = renderToStaticMarkup(<CopyForm preview={preview({ models: ['claude-x'], thinking: { 'claude-x': ['default', 'low'] }, modelOk: true, effortOk: false })} send={() => new Promise(() => {})} />)
+    expect(html).toContain('claude-x 沒有思考等級 high，請重新選擇')
+    expect(html).toContain('選擇思考等級')
+    expect(html).toMatch(/<button type="submit" class="fx-save" disabled="">複製<\/button>/)
+  })
+
+  it('keeps a level only while the model picked takes it', () => {
+    const p = preview({ models: ['claude-x', 'gpt-y'], thinking: { 'claude-x': ['default', 'high'], 'gpt-y': ['default', 'low'] }, modelOk: true, effortOk: true })
+    expect(copyLevel(p, 'claude-x', 'high')).toBe('high')
+    // another model without it: picked again, never turned into default
+    expect(copyLevel(p, 'gpt-y', 'high')).toBe('')
+    expect(copyLevel(p, 'gpt-y', 'low')).toBe('low')
+    expect(copyLevel(p, 'claude-x', 'low')).toBe('')
+    expect(copyLevel(p, '', 'high')).toBe('')
   })
 
   it('says what each source becomes in either mode', () => {

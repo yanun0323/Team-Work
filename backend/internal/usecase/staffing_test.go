@@ -2,10 +2,12 @@ package usecase_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/yanun0323/Team-Work/internal/model"
@@ -377,6 +379,249 @@ func TestCopyRefusalsChangeNothing(t *testing.T) {
 	}
 	if got := here.world().Replicas[one.Replica.ID]; got.Model != "fake" || got.Effort != "low" {
 		t.Fatalf("copy = %+v", got)
+	}
+}
+
+func plainExport() usecase.ReplicaExport {
+	return usecase.ReplicaExport{Name: "Bo", Model: "fake", Effort: model.ThinkingDefault,
+		Blueprint: usecase.ExportBlueprint{Name: "Dev", Prompt: "複製我", Tools: []string{}}, Packs: []usecase.ExportPack{}}
+}
+
+// A copy that went through but whose answer was lost is the same copy when sent again after a restart.
+func TestCopyRetriedAfterARestartHiresNobodyNew(t *testing.T) {
+	r, _, reopen := diskRig(t)
+	count := len(r.world().Replicas)
+	one, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "peer\x00rep-1\x00k1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopen()
+	two, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "peer\x00rep-1\x00k1"})
+	if err != nil || two.Replica == nil || two.Replica.ID != one.Replica.ID {
+		t.Fatalf("again: %+v %v", two, err)
+	}
+	if n := countNamed(r.world(), "Bo"); n != 1 || len(r.world().Replicas) != count+1 {
+		t.Fatalf("%d named Bo", n)
+	}
+	// moved into a company in the meantime, they are still who that copy hired
+	moved, err := r.e.MoveReplica(one.Replica.ID, r.team.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "peer\x00rep-1\x00k1"}); err != nil || again.Replica.ID != moved.ID || countNamed(r.world(), "Bo") != 1 {
+		t.Fatalf("after the move: %+v %v", again, err)
+	}
+	// another copy is someone else
+	three, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "peer\x00rep-1\x00k2"})
+	if err != nil || three.Replica.ID == one.Replica.ID || countNamed(r.world(), "Bo") != 2 {
+		t.Fatalf("another: %+v %v", three, err)
+	}
+}
+
+// The same copy sent at once from several places while a save fails: the one that failed leaves nothing to find, the
+// others hire one employee between them, and every answer names someone who is there.
+func TestCopySentTogetherWhileASaveFailsHiresOnce(t *testing.T) {
+	for round := 0; round < 20; round++ {
+		r, disk, _ := diskRig(t)
+		disk.fails.Store(1)
+		var wg sync.WaitGroup
+		results := make([]usecase.CopyResult, 8)
+		errs := make([]error, len(results))
+		for i := range results {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				results[i], errs[i] = r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "k"})
+			}()
+		}
+		wg.Wait()
+		w := r.world()
+		if n := countNamed(w, "Bo"); n != 1 {
+			t.Fatalf("round %d: %d named Bo", round, n)
+		}
+		failed := 0
+		for i, res := range results {
+			if errs[i] != nil {
+				failed++
+				continue
+			}
+			if w.Replicas[res.Replica.ID] == nil {
+				t.Fatalf("round %d: answered with %s, who was never saved", round, res.Replica.ID)
+			}
+		}
+		if failed != 1 {
+			t.Fatalf("round %d: %d failed", round, failed)
+		}
+	}
+}
+
+// A copy whose save failed is not remembered: sent again it hires, once, and stays after a restart.
+func TestCopyThatFailedToSaveIsMadeOnRetry(t *testing.T) {
+	r, disk, reopen := diskRig(t)
+	disk.broken.Store(true)
+	if _, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "k"}); err == nil {
+		t.Fatal("a copy that was not saved was made")
+	}
+	disk.broken.Store(false)
+	res, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "k"})
+	if err != nil || r.world().Replicas[res.Replica.ID] == nil {
+		t.Fatalf("%+v %v", res, err)
+	}
+	reopen()
+	if w := r.world(); w.Replicas[res.Replica.ID] == nil || countNamed(w, "Bo") != 1 {
+		t.Fatal("the copy was not kept")
+	}
+}
+
+// A model picked in place of theirs comes with a level picked for it too: theirs is kept only where it is taken, and
+// none is put in its place.
+func TestCopyNeverPicksALevel(t *testing.T) {
+	r := newRig(t, nil)
+	x := plainExport()
+	x.Model, x.Effort = "gone", "max"
+	if _, err := r.e.CopyReplica(x, usecase.CopyOptions{Model: "fake"}); err == nil {
+		t.Fatal("copied on a level put in place of theirs")
+	}
+	if countNamed(r.world(), "Bo") != 0 {
+		t.Fatal("hired")
+	}
+}
+
+// folderIsland has Bo, whose skills come from the folder source made by lay; lay gets the source folder and one
+// outside it.
+func folderIsland(t *testing.T, lay func(source, outside string) string) (*rig, *model.Replica) {
+	t.Helper()
+	r := newRig(t, nil)
+	source := lay(t.TempDir(), t.TempDir())
+	local, err := r.e.AddSource(context.Background(), usecase.NewSource{Kind: "local", Path: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, Name: "Bo", Model: "fake", Custom: &model.Blueprint{
+		Prompt: "複製我", Skills: []model.SkillPack{{SourceID: local.ID, Exclude: []string{}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r, bo
+}
+
+func put(t *testing.T, path, text string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func link(t *testing.T, to, at string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(at), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(to, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func exportedText(x usecase.ReplicaExport) string {
+	var b strings.Builder
+	for _, s := range x.Files {
+		for _, f := range s.Files {
+			b.WriteString(s.Name + "/" + f.Path + "=" + string(f.Data) + "\n")
+		}
+	}
+	return b.String()
+}
+
+// A skill reached through a link that leads out of the folder picked, at the skill or above it, does not bring what
+// is out there: the copy with files is refused. A folder picked that is itself a link is that folder.
+func TestExportStaysInsideTheSkillSource(t *testing.T) {
+	for name, lay := range map[string]func(source, outside string) string{
+		"the skills folder links out": func(source, outside string) string {
+			put(t, filepath.Join(outside, "lint", "SKILL.md"), "---\nname: lint\n---\nx")
+			put(t, filepath.Join(outside, "lint", "secret.txt"), "outside")
+			link(t, outside, filepath.Join(source, "skills"))
+			return source
+		},
+		"the skill links out": func(source, outside string) string {
+			put(t, filepath.Join(outside, "SKILL.md"), "---\nname: lint\n---\nx")
+			put(t, filepath.Join(outside, "secret.txt"), "outside")
+			link(t, outside, filepath.Join(source, "skills", "lint"))
+			return source
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, bo := folderIsland(t, lay)
+			x, err := r.e.ExportReplica(context.Background(), bo.ID, true)
+			if err == nil || strings.Contains(exportedText(x), "outside") {
+				t.Fatalf("exported %q, %v", exportedText(x), err)
+			}
+			// where they come from can still be copied
+			if _, err := r.e.ExportReplica(context.Background(), bo.ID, false); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	t.Run("the folder picked is a link", func(t *testing.T) {
+		r, bo := folderIsland(t, func(source, outside string) string {
+			put(t, filepath.Join(outside, "skills", "lint", "SKILL.md"), "---\nname: lint\n---\nx")
+			put(t, filepath.Join(outside, "skills", "lint", "run.sh"), "echo")
+			at := filepath.Join(source, "picked")
+			link(t, outside, at)
+			return at
+		})
+		x, err := r.e.ExportReplica(context.Background(), bo.ID, true)
+		if err != nil || !strings.Contains(exportedText(x), "lint/run.sh=echo") {
+			t.Fatalf("exported %q, %v", exportedText(x), err)
+		}
+	})
+}
+
+// A folder source that is a Git checkout, with a token in its remote and credential files beside the skill, brings the
+// skill's own files and none of those; the folder's remote is never asked for.
+func TestExportOfAFolderLeavesItsCredentials(t *testing.T) {
+	r, bo := folderIsland(t, func(source, _ string) string {
+		put(t, filepath.Join(source, ".git", "config"), "[remote \"origin\"]\n\turl = https://x-access-token:ghp_TOKEN@github.com/me/private.git\n")
+		put(t, filepath.Join(source, ".git-credentials"), "https://me:ghp_TOKEN@github.com")
+		put(t, filepath.Join(source, "skills", "lint", "SKILL.md"), "---\nname: lint\n---\nx")
+		put(t, filepath.Join(source, "skills", "lint", ".env"), "TOKEN=ghp_TOKEN")
+		put(t, filepath.Join(source, "skills", "lint", ".git", "config"), "url = https://ghp_TOKEN@github.com/me/private.git")
+		put(t, filepath.Join(source, "skills", "other.txt"), "ghp_TOKEN beside the skill")
+		return source
+	})
+	for _, files := range []bool{false, true} {
+		x, err := r.e.ExportReplica(context.Background(), bo.ID, files)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(x)
+		if strings.Contains(string(raw), "ghp_TOKEN") || strings.Contains(string(raw), "private.git") {
+			t.Fatalf("export carries a credential: %s", raw)
+		}
+		if files && exportedText(x) != "lint/SKILL.md=---\nname: lint\n---\nx\n" {
+			t.Fatalf("files = %q", exportedText(x))
+		}
+	}
+}
+
+// A token written into a repo's address as its user, or in its query, goes without it too.
+func TestExportLeavesTokensInAddressesOut(t *testing.T) {
+	r := newRig(t, nil)
+	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, Name: "Bo", Model: "fake", Custom: &model.Blueprint{
+		Source: model.BlueprintSource{Kind: "git", Repo: "https://ghp_TOKEN@git.example.com/x.git", Commit: "abc"},
+		Skills: []model.SkillPack{{Source: &model.BlueprintSource{Kind: "git", Repo: "https://git.example.com/y.git?private_token=ghp_TOKEN", Ref: "main", Commit: "abc"}, Exclude: []string{}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err := r.e.ExportReplica(context.Background(), bo.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(x)
+	if strings.Contains(string(raw), "ghp_TOKEN") || x.Packs[0].Repo != "https://git.example.com/y.git" || x.Blueprint.Source.Repo != "https://git.example.com/x.git" {
+		t.Fatalf("export = %s", raw)
 	}
 }
 

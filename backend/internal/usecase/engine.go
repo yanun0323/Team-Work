@@ -106,8 +106,6 @@ type Engine struct {
 	sourced map[string]sourcedSet
 	// sizes is the last project size worked out for each folder, a projectSize; the same commit is not added up twice
 	sizes sync.Map
-	// copies are the employees copied from other islands lately, by the key of the request that did it
-	copies map[string]copied
 
 	store     adapter.Store
 	git       adapter.Git
@@ -145,7 +143,7 @@ const (
 func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	e := &Engine{
 		w: model.NewWorld(), runs: map[string]*run{}, live: map[string]string{}, output: map[string]liveOutput{}, prev: map[string][]byte{}, dirty: map[string]bool{},
-		subs: map[chan Event]struct{}{}, logins: map[string]*loginRun{}, pendingKeys: map[string]string{}, copies: map[string]copied{}, terms: map[string]*TerminalLog{}, quotas: map[string]quotaEntry{}, modelsAt: map[string]float64{}, store: o.Store, git: o.Git, providers: o.Providers, dataDir: o.DataDir, log: o.Log,
+		subs: map[chan Event]struct{}{}, logins: map[string]*loginRun{}, pendingKeys: map[string]string{}, terms: map[string]*TerminalLog{}, quotas: map[string]quotaEntry{}, modelsAt: map[string]float64{}, store: o.Store, git: o.Git, providers: o.Providers, dataDir: o.DataDir, log: o.Log,
 		clock:  func() float64 { return float64(time.Now().UnixMilli()) / 1000 },
 		search: &tools.Search{Endpoint: tools.ExaEndpoint, Log: o.Log, State: filepath.Join(o.DataDir, "cache", "search-cooldown.json")},
 	}

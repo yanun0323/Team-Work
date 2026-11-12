@@ -67,6 +67,7 @@ const en = {
   '這台沒有這個內建藍圖，會改成自訂設定': 'This computer lacks this built-in blueprint; it becomes custom settings',
   '這座島沒有 {model}，請選擇要用的模型': 'This island has no {model}; pick a model to use',
   '選擇模型': 'Pick a model',
+  '選擇思考等級': 'Pick a thinking level',
   '還沒有公司': 'No companies yet',
   '飛機音效': 'Aircraft sounds',
   '音樂': 'Music',
