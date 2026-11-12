@@ -116,6 +116,7 @@ const en = {
   '執行{a}，自動重試 {max} 次都沒成功。要再試一次，還是略過這一步？': 'The run {a}, and {max} automatic retries did not help. Try again, or skip this step?',
   '任務花費已經到上限 ${a}，我先停下來了。要提高上限繼續，還是暫停任務？': "The task reached its ${a} cost limit, so I stopped. Raise the limit and continue, or pause the task?",
   '選項': 'Options',
+  '略過#ask': 'Skip',
   '回覆': 'Reply',
   '捲到最新的訊息': 'Scroll to the latest message',
   '顯示更早訊息': 'Show earlier messages',

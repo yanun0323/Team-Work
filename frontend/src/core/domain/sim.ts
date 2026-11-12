@@ -691,6 +691,12 @@ export function readChat(w: World, id: string) {
   if (w.chats[id]) delete w.chats[id].unread
 }
 
+/** Sets the question waiting on the user aside, unanswered, without waking the employee. */
+export function skipChatQuestion(w: World, id: string) {
+  const chat = w.chats[id]
+  if (chat && chat.replyAt === undefined) delete chat.question
+}
+
 export function deleteChat(w: World, id: string) {
   delete w.chats[id]
 }

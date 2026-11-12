@@ -49,14 +49,17 @@ it('shows under the box how much the next call sends, of what the model can read
 
 it('folds a question\'s options away under who asked, and opens them again', () => {
   const look = Object.values(useStore.getState().world.replicas)[0].look
-  const open = renderToStaticMarkup(<AskBox to={{ name: 'Ann', look }} options={['A', 'B']} folded={false} onFold={() => {}} onPick={() => {}} />)
+  const open = renderToStaticMarkup(<AskBox to={{ name: 'Ann', look }} options={['A', 'B']} folded={false} onFold={() => {}} onPick={() => {}} onSkip={() => {}} />)
   expect(open).toMatch(/<button type="button" class="fx-room-to fx-room-fold" aria-expanded="true">直接回答.*Ann/)
   expect(open).toContain('<button type="button" class="fx-choice">A</button><button type="button" class="fx-choice">B</button>')
-  const folded = renderToStaticMarkup(<AskBox to={{ name: 'Ann', look }} options={['A', 'B']} folded onFold={() => {}} onPick={() => {}} />)
+  const folded = renderToStaticMarkup(<AskBox to={{ name: 'Ann', look }} options={['A', 'B']} folded onFold={() => {}} onPick={() => {}} onSkip={() => {}} />)
   expect(folded).toContain('aria-expanded="false"')
   expect(folded).not.toContain('fx-choice')
+  // the question can be set aside unanswered, folded or not
+  expect(open).toContain('<button type="button" class="fx-room-skip">略過</button>')
+  expect(folded).toContain('<button type="button" class="fx-room-skip">略過</button>')
   // with nobody to name, the switch still says what it folds
-  expect(renderToStaticMarkup(<AskBox options={['A']} folded={false} onFold={() => {}} onPick={() => {}} />)).toContain('aria-expanded="true">選項<svg')
+  expect(renderToStaticMarkup(<AskBox options={['A']} folded={false} onFold={() => {}} onPick={() => {}} onSkip={() => {}} />)).toContain('aria-expanded="true">選項<svg')
 })
 
 it('shows whose a note is only when its colour is shared, and reads it out either way', () => {

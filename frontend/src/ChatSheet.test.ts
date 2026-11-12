@@ -5,7 +5,7 @@ import { useStore } from './core/store'
 import { describe, expect, it } from 'vitest'
 import { attachable, type Encode, fitImage, splitAttachments } from './attachments'
 import { seedWorld } from './core/data/seed'
-import { airportSkills, canHandOff, chatSkill, chatTaskDraft, createAirportChat, createChat, deleteTeam, handOffChat, readChat, renameChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, steerChat, stopChat, tick, unqueueChat } from './core/domain/sim'
+import { airportSkills, canHandOff, chatSkill, chatTaskDraft, createAirportChat, createChat, deleteTeam, handOffChat, readChat, renameChat, REPLY_TIME, rewindChat, sayInChat, setChatMind, skipChatQuestion, steerChat, stopChat, tick, unqueueChat } from './core/domain/sim'
 import { chatMindOf, chatSign, chatWho } from './crew'
 import { prereqsOf } from './prereqs'
 import { teamAlerts, teamReplicas, waitingTab } from './core/model'
@@ -303,6 +303,21 @@ describe('a question from the employee', () => {
     expect(chat.question).toBeUndefined()
     for (let i = 0; i < 60; i++) tick(w, 0.1)
     expect(chat.question).toBeUndefined()
+  })
+
+  it('can be skipped, which clears its sign without waking the employee', () => {
+    const { w, chat } = setup()
+    for (let i = 0; i < 60; i++) tick(w, 0.1)
+    sayInChat(w, chat.id, '可以嗎？')
+    for (let i = 0; i < 60; i++) tick(w, 0.1)
+    readChat(w, chat.id)
+    expect(chatSign(chat)).toBe('question')
+    const said = chat.messages.length
+    skipChatQuestion(w, chat.id)
+    expect(chat.question).toBeUndefined()
+    expect(chatSign(chat)).toBeUndefined()
+    expect(chat.replyAt).toBeUndefined()
+    expect(chat.messages).toHaveLength(said)
   })
 })
 

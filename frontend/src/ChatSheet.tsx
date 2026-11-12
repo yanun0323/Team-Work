@@ -19,7 +19,7 @@ import { Gone, Heading, DeleteTool, PinTool, type Head } from './DrawerDetail'
 import { composing } from './ime'
 import { fmtClock, fmtTokens, teamReplicas, useAtBottom, useStickToBottom } from './core/model'
 import type { Attachment, Chat, ChatHandoff, Look, Made, QueuedMessage } from './core/domain/types'
-import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, openFolder, readChat, refreshStaleModels, renameChat, resolveChatChange, retryChat, rewindChat, sayInChat, setChatChair, setChatMind, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
+import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, openFolder, readChat, refreshStaleModels, renameChat, resolveChatChange, retryChat, rewindChat, sayInChat, setChatChair, setChatMind, skipChatQuestion, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
 import { AIRPORT_STAFF_LOOK, canHandOff, MAX_CHAT_PEOPLE, roundActor } from './core/domain/sim'
 import { HandOffIcon, HandOffMenu } from './HandOffMenu'
 import { useLiveOutput, useLiveText } from './core/live'
@@ -66,16 +66,18 @@ export function ToolLine({ text, images, index }: { text: string; images?: React
 }
 
 /** A question's options under who asked. The heading folds them away to read the log above;
-    the message box below still answers by typing while they are folded. */
-export function AskBox({ to, options, folded, onFold, onPick }: {
+    the message box below still answers by typing while they are folded. Skip sets the question aside unanswered. */
+export function AskBox({ to, options, folded, onFold, onPick, onSkip }: {
   to?: { name: string; look: Look }
   options: string[]
   folded: boolean
   onFold: () => void
   onPick: (option: string) => void
+  onSkip: () => void
 }) {
   return (
     <div className="fx-room-answer" role="group" aria-label={tr('選項')}>
+      <div className="fx-room-ask-head">
       <button type="button" className="fx-room-to fx-room-fold" aria-expanded={!folded} onClick={onFold}>
         {to
           ? <>{tr('直接回答')}<span className="fx-room-to-one"><span aria-hidden="true"><PixelFace look={to.look} name={to.name} size={18} /></span>{to.name}</span></>
@@ -84,6 +86,8 @@ export function AskBox({ to, options, folded, onFold, onPick }: {
           <path d="M4 6.5L8 10l4-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
+      <button type="button" className="fx-room-skip" onClick={onSkip}>{tr('略過#ask')}</button>
+      </div>
       {!folded && (
         <div className="fx-d-choices">
           {options.map((o) => <button key={o} type="button" className="fx-choice" onClick={() => onPick(o)}>{o}</button>)}
@@ -655,7 +659,8 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
       {!left && !writing && !!chat?.question?.options.length && (
         <AskBox to={askerFace} options={chat.question.options} folded={foldedAsk === askKey}
           onFold={() => setFoldedAsk(foldedAsk === askKey ? '' : askKey)}
-          onPick={(o) => act((x) => sayInChat(x, chat.id, o, [], [], answerMentions([], asker)))} />
+          onPick={(o) => act((x) => sayInChat(x, chat.id, o, [], [], answerMentions([], asker)))}
+          onSkip={() => act((x) => skipChatQuestion(x, chat.id))} />
       )}
       {!left && !writing && chat?.change && (
         <section className="fx-d-change-card" aria-label={changeAsk(chat.change)}>
