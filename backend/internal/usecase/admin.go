@@ -70,7 +70,7 @@ func (e *Engine) CreateTeam(ctx context.Context, in NewTeam) (*model.Team, error
 		}
 		id := e.uid("team")
 		t := &model.Team{ID: id, Name: in.Name, Folder: in.Folder, TargetBranch: in.TargetBranch, Branches: branches, InitializedGit: initialized,
-			Plot: clone(plot), CreatedAt: e.w.Now, Settings: model.TeamSettings{TimeoutMin: 30, CostLimitUSD: 3, Retries: 1}}
+			Plot: clone(plot), CreatedAt: e.w.Now, Settings: model.TeamSettings{TimeoutMin: 120, CostLimitUSD: 3, Retries: 1}}
 		e.readPrompt(t)
 		e.w.Teams[id] = t
 		out = clone(t)

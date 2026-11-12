@@ -1542,7 +1542,7 @@ export function createTeam(
   const id = uid(w, 'team')
   const team: Team = {
     id, ...input, prompt: '', createdAt: w.now,
-    settings: { timeoutMin: 30, costLimitUsd: 3, retries: 1 },
+    settings: { timeoutMin: 120, costLimitUsd: 3, retries: 1 },
   }
   w.teams[id] = team
   return team
