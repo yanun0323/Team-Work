@@ -1118,6 +1118,31 @@ func TestRejectedHandoffKeepsTheTaskFromBeingDone(t *testing.T) {
 	}
 }
 
+// After submit_complete the owner is told to end without repeating the summary, and a model may then reply with
+// nothing. The task is done; that reply must not show as the owner failing.
+func TestNothingSaidAfterCompletingIsNoFailure(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if !isOwner(req) {
+			return worker(req), nil
+		}
+		if last := lastBlock(req); last.Name == "submit_complete" && !last.IsError {
+			return model.ModelReply{}, nil
+		}
+		return autoOwner(req), nil
+	})
+	task := r.ownerTask(r.flow.ID)
+	w := r.wait("the owner to finish", func(w *model.World) bool {
+		c := w.Tasks[task.ID].Coordination
+		return w.Tasks[task.ID].Stage == enum.StageAwaitMerge && (c.OwnerState == model.OwnerIdle || c.OwnerState == model.OwnerFailed)
+	})
+	if s := w.Tasks[task.ID].Coordination.OwnerState; s != model.OwnerIdle {
+		t.Fatalf("the owner is %s after completing", s)
+	}
+	if hasActivity(r.activity(task.ID), func(a model.TaskActivity) bool { return a.Key == "ownerFailed" }) {
+		t.Fatal("an empty reply after completing was shown as the owner failing")
+	}
+}
+
 func TestRunsFailingOneAfterAnotherStopTheOwner(t *testing.T) {
 	var failures atomic.Int64
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {

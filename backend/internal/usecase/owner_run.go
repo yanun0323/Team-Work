@@ -482,7 +482,15 @@ func (e *Engine) runOwner(ctx context.Context, in *ownerRun) {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			err = model.Errorf(model.CodeUnavailable, "執行逾時")
 		}
-		finish(func(t *model.Task) { e.ownerFailed(t, in, err) })
+		finish(func(t *model.Task) {
+			// once the task is submitted, what the model does after (often nothing, as told) cannot undo that
+			if in.completed {
+				e.log.Warn().Err(err).Str("task", in.taskID).Msg("owner turn after completing")
+				e.eventsHandled(t, in.wake)
+				return
+			}
+			e.ownerFailed(t, in, err)
+		})
 	default:
 		finish(func(t *model.Task) {
 			if in.stale || t.Coordination.OwnerState == model.OwnerBlocked {
