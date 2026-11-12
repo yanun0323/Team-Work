@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { benchMate, goesHome, HOME_SHARE, indoors, ISLAND_GAP, islandPlaces, ISLAND_TALK_GAP, stepCrowd, townsfolk, WAVE_SECONDS, type Scene, type Townsfolk } from './crowd'
-import { layoutTown } from './layout'
+import {
+  ARRIVAL_GAP, benchMate, goesHome, HOME_SHARE, indoors, ISLAND_GAP, islandPlaces, ISLAND_TALK_GAP, newcomer, settleCount, stepCrowd, townsfolk, VISIT_SHARE, WAVE_SECONDS,
+  type Scene, type Townsfolk,
+} from './crowd'
+import { layoutTown, rectCenter } from './layout'
+import { DOORSTEP, GROUNDS } from './staffingGrounds'
 import { stuckCheck } from './stuckCheck'
 import { benchSeats, cellPos, crowdSize, freeCells, isFree, resettle, townGrid, type P } from './walk'
 
@@ -46,7 +50,8 @@ const cellOf = (scene: Scene, [x, z]: P) => [Math.round((x - scene.grid.x0) / sc
 describe('islandPlaces', () => {
   it('finds a free spot in front of every entrance, and its way in', () => {
     const { town, scene } = island()
-    expect(scene.places.doors).toHaveLength(town.lots.length)
+    // every company's, and the staffing agency's
+    expect(scene.places.doors).toHaveLength(town.lots.length + 1)
     for (const d of scene.places.doors) {
       expect(isFree(scene.grid, ...cellOf(scene, d.at))).toBe(true)
       // straight in: the entrance is on the +z side
@@ -54,6 +59,16 @@ describe('islandPlaces', () => {
       expect(d.inside[1]).toBeLessThan(d.at[1])
       expect(isFree(scene.grid, ...cellOf(scene, d.inside))).toBe(false)
     }
+  })
+
+  it("puts the staffing agency's door first, on its path, at the foot of its steps", () => {
+    const { town, scene } = island()
+    expect(scene.places.agency).toBe(0)
+    const door = scene.places.doors[scene.places.agency]
+    const [cx, cz] = rectCenter(town, town.staffing)
+    expect(door.at[0]).toBeCloseTo(cx)
+    expect(door.inside).toEqual([door.at[0], cz + DOORSTEP])
+    expect(Math.abs(door.at[1] - cz - GROUNDS.path.z)).toBeLessThanOrEqual(GROUNDS.path.d / 2)
   })
 
   it('finds lamps to stand by, and spots on the grass facing the sea with the beach in front', () => {
@@ -89,7 +104,67 @@ describe('stepCrowd', () => {
     expect(people.filter((_, i) => goesHome(i, 1)).length).toBeLessThanOrEqual(Math.ceil(people.length * HOME_SHARE) + 2)
     scene.night = 0
     run(people, scene, 60, seeded(4))
-    expect(people.some((p) => p.home)).toBe(false)
+    // by day nobody is indoors at a company; some may be calling in at the staffing agency
+    expect(people.some((p) => p.home && p.door !== scene.places.agency)).toBe(false)
+  })
+
+  it('has people call in at the staffing agency by day for a while, and come out again', () => {
+    const { scene, people } = island()
+    // always choosing a call, then anything once there
+    let calling = true
+    const random = seeded(5)
+    const choose = () => (calling ? 0.75 + VISIT_SHARE / 2 : random())
+    let went = false
+    run(people, scene, 120, choose, () => {
+      if (people.some((p) => p.home && p.door === scene.places.agency)) {
+        went = true
+        calling = false
+      }
+    })
+    expect(went).toBe(true)
+    run(people, scene, 60, seeded(6))
+    // nobody calling in now, so everyone is back out
+    calling = false
+    expect(people.every((p) => !p.home)).toBe(true)
+  })
+
+  it('lets newcomers out of the staffing agency one after another, and walks those no longer needed in there', () => {
+    const { scene, people: everyone } = island()
+    const door = scene.places.doors[scene.places.agency]
+    // nobody starting out in the doorway: anyone standing there keeps others in, as at any door
+    const people = everyone.filter((p) => Math.hypot(p.x - door.at[0], p.z - door.at[1]) > 4)
+    const n = people.length
+    // two more needed: they wait inside the door, and come out in turn
+    const fresh = [0, 1].map((k) => newcomer(scene.places, k * ARRIVAL_GAP)!)
+    people.push(...fresh)
+    expect(fresh.every((p) => p.home && p.x === door.inside[0] && p.z === door.inside[1])).toBe(true)
+    // the first out before the second, and both out before long
+    let order: boolean[] | null = null
+    run(people, scene, 30, seeded(7), () => {
+      if (!order && !fresh[0].home) order = fresh.map((p) => p.home)
+    })
+    expect(order).toEqual([false, true])
+    expect(fresh.every((p) => !p.home)).toBe(true)
+    expect(settleCount(people, n + 2)).toBe(n + 2)
+
+    // three fewer: the last three walk in at the staffing agency and are gone; nobody else goes
+    const leaving = people.slice(n - 1)
+    expect(settleCount(people, n - 1)).toBe(n + 2)
+    expect(leaving.every((p) => p.leaving)).toBe(true)
+    let left = people.length
+    for (let t = 0; t < 240 && left > n - 1; t += 0.1) {
+      stepCrowd(people, scene, 0.1, seeded(9 + Math.round(t * 10)))
+      left = settleCount(people, n - 1)
+    }
+    expect(left).toBe(n - 1)
+    expect(leaving.every((p) => p.home && p.door === scene.places.agency)).toBe(true)
+    expect(people.every((p) => !p.leaving)).toBe(true)
+  })
+
+  it('lets go of those no longer needed at once, with nobody walking', () => {
+    const { people } = island()
+    expect(settleCount(people, 2, true)).toBe(2)
+    expect(people).toHaveLength(2)
   })
 
   it('counts someone as out of sight only on the last steps in through the door, and indoors', () => {
@@ -125,7 +200,7 @@ describe('stepCrowd', () => {
     const { scene, people } = island()
     let talks = 0
     let pairs = 0
-    run(people, scene, 1200, seeded(8), () => {
+    run(people, scene, 1200, seeded(3), () => {
       people.forEach((p, i) => {
         if (p.doing === 'pair' && p.lead) pairs++
         if (p.doing !== 'chat' || p.mode !== 'standing' || !p.lead) return
@@ -240,7 +315,7 @@ it('keeps an indoor person inside while someone approaches the same entrance', (
 
 it("interrupts a chat to clear a passerby's route, including its partner and walking pose", () => {
   const grid = { cols: 16, rows: 9, step: 1, x0: 0, z0: 0, free: new Uint8Array(16 * 9).fill(1) }
-  const scene: Scene = { grid, seats: [], cells: freeCells(grid), paved: [], places: { doors: [], lamps: [], shore: [] }, swim: [], night: 0, followed: -1 }
+  const scene: Scene = { grid, seats: [], cells: freeCells(grid), paved: [], places: { doors: [], agency: -1, lamps: [], shore: [] }, swim: [], night: 0, followed: -1 }
   const person = (x: number, z: number) => townsfolk({ x, z, route: [], heading: 0, mode: 'standing', wait: 30, seat: null, toSeat: false })
   const a = person(1, 4), b = person(4, 4), c = person(4, 5.5)
   a.route = [[14, 4]]; a.mode = 'walking'; a.cool = 60

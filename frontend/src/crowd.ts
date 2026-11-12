@@ -1,10 +1,13 @@
 // What the people out on the island get up to: strolling, sitting on benches, stopping to chat and walking on
 // together, waving in passing, looking out to sea or paddling on the beach, looking up at
-// a company's front door, and going indoors after dark. Decisions and walking only, nothing drawn; pure data,
-// no three.js. `People.tsx` poses the figures from what is here.
+// a company's front door, and going indoors after dark. Now and then someone calls in at the staffing agency for a
+// while, and when the island needs more people or fewer, newcomers come out of its door and those no longer needed
+// go in and are gone. Decisions and walking only, nothing drawn; pure data, no three.js. `People.tsx` poses the
+// figures from what is here.
 
 import { coordinateTraffic, walkingRoute, beginAvoidance, openSpot, separate, spotTaken, UNHINDERED, walkAround, type Avoider } from './avoid'
-import { CELL, hash, type Town } from './layout'
+import { CELL, hash, rectCenter, type Town } from './layout'
+import { DOORSTEP } from './staffingGrounds'
 import { cellPos, headingOf, isFree, type BenchSeat, type Grid, type P, type Stroller } from './walk'
 
 /** What someone is up to, besides walking or sitting. */
@@ -50,17 +53,21 @@ export interface Townsfolk extends Stroller, Avoider {
   spot: number
   /** Distance walked in the last step, for the stride. */
   moved: number
+  /** No longer needed on the island: off to the staffing agency, and gone once in (`settleCount`). */
+  leaving: boolean
 }
 
 /** A stroller as `walk` knows it, with nothing going on yet. */
 export const townsfolk = (s: Stroller): Townsfolk => ({
-  ...s, phase: 0, doing: 'stroll', partner: -1, lead: false, t: 0, resume: false, then: 'stroll', cool: 0, home: false, door: -1, spot: -1, moved: 0, ...UNHINDERED,
+  ...s, phase: 0, doing: 'stroll', partner: -1, lead: false, t: 0, resume: false, then: 'stroll', cool: 0, home: false, door: -1, spot: -1, moved: 0, leaving: false, ...UNHINDERED,
 })
 
 /** Where people go on the island besides anywhere: doors, lamps and the shore, in world units. */
 export interface Places {
   /** In front of each building's entrance (`at`, facing it), and just inside (`inside`) for going in. */
   doors: Array<{ at: P; inside: P }>
+  /** The staffing agency's door among `doors`, by index; -1 when it has none. */
+  agency: number
   /** Beside each lamp post, a little in under it. */
   lamps: P[]
   /** On the grass a cell back from a straight bit of coast (`at`), facing the sea, and down on the beach in front of it (`beach`). */
@@ -85,6 +92,12 @@ export const WAVE_SECONDS = 1.6
 export const HOME_SHARE = 0.6
 /** How far past the grass edge, in world units, someone paddling stands: on the sand, short of the sea. */
 const PADDLE = 0.5
+/** The share of someone's choices, by day, that is calling in at the staffing agency. */
+export const VISIT_SHARE = 0.04
+/** How long a call at the staffing agency lasts, in seconds. */
+const VISIT_SECONDS: P = [6, 15]
+/** Seconds between newcomers coming out of the staffing agency, one after another. */
+export const ARRIVAL_GAP = 1.5
 
 /**
  * Where people can go on the island: a spot in front of each entrance (on the +z side, its middle two cells), a free
@@ -93,6 +106,19 @@ const PADDLE = 0.5
  */
 export function islandPlaces(town: Town, g: Grid, sandOk: (x: number, z: number) => boolean = () => true): Places {
   const doors: Places['doors'] = []
+  // the staffing agency's first, so its index holds as companies come and go: on its path, the first row out from the
+  // rotunda with both middle cells free, and the foot of its steps for going in
+  const s = town.staffing
+  const [, sz] = rectCenter(town, s)
+  let agency = -1
+  for (let z = s.z + s.d / 2; z < s.z + s.d; z++) {
+    const mid = s.x + s.w / 2
+    if (!isFree(g, mid - 1, z) || !isFree(g, mid, z)) continue
+    const [x0, cz] = cellPos(g, mid - 1, z)
+    const [x1] = cellPos(g, mid, z)
+    agency = doors.push({ at: [(x0 + x1) / 2, cz], inside: [(x0 + x1) / 2, sz + DOORSTEP] }) - 1
+    break
+  }
   for (const l of town.lots) {
     const b = l.building
     const mid = b.x + b.w / 2
@@ -131,7 +157,29 @@ export function islandPlaces(town: Town, g: Grid, sandOk: (x: number, z: number)
     const beach: P = [sx + dx * (g.step / 2 + PADDLE), sz + dz * (g.step / 2 + PADDLE)]
     shore.push({ at: cellPos(g, x - dx, z - dz), heading: headingOf(dx, dz), beach: sandOk(...beach) ? beach : null })
   }
-  return { doors, lamps, shore }
+  return { doors, agency, lamps, shore }
+}
+
+/** Someone new to the island, just inside the staffing agency's door and coming out in `wait` seconds; null without one. */
+export function newcomer(places: Places, wait: number): Townsfolk | null {
+  const door = places.doors[places.agency]
+  if (!door) return null
+  const p = townsfolk({ x: door.inside[0], z: door.inside[1], route: [], heading: 0, mode: 'standing', wait, seat: null, toSeat: false })
+  p.home = true
+  p.door = places.agency
+  return p
+}
+
+/**
+ * The island needs `n` people: everyone past the first `n` is marked leaving, and those of them at the end of the list
+ * who have gone in are let go, at once with `instantly` (nobody walking: reduced motion). Returns how many are left.
+ */
+export function settleCount(people: Townsfolk[], n: number, instantly = false): number {
+  people.forEach((p, i) => (p.leaving = i >= n))
+  let k = people.length
+  while (k > n && (instantly || people[k - 1].home)) k--
+  people.length = k
+  return k
 }
 
 const SIDES: P[] = [[1, 0], [-1, 0], [0, 1], [0, -1]]
@@ -245,7 +293,7 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
     const was = p.doing
     const partner = people[p.partner]
     // done talking: sometimes the one who came over suggests a walk, and the other comes along
-    if (was === 'chat' && p.lead && partner && partner.partner === i && partner.doing === 'chat' && random() < 0.45) {
+    if (was === 'chat' && !p.leaving && p.lead && partner && partner.partner === i && partner.doing === 'chat' && random() < 0.45) {
       const way = wayTo(from, somewhere(p))
       if (way.length) {
         p.route = way
@@ -265,6 +313,16 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
       p.route = [...back, ...way, ...then]
       p.doing = doing
       return true
+    }
+    const agency = s.places.doors[s.places.agency]
+    // no longer needed: off to the staffing agency, or the nearest door without one
+    if (p.leaving) {
+      const k = agency ? s.places.agency : nearestDoor(p)
+      const door = s.places.doors[k]
+      if (door && go(wayTo(from, door.at, false), 'home', door.at, door.inside)) {
+        p.door = k
+        return
+      }
     }
     if (goesHome(i, s.night) && i !== s.followed) {
       const k = nearestDoor(p)
@@ -335,6 +393,11 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
       }
     }
     if (r < 0.75 && go(wayTo(from, somewhere(p)), 'daze')) return
+    // by day, now and then, calling in at the staffing agency for a while
+    if (r < 0.75 + VISIT_SHARE && s.night < 0.5 && agency && i !== s.followed && go(wayTo(from, agency.at, false), 'home', agency.at, agency.inside)) {
+      p.door = s.places.agency
+      return
+    }
     // after dark, mostly to where the lamps are
     if (s.night > 0.5 && s.places.lamps.length && random() < 0.6) {
       const lamp = openSpot(() => pick(s.places.lamps), people, p, ISLAND_GAP * 1.5, solid)
@@ -363,7 +426,7 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
     switch (p.doing) {
       case 'home':
         p.home = true
-        p.wait = rand(2, 8)
+        p.wait = p.door === s.places.agency ? rand(...VISIT_SECONDS) : rand(2, 8)
         return
       case 'door':
         // face the building and look up at it
@@ -480,6 +543,8 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
     p.moved = 0
     if (p.home) {
       p.blocked = false
+      // gone for good: `settleCount` lets them go
+      if (p.leaving) return
       // back out once it is light again; the one the camera follows comes out at once
       if (i === s.followed) p.wait = Math.min(p.wait, 0)
       if (p.wait > 0 || (goesHome(i, s.night) && i !== s.followed)) return
@@ -503,6 +568,8 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
       }
       return
     }
+    // no longer needed: no lingering on a bench or standing about first
+    if (p.leaving && out(p) && p.mode !== 'walking') p.wait = Math.min(p.wait, 0)
     if (p.mode === 'sitting') {
       if (p.wait > 0) return
       // get up, step off the bench and carry on; not stopping half out of it to wave
