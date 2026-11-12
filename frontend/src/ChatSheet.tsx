@@ -17,7 +17,7 @@ import { ChatFaces } from './ChatFaces'
 import { ALL, answerMentions, mentionedPeople, withAll } from './mentions'
 import { Gone, Heading, DeleteTool, PinTool, type Head } from './DrawerDetail'
 import { composing } from './ime'
-import { fmtClock, fmtTokens, teamReplicas, useAtBottom, useStickToBottom } from './core/model'
+import { crewOf, fmtClock, fmtTokens, useAtBottom, useStickToBottom } from './core/model'
 import type { Attachment, Chat, ChatHandoff, Look, Made, QueuedMessage } from './core/domain/types'
 import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, openFolder, readChat, refreshStaleModels, renameChat, resolveChatChange, retryChat, rewindChat, sayInChat, setChatChair, setChatMind, skipChatQuestion, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
 import { AIRPORT_STAFF_LOOK, canHandOff, MAX_CHAT_PEOPLE, roundActor } from './core/domain/sim'
@@ -208,7 +208,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const pages = useChatHistory(id ? w.chats[id] ?? started ?? undefined : undefined)
   const chat = pages.chat
   const airport = !teamId
-  const crew = teamReplicas(w, teamId)
+  const crew = crewOf(w, teamId)
   // what a new airport chat will run on; one under way keeps its own
   const [pickedModel, setPickedModel] = useState(() => [lastAirportMind(w)?.model, ...modelsOf(w)].find((m) => m && modelsOf(w).includes(m)) ?? '')
   const [pickedEffort, setPickedEffort] = useState(() => lastAirportMind(w)?.effort ?? DEFAULT_EFFORT)

@@ -1336,7 +1336,7 @@ func (e *Engine) checkHire(in NewReplica) (*model.Blueprint, string, error) {
 	if in.Custom != nil {
 		bp = in.Custom
 	}
-	if e.w.Teams[in.TeamID] == nil || bp == nil {
+	if (e.w.Teams[in.TeamID] == nil && in.TeamID != model.StaffingID) || bp == nil {
 		return nil, "", model.Errorf(model.CodeNotFound, "找不到公司或藍圖")
 	}
 	if in.Custom == nil && e.blueprintHidden(in.BlueprintID) {
@@ -1478,33 +1478,126 @@ func (e *Engine) updateReplica(id string, p ReplicaPatch) error {
 }
 
 // Fire lets an employee go, handing everything still theirs to the heir; a job under way starts again with them.
+// A company's employee always needs an heir, and a company keeps at least one employee of its own. One of the
+// staffing agency's needs an heir only while they still have work to hand over.
 func (e *Engine) Fire(id, heirID string) error {
 	return e.doSettings(func() error {
-		r, heir := e.w.Replicas[id], e.w.Replicas[heirID]
-		if r == nil || heir == nil {
-			return model.Errorf(model.CodeNotFound, "找不到員工")
+		r, heir, err := e.checkFire(id, heirID)
+		if err != nil {
+			return err
 		}
-		if id == heirID || heir.TeamID != r.TeamID {
-			return model.Errorf(model.CodeInvalid, "要交接給同公司的另一位員工")
+		e.letGo(r, heir)
+		return nil
+	})
+}
+
+// pendingTeams are the companies where employee id has work to hand over: a step, the ownership or the merge of a task
+// not yet finished, or a run not done. Sorted, each once.
+func (e *Engine) pendingTeams(id string) []string {
+	var out []string
+	add := func(teamID string) {
+		if !slices.Contains(out, teamID) {
+			out = append(out, teamID)
 		}
-		e.endChatsOf(id)
-		swap := func(ids []string) []string {
-			out := make([]string, 0, len(ids))
-			for _, x := range ids {
-				if x == id {
-					x = heirID
-				}
-				if !slices.Contains(out, x) {
-					out = append(out, x)
-				}
+	}
+	for _, t := range e.w.Tasks {
+		if t.Stage == enum.StageDone || t.Stage == enum.StageCancelled {
+			continue
+		}
+		owns := t.OwnerID != nil && *t.OwnerID == id
+		merges := t.Merge != nil && t.Merge.ReplicaID != nil && *t.Merge.ReplicaID == id
+		staffed := slices.ContainsFunc(t.Workflow.Nodes, func(n model.WorkflowNode) bool { return slices.Contains(n.ReplicaIDs, id) })
+		if owns || merges || staffed {
+			add(t.TeamID)
+		}
+	}
+	for _, s := range e.w.SubTasks {
+		if s.ReplicaID == nil || *s.ReplicaID != id || s.Cancelled || s.Status == enum.StatusComplete {
+			continue
+		}
+		if t := e.w.Tasks[s.TaskID]; t != nil {
+			add(t.TeamID)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// checkFire refuses letting employee id go to heirID, or with no heir when heirID is empty, and finds them both.
+// Call it holding the lock; it writes nothing.
+func (e *Engine) checkFire(id, heirID string) (r, heir *model.Replica, err error) {
+	r = e.w.Replicas[id]
+	if r == nil {
+		return nil, nil, model.Errorf(model.CodeNotFound, "找不到員工")
+	}
+	shared := r.TeamID == model.StaffingID
+	if !shared {
+		others := 0
+		for _, x := range e.w.Replicas {
+			if x.ID != id && x.TeamID == r.TeamID {
+				others++
 			}
-			return out
 		}
-		for _, wf := range e.w.Workflows {
-			for i := range wf.Nodes {
-				wf.Nodes[i].ReplicaIDs = swap(wf.Nodes[i].ReplicaIDs)
+		if others == 0 {
+			return nil, nil, model.Errorf(model.CodeInvalid, "公司至少要有一位員工")
+		}
+	}
+	teams := e.pendingTeams(id)
+	if heirID == "" {
+		if !shared || len(teams) > 0 {
+			return nil, nil, model.Errorf(model.CodeInvalid, "還有工作要交接，請選擇接手的員工")
+		}
+		return r, nil, nil
+	}
+	heir = e.w.Replicas[heirID]
+	if heir == nil {
+		return nil, nil, model.Errorf(model.CodeNotFound, "找不到員工")
+	}
+	if !shared {
+		teams = []string{r.TeamID}
+	}
+	if id == heirID {
+		return nil, nil, model.Errorf(model.CodeInvalid, "要交接給另一位員工")
+	}
+	for _, teamID := range teams {
+		if !model.WorksIn(heir, teamID) {
+			name := teamID
+			if t := e.w.Teams[teamID]; t != nil {
+				name = t.Name
+			}
+			return nil, nil, model.Errorf(model.CodeInvalid, "%s 不能在 %s 工作，請改選能接手的員工", heir.Name, name)
+		}
+	}
+	return r, heir, nil
+}
+
+// letGo removes r once checkFire allowed it, handing what is still theirs to heir; with no heir, they are only taken
+// off the flows' steps, having nothing else. Call it holding the lock, inside a change to the settings.
+func (e *Engine) letGo(r, heir *model.Replica) {
+	id := r.ID
+	e.endChatsOf(id)
+	swap := func(ids []string) []string {
+		out := make([]string, 0, len(ids))
+		for _, x := range ids {
+			if x == id {
+				if heir == nil {
+					continue
+				}
+				x = heir.ID
+			}
+			if !slices.Contains(out, x) {
+				out = append(out, x)
 			}
 		}
+		return out
+	}
+	for _, wf := range e.w.Workflows {
+		for i := range wf.Nodes {
+			wf.Nodes[i].ReplicaIDs = swap(wf.Nodes[i].ReplicaIDs)
+		}
+	}
+	if heir != nil {
+		heirID := heir.ID
 		for _, t := range e.w.Tasks {
 			if t.Stage == enum.StageDone || t.Stage == enum.StageCancelled {
 				continue
@@ -1534,8 +1627,47 @@ func (e *Engine) Fire(id, heirID string) error {
 			}
 			e.logLine(s, enum.LogSystem, i18n.T("%s 離職，交給 %s", r.Name, heir.Name), "handover", map[string]any{"from": r.Name, "to": heir.Name})
 		}
-		e.dropOwnBlueprint(r)
-		delete(e.w.Replicas, id)
+	}
+	e.dropOwnBlueprint(r)
+	delete(e.w.Replicas, id)
+}
+
+// MoveReplica moves an employee between a company and the staffing agency, either way: they are let go where they
+// are, as Fire does, handing their work to heirID, and someone new is hired at to with the same name, look,
+// settings, model and thinking level, but no memory and none of their conversations. It all happens, or none of it.
+// A second call for the same move finds them gone, so it never makes two.
+func (e *Engine) MoveReplica(id, to, heirID string) (*model.Replica, error) {
+	var out *model.Replica
+	err := e.doSettings(func() error {
+		old := e.w.Replicas[id]
+		if old == nil {
+			return model.Errorf(model.CodeNotFound, "找不到員工")
+		}
+		if to != model.StaffingID && e.w.Teams[to] == nil {
+			return model.Errorf(model.CodeNotFound, "找不到公司")
+		}
+		if (old.TeamID == model.StaffingID) == (to == model.StaffingID) {
+			return model.Errorf(model.CodeInvalid, "只能在公司和人力資源公司之間移動員工")
+		}
+		r, heir, err := e.checkFire(id, heirID)
+		if err != nil {
+			return err
+		}
+		var own *model.Blueprint
+		if b := e.w.Blueprints[r.BlueprintID]; b != nil && b.Owner == r.ID {
+			own = clone(b)
+		}
+		moved := &model.Replica{ID: e.uid("rep"), TeamID: to, BlueprintID: r.BlueprintID, Name: r.Name, Look: r.Look,
+			Model: r.Model, Effort: r.Effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now}
+		e.letGo(r, heir)
+		if own != nil {
+			own.ID, own.Owner = e.uid("bp"), moved.ID
+			e.w.Blueprints[own.ID] = own
+			moved.BlueprintID = own.ID
+		}
+		e.w.Replicas[moved.ID] = moved
+		out = clone(moved)
 		return nil
 	})
+	return out, err
 }

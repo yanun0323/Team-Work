@@ -14,6 +14,8 @@ import { useStore } from './core/store'
 import { LabelLayer, LabelProjector, type LabelSpec } from './core/voxel/labels'
 import { Airport } from './Airport'
 import { PowerTower } from './PowerTower'
+import { StaffingAgency } from './StaffingAgency'
+import { StaffingPanel } from './StaffingPanel'
 import { TowerPanel } from './TowerPanel'
 import { IslandBar } from './IslandBar'
 import { useIsland } from './core/island'
@@ -30,7 +32,7 @@ import { FADE_SECONDS } from './Fade'
 import { Island, useLand } from './Island'
 import { MapGrid } from './MapGrid'
 import { useProjectBytes, useProjectSizePolling, useSizesKnown } from './projectSize'
-import { canMove, placeProblem, CELL, cellCenter, POWER_TOWER, floorsOf, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, HALL_LIFT, TERMINAL, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
+import { canMove, placeProblem, CELL, cellCenter, POWER_TOWER, STAFFING, floorsOf, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, HALL_LIFT, TERMINAL, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
 import { NewCompanySheet, Placer } from './NewCompany'
 import { request } from './core/backend'
 import { createTeam } from './core/domain/sim'
@@ -230,8 +232,8 @@ export function World() {
   // the buildings standing in front of the person followed, cut away so they show
   const [cutAway, setCutAway] = useState<string[]>([])
 
-  // a drawer over the right half that belongs to no company: the settings, or the power tower's
-  const [panel, setPanel] = useState<'settings' | 'tower' | null>(null)
+  // a drawer over the right half that belongs to no company: the settings, the power tower's, or the staffing agency's
+  const [panel, setPanel] = useState<'settings' | 'tower' | 'staffing' | null>(null)
   const settingsOpen = panel !== null
   // settings opened by clicking the airport, not the plane button: the camera goes to the airport
   const [byAirport, setByAirport] = useState(false)
@@ -435,12 +437,18 @@ export function World() {
 
   const airportShown = byAirport && panel === 'settings'
   const towerShown = panel === 'tower'
+  const staffingShown = panel === 'staffing'
   const focus = useMemo<FocusBox | null>(() => {
     if (autoView === 'off') return null
     if (towerShown) {
       const [x, z] = rectCenter(town, town.airport)
       // the tower with some of the airfield round it, so it is clear where on the island it stands
       return { x: x + POWER_TOWER.x, z: z + POWER_TOWER.z, w: POWER_TOWER.w * 4, d: POWER_TOWER.d * 4, height: POWER_TOWER.h + 2 }
+    }
+    if (staffingShown) {
+      const [x, z] = rectCenter(town, town.airport)
+      // the rotunda with its lawn round it
+      return { x: x + STAFFING.x, z: z + STAFFING.z, w: STAFFING.w * 2.4, d: STAFFING.d * 2.4, height: STAFFING.h + 2 }
     }
     if (airportShown) {
       const [x, z] = rectCenter(town, town.airport)
@@ -456,7 +464,7 @@ export function World() {
     const [x, z] = rectCenter(town, open.building)
     // the cut-away ground floor, with room above for the name tags
     return { x, z, w: open.building.w * CELL, d: open.building.d * CELL, height: CUT + 1.2 }
-  }, [open, spot, town, airportShown, towerShown, autoView])
+  }, [open, spot, town, airportShown, towerShown, staffingShown, autoView])
 
   // one `id<TAB>name` line per employee of the open company
   // the empty id is the airport's chats
@@ -489,6 +497,12 @@ export function World() {
       text: <span className="fx-tag fx-tag-right">{tr('基地台')}</span>,
       onClick: selectTower,
     }
+    const staffing: LabelSpec = {
+      id: 'fusion-staffing', at: [ax + STAFFING.x, STAFFING.h + 1.6, az + STAFFING.z],
+      tone: hovered === STAFFING_HOVER && !open && !settingsOpen && !placing && !editing ? 'fusion lifted' : 'fusion',
+      text: <span className="fx-tag">{tr('人力資源公司')}</span>,
+      onClick: selectStaffing,
+    }
     const tags = town.lots.map((l, i): LabelSpec => {
       const [x, z] = rectCenter(town, l.building)
       return {
@@ -502,7 +516,7 @@ export function World() {
       }
     })
     // the open company's own name is in the drawer, and its roof is cut away
-    return [...(panel === 'settings' ? [] : [airport]), ...(panel === 'tower' ? [] : [tower]), ...tags.filter((t) => t.id !== `fusion-${open?.id}`), ...crew]
+    return [...(panel === 'settings' ? [] : [airport]), ...(panel === 'tower' ? [] : [tower]), ...(panel === 'staffing' ? [] : [staffing]), ...tags.filter((t) => t.id !== `fusion-${open?.id}`), ...crew]
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [town, open, crewNames, followedCrew, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language, alerts])
 
@@ -542,6 +556,12 @@ export function World() {
   function selectTower() {
     if (helpOpen || settingsOpen || placing || selected) close()
     else if (!editing) setPanel('tower')
+  }
+
+  // the staffing agency opens its file; it can't be moved either
+  function selectStaffing() {
+    if (helpOpen || settingsOpen || placing || selected) close()
+    else if (!editing) setPanel('staffing')
   }
 
   // the airport opens the settings; it can't be moved, so while editing the map it does nothing
@@ -591,6 +611,8 @@ export function World() {
         hover={hovered === AIRPORT_ID && !selected && !settingsOpen && !placing && !editing && !helpOpen} />
       <PowerTower town={town} still={editing} onSelect={selectTower} onHover={(on) => hover(TOWER_ID, on)}
         hover={hovered === TOWER_ID && !selected && !settingsOpen && !placing && !editing && !helpOpen} />
+      <StaffingAgency town={town} still={editing} onSelect={selectStaffing} onHover={(on) => hover(STAFFING_HOVER, on)}
+        hover={hovered === STAFFING_HOVER && !selected && !settingsOpen && !placing && !editing && !helpOpen} />
       {placing && <Placer town={town} picked={spot} onPick={pickSpot} onMiss={missSpot} />}
       {spot && <BuildingPreview look={look} at={spot} />}
       {moving && <Placer key={moving} town={town} picked={null} onPick={moveTo} moved={moving} can={(s) => canMove(town, moving, s)} />}
@@ -598,8 +620,8 @@ export function World() {
       {!calm && <Voyage town={town} landing={landing} clouds={clouds} />}
       <MapControls makeDefault enableRotate={false} enableDamping dampingFactor={0.12} screenSpacePanning={false}
         minZoom={MIN_ZOOM} maxZoom={MAX_ZOOM} zoomSpeed={ZOOM_SPEED * zoomSensitivity / 100} />
-      <CameraRig town={town} radius={town.radius} span={span} top={town.top} focus={focus} focusKey={!focus ? null : towerShown ? 'tower' : airportShown ? 'airport' : selected ?? (spot ? `spot:${spot}` : null)}
-        panOnly={autoView === 'pan'} blocked={(settingsOpen && (autoView === 'panZoom' || !(airportShown || towerShown))) || helpOpen} wide={(placing || editing) && !selected ? town.middle : null}
+      <CameraRig town={town} radius={town.radius} span={span} top={town.top} focus={focus} focusKey={!focus ? null : towerShown ? 'tower' : staffingShown ? 'staffing' : airportShown ? 'airport' : selected ?? (spot ? `spot:${spot}` : null)}
+        panOnly={autoView === 'pan'} blocked={(settingsOpen && (autoView === 'panZoom' || !(airportShown || towerShown || staffingShown))) || helpOpen} wide={(placing || editing) && !selected ? town.middle : null}
         following={following !== null} held={pressHeld} landing={landing} />
       <LabelProjector />
       <PixelPass pixel={2} />
@@ -660,6 +682,7 @@ export function World() {
     {help.value && <Help leaving={help.leaving} onGone={help.gone} />}
     {settings.value === 'settings' && <Settings leaving={settings.leaving} onGone={settings.gone} />}
     {settings.value === 'tower' && <TowerPanel leaving={settings.leaving} onGone={settings.gone} />}
+    {settings.value === 'staffing' && <StaffingPanel leaving={settings.leaving} onGone={settings.gone} />}
     <IslandBar />
     {drawer.value && (
       <Drawer teamId={drawer.value} look={town.lots.find((l) => l.id === drawer.value) ?? { style: 'tower', seed: 0 }}
@@ -708,6 +731,8 @@ function FollowCut({ town, onChange }: { town: Town; onChange: (ids: string[]) =
 const AIRPORT_ID = 'airport'
 /** The power tower's id among hovered things. */
 const TOWER_ID = 'tower'
+/** The staffing agency's id among hovered things; no company's id looks like it. */
+const STAFFING_HOVER = 'staffing-agency'
 const AIRPORT_TAG: [number, number, number] = [(TERMINAL.x0 + TERMINAL.x1) / 2, TERMINAL.h + 2.5, (TERMINAL.z0 + TERMINAL.z1) / 2]
 
 /** Wheel zoom speed; three.js's default of 1 jumps too far per notch. */
@@ -956,7 +981,7 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
       } else {
         pan.current = null
         zoomed.current = true
-        flyTo(focusView(focus, view, focusKey === 'airport' || focusKey === 'tower' || focusKey?.startsWith('spot:') ? 1 : OFFICE_ZOOM, focusKey === 'airport'))
+        flyTo(focusView(focus, view, focusKey === 'airport' || focusKey === 'tower' || focusKey === 'staffing' || focusKey?.startsWith('spot:') ? 1 : OFFICE_ZOOM, focusKey === 'airport'))
       }
     } else {
       pan.current = null

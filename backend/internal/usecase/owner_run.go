@@ -1634,7 +1634,7 @@ func (e *Engine) ownerAskTool(in *ownerRun) func(context.Context, string, json.R
 		}
 		return e.ownerChange(in, func(t *model.Task) (string, error) {
 			for _, id := range a.ReplicaIDs {
-				if r := e.w.Replicas[id]; r == nil || r.TeamID != t.TeamID {
+				if r := e.w.Replicas[id]; !model.WorksIn(r, t.TeamID) {
 					return "", model.Errorf(model.CodeInvalid, "指派了不是這間公司的員工")
 				}
 			}

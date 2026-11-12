@@ -4,15 +4,15 @@ import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, 
 // tapes an edit sheet over theirs, a little lower and to the right, and clicking the strip of the sheet
 // below that still shows puts the top one away unsaved. They read the live world.
 
-import { shownUrl } from './core/island'
+import { shownUrl, useRemote } from './core/island'
 import { colon, listOf, tr, trRecorded } from './core/i18n'
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { canSendBack, nodeOf, reshaped } from './core/domain/graph'
 import { blueprintUsers, flowEditable, gitSources, notStarted, ranSteps, statusOf, subsOf, swappable, type OwnSettings } from './core/domain/sim'
-import { TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type WorkflowNode, type World } from './core/domain/types'
+import { STAFFING_ID, TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type WorkflowNode, type World } from './core/domain/types'
 import { keptState, sourceName, sourceState, sourceText, toolName } from './source'
 import { composing } from './ime'
-import { flowList, hireList, unhidden, activity, fmtClock, fmtTokens, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
+import { crewOf, heirsOf, lastOfTeam, leavesAlone, flowList, hireList, unhidden, activity, fmtClock, fmtTokens, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
 import { useNow, useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -48,7 +48,7 @@ import { addProvider, fixedContext, providerUsers, updateProvider, type Provider
 import { handedImageUrl, readHandedDiff, readHandedFile, request } from './core/backend'
 import { DiffNote, useDocView, useRoomForSplit, ViewSwitch } from './HandedDiff'
 import { tally, type DiffLine } from './diffView'
-import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fire, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, mergeTask, pauseTask, refreshModels, refreshStaleModels, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
+import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fireNow, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, mergeTask, pauseTask, refreshModels, refreshStaleModels, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { NotesSheet } from './Notes'
 import { FileDetail, FileEdit } from './FileSheets'
@@ -59,6 +59,7 @@ import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, lin
 import { isOwnerTask } from './core/domain/owner'
 import { OwnerRunFacts, OwnerTaskDetail, ReturnStep } from './TaskPanel'
 import { FACT_KIND, SaidContext } from './Said'
+import { CopyHomeSheet, MoveIcon, MoveSheet } from './StaffingSheets'
 
 export type Item =
   | { kind: 'task'; id: string }
@@ -72,6 +73,10 @@ export type Item =
   | { kind: 'crewEdit'; id: string }
   | { kind: 'newCrew' }
   | { kind: 'fire'; id: string }
+  /** Moving an employee between a company and the staffing agency. */
+  | { kind: 'move'; id: string }
+  /** Copying an employee of the island shown, another computer's, to this computer's staffing agency. */
+  | { kind: 'copyHome'; id: string }
   /** Deleting a blueprint employees are made from: they move to another one first. */
   | { kind: 'blueprintDelete'; id: string }
   /** With copyOf, the sheet starts filled in from that task. */
@@ -209,7 +214,9 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           )}
           {item.kind === 'crew' && (
             <CrewDetail id={item.id} title={title} tid={id} editing={above?.kind === 'crewEdit'} firing={above?.kind === 'fire'}
-              onEdit={() => onPush({ kind: 'crewEdit', id: item.id })} onFire={() => onPush({ kind: 'fire', id: item.id })} />
+              moving={above?.kind === 'move'} copying={above?.kind === 'copyHome'}
+              onEdit={() => onPush({ kind: 'crewEdit', id: item.id })} onFire={() => onPush({ kind: 'fire', id: item.id })}
+              onMove={() => onPush({ kind: 'move', id: item.id })} onCopy={() => onPush({ kind: 'copyHome', id: item.id })} />
           )}
           {item.kind === 'provider' && (
             <ProviderDetail id={item.id} title={title} tid={id} editing={above?.kind === 'providerEdit'}
@@ -238,6 +245,8 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
             <CrewEdit id={item.kind === 'crewEdit' ? item.id : null} teamId={teamId} title={title} tid={id} onDone={onDone} />
           )}
           {item.kind === 'fire' && <Fire id={item.id} title={title} tid={id} onDone={onClear} />}
+          {item.kind === 'move' && <MoveSheet id={item.id} title={title} tid={id} onDone={onClear} />}
+          {item.kind === 'copyHome' && <CopyHomeSheet id={item.id} title={title} tid={id} />}
           {item.kind === 'blueprintDelete' && <BlueprintDelete id={item.id} teamId={teamId} title={title} tid={id} onDone={onClear} />}
           {item.kind === 'newTask' && (
             <NewTask teamId={teamId} copyOf={item.copyOf} seed={item.seed} title={title} tid={id} open={above?.kind === 'staff' ? above.node : null}
@@ -278,7 +287,7 @@ export function Gone(h: Head) {
   return <Heading {...h}>{tr('已經不在了')}</Heading>
 }
 
-function Section({ name, children }: { name: string; children: React.ReactNode }) {
+export function Section({ name, children }: { name: string; children: React.ReactNode }) {
   return (
     <section className="fx-d-sec">
       <h3>{name}</h3>
@@ -1005,24 +1014,42 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
   )
 }
 
-function CrewDetail({ id, editing, firing, onEdit, onFire, ...h }: Head & {
+function CrewDetail({ id, editing, firing, moving, copying, onEdit, onFire, onMove, onCopy, ...h }: Head & {
   id: string
   editing: boolean
   firing: boolean
+  moving: boolean
+  copying: boolean
   onEdit: () => void
   onFire: () => void
+  onMove: () => void
+  onCopy: () => void
 }) {
   const w = useStore((s) => s.world)
+  // on another computer's island, its employees can be copied to this computer's staffing agency
+  const remote = useRemote()
   const r = w.replicas[id]
   if (!r) return <Gone {...h} />
   const last = lastSub(w, r)
   const steps = staffedOn(w, r)
   const doing = doingOf(w, r)
-  const alone = teamReplicas(w, r.teamId).length < 2
+  const alone = lastOfTeam(w, r.id)
+  const shared = r.teamId === STAFFING_ID
+  const moveLabel = shared ? tr('移到公司') : tr('移到人力資源公司')
   return (
     <>
       <div className="fx-tools">
         <EditTool onClick={onEdit} open={editing} />
+        {remote && !MOCK && (
+          <button type="button" className="fx-tool fx-hit" onClick={onCopy} aria-expanded={copying}
+            aria-label={tr('複製到我的人力資源公司')} title={tr('複製到我的人力資源公司')}>
+            <CopyIcon />
+          </button>
+        )}
+        <button type="button" className="fx-tool fx-hit" onClick={onMove} aria-expanded={moving} disabled={alone || (shared && !Object.keys(w.teams).length)}
+          aria-label={moveLabel} title={alone ? tr('公司至少要有一位員工') : moveLabel}>
+          <MoveIcon />
+        </button>
         <button type="button" className="fx-tool fx-hit" onClick={onFire} aria-expanded={firing} disabled={alone}
           aria-label={tr('解僱')} title={alone ? tr('公司至少要有一位員工') : tr('解僱')}>
           <BinIcon />
@@ -1096,9 +1123,9 @@ function MemoryNote({ replicaId, note }: { replicaId: string; note: MemoryEntry 
 }
 
 /** The steps someone works in the tasks not yet finished. */
-function staffedOn(w: World, r: Replica) {
+export function staffedOn(w: World, r: Replica) {
   return Object.values(w.tasks)
-    .filter((t) => t.teamId === r.teamId && t.stage !== 'done' && t.stage !== 'cancelled')
+    .filter((t) => (r.teamId === STAFFING_ID || t.teamId === r.teamId) && t.stage !== 'done' && t.stage !== 'cancelled')
     .sort((a, b) => a.number - b.number)
     .flatMap((task) => task.workflow.nodes.filter((n) => n.replicaIds.includes(r.id)).map((n) => ({ task, n })))
 }
@@ -1815,32 +1842,21 @@ function ownPacks(bp: Blueprint): SkillPack[] {
 }
 
 /**
- * Let an employee go. Someone has to take over first: the tasks they own, the steps they are on and
- * whatever they are in the middle of all go to the one picked here, and only then are they let go.
+ * What an employee leaving hands over, and who takes it: someone able to work wherever it is. One of the staffing
+ * agency's with nothing to hand over needs nobody.
  */
-function Fire({ id, onDone, ...h }: Head & { id: string; onDone: () => void }) {
+export function Handover({ id, heir, onHeir }: { id: string; heir: string | null; onHeir: (id: string) => void }) {
   const w = useStore((s) => s.world)
-  const act = useStore((s) => s.act)
-  const [heir, setHeir] = useState<string | null>(null)
   const r = w.replicas[id]
-  if (!r) return <Gone {...h} />
-  const others = teamReplicas(w, r.teamId).filter((x) => x.id !== id)
+  if (!r) return null
   const steps = staffedOn(w, r)
   const owned = Object.values(w.tasks)
     .filter((t) => t.ownerId === id && t.stage !== 'done' && t.stage !== 'cancelled')
     .sort((a, b) => a.number - b.number)
-  const go = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!heir) return
-    onDone()
-    act((x) => fire(x, id, heir))
-  }
+  const heirs = heirsOf(w, id)
+  const alone = leavesAlone(w, id)
   return (
-    <form className="fx-d-form" onSubmit={go}>
-      <header className="fx-d-head fx-d-who">
-        <PixelFace look={r.look} name={r.name} size={52} />
-        <Heading {...h}>{tr('解僱 {name}', { name: r.name })}</Heading>
-      </header>
+    <>
       <Section name={tr('要交接的工作')}>
         {owned.length + steps.length === 0 ? <p className="fx-d-muted">{tr('沒有')}</p> : (
           <p className="fx-d-chips">
@@ -1849,18 +1865,54 @@ function Fire({ id, onDone, ...h }: Head & { id: string; onDone: () => void }) {
           </p>
         )}
       </Section>
-      <Section name={tr('交接給')}>
-        <ul className="fx-list">
-          {crewOrder(w, others).map((x) => (
-            <li key={x}>
-              <button type="button" className="fx-row fx-hit" aria-pressed={heir === x} onClick={() => setHeir(x)}>
-                <CrewRow r={w.replicas[x]} on={heir === x} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      </Section>
-      <button type="submit" className="fx-save" disabled={!heir}>{tr('交接並解僱')}</button>
+      {!alone && (
+        <Section name={tr('交接給')}>
+          {heirs.length === 0 ? <p className="fx-d-muted">{tr('沒有能接手的員工')}</p> : (
+            <ul className="fx-list">
+              {crewOrder(w, heirs).map((x) => (
+                <li key={x}>
+                  <button type="button" className="fx-row fx-hit" aria-pressed={heir === x} onClick={() => onHeir(x)}>
+                    <CrewRow r={w.replicas[x]} on={heir === x} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+      )}
+    </>
+  )
+}
+
+/**
+ * Let an employee go. Someone has to take over first: the tasks they own, the steps they are on and
+ * whatever they are in the middle of all go to the one picked here, and only then are they let go.
+ */
+function Fire({ id, onDone, ...h }: Head & { id: string; onDone: () => void }) {
+  const w = useStore((s) => s.world)
+  const act = useStore((s) => s.act)
+  const [heir, setHeir] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState('')
+  const r = w.replicas[id]
+  if (!r) return <Gone {...h} />
+  const alone = leavesAlone(w, id)
+  const go = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!heir && !alone) return
+    setBusy(true)
+    setFailed('')
+    fireNow(act, id, alone ? '' : heir ?? '').then(onDone, (err: Error) => { setBusy(false); setFailed(err.message) })
+  }
+  return (
+    <form className="fx-d-form" onSubmit={go} aria-busy={busy}>
+      <header className="fx-d-head fx-d-who">
+        <PixelFace look={r.look} name={r.name} size={52} />
+        <Heading {...h}>{tr('解僱 {name}', { name: r.name })}</Heading>
+      </header>
+      <Handover id={id} heir={heir} onHeir={setHeir} />
+      {failed && <p className="fx-room-warn" role="alert">{failed}</p>}
+      <button type="submit" className="fx-save" disabled={busy || (!heir && !alone)}>{alone ? tr('解僱') : tr('交接並解僱')}</button>
     </form>
   )
 }
@@ -2162,7 +2214,7 @@ function StepSheet({ node, teamId, onDone, ...h }: Head & { node: string; teamId
   const own = draft.custom ?? null
   // a step of a task that already ran stays in its flow
   const removable = !!own && own.nodes.length > 1 && !(draft.taskId && ranSteps(w, draft.taskId).has(node))
-  const crew = teamReplicas(w, teamId)
+  const crew = crewOf(w, teamId)
   const picked = draftStaff(w, draft, node).filter((id) => w.replicas[id])
   // in the order picked, as the first chairs a discussion
   const pick = (ids: string[]) => editDraft((d) => ({ staff: { ...d.staff, [node]: ids } }))
@@ -2311,7 +2363,7 @@ function OwnerField({ teamId, draft }: { teamId: string; draft: TaskDraft }) {
   const w = useStore((s) => s.world)
   return (
     <div className="fx-owner-field">
-      <CrewSelect label={tr('任務負責人')} value={draft.ownerId ?? ''} crew={teamReplicas(w, teamId)} placeholder={tr('選擇員工')} onChange={(id) => editDraft(() => ({ ownerId: id }))} />
+      <CrewSelect label={tr('任務負責人')} value={draft.ownerId ?? ''} crew={crewOf(w, teamId)} placeholder={tr('選擇員工')} onChange={(id) => editDraft(() => ({ ownerId: id }))} />
       <button type="button" className="fx-save fx-plain fx-owner-apply" disabled={!draft.ownerId} onClick={() => editDraft((d) => ownerOnEveryStep(w, d))}>{tr('套用到所有節點')}</button>
     </div>
   )

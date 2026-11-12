@@ -360,6 +360,59 @@ export const hire = pick('hire', (_w: World, teamId: string, blueprintId: string
   custom?: sim.OwnSettings) => fire_('POST', '/replicas', { teamId, blueprintId, name, look, ...mind, custom }))
 export const fire = pick('fire', (_w: World, id: string, heir: string) => fire_('DELETE', `/replicas/${id}?heir=${encodeURIComponent(heir)}`))
 
+// ---------- the staffing agency ----------
+// These are waited on, so the sheet stays open with what went wrong; each is all or nothing.
+
+/** Lets an employee go, handing their work to `heir`; '' for one of the staffing agency's with nothing to hand over. */
+export const fireNow = (act: (fn: (w: World) => void) => void, id: string, heir: string): Promise<void> => (MOCK
+  ? simulate(act, (w) => { sim.fire(w, id, heir) })
+  : request('DELETE', `/replicas/${encodeURIComponent(id)}?heir=${encodeURIComponent(heir)}`))
+
+/** Moves an employee between a company and the staffing agency; who arrives is someone new, with no memory. */
+export const moveReplica = (act: (fn: (w: World) => void) => void, id: string, to: string, heir: string): Promise<Replica> => (MOCK
+  ? simulate(act, (w) => sim.moveReplica(w, id, to, heir))
+  : request<Replica>('POST', `/replicas/${encodeURIComponent(id)}/move`, { to, heir }))
+
+/** One place an employee's skills come from, as the computer they are copied from reads it. */
+export interface CopyPack {
+  kind: 'git' | 'local' | 'missing'
+  repo?: string
+  ref?: string
+  path?: string
+  /** The skills there; null when that computer could not read them. */
+  skills: string[] | null
+}
+
+/** What copying an employee from a paired computer would give here; models and thinking are this computer's. */
+export interface CopyPreview {
+  name: string
+  look: Look
+  model: string
+  effort: Effort
+  blueprint: { presetId?: string; name: string; prompt: string; tools: string[] }
+  packs: CopyPack[]
+  models: string[]
+  thinking: Record<string, Effort[]>
+  modelOk: boolean
+  effortOk: boolean
+  presetOk: boolean
+}
+
+export type SkillCopy = 'source' | 'files'
+
+const peerEmployee = (peer: string, id: string) => `/towers/peers/${encodeURIComponent(peer)}/employees/${encodeURIComponent(id)}`
+
+/** Reads an employee of paired computer `peer` to copy, through this computer. */
+export const previewCopy = (peer: string, id: string, signal?: AbortSignal) =>
+  localRequest<CopyPreview>('GET', peerEmployee(peer, id), undefined, signal)
+
+/**
+ * Copies an employee of paired computer `peer` to this computer's staffing agency. `key` is the action's own, kept
+ * across retries, so one that did go through is not copied twice. `missing` are folders there to pick again here.
+ */
+export const copyReplica = (peer: string, id: string, o: { skills: SkillCopy; model: string; effort: Effort }, key: string) =>
+  localRequest<{ replica: Replica; missing: string[] }>('POST', `${peerEmployee(peer, id)}/copy`, o, undefined, key)
+
 /** Change an employee; `custom` gives them settings of their own, and without it `blueprintId` is what they work by. */
 export function updateReplica(w: World, id: string, p: Pick<Replica, 'name' | 'blueprintId' | 'model' | 'effort' | 'look'>, custom?: sim.OwnSettings) {
   if (!MOCK) return fire_('PATCH', `/replicas/${id}`, { ...p, custom })

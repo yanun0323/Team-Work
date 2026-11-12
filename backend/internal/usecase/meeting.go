@@ -33,7 +33,7 @@ func (e *Engine) checkInvite(c *model.Chat, ids []string) error {
 		if chatHas(c, id) || slices.Contains(ids[:i], id) {
 			continue
 		}
-		if r := e.w.Replicas[id]; r == nil || r.TeamID != c.TeamID {
+		if r := e.w.Replicas[id]; !model.WorksIn(r, c.TeamID) {
 			return model.Errorf(model.CodeNotFound, "找不到公司或員工")
 		}
 		if people++; people > maxChatPeople {

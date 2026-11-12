@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { depths, inEdges, nodeOf, outEdges, wouldCreateCycle } from './domain/graph'
 import { combine } from './domain/rollup'
 import { busyReplicas, statusOf, subsOf, TRAVEL } from './domain/sim'
-import type { LogLine, Replica, Status, SubTask, Task, World, Workflow, WorkflowNode } from './domain/types'
+export { heirsOf, lastOfTeam, leavesAlone, pendingTeams } from './domain/sim'
+import { STAFFING_ID, type LogLine, type Replica, type Status, type SubTask, type Task, type World, type Workflow, type WorkflowNode } from './domain/types'
 import { appLanguage, colon, LOCALE_TAGS, trRecorded } from './i18n'
 import { AIRPORT_BLUEPRINT, isPreset, presetRank } from './data/presets'
 import { sourceOfId } from './domain/sources'
@@ -49,6 +50,11 @@ export const laneTasks = (w: World, teamId: string, status: Status) => {
 
 export const teamReplicas = (w: World, teamId: string) =>
   Object.values(w.replicas).filter((r) => r.teamId === teamId).sort((a, b) => a.hiredAt - b.hiredAt || a.name.localeCompare(b.name))
+
+/** Who can be picked to work in a company: its own employees, then the staffing agency's. */
+export const crewOf = (w: World, teamId: string) =>
+  teamId && teamId !== STAFFING_ID ? [...teamReplicas(w, teamId), ...teamReplicas(w, STAFFING_ID)] : teamReplicas(w, teamId)
+
 
 
 /** What a Replica is doing right now: the first of it, and how much more there is. */

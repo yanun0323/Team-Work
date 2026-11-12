@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -514,4 +515,56 @@ func (s *Service) Unreachable(id string) error {
 		return missing()
 	}
 	return model.Errorf(model.CodeUnavailable, "連不上 %s", p.Name)
+}
+
+// Get reads path under /api/v1 on paired computer id, as this computer operating it, and hands back the body of a
+// successful answer. The other computer's refusals come back as its own error; one out of reach, as unavailable.
+func (s *Service) Get(ctx context.Context, id, path string, most int64) ([]byte, error) {
+	address, token, revoked, err := s.Target(id)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	stop := context.AfterFunc(revoked, cancel)
+	defer stop()
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://tower/api/v1"+path, nil)
+	if err != nil {
+		return nil, model.Errorf(model.CodeInvalid, "遠端請求格式不正確")
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := s.RoundTrip(req, address)
+	if err != nil {
+		return nil, s.Unreachable(id)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, most+1))
+	if err != nil {
+		return nil, s.Unreachable(id)
+	}
+	if int64(len(raw)) > most {
+		return nil, model.Errorf(model.CodeInvalid, "對方回傳的內容太大")
+	}
+	switch {
+	case resp.StatusCode == 401:
+		return nil, model.Errorf("peer_unpaired", "對方已解除配對")
+	case resp.StatusCode == 200:
+		return raw, nil
+	}
+	var failed struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &failed) == nil && failed.Error.Code != "" {
+		if resp.StatusCode == 404 && failed.Error.Code != model.CodeNotFound { // a route it does not have
+			return nil, model.Errorf("incompatible", "對方的 Team Work 太舊，請更新那台")
+		}
+		if failed.Error.Code == "peer_denied" {
+			return nil, model.Errorf("peer_denied", "對方沒有允許這台操作它")
+		}
+		return nil, &model.Error{Code: failed.Error.Code, Message: failed.Error.Message}
+	}
+	return nil, s.Unreachable(id)
 }

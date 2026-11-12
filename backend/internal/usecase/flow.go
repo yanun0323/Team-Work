@@ -598,7 +598,7 @@ func (e *Engine) createTask(in NewTask) (*model.Task, error) {
 			return err
 		}
 		if in.OwnerID != nil {
-			if r := e.w.Replicas[*in.OwnerID]; r == nil || r.TeamID != in.TeamID {
+			if r := e.w.Replicas[*in.OwnerID]; !model.WorksIn(r, in.TeamID) {
 				return model.Errorf(model.CodeInvalid, "負責人不是這間公司的員工")
 			}
 		}
@@ -765,7 +765,7 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 		}
 	}
 	if p.OwnerID != nil {
-		if r := e.w.Replicas[*p.OwnerID]; r == nil || r.TeamID != t.TeamID {
+		if r := e.w.Replicas[*p.OwnerID]; !model.WorksIn(r, t.TeamID) {
 			return model.Errorf(model.CodeInvalid, "負責人不是這間公司的員工")
 		}
 		if t.OwnerLed() && t.Coordination.ActiveMeetingID != "" && (t.OwnerID == nil || *t.OwnerID != *p.OwnerID) {
@@ -783,7 +783,7 @@ func (e *Engine) updateTask(id string, p TaskPatch) error {
 			return model.Errorf(model.CodeInvalid, "這個任務沒有節點 %s", nodeID)
 		}
 		for _, r := range staff {
-			if rep := e.w.Replicas[r]; rep == nil || rep.TeamID != t.TeamID {
+			if rep := e.w.Replicas[r]; !model.WorksIn(rep, t.TeamID) {
 				return model.Errorf(model.CodeInvalid, "指派了不是這間公司的員工")
 			}
 		}
@@ -1242,7 +1242,7 @@ func (e *Engine) keepOwnStaff(t *model.Task) {
 		n := &t.Workflow.Nodes[i]
 		n.ReplicaIDs = slices.DeleteFunc(slices.Clone(n.ReplicaIDs), func(id string) bool {
 			r := e.w.Replicas[id]
-			return r == nil || r.TeamID != t.TeamID
+			return !model.WorksIn(r, t.TeamID)
 		})
 	}
 }

@@ -195,6 +195,16 @@ export interface FileInfo {
   ignored?: boolean
 }
 
+/**
+ * The island's staffing agency (人力資源公司) as an employee's `teamId`: its employees are shared, and every company
+ * can pick them, working in that company. It is no company of its own: no folder, no tasks.
+ */
+export const STAFFING_ID = 'staffing'
+
+/** Whether `r` can be picked to work in company `teamId`: one of its own, or one of the staffing agency's. */
+export const worksIn = (r: Pick<Replica, 'teamId'> | undefined, teamId: string) =>
+  !!r && !!teamId && teamId !== STAFFING_ID && (r.teamId === teamId || r.teamId === STAFFING_ID)
+
 export interface Replica {
   id: string
   teamId: string

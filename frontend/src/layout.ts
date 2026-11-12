@@ -168,6 +168,12 @@ export const TOWER = { x: -14, z: -15, h: 14 }
  * takes no land of its own, and no company can be placed on it.
  */
 export const POWER_TOWER = { x: -35, z: -15.2, w: 9, d: 9, h: 40 }
+/**
+ * The staffing agency (人力資源公司), in world units about the airport's middle like `POWER_TOWER`: a domed rotunda on
+ * the airfield's west lawn, below the power tower, clear of the helipad and of the runway's line. Like the tower it
+ * stands on the airport's own ground, takes no land of its own, and no company can be placed on it.
+ */
+export const STAFFING = { x: -32, z: -0.5, w: 10, d: 10, h: 10.5 }
 /** Cells either side of the runway kept clear of trees all the way along its line, so planes coming in or climbing out clear them. */
 const APPROACH_CELLS = RUNWAY_CELLS / 2 + 3
 /** Fixed noise seed for the coast and trees; cells hash by their town position, so growing keeps them. */

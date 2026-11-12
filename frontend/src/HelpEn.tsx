@@ -372,6 +372,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <dt>List</dt><dd>Each name has the model and thinking level under it; while they work, the right side shows which step, and +N counts the others under way. In lists for picking people, the white notes are the tools they can use.</dd>
           <dt>Memory</dt><dd>An employee's details have their work log and memory. Memory stays in this company and leaves out task progress. Employees add and remove notes themselves, and you can edit or delete them.</dd>
           <dt>Dismiss</dt><dd>First pick someone to take over their tasks and steps. A company's only employee cannot be dismissed.</dd>
+          <dt>Staffing Agency</dt><dd>The domed building by the airport. Employees hired there are shared by the whole island: every company can pick them, and they work with that company's folder, rules and permissions. The move button on an employee's details moves a company employee into the agency, or a shared one into a company as its own; a move dismisses them where they were and hires them anew, keeping name, look, settings, model and thinking level, with memory cleared and no past chats. The agency may have no employees. On another computer's island, the copy button on an employee's details copies them to this computer's agency: with skill sources only (Git sources are fetched again here, folders must be picked again) or with the skill files; pick a model first if this computer lacks theirs.</dd>
         </dl>
       </>
     ),

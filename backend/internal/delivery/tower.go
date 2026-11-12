@@ -3,6 +3,7 @@ package delivery
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/gorilla/websocket"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/tower"
+	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
 // EnableTowers is called before Serve; tower routes remain local even when viewing a remote island.
@@ -95,6 +98,49 @@ func (s *Server) EnableTowers(service *tower.Service) {
 			return err
 		}
 		return c.NoContent(204)
+	})
+	// an employee on a paired computer, copied to this island's staffing agency: always this computer's, like the rest
+	exported := func(c echo.Context, files bool) (usecase.ReplicaExport, error) {
+		var out usecase.ReplicaExport
+		path := "/replicas/" + url.PathEscape(c.Param("rid")) + "/export"
+		if files {
+			path += "?files=1"
+		}
+		raw, err := service.Get(c.Request().Context(), c.Param("id"), path, 32<<20)
+		if err != nil {
+			return out, err
+		}
+		if json.Unmarshal(raw, &out) != nil {
+			return out, model.Errorf(model.CodeInvalid, "對方回傳的員工資料不正確")
+		}
+		return out, nil
+	}
+	api.GET("/towers/peers/:id/employees/:rid", func(c echo.Context) error {
+		x, err := exported(c, false)
+		if err != nil {
+			return err
+		}
+		c.Response().Header().Set("Cache-Control", "no-store")
+		return c.JSON(200, s.engine.PreviewCopy(x))
+	})
+	api.POST("/towers/peers/:id/employees/:rid/copy", func(c echo.Context) error {
+		in, err := bind[usecase.CopyOptions](c)
+		if err != nil {
+			return err
+		}
+		x, err := exported(c, in.Skills == usecase.SkillsFiles)
+		if err != nil {
+			return err
+		}
+		in.Key = c.Param("id") + "\x00" + c.Param("rid") + "\x00" + c.Request().Header.Get("Idempotency-Key")
+		if c.Request().Header.Get("Idempotency-Key") == "" {
+			in.Key = ""
+		}
+		out, err := s.engine.CopyReplica(x, in)
+		if err == nil {
+			err = s.engine.PinOwnSources(c.Request().Context(), out.Replica.ID)
+		}
+		return created(c, out, err)
 	})
 	api.Any("/remote/:id/*", func(c echo.Context) error {
 		address, token, revoked, err := service.Target(c.Param("id"))

@@ -86,9 +86,9 @@ export const LOST_ISLAND_CODES = ['peer_denied', 'peer_unpaired', 'incompatible'
 let onIslandRefused: (e: ApiError) => void = () => {}
 export const setIslandRefusedHandler = (fn: (e: ApiError) => void) => { onIslandRefused = fn }
 
-async function send<T>(base: string, method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+async function send<T>(base: string, method: string, path: string, body?: unknown, signal?: AbortSignal, key?: string): Promise<T> {
   const headers: Record<string, string> = {}
-  if (method !== 'GET') headers['Idempotency-Key'] = idempotencyKey()
+  if (method !== 'GET') headers['Idempotency-Key'] = key ?? idempotencyKey()
   if (body !== undefined && !(body instanceof Blob)) headers['Content-Type'] = 'application/json'
   let res: Response
   try {
@@ -117,9 +117,12 @@ async function send<T>(base: string, method: string, path: string, body?: unknow
 export const request = <T = void>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> =>
   send<T>(apiBase(), method, path, body, signal)
 
-/** The same, always to this computer's backend: the power tower, the language, the tutorial, interface preferences. */
-export const localRequest = <T = void>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> =>
-  send<T>(LOCAL_BASE, method, path, body, signal)
+/**
+ * The same, always to this computer's backend: the power tower, the language, the tutorial, interface preferences.
+ * `key`, when given, is the Idempotency-Key, kept by the caller across retries of one action.
+ */
+export const localRequest = <T = void>(method: string, path: string, body?: unknown, signal?: AbortSignal, key?: string): Promise<T> =>
+  send<T>(LOCAL_BASE, method, path, body, signal, key)
 
 const EVENTS = '/events?chats=paged'
 

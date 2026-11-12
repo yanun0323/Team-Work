@@ -9,6 +9,7 @@ import { between, chance, hex, pick, uid } from './rng'
 import { taskStatus } from './rollup'
 import { currentRun, isOwnerTask, ownerStatus, resumeBlock } from './owner'
 import { adoptSources, covers, itemsOf } from './sources'
+import { STAFFING_ID, worksIn } from './types'
 import type {
   Chat,
   Look, Meeting,
@@ -98,7 +99,7 @@ export interface NewTask {
 
 /** A flow is shared, so a task's copy of it keeps only people from the task's own company. */
 function ownStaff(w: World, teamId: string, wf: Workflow): Workflow {
-  for (const n of wf.nodes) n.replicaIds = n.replicaIds.filter((r) => w.replicas[r]?.teamId === teamId)
+  for (const n of wf.nodes) n.replicaIds = n.replicaIds.filter((r) => worksIn(w.replicas[r], teamId))
   return wf
 }
 
@@ -368,7 +369,7 @@ export const chatHas = (chat: Chat, replicaId: string) => replicaId === chat.rep
 function invite(w: World, chat: Chat, ids: string[], before?: number) {
   for (const id of ids) {
     const r = w.replicas[id]
-    if (!r || r.teamId !== chat.teamId || !chat.teamId || chatHas(chat, id) || 1 + (chat.guests?.length ?? 0) >= MAX_CHAT_PEOPLE) continue
+    if (!r || !worksIn(r, chat.teamId) || chatHas(chat, id) || 1 + (chat.guests?.length ?? 0) >= MAX_CHAT_PEOPLE) continue
     chat.guests = [...chat.guests ?? [], { replicaId: r.id, name: r.name, look: r.look, model: r.model }]
     if (before !== undefined) chat.joins = [...chat.joins ?? [], { before, replicaId: r.id, name: r.name }]
   }
@@ -659,7 +660,7 @@ export function handOffChat(w: World, id: string, index: number, replicaId: stri
   const m = chat?.messages[index]
   if (!m || m.from === 'tool') return undefined
   const taker = w.replicas[replicaId]
-  if (chat.teamId ? taker?.teamId !== chat.teamId : replicaId !== '') return undefined
+  if (chat.teamId ? !worksIn(taker, chat.teamId) : replicaId !== '') return undefined
   if (chat.replyAt !== undefined && !chat.messages.slice(index).some((x) => x.from === 'user')) return undefined
   const next = m.from === 'user' ? -1 : chat.messages.findIndex((x, i) => i > index && x.from === 'user')
   const keep = m.from === 'user' ? index + 1 : next < 0 ? chat.messages.length : next
@@ -1389,32 +1390,108 @@ export function updateTask(w: World, id: string, p: TaskEdit) {
  * they are staffed on, and every unfinished sub-task. A job they were in the middle of keeps its progress
  * and waits for the heir to be free, so the heir still works one thing at a time.
  */
-export function fire(w: World, id: string, heirId: string) {
-  const r = w.replicas[id]
-  if (!r || id === heirId || !w.replicas[heirId]) return
-  const swap = (ids: string[]) => [...new Set(ids.map((x) => (x === id ? heirId : x)))]
-  for (const wf of Object.values(w.workflows)) for (const n of wf.nodes) n.replicaIds = swap(n.replicaIds)
-  for (const task of Object.values(w.tasks)) {
-    if (task.stage === 'done' || task.stage === 'cancelled') continue
-    for (const n of task.workflow.nodes) n.replicaIds = swap(n.replicaIds)
-    if (task.ownerId === id) task.ownerId = heirId
-    const m = task.merge
-    if (m?.replicaId === id) {
-      m.replicaId = heirId
-      // a merge under way starts over with the heir
-      if (m.startedAt !== undefined && task.stage === 'merging') m.startedAt = m.endsAt = undefined
-    }
+/**
+ * The companies where employee `id` has work to hand over before leaving: a step, the ownership or the merge of a task
+ * not finished, or a run not done; as the backend's pendingTeams.
+ */
+export function pendingTeams(w: World, id: string): string[] {
+  const out = new Set<string>()
+  for (const t of Object.values(w.tasks)) {
+    if (t.stage === 'done' || t.stage === 'cancelled') continue
+    if (t.ownerId === id || t.merge?.replicaId === id || t.workflow.nodes.some((n) => n.replicaIds.includes(id))) out.add(t.teamId)
   }
-  const heir = w.replicas[heirId].name
   for (const s of Object.values(w.subTasks)) {
     if (s.replicaId !== id || s.cancelled || s.status === 'complete') continue
-    s.replicaId = heirId
-    if (s.status === 'progressing') s.status = 'todo'
-    log(s, w.now, 'system', `${r.name} 離職，交給 ${heir}`, 'handover', { from: r.name, to: heir })
+    const t = w.tasks[s.taskId]
+    if (t) out.add(t.teamId)
+  }
+  return [...out].sort()
+}
+
+/** Who can take over from employee `id`: someone else able to work wherever their work is, as the backend checks. */
+export function heirsOf(w: World, id: string): Replica[] {
+  const r = w.replicas[id]
+  if (!r) return []
+  const teams = r.teamId === STAFFING_ID ? pendingTeams(w, id) : [r.teamId]
+  const all = r.teamId === STAFFING_ID ? Object.values(w.replicas) : [...Object.values(w.replicas)].filter((x) => worksIn(x, r.teamId))
+  return all.filter((x) => x.id !== id && teams.every((t) => worksIn(x, t)))
+}
+
+/** Whether employee `id` can leave with nobody taking over: one of the staffing agency's with no work to hand over. */
+export const leavesAlone = (w: World, id: string) => w.replicas[id]?.teamId === STAFFING_ID && pendingTeams(w, id).length === 0
+
+/** Whether employee `id` is the last of their company's own, who has to stay; the staffing agency may be left empty. */
+export const lastOfTeam = (w: World, id: string) => {
+  const r = w.replicas[id]
+  return !!r && r.teamId !== STAFFING_ID && Object.values(w.replicas).filter((x) => x.teamId === r.teamId).length < 2
+}
+
+/** Refuses letting employee `id` go to `heirId` (or to nobody, when empty) by throwing; changes nothing. */
+function checkFire(w: World, id: string, heirId: string): Replica {
+  const r = w.replicas[id]
+  if (!r) throw new Error(`找不到員工`)
+  if (lastOfTeam(w, id)) throw new Error(`公司至少要有一位員工`)
+  if (!heirId) {
+    if (!leavesAlone(w, id)) throw new Error(`還有工作要交接，請選擇接手的員工`)
+  } else if (!heirsOf(w, id).some((x) => x.id === heirId)) throw new Error(`${w.replicas[heirId]?.name ?? ''} 不能接手這些工作`)
+  return r
+}
+
+/**
+ * Lets an employee go, handing what is theirs to `heirId`, as the backend's Fire: a company keeps one employee of its
+ * own, and one of the staffing agency's with no work left may go with no heir (`heirId` empty). Refusals throw.
+ */
+export function fire(w: World, id: string, heirId: string) {
+  const r = checkFire(w, id, heirId)
+  const swap = (ids: string[]) => [...new Set(ids.flatMap((x) => (x !== id ? [x] : heirId ? [heirId] : [])))]
+  for (const wf of Object.values(w.workflows)) for (const n of wf.nodes) n.replicaIds = swap(n.replicaIds)
+  if (heirId) {
+    for (const task of Object.values(w.tasks)) {
+      if (task.stage === 'done' || task.stage === 'cancelled') continue
+      for (const n of task.workflow.nodes) n.replicaIds = swap(n.replicaIds)
+      if (task.ownerId === id) task.ownerId = heirId
+      const m = task.merge
+      if (m?.replicaId === id) {
+        m.replicaId = heirId
+        // a merge under way starts over with the heir
+        if (m.startedAt !== undefined && task.stage === 'merging') m.startedAt = m.endsAt = undefined
+      }
+    }
+    const heir = w.replicas[heirId].name
+    for (const s of Object.values(w.subTasks)) {
+      if (s.replicaId !== id || s.cancelled || s.status === 'complete') continue
+      s.replicaId = heirId
+      if (s.status === 'progressing') s.status = 'todo'
+      log(s, w.now, 'system', `${r.name} 離職，交給 ${heir}`, 'handover', { from: r.name, to: heir })
+    }
   }
   endChatsOf(w, id)
   dropOwnBlueprint(w, r)
   delete w.replicas[id]
+}
+
+/**
+ * Moves an employee between a company and the staffing agency, as the backend's MoveReplica: let go where they are,
+ * as `fire` does, and hired anew at `to` with the same name, look, settings, model and level, but no memory. All or
+ * nothing: a refusal throws before anything changes.
+ */
+export function moveReplica(w: World, id: string, to: string, heirId: string): Replica {
+  const r = w.replicas[id]
+  if (!r) throw new Error(`找不到員工`)
+  if (to !== STAFFING_ID && !w.teams[to]) throw new Error(`找不到公司`)
+  if ((r.teamId === STAFFING_ID) === (to === STAFFING_ID)) throw new Error(`只能在公司和人力資源公司之間移動員工`)
+  checkFire(w, id, heirId)
+  const own = w.blueprints[r.blueprintId]?.owner === r.id ? structuredClone(w.blueprints[r.blueprintId]) : undefined
+  const moved: Replica = { ...structuredClone(r), id: uid(w, 'rep'), teamId: to, memory: [], hiredAt: w.now }
+  fire(w, id, heirId)
+  if (own) {
+    own.id = uid(w, 'bp')
+    own.owner = moved.id
+    w.blueprints[own.id] = own
+    moved.blueprintId = own.id
+  }
+  w.replicas[moved.id] = moved
+  return moved
 }
 
 /** An employee leaves their chats: a reply of theirs stops, and a meeting they chaired goes on with the first guest still there. */

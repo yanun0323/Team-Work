@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { request } from './core/backend'
 import { MOCK } from './core/mode'
+import { STAFFING_ID } from './core/domain/types'
 import { useStore } from './core/store'
 import { useGit } from './GitInstall'
 import { prereqsOf, type Prereq, type PrereqTab, type ProjectHealth } from './prereqs'
@@ -15,7 +16,7 @@ function useProjectHealth(teamId: string) {
   // and so may git, once installed
   const gitReady = useGit().phase === 'ready'
   useEffect(() => {
-    if (MOCK || !teamId) return // the airport has no folder
+    if (MOCK || !teamId || teamId === STAFFING_ID) return // the airport and the staffing agency have no folder
     const asking = new AbortController()
     // not knowing is not a problem to report: the connection has its own message
     const ask = () => void request<ProjectHealth>('GET', `/teams/${teamId}/health`, undefined, asking.signal).then(setHealth, () => {})

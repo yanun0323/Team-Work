@@ -4,7 +4,7 @@
 import { create } from 'zustand'
 import { tr } from './core/i18n'
 import type { Attachment, Task, Workflow, World } from './core/domain/types'
-import { flowList, teamReplicas, teamTasks, unhidden } from './core/model'
+import { crewOf, flowList, teamTasks, unhidden } from './core/model'
 import { usePrefs } from './prefs'
 import { blankFlow } from './flowDraft'
 
@@ -53,7 +53,7 @@ const oneOnWork = (n: { kind: string }, ids: string[]) => (n.kind === 'talk' ? i
 export function lastStaff(w: World, teamId: string, workflowId: string): Pick<TaskDraft, 'staff' | 'from' | 'ownerId'> {
   const wf = w.workflows[workflowId]
   if (!wf) return { staff: {}, from: null, ownerId: null }
-  const here = new Set(teamReplicas(w, teamId).map((r) => r.id))
+  const here = new Set(crewOf(w, teamId).map((r) => r.id))
   const last = teamTasks(w, teamId).find((t) => t.workflowId === workflowId && t.stage !== 'cancelled')
   const staff: Record<string, string[]> = {}
   for (const n of wf.nodes) {
@@ -69,7 +69,7 @@ export function lastStaff(w: World, teamId: string, workflowId: string): Pick<Ta
  * still in the flow, without anyone who has left. If the flow is gone, it starts on the company's last or first flow.
  */
 export function copyDraft(w: World, teamId: string, t: Task): TaskDraft {
-  const here = new Set(teamReplicas(w, teamId).map((r) => r.id))
+  const here = new Set(crewOf(w, teamId).map((r) => r.id))
   const content = { title: t.title, description: t.description, images: [...t.images], files: [...(t.files ?? [])], ownerId: t.ownerId && here.has(t.ownerId) ? t.ownerId : null }
   if (!t.workflowId) {
     // a flow of its own: the copy gets the same flow, as its own again

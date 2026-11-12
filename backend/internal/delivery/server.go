@@ -138,6 +138,8 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/replicas", s.hire)
 	api.PATCH("/replicas/:id", s.updateReplica)
 	api.DELETE("/replicas/:id", s.fire)
+	api.POST("/replicas/:id/move", s.moveReplica)
+	api.GET("/replicas/:id/export", s.exportReplica)
 
 	api.POST("/tasks", s.createTask)
 	api.PATCH("/tasks/:id", s.updateTask)
@@ -681,6 +683,28 @@ func (s *Server) updateReplica(c echo.Context) error {
 
 func (s *Server) fire(c echo.Context) error {
 	return done(c, s.engine.Fire(c.Param("id"), c.QueryParam("heir")))
+}
+
+func (s *Server) moveReplica(c echo.Context) error {
+	in, err := bind[struct {
+		To   string `json:"to"`
+		Heir string `json:"heir"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	out, err := s.engine.MoveReplica(c.Param("id"), in.To, in.Heir)
+	return created(c, out, err)
+}
+
+// exportReplica is an employee as another island copies them; files=1 brings their skills' files too.
+func (s *Server) exportReplica(c echo.Context) error {
+	out, err := s.engine.ExportReplica(c.Request().Context(), c.Param("id"), c.QueryParam("files") == "1")
+	if err != nil {
+		return err
+	}
+	c.Response().Header().Set("Cache-Control", "no-store")
+	return c.JSON(http.StatusOK, out)
 }
 
 func (s *Server) createTask(c echo.Context) error {

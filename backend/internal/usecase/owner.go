@@ -45,7 +45,7 @@ func (e *Engine) owner(t *model.Task) *model.Replica {
 	if t.OwnerID == nil {
 		return nil
 	}
-	if r := e.w.Replicas[*t.OwnerID]; r != nil && r.TeamID == t.TeamID {
+	if r := e.w.Replicas[*t.OwnerID]; model.WorksIn(r, t.TeamID) {
 		return r
 	}
 	return nil
@@ -85,7 +85,7 @@ func (e *Engine) staffOf(t *model.Task) []string {
 // authorized says whether the user allowed an employee on the task, and they still work at its company.
 func (e *Engine) authorized(t *model.Task, id string) bool {
 	r := e.w.Replicas[id]
-	return r != nil && r.TeamID == t.TeamID && slices.Contains(t.Coordination.Authorization.ReplicaIDs, id)
+	return model.WorksIn(r, t.TeamID) && slices.Contains(t.Coordination.Authorization.ReplicaIDs, id)
 }
 
 // started says whether an owner-led task was ever started.
@@ -994,7 +994,7 @@ func (e *Engine) controlAnswer(t *model.Task, in TaskControl) (model.TaskOperati
 	case question.Kind == "approval" && len(question.ReplicaIDs) > 0:
 		if in.OptionID == optionApprove {
 			for _, id := range question.ReplicaIDs {
-				if r := e.w.Replicas[id]; r != nil && r.TeamID == t.TeamID && !slices.Contains(t.Coordination.Authorization.ReplicaIDs, id) {
+				if r := e.w.Replicas[id]; model.WorksIn(r, t.TeamID) && !slices.Contains(t.Coordination.Authorization.ReplicaIDs, id) {
 					t.Coordination.Authorization.ReplicaIDs = append(t.Coordination.Authorization.ReplicaIDs, id)
 				}
 			}

@@ -378,7 +378,7 @@ func (e *Engine) launchMeeting(t *model.Task) bool {
 	}
 	turn := st.Queue[0]
 	r := e.w.Replicas[turn.Speaker]
-	if r == nil || r.TeamID != t.TeamID {
+	if !model.WorksIn(r, t.TeamID) {
 		e.holdMeeting(t, s, pauseUnavailable, &model.OperationError{Code: model.CodeNotFound, Message: i18n.T("與會的員工已不在")})
 		return true
 	}
@@ -1146,7 +1146,7 @@ func (e *Engine) mayContinue(t *model.Task, m *model.Meeting) error {
 		return model.Errorf(model.CodeConflict, "會議內容超過模型能讀的長度，只能結束會議")
 	}
 	for _, p := range m.Participants {
-		if r := e.w.Replicas[p.ReplicaID]; r == nil || r.TeamID != t.TeamID {
+		if r := e.w.Replicas[p.ReplicaID]; !model.WorksIn(r, t.TeamID) {
 			return model.Errorf(model.CodeConflict, "與會的員工已不在")
 		}
 		if _, err := e.modelSpec(p.Model, p.Effort); err != nil {

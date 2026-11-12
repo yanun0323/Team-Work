@@ -93,7 +93,7 @@ func (e *Engine) CreateChat(in NewChat) (*model.Chat, error) {
 	var out *model.Chat
 	err := e.do(func() error {
 		r := e.w.Replicas[in.ReplicaID]
-		if e.w.Teams[in.TeamID] == nil || r == nil || r.TeamID != in.TeamID {
+		if e.w.Teams[in.TeamID] == nil || !model.WorksIn(r, in.TeamID) {
 			return model.Errorf(model.CodeNotFound, "找不到公司或員工")
 		}
 		text := strings.TrimSpace(in.Text)
@@ -365,7 +365,7 @@ func (e *Engine) HandOffChat(id string, index int, replicaID string, version ...
 			return model.Errorf(model.CodeInvalid, "找不到公司或員工")
 		case replicaID == c.ReplicaID && e.chatLeft(c):
 			return model.Errorf(model.CodeInvalid, "%s 已經離開公司", c.Name)
-		case !c.AtAirport() && (taker == nil || taker.TeamID != c.TeamID):
+		case !c.AtAirport() && (!model.WorksIn(taker, c.TeamID)):
 			return model.Errorf(model.CodeNotFound, "找不到公司或員工")
 		}
 		if err := e.loadConversation(c.ID); err != nil {
@@ -881,7 +881,7 @@ func (e *Engine) launchChat(c *model.Chat, speaker string, spec agentSpec) {
 	}
 	var peers []packRoot
 	for _, id := range append([]string{c.ReplicaID}, guestIDs(c)...) {
-		if p := e.w.Replicas[id]; id != speaker && p != nil && p.TeamID == c.TeamID {
+		if p := e.w.Replicas[id]; id != speaker && model.WorksIn(p, c.TeamID) {
 			if bp := e.w.Blueprints[p.BlueprintID]; bp != nil {
 				peers = append(peers, e.packsOf(bp)...)
 			}

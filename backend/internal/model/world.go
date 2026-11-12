@@ -93,6 +93,16 @@ type MemoryEntry struct {
 	TaskID string  `json:"taskId,omitempty"`
 }
 
+// StaffingID is the team id of the island's staffing agency (人力資源公司): employees kept there are shared, and any
+// company on the island can pick them to work. It is no company of its own: no Team, no folder and no tasks. Their work
+// runs in the company that asked for it, with that company's folder, rules and permissions.
+const StaffingID = "staffing"
+
+// WorksIn says whether r can be picked to work in company teamID: one of its own, or one kept by the staffing agency.
+func WorksIn(r *Replica, teamID string) bool {
+	return r != nil && teamID != "" && teamID != StaffingID && (r.TeamID == teamID || r.TeamID == StaffingID)
+}
+
 type Replica struct {
 	ID          string        `json:"id"`
 	TeamID      string        `json:"teamId"`

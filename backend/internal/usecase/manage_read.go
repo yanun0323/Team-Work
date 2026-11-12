@@ -143,6 +143,10 @@ func versionOf(v any) string {
 
 func (m manager) reaches(teamID string) bool { return m.teamID == "" || m.teamID == teamID }
 
+// sees says whether an employee of teamID can be read: one the manager reaches, or one shared by the staffing
+// agency, whom every company can pick. Changing them stays with those who reach them.
+func (m manager) sees(teamID string) bool { return m.reaches(teamID) || teamID == model.StaffingID }
+
 // teamShown is the company of an item, said only to the airport's staff, who reach them all.
 func (m manager) teamShown(teamID string) string {
 	if m.teamID == "" {
@@ -446,8 +450,12 @@ func (e *Engine) readWorkflow(id string) (any, bool) {
 func (e *Engine) listEmployees(m manager) any {
 	out := []item{}
 	for _, r := range e.w.Replicas {
-		if m.reaches(r.TeamID) {
-			out = append(out, item{r.ID, m.teamShown(r.TeamID), r.Name})
+		if m.sees(r.TeamID) {
+			team := m.teamShown(r.TeamID)
+			if r.TeamID == model.StaffingID {
+				team = r.TeamID
+			}
+			out = append(out, item{r.ID, team, r.Name})
 		}
 	}
 	return sortedItems(out)
@@ -455,7 +463,7 @@ func (e *Engine) listEmployees(m manager) any {
 
 func (e *Engine) readEmployee(m manager, id string) (any, bool) {
 	r := e.w.Replicas[id]
-	if r == nil || !m.reaches(r.TeamID) {
+	if r == nil || !m.sees(r.TeamID) {
 		return nil, false
 	}
 	blueprint := ""

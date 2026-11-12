@@ -263,7 +263,7 @@ func (e *Engine) staffProblem(teamID string, wf *model.Workflow, label string, s
 		return ""
 	}
 	if ownerID != nil {
-		if r := e.w.Replicas[*ownerID]; r == nil || r.TeamID != teamID {
+		if r := e.w.Replicas[*ownerID]; !model.WorksIn(r, teamID) {
 			return ""
 		}
 	}
@@ -272,7 +272,7 @@ func (e *Engine) staffProblem(teamID string, wf *model.Workflow, label string, s
 			return fmt.Sprintf("flow %s has no step %s", label, nodeID)
 		}
 		for _, id := range ids {
-			if r := e.w.Replicas[id]; r == nil || r.TeamID != teamID {
+			if r := e.w.Replicas[id]; !model.WorksIn(r, teamID) {
 				return fmt.Sprintf("%s is not an employee of this company", id)
 			}
 		}
