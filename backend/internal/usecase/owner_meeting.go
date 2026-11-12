@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
 	"github.com/yanun0323/Team-Work/internal/i18n"
@@ -17,8 +19,10 @@ import (
 	"github.com/yanun0323/Team-Work/internal/usecase/tools"
 )
 
-// Meetings of owner-led tasks (version 2) are held in the task's conversation. The owner chairs; the user and the
-// chair call on whom they want, one at a time. Each participant keeps a conversation of their own that only grows:
+// Meetings of owner-led tasks (version 2) are held in the task's conversation. The owner chairs; whoever speaks
+// passes the floor by mentioning others with @name, who answer in turn: a participant who mentions no one hands back
+// to the chair, and a chair who mentions no one is asked again to call on someone or end it. The user steps in at any
+// time: those they mention, else the chair, answer next, in place of the turns still waiting. Each participant keeps a conversation of their own that only grows:
 // the meeting's opening, then what was said since they last spoke, and last a note on who is here and who speaks,
 // so what a provider cached of the earlier calls stays usable. Model calls come in batches of meetingBatch: past
 // one, the meeting waits for the user.
@@ -58,11 +62,13 @@ type meetingState struct {
 	EndOp string `json:"endOp,omitempty"`
 }
 
-// meetingTurn is someone due to speak: called on by the user, by the chair, or the chair writing the conclusion.
+// meetingTurn is someone due to speak: called on by the user, by someone in the meeting, the chair asked again after
+// calling on no one, or the chair writing the conclusion.
 type meetingTurn struct {
 	Speaker string `json:"speaker"`
 	ByUser  bool   `json:"byUser,omitempty"`
 	Summary bool   `json:"summary,omitempty"`
+	Remind  bool   `json:"remind,omitempty"`
 }
 
 func meetingKey(subID, replicaID string) string { return "meeting:" + subID + ":" + replicaID }
@@ -147,11 +153,14 @@ const (
 	meetingRules = "You are in a meeting of a task, held in the task's conversation, where the user reads and may speak. " +
 		"You only talk and read: you change no files, run nothing, hand off nothing and keep no notes. " +
 		"Each message you get ends with a note on who is in the meeting and who speaks now; what others said comes before it, each line starting with who said it. " +
-		"Answer in plain words, short and to the point, as yourself. " + othersRule + "\n"
-	chairRules = "You chair the meeting as the task's owner. Speak with your reply, call on employees with meeting_ask (they answer in order, then you speak again), " +
-		"and close it with end_meeting and its conclusion (what was decided and what is still open) once the topic is settled or the user asks. " +
-		"Do not call on everyone after every message: only whom the question needs.\n"
-	memberRules = "The task's owner chairs. Answer what you were asked; do not run the meeting.\n"
+		"Answer in plain words, short and to the point, as yourself. " + othersRule + "\n" +
+		"To pass the floor, write @ and a name from the note in your reply, such as @Bob: whoever you mention answers next, in the order mentioned, and you may mention several. " +
+		"Mention whoever should answer each question you ask, rather than asking the room. " +
+		"The user reads along and steps in when the talk goes astray, so do not wait for them.\n"
+	chairRules = "You chair the meeting as the task's owner. Keep it moving: call on whom the question needs with @name (or meeting_ask), " +
+		"and close it with end_meeting and its conclusion (what was decided and what is still open, including what only the user can decide) once the topic is settled or the user asks. " +
+		"If you mention no one and do not end it, you are asked again. Do not call on everyone after every message: only whom the question needs.\n"
+	memberRules = "The task's owner chairs. Answer what you were asked; mention whom you need an answer from, or no one to hand back to the chair. Do not run the meeting.\n"
 )
 
 // meetingSpeaker fixes how one participant is asked for the whole meeting: their prompt, with their memory as it is
@@ -267,6 +276,8 @@ func meetingNote(m *model.Meeting, turn meetingTurn, next []meetingTurn) string 
 	switch {
 	case turn.Summary:
 		b.WriteString("The meeting is ending: write its conclusion now, what was decided and what is still open, as your reply or with end_meeting. Call no other tool.")
+	case turn.Remind:
+		b.WriteString("You speak now, as chair. You mentioned no one and did not end the meeting: call on whom should answer with @name, or end it with end_meeting.")
 	case turn.Speaker == m.ChairID:
 		b.WriteString("You speak now, as chair.")
 	default:
@@ -296,35 +307,11 @@ func (e *Engine) meetingInput(t *model.Task, s *model.SubTask, st *meetingState,
 		}
 		blocks = append(blocks, model.Block{Type: enum.BlockText, Text: opening})
 	}
-	said, err := e.meetingTranscript(t, s.ID)
+	heard, err := e.meetingHeard(t, s, st, turn.Speaker)
 	if err != nil {
 		return nil, err
 	}
-	for _, a := range said[min(st.Seen[turn.Speaker], len(said)):] {
-		if a.From != "user" && a.By == turn.Speaker {
-			continue // their own words are already theirs
-		}
-		who := a.Name
-		if a.From == "user" {
-			who = "The user"
-		}
-		text := who + ": " + a.Text
-		if len(a.Mentions) > 0 {
-			var to []string
-			for _, id := range a.Mentions {
-				to = append(to, e.participantName(m, id))
-			}
-			text += "\n(asks " + strings.Join(to, ", ") + " to answer)"
-		}
-		for _, f := range a.Files {
-			text += "\nAttached file: " + f.Name + ", read-only path: " + e.attachmentPath(t.ID, f)
-		}
-		for _, im := range a.Images {
-			text += "\nAttached image: " + im.Name
-		}
-		blocks = append(blocks, model.Block{Type: enum.BlockText, Text: text})
-	}
-	st.Seen[turn.Speaker] = len(said)
+	blocks = append(blocks, heard...)
 	blocks = append(blocks, model.Block{Type: enum.BlockText, Text: meetingNote(m, turn, st.Queue[1:])})
 	before := len(conv)
 	// calls a reply left open get their results first, in the same message as what follows: the chair's own tools did
@@ -348,6 +335,113 @@ func (e *Engine) meetingInput(t *model.Task, s *model.SubTask, st *meetingState,
 	e.w.Conversations[key] = conv
 	e.dirty[key] = true
 	return slices.Clone(conv), nil
+}
+
+// meetingHeard is what was said in a meeting that one participant has not read yet, each line saying who said it;
+// they have read it from now on. Call it holding the lock.
+func (e *Engine) meetingHeard(t *model.Task, s *model.SubTask, st *meetingState, speaker string) ([]model.Block, error) {
+	m := s.Meeting
+	said, err := e.meetingTranscript(t, s.ID)
+	if err != nil {
+		return nil, err
+	}
+	var blocks []model.Block
+	for _, a := range said[min(st.Seen[speaker], len(said)):] {
+		if a.From != "user" && a.By == speaker {
+			continue // their own words are already theirs
+		}
+		who := a.Name
+		if a.From == "user" {
+			who = "The user"
+		}
+		text := who + ": " + a.Text
+		if len(a.Mentions) > 0 {
+			var to []string
+			for _, id := range a.Mentions {
+				to = append(to, e.participantName(m, id))
+			}
+			text += "\n(asks " + strings.Join(to, ", ") + " to answer)"
+		}
+		for _, f := range a.Files {
+			text += "\nAttached file: " + f.Name + ", read-only path: " + e.attachmentPath(t.ID, f)
+		}
+		for _, im := range a.Images {
+			text += "\nAttached image: " + im.Name
+		}
+		blocks = append(blocks, model.Block{Type: enum.BlockText, Text: text})
+	}
+	st.Seen[speaker] = len(said)
+	return blocks, nil
+}
+
+// meetingMentions are those in a meeting a speaker called on in what they said, by @ and their name, in the order
+// written, each once; never the speaker. The longest name that fits wins, and a name of letters or digits must not run
+// on into more of them.
+func meetingMentions(m *model.Meeting, speaker, text string) []string {
+	var out []string
+	for i := 0; i < len(text); i++ {
+		if text[i] != '@' {
+			continue
+		}
+		rest := text[i+1:]
+		best, size := "", 0
+		for _, p := range m.Participants {
+			n := len(p.Name)
+			if p.ReplicaID == speaker || n == 0 || n <= size || n > len(rest) || !strings.EqualFold(rest[:n], p.Name) {
+				continue
+			}
+			last, _ := utf8.DecodeLastRuneInString(p.Name)
+			next, _ := utf8.DecodeRuneInString(rest[n:])
+			if n < len(rest) && word(last) && word(next) {
+				continue
+			}
+			best, size = p.ReplicaID, n
+		}
+		if best != "" && !slices.Contains(out, best) {
+			out = append(out, best)
+		}
+	}
+	return out
+}
+
+// word says whether a rune is an ASCII letter, digit or underscore, which names written in Latin run on with.
+func word(r rune) bool {
+	return r < utf8.RuneSelf && (unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
+}
+
+// steeredSince says whether the user wrote in a meeting since a speaker began: what they called on then is out of date.
+func (e *Engine) steeredSince(t *model.Task, s *model.SubTask, from int) bool {
+	said, err := e.meetingTranscript(t, s.ID)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(said[min(from, len(said)):], func(a model.TaskActivity) bool { return a.From == "user" })
+}
+
+// passFloor puts those a speaker called on next, after what the user asked meanwhile; with no one called on, a
+// participant hands back to the chair once no one else is due, and the chair is asked again. Their own turn is
+// done. Call it holding the lock, the meeting open.
+func (e *Engine) passFloor(t *model.Task, s *model.SubTask, turn meetingTurn, asked []string) {
+	m := s.Meeting
+	st := e.stateOf(t, s.ID)
+	if len(st.Queue) > 0 && st.Queue[0] == turn {
+		st.Queue = st.Queue[1:]
+	}
+	// one called on again, already due, answers once, now
+	st.Queue = slices.DeleteFunc(slices.Clone(st.Queue), func(x meetingTurn) bool { return !x.ByUser && slices.Contains(asked, x.Speaker) })
+	n := 0
+	for n < len(st.Queue) && st.Queue[n].ByUser {
+		n++
+	}
+	chain := []meetingTurn{}
+	for _, id := range asked {
+		chain = append(chain, meetingTurn{Speaker: id})
+	}
+	st.Queue = slices.Concat(st.Queue[:n], chain, st.Queue[n:])
+	if len(st.Queue) == 0 {
+		st.Queue = []meetingTurn{{Speaker: m.ChairID, Remind: turn.Speaker == m.ChairID}}
+	}
+	e.keepState(t, s.ID, st)
 }
 
 func (e *Engine) participantName(m *model.Meeting, id string) string {
@@ -415,7 +509,7 @@ func (e *Engine) launchMeeting(t *model.Task) bool {
 	rn := &run{cancel: cancel, replicaID: turn.Speaker}
 	e.runs[s.ID] = rn
 	team := e.w.Teams[t.TeamID]
-	in := &meetingRun{r: rn, taskID: t.ID, subID: s.ID, turn: turn, key: key, spec: spec, system: st.System[turn.Speaker],
+	in := &meetingRun{r: rn, taskID: t.ID, subID: s.ID, turn: turn, from: st.Seen[turn.Speaker], key: key, spec: spec, system: st.System[turn.Speaker],
 		allowed: st.Allowed[turn.Speaker], chair: turn.Speaker == m.ChairID, conv: conv,
 		folder: team.Folder, dir: e.worktreeOf(t), branch: t.Branch, target: team.TargetBranch}
 	e.wg.Add(1)
@@ -434,9 +528,11 @@ func opError(err error) *model.OperationError {
 
 // meetingRun is one participant speaking once: a model call and the tools it calls, until they have said it.
 type meetingRun struct {
-	r                           *run
-	taskID, subID, key          string
-	turn                        meetingTurn
+	r                  *run
+	taskID, subID, key string
+	turn               meetingTurn
+	// from is how much of the meeting they had read when they began: the user writing after it steers the meeting
+	from                        int
 	spec                        agentSpec
 	system                      string
 	allowed                     []enum.Tool
@@ -723,15 +819,16 @@ func (e *Engine) meetingSaid(t *model.Task, s *model.SubTask, in *meetingRun, te
 	if m.State != model.MeetingOpen {
 		return
 	}
-	st := e.stateOf(t, s.ID)
-	if len(st.Queue) > 0 && st.Queue[0] == in.turn {
-		st.Queue = st.Queue[1:]
+	// whom they called on, unless the user wrote meanwhile: then those the user asked answer instead
+	var asked []string
+	if !e.steeredSince(t, s, in.from) {
+		asked = meetingMentions(m, in.turn.Speaker, text)
 	}
-	e.keepState(t, s.ID, st)
 	if text != "" {
 		e.addActivity(t, model.TaskActivity{Kind: "meeting", From: "agent", Text: text, By: in.turn.Speaker, Name: e.participantName(m, in.turn.Speaker),
-			SubID: s.ID, NodeID: s.NodeID, MeetingID: s.ID, MeetingVersion: meetingVersion, MeetingPart: meetingSpeech})
+			SubID: s.ID, NodeID: s.NodeID, MeetingID: s.ID, MeetingVersion: meetingVersion, MeetingPart: meetingSpeech, Mentions: asked})
 	}
+	e.passFloor(t, s, in.turn, asked)
 	m.Revision++
 	e.afterCall(t, s)
 }
@@ -785,7 +882,7 @@ func (e *Engine) meetingTurn(in *meetingRun) *turn {
 	list := tools.For(in.allowed, tools.Env{Read: []string{e.attachmentRoot(in.taskID)}, Search: e.search})
 	if in.chair {
 		list = append(list,
-			ownerTool(toolMeetingAsk, "Call on employees in this meeting: text is what you say to them, and they answer in the order given; then you speak again.",
+			ownerTool(toolMeetingAsk, "Call on employees in this meeting, the same as mentioning them with @name: text is what you say to them, and they answer in the order given. replica_ids takes their names as the note gives them, or their ids.",
 				`{"type":"object","properties":{"replica_ids":{"type":"array","items":{"type":"string"},"minItems":1},"text":{"type":"string"}},"required":["replica_ids","text"]}`, e.meetingAskTool(in)),
 			ownerTool(toolEndMeeting, "End this meeting with its conclusion: what was decided and what is still open. It is what you get back as the task's owner.",
 				`{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"]}`, e.endMeetingTool(in)))
@@ -865,6 +962,23 @@ func (e *Engine) meetingTurn(in *meetingRun) *turn {
 				e.dirty[in.key] = true
 			})
 		},
+		// what the user wrote while they were at their tools, read right after the results
+		steer: func() []model.Message {
+			var heard []model.Message
+			record(func(t *model.Task, s *model.SubTask) {
+				st := e.stateOf(t, s.ID)
+				blocks, err := e.meetingHeard(t, s, &st, in.turn.Speaker)
+				if err != nil || len(blocks) == 0 {
+					return
+				}
+				e.keepState(t, s.ID, st)
+				msg := model.Message{Role: enum.RoleUser, Content: blocks}
+				e.w.Conversations[in.key] = append(e.w.Conversations[in.key], msg)
+				e.dirty[in.key] = true
+				heard = []model.Message{msg}
+			})
+			return heard
+		},
 	}
 }
 
@@ -900,46 +1014,43 @@ func (e *Engine) meetingAskTool(in *meetingRun) func(context.Context, string, js
 		if a.Text == "" {
 			return toolError("text is required")
 		}
-		var asked []string
-		for _, id := range a.ReplicaIDs {
-			if !slices.Contains(asked, id) {
-				asked = append(asked, id)
-			}
-		}
 		return e.meetingChange(in, func(t *model.Task, s *model.SubTask) (string, error) {
 			m := s.Meeting
 			if m.State != model.MeetingOpen || in.turn.Summary {
 				return "", model.Errorf(model.CodeConflict, "會議正在結束，不能再點名")
 			}
-			for _, id := range asked {
-				if id == m.ChairID || !m.Has(id) {
+			// by id or by name, as the note gives them
+			var asked []string
+			for _, x := range a.ReplicaIDs {
+				id := ""
+				for _, p := range m.Participants {
+					if p.ReplicaID == x || strings.EqualFold(p.Name, strings.TrimPrefix(strings.TrimSpace(x), "@")) {
+						id = p.ReplicaID
+					}
+				}
+				if id == "" || id == m.ChairID {
 					return "", model.Errorf(model.CodeInvalid, "只能點名這場會議的與會員工")
+				}
+				if !slices.Contains(asked, id) {
+					asked = append(asked, id)
 				}
 			}
 			if len(asked) == 0 {
 				return "", model.Errorf(model.CodeInvalid, "只能點名這場會議的與會員工")
 			}
+			steered := e.steeredSince(t, s, in.from)
+			if steered {
+				asked = nil
+			}
 			e.addActivity(t, model.TaskActivity{Kind: "meeting", From: "agent", Text: a.Text, By: m.ChairID, Name: e.participantName(m, m.ChairID),
 				SubID: s.ID, NodeID: s.NodeID, MeetingID: s.ID, MeetingVersion: meetingVersion, MeetingPart: meetingSpeech, Mentions: asked})
-			st := e.stateOf(t, s.ID)
-			if len(st.Queue) > 0 && st.Queue[0] == in.turn {
-				st.Queue = st.Queue[1:]
-			}
-			// what the user asked meanwhile goes first; the chair's own calls follow
-			n := 0
-			for n < len(st.Queue) && st.Queue[n].ByUser {
-				n++
-			}
-			chain := []meetingTurn{}
-			for _, id := range asked {
-				chain = append(chain, meetingTurn{Speaker: id})
-			}
-			chain = append(chain, meetingTurn{Speaker: m.ChairID})
-			st.Queue = slices.Concat(st.Queue[:n], chain, st.Queue[n:])
-			e.keepState(t, s.ID, st)
+			e.passFloor(t, s, in.turn, asked)
 			m.Revision++
 			e.afterCall(t, s)
-			return "Asked; they answer in order, then you speak again.", nil
+			if steered {
+				return "The user wrote meanwhile; those they asked answer first.", nil
+			}
+			return "Asked; they answer in order, then the floor goes on.", nil
 		})
 	}
 }
@@ -1001,17 +1112,42 @@ func (e *Engine) sayInMeeting(t *model.Task, in TaskMessage, text string, print 
 	default:
 		return MessageResult{}, model.Errorf(model.CodeConflict, "會議正在結束，不能再發言")
 	}
-	var mentions []string
+	var mentions, joining []string
 	for _, id := range in.Mentions {
-		if !m.Has(id) {
-			return MessageResult{}, model.Errorf(model.CodeInvalid, "只能指定這場會議的與會者")
+		if slices.Contains(mentions, id) {
+			continue
 		}
-		if !slices.Contains(mentions, id) {
-			mentions = append(mentions, id)
+		mentions = append(mentions, id)
+		if m.Has(id) {
+			continue
 		}
+		// someone the user calls in joins the meeting, as the owner could have asked them
+		if !e.authorized(t, id) {
+			return MessageResult{}, model.Errorf("forbidden", "只能指定這場會議的與會者，或這個任務已授權的員工")
+		}
+		joining = append(joining, id)
+	}
+	if len(m.Participants)-1+len(joining) > meetingMost {
+		return MessageResult{}, model.Errorf(model.CodeInvalid, "會議要有負責人加 1 到 %d 位員工", meetingMost)
 	}
 	if err := e.checkFiles(in.Images, in.Files); err != nil {
 		return MessageResult{}, err
+	}
+	st := e.stateOf(t, s.ID)
+	if st.System == nil {
+		st.System = map[string]string{}
+	}
+	if st.Allowed == nil {
+		st.Allowed = map[string][]enum.Tool{}
+	}
+	var joined []model.MeetingParticipant
+	for _, id := range joining {
+		system, allowed, p, err := e.meetingSpeaker(t, e.w.Replicas[id], false)
+		if err != nil {
+			return MessageResult{}, err
+		}
+		st.System[id], st.Allowed[id] = system, allowed
+		joined = append(joined, p)
 	}
 	images, err := e.storeImages(in.Images)
 	if err != nil {
@@ -1028,14 +1164,19 @@ func (e *Engine) sayInMeeting(t *model.Task, in TaskMessage, text string, print 
 	l.Operations[op.ID] = op
 	e.showOperations(t)
 	l.Requests[in.RequestID] = requestRecord{Fingerprint: print, OperationID: op.ID, ActivityID: a.ID}
+	for _, p := range joined {
+		m.Participants = append(m.Participants, p)
+		e.systemEvent(t, "meetingJoined", i18n.T("%s 加入會議「%s」", p.Name, m.Topic), map[string]any{"name": p.Name, "topic": m.Topic}, s.ID)
+	}
 	answer := mentions
 	if len(answer) == 0 {
 		answer = []string{m.ChairID}
 	}
-	st := e.stateOf(t, s.ID)
+	// the user steers: who speaks now finishes, what the user asked before still stands, and the turns still waiting
+	// give way to those the user asks now, who pass the floor on from there
 	n := 0
-	if len(st.Queue) > 0 && (m.SpeakerID != "" || m.State == model.MeetingPaused) {
-		n = 1 // who speaks now, or was cut off, finishes first
+	if len(st.Queue) > 0 && m.SpeakerID != "" {
+		n = 1
 	}
 	for n < len(st.Queue) && st.Queue[n].ByUser {
 		n++
@@ -1044,9 +1185,13 @@ func (e *Engine) sayInMeeting(t *model.Task, in TaskMessage, text string, print 
 	for _, id := range answer {
 		turns = append(turns, meetingTurn{Speaker: id, ByUser: true})
 	}
-	st.Queue = slices.Concat(st.Queue[:n], turns, st.Queue[n:])
+	st.Queue = slices.Concat(st.Queue[:n], turns)
 	e.keepState(t, s.ID, st)
 	m.Revision++
+	// a meeting that used up its calls goes on with what the user said, as going on would, when it may
+	if m.State == model.MeetingPaused && m.PauseReason == pauseLimit && e.mayContinue(t, m) == nil {
+		e.continueMeeting(t, s)
+	}
 	return MessageResult{Operation: op, Activity: a}, nil
 }
 
@@ -1095,13 +1240,7 @@ func (e *Engine) ControlMeeting(taskID, meetingID string, in MeetingControl) (mo
 				return err
 			}
 			op = e.newOperation(t, model.TaskOperation{Kind: kind, RequestID: in.RequestID, Status: model.OpApplied, SubID: s.ID})
-			if m.CallsInBatch >= meetingBatch {
-				m.Batch++
-				m.CallsInBatch = 0
-				e.systemEvent(t, "meetingContinued", i18n.T("會議「%s」繼續第 %d 輪", m.Topic, m.Batch), map[string]any{"topic": m.Topic, "batch": m.Batch}, s.ID)
-			}
-			m.State, m.PauseReason, m.Error = model.MeetingOpen, "", nil
-			m.Revision++
+			e.continueMeeting(t, s)
 		case "end":
 			switch {
 			case m.Over():
@@ -1129,6 +1268,18 @@ func (e *Engine) ControlMeeting(taskID, meetingID string, in MeetingControl) (mo
 		return nil
 	})
 	return out, err
+}
+
+// continueMeeting has a paused meeting go on, with a new batch of calls when it used up its last.
+func (e *Engine) continueMeeting(t *model.Task, s *model.SubTask) {
+	m := s.Meeting
+	if m.CallsInBatch >= meetingBatch {
+		m.Batch++
+		m.CallsInBatch = 0
+		e.systemEvent(t, "meetingContinued", i18n.T("會議「%s」繼續第 %d 輪", m.Topic, m.Batch), map[string]any{"topic": m.Topic, "batch": m.Batch}, s.ID)
+	}
+	m.State, m.PauseReason, m.Error = model.MeetingOpen, "", nil
+	m.Revision++
 }
 
 // mayContinue says why a paused meeting cannot go on now, or nil.

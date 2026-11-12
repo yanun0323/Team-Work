@@ -1808,7 +1808,7 @@ button.fx-ticket-tag:hover { color: var(--ink); }
   display: inline-block; flex: none; padding: 1px 6px; border-radius: 2px; background: var(--note-talk); box-shadow: var(--lift);
   color: var(--ink); font-size: 11.5px; font-weight: 600; line-height: 1.5; white-space: nowrap;
 }
-.fx-room-log .fx-ticket-meet { padding-inline-start: 10px; border-inline-start: 2px solid var(--note-talk); }
+.fx-room-log .fx-ticket-meet { padding-inline-start: 10px; border-inline-start: 4px solid var(--note-talk); }
 .fx-chat-name .fx-pill.fx-chair { margin-inline-start: 6px; font-size: 10px; }
 .fx-ticket-meeting-end { display: grid; margin: 0; padding: 0; list-style: none; }
 .fx-ticket-meeting-none { margin: 0; font-size: 12.5px; }

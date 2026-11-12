@@ -2145,7 +2145,12 @@ function sayInMeeting(w: World, task: Task & { coordination: TaskCoordination },
   if (c.activeMeetingId !== s.id || mt.state === 'ended' || mt.state === 'cancelled') throw new TaskRefusal(say2(w, '這場會議已結束，訊息沒有送出', 'This meeting is over; the message was not sent'), 'conflict')
   if (mt.state === 'closing' || mt.state === 'summaryFailed') throw new TaskRefusal(say2(w, '會議正在結束，不能再發言', 'The meeting is ending; no more words'), 'conflict')
   const mentions = [...new Set(m.mentions ?? [])]
-  if (mentions.some((id) => !mt.participants.some((p) => p.replicaId === id))) throw new TaskRefusal(say2(w, '只能指定這場會議的與會者', 'Only those in this meeting can be asked'), 'invalid_request')
+  // someone not in it yet, allowed on the task, joins it
+  const joining = mentions.filter((id) => !mt.participants.some((p) => p.replicaId === id))
+  if (joining.some((id) => !c.authorization.replicaIds.includes(id) || !worksIn(w.replicas[id], task.teamId))) {
+    throw new TaskRefusal(say2(w, '只能指定這場會議的與會者，或這個任務已授權的員工', 'Only participants of this meeting, or employees allowed on this task, can be named'), 'forbidden')
+  }
+  if (mt.participants.length - 1 + joining.length > MEETING_GUESTS) throw new TaskRefusal(say2(w, `會議要有負責人加 1 到 ${MEETING_GUESTS} 位員工`, `A meeting needs the owner and 1 to ${MEETING_GUESTS} employees`), 'invalid_request')
   const activity = postActivity(w, task, {
     kind: 'meeting', from: 'user', text: m.text.trim(), meetingVersion: 2, meetingPart: 'speech', meetingId: s.id, subId: s.id, nodeId: s.nodeId,
     ...(mentions.length ? { mentions } : {}), ...(m.images?.length ? { images: m.images } : {}), ...(m.files?.length ? { files: m.files } : {}),
@@ -2153,10 +2158,24 @@ function sayInMeeting(w: World, task: Task & { coordination: TaskCoordination },
   const op = operation(w, task, 'message', m.requestId, { messageId: activity.id, subId: s.id })
   activity.operationId = op.id
   settleOp(w, op, 'applied')
+  for (const id of joining) {
+    const r = w.replicas[id]
+    mt.participants.push({ replicaId: id, name: r.name, look: { ...r.look }, model: r.model, ...(r.effort ? { effort: r.effort } : {}) })
+    taskEvent(w, task, 'meetingJoined', say2(w, '{name} 加入會議「{topic}」', '{name} joined the meeting "{topic}"'), { name: r.name, topic: mt.topic }, { subId: s.id, nodeId: s.nodeId })
+  }
+  // the user steers: the turns still waiting give way to those asked now
   const q = queueOf(w, s.id)
-  if (!q.ids.length) q.at = w.now + REPLY_TIME
-  q.ids.push(...(mentions.length ? mentions : [mt.chairId]))
+  q.ids = mentions.length ? mentions : [mt.chairId]
+  q.at = w.now + REPLY_TIME
   mt.revision++
+  // one that used up its calls goes on with what the user said, as going on would
+  if (mt.state === 'paused' && mt.pauseReason === 'limit' && !task.paused) {
+    mt.batch++
+    mt.callsInBatch = 0
+    mt.state = 'open'
+    mt.pauseReason = undefined
+    taskEvent(w, task, 'meetingContinued', say2(w, '會議「{topic}」繼續第 {batch} 輪', 'Meeting "{topic}" goes on, round {batch}'), { topic: mt.topic, batch: String(mt.batch) }, { subId: s.id, nodeId: s.nodeId })
+  }
   return { operation: op, activity }
 }
 

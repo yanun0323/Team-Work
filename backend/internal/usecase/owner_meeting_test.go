@@ -216,29 +216,33 @@ func TestMeetingSendsEachSpeakerWhatTheyWereSentBeforeAndTheNoteLast(t *testing.
 		n := len(bySession[req.Session])
 		mu.Unlock()
 		reply := say(fmt.Sprintf("%s 第 %d 次", req.Session, n))
-		if strings.HasSuffix(req.Session, ":"+people[0].ID) && n == 2 { // Bob's second round includes a tool call
+		switch {
+		case isChair(req) && n == 4:
+			reply = ownerCall("end_meeting", map[string]any{"summary": "說完了"})
+		case isChair(req):
+			// each round passes the floor on by name: Bob, then Carol, then back to the chair
+			reply = say(fmt.Sprintf("%s 第 %d 次，@Bob 和 @Carol 說說", req.Session, n))
+		case strings.HasSuffix(req.Session, ":"+people[0].ID) && n == 2: // Bob's second round includes a tool call
 			reply = ownerCall("read_file", map[string]any{"path": "nothing-here.txt"})
 		}
 		reply.Content = append([]model.Block{{Type: enum.BlockReasoning, Raw: json.RawMessage(fmt.Sprintf(`{"n":%d}`, n)), Origin: "fake"}}, reply.Content...)
 		return reply, true
 	})
-	r.wait("the chair's opening", func(*model.World) bool { return len(speeches(r, task.ID)) == 1 })
-	m := meetingSub(r.world(), task.ID)
+	r.wait("the chair's opening", func(*model.World) bool { return len(speeches(r, task.ID)) >= 1 })
+	r.e.Remember(people[0].ID, "一則新的記憶")
+	w := r.wait("three rounds", meetingState(task.ID, model.MeetingEnded))
+	m := meetingSub(w, task.ID)
 	all := []string{r.owner.ID, people[0].ID, people[1].ID}
-	for round := 1; round <= 3; round++ {
-		if round == 2 {
-			r.e.Remember(people[0].ID, "一則新的記憶")
+	got := speeches(r, task.ID)
+	if len(got) != 9 {
+		t.Fatalf("%+v", got)
+	}
+	for i, a := range got {
+		if a.By != all[i%3] {
+			t.Fatalf("speech %d: got %s, want %s", i, a.By, all[i%3])
 		}
-		before := len(speeches(r, task.ID))
-		if _, err := r.e.SayToOwner(task.ID, usecase.TaskMessage{RequestID: fmt.Sprintf("round-%d", round), Text: fmt.Sprintf("第 %d 輪，大家說說", round), MeetingID: m.ID, Mentions: all}); err != nil {
-			t.Fatal(err)
-		}
-		r.wait("the round", func(*model.World) bool { return len(speeches(r, task.ID)) == before+4 })
-		// Three completed speaking rounds per person, not three calls padded by tool continuations.
-		for i, id := range all {
-			if got := speeches(r, task.ID)[before+1+i]; got.By != id {
-				t.Fatalf("round %d reply %d: got %s, want %s", round, i, got.By, id)
-			}
+		if i%3 == 0 && !slices.Equal(a.Mentions, all[1:]) {
+			t.Fatalf("the chair's call was not recorded: %+v", a)
 		}
 	}
 	mu.Lock()
@@ -348,6 +352,8 @@ func TestMeetingTakesTheUsersWordsAndRefusesWhatDoesNotBelong(t *testing.T) {
 	var results []string
 	r, task, people := meetingRig(t, []string{"Bob"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
 		switch {
+		case isChair(req) && reminded(req):
+			return say(""), true
 		case isChair(req):
 			return say("主持人回答"), true
 		case isMember(req):
@@ -400,21 +406,22 @@ func TestMeetingTakesTheUsersWordsAndRefusesWhatDoesNotBelong(t *testing.T) {
 	if _, err := r.e.SayToOwner(task.ID, usecase.TaskMessage{RequestID: "x5", Text: "Bob 呢", MeetingID: m.ID, Mentions: []string{people[0].ID}}); err != nil {
 		t.Fatal(err)
 	}
-	r.wait("Bob answering", func(*model.World) bool { return len(speeches(r, task.ID)) == 5 })
+	// Bob hands back to the chair, as he calls on no one
+	r.wait("Bob answering", func(*model.World) bool { return len(speeches(r, task.ID)) == 6 })
 	got := speeches(r, task.ID)
 	order := []string{}
 	for _, a := range got {
 		order = append(order, a.Text)
 	}
-	if !slices.Equal(order, []string{"主持人回答", "大家好", "主持人回答", "Bob 呢", "Bob 回答"}) {
+	if !slices.Equal(order, []string{"主持人回答", "大家好", "主持人回答", "Bob 呢", "Bob 回答", "主持人回答"}) {
 		t.Fatalf("%q", order)
 	}
 	page, err := r.e.MeetingActivity(task.ID, m.ID, 0, 2, "")
-	if err != nil || page.Total != 5 || len(page.Items) != 2 || !page.HasMore || page.Items[1].Text != "Bob 回答" {
+	if err != nil || page.Total != 6 || len(page.Items) != 2 || !page.HasMore || page.Items[0].Text != "Bob 回答" {
 		t.Fatal(page, err)
 	}
 	older, err := r.e.MeetingActivity(task.ID, m.ID, page.Items[0].Seq, 10, page.Version)
-	if err != nil || len(older.Items) != 3 || older.HasMore {
+	if err != nil || len(older.Items) != 4 || older.HasMore {
 		t.Fatal(older, err)
 	}
 	if _, err := r.e.MeetingActivity(task.ID, m.ID, 0, 10, "1"); err == nil {
@@ -423,13 +430,7 @@ func TestMeetingTakesTheUsersWordsAndRefusesWhatDoesNotBelong(t *testing.T) {
 }
 
 func TestPausingTheTaskPausesItsMeeting(t *testing.T) {
-	r, task, _ := meetingRig(t, []string{"Bob"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
-		if isChair(req) || isMember(req) {
-			return say("說話"), true
-		}
-		return model.ModelReply{}, false
-	})
-	r.wait("the opening", func(*model.World) bool { return len(speeches(r, task.ID)) == 1 })
+	r, task, _, _ := idleMeeting(t)
 	if _, err := r.e.ControlTask(task.ID, usecase.TaskControl{RequestID: "p", Action: "pause"}); err != nil {
 		t.Fatal(err)
 	}

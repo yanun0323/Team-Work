@@ -26,9 +26,9 @@ import { idsAsNames, SaidChip, SaidContext } from './Said'
 import { ALL, type IdLookup } from './mentions'
 import { SentTo } from './ChatSheet'
 import { ChatFaces } from './ChatFaces'
-import { CrewRow } from './Pickers'
+import { CrewRow, crewOrder } from './Pickers'
 import { failureOf, MergeButton, mergeFailureLine, MergeFailureView } from './MergeFailure'
-import { activeMeeting, answerers, draftStillGoes, feedRows, meetingActions, meetingMentions, meetingPeople, meetingTakesWords, meetingWord } from './meetingFeed'
+import { activeMeeting, answerers, draftStillGoes, feedRows, meetingActions, meetingJoinable, meetingMentions, meetingPeople, meetingTakesWords, meetingWord } from './meetingFeed'
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 
@@ -766,7 +766,7 @@ function Notices({ task, subs, onStep }: { task: Task; subs: SubTask[]; onStep: 
   return out.length ? <div className="fx-ticket-notices">{out}</div> : null
 }
 
-/** Someone "@" offers in a meeting, as every pick of employees shows them; All, everyone in it. */
+/** Someone "@" offers in a meeting, as every pick of employees shows them, ticked when in it; All, everyone in it. */
 function MeetingPersonRow({ meeting: m, id }: { meeting: Meeting; id: string }) {
   const r = useStore((s) => s.world.replicas[id])
   if (id === ALL.id) {
@@ -782,7 +782,8 @@ function MeetingPersonRow({ meeting: m, id }: { meeting: Meeting; id: string }) 
     )
   }
   const p = m.participants.find((x) => x.replicaId === id)
-  if (r) return <CrewRow r={r} on chair={id === m.chairId} mind={p ? [p.model, p.effort].filter(Boolean).join(' · ') : undefined} />
+  // one not in it yet joins it when called on
+  if (r) return <CrewRow r={r} on={!!p} chair={id === m.chairId} mind={p ? [p.model, p.effort].filter(Boolean).join(' · ') : undefined} />
   // one who has left since, as they were when it opened
   return p ? <><span className="fx-pick-picture" aria-hidden="true"><PixelFace look={p.look} name={p.name} size={26} /></span><span className="fx-row-main"><b className="fx-crew-head"><span className="fx-crew-name">{p.name}</span>{id === m.chairId && <span className="fx-pill fx-chair">{tr('主持人')}</span>}</b><span>{p.model}</span></span></> : null
 }
@@ -850,6 +851,8 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
   if (!task) return <Gone {...h} />
   const subs = subsOf(w, task.id)
   const owner = ownerId ? w.replicas[ownerId] : undefined
+  // whom "@" can call into the meeting, as every pick of employees orders them
+  const joinable = meeting ? crewOrder(w, meetingJoinable(w, task, meeting).map((x) => w.replicas[x])).map((x) => ({ id: x, name: w.replicas[x].name, look: w.replicas[x].look })) : []
   const status = statusOf(w, task)
   const ended = task.stage === 'done' || task.stage === 'cancelled' || task.stage === 'merging'
   const canSay = !ended && !!owner
@@ -885,7 +888,7 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
       setRefused(to ? tr('現在正在開會，訊息沒有送出') : tr('這場會議已結束，訊息沒有送出'))
       return
     }
-    const mentions = meeting ? meetingMentions(words, meeting) : []
+    const mentions = meeting ? meetingMentions(words, meeting, joinable) : []
     const u: Unsent = { requestId: newRequestId(), text: words, attachments: files, state: 'sending', ...(meeting ? { meetingId: meeting.id, mentions } : {}) }
     setUnsent((all) => [...all, u])
     setText('')
@@ -1035,7 +1038,7 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
           {meeting && (
             <div className="fx-room-say-wide fx-ticket-to">
               <span className="fx-ticket-meet-tag">{tr('會議')}</span>
-              <SentTo people={answerers(text, meeting).map((p) => ({ id: p.replicaId, name: p.name, look: p.look }))} live />
+              <SentTo people={answerers(text, meeting, joinable)} live />
             </div>
           )}
           {files.length > 0 && (
@@ -1056,7 +1059,7 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
               onChange={(e) => { void attach([...(e.target.files ?? [])]); e.target.value = '' }} />
           </label>
           <MentionBox box={box} grow value={text} teamId={task.teamId} label={meeting ? tr('會議發言') : tr('訊息')}
-            people={meeting ? meetingPeople(meeting) : []} personRow={meeting ? (pid) => <MeetingPersonRow meeting={meeting} id={pid} /> : undefined}
+            people={meeting ? meetingPeople(meeting, joinable) : []} personRow={meeting ? (pid) => <MeetingPersonRow meeting={meeting} id={pid} /> : undefined}
             placeholder={meeting ? tr('在會議中發言，@ 指定誰回答，# 選檔案') : tr('對 {name} 說，# 選檔案，可直接貼上截圖', { name: owner!.name })} onChange={write} onSend={send} />
           <button type="submit" className="fx-room-send" disabled={(!text.trim() && !files.length) || reading || closed} aria-label={tr('發送')} title={tr('發送')}>
             <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>

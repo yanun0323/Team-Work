@@ -14,16 +14,35 @@ import (
 	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
+// idleMeeting is a meeting open after the chair's opening with no one due to speak, as one saved before the floor
+// passed on by itself: the chair, reminded, says nothing until the batch is used up, and the meeting is then saved as
+// it stood after the opening.
 func idleMeeting(t *testing.T) (*rig, *model.Task, *model.SubTask, []*model.Replica) {
 	t.Helper()
 	r, task, people := meetingRig(t, []string{"Bob"}, func(req model.ModelRequest, _ []*model.Replica, _ string) (model.ModelReply, bool) {
+		if isChair(req) && reminded(req) {
+			return say(""), true
+		}
 		if isChair(req) || isMember(req) {
 			return say("opening"), true
 		}
 		return model.ModelReply{}, false
 	})
-	r.wait("idle meeting", func(*model.World) bool { return len(speeches(r, task.ID)) == 1 })
+	w := r.wait("idle meeting", meetingIs(task.ID, func(m *model.Meeting) bool { return m.PauseReason == "limit" }))
+	if got := speeches(r, task.ID); len(got) != 1 {
+		t.Fatalf("%+v", got)
+	}
+	sub := meetingSub(w, task.ID)
+	m := sub.Meeting
+	m.State, m.PauseReason, m.SpeakerID, m.CallsInBatch, m.CallsTotal = model.MeetingOpen, "", "", 1, 1
+	saveMeetingFixture(t, r, task.ID, sub, nil)
+	newEngine(t, r)
 	return r, task, meetingSub(r.world(), task.ID), people
+}
+
+// reminded says whether the chair is asked again after calling on no one.
+func reminded(req model.ModelRequest) bool {
+	return strings.Contains(lastText(req), "You mentioned no one")
 }
 
 // Save the exact public/private boundary a crashed process could leave, then use the real loader and recovery.
@@ -76,6 +95,12 @@ func TestMeetingRestartKeepsPauseCountersAndQueuedMessages(t *testing.T) {
 			}
 			saveMeetingFixture(t, r, task.ID, sub, []map[string]any{{"speaker": people[0].ID}})
 			before := len(meetingRequests(r))
+			r.setReply(func(req model.ModelRequest) (model.ModelReply, error) {
+				if isChair(req) {
+					return ownerCall("end_meeting", map[string]any{"summary": "done"}), nil
+				}
+				return say("bob"), nil
+			})
 			newEngine(t, r)
 			m = meetingSub(r.world(), task.ID).Meeting
 			if m.State != model.MeetingPaused || m.PauseReason != reason || m.CallsTotal != sub.Meeting.CallsTotal || m.CallsInBatch != sub.Meeting.CallsInBatch {
@@ -85,31 +110,36 @@ func TestMeetingRestartKeepsPauseCountersAndQueuedMessages(t *testing.T) {
 			if _, err := r.e.SayToOwner(task.ID, usecase.TaskMessage{RequestID: "queued", Text: "keep this after restart", MeetingID: sub.ID}); err != nil {
 				t.Fatal(err)
 			}
-			assertMeetingQuiet(t, r, before)
-			r.e.Close()
-			newEngine(t, r)
-			assertMeetingQuiet(t, r, before)
-			m = meetingSub(r.world(), task.ID).Meeting
-			in := usecase.MeetingControl{RequestID: "continue", Action: "continue", Revision: m.Revision}
-			op, err := r.e.ControlMeeting(task.ID, sub.ID, in)
-			if err != nil {
-				t.Fatal(err)
+			if reason != "limit" {
+				// paused for any other reason, the user's words wait for them to go on, across a restart
+				assertMeetingQuiet(t, r, before)
+				r.e.Close()
+				newEngine(t, r)
+				assertMeetingQuiet(t, r, before)
+				m = meetingSub(r.world(), task.ID).Meeting
+				in := usecase.MeetingControl{RequestID: "continue", Action: "continue", Revision: m.Revision}
+				op, err := r.e.ControlMeeting(task.ID, sub.ID, in)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if replay, err := r.e.ControlMeeting(task.ID, sub.ID, in); err != nil || replay.ID != op.ID {
+					t.Fatal(replay, err)
+				}
 			}
-			if replay, err := r.e.ControlMeeting(task.ID, sub.ID, in); err != nil || replay.ID != op.ID {
-				t.Fatal(replay, err)
-			}
-			r.wait("interrupted speaker and queued user answered", func(*model.World) bool { return len(speeches(r, task.ID)) == 4 })
-			m = meetingSub(r.world(), task.ID).Meeting
-			wantBatch, wantIn := 2, 7
+			// used up its calls, the user's words go on with it at once, a new batch
+			w := r.wait("the chair answering the user", meetingState(task.ID, model.MeetingEnded))
+			m = meetingSub(w, task.ID).Meeting
+			wantBatch, wantIn := 2, 6
 			if reason == "limit" {
-				wantBatch, wantIn = 3, 2
+				wantBatch, wantIn = 3, 1
 			}
-			if m.Batch != wantBatch || m.CallsInBatch != wantIn || m.CallsTotal != sub.Meeting.CallsTotal+2 {
+			if m.Batch != wantBatch || m.CallsInBatch != wantIn || m.CallsTotal != sub.Meeting.CallsTotal+1 {
 				t.Fatalf("counters reset or double granted: %+v", m)
 			}
+			// the user steered: Bob, due before, gave way to the chair the user's words went to
 			reqs := meetingRequests(r)
-			if reqs[before].Session != "meeting:"+sub.ID+":"+people[0].ID || !strings.Contains(sentText(reqs[before]), "keep this after restart") {
-				t.Fatal("interrupted speaker/queued transcript lost")
+			if len(reqs) != before+1 || reqs[before].Session != "meeting:"+sub.ID+":"+r.owner.ID || !strings.Contains(sentText(reqs[before]), "keep this after restart") {
+				t.Fatal("the user's words were not what went on")
 			}
 		})
 	}
@@ -393,8 +423,11 @@ func TestMeetingUnavailableModelRequiresRestorationBeforeContinue(t *testing.T) 
 	if _, err := r.e.ControlMeeting(task.ID, sub.ID, usecase.MeetingControl{RequestID: "restored", Action: "continue", Revision: m.Revision}); err != nil {
 		t.Fatal(err)
 	}
-	r.wait("original participant answered", func(*model.World) bool { return len(speeches(r, task.ID)) == 3 })
-	if reqs := meetingRequests(r); reqs[len(reqs)-1].Session != "meeting:"+sub.ID+":"+people[0].ID || reqs[len(reqs)-1].Model != "fake" {
+	r.wait("original participant answered", func(*model.World) bool { return len(speeches(r, task.ID)) >= 3 })
+	if got := speeches(r, task.ID)[2]; got.By != people[0].ID {
+		t.Fatalf("%+v", got)
+	}
+	if reqs := meetingRequests(r); reqs[before].Session != "meeting:"+sub.ID+":"+people[0].ID || reqs[before].Model != "fake" {
 		t.Fatal("participant/model replaced")
 	}
 }
@@ -463,13 +496,22 @@ func TestMeetingFailedSpeechCountsEveryRetryAndKeepsUsage(t *testing.T) {
 	r.e.Close()
 	newEngine(t, r)
 	assertMeetingQuiet(t, r, before)
-	r.setReply(func(model.ModelRequest) (model.ModelReply, error) { return say("recovered"), nil })
+	r.setReply(func(req model.ModelRequest) (model.ModelReply, error) {
+		if isChair(req) {
+			return ownerCall("end_meeting", map[string]any{"summary": "done"}), nil
+		}
+		return say("recovered"), nil
+	})
 	m := meetingSub(r.world(), task.ID).Meeting
 	if _, err := r.e.ControlMeeting(task.ID, sub.ID, usecase.MeetingControl{RequestID: "continue", Action: "continue", Revision: m.Revision}); err != nil {
 		t.Fatal(err)
 	}
-	r.wait("failed speaker retried", func(*model.World) bool { return len(speeches(r, task.ID)) == 3 })
-	if m := meetingSub(r.world(), task.ID).Meeting; m.CallsTotal != 6 || m.Batch != 1 {
+	// Bob answers at last, then hands back to the chair, who ends it
+	w = r.wait("failed speaker retried", meetingState(task.ID, model.MeetingEnded))
+	if got := speeches(r, task.ID); len(got) != 3 || got[2].Text != "recovered" {
+		t.Fatalf("%+v", got)
+	}
+	if m := meetingSub(w, task.ID).Meeting; m.CallsTotal != 7 || m.Batch != 1 {
 		t.Fatalf("failure continuation reset quota: %+v", m)
 	}
 }

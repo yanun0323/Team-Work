@@ -49,6 +49,9 @@ func TestMeetingAllowsSixEmployeesBesidesTheChairButRejectsSeven(t *testing.T) {
 				if isOwner(req) && len(req.Messages) == 1 && strings.Contains(sentText(req), "[task_started]") {
 					return ownerCall("hold_meeting", map[string]any{"topic": "人數邊界", "replica_ids": asked}), nil
 				}
+				if isChair(req) && reminded(req) {
+					return say(""), nil
+				}
 				if isChair(req) {
 					return say("opening"), nil
 				}
@@ -90,7 +93,8 @@ func TestMeetingAllowsSixEmployeesBesidesTheChairButRejectsSeven(t *testing.T) {
 			if results[0].IsError {
 				t.Fatalf("six employees rejected: %+v", results[0])
 			}
-			w := r.wait("chair opened the meeting", func(*model.World) bool { return len(speeches(r, task.ID)) == 1 })
+			// the chair calls on no one, so it is asked again until the batch is used up; no one else speaks
+			w := r.wait("chair opened the meeting", meetingIs(task.ID, func(m *model.Meeting) bool { return m.PauseReason == "limit" }))
 			s := meetingSub(w, task.ID)
 			m := s.Meeting
 			var got []string
@@ -101,8 +105,8 @@ func TestMeetingAllowsSixEmployeesBesidesTheChairButRejectsSeven(t *testing.T) {
 				w.Tasks[task.ID].Coordination.ActiveMeetingID != s.ID || len(w.SubTasks) != 1 || len(w.Chats) != 0 {
 				t.Fatalf("wrong participants or meeting: %+v", m)
 			}
-			if reqs := meetingRequests(r); len(reqs) != 1 || reqs[0].Session != "meeting:"+s.ID+":"+r.owner.ID {
-				t.Fatalf("the chair should open alone: %+v", reqs)
+			if len(speeches(r, task.ID)) != 1 || slices.ContainsFunc(meetingRequests(r), func(req model.ModelRequest) bool { return req.Session != "meeting:"+s.ID+":"+r.owner.ID }) {
+				t.Fatal("the chair should open alone")
 			}
 		})
 	}

@@ -1,7 +1,8 @@
 // Meetings held in an owner-led task's conversation (version 2): how their words sit among the rest of it, whom the
 // user's words go to, and where a draft was meant to go. Pure, so it can be tested without a screen.
 
-import type { Meeting, MeetingParticipant, SubTask, TaskActivity } from './core/domain/types'
+import { MEETING_GUESTS } from './core/domain/sim'
+import { worksIn, type Look, type Meeting, type SubTask, type Task, type TaskActivity, type World } from './core/domain/types'
 import { ALL, mentionedPeople, withAll, type Person } from './mentions'
 
 export const isMeetingWords = (a: TaskActivity) => a.kind === 'meeting' && a.meetingVersion === 2 && !!a.meetingId
@@ -60,23 +61,37 @@ export function activeMeeting(activeId: string | undefined, subOf: (id: string) 
   return m?.version === 2 && !meetingOver(m) ? m : undefined
 }
 
-/** Whom "@" offers in a meeting: All, then those in it, the chair first. */
-export const meetingPeople = (m: Meeting): Person[] => [ALL, ...m.participants.map((p) => ({ id: p.replicaId, name: p.name }))]
+/**
+ * Who the user may call into a meeting by "@": employees allowed on the task who work in its company and are not in
+ * it yet, in the order given; none once it is full.
+ */
+export function meetingJoinable(w: World, task: Task, m: Meeting): string[] {
+  if (m.participants.length - 1 >= MEETING_GUESTS) return []
+  const allowed = task.coordination?.authorization.replicaIds ?? []
+  return allowed.filter((id) => worksIn(w.replicas[id], task.teamId) && !m.participants.some((p) => p.replicaId === id))
+}
+
+/** Whom "@" offers in a meeting: All, then those in it, the chair first, then those who would join it. */
+export const meetingPeople = (m: Meeting, joinable: Person[] = []): Person[] => [ALL, ...m.participants.map((p) => ({ id: p.replicaId, name: p.name })), ...joinable]
 
 /**
- * Who answer the user's words, in order: those mentioned, "@All" being everyone with the chair last; none mentioned
- * means the chair alone, which the backend decides, so it is sent as none.
+ * Who answer the user's words, in order: those mentioned, "@All" being everyone in it with the chair last, and those
+ * mentioned who are not in it yet joining it; none mentioned means the chair alone, which the backend decides, so it
+ * is sent as none.
  */
-export function meetingMentions(text: string, m: Meeting): string[] {
+export function meetingMentions(text: string, m: Meeting, joinable: Person[] = []): string[] {
   const guests = m.participants.filter((p) => p.replicaId !== m.chairId).map((p) => p.replicaId)
-  return withAll(mentionedPeople(text, meetingPeople(m)), guests, m.chairId).filter((id) => id !== ALL.id)
+  return withAll(mentionedPeople(text, meetingPeople(m, joinable)), guests, m.chairId).filter((id) => id !== ALL.id)
 }
 
 /** Who the box's words will go to: those mentioned, else the chair. */
-export function answerers(text: string, m: Meeting): MeetingParticipant[] {
-  const ids = meetingMentions(text, m)
-  const of = (id: string) => m.participants.find((p) => p.replicaId === id)
-  return (ids.length ? ids : [m.chairId]).flatMap((id) => of(id) ?? [])
+export function answerers(text: string, m: Meeting, joinable: (Person & { look: Look })[] = []): { id: string; name: string; look: Look }[] {
+  const ids = meetingMentions(text, m, joinable)
+  const of = (id: string) => {
+    const p = m.participants.find((x) => x.replicaId === id)
+    return p ? [{ id, name: p.name, look: p.look }] : joinable.filter((x) => x.id === id).map(({ id, name, look }) => ({ id, name, look }))
+  }
+  return (ids.length ? ids : [m.chairId]).flatMap(of)
 }
 
 /**

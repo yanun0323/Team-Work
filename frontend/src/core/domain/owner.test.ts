@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { activityPage, controlMeeting, controlOwnerTask, createTask, MEETING_BATCH, meetingActivityPage, createTeam, flowEditable, hire, newWorkflow, notStarted, OWNER_TIME, progressOf, sayToOwner, statusOf, subsOf, taskCost, tick, TaskRefusal, updateTask } from './sim'
 import { mergeBlocked, resumeBlock, userQuestions } from './owner'
-import type { Task, World, WorkflowNode } from './types'
+import type { Meeting, Task, World, WorkflowNode } from './types'
 
 function setup() {
   const w: World = {
@@ -325,26 +325,67 @@ describe('a meeting held in the conversation of a task its owner runs', () => {
     expect(after.map((a) => (a.from === 'user' ? 'user' : a.by))).toEqual(['user', b.id, 'user', owner.id])
   })
 
+  // the user asks the chair until the batch of calls is used up
+  const useUp = (w: World, task: Task, m: Meeting) => {
+    run(w, 30)
+    for (let i = 0; m.state === 'open' && i < 3 * MEETING_BATCH; i++) {
+      sayToOwner(w, task.id, { requestId: `m${i}`, text: `${i}`, meetingId: m.id })
+      run(w, 5)
+    }
+  }
+
   it('stops for the user once a batch of model calls is used, and goes on only when told so, on what it showed', () => {
     const { w, task, m } = meetingSetup()
-    run(w, 30)
-    for (let i = 0; i < MEETING_BATCH; i++) sayToOwner(w, task.id, { requestId: `m${i}`, text: `${i}`, meetingId: m.id })
-    run(w, 400)
+    useUp(w, task, m)
     expect(m.state).toBe('paused')
     expect(m.pauseReason).toBe('limit')
     expect(m.callsInBatch).toBe(MEETING_BATCH)
     expect(said(w, task.id).some((a) => a.key === 'meetingLimitReached' && a.args?.limit === String(MEETING_BATCH))).toBe(true)
-    // nothing more is said while it waits, and words wait their turn
+    // nothing more is said while it waits
     const n = mine(w, task.id, m.id).length
-    sayToOwner(w, task.id, { requestId: 'wait', text: 'still here', meetingId: m.id })
     run(w, 20)
-    expect(mine(w, task.id, m.id).length).toBe(n + 1)
+    expect(mine(w, task.id, m.id).length).toBe(n)
     expect(() => controlMeeting(w, task.id, m.id, { requestId: 'old', action: 'continue', revision: m.revision - 1 })).toThrow(TaskRefusal)
     const op = controlMeeting(w, task.id, m.id, { requestId: 'go', action: 'continue', revision: m.revision }).operation
     expect(op.kind).toBe('meetingContinue')
     // the same request twice is one more batch, not two
     controlMeeting(w, task.id, m.id, { requestId: 'go', action: 'continue', revision: 1 })
     expect([m.batch, m.callsInBatch, m.state]).toEqual([2, 0, 'open'])
+  })
+
+  it('goes on with the user\'s words once a batch is used, unless the task is paused', () => {
+    const { w, task, owner, m } = meetingSetup()
+    useUp(w, task, m)
+    expect([m.state, m.pauseReason]).toEqual(['paused', 'limit'])
+    sayToOwner(w, task.id, { requestId: 'steer', text: '回到主題', meetingId: m.id })
+    expect([m.state, m.batch, m.callsInBatch]).toEqual(['open', 2, 0])
+    expect(said(w, task.id).some((a) => a.key === 'meetingContinued' && a.args?.batch === '2')).toBe(true)
+    run(w, 5)
+    expect(mine(w, task.id, m.id).at(-1)).toMatchObject({ by: owner.id })
+    // paused with the task, the words wait
+    const other = meetingSetup()
+    useUp(other.w, other.task, other.m)
+    other.task.paused = true
+    sayToOwner(other.w, other.task.id, { requestId: 'wait', text: 'still here', meetingId: other.m.id })
+    expect([other.m.state, other.m.batch]).toEqual(['paused', 1])
+  })
+
+  it('lets the user call in someone allowed on the task, who joins and answers, and steers past the turns waiting', () => {
+    const { w, task, owner, a, b, m } = meetingSetup()
+    run(w, 30)
+    // the user's words replace who was still due: Ivy, asked first, gives way to Kai
+    sayToOwner(w, task.id, { requestId: 'ivy', text: '@Ivy 你呢', meetingId: m.id, mentions: [b.id] })
+    const r = sayToOwner(w, task.id, { requestId: 'kai', text: '@Kai 你來說', meetingId: m.id, mentions: [a.id] })
+    expect(r.activity.mentions).toEqual([a.id])
+    expect(m.participants.map((p) => p.replicaId)).toEqual([owner.id, b.id, a.id])
+    expect(said(w, task.id).some((x) => x.key === 'meetingJoined' && x.args?.name === 'Kai' && x.args?.topic === '規則')).toBe(true)
+    const before = mine(w, task.id, m.id).length
+    run(w, 5)
+    expect(mine(w, task.id, m.id).slice(before).map((x) => x.by)).toEqual([a.id])
+    // someone not allowed on the task is refused, and nothing changes
+    const c = hire(w, task.teamId, 'bp', 'Theo', undefined, { model: 'gpt-5.5' })
+    expect(() => sayToOwner(w, task.id, { requestId: 'theo', text: '@Theo', meetingId: m.id, mentions: [c.id] })).toThrow(TaskRefusal)
+    expect(m.participants).toHaveLength(3)
   })
 
   it('does not go on by itself when the task resumes after a pause', () => {

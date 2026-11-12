@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { Meeting, TaskActivity } from './core/domain/types'
-import { activeMeeting, answerers, draftStillGoes, feedRows, meetingActions, meetingMentions, meetingTakesWords, meetingWord } from './meetingFeed'
+import type { Meeting, Task, TaskActivity, World } from './core/domain/types'
+import { activeMeeting, answerers, draftStillGoes, feedRows, meetingActions, meetingJoinable, meetingMentions, meetingTakesWords, meetingWord } from './meetingFeed'
 import { tabIndents } from './MentionBox'
 
 const look = { skin: '', hair: '', shirt: '', pants: '', hairStyle: 0, accessory: 0 } as unknown as Meeting['participants'][number]['look']
@@ -74,6 +74,23 @@ describe('whom the user\'s words in a meeting go to', () => {
     const m = meeting()
     expect(meetingMentions('@All 怎麼看', m)).toEqual(['rep-2', 'rep-3', 'rep-1'])
     expect(meetingMentions('@Theo 你呢', m)).toEqual([])
+  })
+
+  it('calls in those allowed on the task who are not in it yet, who join it; @All stays those in it', () => {
+    const m = meeting()
+    const theo = { id: 'rep-4', name: 'Theo', look }
+    expect(meetingMentions('@Theo 你呢，@Kai', m, [theo])).toEqual(['rep-4', 'rep-2'])
+    expect(answerers('@Theo 你呢', m, [theo])).toEqual([theo])
+    expect(meetingMentions('@All 怎麼看', m, [theo])).toEqual(['rep-2', 'rep-3', 'rep-1'])
+  })
+
+  it('offers to call in only employees allowed on the task, working in its company, not in it, while there is room', () => {
+    const rep = (id: string, teamId: string) => ({ id, teamId }) as never
+    const w = { replicas: { 'rep-2': rep('rep-2', 't'), 'rep-4': rep('rep-4', 't'), 'rep-5': rep('rep-5', 'other'), 'rep-6': rep('rep-6', 'staffing') } } as unknown as World
+    const task = { teamId: 't', coordination: { authorization: { replicaIds: ['rep-2', 'rep-4', 'rep-5', 'rep-6', 'rep-gone'] } } } as unknown as Task
+    expect(meetingJoinable(w, task, meeting())).toEqual(['rep-4', 'rep-6'])
+    const full = meeting({ participants: Array.from({ length: 7 }, (_, i) => ({ replicaId: `rep-x${i}`, name: `P${i}`, look, model: 'm' })) })
+    expect(meetingJoinable(w, task, full)).toEqual([])
   })
 })
 
