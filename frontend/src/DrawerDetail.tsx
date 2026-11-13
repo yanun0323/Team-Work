@@ -60,7 +60,7 @@ import { isOwnerTask } from './core/domain/owner'
 import { OwnerRunFacts, OwnerTaskDetail, ReturnStep } from './TaskPanel'
 import { MergeButton, MergeFailureView } from './MergeFailure'
 import { FACT_KIND, SaidContext } from './Said'
-import { CopyHomeSheet, MoveIcon, MoveSheet } from './StaffingSheets'
+import { CopyHomeSheet, MoveIcon, MoveSheet, PlaneIcon } from './StaffingSheets'
 
 export type Item =
   | { kind: 'task'; id: string }
@@ -1054,7 +1054,7 @@ function CrewDetail({ id, editing, firing, moving, copying, duplicating, bluepri
         {remote && !MOCK && (
           <button type="button" className="fx-tool fx-hit" onClick={onCopy} aria-expanded={copying}
             aria-label={tr('複製到我的人力資源公司')} title={tr('複製到我的人力資源公司')}>
-            <CopyIcon />
+            <PlaneIcon />
           </button>
         )}
         {!remote && (

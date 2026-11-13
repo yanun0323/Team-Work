@@ -24,6 +24,16 @@ export function MoveIcon() {
   )
 }
 
+/** A plane: someone flown over from another island, the way people travel between islands. */
+export function PlaneIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+      <path transform="translate(1 -1) rotate(45 8 8)" d="M8 1.5C8.6 1.5 9 2.2 9 3v3.5l5 3V11l-5-1.5v3l1.5 1.2v1.1L8 14l-2.5.8v-1.1L7 12.5v-3L2 11V9.5l5-3V3c0-.8.4-1.5 1-1.5Z"
+        fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 /**
  * Moves an employee into the staffing agency, or out of it into a company. Whoever arrives is someone new: same name,
  * look, settings, model and thinking level, with no memory and none of the old conversations; the work they had goes
