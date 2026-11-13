@@ -52,11 +52,11 @@ func pairedTower(t *testing.T, transport tower.Transport) *tower.Service {
 func writePeer(t *testing.T, dir string, extra map[string]any) {
 	t.Helper()
 	sum := sha256.Sum256([]byte(testToken))
-	peer := map[string]any{"id": "peer", "name": "Peer", "protocol": 1, "allowInbound": true, "status": "online", "Address": "test-address", "Token": testToken, "InboundHash": hex.EncodeToString(sum[:])}
+	peer := map[string]any{"id": "peer", "name": "Peer", "protocol": tower.Protocol, "allowInbound": true, "status": "online", "Address": "test-address", "Token": testToken, "InboundHash": hex.EncodeToString(sum[:])}
 	for k, v := range extra {
 		peer[k] = v
 	}
-	raw, _ := json.Marshal(map[string]any{"Me": map[string]any{"id": "me", "name": "Me", "protocol": 1}, "Peers": map[string]any{"peer": peer}})
+	raw, _ := json.Marshal(map[string]any{"Me": map[string]any{"id": "me", "name": "Me", "protocol": tower.Protocol}, "Peers": map[string]any{"peer": peer}})
 	if err := os.WriteFile(filepath.Join(dir, "tower-private.json"), raw, 0600); err != nil {
 		t.Fatal(err)
 	}

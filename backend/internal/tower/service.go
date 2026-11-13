@@ -23,7 +23,7 @@ import (
 )
 
 // Protocol must increase when World or API formats change incompatibly.
-const Protocol = 1
+const Protocol = 2
 const pairLifetime = 10 * time.Minute
 
 type Identity struct {

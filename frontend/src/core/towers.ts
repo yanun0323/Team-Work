@@ -60,7 +60,7 @@ export interface Towers {
 }
 
 /** The tower as the mock shows it: this computer alone, with nothing to pair with. */
-export const MOCK_TOWERS: Towers = { me: { id: 'mock', name: 'Team Work', protocol: 1 }, pairing: null, outgoing: null, peers: [], visitors: [] }
+export const MOCK_TOWERS: Towers = { me: { id: 'mock', name: 'Team Work', protocol: 2 }, pairing: null, outgoing: null, peers: [], visitors: [] }
 
 /** The tower as it is now; a backend with nothing paired may send no list at all. */
 export const readTowers = (signal?: AbortSignal) => (MOCK
