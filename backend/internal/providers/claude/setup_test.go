@@ -117,7 +117,7 @@ func TestLogin(t *testing.T) {
 	}
 
 	script(t, "exit 1")
-	if err := NewSetup().Login(context.Background()); err == nil || !strings.Contains(err.Error(), "claude auth login") {
+	if err := NewSetup().Login(context.Background()); err == nil || !strings.Contains(err.Error(), "「登入 Claude」") {
 		t.Fatal(err)
 	}
 
@@ -130,5 +130,74 @@ func TestLogin(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "x")
 	if err := NewSetup().Login(context.Background()); err == nil || !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
 		t.Fatal(err)
+	}
+}
+
+func TestOwnConfigDirWinsOverTheUsers(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	own := filepath.Join(t.TempDir(), "link")
+	real := t.TempDir()
+	if err := os.Symlink(real, own); err != nil {
+		t.Fatal(err)
+	}
+	if err := UseConfigDir(own); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { configDir = "" })
+	want, _ := filepath.EvalSymlinks(real)
+	if claudeDir() != want {
+		t.Fatal(claudeDir(), want)
+	}
+	env, err := childEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "CLAUDE_CONFIG_DIR=") {
+			got = append(got, entry)
+		}
+	}
+	if len(got) != 1 || got[0] != "CLAUDE_CONFIG_DIR="+want {
+		t.Fatal(got)
+	}
+	if err := UseConfigDir("relative"); err == nil {
+		t.Fatal("a relative folder must be refused")
+	}
+}
+
+// Team Work keeps Claude Code's sign-in in a folder of its own, so a provider's sign-in runs Claude Code's own in
+// the browser when it is signed out there, and only checks when it is signed in already.
+func TestSignInRunsClaudesSignInOnlyWhenSignedOut(t *testing.T) {
+	fakeClaude(t)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	mark, logins := filepath.Join(dir, "signed-in"), filepath.Join(dir, "logins")
+	script(t, `if [ "$1" = auth ]; then echo "$@" >> '`+logins+`'; [ -n "$FAIL_LOGIN" ] && exit 1; touch '`+mark+`'; exit 0; fi
+[ -f '`+mark+`' ] || export MHO_TEST_CLAUDE_AUTH_ERROR=1
+exec '`+executable+`' -test.run='^TestClaudeChild$'`)
+	count := func() string {
+		raw, _ := os.ReadFile(logins)
+		return strings.TrimSpace(string(raw))
+	}
+	s := NewSetup()
+	ctx := context.Background()
+	if err := s.SignIn(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if count() != "auth login --claudeai" {
+		t.Fatalf("%q", count())
+	}
+	if err := s.SignIn(ctx); err != nil || count() != "auth login --claudeai" {
+		t.Fatalf("signed in already, yet signed in again: %v %q", err, count())
+	}
+
+	_ = os.Remove(mark)
+	t.Setenv("FAIL_LOGIN", "1")
+	if err := s.SignIn(ctx); err == nil || !strings.Contains(err.Error(), "「登入 Claude」") {
+		t.Fatalf("an unfinished sign-in: %v", err)
 	}
 }

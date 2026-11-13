@@ -28,6 +28,7 @@ func chatDone(id string) func(*model.World) bool {
 }
 
 func TestChatWorksInTheFolderWithoutTheEmployeesTaskSlot(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		calls++
@@ -57,6 +58,7 @@ func TestChatWorksInTheFolderWithoutTheEmployeesTaskSlot(t *testing.T) {
 }
 
 func TestChatMessageBringsTheSkillItNames(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	for name, body := range map[string]string{"tdd": "先寫測試", "other": "別的做法"} {
 		dir := filepath.Join(root, "skills", name)
@@ -124,6 +126,7 @@ func TestChatMessageBringsTheSkillItNames(t *testing.T) {
 }
 
 func TestAttachedFileNamesNoSkill(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dir := filepath.Join(root, "skills", "tdd")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -152,6 +155,7 @@ func TestAttachedFileNamesNoSkill(t *testing.T) {
 }
 
 func TestTaskStepKnowsWhatHashMeans(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	task := r.task(r.flow.ID)
 	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
@@ -161,6 +165,7 @@ func TestTaskStepKnowsWhatHashMeans(t *testing.T) {
 }
 
 func TestChatAskUserWaitsForTheNextMessage(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		calls++
@@ -211,6 +216,7 @@ func TestChatAskUserWaitsForTheNextMessage(t *testing.T) {
 // Typing instead of picking an option is a new message, not an answer: the employee is told so, and is not left
 // thinking the user chose.
 func TestTypingInsteadOfPickingIsANewMessage(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		calls++
@@ -243,6 +249,7 @@ func TestTypingInsteadOfPickingIsANewMessage(t *testing.T) {
 
 // Skipping a question clears it without waking the employee; they learn it was set aside with the next message.
 func TestSkipChatQuestion(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		calls++
@@ -286,6 +293,7 @@ func TestSkipChatQuestion(t *testing.T) {
 
 // In a chat the user answers ask_user by picking, so a question with nothing to pick is sent back to be asked in words.
 func TestChatAskUserNeedsOptions(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		calls++
@@ -311,8 +319,10 @@ func TestChatAskUserNeedsOptions(t *testing.T) {
 
 // Even when text was already written, ask_user needs its own complete reply.
 func TestChatAskUserNeedsNonemptyReply(t *testing.T) {
+	t.Parallel()
 	for _, reply := range []any{nil, "", " \n\t", 42} {
 		t.Run(fmt.Sprint(reply), func(t *testing.T) {
+			t.Parallel()
 			calls := 0
 			r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 				calls++
@@ -349,6 +359,7 @@ func sayAndCall(text, name string, args any) model.ModelReply {
 }
 
 func TestSearchFilesTakesInWhatGitIgnores(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	for name, body := range map[string]string{".gitignore": "secret.txt\nbuild/\n", "secret.txt": "x", "build/out.bin": "x", "notes/plan.md": "x"} {
 		path := filepath.Join(r.folder, name)
@@ -389,6 +400,7 @@ func TestSearchFilesTakesInWhatGitIgnores(t *testing.T) {
 }
 
 func TestChatKeepsItsModelAndGoesOnAfterAStop(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	first := true
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -433,6 +445,7 @@ func TestChatKeepsItsModelAndGoesOnAfterAStop(t *testing.T) {
 }
 
 func TestChatEndsWithItsCompanyAndOutlivesItsEmployee(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
 	if err != nil {
@@ -461,6 +474,7 @@ func TestChatEndsWithItsCompanyAndOutlivesItsEmployee(t *testing.T) {
 }
 
 func TestChatSurvivesARestartWithoutRepeatingItsWork(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
 	if err != nil {
@@ -480,6 +494,7 @@ func TestChatSurvivesARestartWithoutRepeatingItsWork(t *testing.T) {
 }
 
 func TestTaskDraftFromAChat(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if len(req.Tools) == 0 {
 			return say("**做登入**\n\n要有忘記密碼"), nil
@@ -514,6 +529,7 @@ func TestTaskDraftFromAChat(t *testing.T) {
 
 // The app's line that a reply did not come is not part of what the draft is written from.
 func TestTaskDraftLeavesOutFailedReplies(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if len(req.Tools) == 0 {
 			return say("**做登入**"), nil
@@ -538,6 +554,7 @@ func TestTaskDraftLeavesOutFailedReplies(t *testing.T) {
 }
 
 func TestChatCountsTokensWithoutCacheReads(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		reply := say("**做登入**")
 		reply.Usage = model.ModelUsage{Input: 1000, Output: 50, CacheRead: 600}
@@ -573,6 +590,7 @@ func TestChatCountsTokensWithoutCacheReads(t *testing.T) {
 }
 
 func TestUncommittedChanges(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	ctx := context.Background()
 	if dirty, err := r.e.Uncommitted(ctx, r.team.ID); err != nil || dirty {
@@ -608,6 +626,7 @@ func drain(events <-chan usecase.Event, id string) string {
 }
 
 func TestChatPassesOnItsReplyAsItIsWritten(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("逐字回覆"), nil })
 	_, events, cancel, err := r.e.Subscribe()
 	if err != nil {
@@ -625,6 +644,7 @@ func TestChatPassesOnItsReplyAsItIsWritten(t *testing.T) {
 }
 
 func TestChatTextFromAFailedTryIsTakenBack(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		calls++
@@ -649,6 +669,7 @@ func TestChatTextFromAFailedTryIsTakenBack(t *testing.T) {
 }
 
 func TestChatConnectingMidReplySeesWhatIsWrittenSoFar(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("前半段"), nil })
 	got := make(chan string, 1)
 	var id string
@@ -684,6 +705,7 @@ func TestChatConnectingMidReplySeesWhatIsWrittenSoFar(t *testing.T) {
 }
 
 func TestDiscussionPassesOnItsWordsButWorkStepsStayQuiet(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if stepOf(req) == "討論" {
 			return say("想問你一件事"), nil
@@ -719,6 +741,7 @@ func TestDiscussionPassesOnItsWordsButWorkStepsStayQuiet(t *testing.T) {
 }
 
 func TestToolImageReachesTheNextModelCall(t *testing.T) {
+	t.Parallel()
 	// a whole 1x1 PNG: read_file refuses images it cannot decode
 	png, _ := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
 	var image model.Block
@@ -754,6 +777,7 @@ func TestToolImageReachesTheNextModelCall(t *testing.T) {
 const pngURL = "data:image/png;base64,iVBORw0KGgo="
 
 func TestChatMessageCarriesPicturesToTheModel(t *testing.T) {
+	t.Parallel()
 	var seen model.Message
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		seen = req.Messages[len(req.Messages)-1]
@@ -796,6 +820,7 @@ func TestChatMessageCarriesPicturesToTheModel(t *testing.T) {
 }
 
 func TestRewindTakesBackTheMessageAndAllAfterIt(t *testing.T) {
+	t.Parallel()
 	var seen []model.Message
 	count := 0
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -859,6 +884,7 @@ func TestRewindTakesBackTheMessageAndAllAfterIt(t *testing.T) {
 }
 
 func TestRewindStopsAReplyBeingWritten(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		<-release
@@ -972,6 +998,7 @@ func TestMessagesFollowTheLanguage(t *testing.T) {
 }
 
 func TestForkCopiesUpToTheMessageAndGoesOnByItself(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	heard := map[string][]model.Message{}
 	replies := 0
@@ -1060,6 +1087,7 @@ func TestForkCopiesUpToTheMessageAndGoesOnByItself(t *testing.T) {
 }
 
 func TestForkKeepsAnOpenQuestion(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	first := true
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -1094,6 +1122,7 @@ func TestForkKeepsAnOpenQuestion(t *testing.T) {
 }
 
 func TestForkWhileReplyingLeavesTheReplyRunning(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	var mu sync.Mutex
 	heard := map[string][]model.Message{}
@@ -1183,6 +1212,7 @@ func TestForkWhileReplyingLeavesTheReplyRunning(t *testing.T) {
 }
 
 func TestChatReplyStaysUnreadUntilRead(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
 	if err != nil {
@@ -1207,6 +1237,7 @@ func TestChatReplyStaysUnreadUntilRead(t *testing.T) {
 }
 
 func TestChatFailureIsUnread(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) { return model.ModelReply{}, context.Canceled })
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
 	if err != nil {
@@ -1223,6 +1254,7 @@ const summarySign = "Summarize the earlier part"
 func summarizing(req model.ModelRequest) bool { return strings.Contains(req.System, summarySign) }
 
 func TestChatCompactsOnceItReadsTooMuch(t *testing.T) {
+	t.Parallel()
 	var last model.ModelRequest
 	replies := 0
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -1265,6 +1297,7 @@ func TestChatCompactsOnceItReadsTooMuch(t *testing.T) {
 }
 
 func TestChatCompactsWhenTheModelSaysItIsTooLong(t *testing.T) {
+	t.Parallel()
 	var last model.ModelRequest
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if summarizing(req) {
@@ -1295,6 +1328,7 @@ func TestChatCompactsWhenTheModelSaysItIsTooLong(t *testing.T) {
 }
 
 func TestChatKeepsAToolResultWithItsCall(t *testing.T) {
+	t.Parallel()
 	var last model.ModelRequest
 	calls := 0
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -1326,6 +1360,7 @@ func TestChatKeepsAToolResultWithItsCall(t *testing.T) {
 }
 
 func TestChatRemembersAndForgets(t *testing.T) {
+	t.Parallel()
 	step := 0
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		step++
@@ -1365,6 +1400,7 @@ func TestChatRemembersAndForgets(t *testing.T) {
 }
 
 func TestAirportChatRunsWithoutACompany(t *testing.T) {
+	t.Parallel()
 	var got model.ModelRequest
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		got = req
@@ -1423,6 +1459,7 @@ func TestAirportChatRunsWithoutACompany(t *testing.T) {
 }
 
 func TestAirportChatRefusesAModelNobodyOffers(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("x"), nil })
 	if _, err := r.e.CreateAirportChat(usecase.NewAirportChat{Model: "nobody", Text: "你好"}); err == nil {
 		t.Fatal("no provider offers it")
@@ -1433,6 +1470,7 @@ func TestAirportChatRefusesAModelNobodyOffers(t *testing.T) {
 }
 
 func TestOnlyAirportChatsChangeModelBetweenReplies(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	var mu sync.Mutex
 	used := []string{}
@@ -1496,6 +1534,7 @@ func userWords(req model.ModelRequest) []string {
 }
 
 func TestChatQueuesWhatIsSaidWhileReplyingAndSendsItAfter(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	first := true
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -1535,6 +1574,7 @@ func TestChatQueuesWhatIsSaidWhileReplyingAndSendsItAfter(t *testing.T) {
 }
 
 func TestChatSteerGoesRightAfterTheToolCall(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	calls := 0
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -1588,6 +1628,7 @@ func TestChatSteerGoesRightAfterTheToolCall(t *testing.T) {
 }
 
 func TestChatQueueWaitsAfterAStopUntilSteeredOrTakenBack(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	first := true
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -1632,6 +1673,7 @@ func TestChatQueueWaitsAfterAStopUntilSteeredOrTakenBack(t *testing.T) {
 }
 
 func TestHandOffChatGoesOnWithAnotherEmployee(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	bea, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bea", Model: "fake"})
 	if err != nil {
@@ -1690,6 +1732,7 @@ func TestHandOffChatGoesOnWithAnotherEmployee(t *testing.T) {
 // Handed to the employee it had, the copy still marks where it came from, but the employee is not told anyone
 // else wrote the replies.
 func TestHandOffChatToTheSameEmployeeMarksTheOriginal(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "第一句"})
 	if err != nil {
@@ -1779,6 +1822,7 @@ func TestHandOffChatKeepsTheNameMarked(t *testing.T) {
 // A reply that failed because the subscription was signed out says which provider to sign in to, and once
 // signed in again the same employee tries it again from the user's message, with no new message.
 func TestChatRetriesAFailedReplyAfterSigningInAgain(t *testing.T) {
+	t.Parallel()
 	signedOut := true
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		if signedOut {
@@ -1863,6 +1907,7 @@ func TestOtherLanguagesReachMessagesAndPresets(t *testing.T) {
 // A provider's reasoning stays in the conversation, unchanged, for the provider to read on the next call; the
 // chat shows only what was said.
 func TestReasoningIsKeptForTheNextCall(t *testing.T) {
+	t.Parallel()
 	reasoning := model.Block{Type: enum.BlockReasoning, Raw: json.RawMessage(`{"type":"thinking","signature":"sig"}`), Origin: "claude-code:m"}
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		return model.ModelReply{Content: []model.Block{reasoning, {Type: enum.BlockText, Text: "好"}}}, nil

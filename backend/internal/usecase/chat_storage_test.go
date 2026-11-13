@@ -8,6 +8,7 @@ import (
 )
 
 func TestChatRenameCacheSurvivesDiskFailureAndRestart(t *testing.T) {
+	t.Parallel()
 	r, disk, reopen := diskRig(t)
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "history remains"})
 	if err != nil {

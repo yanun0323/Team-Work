@@ -67,18 +67,30 @@ func childEnvironment() ([]string, error) {
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
 		switch key {
-		case "DISABLE_AUTO_COMPACT", "ENABLE_CLAUDEAI_MCP_SERVERS", "ENABLE_TOOL_SEARCH", "NODE_OPTIONS", "DEBUG":
+		case "DISABLE_AUTO_COMPACT", "ENABLE_CLAUDEAI_MCP_SERVERS", "ENABLE_TOOL_SEARCH", "NODE_OPTIONS", "DEBUG", "CLAUDE_CODE_PROMPT_CACHE_TTL", "ENABLE_PROMPT_CACHING_1H", "FORCE_PROMPT_CACHING_5M":
 			continue
+		case "CLAUDE_CONFIG_DIR":
+			if configDir != "" {
+				continue
+			}
 		}
 		env = append(env, entry)
 	}
+	if configDir != "" {
+		env = append(env, "CLAUDE_CONFIG_DIR="+configDir)
+	}
 	// Tool search defers Mho's tools behind Claude's own search tool, which emitCall rejects as outside Mho.
-	return append(env, "DISABLE_AUTO_COMPACT=1", "ENABLE_CLAUDEAI_MCP_SERVERS=0", "ENABLE_TOOL_SEARCH=false"), nil
+	// The cache lasts an hour even past the plan's allowance, so a conversation resumed later in the hour still hits it.
+	return append(env, "DISABLE_AUTO_COMPACT=1", "ENABLE_CLAUDEAI_MCP_SERVERS=0", "ENABLE_TOOL_SEARCH=false", "CLAUDE_CODE_PROMPT_CACHE_TTL=1h"), nil
 }
 
 func launchArgs(p CompleteParams, resume string) []string {
 	settings, _ := json.Marshal(object{"disableAllHooks": true, "autoMemoryEnabled": false, "claudeMdExcludes": []string{"**/CLAUDE.md", "**/AGENTS.md", "**/.claude/rules/**"}, "disableClaudeAiConnectors": true, "disableBundledSkills": true})
-	args := []string{"--print", "--output-format", "stream-json", "--verbose", "--input-format", "stream-json", "--tools", "", "--setting-sources=", "--strict-mcp-config", "--permission-mode", "dontAsk", "--include-partial-messages", "--no-session-persistence", "--settings", string(settings)}
+	args := []string{"--print", "--output-format", "stream-json", "--verbose", "--input-format", "stream-json", "--tools", "", "--setting-sources=", "--strict-mcp-config", "--permission-mode", "dontAsk", "--include-partial-messages", "--settings", string(settings)}
+	// Claude Code saves a conversation so a later process can resume it (see saved); a call with none is not saved.
+	if p.Session == "" {
+		args = append(args, "--no-session-persistence")
+	}
 	if p.Model != "" {
 		args = append(args, "--model", p.Model)
 	}
@@ -112,6 +124,7 @@ type frame struct {
 	Event           json.RawMessage  `json:"event"`
 	Message         assistantMessage `json:"message"`
 	UUID            string           `json:"uuid"`
+	SessionID       string           `json:"session_id"`
 	ParentToolUseID string           `json:"parent_tool_use_id"`
 	Error           string           `json:"error"`
 	IsError         bool             `json:"is_error"`
@@ -230,6 +243,16 @@ func startChild(p CompleteParams, resume string, log *slog.Logger) (*child, erro
 		}
 	}()
 	return c, nil
+}
+
+// exited says whether the process has ended, such as when it was killed while idle.
+func (c *child) exited() bool {
+	select {
+	case <-c.done:
+		return true
+	default:
+		return false
+	}
 }
 func (c *child) close() {
 	c.once.Do(func() {

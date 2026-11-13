@@ -34,6 +34,7 @@ func listKeys(t *testing.T, r *rig, m *moves, tool string) (rows []map[string]an
 }
 
 func TestListsGiveOnlyWhatTellsItemsApart(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	if _, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "排好的", Description: "很長的說明", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID}); err != nil {
 		t.Fatal(err)
@@ -70,6 +71,7 @@ func TestListsGiveOnlyWhatTellsItemsApart(t *testing.T) {
 }
 
 func TestReadToolsGiveItemsInFull(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	task, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "排好的", Description: "很長的說明", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID})
 	if err != nil {
@@ -107,6 +109,7 @@ func TestReadToolsGiveItemsInFull(t *testing.T) {
 }
 
 func TestReadToolsTellUnknownAndUnreachableAlike(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	other, err := r.e.CreateTeam(t.Context(), usecase.NewTeam{Name: "別家", Folder: t.TempDir()})
 	if err != nil {
@@ -164,6 +167,7 @@ func TestReadToolsTellUnknownAndUnreachableAlike(t *testing.T) {
 }
 
 func TestTheOwnerReadsTasksOfTheirCompanyWithReadTask(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var read []model.Block
 	var sibling, theirs string

@@ -32,6 +32,7 @@ func secretOf(t *testing.T, r *rig, id string) string {
 }
 
 func TestAddingAProviderTakesEffectAtOnce(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	c := inChat(t, r, m, doing("save_provider", map[string]any{"name": "新供應商", "kind": "compatible", "base_url": "https://x.test/v1", "api_key": "sk-new-9999"}))
 	if res := lastResult(t, r); res.IsError || !strings.Contains(res.Text, "fake") {
@@ -68,6 +69,7 @@ func TestAddingAProviderTakesEffectAtOnce(t *testing.T) {
 }
 
 func TestChangingAProviderWaitsForTheUser(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	p := providerNamed(r.world(), "p")
 	version := versionFrom(t, r, m, "read_provider", p.ID)
@@ -124,6 +126,7 @@ func TestChangingAProviderWaitsForTheUser(t *testing.T) {
 }
 
 func TestANewAddressGetsTheStoredKeyOnlyOnceAgreed(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	p := providerNamed(r.world(), "p")
 	version := versionFrom(t, r, m, "read_provider", p.ID)
@@ -168,6 +171,7 @@ func TestANewAddressGetsTheStoredKeyOnlyOnceAgreed(t *testing.T) {
 
 // A typed answer, such as an API key, is asked for in the reply: ask_user is only for picking.
 func TestAskingForATypedAnswerInAChat(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	inChat(t, r, m)
 	for _, s := range r.fake.requests()[0].Tools {
@@ -180,6 +184,7 @@ func TestAskingForATypedAnswerInAChat(t *testing.T) {
 // A provider the settings file would refuse is refused before it is asked for its models, so what is saved loads
 // again.
 func TestAProviderIsCheckedBeforeItIsAsked(t *testing.T) {
+	t.Parallel()
 	r, _ := manageRig(t)
 	ctx := context.Background()
 	key := "sk-check-0000"
@@ -225,6 +230,7 @@ func TestAProviderIsCheckedBeforeItIsAsked(t *testing.T) {
 
 // A context window is the user's to set only where the kind has none of its own, and it outlives a restart.
 func TestAProviderKeepsTheContextWindowSetForIt(t *testing.T) {
+	t.Parallel()
 	r, _ := manageRig(t)
 	ctx := context.Background()
 	p := providerNamed(r.world(), "p")

@@ -10,6 +10,7 @@ import (
 )
 
 func TestChatEncodingReleasedAfterSaveAndLoad(t *testing.T) {
+	t.Parallel()
 	e, _ := storageEngine(t)
 	e.dataDir = t.TempDir()
 	disk, err := repository.NewStore(e.dataDir)
@@ -58,6 +59,7 @@ func TestChatEncodingReleasedAfterSaveAndLoad(t *testing.T) {
 }
 
 func TestQueuedChatEventsOwnEncodingAfterCacheRelease(t *testing.T) {
+	t.Parallel()
 	e, disk := storageEngine(t)
 	c := &model.Chat{ID: "c", Messages: []model.ChatMessage{{From: "user", Text: "original"}}}
 	e.w.Chats[c.ID] = c

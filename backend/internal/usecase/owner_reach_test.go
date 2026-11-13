@@ -33,6 +33,7 @@ func (r *rig) tell(taskID, requestID, text string) {
 }
 
 func TestOwnerCreatesATaskTheUserAskedFor(t *testing.T) {
+	t.Parallel()
 	var flowID string
 	var result model.Block
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -81,6 +82,7 @@ func TestOwnerCreatesATaskTheUserAskedFor(t *testing.T) {
 }
 
 func TestOwnerCannotCreateATaskBeyondTheChainLimit(t *testing.T) {
+	t.Parallel()
 	var flowID string
 	var result model.Block
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -119,6 +121,7 @@ func TestOwnerCannotCreateATaskBeyondTheChainLimit(t *testing.T) {
 }
 
 func TestUserMergesFromTheOwnersCardAndHearsTheReportOnce(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
 			return worker(req), nil

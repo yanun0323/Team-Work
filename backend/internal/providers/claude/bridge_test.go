@@ -29,12 +29,31 @@ func TestClaudeChild(t *testing.T) {
 	assistant := func(id, text string) {
 		write(object{"type": "assistant", "uuid": id, "message": object{"id": id, "content": []object{{"type": "text", "text": text}}, "usage": object{"input_tokens": 3, "output_tokens": 2}}})
 	}
+	// Like Claude Code: a resumed conversation keeps its id, a new one gets its own, and it is saved unless told not to.
+	args := os.Getenv("MHO_TEST_CLAUDE_ARGS")
+	sid := fmt.Sprintf("00000000-0000-4000-8000-%012x", os.Getpid())
+	if _, after, ok := strings.Cut(args, "--resume="); ok {
+		sid, _, _ = strings.Cut(after, " ")
+	}
+	cwd, _ := os.Getwd()
+	save := func(line []byte) {
+		if strings.Contains(args, "--no-session-persistence") {
+			return
+		}
+		path := mirrorPath(claudeDir(), cwd, sid)
+		_ = os.MkdirAll(filepath.Dir(path), 0o700)
+		f, _ := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		_, _ = f.Write(append(line, '\n'))
+		_ = f.Close()
+	}
 	result := func() {
-		write(object{"type": "result", "stop_reason": "end_turn", "modelUsage": object{"haiku": object{"contextWindow": 200000}}})
+		write(object{"type": "result", "stop_reason": "end_turn", "session_id": sid, "modelUsage": object{"haiku": object{"contextWindow": 200000}}})
 	}
 	tools := false
 	round := 0
 	responses := map[string]bool{}
+	// like Claude Code, a message sent while its tools run is read once they finish, in the same turn
+	waiting, queued := false, false
 	for scanner.Scan() {
 		var f struct {
 			Type      string `json:"type"`
@@ -94,6 +113,14 @@ func TestClaudeChild(t *testing.T) {
 				write(object{"type": "control_response", "response": object{"subtype": "success", "request_id": f.RequestID, "response": object{"rate_limits_available": true, "rate_limits": object{"five_hour": object{"utilization": 25, "resets_at": "2030-01-01T00:00:00Z"}, "seven_day": object{"utilization": 40, "resets_at": "2030-01-07T00:00:00Z"}, "model_scoped": []object{}}}}})
 			}
 		case "user":
+			save(scanner.Bytes())
+			if path := os.Getenv("MHO_TEST_CLAUDE_LOG"); path != "" {
+				content, _ := json.Marshal(f.Message.Content)
+				line, _ := json.Marshal(object{"args": args, "content": string(content)})
+				out, _ := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+				_, _ = out.Write(append(line, '\n'))
+				_ = out.Close()
+			}
 			if raw := os.Getenv("MHO_TEST_CLAUDE_REJECTED_TOOL"); raw != "" {
 				write(object{"type": "control_request", "request_id": "list", "request": object{"subtype": "mcp_message", "server_name": "mho", "message": object{"jsonrpc": "2.0", "id": 8, "method": "tools/list"}}})
 				var block object
@@ -136,6 +163,10 @@ func TestClaudeChild(t *testing.T) {
 				continue
 			}
 			raw, _ := json.Marshal(f.Message.Content)
+			if waiting {
+				queued = true
+				continue
+			}
 			if strings.Contains(string(raw), "BLOCK_FOREVER") {
 				for {
 					time.Sleep(time.Hour)
@@ -187,6 +218,7 @@ func TestClaudeChild(t *testing.T) {
 				}}})
 				write(mcpCall("r1", 1, "c1"))
 				write(object{"type": "tool_progress", "parent_tool_use_id": "c1", "tool_use_id": "c1", "heartbeat": true})
+				waiting = true
 			} else {
 				assistant(fmt.Sprint("m", round), "ok")
 				result()
@@ -217,8 +249,13 @@ func TestClaudeChild(t *testing.T) {
 				}
 				responses[id] = true
 				if len(responses) == 2 {
+					waiting = false
 					write(object{"type": "stream_event", "event": object{"type": "message_start", "message": object{"id": "answer"}}})
-					assistant("answer", "ok")
+					if queued {
+						assistant("answer", "heard")
+					} else {
+						assistant("answer", "ok")
+					}
 					result()
 				}
 			}
@@ -239,7 +276,7 @@ func fakeClaude(t *testing.T) {
 		t.Fatal(err)
 	}
 	wrapper := filepath.Join(t.TempDir(), "claude")
-	if err = os.WriteFile(wrapper, []byte("#!/bin/sh\nexec '"+strings.ReplaceAll(executable, "'", "'\\''")+"' -test.run='^TestClaudeChild$'\n"), 0700); err != nil {
+	if err = os.WriteFile(wrapper, []byte("#!/bin/sh\nMHO_TEST_CLAUDE_ARGS=\"$*\" exec '"+strings.ReplaceAll(executable, "'", "'\\''")+"' -test.run='^TestClaudeChild$'\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("MHO_CLAUDE_EXECUTABLE", wrapper)
@@ -312,6 +349,28 @@ func TestToolRoundTripReuseAndRebuild(t *testing.T) {
 	b.close()
 	if _, err := os.Stat(mirror.path); !os.IsNotExist(err) {
 		t.Fatal("mirror not cleaned")
+	}
+}
+
+// What the user says after a round of tool results goes to the process waiting for them, without starting another:
+// sent before the results, Claude Code reads it in the same turn once its tools finish.
+func TestWordsAfterToolResultsKeepTheProcess(t *testing.T) {
+	fakeClaude(t)
+	b := newBridge()
+	defer b.close()
+	p := base(t)
+	_, blocks := runTurn(t, b, &p)
+	first := b.sessions[p.Session].child
+	for i := range blocks {
+		p.Messages = append(p.Messages, ModelMessage{Role: "tool", CallID: blocks[i].ID, Content: []Block{text(fmt.Sprint("result", i))}})
+	}
+	p.Messages = append(p.Messages, ModelMessage{Role: "user", Content: []Block{text("the owner adds: stop early")}})
+	result, blocks := runTurn(t, b, &p)
+	if b.sessions[p.Session].child != first {
+		t.Fatal("the process was restarted")
+	}
+	if result.StopReason != "end_turn" || len(blocks) != 1 || blocks[0].Text != "heard" {
+		t.Fatalf("the words were not read in the same turn: %+v %+v", result, blocks)
 	}
 }
 
@@ -412,10 +471,14 @@ func TestDiscoveryAndLaunchIsolation(t *testing.T) {
 	}
 	args := launchArgs(base(t), "resume-id")
 	joined := strings.Join(args, " ")
-	for _, flag := range []string{"--tools ", "--setting-sources=", "--strict-mcp-config", "--permission-mode dontAsk", "--no-session-persistence", "--resume=resume-id", "mcp__mho__read", "disableAllHooks", "disableBundledSkills"} {
+	for _, flag := range []string{"--tools ", "--setting-sources=", "--strict-mcp-config", "--permission-mode dontAsk", "--resume=resume-id", "mcp__mho__read", "disableAllHooks", "disableBundledSkills"} {
 		if !strings.Contains(joined, flag) {
 			t.Fatal("missing", flag)
 		}
+	}
+	// a conversation is saved so a later process can resume it; a call with no conversation is not
+	if strings.Contains(joined, "--no-session-persistence") || !strings.Contains(strings.Join(launchArgs(CompleteParams{}, ""), " "), "--no-session-persistence") {
+		t.Fatal("only a conversation is saved:", joined)
 	}
 	t.Setenv("ENABLE_TOOL_SEARCH", "true")
 	env, err := childEnvironment()
@@ -430,6 +493,19 @@ func TestDiscoveryAndLaunchIsolation(t *testing.T) {
 	}
 	if len(search) != 1 || search[0] != "ENABLE_TOOL_SEARCH=false" {
 		t.Fatal("tool search must stay off:", search)
+	}
+	// the cache lasts the hour a saved conversation is resumed in, whatever the user's environment says
+	t.Setenv("FORCE_PROMPT_CACHING_5M", "1")
+	t.Setenv("CLAUDE_CODE_PROMPT_CACHE_TTL", "5m")
+	env, _ = childEnvironment()
+	var ttl []string
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "FORCE_PROMPT_CACHING_5M=") || strings.HasPrefix(entry, "CLAUDE_CODE_PROMPT_CACHE_TTL=") {
+			ttl = append(ttl, entry)
+		}
+	}
+	if len(ttl) != 1 || ttl[0] != "CLAUDE_CODE_PROMPT_CACHE_TTL=1h" {
+		t.Fatal("the cache must last an hour:", ttl)
 	}
 	t.Setenv("ANTHROPIC_API_KEY", "secret")
 	if _, err := childEnvironment(); err == nil || strings.Contains(err.Error(), "secret") {
@@ -816,8 +892,8 @@ func (w *lockedBuffer) String() string {
 }
 
 func TestIdleProcessIsReusedWithinCacheLifetime(t *testing.T) {
-	if idleProcess <= 5*time.Minute || idleProcess > time.Hour || newBridge().idle != idleProcess {
-		t.Fatalf("idle process lifetime %v must stay within Claude's one-hour cache", idleProcess)
+	if idleProcess <= 0 || idleTools > time.Hour || idleTools < idleProcess || newBridge().idle != idleProcess || newBridge().toolWait != idleTools {
+		t.Fatalf("idle process lifetimes %v and %v must stay within Claude's one-hour cache", idleProcess, idleTools)
 	}
 	fakeClaude(t)
 	logs := &lockedBuffer{}
@@ -865,10 +941,30 @@ func TestIdleProcessIsReusedWithinCacheLifetime(t *testing.T) {
 	}
 }
 
+func TestProcessWaitingForToolResultsOutlivesTheIdleTime(t *testing.T) {
+	fakeClaude(t)
+	b := newBridge()
+	b.idle = 20 * time.Millisecond
+	defer b.close()
+	p := base(t)
+	if result, _ := runTurn(t, b, &p); result.StopReason != "tool_use" {
+		t.Fatal(result)
+	}
+	time.Sleep(200 * time.Millisecond)
+	b.mu.Lock()
+	alive := b.sessions[p.Session] != nil
+	b.mu.Unlock()
+	if !alive {
+		t.Fatal("a process waiting for tool results was stopped: they could not reach Claude any more")
+	}
+}
+
 func TestRestartReasons(t *testing.T) {
 	p := base(t)
 	p.Messages = append(p.Messages, ModelMessage{Role: "assistant", Content: []Block{text("hi")}})
-	s := &session{signature: signature(p), expected: p.Messages}
+	s := &session{child: &child{done: make(chan struct{})}, signature: signature(p), expected: p.Messages}
+	gone := &session{child: &child{done: make(chan struct{})}, signature: signature(p), expected: p.Messages}
+	close(gone.child.done)
 	next := p
 	next.Messages = append(append([]ModelMessage{}, p.Messages...), ModelMessage{Role: "user", Content: []Block{text("more")}})
 	changed := next
@@ -877,11 +973,21 @@ func TestRestartReasons(t *testing.T) {
 	edited.Messages = append([]ModelMessage{{Role: "user", Content: []Block{text("edited")}}}, next.Messages[1:]...)
 	odd := next
 	odd.Messages = append(append([]ModelMessage{}, p.Messages...), ModelMessage{Role: "tool", CallID: "x", Content: []Block{text("r")}})
+	// a process waiting for a tool's result takes it, and words after it; not words before it, nor another's result
+	waiting := &session{child: &child{done: make(chan struct{})}, signature: signature(p), expected: p.Messages, toolIDs: []string{"x"}}
+	said := ModelMessage{Role: "user", Content: []Block{text("more")}}
+	steered := next
+	steered.Messages = append(append([]ModelMessage{}, odd.Messages...), said)
+	early := next
+	early.Messages = append(append([]ModelMessage{}, p.Messages...), said, odd.Messages[len(odd.Messages)-1])
+	other := next
+	other.Messages = append(append([]ModelMessage{}, p.Messages...), ModelMessage{Role: "tool", CallID: "y", Content: []Block{text("r")}}, said)
 	for _, c := range []struct {
 		s    *session
 		p    CompleteParams
 		want string
-	}{{nil, next, "no_process"}, {s, next, ""}, {s, changed, "settings_changed"}, {s, edited, "history_changed"}, {s, odd, "unexpected_messages"}} {
+	}{{nil, next, "no_process"}, {s, next, ""}, {s, changed, "settings_changed"}, {s, edited, "history_changed"}, {s, odd, "unexpected_messages"}, {gone, next, "process_exited"},
+		{waiting, odd, ""}, {waiting, steered, ""}, {waiting, early, "unexpected_messages"}, {waiting, other, "unexpected_messages"}} {
 		if got := restartReason(c.s, c.p); got != c.want {
 			t.Errorf("restartReason = %q, want %q", got, c.want)
 		}

@@ -36,14 +36,16 @@ type Factory struct {
 	mu      sync.Mutex
 	claude  *claude.Client
 	codex   map[string]*codex.Client
+	// setup is shared, so the Airport's sign-in and a provider's cannot run Claude Code's sign-in at once
+	setup *claude.Setup
 }
 
 func NewFactory(secrets adapter.Secrets, log *slog.Logger) *Factory {
-	return &Factory{secrets: secrets, log: log, codex: map[string]*codex.Client{}}
+	return &Factory{secrets: secrets, log: log, codex: map[string]*codex.Client{}, setup: claude.NewSetup()}
 }
 
 // ClaudeCode is the setup of the program Claude subscriptions run through.
-func (f *Factory) ClaudeCode() adapter.ClaudeCode { return claudeCode{claude.NewSetup()} }
+func (f *Factory) ClaudeCode() adapter.ClaudeCode { return claudeCode{f.setup} }
 
 type claudeCode struct{ *claude.Setup }
 
@@ -135,21 +137,14 @@ func (f *Factory) subscriptionFor(p model.ModelProvider) (adapter.Provider, erro
 	return nil, model.Errorf(model.CodeInvalid, "這種供應商不能用訂閱登入")
 }
 
-// Login starts signing in. Claude Code owns its own login, so that one is only checked.
+// Login starts signing in. Claude Code keeps its own sign-in: it is checked, and run in the browser when gone.
 func (f *Factory) Login(ctx context.Context, p model.ModelProvider, method string) (*adapter.LoginFlow, error) {
 	switch p.Kind {
 	case enum.ProviderAnthropic:
-		provider, err := f.subscriptionFor(p)
-		if err != nil {
-			return nil, err
-		}
 		return &adapter.LoginFlow{
 			Prompt: model.LoginPrompt{Method: "terminal", Command: "claude auth login"},
 			Paste:  func(string) error { return model.Errorf(model.CodeInvalid, "Claude Code 的登入不用貼上內容") },
-			Wait: func(ctx context.Context) error {
-				_, err := provider.Models(ctx)
-				return err
-			},
+			Wait:   f.setup.SignIn,
 		}, nil
 	case enum.ProviderOpenAI:
 		return f.codexClient(p.ID).Login(ctx, method)
@@ -186,7 +181,7 @@ func (f *Factory) For(p model.ModelProvider, key string) (adapter.Provider, erro
 	if key == "" {
 		return nil, model.Errorf(model.CodeInvalid, "「%s」沒有 API Key", p.Name)
 	}
-	c := client{base: strings.TrimRight(p.BaseURL, "/"), key: key, http: newHTTP()}
+	c := client{base: strings.TrimRight(p.BaseURL, "/"), key: key, http: keyedHTTP}
 	switch p.Kind {
 	case enum.ProviderAnthropic:
 		if c.base == "" {
@@ -197,7 +192,7 @@ func (f *Factory) For(p model.ModelProvider, key string) (adapter.Provider, erro
 		if c.base == "" {
 			c.base = "https://api.openai.com/v1"
 		}
-		return openAI{client: c, cacheKey: true}, nil
+		return openAIResponses{openAI{client: c}}, nil
 	case enum.ProviderGoogle:
 		if c.base == "" {
 			c.base = "https://generativelanguage.googleapis.com/v1beta/openai"
@@ -211,6 +206,12 @@ func (f *Factory) For(p model.ModelProvider, key string) (adapter.Provider, erro
 	}
 	return nil, model.Errorf(model.CodeInvalid, "不認識的供應商種類 %s", p.Kind)
 }
+
+// streamIdle is how long a reply may send nothing before it is given up on.
+var streamIdle = codex.DefaultIdle
+
+// keyedHTTP is the one pool of connections every key-paid provider shares, so calls reuse a connection already open.
+var keyedHTTP = newHTTP()
 
 func newHTTP() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -262,6 +263,7 @@ func (c client) do(ctx context.Context, method, path string, body any, auth func
 		}
 		return nil, model.Errorf(model.CodeInvalid, "模型供應商拒絕了請求（HTTP %d），請檢查模型與設定", res.StatusCode)
 	}
+	res.Body = codex.WatchIdle(res.Body, streamIdle)
 	return res, nil
 }
 

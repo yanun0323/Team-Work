@@ -115,6 +115,7 @@ func New(log *slog.Logger) (*Client, error) {
 	if err := sweepMirrors(); err != nil {
 		return nil, err
 	}
+	sweepSaved(time.Now())
 	b := newBridge()
 	b.log = log
 	return &Client{bridge: b}, nil
@@ -141,7 +142,7 @@ func (c *Client) Models(ctx context.Context) ([]model.ModelSpec, error) {
 }
 
 func errLoggedOut() error {
-	return signedOut("Claude Code 還沒登入訂閱：請在終端機執行 claude auth login")
+	return signedOut("Claude Code 還沒登入訂閱，請按「登入 Claude」")
 }
 
 func discover(ctx context.Context) ([]string, map[string][]string, error) {
@@ -235,7 +236,7 @@ func (c *Client) Complete(ctx context.Context, req model.ModelRequest, onText fu
 		return nil
 	})
 	usage := model.ModelUsage{Input: result.Usage.Input, Output: result.Usage.Output, CacheRead: result.Usage.CacheRead,
-		CacheWrite: result.Usage.CacheWrite, CacheWriteKnown: result.Usage.CacheWriteReported}
+		CacheReadKnown: result.Usage.CacheReadReported, CacheWrite: result.Usage.CacheWrite, CacheWriteKnown: result.Usage.CacheWriteReported}
 	if err != nil { // only what was used, nothing to act on
 		if ctx.Err() != nil {
 			return model.ModelReply{Usage: usage}, ctx.Err()

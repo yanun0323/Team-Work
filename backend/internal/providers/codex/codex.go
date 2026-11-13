@@ -69,12 +69,73 @@ type Client struct {
 	CallbackAddr string
 	HTTP         *http.Client
 	OpenBrowser  func(string) error
-	refreshing   sync.Mutex
+	// Idle is how long a reply may send nothing before it is given up on.
+	Idle       time.Duration
+	refreshing sync.Mutex
+	turnsMu    sync.Mutex
+	turns      map[string]turnState // by session
+}
+
+// turnState is the backend's sticky-routing token for a conversation's current turn, as it first gave it.
+type turnState struct {
+	value string
+	at    time.Time
+}
+
+// continues says whether a request carries tool results for the model's last reply, so it belongs to that reply's
+// turn; any other request starts a new one.
+func continues(conv []model.Message) bool {
+	for i := len(conv) - 1; i >= 0; i-- {
+		if conv[i].Role == enum.RoleAssistant {
+			return slices.ContainsFunc(conv[i].Content, func(b model.Block) bool { return b.Type == enum.BlockToolCall })
+		}
+	}
+	return false
+}
+
+// turnFor is the token to send for a request: the turn's, when it continues one. A new turn forgets the last one's,
+// which must never be sent again (codex-rs core/src/client.rs, ModelClientSession).
+func (c *Client) turnFor(req model.ModelRequest) string {
+	if req.Session == "" {
+		return ""
+	}
+	c.turnsMu.Lock()
+	defer c.turnsMu.Unlock()
+	if !continues(req.Messages) {
+		delete(c.turns, req.Session)
+		return ""
+	}
+	return c.turns[req.Session].value
+}
+
+// keepTurn keeps the token the backend gave a turn; the first one given holds for the whole turn. Tokens of turns
+// left for over an hour are let go.
+func (c *Client) keepTurn(session, value string) {
+	if session == "" || value == "" {
+		return
+	}
+	c.turnsMu.Lock()
+	defer c.turnsMu.Unlock()
+	now := time.Now()
+	for s, t := range c.turns {
+		if now.Sub(t.at) > time.Hour {
+			delete(c.turns, s)
+		}
+	}
+	if c.turns == nil {
+		c.turns = map[string]turnState{}
+	}
+	if t, ok := c.turns[session]; ok {
+		t.at = now
+		c.turns[session] = t
+		return
+	}
+	c.turns[session] = turnState{value: value, at: now}
 }
 
 // New connects provider id to ChatGPT.
 func New(id string, secrets adapter.Secrets) *Client {
-	return &Client{ID: id, Secrets: secrets, AuthURL: AuthURL, APIURL: APIURL, CallbackAddr: CallbackAddr, OpenBrowser: openBrowser,
+	return &Client{ID: id, Secrets: secrets, AuthURL: AuthURL, APIURL: APIURL, CallbackAddr: CallbackAddr, OpenBrowser: openBrowser, Idle: DefaultIdle,
 		// no overall timeout: a reply streams for as long as the model writes
 		HTTP: &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, ResponseHeaderTimeout: 2 * time.Minute},
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
@@ -466,12 +527,26 @@ func (c *Client) Logout(ctx context.Context) error {
 	return c.Secrets.DeleteSecret(ctx, c.ID)
 }
 
+// buildRequest is a request to ChatGPT's backend: words kept short, and reasoning summarized.
 func buildRequest(req model.ModelRequest) map[string]any {
-	instructions := req.System
-	if instructions == "" {
-		instructions = "You are a helpful assistant." // the backend refuses a request without any
+	body := Request(req, reasoningOrigin(req.Model), true)
+	body["text"] = map[string]string{"verbosity": "low"}
+	if r, ok := body["reasoning"].(map[string]string); ok {
+		r["summary"] = "auto"
 	}
-	input := []any{}
+	return body
+}
+
+// Request is a Responses API request, shared by ChatGPT's backend and OpenAI's API. Nothing is stored there, so the
+// whole conversation goes each time; what the model wrote, marked with origin, goes back as it came. encrypted asks
+// for reasoning to be returned to send back, which models that do not reason refuse.
+func Request(req model.ModelRequest, origin string, encrypted bool) map[string]any {
+	system := req.System
+	if system == "" {
+		system = "You are a helpful assistant." // the backend refuses a request without any
+	}
+	// the system prompt leads the input as a developer message, as Codex sends it since October 2026
+	input := []any{map[string]any{"type": "message", "role": "developer", "content": []map[string]string{{"type": "input_text", "text": system}}}}
 	for _, m := range req.Messages {
 		role := string(m.Role)
 		var parts, images []map[string]string
@@ -482,6 +557,13 @@ func buildRequest(req model.ModelRequest) map[string]any {
 			}
 		}
 		for _, b := range m.Content {
+			// what this model wrote goes back as it came: phase, ids and the arguments' own spacing are part of what
+			// the backend cached
+			if m.Role == enum.RoleAssistant && len(b.Raw) > 0 && b.Origin == origin {
+				flush()
+				input = append(input, b.Raw)
+				continue
+			}
 			switch b.Type {
 			case enum.BlockText:
 				kind := "input_text"
@@ -498,11 +580,6 @@ func buildRequest(req model.ModelRequest) map[string]any {
 					args = "{}"
 				}
 				input = append(input, map[string]any{"type": "function_call", "call_id": b.ID, "name": b.Name, "arguments": args})
-			case enum.BlockReasoning:
-				if b.Origin == reasoningOrigin(req.Model) && m.Role == enum.RoleAssistant && len(b.Raw) > 0 {
-					flush()
-					input = append(input, b.Raw)
-				}
 			case enum.BlockToolResult:
 				flush()
 				input = append(input, map[string]any{"type": "function_call_output", "call_id": b.ID, "output": b.Text})
@@ -517,15 +594,16 @@ func buildRequest(req model.ModelRequest) map[string]any {
 		flush()
 	}
 	body := map[string]any{
-		"model": req.Model, "store": false, "stream": true, "instructions": instructions, "input": input,
-		"text": map[string]string{"verbosity": "low"}, "include": []string{"reasoning.encrypted_content"},
-		"tool_choice": "auto", "parallel_tool_calls": true,
+		"model": req.Model, "store": false, "stream": true, "input": input, "tool_choice": "auto", "parallel_tool_calls": true,
+	}
+	if encrypted {
+		body["include"] = []string{"reasoning.encrypted_content"}
 	}
 	if req.Session != "" {
 		body["prompt_cache_key"] = req.Session
 	}
 	if req.Effort != "" {
-		body["reasoning"] = map[string]string{"effort": req.Effort, "summary": "auto"}
+		body["reasoning"] = map[string]string{"effort": req.Effort}
 	}
 	if len(req.Tools) > 0 {
 		tools := make([]map[string]any, len(req.Tools))
@@ -543,6 +621,7 @@ func (c *Client) Complete(ctx context.Context, req model.ModelRequest, onText fu
 	if err != nil {
 		return model.ModelReply{}, rejected("模型請求無法編碼")
 	}
+	turn := c.turnFor(req)
 	// tokens the backend turns down are replaced once: they can be withdrawn before they run out
 	var res *http.Response
 	for attempt := 0; ; attempt++ {
@@ -563,6 +642,9 @@ func (c *Client) Complete(ctx context.Context, req model.ModelRequest, onText fu
 			httpReq.Header.Set("session-id", req.Session)
 			httpReq.Header.Set("x-client-request-id", req.Session)
 		}
+		if turn != "" {
+			httpReq.Header.Set("x-codex-turn-state", turn)
+		}
 		res, err = c.HTTP.Do(httpReq)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -575,11 +657,13 @@ func (c *Client) Complete(ctx context.Context, req model.ModelRequest, onText fu
 		}
 		res.Body.Close()
 	}
-	defer res.Body.Close()
+	body := WatchIdle(res.Body, c.Idle)
+	defer body.Close()
 	if res.StatusCode != http.StatusOK {
 		return model.ModelReply{}, statusError(res)
 	}
-	return readStream(ctx, res.Body, onText, reasoningOrigin(req.Model))
+	c.keepTurn(req.Session, res.Header.Get("x-codex-turn-state"))
+	return readStream(ctx, body, onText, reasoningOrigin(req.Model))
 }
 
 // reasoningOrigin marks the reasoning items this model wrote; only the same model is sent them back.
@@ -601,23 +685,61 @@ func reasoningItem(event string) json.RawMessage {
 	return ev.Item
 }
 
+// outputItem is an output item exactly as the backend sent it, to go back unchanged; nil when it cannot be read.
+func outputItem(event string) json.RawMessage {
+	var ev struct {
+		Item json.RawMessage `json:"item"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(event)), &ev) != nil || !json.Valid(ev.Item) {
+		return nil
+	}
+	return ev.Item
+}
+
 // readStream reads the reply. Server text never goes into errors, as it can echo the conversation.
 // Reasoning items are kept, encrypted content and all, to go back in the next request's input: the model continues
 // from them after a tool call, and the backend caches a start that holds them. Content keeps the order of the
 // response's output items, as OpenAI asks of history sent back by hand.
 func readStream(ctx context.Context, body io.Reader, onText func(string), origin string) (model.ModelReply, error) {
+	return Read(ctx, body, onText, origin, Wording{
+		Unfinished: rejected("ChatGPT 沒有完成這次回覆"), Failed: func(code string) *model.Error { return rejected("ChatGPT 無法回覆（%s）", orUnknown(code)) },
+		Cut: unavailable("ChatGPT 的回覆中斷了"),
+	})
+}
+
+// Wording is what a reply's failures tell the user, naming the service that failed.
+type Wording struct {
+	Unfinished *model.Error // ended for a reason other than its length
+	Failed     func(code string) *model.Error
+	Cut        *model.Error // the stream stopped before the reply finished
+}
+
+// usage is what a response used. Reads and writes are parts of the input, known only when reported.
+func usage(input, output int, read, written *int) model.ModelUsage {
+	u := model.ModelUsage{Input: input, Output: output}
+	if read != nil {
+		u.CacheRead, u.CacheReadKnown = *read, true
+	}
+	if written != nil {
+		u.CacheWrite, u.CacheWriteKnown = *written, true
+	}
+	return u
+}
+
+// Read reads a Responses API stream, as readStream says.
+func Read(ctx context.Context, body io.Reader, onText func(string), origin string, say Wording) (model.ModelReply, error) {
 	var reply model.ModelReply
 	var text strings.Builder
 	var content []model.Block
-	flush := func() { // text so far goes where its message item ended
+	flush := func(raw json.RawMessage) { // text so far is its message item's, kept apart from the next
 		if text.Len() == 0 {
 			return
 		}
-		if n := len(content); n > 0 && content[n-1].Type == enum.BlockText {
-			content[n-1].Text += text.String()
-		} else {
-			content = append(content, model.Block{Type: enum.BlockText, Text: text.String()})
+		b := model.Block{Type: enum.BlockText, Text: text.String()}
+		if raw != nil {
+			b.Raw, b.Origin = raw, origin
 		}
+		content = append(content, b)
 		text.Reset()
 	}
 	finished := false
@@ -643,7 +765,8 @@ func readStream(ctx context.Context, body io.Reader, onText func(string), origin
 					Input   int `json:"input_tokens"`
 					Output  int `json:"output_tokens"`
 					Details struct {
-						Cached int `json:"cached_tokens"`
+						Cached  *int `json:"cached_tokens"` // nil when not reported
+						Written *int `json:"cache_write_tokens"`
 					} `json:"input_tokens_details"`
 				} `json:"usage"`
 				Error struct {
@@ -662,7 +785,11 @@ func readStream(ctx context.Context, body io.Reader, onText func(string), origin
 			text.WriteString(ev.Delta)
 			onText(ev.Delta)
 		case "response.output_item.done":
-			flush()
+			if ev.Item.Type == "message" {
+				flush(outputItem(data))
+				break
+			}
+			flush(nil)
 			if ev.Item.Type == "reasoning" {
 				if raw := reasoningItem(data); raw != nil {
 					content = append(content, model.Block{Type: enum.BlockReasoning, Raw: raw, Origin: origin})
@@ -670,17 +797,19 @@ func readStream(ctx context.Context, body io.Reader, onText func(string), origin
 			}
 			if ev.Item.Type == "function_call" {
 				args := ev.Item.Arguments
-				if !json.Valid([]byte(args)) {
-					args = "{}" // the tool will say what is missing
+				b := model.Block{Type: enum.BlockToolCall, ID: ev.Item.CallID, Name: ev.Item.Name, Args: json.RawMessage(args)}
+				if json.Valid([]byte(args)) {
+					b.Raw, b.Origin = outputItem(data), origin
+				} else {
+					b.Args = json.RawMessage("{}") // the tool will say what is missing
 				}
-				content = append(content, model.Block{Type: enum.BlockToolCall, ID: ev.Item.CallID, Name: ev.Item.Name, Args: json.RawMessage(args)})
+				content = append(content, b)
 			}
 		case "response.completed", "response.incomplete":
-			u := ev.Response.Usage
-			reply.Usage = model.ModelUsage{Input: u.Input, Output: u.Output, CacheRead: u.Details.Cached}
+			reply.Usage = usage(ev.Response.Usage.Input, ev.Response.Usage.Output, ev.Response.Usage.Details.Cached, ev.Response.Usage.Details.Written)
 			if ev.Type == "response.incomplete" {
 				if ev.Response.Incomplete.Reason != "max_output_tokens" {
-					return model.ModelReply{Usage: reply.Usage}, rejected("ChatGPT 沒有完成這次回覆")
+					return model.ModelReply{Usage: reply.Usage}, say.Unfinished
 				}
 				reply.Truncated = true
 			}
@@ -690,13 +819,12 @@ func readStream(ctx context.Context, body io.Reader, onText func(string), origin
 			if ev.Type == "response.failed" {
 				code = ev.Response.Error.Code
 				// a failed response can still report what it used, so it is counted
-				u := ev.Response.Usage
-				reply.Usage = model.ModelUsage{Input: u.Input, Output: u.Output, CacheRead: u.Details.Cached}
+				reply.Usage = usage(ev.Response.Usage.Input, ev.Response.Usage.Output, ev.Response.Usage.Details.Cached, ev.Response.Usage.Details.Written)
 			}
 			if code == "context_length_exceeded" {
 				return model.ModelReply{Usage: reply.Usage}, overflowed()
 			}
-			return model.ModelReply{Usage: reply.Usage}, rejected("ChatGPT 無法回覆（%s）", orUnknown(code))
+			return model.ModelReply{Usage: reply.Usage}, say.Failed(code)
 		}
 	}
 	if ctx.Err() != nil {
@@ -704,9 +832,9 @@ func readStream(ctx context.Context, body io.Reader, onText func(string), origin
 		return model.ModelReply{Usage: reply.Usage}, ctx.Err()
 	}
 	if !finished {
-		return model.ModelReply{}, unavailable("ChatGPT 的回覆中斷了")
+		return model.ModelReply{}, say.Cut
 	}
-	flush()
+	flush(nil)
 	if reply.Truncated { // never run partial tool arguments
 		content = slices.DeleteFunc(content, func(b model.Block) bool { return b.Type == enum.BlockToolCall })
 	}

@@ -22,6 +22,7 @@ func writeAgents(t *testing.T, folder, text string) {
 }
 
 func TestPromptFollowsAgentsFile(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	file := filepath.Join(r.folder, "AGENTS.md")
 	prompt := func() string { return r.world().Teams[r.team.ID].Prompt }
@@ -81,6 +82,7 @@ func TestPromptFollowsAgentsFile(t *testing.T) {
 }
 
 func TestFailedPromptWriteChangesNothing(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	// a folder in the file's place can't be written
 	if err := os.Mkdir(filepath.Join(r.folder, "AGENTS.md"), 0o755); err != nil {
@@ -96,6 +98,7 @@ func TestFailedPromptWriteChangesNothing(t *testing.T) {
 }
 
 func TestCompanyFilesStayInsideTheProject(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	outside := t.TempDir()
 	secret := filepath.Join(outside, "secret.txt")
@@ -143,6 +146,7 @@ func TestCompanyFilesStayInsideTheProject(t *testing.T) {
 }
 
 func TestEmployeeGetsTheLatestAgentsFile(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var system string
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -166,6 +170,7 @@ func TestEmployeeGetsTheLatestAgentsFile(t *testing.T) {
 }
 
 func TestGlobalPromptReachesEveryEmployee(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	systems := map[string]string{}
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -218,6 +223,7 @@ func TestGlobalPromptReachesEveryEmployee(t *testing.T) {
 }
 
 func TestGlobalPromptFollowsItsFile(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	if err := os.WriteFile(filepath.Join(r.data, "AGENTS.md"), []byte("外面改的"), 0o644); err != nil {
 		t.Fatal(err)
@@ -247,6 +253,7 @@ func inOrder(t *testing.T, system string, parts ...string) {
 }
 
 func TestPromptSectionsKeepTheirOrder(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if strings.Contains(req.System, "# This step: ") {
 			return call("submit_handoff", handoff), nil

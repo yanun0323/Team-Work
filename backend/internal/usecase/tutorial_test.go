@@ -12,6 +12,7 @@ import (
 )
 
 func TestTutorialIsKeptInItsOwnFile(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	yes := true
 	if err := r.e.UpdateTutorial(model.TutorialPatch{Seeded: &yes, Done: []string{"provider", "company"}, Shown: []string{"provider"}}); err != nil {
@@ -42,6 +43,7 @@ func TestTutorialIsKeptInItsOwnFile(t *testing.T) {
 }
 
 func TestTutorialCountsChangingACopiedFlow(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	// saving a flow that was not copied is not it
 	if err := r.e.SaveWorkflow(r.flow.ID, *r.flow); err != nil {
@@ -68,6 +70,7 @@ func TestTutorialCountsChangingACopiedFlow(t *testing.T) {
 }
 
 func TestTutorialCountsSoundSettings(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"shadows": json.RawMessage(`false`)}); err != nil {
 		t.Fatal(err)

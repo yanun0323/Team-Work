@@ -28,6 +28,8 @@ const (
 	maxReadImage  = 25 << 20
 	// maxWalkedFiles bounds how much of a folder that is not a repo gets walked.
 	maxWalkedFiles = 20_000
+	// worktreeTimeout bounds making a tree, which a cancelled run does not stop: a hook may hang.
+	worktreeTimeout = 10 * time.Minute
 )
 
 var conflictMarks = regexp.MustCompile(`(?m)^(<<<<<<<|>>>>>>>) `)
@@ -232,7 +234,12 @@ func (g *Git) Ignored(ctx context.Context, folder string, paths []string) map[st
 	return ignored
 }
 
+// Worktree makes dir a tree on a new branch from target, or leaves the tree already there. Once begun it is finished
+// even when ctx is cancelled: git killed partway leaves the branch made with no tree on it, and no one could make the
+// tree on that branch after. Whoever takes the step over waits on the lock and finds the tree whole.
 func (g *Git) Worktree(ctx context.Context, folder, dir, branch, target string) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), worktreeTimeout)
+	defer cancel()
 	defer g.lock(folder)()
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
 		return nil

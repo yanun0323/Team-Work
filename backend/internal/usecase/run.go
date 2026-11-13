@@ -772,7 +772,7 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 		specs[i] = tool.Spec()
 		byName[specs[i].Name] = tool
 	}
-	return &turn{
+	tr := &turn{
 		provider: in.spec.provider,
 		req:      model.ModelRequest{Cwd: in.dir, Session: in.session, Model: in.spec.model, Effort: in.spec.effort, Messages: in.conv, Tools: specs},
 		tools:    byName, cwd: in.dir,
@@ -810,6 +810,27 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 			return heard
 		},
 	}
+	if !in.talk { // a discussion's words are its own; a meeting waits for the user when it grows too long
+		tr.compact = func(ctx context.Context) ([]model.Message, bool) { return e.compactStep(ctx, in, tr.req.Messages) }
+		tr.compactAt = e.workCompactAt(in.spec.model)
+	}
+	return tr
+}
+
+// compactStep sums up a step's conversation that grew too long, and keeps it so: a retry or a run going on reads the
+// summary too. The tokens it spent count for the step.
+func (e *Engine) compactStep(ctx context.Context, in subRun, conv []model.Message) ([]model.Message, bool) {
+	shorter, spent, ok := e.compactWork(ctx, in.spec, in.dir, in.session, slices.Clone(conv))
+	kept := e.apply(in, func(_ *model.Task, s *model.SubTask) {
+		s.Tokens += spent
+		if !ok {
+			return
+		}
+		e.w.Conversations[s.ID] = slices.Clone(shorter)
+		e.dirty[s.ID] = true
+		e.logLine(s, enum.LogSystem, i18n.T("對話太長，已整理成摘要"), "", nil)
+	})
+	return shorter, ok && kept
 }
 
 // steersFor says whether the owner told a run something it has not read, without saving anything.
@@ -1014,13 +1035,10 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 	defer e.mu.Unlock()
 	if t := e.w.Tasks[in.taskID]; t != nil && t.OwnerLed() {
 		out = append(out, e.askOwnerTool(in), funcTool{model.ToolSpec{Name: "read_step",
-			Description: "Read a run of a step of this task in full, by its id (sub-…): its instructions, handoff and log, by page. " +
+			Description: "Read a run of a step of this task by its id (sub-…): its instructions and handoff; its log, by page, only with log=true. " +
 				"For the handoffs and earlier attempts your instructions name.",
 			Parameters: json.RawMessage(readStepSchema)}, func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
-			var a struct {
-				SubID  string `json:"sub_id"`
-				Offset int    `json:"log_offset"`
-			}
+			var a readStepArgs
 			if err := parseArgs(raw, &a); err != nil {
 				return toolError("%s", safeText(err))
 			}
@@ -1030,7 +1048,7 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 			if t == nil {
 				return toolError("the task is gone")
 			}
-			return e.stepRun(t, a.SubID, a.Offset)
+			return e.stepRun(t, a)
 		}})
 	}
 	if s, t := e.w.SubTasks[in.subID], e.w.Tasks[in.taskID]; s != nil && t != nil && e.maySendBack(t, s) {

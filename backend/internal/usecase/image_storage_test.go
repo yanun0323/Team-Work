@@ -15,6 +15,7 @@ import (
 )
 
 func TestImagesStayOutOfStoredHistoryAndSnapshots(t *testing.T) {
+	t.Parallel()
 	data := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("image", 200_000)))
 	calls := 0
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -83,6 +84,7 @@ func TestImagesStayOutOfStoredHistoryAndSnapshots(t *testing.T) {
 }
 
 func TestLegacyInlineImagesLoadAsReferencesWithoutLosingHistory(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "old"})
 	if err != nil {
@@ -142,6 +144,7 @@ func TestLegacyInlineImagesLoadAsReferencesWithoutLosingHistory(t *testing.T) {
 }
 
 func TestUploadedImagesSurviveRewindForkAndTask(t *testing.T) {
+	t.Parallel()
 	raw, _ := base64.StdEncoding.DecodeString(strings.TrimPrefix(pngURL, "data:image/png;base64,"))
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		found := false
@@ -217,6 +220,7 @@ func TestUploadedImagesSurviveRewindForkAndTask(t *testing.T) {
 }
 
 func TestQueuedPicturesAreReferencesBeforeTheyAreSent(t *testing.T) {
+	t.Parallel()
 	entered, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	unblock := func() { once.Do(func() { close(release) }) }

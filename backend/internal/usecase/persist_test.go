@@ -62,6 +62,7 @@ func diskRig(t *testing.T) (*rig, *brokenDisk, func()) {
 
 // A change the disk does not take fails, and is not there, nor is anything it started.
 func TestAChangeThatCannotBeSavedFails(t *testing.T) {
+	t.Parallel()
 	r, disk, reopen := diskRig(t)
 	disk.broken.Store(true)
 	if _, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"}); err == nil {
@@ -90,6 +91,7 @@ func TestAChangeThatCannotBeSavedFails(t *testing.T) {
 
 // A provider's key changes with the change it belongs to: when that cannot be saved, the key stays as it was.
 func TestAKeyChangesOnlyWithItsSettings(t *testing.T) {
+	t.Parallel()
 	r, disk, reopen := diskRig(t)
 	ctx := context.Background()
 	p := providerNamed(r.world(), "p")

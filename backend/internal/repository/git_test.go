@@ -61,6 +61,28 @@ func TestRemoveKeepsABranchTheTaskDidNotMake(t *testing.T) {
 	run(t, folder, "rev-parse", "--verify", "refs/heads/task/1")
 }
 
+// A tree once begun is made whole, even when what asked for it is cancelled meanwhile: git killed partway leaves the
+// branch made and no tree on it, and whoever takes the step over cannot make one on the branch then.
+func TestWorktreeIsFinishedWhenItsRunIsCancelled(t *testing.T) {
+	folder := t.TempDir()
+	run(t, folder, "init", "-q", "-b", "main")
+	run(t, folder, "commit", "-q", "--allow-empty", "-m", "one")
+	g := NewGit(t.TempDir())
+	dir := filepath.Join(t.TempDir(), "t1")
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := g.Worktree(cancelled, folder, dir, "task/1", "main"); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(t, dir, "rev-parse", "--abbrev-ref", "HEAD"); got != "task/1" {
+		t.Fatalf("the tree is on %q", got)
+	}
+	// whoever takes it over finds the tree there
+	if err := g.Worktree(context.Background(), folder, dir, "task/1", "main"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A repo is cloned once; each version read has a folder of its own that a later version leaves as it was, and a
 // version already here is read with the repo gone.
 func TestFetchClonesOnceAndKeepsEachVersion(t *testing.T) {

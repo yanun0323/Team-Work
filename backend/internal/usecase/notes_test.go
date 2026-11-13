@@ -9,6 +9,7 @@ import (
 )
 
 func TestNotesLiveInTheCompanysFolder(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	file := filepath.Join(r.folder, ".team-work", "NOTES.md")
 	if got, err := r.e.Notes(r.team.ID); err != nil || got != "" {

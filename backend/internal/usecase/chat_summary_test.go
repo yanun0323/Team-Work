@@ -19,6 +19,7 @@ func legacyPreview(text string, limit int) string {
 }
 
 func TestChatPreviewPreservesWhitespaceAndTruncation(t *testing.T) {
+	t.Parallel()
 	cases := []string{"", " \t\r\n", " hello  world ", "繁體中文\u3000🙂🙂\u00a0test", "a\x00b", strings.Repeat("界", 199), strings.Repeat("界", 200), strings.Repeat("界", 201), strings.Repeat("a", 200) + "   ", strings.Repeat("a", 199) + "  b", "\xffbroken\xc0"}
 	rng := rand.New(rand.NewSource(42))
 	chars := []rune("abc界🙂 \t\n\r\v\f\u0085\u00a0\u1680\u2003\u2028\u2029\u202f\u205f\u3000")
@@ -57,6 +58,7 @@ func TestSummaryDoesNotAllocateOnePreviewPerHistoricalReply(t *testing.T) {
 }
 
 func TestSummaryKeepsLatestReplyAndMentionsDetached(t *testing.T) {
+	t.Parallel()
 	c := &model.Chat{CreatedAt: 1, ReplyAt: new(float64), Messages: []model.ChatMessage{
 		{From: "user", Text: "#file", At: 2, Mentions: []string{"first"}, Images: []model.Attachment{{URL: "image"}}},
 		{From: "agent", Text: "old reply", At: 3, By: "old"},

@@ -20,6 +20,7 @@ func pastChat(t *testing.T, r *rig, text string) *model.Chat {
 }
 
 func TestReadChatShowsAnotherChatByID(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	past := pastChat(t, r, "記得把藍色按鈕改成綠色")
 	inChat(t, r, m, doing("read_chat", map[string]any{"id": past.ID}))
@@ -38,6 +39,7 @@ func TestReadChatShowsAnotherChatByID(t *testing.T) {
 }
 
 func TestReadChatPages(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	past := pastChat(t, r, "第一句")
 	inChat(t, r, m, doing("read_chat", map[string]any{"id": past.ID, "limit": 1}))
@@ -58,6 +60,7 @@ func TestReadChatPages(t *testing.T) {
 }
 
 func TestReadChatReadsEveryCompanyAndTheAirport(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	other, err := r.e.CreateTeam(t.Context(), usecase.NewTeam{Name: "別家", Folder: t.TempDir()})
 	if err != nil {

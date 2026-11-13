@@ -94,6 +94,7 @@ func TestSourcedTextsFollowTheLanguage(t *testing.T) {
 }
 
 func TestASourcedTextInAnUnknownLanguageIsNotRead(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, root, "blueprints/french.yaml", "name:\n  en: Writer\n  fr: Écrivain\n")
 	writeFile(t, root, "blueprints/listed.yaml", "name: [Writer]\n")
@@ -118,6 +119,7 @@ func TestASourcedTextInAnUnknownLanguageIsNotRead(t *testing.T) {
 var officialFS = os.DirFS(filepath.Join("testdata", "official"))
 
 func TestTheOfficialSourceCannotBeRemoved(t *testing.T) {
+	t.Parallel()
 	latest := "p1"
 	e := sourcedEngine(t, map[string]string{}, &latest)
 	if err := e.DeleteSource(OfficialSourceID); err == nil {
@@ -153,6 +155,7 @@ func (d downloads) Cached(_, commit string) bool { return d.here[commit] }
 // it. A version that cannot be read is not moved to, and the one in use is downloaded again once it is gone from
 // this computer, even with nothing newer.
 func TestTheOfficialSourceIsDownloadedAndKeptAtAVersionRead(t *testing.T) {
+	t.Parallel()
 	data, first, second := t.TempDir(), t.TempDir(), t.TempDir()
 	writeFile(t, first, "blueprints/assistant.yaml", "name: Assistant\n")
 	writeFile(t, second, "blueprints/solo.yaml", "name: Solo\n")

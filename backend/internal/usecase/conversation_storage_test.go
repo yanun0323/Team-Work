@@ -11,6 +11,7 @@ import (
 )
 
 func TestColdConversationsResumeForkRewindAndRestart(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		raw, _ := json.Marshal(req.Messages)
 		if !strings.Contains(string(raw), "original history") {
@@ -65,6 +66,7 @@ func TestColdConversationsResumeForkRewindAndRestart(t *testing.T) {
 }
 
 func TestColdRewindDiskFailureSurvivesUnrelatedSaveAndRestart(t *testing.T) {
+	t.Parallel()
 	r, disk, reopen := diskRig(t)
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "history survives"})
 	if err != nil {

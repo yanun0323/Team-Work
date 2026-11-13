@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,26 +16,30 @@ import (
 )
 
 // idleMeeting is a meeting open after the chair's opening with no one due to speak, as one saved before the floor
-// passed on by itself: the chair, reminded, says nothing until the batch is used up, and the meeting is then saved as
-// it stood after the opening.
+// passed on by itself: the chair's first reminder fails without retries, which stops the meeting at once, and the
+// meeting is then saved as it stood after the opening. Later reminders say nothing, as tests reuse this reply.
 func idleMeeting(t *testing.T) (*rig, *model.Task, *model.SubTask, []*model.Replica) {
 	t.Helper()
-	r, task, people := meetingRig(t, []string{"Bob"}, func(req model.ModelRequest, _ []*model.Replica, _ string) (model.ModelReply, bool) {
+	var stopped atomic.Bool
+	r, task, people := failingMeetingRig(t, []string{"Bob"}, func(req model.ModelRequest, _ []*model.Replica, _ string) (model.ModelReply, bool, error) {
 		if isChair(req) && reminded(req) {
-			return say(""), true
+			if stopped.CompareAndSwap(false, true) {
+				return model.ModelReply{}, true, model.Errorf(model.CodeContextOverflow, "too long")
+			}
+			return say(""), true, nil
 		}
 		if isChair(req) || isMember(req) {
-			return say("opening"), true
+			return say("opening"), true, nil
 		}
-		return model.ModelReply{}, false
+		return model.ModelReply{}, false, nil
 	})
-	w := r.wait("idle meeting", meetingIs(task.ID, func(m *model.Meeting) bool { return m.PauseReason == "limit" }))
+	w := r.wait("idle meeting", meetingIs(task.ID, func(m *model.Meeting) bool { return m.PauseReason == "context" }))
 	if got := speeches(r, task.ID); len(got) != 1 {
 		t.Fatalf("%+v", got)
 	}
 	sub := meetingSub(w, task.ID)
 	m := sub.Meeting
-	m.State, m.PauseReason, m.SpeakerID, m.CallsInBatch, m.CallsTotal = model.MeetingOpen, "", "", 1, 1
+	m.State, m.PauseReason, m.SpeakerID, m.Error, m.CallsInBatch, m.CallsTotal = model.MeetingOpen, "", "", nil, 1, 1
 	saveMeetingFixture(t, r, task.ID, sub, nil)
 	newEngine(t, r)
 	return r, task, meetingSub(r.world(), task.ID), people
@@ -80,8 +85,10 @@ func assertMeetingQuiet(t *testing.T, r *rig, calls int) {
 }
 
 func TestMeetingRestartKeepsPauseCountersAndQueuedMessages(t *testing.T) {
+	t.Parallel()
 	for _, reason := range []string{"recovery", "limit", "taskPaused"} {
 		t.Run(reason, func(t *testing.T) {
+			t.Parallel()
 			r, task, sub, people := idleMeeting(t)
 			m := sub.Meeting
 			m.CallsInBatch, m.CallsTotal = 5, 41
@@ -146,8 +153,10 @@ func TestMeetingRestartKeepsPauseCountersAndQueuedMessages(t *testing.T) {
 }
 
 func TestMeetingRestartWhileClosingNeedsExplicitSummaryRetry(t *testing.T) {
+	t.Parallel()
 	for _, started := range []bool{false, true} {
 		t.Run(fmt.Sprint(started), func(t *testing.T) {
+			t.Parallel()
 			r, task, sub, _ := idleMeeting(t)
 			sub.Meeting.State, sub.Meeting.ClosingRequested = model.MeetingClosing, true
 			sub.Meeting.CallsInBatch, sub.Meeting.CallsTotal = 36, 37
@@ -178,6 +187,7 @@ func TestMeetingRestartWhileClosingNeedsExplicitSummaryRetry(t *testing.T) {
 }
 
 func TestMeetingUnavailableParticipantNeverUsesTheirReplacement(t *testing.T) {
+	t.Parallel()
 	r, task, sub, people := idleMeeting(t)
 	if err := r.e.Fire(people[0].ID, r.owner.ID); err != nil {
 		t.Fatal(err)
@@ -206,9 +216,11 @@ func TestMeetingUnavailableParticipantNeverUsesTheirReplacement(t *testing.T) {
 }
 
 func TestMeetingSummaryEndAndRetryEachAuthorizeOnlyOneAttempt(t *testing.T) {
+	t.Parallel()
 	for _, used := range []int{1, 36} {
 		for _, failure := range []string{"unavailable", "empty", "other tool", "invalid end"} {
 			t.Run(fmt.Sprintf("%d/%s", used, failure), func(t *testing.T) {
+				t.Parallel()
 				r, task, sub, _ := idleMeeting(t)
 				// An exhausted batch must not turn the special summary authorization into discussion quota.
 				if used == 36 {
@@ -265,9 +277,11 @@ func TestMeetingSummaryEndAndRetryEachAuthorizeOnlyOneAttempt(t *testing.T) {
 }
 
 func TestMeetingCancellationDiscardsLateSpeechButKeepsReceivedUsage(t *testing.T) {
+	t.Parallel()
 	for _, cancelled := range []bool{false, true} {
 		for _, action := range []string{"cancel", "end"} {
 			t.Run(fmt.Sprintf("%s/error=%v", action, cancelled), func(t *testing.T) {
+				t.Parallel()
 				r, task, sub, people := idleMeeting(t)
 				entered, release := make(chan struct{}), make(chan struct{})
 				var once sync.Once
@@ -336,8 +350,10 @@ func TestMeetingCancellationDiscardsLateSpeechButKeepsReceivedUsage(t *testing.T
 }
 
 func TestMeetingShutdownRecoversInterruptedSpeechAndSummary(t *testing.T) {
+	t.Parallel()
 	for _, summary := range []bool{false, true} {
 		t.Run(fmt.Sprint(summary), func(t *testing.T) {
+			t.Parallel()
 			r, task, sub, people := idleMeeting(t)
 			entered := make(chan struct{})
 			r.fake.mu.Lock()
@@ -387,6 +403,7 @@ func TestMeetingShutdownRecoversInterruptedSpeechAndSummary(t *testing.T) {
 }
 
 func TestMeetingUnavailableModelRequiresRestorationBeforeContinue(t *testing.T) {
+	t.Parallel()
 	r, task, sub, people := idleMeeting(t)
 	var provider string
 	for id := range r.world().Providers {
@@ -433,6 +450,7 @@ func TestMeetingUnavailableModelRequiresRestorationBeforeContinue(t *testing.T) 
 }
 
 func TestMeetingSummaryGrantDoesNotBypassTaskBudget(t *testing.T) {
+	t.Parallel()
 	r, task, sub, _ := idleMeeting(t)
 	sub.Meeting.State, sub.Meeting.PauseReason = model.MeetingPaused, "limit"
 	sub.Meeting.CallsInBatch, sub.Meeting.CallsTotal = 36, 36
@@ -477,6 +495,7 @@ func TestMeetingSummaryGrantDoesNotBypassTaskBudget(t *testing.T) {
 }
 
 func TestMeetingFailedSpeechCountsEveryRetryAndKeepsUsage(t *testing.T) {
+	t.Parallel()
 	r, task, sub, people := idleMeeting(t)
 	r.setReply(func(req model.ModelRequest) (model.ModelReply, error) {
 		if isMember(req) {

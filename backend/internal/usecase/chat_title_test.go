@@ -23,6 +23,7 @@ func nameChatsWith(t *testing.T, r *rig, modelID string) {
 }
 
 func TestNewChatIsNamedFromItsFirstMessage(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var titled []model.ModelRequest
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -63,6 +64,7 @@ func TestNewChatIsNamedFromItsFirstMessage(t *testing.T) {
 }
 
 func TestAirportChatIsNamedToo(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if isTitleRequest(req) {
 			return say("問候"), nil
@@ -78,6 +80,7 @@ func TestAirportChatIsNamedToo(t *testing.T) {
 }
 
 func TestChatNamingOffSendsNothing(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	named := false
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -101,6 +104,7 @@ func TestChatNamingOffSendsNothing(t *testing.T) {
 }
 
 func TestChatNameMustBeOneLine(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if isTitleRequest(req) {
 			return say("標題\n說明"), nil
@@ -121,6 +125,7 @@ func TestChatNameMustBeOneLine(t *testing.T) {
 }
 
 func TestRenamedChatKeepsItsName(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if isTitleRequest(req) {
@@ -148,6 +153,7 @@ func TestRenamedChatKeepsItsName(t *testing.T) {
 }
 
 func TestRenameChatRefusesALongName(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
 	if err != nil {
@@ -162,6 +168,7 @@ func TestRenameChatRefusesALongName(t *testing.T) {
 }
 
 func TestPinChat(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
 	if err != nil {

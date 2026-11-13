@@ -47,6 +47,7 @@ func (s *conversationDisk) Apply(_ context.Context, up, del []model.Doc, _ []mod
 	return nil
 }
 func TestIdleConversationsReleaseAndReloadOnlyWhenNeeded(t *testing.T) {
+	t.Parallel()
 	e, _ := storageEngine(t)
 	disk := &conversationDisk{rows: map[string][]byte{}}
 	e.store = disk
@@ -126,6 +127,7 @@ func TestIdleConversationsReleaseAndReloadOnlyWhenNeeded(t *testing.T) {
 }
 
 func TestFailedColdRewindDoesNotSaveNullOnNextUnrelatedChange(t *testing.T) {
+	t.Parallel()
 	e, _ := storageEngine(t)
 	disk := &conversationDisk{rows: map[string][]byte{}}
 	e.store = disk
@@ -162,6 +164,7 @@ func TestFailedColdRewindDoesNotSaveNullOnNextUnrelatedChange(t *testing.T) {
 }
 
 func TestColdHistoryReadFailureLeavesMutationsAndQueueUntouched(t *testing.T) {
+	t.Parallel()
 	e, _ := storageEngine(t)
 	disk := &conversationDisk{rows: map[string][]byte{}, failRead: true}
 	e.store = disk
@@ -189,6 +192,7 @@ func TestColdHistoryReadFailureLeavesMutationsAndQueueUntouched(t *testing.T) {
 }
 
 func TestStartupLoadsOnlyConversationIndex(t *testing.T) {
+	t.Parallel()
 	e, _ := storageEngine(t)
 	e.dataDir = t.TempDir()
 	store, err := repository.NewStore(e.dataDir)
@@ -225,6 +229,7 @@ func (s *conversationDisk) InlineConversations(context.Context) ([]string, error
 }
 
 func TestInlineConversationMigrationFailureKeepsOriginal(t *testing.T) {
+	t.Parallel()
 	e, _ := storageEngine(t)
 	e.dataDir = t.TempDir()
 	original := []byte(`[{"role":"user","content":[{"type":"image","mimeType":"image/png","data":"aGVsbG8="}]}]`)

@@ -13,6 +13,7 @@ import (
 )
 
 func TestProjectFilesAreReadOnlyInsideTheFolder(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	outside := t.TempDir()
 	for at, body := range map[string]string{
@@ -54,6 +55,7 @@ func TestProjectFilesAreReadOnlyInsideTheFolder(t *testing.T) {
 }
 
 func TestChatSkillReadsTheSkillOfSomeoneInTheChat(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dir := filepath.Join(root, "skills", "tdd")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -84,6 +86,7 @@ func TestChatSkillReadsTheSkillOfSomeoneInTheChat(t *testing.T) {
 }
 
 func TestCompanyChatReadsTheSkillsInTheCompanysFolder(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	dir := filepath.Join(r.folder, ".claude", "skills", "tdd")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

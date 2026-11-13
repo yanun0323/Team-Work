@@ -140,6 +140,7 @@ func inChat(t *testing.T, r *rig, m *moves, fn ...func(model.ModelRequest) model
 }
 
 func TestManageToolsFollowTheBlueprint(t *testing.T) {
+	t.Parallel()
 	reading := []string{"list_tasks", "read_task", "list_blueprints", "read_blueprint", "list_workflows", "read_workflow", "list_employees", "read_employee", "list_companies", "read_company", "list_providers", "read_provider", "read_chat"}
 	writing := []string{"create_task", "update_task", "save_blueprint", "save_workflow", "save_provider", "save_employees"}
 	for _, tc := range []struct {
@@ -153,6 +154,7 @@ func TestManageToolsFollowTheBlueprint(t *testing.T) {
 		{"web_search", []enum.Tool{enum.ToolWebSearch}, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			r, _ := manageRig(t)
 			bp, err := r.e.CreateBlueprint(model.Blueprint{Name: tc.name, Tools: tc.tools})
 			if err != nil {
@@ -183,6 +185,7 @@ func TestManageToolsFollowTheBlueprint(t *testing.T) {
 }
 
 func TestCreateTaskSaysTasksRunOnTheirOwnBranch(t *testing.T) {
+	t.Parallel()
 	r, _ := manageRig(t)
 	c := startChat(t, r)
 	r.wait("reply", chatDone(c.ID))
@@ -199,6 +202,7 @@ func TestCreateTaskSaysTasksRunOnTheirOwnBranch(t *testing.T) {
 }
 
 func TestAirportStaffHaveEveryManageTool(t *testing.T) {
+	t.Parallel()
 	r, _ := manageRig(t)
 	c, err := r.e.CreateAirportChat(usecase.NewAirportChat{Model: "fake", Text: "嗨"})
 	if err != nil {
@@ -214,6 +218,7 @@ func TestAirportStaffHaveEveryManageTool(t *testing.T) {
 }
 
 func TestDiscussionOnlyReads(t *testing.T) {
+	t.Parallel()
 	r, _ := manageRig(t)
 	wf := *r.flow
 	wf.Nodes = append(wf.Nodes, model.WorkflowNode{ID: "talk", Kind: enum.NodeTalk, Name: "討論", ReplicaIDs: []string{r.owner.ID}, Handoff: enum.HandoffAll, Join: enum.JoinAll})
@@ -243,6 +248,7 @@ func TestDiscussionOnlyReads(t *testing.T) {
 }
 
 func TestCreatingABlueprintAndFlowTakesEffectAtOnce(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	flow := map[string]any{"name": "新流程",
 		"nodes": []map[string]any{{"id": "s", "kind": "task", "name": "開始"}, {"id": "a", "name": "做"}, {"id": "b", "name": "也做"}, {"id": "z", "name": "驗收"}},
@@ -305,6 +311,7 @@ func TestCreatingABlueprintAndFlowTakesEffectAtOnce(t *testing.T) {
 }
 
 func TestInvalidNewFlowIsRefusedAndLeavesNothing(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	before := len(r.world().Workflows)
 	inChat(t, r, m, doing("save_workflow", map[string]any{"name": "迴圈",
@@ -323,6 +330,7 @@ func TestInvalidNewFlowIsRefusedAndLeavesNothing(t *testing.T) {
 }
 
 func TestListBlueprintsLeavesOutTheAirportStaff(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	versionFrom(t, r, m, "read_blueprint", "team-work--assistant")
 	if strings.Contains(lastResult(t, r).Text, `"preset-airport"`) {
@@ -331,6 +339,7 @@ func TestListBlueprintsLeavesOutTheAirportStaff(t *testing.T) {
 }
 
 func TestChangingABlueprintWaitsForTheUserInAChat(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	id := r.owner.BlueprintID
 	version := versionFrom(t, r, m, "read_blueprint", id)
@@ -381,6 +390,7 @@ func TestChangingABlueprintWaitsForTheUserInAChat(t *testing.T) {
 }
 
 func TestChangingAFlowWaitsForTheUserInATaskAndSparesTasksUnderWay(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	running, err := r.e.CreateWorkflow("共用流程")
 	if err != nil {
@@ -444,6 +454,7 @@ func TestChangingAFlowWaitsForTheUserInATaskAndSparesTasksUnderWay(t *testing.T)
 }
 
 func TestChangeRefusedInATaskGoesOn(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	bp := r.owner.BlueprintID
 	version := versionFrom(t, r, m, "read_blueprint", bp)
@@ -478,6 +489,7 @@ func TestChangeRefusedInATaskGoesOn(t *testing.T) {
 }
 
 func TestCardsAreKeptOverARestart(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	id := r.owner.BlueprintID
 	version := versionFrom(t, r, m, "read_blueprint", id)
@@ -496,6 +508,7 @@ func TestCardsAreKeptOverARestart(t *testing.T) {
 }
 
 func TestWhatCannotBeChangedIsRefused(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	preset := model.PresetPrefix + "nothing"
 	for id, b := range r.world().Blueprints {
@@ -532,6 +545,7 @@ func TestWhatCannotBeChangedIsRefused(t *testing.T) {
 }
 
 func TestEditWhileTheCardIsOpenIsNotOverwritten(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	id := r.owner.BlueprintID
 	version := versionFrom(t, r, m, "read_blueprint", id)
@@ -555,6 +569,7 @@ func TestEditWhileTheCardIsOpenIsNotOverwritten(t *testing.T) {
 }
 
 func TestSayingSomethingElseRefusesAndCopiesAndRewindsDropTheCard(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	id := r.owner.BlueprintID
 	version := versionFrom(t, r, m, "read_blueprint", id)
@@ -596,6 +611,7 @@ func TestSayingSomethingElseRefusesAndCopiesAndRewindsDropTheCard(t *testing.T) 
 
 // A reply can make a task and then stop to ask about a flow: on going on, the model must not be told to make it again.
 func TestWhatRanBeforeAStopIsNotDoneAgain(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	version := versionFrom(t, r, m, "read_workflow", r.flow.ID)
 	before := len(r.world().Tasks)
@@ -633,6 +649,7 @@ func TestWhatRanBeforeAStopIsNotDoneAgain(t *testing.T) {
 }
 
 func TestCreateTaskWaitsInTodoAndSaysWhereItCameFrom(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	c := inChat(t, r, m, doing("create_task", map[string]any{"title": "新任務", "description": "內容", "workflow_id": r.flow.ID, "owner_id": r.owner.ID}))
 	w := r.world()
@@ -673,6 +690,7 @@ func TestCreateTaskWaitsInTodoAndSaysWhereItCameFrom(t *testing.T) {
 }
 
 func TestTaskTheUserMakesFromAChatShowsUnderItsLastMessage(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	c := inChat(t, r, m)
 	made, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "從對話", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID, ChatID: c.ID})
@@ -686,6 +704,7 @@ func TestTaskTheUserMakesFromAChatShowsUnderItsLastMessage(t *testing.T) {
 }
 
 func TestCreateTaskAsksForMissingStaffInsteadOfPicking(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	wf := *r.world().Workflows[r.flow.ID]
 	wf.Nodes = append(wf.Nodes, model.WorkflowNode{ID: "mid", Kind: enum.NodeWork, Name: "中間", ReplicaIDs: []string{}, Handoff: enum.HandoffAll, Join: enum.JoinAll})
@@ -723,6 +742,7 @@ func TestCreateTaskAsksForMissingStaffInsteadOfPicking(t *testing.T) {
 }
 
 func TestSaveEmployeesHiresAtOnceAndWaitsForTheUserToChange(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bo", Model: "fake"})
 	if err != nil {
@@ -801,6 +821,7 @@ func TestSaveEmployeesHiresAtOnceAndWaitsForTheUserToChange(t *testing.T) {
 }
 
 func TestSaveEmployeesDoesNotOverwriteAnEmployeeChangedWhileWaiting(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bo", Model: "fake"})
 	if err != nil {
@@ -826,6 +847,7 @@ func TestSaveEmployeesDoesNotOverwriteAnEmployeeChangedWhileWaiting(t *testing.T
 }
 
 func TestSaveEmployeesWritesNothingWhenAnyItemIsRefused(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	other, err := r.e.CreateTeam(t.Context(), usecase.NewTeam{Name: "別家", Folder: t.TempDir()})
 	if err != nil {
@@ -867,6 +889,7 @@ func TestSaveEmployeesWritesNothingWhenAnyItemIsRefused(t *testing.T) {
 }
 
 func TestCreateTaskTakesAFlowOfItsOwnWithoutSavingIt(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	flows := len(r.world().Workflows)
 	flow := map[string]any{
@@ -918,6 +941,7 @@ func TestCreateTaskTakesAFlowOfItsOwnWithoutSavingIt(t *testing.T) {
 }
 
 func TestCompaniesAreKeptApart(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	other, err := r.e.CreateTeam(t.Context(), usecase.NewTeam{Name: "別家", Folder: t.TempDir()})
 	if err != nil {
@@ -989,6 +1013,7 @@ func TestCompaniesAreKeptApart(t *testing.T) {
 }
 
 func TestTasksMadeByEmployeesStopAtTheDepthLimit(t *testing.T) {
+	t.Parallel()
 	r, _ := manageRig(t)
 	flow := r.flow.ID
 	r.fake.mu.Lock()
@@ -1047,6 +1072,7 @@ func TestTasksMadeByEmployeesStopAtTheDepthLimit(t *testing.T) {
 }
 
 func TestUpdateTaskTakesEffectAtOnceAndRefusesWhatCouldNotRun(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bo", Model: "fake"})
 	if err != nil {
@@ -1120,6 +1146,7 @@ func nodeStaff(t *model.Task, id string) []string {
 
 // An employee's own settings are theirs alone: no one else is hired from them, and they go when the employee does.
 func TestCustomEmployeeOwnsTheirSettings(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	custom := &model.Blueprint{Name: "ignored", Prompt: "你是寫手", Tools: []enum.Tool{enum.ToolReadFile}, From: r.owner.BlueprintID}
 	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, Name: "Bo", Model: "fake", Custom: custom})

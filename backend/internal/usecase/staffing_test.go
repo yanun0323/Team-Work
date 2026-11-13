@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -40,6 +41,7 @@ func secondTeam(t *testing.T, r *rig) *model.Team {
 // The staffing agency hires with no company of its own, keeps its employees across a restart, and any company can
 // pick them: the work runs in the company that asked, in its folder.
 func TestStaffingEmployeesWorkInTheCompanyThatAsks(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	other := secondTeam(t, r)
 	shared, err := r.e.Hire(usecase.NewReplica{TeamID: model.StaffingID, BlueprintID: r.owner.BlueprintID, Name: "Hal", Model: "fake"})
@@ -84,6 +86,7 @@ func TestStaffingEmployeesWorkInTheCompanyThatAsks(t *testing.T) {
 // Moving into the agency lets the employee go as firing does and hires someone new there: same name, look, settings,
 // model and level, no memory. Sending it again makes no second one.
 func TestMoveToStaffingIsAFreshHire(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, nil)
 	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, Name: "Bo", Model: "fake", Effort: "high",
 		Custom: &model.Blueprint{Prompt: "我的設定", Tools: []enum.Tool{enum.ToolReadFile}}})
@@ -129,6 +132,7 @@ func TestMoveToStaffingIsAFreshHire(t *testing.T) {
 
 // A company keeps one employee of its own whatever else is around, and a failed move changes nothing.
 func TestTheLastEmployeeStays(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, nil)
 	hal, err := r.e.Hire(usecase.NewReplica{TeamID: model.StaffingID, BlueprintID: r.owner.BlueprintID, Name: "Hal", Model: "fake"})
 	if err != nil {
@@ -158,6 +162,7 @@ func TestTheLastEmployeeStays(t *testing.T) {
 
 // An agency employee with work somewhere hands it to someone who can work there before going.
 func TestStaffingHandsOverToSomeoneWhoCanWorkThere(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, nil)
 	other := secondTeam(t, r)
 	hal, err := r.e.Hire(usecase.NewReplica{TeamID: model.StaffingID, BlueprintID: r.owner.BlueprintID, Name: "Hal", Model: "fake"})
@@ -251,6 +256,7 @@ func sourceIsland(t *testing.T) (*island, *skillsRepo, string) {
 // Copying only where the skills come from: the Git repo is kept here as a source, the folder on the other computer is
 // to be picked again, and nothing else of theirs comes.
 func TestCopyKeepsGitSourcesAndAsksForFolders(t *testing.T) {
+	t.Parallel()
 	there, repo, folder := sourceIsland(t)
 	before := there.world()
 	x, err := there.e.ExportReplica(context.Background(), there.bo.ID, false)
@@ -294,6 +300,7 @@ func TestCopyKeepsGitSourcesAndAsksForFolders(t *testing.T) {
 // Copying the files brings the picked skills' own files only: no link out, nothing hidden, kept in this computer's
 // data folder, and the skill is there to use.
 func TestCopyBringsTheSkillFilesOnly(t *testing.T) {
+	t.Parallel()
 	there, _, _ := sourceIsland(t)
 	x, err := there.e.ExportReplica(context.Background(), there.bo.ID, true)
 	if err != nil {
@@ -331,6 +338,7 @@ func TestCopyBringsTheSkillFilesOnly(t *testing.T) {
 // Files that would lead out of the folder, a model this island lacks and a level it does not take are refused, and
 // leave nothing behind; the same request sent again hires nobody new.
 func TestCopyRefusalsChangeNothing(t *testing.T) {
+	t.Parallel()
 	there, _, _ := sourceIsland(t)
 	x, err := there.e.ExportReplica(context.Background(), there.bo.ID, true)
 	if err != nil {
@@ -389,6 +397,7 @@ func plainExport() usecase.ReplicaExport {
 
 // A copy that went through but whose answer was lost is the same copy when sent again after a restart.
 func TestCopyRetriedAfterARestartHiresNobodyNew(t *testing.T) {
+	t.Parallel()
 	r, _, reopen := diskRig(t)
 	count := len(r.world().Replicas)
 	one, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "peer\x00rep-1\x00k1"})
@@ -421,6 +430,7 @@ func TestCopyRetriedAfterARestartHiresNobodyNew(t *testing.T) {
 // A copy whose employee was let go since is not made again by the same request, after a restart too: the request is
 // remembered apart from whoever it hired.
 func TestCopyOfSomeoneLetGoIsNotMadeAgain(t *testing.T) {
+	t.Parallel()
 	r, _, reopen := diskRig(t)
 	one, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "k1"})
 	if err != nil {
@@ -441,6 +451,7 @@ func TestCopyOfSomeoneLetGoIsNotMadeAgain(t *testing.T) {
 
 // Moved first and then let go, the copy is not made again either.
 func TestCopyMovedAndLetGoIsNotMadeAgain(t *testing.T) {
+	t.Parallel()
 	r, _, reopen := diskRig(t)
 	one, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "k1"})
 	if err != nil {
@@ -466,42 +477,47 @@ func TestCopyMovedAndLetGoIsNotMadeAgain(t *testing.T) {
 // The same copy sent at once from several places while a save fails: the one that failed leaves nothing to find, the
 // others hire one employee between them, and every answer names someone who is there.
 func TestCopySentTogetherWhileASaveFailsHiresOnce(t *testing.T) {
+	t.Parallel()
 	for round := 0; round < 20; round++ {
-		r, disk, _ := diskRig(t)
-		disk.fails.Store(1)
-		var wg sync.WaitGroup
-		results := make([]usecase.CopyResult, 8)
-		errs := make([]error, len(results))
-		for i := range results {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				results[i], errs[i] = r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "k"})
-			}()
-		}
-		wg.Wait()
-		w := r.world()
-		if n := countNamed(w, "Bo"); n != 1 {
-			t.Fatalf("round %d: %d named Bo", round, n)
-		}
-		failed := 0
-		for i, res := range results {
-			if errs[i] != nil {
-				failed++
-				continue
+		t.Run(fmt.Sprint(round), func(t *testing.T) {
+			t.Parallel()
+			r, disk, _ := diskRig(t)
+			disk.fails.Store(1)
+			var wg sync.WaitGroup
+			results := make([]usecase.CopyResult, 8)
+			errs := make([]error, len(results))
+			for i := range results {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					results[i], errs[i] = r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "k"})
+				}()
 			}
-			if w.Replicas[res.Replica.ID] == nil {
-				t.Fatalf("round %d: answered with %s, who was never saved", round, res.Replica.ID)
+			wg.Wait()
+			w := r.world()
+			if n := countNamed(w, "Bo"); n != 1 {
+				t.Fatalf("%d named Bo", n)
 			}
-		}
-		if failed != 1 {
-			t.Fatalf("round %d: %d failed", round, failed)
-		}
+			failed := 0
+			for i, res := range results {
+				if errs[i] != nil {
+					failed++
+					continue
+				}
+				if w.Replicas[res.Replica.ID] == nil {
+					t.Fatalf("answered with %s, who was never saved", res.Replica.ID)
+				}
+			}
+			if failed != 1 {
+				t.Fatalf("%d failed", failed)
+			}
+		})
 	}
 }
 
 // A copy whose save failed is not remembered: sent again it hires, once, and stays after a restart.
 func TestCopyThatFailedToSaveIsMadeOnRetry(t *testing.T) {
+	t.Parallel()
 	r, disk, reopen := diskRig(t)
 	disk.broken.Store(true)
 	if _, err := r.e.CopyReplica(plainExport(), usecase.CopyOptions{Key: "k"}); err == nil {
@@ -521,6 +537,7 @@ func TestCopyThatFailedToSaveIsMadeOnRetry(t *testing.T) {
 // A model picked in place of theirs comes with a level picked for it too: theirs is kept only where it is taken, and
 // none is put in its place.
 func TestCopyNeverPicksALevel(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, nil)
 	x := plainExport()
 	x.Model, x.Effort = "gone", "max"
@@ -583,6 +600,7 @@ func exportedText(x usecase.ReplicaExport) string {
 // A skill reached through a link that leads out of the folder picked, at the skill or above it, does not bring what
 // is out there: the copy with files is refused. A folder picked that is itself a link is that folder.
 func TestExportStaysInsideTheSkillSource(t *testing.T) {
+	t.Parallel()
 	for name, lay := range map[string]func(source, outside string) string{
 		"the skills folder links out": func(source, outside string) string {
 			put(t, filepath.Join(outside, "lint", "SKILL.md"), "---\nname: lint\n---\nx")
@@ -627,6 +645,7 @@ func TestExportStaysInsideTheSkillSource(t *testing.T) {
 // A folder source that is a Git checkout, with a token in its remote and credential files beside the skill, brings the
 // skill's own files and none of those; the folder's remote is never asked for.
 func TestExportOfAFolderLeavesItsCredentials(t *testing.T) {
+	t.Parallel()
 	r, bo := folderIsland(t, func(source, _ string) string {
 		put(t, filepath.Join(source, ".git", "config"), "[remote \"origin\"]\n\turl = https://x-access-token:ghp_TOKEN@github.com/me/private.git\n")
 		put(t, filepath.Join(source, ".git-credentials"), "https://me:ghp_TOKEN@github.com")
@@ -653,6 +672,7 @@ func TestExportOfAFolderLeavesItsCredentials(t *testing.T) {
 
 // A token written into a repo's address as its user, or in its query, goes without it too.
 func TestExportLeavesTokensInAddressesOut(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, nil)
 	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, Name: "Bo", Model: "fake", Custom: &model.Blueprint{
 		Source: model.BlueprintSource{Kind: "git", Repo: "https://ghp_TOKEN@git.example.com/x.git", Commit: "abc"},
@@ -672,6 +692,7 @@ func TestExportLeavesTokensInAddressesOut(t *testing.T) {
 
 // An address with a user and password in it goes without them.
 func TestExportLeavesCredentialsOut(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, nil)
 	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, Name: "Bo", Model: "fake", Custom: &model.Blueprint{
 		Source: model.BlueprintSource{Kind: "git", Repo: "https://me:hunter2@git.example.com/x.git", Commit: "abc"},

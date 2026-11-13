@@ -8,6 +8,7 @@ import (
 )
 
 func TestMeetingMentionsReadNamesWrittenInWhatWasSaid(t *testing.T) {
+	t.Parallel()
 	m := &model.Meeting{ChairID: "a", Participants: []model.MeetingParticipant{
 		{ReplicaID: "a", Name: "Astra"}, {ReplicaID: "b", Name: "Bob"}, {ReplicaID: "bb", Name: "Bob Lee"},
 		{ReplicaID: "d", Name: "介面設計師"}, {ReplicaID: "p", Name: "規劃"}, {ReplicaID: "pp", Name: "規劃大師"},

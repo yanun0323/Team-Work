@@ -1024,11 +1024,11 @@ func (e *Engine) noteSignedOut(id string, err error) {
 
 // RefreshModels asks a provider again what it offers. A failure keeps the list it has.
 func (e *Engine) RefreshModels(ctx context.Context, id string) error {
-	return e.refreshModels(ctx, id, true)
+	return e.refreshModels(ctx, id)
 }
 
-// refreshModels asks a provider again what it offers; noteSignedOut marks a subscription whose sign-in is gone.
-func (e *Engine) refreshModels(ctx context.Context, id string, noteSignedOut bool) error {
+// refreshModels asks a provider again what it offers, and marks a subscription whose sign-in turns out gone.
+func (e *Engine) refreshModels(ctx context.Context, id string) error {
 	e.mu.Lock()
 	p := e.w.Providers[id]
 	if p == nil {
@@ -1040,9 +1040,7 @@ func (e *Engine) refreshModels(ctx context.Context, id string, noteSignedOut boo
 	e.mu.Unlock()
 	models, err := e.discover(ctx, copied, key)
 	if err != nil {
-		if noteSignedOut {
-			e.noteSignedOut(id, err)
-		}
+		e.noteSignedOut(id, err)
 		return err
 	}
 	return e.doSettings(func() error {
@@ -1057,7 +1055,9 @@ func (e *Engine) refreshModels(ctx context.Context, id string, noteSignedOut boo
 const ModelsFresh = 8 * time.Hour
 
 // RefreshStaleModels asks again, in the background, each provider that can answer and was last asked maxAge ago or
-// more; 0 asks them all. Nobody waits on it, so a failure is only logged: the list stays, and so does the sign-in.
+// more; 0 asks them all, as on start. Nobody waits on it, so a failure is only logged and the list stays; a
+// subscription whose sign-in is gone, say after Team Work moved to a Claude Code folder of its own, is marked so,
+// and the Airport offers to sign in again before an employee's reply fails on it.
 func (e *Engine) RefreshStaleModels(maxAge time.Duration) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -1074,7 +1074,7 @@ func (e *Engine) RefreshStaleModels(maxAge time.Duration) {
 		e.wg.Add(1)
 		go func() {
 			defer e.wg.Done()
-			if err := e.refreshModels(e.ctx, id, false); err != nil && e.ctx.Err() == nil {
+			if err := e.refreshModels(e.ctx, id); err != nil && e.ctx.Err() == nil {
 				e.log.Warn().Err(err).Str("provider", id).Msg("read models again")
 			}
 		}()

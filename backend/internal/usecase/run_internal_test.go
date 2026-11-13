@@ -19,6 +19,7 @@ func (f replyFake) Models(context.Context) ([]model.ModelSpec, error) { return n
 
 // A reply that holds only the provider's reasoning says nothing and calls nothing, so it is no reply at all.
 func TestReasoningAloneIsNoReply(t *testing.T) {
+	t.Parallel()
 	reasoning := model.Block{Type: enum.BlockReasoning, Raw: json.RawMessage(`{"type":"reasoning","encrypted_content":"e"}`), Origin: "codex:m"}
 	for _, c := range []struct {
 		content []model.Block

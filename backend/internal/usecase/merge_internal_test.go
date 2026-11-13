@@ -39,6 +39,7 @@ func TestMergeFailureKeepsWhatHelpsAndNoPaths(t *testing.T) {
 
 // A model call that failed resolving a clash says what it said, in short; any other error is unknown with its words.
 func TestMergeFailureOfTheModelAndOfTheUnknown(t *testing.T) {
+	t.Parallel()
 	in := mergeRun{folder: "/x/proj", dir: "/x/tree", target: "main"}
 	said := mergeFailure(in, resolveFailed{model.Errorf(model.CodeInvalid, "模型呼叫失敗")})
 	if said.Kind != model.MergeResolveFailed || said.Reason != "模型呼叫失敗" {
@@ -59,6 +60,7 @@ func TestMergeFailureOfTheModelAndOfTheUnknown(t *testing.T) {
 
 // The owner, woken or reading the task, reads why the last merge failed; a completion after it clears it.
 func TestTheOwnerReadsTheLastMergeFailure(t *testing.T) {
+	t.Parallel()
 	e, _, task := logEngine(t)
 	task.TeamID = "c1"
 	e.w.Teams["c1"] = &model.Team{ID: "c1"}
@@ -116,6 +118,7 @@ func TestMergeFailureOfTheModelShowsNoPathAndIsShort(t *testing.T) {
 
 // Any path from the root, on any system, keeps only its last name, and the words around it stay.
 func TestWithoutPathsTakesOutEveryPath(t *testing.T) {
+	t.Parallel()
 	for text, want := range map[string]string{
 		"fatal: refusing to fetch into branch 'refs/heads/main' checked out at '/Volumes/PrivateClient/another-tree'": "fatal: refusing to fetch into branch 'refs/heads/main' checked out at '…/another-tree'",
 		"error: cannot open /Volumes/PrivateClient/another-tree/src/a.go: denied":                                     "error: cannot open …/a.go: denied",

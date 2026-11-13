@@ -5,6 +5,7 @@ import "testing"
 // A typical step finishes in about 14 model calls, and long ones run past 100,
 // so the bar must not reach 90% after a few dozen calls.
 func TestStepProgressPacing(t *testing.T) {
+	t.Parallel()
 	if p := stepProgress(14); p < 0.45 || p > 0.55 {
 		t.Errorf("stepProgress(14) = %.2f, want about half", p)
 	}

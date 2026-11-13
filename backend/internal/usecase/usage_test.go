@@ -11,6 +11,7 @@ import (
 )
 
 func TestModelCallsAreSummedByProvider(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		reply := say("好")
 		reply.Usage = model.ModelUsage{Input: 1000, Output: 50, CacheRead: 600}

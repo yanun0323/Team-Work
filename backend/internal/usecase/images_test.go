@@ -25,6 +25,7 @@ func toolNames(req model.ModelRequest) []string {
 }
 
 func TestImageProviderFollowsTheProviders(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	ctx := context.Background()
 	imageProvider := func() string { return r.world().Preferences.ImageProvider }
@@ -89,6 +90,7 @@ func TestImageProviderFollowsTheProviders(t *testing.T) {
 }
 
 func TestImageGenGoesToEveryEmployeeOnceSignedIn(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	ctx := context.Background()
 
@@ -142,6 +144,7 @@ func drawWith(t *testing.T, r *rig) {
 }
 
 func TestChatShowsTheImageItDrew(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		calls++
@@ -180,6 +183,7 @@ func TestChatShowsTheImageItDrew(t *testing.T) {
 }
 
 func TestHandedImageReadsTheCommit(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if lastIsResult(req) {
 			return call("submit_handoff", handoff), nil

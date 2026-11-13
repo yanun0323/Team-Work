@@ -27,6 +27,7 @@ func presetFlowOf(t *testing.T, w *model.World, id string) *model.Workflow {
 // The blueprints and flows the app comes with are the official source's, there from the first start without the
 // network: the built-in copy is read.
 func TestPresets(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	w := r.world()
 	if s := w.Sources[usecase.OfficialSourceID]; s == nil || s.Kind != "git" || s.Repo != "https://github.com/yanun0323/Team-Work-Source" || !s.AutoApply || s.Commit == "" {
@@ -183,6 +184,7 @@ func TestEmployeesAreToldPresetsInEnglish(t *testing.T) {
 }
 
 func TestFlowsAreShared(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	ctx := context.Background()
 	other, err := r.e.CreateTeam(ctx, usecase.NewTeam{Name: "other", Folder: t.TempDir()})
@@ -225,6 +227,7 @@ func TestFlowsAreShared(t *testing.T) {
 }
 
 func TestThinkingLevelsComeFromTheProvider(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var sent []string
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -274,6 +277,7 @@ func TestThinkingLevelsComeFromTheProvider(t *testing.T) {
 // The official source's blueprints read the agent folders and the source's own skills folder, never the Codex or
 // Claude ones, then skills from GitHub repos: picked ones, but all of a repo for Matt Pocock's and Poteto's.
 func TestPresetsUseTheAgentFolders(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	w := r.world()
 	found := 0
@@ -314,6 +318,7 @@ func TestPresetsUseTheAgentFolders(t *testing.T) {
 }
 
 func TestRestartKeepsTheUsersOwn(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	bp := r.world().Blueprints[r.owner.BlueprintID]
 	bp.Name, bp.Prompt = "PM", "my instructions"
@@ -328,6 +333,7 @@ func TestRestartKeepsTheUsersOwn(t *testing.T) {
 }
 
 func TestCompatibleFallbackLevelsValidateReloadAndRun(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var sent []string
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -465,6 +471,7 @@ func TestPresetSkillFoldersFollowPreferences(t *testing.T) {
 }
 
 func TestPresetsFromGitHubKeepTheirReposAsSources(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	want := map[string][2]string{
 		"team-work--matt-pocock": {"https://github.com/mattpocock/skills", ""},

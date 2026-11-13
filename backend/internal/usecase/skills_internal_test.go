@@ -13,6 +13,7 @@ import (
 )
 
 func TestSkillsInFindsSkillsSortedIntoCategories(t *testing.T) {
+	t.Parallel()
 	// a pack like mattpocock/skills: skills/<category>/<skill>/SKILL.md, with folders the search must pass over
 	root := t.TempDir()
 	write := func(rel, content string) {
@@ -43,6 +44,7 @@ func TestSkillsInFindsSkillsSortedIntoCategories(t *testing.T) {
 }
 
 func TestSkillsInFallsBackToTheRoot(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "group", "review"), 0o755); err != nil {
 		t.Fatal(err)
@@ -56,6 +58,7 @@ func TestSkillsInFallsBackToTheRoot(t *testing.T) {
 }
 
 func TestSkillsMarkedUserOnlyStayOutOfThePromptButAnswerToTheirName(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write := func(name, content string) {
 		t.Helper()
@@ -99,6 +102,7 @@ func (f fetchedRepo) Fetch(context.Context, string, string) (string, error) { re
 func (f fetchedRepo) Cached(string, string) bool { return false }
 
 func TestLoadSkillsReadsAFolderInTheRepo(t *testing.T) {
+	t.Parallel()
 	// a repo of plugins like cursor/plugins: <plugin>/skills/<skill>/SKILL.md
 	root := t.TempDir()
 	for _, rel := range []string{"pstack/skills/ship/SKILL.md", "other/skills/lint/SKILL.md"} {
@@ -123,6 +127,7 @@ func TestLoadSkillsReadsAFolderInTheRepo(t *testing.T) {
 }
 
 func TestARepoCannotLinkOutOfItself(t *testing.T) {
+	t.Parallel()
 	outside, repo := t.TempDir(), t.TempDir()
 	writeSkill(t, outside, "private")
 	writeSkill(t, outside, "loose")
@@ -171,6 +176,7 @@ func TestARepoCannotLinkOutOfItself(t *testing.T) {
 }
 
 func TestBlueprintSkillsNamesWhatEachPackBrings(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	for _, name := range []string{"ship", "lint", "deploy"} {
 		if err := os.MkdirAll(filepath.Join(root, "skills", name), 0o755); err != nil {

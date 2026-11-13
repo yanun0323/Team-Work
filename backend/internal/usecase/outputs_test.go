@@ -23,6 +23,7 @@ func outputFiles(t *testing.T, dir string) int {
 }
 
 func TestLongCommandOutputGoesWithItsChat(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if last := req.Messages[len(req.Messages)-1]; last.Content[0].Type == enum.BlockToolResult {
 			return say("跑完了"), nil
@@ -54,6 +55,7 @@ func TestLongCommandOutputGoesWithItsChat(t *testing.T) {
 }
 
 func TestCommandOutputGoesWithItsTask(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	task := r.task(r.flow.ID)
 	dir := filepath.Join(r.data, "cache", "outputs", task.ID)
@@ -70,6 +72,7 @@ func TestCommandOutputGoesWithItsTask(t *testing.T) {
 }
 
 func TestChatShowsARunningCommandAndClearsIt(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if last := req.Messages[len(req.Messages)-1]; last.Content[0].Type == enum.BlockToolResult {
 			return say("好了"), nil

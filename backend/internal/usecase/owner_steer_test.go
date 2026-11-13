@@ -79,6 +79,7 @@ func undelivered(items []model.TaskActivity) bool {
 }
 
 func TestOwnerTellsARunAtWorkWhatItReadsAfterItsToolsWithoutStoppingIt(t *testing.T) {
+	t.Parallel()
 	sent := newGate(t)
 	var results []model.Block
 	var heard model.ModelRequest
@@ -139,6 +140,7 @@ func TestOwnerTellsARunAtWorkWhatItReadsAfterItsToolsWithoutStoppingIt(t *testin
 }
 
 func TestWhatTheOwnerSaidComesBeforeTheEmployeeIsToldToHandOff(t *testing.T) {
+	t.Parallel()
 	sent := newGate(t)
 	var results []model.Block
 	var heard model.ModelRequest
@@ -182,6 +184,7 @@ func TestWhatTheOwnerSaidComesBeforeTheEmployeeIsToldToHandOff(t *testing.T) {
 }
 
 func TestARunThatEndsBeforeReadingIsReportedNotDelivered(t *testing.T) {
+	t.Parallel()
 	sent := newGate(t)
 	var results []model.Block
 	r := newRig(t, nil)
@@ -245,6 +248,7 @@ func TestARunThatEndsBeforeReadingIsReportedNotDelivered(t *testing.T) {
 }
 
 func TestWhatTheOwnerSaidOutlivesARestartAndIsReadOnce(t *testing.T) {
+	t.Parallel()
 	sent := newGate(t)
 	var results []model.Block
 	r := newRig(t, nil)

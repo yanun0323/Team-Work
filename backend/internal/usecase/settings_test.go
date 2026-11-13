@@ -81,6 +81,7 @@ func writeSettings(t *testing.T, r *rig, s model.Settings) {
 }
 
 func TestSettingsFilesRoundTripAndRuntimeSeparation(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	memory := []model.MemoryEntry{{ID: "mem", Text: "keep this", Source: "user"}}
 	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Memory: &memory}); err != nil {
@@ -140,6 +141,7 @@ func TestSettingsFilesRoundTripAndRuntimeSeparation(t *testing.T) {
 }
 
 func TestSettingsConflictDoesNotBlockMemoryWrites(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	s := readSettings(t, r)
 	original := s.Teams[r.team.ID].Name
@@ -173,6 +175,7 @@ func TestSettingsConflictDoesNotBlockMemoryWrites(t *testing.T) {
 }
 
 func TestSettingsValidationIsAtomic(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	for _, tc := range []struct {
 		name, field string
@@ -213,6 +216,7 @@ func TestSettingsValidationIsAtomic(t *testing.T) {
 }
 
 func TestMissingSettingsFailClosed(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	r.e.Close()
 	if err := os.Remove(filepath.Join(r.data, "provider.json")); err != nil {
@@ -230,6 +234,7 @@ func TestMissingSettingsFailClosed(t *testing.T) {
 }
 
 func TestReloadKeepsTaskSnapshotAndConversation(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		return call("ask_user", map[string]any{"prompt": "wait", "options": []string{"ok"}}), nil
 	})
@@ -282,6 +287,7 @@ func TestReloadKeepsTaskSnapshotAndConversation(t *testing.T) {
 }
 
 func TestImportYAMLAndKeepEditsAcrossRestart(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	s := readSettings(t, r)
 	b := *s.Blueprints[r.owner.BlueprintID]
@@ -316,6 +322,7 @@ func TestImportYAMLAndKeepEditsAcrossRestart(t *testing.T) {
 // An employee whose blueprint is gone (one built in once, one a source no longer brings, one written by hand) stops
 // nothing from loading: they are kept as they are, and a step they work asks the user to pick another blueprint.
 func TestAnEmployeeWhoseBlueprintIsGoneWaitsForAnother(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	own := r.owner.BlueprintID
 	s := readSettings(t, r)
@@ -352,6 +359,7 @@ func TestAnEmployeeWhoseBlueprintIsGoneWaitsForAnother(t *testing.T) {
 }
 
 func TestOlderFlowKeepsFirstOnAWorkStep(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	bea, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bea", Model: "fake"})
 	if err != nil {
@@ -374,6 +382,7 @@ func TestOlderFlowKeepsFirstOnAWorkStep(t *testing.T) {
 
 // What the API keeps has to load again: a flow the settings file would refuse is refused when it is saved.
 func TestASavedFlowLoadsAgain(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	good := *r.flow
 	cases := map[string]func(wf *model.Workflow){

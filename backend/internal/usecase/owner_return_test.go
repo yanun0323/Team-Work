@@ -37,7 +37,7 @@ func waitSent(t *testing.T, sent *gate) {
 	t.Helper()
 	select {
 	case <-sent.ch:
-	case <-time.After(10 * time.Second):
+	case <-time.After(patience):
 		t.Fatal("the owner never read what return_step said")
 	}
 }
@@ -75,6 +75,7 @@ func endRunning(r *rig) (task *model.Task, start, end *model.SubTask) {
 
 // A run sent back while one built on it still works waits for that one to hand off what it found, then goes back.
 func TestOwnerReturnWaitsForWhatIsBuiltOnItToHandOff(t *testing.T) {
+	t.Parallel()
 	sent := newGate(t)
 	var results []model.Block
 	r := newRig(t, nil)
@@ -141,6 +142,7 @@ func TestOwnerReturnWaitsForWhatIsBuiltOnItToHandOff(t *testing.T) {
 
 // Nothing built on the run still working: it goes back at once, as before.
 func TestOwnerReturnWithNothingWorkingOnItGoesAtOnce(t *testing.T) {
+	t.Parallel()
 	sent := newGate(t)
 	var results []model.Block
 	r := newRig(t, nil)
@@ -231,6 +233,7 @@ func TestOwnerReturnAsksTheUserWhenTheWaitIsLong(t *testing.T) {
 
 // Pausing while a send-back waits stops what it waits for and sends it back at once; the redo waits for the resume.
 func TestPausingSendsAWaitingReturnBackAtOnce(t *testing.T) {
+	t.Parallel()
 	sent, stuck := newGate(t), newGate(t)
 	var results []model.Block
 	r := newRig(t, nil)

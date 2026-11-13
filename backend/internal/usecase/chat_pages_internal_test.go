@@ -10,6 +10,7 @@ import (
 )
 
 func TestChatPagesKeepLegacyAndRejectMixedVersions(t *testing.T) {
+	t.Parallel()
 	e, _ := storageEngine(t)
 	c := &model.Chat{ID: "c", CreatedAt: 1, Messages: []model.ChatMessage{}}
 	for i := 0; i < 250; i++ {
@@ -73,6 +74,7 @@ func TestChatPagesKeepLegacyAndRejectMixedVersions(t *testing.T) {
 }
 
 func TestPagedEventsFollowSuccessfulSavesOnly(t *testing.T) {
+	t.Parallel()
 	e, disk := storageEngine(t)
 	c := &model.Chat{ID: "c", Messages: []model.ChatMessage{{From: "user", Text: "#file", At: 2}}}
 	e.w.Chats[c.ID] = c

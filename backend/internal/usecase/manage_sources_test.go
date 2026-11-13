@@ -75,6 +75,7 @@ func sourceOf(w *model.World, repo string) *model.Source {
 // A repo an employee brings is read before it is kept, and kept at the version read; other sources, broken or not,
 // are not read again.
 func TestANewBlueprintKeepsTheRepoAtTheVersionRead(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	// a source that cannot be read, already kept and waiting for a version, does not stop this one
 	if _, err := r.e.CreateBlueprint(model.Blueprint{Name: "壞", Skills: []model.SkillPack{{Source: &model.BlueprintSource{Kind: "git", Repo: filepath.Join(t.TempDir(), "gone"), Ref: "main"}}}}); err != nil {
@@ -94,6 +95,7 @@ func TestANewBlueprintKeepsTheRepoAtTheVersionRead(t *testing.T) {
 }
 
 func TestARepoThatCannotBeReadOrHasNoSkillsIsRefused(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	for name, repo := range map[string]string{
 		"no skills": newSkillsRepo(t).dir,
@@ -114,6 +116,7 @@ func TestARepoThatCannotBeReadOrHasNoSkillsIsRefused(t *testing.T) {
 // The card names the repo and the version read; once agreed, that version is kept even when the repo moved on while
 // it waited. Refused, nothing is kept.
 func TestAChangeKeepsTheVersionTheCardShowed(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	id := r.owner.BlueprintID
 	repo := newSkillsRepo(t, "ship")
@@ -166,6 +169,7 @@ func TestAChangeKeepsTheVersionTheCardShowed(t *testing.T) {
 
 // The same repo kept at another version while the card waited is not overwritten, nor is the blueprint changed.
 func TestARepoKeptElsewhileAtAnotherVersionStopsTheChange(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	id := r.owner.BlueprintID
 	repo := newSkillsRepo(t, "ship")

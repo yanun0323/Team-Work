@@ -177,7 +177,7 @@ func TestSignedThinkingGoesBackToTheSameModel(t *testing.T) {
 	}
 	conv = append(conv, model.Message{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "next"}}})
 	p := CompleteParams{Cwd: t.TempDir(), Model: "opus", Messages: toMessages(conv, reasoningOrigin("opus"))}
-	live := &session{signature: signature(p), expected: []ModelMessage{{Role: "user", Content: []Block{text("hi")}}, {Role: "assistant", Content: kept}}}
+	live := &session{child: &child{done: make(chan struct{})}, signature: signature(p), expected: []ModelMessage{{Role: "user", Content: []Block{text("hi")}}, {Role: "assistant", Content: kept}}}
 	if why := restartReason(live, p); why != "" {
 		t.Fatalf("the live process was restarted: %s", why)
 	}
@@ -229,7 +229,7 @@ func TestFailedTurnsKeepTheirUsage(t *testing.T) {
 		if err == nil || len(reply.Content) != 0 {
 			t.Fatalf("%s: %v %+v", c.mode, err, reply.Content)
 		}
-		if u := reply.Usage; u.Input != c.input || u.CacheRead != c.read || u.CacheWrite != c.write || u.CacheWriteKnown != c.writeKnown {
+		if u := reply.Usage; u.Input != c.input || u.CacheRead != c.read || u.CacheWrite != c.write || u.CacheWriteKnown != c.writeKnown || !u.CacheReadKnown {
 			t.Fatalf("%s: usage %+v", c.mode, u)
 		}
 		if strings.Contains(err.Error(), "private") {

@@ -49,6 +49,7 @@ func editActivity(r *rig, taskID string) *model.TaskActivity {
 }
 
 func TestUserChangesTheFlowOfATaskNotStarted(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, leading(worker))
 	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "加功能", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID})
 	if err != nil {
@@ -93,6 +94,7 @@ func TestUserChangesTheFlowOfATaskNotStarted(t *testing.T) {
 }
 
 func TestAFlowTheUserBreaksIsRefusedAndChangesNothing(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, leading(worker))
 	bob, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.world().Replicas[r.owner.ID].BlueprintID, Name: "Bob", Model: "fake"})
 	if err != nil {
@@ -128,6 +130,7 @@ func TestAFlowTheUserBreaksIsRefusedAndChangesNothing(t *testing.T) {
 }
 
 func TestAStepThatRanStaysAndARunUnderWayKeepsItsInstructions(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	held := make(chan struct{}, 1)
 	r := newRig(t, nil)
@@ -199,6 +202,7 @@ func TestAStepThatRanStaysAndARunUnderWayKeepsItsInstructions(t *testing.T) {
 }
 
 func TestChangingTheFlowOfATaskWaitingToMergeTakesItBackToWork(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
 			return worker(req), nil
@@ -228,6 +232,7 @@ func TestChangingTheFlowOfATaskWaitingToMergeTakesItBackToWork(t *testing.T) {
 }
 
 func TestTheFlowOfAnEndedOrOldStyleTaskCannotChange(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, leading(worker))
 	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "取消", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID})
 	if err != nil {
@@ -252,6 +257,7 @@ func TestTheFlowOfAnEndedOrOldStyleTaskCannotChange(t *testing.T) {
 }
 
 func TestChangingOnlyWhoWorksAStepKeepsTheBlueprint(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, leading(worker))
 	bob, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.world().Replicas[r.owner.ID].BlueprintID, Name: "Bob", Model: "fake"})
 	if err != nil {

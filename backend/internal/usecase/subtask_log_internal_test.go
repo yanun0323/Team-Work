@@ -9,6 +9,7 @@ import (
 )
 
 func TestPagedClientsGetOnlyTheNewestLogLines(t *testing.T) {
+	t.Parallel()
 	e, _ := storageEngine(t)
 	s := &model.SubTask{ID: "s", TaskID: "t", Log: []model.LogLine{}}
 	for i := 0; i < 100; i++ {

@@ -606,7 +606,7 @@ func (e *Engine) ownerTurn(in *ownerRun) *turn {
 		e.settle()
 		return true
 	}
-	return &turn{
+	tr := &turn{
 		provider: in.spec.provider,
 		req:      model.ModelRequest{Cwd: in.dir, Session: in.wake, Model: in.spec.model, Effort: in.spec.effort, Messages: []model.Message{in.message}, Tools: specs},
 		tools:    byName, cwd: in.dir,
@@ -651,6 +651,14 @@ func (e *Engine) ownerTurn(in *ownerRun) *turn {
 			})
 		},
 	}
+	// what the owner reads is this decision alone, kept nowhere else: the summary only changes what is sent
+	tr.compact = func(ctx context.Context) ([]model.Message, bool) {
+		shorter, spent, ok := e.compactWork(ctx, in.spec, in.dir, in.wake, slices.Clone(tr.req.Messages))
+		kept := record(func(t *model.Task) { t.Coordination.OwnerTokens += spent })
+		return shorter, ok && kept
+	}
+	tr.compactAt = e.workCompactAt(in.spec.model)
+	return tr
 }
 
 // ---------- the owner's tools ----------
@@ -730,7 +738,7 @@ func (e *Engine) ownerTools(in *ownerRun) []adapter.Tool {
 			`{"type":"object","properties":{"before":{"type":"integer"},"limit":{"type":"integer","maximum":100}}}`, e.readHistoryTool(in)),
 		ownerTool("read_task_entry", "Read one entry of the task's conversation in full, with what was attached, by page of its text.",
 			`{"type":"object","properties":{"activity_id":{"type":"string"},"offset":{"type":"integer"}},"required":["activity_id"]}`, e.readEntryTool(in)),
-		ownerTool("read_step", "Read a step run in full: its instructions, handoff, open question and log, by page.",
+		ownerTool("read_step", "Read a step run: its instructions, handoff and open question; its log, by page, only with log=true.",
 			readStepSchema, e.readStepTool(in)),
 		ownerTool("dispatch_step", "Start a step of the plan with your instructions, by an allowed employee (the step's first when left out). "+
 			"upstream_ids are accepted runs whose handoffs it builds on. With sub_id, go on with a stopped run instead, adding the instructions.",
@@ -844,25 +852,31 @@ func (e *Engine) readHistoryTool(in *ownerRun) func(context.Context, string, jso
 
 func (e *Engine) readStepTool(in *ownerRun) func(context.Context, string, json.RawMessage) model.ToolResult {
 	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
-		var a struct {
-			SubID  string `json:"sub_id"`
-			Offset int    `json:"log_offset"`
-		}
+		var a readStepArgs
 		if err := parseArgs(raw, &a); err != nil {
 			return toolError("%s", safeText(err))
 		}
-		return e.ownerRead(in, func(t *model.Task) model.ToolResult { return e.stepRun(t, a.SubID, a.Offset) })
+		return e.ownerRead(in, func(t *model.Task) model.ToolResult { return e.stepRun(t, a) })
 	}
 }
 
 // readStepSchema is read_step's parameters, for the owner and for the task's steps alike.
-const readStepSchema = `{"type":"object","properties":{"sub_id":{"type":"string"},"log_offset":{"type":"integer"}},"required":["sub_id"]}`
+const readStepSchema = `{"type":"object","properties":{"sub_id":{"type":"string"},` +
+	`"log":{"type":"boolean","description":"Also read the run's log, by page; left out, only its instructions, handoff and conclusion"},` +
+	`"log_offset":{"type":"integer"}},"required":["sub_id"]}`
 
-// stepRun is read_step's answer: a run of task t in full, its log by page from offset. Call it holding the lock.
-func (e *Engine) stepRun(t *model.Task, subID string, offset int) model.ToolResult {
-	s := e.w.SubTasks[subID]
+// readStepArgs is what read_step is asked.
+type readStepArgs struct {
+	SubID  string `json:"sub_id"`
+	Log    bool   `json:"log"`
+	Offset int    `json:"log_offset"`
+}
+
+// stepRun is read_step's answer: a run of task t, with its log by page when asked for it. Call it holding the lock.
+func (e *Engine) stepRun(t *model.Task, a readStepArgs) model.ToolResult {
+	s := e.w.SubTasks[a.SubID]
 	if s == nil || s.TaskID != t.ID {
-		return toolError("no step run %s in this task", subID)
+		return toolError("no step run %s in this task", a.SubID)
 	}
 	var b strings.Builder
 	who := ""
@@ -891,8 +905,15 @@ func (e *Engine) stepRun(t *model.Task, subID string, offset int) model.ToolResu
 			fmt.Fprintf(&b, "- %s: %s\n", e.replicaName(m.By), m.Text)
 		}
 	}
+	if !a.Log && a.Offset <= 0 {
+		// the log is most of a run and seldom needed once there is a handoff: it comes only when asked for
+		if len(s.Log) > 0 {
+			fmt.Fprintf(&b, "Log: %d lines, not shown; read_step with log=true to read them\n", len(s.Log))
+		}
+		return model.ToolResult{Text: b.String()}
+	}
 	const page = 80
-	from := min(max(offset, 0), len(s.Log))
+	from := min(max(a.Offset, 0), len(s.Log))
 	to := min(from+page, len(s.Log))
 	fmt.Fprintf(&b, "Log %d-%d of %d:\n", from, to, len(s.Log))
 	for _, line := range s.Log[from:to] {
@@ -1729,7 +1750,7 @@ func (e *Engine) completeTool(in *ownerRun) func(context.Context, string, json.R
 		if strings.TrimSpace(a.Summary) == "" {
 			return toolError("summary is required")
 		}
-		return e.ownerChange(in, func(t *model.Task) (string, error) {
+		res := e.ownerChange(in, func(t *model.Task) (string, error) {
 			if t.Stage != enum.StageRunning || t.Paused {
 				return "", model.Errorf(model.CodeConflict, "這個任務現在不能完成")
 			}
@@ -1751,6 +1772,11 @@ func (e *Engine) completeTool(in *ownerRun) func(context.Context, string, json.R
 			e.notice(Event{Type: "notice", Kind: "awaitMerge", TaskID: t.ID})
 			return "the task waits for the user to merge. End your turn without repeating your summary", nil
 		})
+		// the summary is what the user reads: the decision ends here, without calling the model again to end its turn
+		if in.completed {
+			res.Stop = true
+		}
+		return res
 	}
 }
 

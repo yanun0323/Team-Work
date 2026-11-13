@@ -19,6 +19,7 @@ import (
 
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
+	"github.com/yanun0323/Team-Work/pkg/jsonx"
 )
 
 type memSecrets struct {
@@ -61,6 +62,8 @@ type fake struct {
 	status      int
 	devicePolls int
 	usage       string
+	turnStates  []string      // answered one per response, in order; empty sends none
+	stall       chan struct{} // when set, a response sends its first event and waits for this to close
 }
 
 func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -95,8 +98,23 @@ func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		if len(f.turnStates) > 0 {
+			if s := f.turnStates[0]; s != "" {
+				w.Header().Set("x-codex-turn-state", s)
+			}
+			f.turnStates = f.turnStates[1:]
+		}
 		if f.status != 0 {
 			w.WriteHeader(f.status)
+		}
+		if f.stall != nil {
+			fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"he\"}\n\n")
+			w.(http.Flusher).Flush()
+			stall := f.stall
+			f.mu.Unlock()
+			<-stall
+			f.mu.Lock()
+			return
 		}
 		fmt.Fprint(w, f.stream)
 	}
@@ -289,7 +307,7 @@ func TestCompleteAndTheRequestItSends(t *testing.T) {
 	if text.String() != "hello" || len(reply.Content) != 2 || reply.Content[1].Name != "t" || string(reply.Content[1].Args) != `{"a":1}` {
 		t.Fatalf("%+v", reply)
 	}
-	if reply.Usage != (model.ModelUsage{Input: 10, Output: 5, CacheRead: 4}) {
+	if reply.Usage != (model.ModelUsage{Input: 10, Output: 5, CacheRead: 4, CacheReadKnown: true}) {
 		t.Fatalf("%+v", reply.Usage)
 	}
 	h := f.headers[0]
@@ -297,7 +315,7 @@ func TestCompleteAndTheRequestItSends(t *testing.T) {
 		t.Fatalf("%v", h)
 	}
 	sent := f.bodies[0]
-	for _, want := range []string{`"instructions":"sys"`, `"type":"input_image"`, `"type":"output_text"`, `"type":"function_call","arguments":"{}"`, `"type":"function_call_output"`, `"call_id":"c0"`, `"effort":"max"`, `"prompt_cache_key":"s1"`, `"store":false`} {
+	for _, want := range []string{`{"content":[{"text":"sys","type":"input_text"}],"role":"developer","type":"message"}`, `"type":"input_image"`, `"type":"output_text"`, `"type":"function_call","arguments":"{}"`, `"type":"function_call_output"`, `"call_id":"c0"`, `"effort":"max"`, `"prompt_cache_key":"s1"`, `"store":false`} {
 		if !strings.Contains(sent, want) && !containsCall(sent, want) {
 			t.Errorf("request has no %s: %s", want, sent)
 		}
@@ -401,7 +419,7 @@ func TestToolImagesFollowAllTheOutputs(t *testing.T) {
 	if err := json.Unmarshal([]byte(f.bodies[0]), &sent); err != nil {
 		t.Fatal(err)
 	}
-	if len(sent.Input) != 3 || sent.Input[0].Type != "function_call_output" || sent.Input[1].Type != "function_call_output" || sent.Input[2].Type != "message" {
+	if len(sent.Input) != 4 || sent.Input[1].Type != "function_call_output" || sent.Input[2].Type != "function_call_output" || sent.Input[3].Type != "message" {
 		t.Fatalf("%s", f.bodies[0])
 	}
 	if !strings.Contains(f.bodies[0], "data:image/png;base64,QUJD") {
@@ -430,10 +448,10 @@ func TestWordsAfterToolResultsFollowTheOutputs(t *testing.T) {
 	if err := json.Unmarshal(raw, &input); err != nil {
 		t.Fatal(err)
 	}
-	if len(input) != 4 || input[2].Type != "function_call_output" || input[2].CallID != "a" {
+	if len(input) != 5 || input[3].Type != "function_call_output" || input[3].CallID != "a" {
 		t.Fatalf("%s", raw)
 	}
-	if last := input[3]; last.Type != "message" || last.Role != "user" || len(last.Content) != 1 || last.Content[0].Type != "input_text" || !strings.Contains(last.Content[0].Text, "use B") {
+	if last := input[4]; last.Type != "message" || last.Role != "user" || len(last.Content) != 1 || last.Content[0].Type != "input_text" || !strings.Contains(last.Content[0].Text, "use B") {
 		t.Fatalf("%s", raw)
 	}
 }
@@ -490,17 +508,87 @@ func TestReasoningItemsGoBackToTheSameModel(t *testing.T) {
 		return out
 	}
 	same := input("gpt-a")
-	if len(same) != 6 || same[1] != first || !strings.Contains(same[2], `"look"`) || same[3] != second ||
-		!strings.Contains(same[4], `"function_call"`) || !strings.Contains(same[5], `"function_call_output"`) {
+	if len(same) != 7 || same[2] != first || !strings.Contains(same[3], `"look"`) || same[4] != second ||
+		!strings.Contains(same[5], `"function_call"`) || !strings.Contains(same[6], `"function_call_output"`) {
 		t.Fatalf("reasoning should go back unchanged, in its place: %q", same)
 	}
 	for _, other := range [][]string{input("gpt-b"), func() []string {
 		conv[1].Content[0].Origin, conv[1].Content[2].Origin = "claude-code:gpt-a", "anthropic:gpt-a"
 		return input("gpt-a")
 	}()} {
-		if len(other) != 4 || strings.Contains(strings.Join(other, ""), "enc-") {
+		if len(other) != 5 || strings.Contains(strings.Join(other, ""), "enc-") {
 			t.Fatalf("another model or provider got the reasoning: %q", other)
 		}
+	}
+}
+
+// A reply goes back as it came, so the backend's cache still holds the start of the next request: each message keeps its
+// phase and stays apart from the next, and arguments keep the model's own spacing. Sent on at once or saved and read
+// back, the request is the same. The system prompt leads the input as a developer message, as Codex sends it.
+func TestRepliesGoBackAsTheyCame(t *testing.T) {
+	commentary := `{"id":"msg_1","type":"message","status":"completed","role":"assistant","phase":"commentary","content":[{"type":"output_text","annotations":[],"text":"Reading it."}]}`
+	call := `{"id":"fc_1","type":"function_call","status":"completed","call_id":"c1","name":"read","arguments":"{\"path\": \"go.mod\"}"}`
+	final := `{"id":"msg_2","type":"message","status":"completed","role":"assistant","phase":"final_answer","content":[{"type":"output_text","annotations":[],"text":"Done."}]}`
+	stream := strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"Reading it."}`,
+		`data: {"type":"response.output_item.done","item":` + commentary + `}`,
+		`data: {"type":"response.output_text.delta","delta":"Done."}`,
+		`data: {"type":"response.output_item.done","item":` + final + `}`,
+		`data: {"type":"response.output_item.done","item":` + call + `}`,
+		`data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":2}}}`,
+	}, "\n\n")
+	reply, err := readStream(context.Background(), strings.NewReader(stream), func(string) {}, reasoningOrigin("gpt-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reply.Content) != 3 || reply.Content[0].Text != "Reading it." || reply.Content[1].Text != "Done." || string(reply.Content[2].Args) != `{"path": "go.mod"}` {
+		t.Fatalf("%+v", reply.Content)
+	}
+	conv := []model.Message{
+		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "hi"}}},
+		{Role: enum.RoleAssistant, Content: reply.Content},
+		{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "c1", Text: "module x"}}},
+	}
+	send := func(conv []model.Message) string {
+		raw, err := json.Marshal(buildRequest(model.ModelRequest{Model: "gpt-a", System: "sys", Messages: conv}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	now := send(conv)
+	saved, err := jsonx.Marshal(conv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded []model.Message
+	if err := jsonx.Unmarshal(saved, &loaded); err != nil {
+		t.Fatal(err)
+	}
+	if later := send(loaded); later != now {
+		t.Fatalf("saved and read back, the request changed:\n%s\n%s", now, later)
+	}
+	var body struct {
+		Instructions *string           `json:"instructions"`
+		Input        []json.RawMessage `json:"input"`
+	}
+	if err := json.Unmarshal([]byte(now), &body); err != nil {
+		t.Fatal(err)
+	}
+	compact := func(s string) string {
+		raw, _ := json.Marshal(json.RawMessage(s))
+		return string(raw)
+	}
+	if body.Instructions != nil || len(body.Input) != 6 ||
+		string(body.Input[0]) != `{"content":[{"text":"sys","type":"input_text"}],"role":"developer","type":"message"}` ||
+		string(body.Input[2]) != commentary || string(body.Input[3]) != final || string(body.Input[4]) != compact(call) {
+		t.Fatalf("%s", now)
+	}
+
+	// another model gets the words alone
+	raw, _ := json.Marshal(buildRequest(model.ModelRequest{Model: "gpt-b", Messages: conv})["input"])
+	if strings.Contains(string(raw), "phase") || strings.Contains(string(raw), "msg_") {
+		t.Fatalf("%s", raw)
 	}
 }
 
@@ -511,7 +599,7 @@ func TestOldConversationsGoOutUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(buildRequest(model.ModelRequest{Model: "gpt-a", Messages: conv})["input"])
-	if string(raw) != `[{"content":[{"text":"hi","type":"input_text"}],"role":"user","type":"message"},{"content":[{"text":"ok","type":"output_text"}],"role":"assistant","type":"message"},{"arguments":"{}","call_id":"c1","name":"t","type":"function_call"},{"call_id":"c1","output":"done","type":"function_call_output"}]` {
+	if string(raw) != `[{"content":[{"text":"You are a helpful assistant.","type":"input_text"}],"role":"developer","type":"message"},{"content":[{"text":"hi","type":"input_text"}],"role":"user","type":"message"},{"content":[{"text":"ok","type":"output_text"}],"role":"assistant","type":"message"},{"arguments":"{}","call_id":"c1","name":"t","type":"function_call"},{"call_id":"c1","output":"done","type":"function_call_output"}]` {
 		t.Fatalf("%s", raw)
 	}
 }
@@ -529,7 +617,7 @@ func TestFailedRepliesKeepTheirUsage(t *testing.T) {
 		if err == nil || len(reply.Content) != 0 {
 			t.Fatalf("%s: %v %+v", end, err, reply.Content)
 		}
-		if u := reply.Usage; u.Input != 10 || u.Output != 5 || u.CacheRead != 4 || u.CacheWriteKnown {
+		if u := reply.Usage; u.Input != 10 || u.Output != 5 || u.CacheRead != 4 || !u.CacheReadKnown || u.CacheWriteKnown {
 			t.Fatalf("%s: usage %+v", end, u)
 		}
 	}
@@ -573,4 +661,57 @@ func (r *cancelAtEOF) Read(p []byte) (int, error) {
 		r.cancel()
 	}
 	return n, err
+}
+
+// The backend's sticky-routing token holds for one turn: the first reply of a turn gives it, and only the requests that
+// carry that turn's tool results send it back. A new turn starts without one, as Codex does (core/src/client.rs).
+func TestTurnStateStaysWithinATurn(t *testing.T) {
+	f := &fake{stream: stream, turnStates: []string{"ts-1", "ts-other", "", "ts-2", "ts-3"}}
+	c, secrets := setup(t, f)
+	signIn(t, c, secrets, time.Now().Add(time.Hour).UnixMilli())
+	user := model.Message{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "hi"}}}
+	called := model.Message{Role: enum.RoleAssistant, Content: []model.Block{{Type: enum.BlockToolCall, ID: "c1", Name: "t", Args: json.RawMessage(`{}`)}}}
+	result := model.Message{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "c1", Text: "done"}}}
+	answered := model.Message{Role: enum.RoleAssistant, Content: []model.Block{{Type: enum.BlockText, Text: "ok"}}}
+	send := func(session string, conv ...model.Message) {
+		t.Helper()
+		if _, err := c.Complete(context.Background(), model.ModelRequest{Model: "gpt-a", Session: session, Messages: conv}, func(string) {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send("s1", user)                                                 // a turn starts: ts-1
+	send("s2", user)                                                 // another conversation, its own turn: ts-other
+	send("s1", user, called, result)                                 // the same turn: ts-1 again, and nothing new is kept
+	send("s1", user, called, result, answered, user)                 // a new turn: none, then ts-2
+	send("s1", user, called, result, answered, user, called, result) // ts-2
+	var got []string
+	for _, h := range f.headers {
+		got = append(got, h.Get("x-codex-turn-state"))
+	}
+	if want := []string{"", "", "ts-1", "", "ts-2"}; !slices.Equal(got, want) {
+		t.Fatalf("sent %q, want %q", got, want)
+	}
+}
+
+// A reply that stops sending for too long is given up on, as one that can be tried again.
+func TestAStalledReplyIsGivenUp(t *testing.T) {
+	f := &fake{stall: make(chan struct{})}
+	defer close(f.stall)
+	c, secrets := setup(t, f)
+	signIn(t, c, secrets, time.Now().Add(time.Hour).UnixMilli())
+	c.Idle = 50 * time.Millisecond
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.Complete(context.Background(), request, func(string) {})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		var known *model.Error
+		if !errors.As(err, &known) || known.Code != model.CodeUnavailable {
+			t.Fatalf("%v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("still waiting")
+	}
 }

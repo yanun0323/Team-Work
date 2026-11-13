@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/yanun0323/Team-Work/config"
 	"github.com/yanun0323/Team-Work/internal/delivery"
 	"github.com/yanun0323/Team-Work/internal/providers"
+	"github.com/yanun0323/Team-Work/internal/providers/claude"
 	"github.com/yanun0323/Team-Work/internal/repository"
 	"github.com/yanun0323/Team-Work/internal/tower"
 	"github.com/yanun0323/Team-Work/internal/usecase"
@@ -54,6 +56,10 @@ func run() error {
 		}()
 	}
 
+	// Team Work signs in to Claude Code and keeps its conversations in a folder of its own, apart from ~/.claude
+	if err := claude.UseConfigDir(filepath.Join(cfg.DataDir, "claude")); err != nil {
+		return err
+	}
 	store, err := repository.NewStore(cfg.DataDir)
 	if err != nil {
 		return err

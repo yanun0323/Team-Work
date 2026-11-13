@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -20,6 +21,8 @@ type pendingCall struct {
 type session struct {
 	child          *child
 	mirror         *mirror
+	cwd            string // the resolved working folder, where Claude Code keeps the conversation
+	claudeID       string // Claude Code's own id for the conversation, from its frames
 	signature      string
 	expected       []ModelMessage
 	toolIDs        []string
@@ -38,6 +41,15 @@ func (s *session) close() {
 	}
 	s.child.close()
 	s.mirror.cleanup()
+}
+
+// discard removes the conversation Claude Code saved for this process, unless it is the one saved for resuming:
+// takeSaved decides about that one.
+func (s *session) discard(key string) {
+	if old := loadSaved(key); old != nil && old.Session == s.claudeID {
+		return
+	}
+	removeTranscript(s.cwd, s.claudeID)
 }
 func (s *session) mcpReply(ctx context.Context, p pendingCall, result object) error {
 	return s.child.reply(ctx, p.controlID, object{"mcp_response": object{"jsonrpc": "2.0", "id": p.rpcID, "result": result}})
@@ -130,12 +142,16 @@ func (s *session) prompt(ctx context.Context, blocks []object) error {
 	return s.child.send(ctx, object{"type": "user", "message": object{"role": "user", "content": blocks}, "parent_tool_use_id": nil, "session_id": ""})
 }
 
-// idleProcess is how long a finished conversation's Claude Code process waits for its next request. Claude keeps
-// a subscription's main conversation in its prompt cache for an hour (ENABLE_PROMPT_CACHING_1H in
-// https://code.claude.com/docs/en/env-vars), and a live process sends only what is new, so it stays up for most of
-// that hour; restarting it rebuilds the conversation from a transcript, which need not match what was cached. The
-// margin leaves room for the request to reach Claude before the cache runs out.
-const idleProcess = 55 * time.Minute
+// idleProcess is how long a finished conversation's Claude Code process waits for its next request. A new process
+// resumes the conversation Claude Code saved (see saved), which starts the way Claude cached it, so a process need
+// not stay up through the cache's hour: only long enough that a quick reply does not pay for starting one.
+const idleProcess = 5 * time.Minute
+
+// idleTools is how long a process waits for the results of the tools its turn called. They can reach Claude only
+// through it, and a turn waiting for them cannot be resumed, so it waits for most of Claude's cache hour
+// (CLAUDE_CODE_PROMPT_CACHE_TTL in https://code.claude.com/docs/en/env-vars), leaving room for the request to reach
+// Claude before the cache runs out.
+const idleTools = 55 * time.Minute
 
 type bridge struct {
 	log        *slog.Logger
@@ -146,10 +162,11 @@ type bridge struct {
 	work       sync.WaitGroup
 	onMetadata func(string, int)
 	idle       time.Duration // idleProcess, but tests shorten it
+	toolWait   time.Duration // idleTools, likewise
 }
 
 func newBridge() *bridge {
-	return &bridge{sessions: map[string]*session{}, active: map[string]context.CancelFunc{}, idle: idleProcess}
+	return &bridge{sessions: map[string]*session{}, active: map[string]context.CancelFunc{}, idle: idleProcess, toolWait: idleTools}
 }
 func (b *bridge) close() {
 	b.mu.Lock()
@@ -207,6 +224,8 @@ func restartReason(s *session, p CompleteParams) string {
 	switch {
 	case s == nil:
 		return "no_process"
+	case s.child.exited():
+		return "process_exited"
 	case s.signature != signature(p):
 		return "settings_changed"
 	case len(p.Messages) <= len(s.expected) || !sameJSON(p.Messages[:len(s.expected)], s.expected):
@@ -218,29 +237,27 @@ func restartReason(s *session, p CompleteParams) string {
 	return ""
 }
 
-// continues reports whether what follows the history the process holds is what it waits for.
+// continues reports whether what follows the history the process holds is what it waits for: the user's words, or
+// the results of the tools it called, which the user's words may follow.
 func continues(s *session, p CompleteParams) bool {
 	extra := p.Messages[len(s.expected):]
-	if len(s.toolIDs) == 0 {
-		for _, m := range extra {
-			if m.Role != "user" {
-				return false
-			}
-		}
-		return true
-	}
-	if len(extra) != len(s.toolIDs) {
+	if len(extra) < len(s.toolIDs) {
 		return false
 	}
 	ids := map[string]bool{}
 	for _, id := range s.toolIDs {
 		ids[id] = true
 	}
-	for _, m := range extra {
+	for _, m := range extra[:len(s.toolIDs)] {
 		if m.Role != "tool" || !ids[m.CallID] {
 			return false
 		}
 		delete(ids, m.CallID)
+	}
+	for _, m := range extra[len(s.toolIDs):] {
+		if m.Role != "user" {
+			return false
+		}
 	}
 	return len(ids) == 0
 }
@@ -285,15 +302,24 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 		if s != nil {
 			if keep && !b.closed {
 				b.sessions[key] = s
-				s.timer = time.AfterFunc(b.idle, func() {
+				wait := b.idle
+				if len(s.toolIDs) > 0 {
+					wait = b.toolWait
+				}
+				s.timer = time.AfterFunc(wait, func() {
 					b.mu.Lock()
 					defer b.mu.Unlock()
 					if b.sessions[key] == s && b.active[key] == nil {
 						delete(b.sessions, key)
 						s.close()
+						go sweepSaved(time.Now())
 					}
 				})
 			} else {
+				if !keep {
+					_ = os.Remove(savedPath(key))
+					s.discard(key)
+				}
 				delete(b.sessions, key)
 				s.close()
 			}
@@ -307,6 +333,7 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 		b.mu.Lock()
 		delete(b.sessions, key)
 		b.mu.Unlock()
+		s.discard(key)
 		s.close()
 		s = nil
 	}
@@ -317,21 +344,46 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 		}
 		canonical := p
 		canonical.Cwd = cwd
-		history, e := makeMirror(canonical)
-		if e != nil {
-			record(log, "history_failed", "error_type", fmt.Sprintf("%T", e))
-			return CompleteResult{}, safeError(e)
+		// Claude Code's own saved conversation, when it holds this history; otherwise one rebuilt from the request
+		var resume *saved
+		if p.Session != "" {
+			resume = takeSaved(key, p, cwd, time.Now())
+		}
+		history := &mirror{}
+		resumeID := ""
+		if resume != nil {
+			reason, resumeID = "resumed", resume.Session
+			msgs, e := messagesFor(p.Messages[resume.Count:])
+			if e != nil {
+				return CompleteResult{}, e
+			}
+			for _, m := range msgs {
+				history.prompt = append(history.prompt, m.Content...)
+			}
+		} else {
+			history, e = makeMirror(canonical)
+			if e != nil {
+				record(log, "history_failed", "error_type", fmt.Sprintf("%T", e))
+				return CompleteResult{}, safeError(e)
+			}
+			resumeID = history.resume
 		}
 		processLog := b.log
 		if processLog != nil {
 			processLog = processLog.With("session", p.Session)
 		}
-		c, e := startChild(canonical, history.resume, processLog)
+		c, e := startChild(canonical, resumeID, processLog)
 		if e != nil {
 			history.cleanup()
+			if resume != nil {
+				removeTranscript(resume.Cwd, resume.Session)
+			}
 			return CompleteResult{}, e
 		}
-		s = &session{child: c, mirror: history, signature: signature(p), tools: p.Tools, pending: map[string]pendingCall{}, results: map[string]object{}, closedMessages: map[string]bool{}, seenMessages: map[string]bool{}}
+		s = &session{child: c, mirror: history, cwd: cwd, signature: signature(p), tools: p.Tools, pending: map[string]pendingCall{}, results: map[string]object{}, closedMessages: map[string]bool{}, seenMessages: map[string]bool{}}
+		if resume != nil {
+			s.claudeID = resume.Session
+		}
 		record(log, "request_process", "pid", c.cmd.Process.Pid, "reused", false, "reason", reason)
 		initCtx, stop := context.WithTimeout(ctx, 15*time.Second)
 		_, e = s.initialize(initCtx, p.System)
@@ -343,9 +395,29 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 			return CompleteResult{}, e
 		}
 	} else {
+		// what Claude Code saves from here on is not the history the record describes
+		_ = os.Remove(savedPath(key))
 		record(log, "request_process", "pid", s.child.cmd.Process.Pid, "reused", true)
 		extra := p.Messages[len(s.expected):]
 		if len(s.toolIDs) > 0 {
+			// Words after the results go first, while Claude Code still waits for its tools: a message sent during a
+			// turn is read in that turn once its tool calls finish, and only one sent after it ends starts another
+			// (priority "next", https://code.claude.com/docs/en/agent-sdk/typescript).
+			said := extra[len(s.toolIDs):]
+			extra = extra[:len(s.toolIDs)]
+			if len(said) > 0 {
+				msgs, e := messagesFor(said)
+				if e != nil {
+					return CompleteResult{}, e
+				}
+				blocks := []object{}
+				for _, m := range msgs {
+					blocks = append(blocks, m.Content...)
+				}
+				if e = s.prompt(ctx, blocks); e != nil {
+					return CompleteResult{}, e
+				}
+			}
 			for _, m := range extra {
 				blocks := []object{}
 				for _, block := range m.Content {
@@ -385,6 +457,13 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 		f, e := s.child.next(ctx)
 		if e != nil {
 			return turn.failed(), e
+		}
+		if sessionID.MatchString(f.SessionID) && f.SessionID != s.claudeID {
+			s.claudeID = f.SessionID
+			// Claude Code went on saving into the transcript it was given: it is Claude's now, not ours to remove
+			if s.mirror.resume == f.SessionID {
+				s.mirror.path = ""
+			}
 		}
 		if f.Type == "control_request" {
 			if e = s.control(ctx, f); e != nil {
@@ -426,6 +505,12 @@ func (b *bridge) complete(ctx context.Context, p CompleteParams, chunk func(any)
 			for _, block := range turn.emitted {
 				if block.Type == "tool_call" {
 					s.toolIDs = append(s.toolIDs, block.ID)
+				}
+			}
+			// a turn waiting for tool results cannot be resumed: those results go back through this process
+			if p.Session != "" && len(s.toolIDs) == 0 && s.claudeID != "" {
+				if e := storeSaved(key, saved{Session: s.claudeID, Cwd: s.cwd, Signature: fingerprint(s.signature), Count: len(s.expected), Digest: digest(s.expected), Used: time.Now()}); e != nil {
+					record(log, "save_failed", "error_type", fmt.Sprintf("%T", e))
 				}
 			}
 			keep = true

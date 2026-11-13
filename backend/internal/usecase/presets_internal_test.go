@@ -24,6 +24,7 @@ func officialFlow(t *testing.T, name string) sourcedFlow {
 }
 
 func TestLocalizeFlowLeavesStepsThatMovedInATaskCopy(t *testing.T) {
+	t.Parallel()
 	// a task copied the bug fix flow and its first step was made a discussion there
 	f := officialFlow(t, "bugfix")
 	wf := clone(f.wf)
@@ -44,6 +45,7 @@ func TestLocalizeFlowLeavesStepsThatMovedInATaskCopy(t *testing.T) {
 
 // A user's flow keeps the Start and End templates in whichever language is picked, from any language to any other.
 func TestLocalizeFlowMovesTemplatesBetweenEveryLanguage(t *testing.T) {
+	t.Parallel()
 	languages := []string{model.LanguageZh, model.LanguageEn, model.LanguageZhHans, model.LanguageJa, model.LanguageKo}
 	for _, from := range languages {
 		for _, to := range languages {
@@ -65,6 +67,7 @@ func TestLocalizeFlowMovesTemplatesBetweenEveryLanguage(t *testing.T) {
 // Every built-in text, and every text of the official source's built-in copy, comes in every language the app can be
 // set to.
 func TestPresetsHaveEveryLanguage(t *testing.T) {
+	t.Parallel()
 	texts := []presetText{presets.Start.Name, presets.Start.Prompt, presets.End.Name, presets.End.Prompt, presets.Talk}
 	for _, b := range presets.Blueprints {
 		texts = append(texts, b.Name, b.Prompt)

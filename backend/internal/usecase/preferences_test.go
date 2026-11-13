@@ -15,6 +15,7 @@ import (
 )
 
 func TestSharedPreferencesAndPlots(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	_, events, cancel, err := r.e.Subscribe()
 	if err != nil {
@@ -87,6 +88,7 @@ func TestSharedPreferencesAndPlots(t *testing.T) {
 }
 
 func TestPreferencesReloadDefaultsValidationAndConflict(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	path := filepath.Join(r.data, "preferences.yaml")
 	write := func(raw string) {

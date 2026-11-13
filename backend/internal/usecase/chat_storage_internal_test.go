@@ -46,6 +46,7 @@ func storageEngine(t testing.TB) (*Engine, *chatDisk) {
 }
 
 func TestUnchangedChatsSkipEncodingAndWrites(t *testing.T) {
+	t.Parallel()
 	e, disk := storageEngine(t)
 	e.w.Chats["c"] = &model.Chat{ID: "c", Messages: []model.ChatMessage{{Text: strings.Repeat("history ", 10000)}}}
 	if err := e.sync(); err != nil {
@@ -74,6 +75,7 @@ func TestUnchangedChatsSkipEncodingAndWrites(t *testing.T) {
 }
 
 func TestChangedChatEncodingIsKeptOnlyAfterSuccessfulSave(t *testing.T) {
+	t.Parallel()
 	e, disk := storageEngine(t)
 	c := &model.Chat{ID: "c", Messages: []model.ChatMessage{{Text: "old", Images: []model.Attachment{{URL: "old.png"}}}}}
 	e.w.Chats[c.ID] = c
@@ -117,6 +119,7 @@ func TestChangedChatEncodingIsKeptOnlyAfterSuccessfulSave(t *testing.T) {
 }
 
 func TestChatChangesAreDetectedWithoutDirtyMarkers(t *testing.T) {
+	t.Parallel()
 	e, disk := storageEngine(t)
 	style := 2
 	c := &model.Chat{ID: "c", Look: model.Look{Style: &style}, Messages: []model.ChatMessage{{Text: "old", Images: []model.Attachment{{URL: "image"}}, Files: []model.Attachment{{URL: "file"}}, Mentions: []string{"a"}, Tasks: []string{"t"}, Made: []model.Made{{ID: "b"}}}}, Queue: []model.QueuedMessage{{Text: "queued", Images: []model.Attachment{{URL: "queued image"}}}}, Question: &model.ChatQuestion{Options: []string{"yes"}}, Compact: &model.ChatCompact{Summary: "summary"}}
@@ -147,6 +150,7 @@ func TestChatChangesAreDetectedWithoutDirtyMarkers(t *testing.T) {
 }
 
 func TestFailedChatChangeRestoresNestedHistory(t *testing.T) {
+	t.Parallel()
 	e, disk := storageEngine(t)
 	e.w.Chats["c"] = &model.Chat{ID: "c", Messages: []model.ChatMessage{{Text: "original", Images: []model.Attachment{{URL: "before"}}, Tasks: []string{"old"}}}, Queue: []model.QueuedMessage{{Mentions: []string{"a"}}}}
 	if err := e.sync(); err != nil {
@@ -215,6 +219,7 @@ func BenchmarkHistoryUndo(b *testing.B) {
 }
 
 func TestCopyChatOwnsAllMutableFields(t *testing.T) {
+	t.Parallel()
 	// Fill every exported field recursively, including future fields, so a newly
 	// added pointer or slice cannot silently alias a rollback or saved snapshot.
 	var fill func(reflect.Value)
@@ -294,6 +299,7 @@ func TestCopyChatOwnsAllMutableFields(t *testing.T) {
 }
 
 func TestChatSyncPublishesOnlyChangesAndNotFailedWrites(t *testing.T) {
+	t.Parallel()
 	e, disk := storageEngine(t)
 	ch := make(chan Event, 10)
 	e.subs = map[chan Event]struct{}{ch: {}}

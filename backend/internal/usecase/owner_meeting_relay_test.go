@@ -19,6 +19,7 @@ func sessionsOf(r *rig, sub, who string) []model.ModelRequest {
 
 // Task #60: the chair wrote "@介面設計師" in its reply and no one answered; the user had to call on them.
 func TestMeetingPassesTheFloorByNameWithoutTheUser(t *testing.T) {
+	t.Parallel()
 	r, task, people := meetingRig(t, []string{"介面設計師", "Carol"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
 		said := sentText(req)
 		switch {
@@ -72,6 +73,7 @@ func TestMeetingPassesTheFloorByNameWithoutTheUser(t *testing.T) {
 }
 
 func TestMeetingWithNoOneCalledOnGoesBackToTheChairWhoIsAskedAgain(t *testing.T) {
+	t.Parallel()
 	r, task, people := meetingRig(t, []string{"Bob"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
 		said := sentText(req)
 		switch {
@@ -107,6 +109,7 @@ func TestMeetingWithNoOneCalledOnGoesBackToTheChairWhoIsAskedAgain(t *testing.T)
 }
 
 func TestMeetingTheUserSteersAndTheTurnsWaitingGiveWay(t *testing.T) {
+	t.Parallel()
 	entered, release := make(chan struct{}), make(chan struct{})
 	var mu sync.Mutex
 	bobCalls := 0
@@ -167,6 +170,7 @@ func TestMeetingTheUserSteersAndTheTurnsWaitingGiveWay(t *testing.T) {
 }
 
 func TestMeetingTheUserCallsInSomeoneWhoJoins(t *testing.T) {
+	t.Parallel()
 	r, task, people := meetingRig(t, []string{"Bob", "Carol"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
 		switch {
 		case isOwner(req) && len(req.Messages) == 1 && strings.Contains(req.Messages[0].Content[0].Text, "[task_started]"):
@@ -232,6 +236,7 @@ func TestMeetingTheUserCallsInSomeoneWhoJoins(t *testing.T) {
 
 // A second steer replaces the first: those the user asked before, still waiting, give way too.
 func TestMeetingTheUsersLatestWordsReplaceWhatTheyAskedBefore(t *testing.T) {
+	t.Parallel()
 	entered, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	r, task, people := meetingRig(t, []string{"Bob", "Carol"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
@@ -275,6 +280,7 @@ func TestMeetingTheUsersLatestWordsReplaceWhatTheyAskedBefore(t *testing.T) {
 }
 
 func TestMeetingPausedTheUsersLatestWordsReplaceWhatTheyAskedBefore(t *testing.T) {
+	t.Parallel()
 	r, task, people := meetingRig(t, []string{"Bob", "Carol"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
 		switch {
 		case isChair(req) && strings.Contains(sentText(req), "Bob: "):
@@ -330,11 +336,13 @@ func TestMeetingPausedTheUsersLatestWordsReplaceWhatTheyAskedBefore(t *testing.T
 // The chair, speaking when the user calls on someone, ends the meeting on what it had: it gives way instead, whether or
 // not it read the user's words at its tools.
 func TestMeetingTheChairEndingItAfterTheUserSteeredGivesWay(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		tools bool
 	}{{"without reading it", false}, {"after reading it at its tools", true}} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			entered, release := make(chan struct{}), make(chan struct{})
 			var once sync.Once
 			r, task, people := meetingRig(t, []string{"Bob"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
@@ -387,6 +395,7 @@ func TestMeetingTheChairEndingItAfterTheUserSteeredGivesWay(t *testing.T) {
 
 // Calling in more than the meeting holds is refused whole: no one joins, nothing is said, no turn changes.
 func TestMeetingRefusesJoinersPastSixEmployees(t *testing.T) {
+	t.Parallel()
 	var done atomic.Bool
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("idle"), nil })
 	wf := *r.flow

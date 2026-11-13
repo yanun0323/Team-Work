@@ -13,6 +13,7 @@ import (
 )
 
 func TestStoredToolImagesResolveWithoutMutatingSharedHistory(t *testing.T) {
+	t.Parallel()
 	e := &Engine{dataDir: t.TempDir()}
 	data := base64.StdEncoding.EncodeToString([]byte("original image"))
 	conv := []model.Message{{Role: enum.RoleUser, Content: []model.Block{
@@ -83,6 +84,7 @@ func TestStoredToolImagesResolveWithoutMutatingSharedHistory(t *testing.T) {
 }
 
 func TestFailedImageStorageKeepsOriginalEvidence(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "cache"), []byte("not a directory"), 0600); err != nil {
 		t.Fatal(err)

@@ -12,6 +12,7 @@ import (
 )
 
 func TestCompactAtTakesTheLowerOfTheShareAndTheRoomKept(t *testing.T) {
+	t.Parallel()
 	prefs := model.DefaultPreferences()
 	for _, c := range []struct{ window, want int }{
 		{1_000_000, 400_000}, // 40% of 1M
@@ -34,6 +35,7 @@ func TestCompactAtTakesTheLowerOfTheShareAndTheRoomKept(t *testing.T) {
 }
 
 func TestCompactCutKeepsLessOnASmallModel(t *testing.T) {
+	t.Parallel()
 	var conv []model.Message
 	for range 40 {
 		conv = append(conv, userText(strings.Repeat("a", 4_000)), model.Message{Role: enum.RoleAssistant, Content: []model.Block{{Type: enum.BlockText, Text: strings.Repeat("b", 4_000)}}})
@@ -46,6 +48,7 @@ func TestCompactCutKeepsLessOnASmallModel(t *testing.T) {
 }
 
 func TestCompactPartsFitBesideTheSummary(t *testing.T) {
+	t.Parallel()
 	entries := []string{strings.Repeat("x", 600), strings.Repeat("y", 600), strings.Repeat("z", 600)}
 	part, rest := compactParts(entries, 1_000, 300)
 	if len(part) != 1 || len(rest) != 2 {
@@ -70,14 +73,14 @@ func (s *summer) Models(context.Context) ([]model.ModelSpec, error) { return nil
 // A transcript too long for one call is read in parts, each with the whole summary so far, so the oldest summary is
 // never cut off for room.
 func TestSummarizeCarriesTheSummaryThroughEveryPart(t *testing.T) {
+	t.Parallel()
 	s := &summer{}
 	e := &Engine{clock: func() float64 { return 0 }}
-	in := chatRun{id: "c", room: 16_000, chairRoom: 16_000, chair: agentSpec{provider: s, model: "m"}}
 	var entries []string
 	for i := range 6 {
 		entries = append(entries, fmt.Sprintf("user: %d %s\n\n", i, strings.Repeat("x", 3_000)))
 	}
-	got, _, err := e.summarize(context.Background(), in, "rules", "the oldest summary", entries)
+	got, _, err := e.summarize(context.Background(), agentSpec{provider: s, model: "m"}, "", "c", 16_000, 16_000, "rules", "the oldest summary", entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,6 +106,7 @@ func TestSummarizeCarriesTheSummaryThroughEveryPart(t *testing.T) {
 // Saved reasoning is sent back with every call, so a conversation heavy with it but short in words must still count
 // as long and be summed up, keeping each tool call with its result.
 func TestReasoningCountsTowardCompacting(t *testing.T) {
+	t.Parallel()
 	heavy := strings.Repeat("thought ", 10_000)
 	for name, raw := range map[string]string{
 		"claude": `{"type":"thinking","thinking":"` + heavy + `","signature":"s"}`,
@@ -145,11 +149,24 @@ func TestReasoningCountsTowardCompacting(t *testing.T) {
 
 // Conversations saved before reasoning was kept are estimated as before.
 func TestOldConversationEstimateUnchanged(t *testing.T) {
+	t.Parallel()
 	m := model.Message{Role: enum.RoleAssistant, Content: []model.Block{
 		{Type: enum.BlockText, Text: strings.Repeat("a", 400)},
 		{Type: enum.BlockToolCall, ID: "c", Name: "x", Args: json.RawMessage(strings.Repeat("1", 40))},
 	}}
 	if got := tokensAbout(m); got != 110 {
 		t.Fatalf("got %d, want 110", got)
+	}
+}
+
+// Words and calls kept as their provider sent them go out once, as the raw item, so they are counted once.
+func TestRawWordsAreCountedOnce(t *testing.T) {
+	t.Parallel()
+	text := strings.Repeat("a", 400)
+	m := model.Message{Role: enum.RoleAssistant, Content: []model.Block{
+		{Type: enum.BlockText, Text: text, Raw: json.RawMessage(`{"type":"message","content":[{"text":"` + text + `"}]}`)},
+	}}
+	if got := tokensAbout(m); got != (len(m.Content[0].Raw))/4 {
+		t.Fatalf("got %d, want %d", got, len(m.Content[0].Raw)/4)
 	}
 }

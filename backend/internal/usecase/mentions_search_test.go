@@ -6,6 +6,7 @@ import (
 )
 
 func TestSearchFiles(t *testing.T) {
+	t.Parallel()
 	files := []string{".env", "README.md", "src/app.go", "src/app_test.go", "src/ui/app.tsx", "docs/readme.txt"}
 	cases := []struct {
 		query string

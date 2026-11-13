@@ -745,8 +745,9 @@ type Block struct {
 	Data     string          `json:"data,omitempty"`     // base64 image, only while calling a provider
 	ImageRef string          `json:"imageRef,omitempty"` // content hash in attachment storage
 	IsError  bool            `json:"isError,omitempty"`
-	// Raw is a reasoning block as its provider sent it, and Origin the provider and model that wrote it.
-	// Only that provider reads them back, and only for the same model; every other one skips the block.
+	// Raw is a block as its provider sent it (reasoning, or ChatGPT's words and calls), and Origin the provider and
+	// model that wrote it. Only that provider reads Raw back, and only for the same model; every other one uses the
+	// block's other fields, or skips it when it is reasoning.
 	Raw    json.RawMessage `json:"raw,omitempty"`
 	Origin string          `json:"origin,omitempty"`
 }
@@ -782,7 +783,9 @@ type ModelRequest struct {
 type ModelUsage struct {
 	Input     int
 	Output    int
-	CacheRead int // part of Input
+	CacheRead int // part of Input; meaningful only when CacheReadKnown
+	// CacheReadKnown says the provider reported its cache reads, so a CacheRead of 0 is a miss rather than unknown.
+	CacheReadKnown bool
 	// CacheWrite is the part of Input written to the cache; meaningful only when CacheWriteKnown.
 	CacheWrite      int
 	CacheWriteKnown bool

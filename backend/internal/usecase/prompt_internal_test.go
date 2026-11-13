@@ -12,6 +12,7 @@ import (
 
 // Findings left in the model's thinking never reach the user, so every employee must be told to write them out.
 func TestEveryEmployeeIsToldTheUserCannotSeeTheirThinking(t *testing.T) {
+	t.Parallel()
 	for name, rules := range map[string]string{"task step": systemRules, "chat": chatRules, "airport chat": airportChatRules} {
 		if !strings.Contains(rules, unseenThinkingRule) {
 			t.Errorf("%s rules lack unseenThinkingRule", name)
@@ -21,6 +22,7 @@ func TestEveryEmployeeIsToldTheUserCannotSeeTheirThinking(t *testing.T) {
 
 // The owner reads runs and employees by id, and the user would read those ids back unless told to use names.
 func TestOwnerIsToldToNameEmployeesNotIds(t *testing.T) {
+	t.Parallel()
 	if !strings.Contains(ownerRules, "call employees by their names") {
 		t.Error("ownerRules do not tell the owner to name employees, not their ids, to the user")
 	}
@@ -28,6 +30,7 @@ func TestOwnerIsToldToNameEmployeesNotIds(t *testing.T) {
 
 // The model decides what to ask while filling in the prompt, so the reminder to spell out its findings sits on that field.
 func TestAskUserPromptMustMakeSenseOnItsOwn(t *testing.T) {
+	t.Parallel()
 	var schema struct {
 		Properties map[string]struct {
 			Description string `json:"description"`
@@ -43,6 +46,7 @@ func TestAskUserPromptMustMakeSenseOnItsOwn(t *testing.T) {
 
 // This checks the instructions sent to the model, not whether a model follows them.
 func TestChatAskUserDescriptionRequiresAnAnswerBeforeChoices(t *testing.T) {
+	t.Parallel()
 	e := &Engine{}
 	spec := e.chatAskUser(chatRun{}).Spec()
 	var schema struct {
@@ -77,6 +81,7 @@ func TestChatAskUserDescriptionRequiresAnAnswerBeforeChoices(t *testing.T) {
 
 // The notes a model writes between tool calls are shown in the chat, so the language rule must cover them too.
 func TestLanguageRuleCoversNotesBetweenToolCalls(t *testing.T) {
+	t.Parallel()
 	rule := languageRule(model.LanguageZh)
 	for _, want := range []string{"Traditional Chinese", "between tool calls"} {
 		if !strings.Contains(rule, want) {
@@ -87,6 +92,7 @@ func TestLanguageRuleCoversNotesBetweenToolCalls(t *testing.T) {
 
 // Long English tool output made a chat drift into English (chat-766), so the rule names that case.
 func TestLanguageRuleHoldsAfterEnglishToolOutput(t *testing.T) {
+	t.Parallel()
 	rule := languageRule(model.LanguageZh)
 	if !strings.Contains(rule, "Long English tool output, code diffs, test logs and skill files do not change it either: after them, go on writing in Traditional Chinese.") {
 		t.Errorf("languageRule(zh) = %q", rule)
@@ -95,6 +101,7 @@ func TestLanguageRuleHoldsAfterEnglishToolOutput(t *testing.T) {
 
 // The reminder comes in every chat turn, before a meeting's round note so that note still ends the message.
 func TestChatNoteRemindsOfLanguage(t *testing.T) {
+	t.Parallel()
 	want := "[Language] Write your reply, and every note while you work, in Japanese; keep code, identifiers, paths and commands unchanged."
 	if got := chatNote(model.LanguageJa, ""); got != want {
 		t.Errorf("chatNote without a meeting = %q", got)
@@ -106,6 +113,7 @@ func TestChatNoteRemindsOfLanguage(t *testing.T) {
 
 // Employees are told by name which language the user reads, in each language the app can be set to.
 func TestLanguageRuleNamesEveryLanguage(t *testing.T) {
+	t.Parallel()
 	for code, name := range map[string]string{
 		model.LanguageZh: "Traditional Chinese", model.LanguageEn: "English", model.LanguageZhHans: "Simplified Chinese",
 		model.LanguageJa: "Japanese", model.LanguageKo: "Korean",
@@ -117,6 +125,7 @@ func TestLanguageRuleNamesEveryLanguage(t *testing.T) {
 }
 
 func TestReviewMayPrepareIgnoredDependenciesButNotChangeSource(t *testing.T) {
+	t.Parallel()
 	for _, want := range []string{"including read-only code review", "without changing tracked source, manifests or lockfiles", "Discussion steps remain read-only", "Report environment preparation failures separately", "If package manifests or lockfiles change"} {
 		if !strings.Contains(workTreeRule, want) {
 			t.Errorf("missing environment rule: %s", want)
@@ -125,6 +134,7 @@ func TestReviewMayPrepareIgnoredDependenciesButNotChangeSource(t *testing.T) {
 }
 
 func TestNewMemoryLeavesThePromptBeforeItUnchanged(t *testing.T) {
+	t.Parallel()
 	parts := func(notes ...string) promptParts {
 		r := &model.Replica{}
 		for i, n := range notes {

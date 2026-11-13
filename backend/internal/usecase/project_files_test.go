@@ -23,6 +23,7 @@ func projectCode(t *testing.T, err error, code string) {
 }
 
 func TestProjectTreeListsOnlyOneLevelAndIncludesHiddenEntries(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	parent := filepath.Join(r.folder, "browse")
 	for _, name := range []string{".git", "node_modules", "dist", ".cache", ".tmp", "Zdir"} {
@@ -74,6 +75,7 @@ func TestProjectTreeListsOnlyOneLevelAndIncludesHiddenEntries(t *testing.T) {
 }
 
 func TestProjectTreeMarksWhatGitIgnores(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	for _, dir := range []string{"build", "src/gen", "logs"} {
 		if err := os.MkdirAll(filepath.Join(r.folder, dir), 0755); err != nil {
@@ -109,6 +111,7 @@ func TestProjectTreeMarksWhatGitIgnores(t *testing.T) {
 }
 
 func TestProjectTreeMarksGitFolderIgnored(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	for _, rel := range []string{"", ".git"} {
 		tree, err := r.e.ProjectTree(context.Background(), r.team.ID, rel)
@@ -132,6 +135,7 @@ func TestProjectTreeMarksGitFolderIgnored(t *testing.T) {
 }
 
 func TestProjectTreeMarksNothingOutsideARepo(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	if err := os.WriteFile(filepath.Join(r.folder, ".gitignore"), []byte("*.log\n"), 0644); err != nil {
 		t.Fatal(err)
@@ -154,6 +158,7 @@ func TestProjectTreeMarksNothingOutsideARepo(t *testing.T) {
 }
 
 func TestProjectTreeTruncatesAfterSorting(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	parent := filepath.Join(r.folder, "many")
 	if err := os.Mkdir(parent, 0755); err != nil {
@@ -174,6 +179,7 @@ func TestProjectTreeTruncatesAfterSorting(t *testing.T) {
 }
 
 func TestProjectSaveUsesRawHashPreservesModeAndRefusesStaleWrites(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	at := filepath.Join(r.folder, "run.sh")
 	original := "echo hello\r\n"
@@ -212,6 +218,7 @@ func TestProjectSaveUsesRawHashPreservesModeAndRefusesStaleWrites(t *testing.T) 
 }
 
 func TestProjectCreateAndSaveValidation(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	for _, kind := range []string{"dir", "file"} {
 		got, err := r.e.CreateProjectEntry(r.team.ID, "", kind, kind)
@@ -265,6 +272,7 @@ func TestProjectCreateAndSaveValidation(t *testing.T) {
 }
 
 func TestProjectMutationsRejectTraversalAndEscapingSymlinks(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	outside := t.TempDir()
 	at := filepath.Join(outside, "secret")
@@ -305,6 +313,7 @@ func TestProjectMutationsRejectTraversalAndEscapingSymlinks(t *testing.T) {
 }
 
 func TestProjectConcurrentSavesAndCreatesHaveOneWinner(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	for _, op := range []string{"create", "save"} {
 		var wg sync.WaitGroup
@@ -339,6 +348,7 @@ func TestProjectConcurrentSavesAndCreatesHaveOneWinner(t *testing.T) {
 }
 
 func TestProjectBrowserBoundaryAndInRootDirectorySymlink(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	if err := os.Mkdir(filepath.Join(r.folder, "actual"), 0755); err != nil {
 		t.Fatal(err)
@@ -374,6 +384,7 @@ func TestProjectBrowserBoundaryAndInRootDirectorySymlink(t *testing.T) {
 }
 
 func TestProjectTreeDoesNotReadUnexpandedDirectory(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root bypasses directory permissions")
 	}

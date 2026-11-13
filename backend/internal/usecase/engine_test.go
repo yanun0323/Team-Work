@@ -28,6 +28,10 @@ import (
 
 // TestMain runs the tests in an empty home folder: the engine reads the agents' folders there (~/.team-work/ among
 // them) as sources, and what the user keeps in theirs must not change what a test sees.
+//
+// Tests call t.Parallel(), each on a rig of its own. A test that changes what the whole process shares stays
+// sequential: the environment (t.Setenv), files in this home folder, the language (SetLanguage, i18n.Set), the waits
+// export_test.go sets, or testing.AllocsPerRun.
 func TestMain(m *testing.M) {
 	home, err := os.MkdirTemp("", "usecase-home-")
 	if err != nil {
@@ -47,6 +51,7 @@ type script struct {
 	login     *adapter.LoginFlow
 	loggedOut bool
 	models    []model.ModelSpec
+	modelsErr error // what asking for the models fails with, when set
 	// listed is how many times the models were asked for.
 	listed int
 	// asked is each address a provider was made for, with the key it was given.
@@ -84,6 +89,9 @@ func (s *script) Models(context.Context) ([]model.ModelSpec, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.listed++
+	if s.modelsErr != nil {
+		return nil, s.modelsErr
+	}
 	if s.models != nil {
 		return s.models, nil
 	}
@@ -297,9 +305,13 @@ func (r *rig) world() *model.World {
 	return w
 }
 
+// patience is how long a test waits for what the engine does by itself. It only catches a test that would hang: the
+// tests run in parallel, under -race too, and a busy machine makes a long meeting take many seconds.
+const patience = time.Minute
+
 func (r *rig) wait(what string, ok func(*model.World) bool) *model.World {
 	r.t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(patience)
 	for time.Now().Before(deadline) {
 		if w := r.world(); ok(w) {
 			return w
@@ -350,6 +362,7 @@ func subAt(w *model.World, taskID, nodeName string) *model.SubTask {
 }
 
 func TestTaskRunsToMergeOnRealGit(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if lastIsResult(req) {
 			return call("submit_handoff", handoff), nil
@@ -394,6 +407,7 @@ func TestTaskRunsToMergeOnRealGit(t *testing.T) {
 }
 
 func TestQuestionResumesWithTheAnswer(t *testing.T) {
+	t.Parallel()
 	asked := false
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !asked {
@@ -436,6 +450,7 @@ func TestQuestionResumesWithTheAnswer(t *testing.T) {
 
 // Writing to a step's question without picking an option is a new message, not an answer.
 func TestQuestionAnsweredInWordsIsANewMessage(t *testing.T) {
+	t.Parallel()
 	asked := false
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !asked {
@@ -474,6 +489,7 @@ func TestQuestionAnsweredInWordsIsANewMessage(t *testing.T) {
 
 // A step's question has something to pick, as anything the user only writes is a new message.
 func TestStepAskUserNeedsOptions(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		calls++
@@ -491,6 +507,7 @@ func TestStepAskUserNeedsOptions(t *testing.T) {
 }
 
 func TestPickOneAskingAndFailureReview(t *testing.T) {
+	t.Parallel()
 	var fail bool
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if fail && stepOf(req) == "乙" {
@@ -542,6 +559,7 @@ func TestPickOneAskingAndFailureReview(t *testing.T) {
 
 // Steps with nothing before them all start the task, each from its description; it ends once every last step is done.
 func TestSeveralStartsAndEnds(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	node := func(id, name string) model.WorkflowNode {
 		return model.WorkflowNode{ID: id, Kind: enum.NodeWork, Name: name, Prompt: "做", ReplicaIDs: []string{r.owner.ID}, Handoff: enum.HandoffAll, Join: enum.JoinAll}
@@ -578,6 +596,7 @@ func TestSeveralStartsAndEnds(t *testing.T) {
 
 // Every step that can send work back gets send_back, whatever an older flow's switch said; a start never does.
 func TestSendBackIsBuiltIn(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	tools := map[string][]string{}
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -605,6 +624,7 @@ func TestSendBackIsBuiltIn(t *testing.T) {
 }
 
 func TestHandedFileReadsTheCommit(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if lastIsResult(req) {
 			return call("submit_handoff", handoff), nil
@@ -640,6 +660,7 @@ func TestHandedFileReadsTheCommit(t *testing.T) {
 }
 
 func TestEveryStepSeesItsNeighbours(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	systems := map[string]string{}
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -685,6 +706,7 @@ func TestEveryStepSeesItsNeighbours(t *testing.T) {
 }
 
 func TestBudgetStopsTheRun(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	limit := model.TeamSettings{TimeoutMin: 1, CostLimitUSD: 0.001, Retries: 0}
 	if err := r.e.UpdateTeam(r.team.ID, usecase.TeamPatch{Settings: &limit}); err != nil {
@@ -706,6 +728,7 @@ func TestBudgetStopsTheRun(t *testing.T) {
 }
 
 func TestDiscussion(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if stepOf(req) == "討論" {
 			if len(req.Messages) > 1 {
@@ -753,6 +776,7 @@ func TestDiscussion(t *testing.T) {
 // A handoff's commit carries the commit message the employee wrote, not the headline meant for the user;
 // one without a commit message is refused before anything is committed.
 func TestHandoffCommitsWithItsCommitMessage(t *testing.T) {
+	t.Parallel()
 	var refused string
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if stepOf(req) != "Clarify requirements" {
@@ -786,6 +810,7 @@ func TestHandoffCommitsWithItsCommitMessage(t *testing.T) {
 }
 
 func TestSendBackThenPass(t *testing.T) {
+	t.Parallel()
 	sent := false
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if stepOf(req) == "Acceptance review" && !sent {
@@ -830,6 +855,7 @@ func TestSendBackThenPass(t *testing.T) {
 }
 
 func TestMergeConflictIsResolvedByTheOwner(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, nil)
 	var folder = r.folder
 	r.fake.mu.Lock()
@@ -870,6 +896,7 @@ func TestMergeConflictIsResolvedByTheOwner(t *testing.T) {
 }
 
 func TestMergeLeftUnresolvedCanBeTriedAgain(t *testing.T) {
+	t.Parallel()
 	resolve := false
 	r := newRig(t, nil)
 	r.fake.mu.Lock()
@@ -920,6 +947,7 @@ func TestMergeLeftUnresolvedCanBeTriedAgain(t *testing.T) {
 }
 
 func TestNewTaskWaitsInTodoUntilStarted(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	made, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "等著", WorkflowID: r.flow.ID, OwnerID: &r.owner.ID})
 	if err != nil {
@@ -941,6 +969,7 @@ func TestNewTaskWaitsInTodoUntilStarted(t *testing.T) {
 }
 
 func TestPauseStopsTheRunAndResumeContinues(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	first := true
 	var fake *rig
@@ -983,6 +1012,7 @@ func TestPauseStopsTheRunAndResumeContinues(t *testing.T) {
 }
 
 func TestChangingTheWorkflowKeepsTheTokensSpent(t *testing.T) {
+	t.Parallel()
 	first := true
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		if first {
@@ -1008,6 +1038,7 @@ func TestChangingTheWorkflowKeepsTheTokensSpent(t *testing.T) {
 }
 
 func TestRestartPicksUpWhereItWas(t *testing.T) {
+	t.Parallel()
 	stuck := make(chan struct{})
 	var once sync.Once
 	block := true
@@ -1043,6 +1074,7 @@ func TestRestartPicksUpWhereItWas(t *testing.T) {
 }
 
 func TestSubscriptionLogin(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	ctx := context.Background()
 	p, err := r.e.AddProvider(ctx, usecase.NewProvider{Name: "訂閱", Kind: enum.ProviderOpenAI, Login: usecase.ProviderLogin{Kind: "subscription"}})
@@ -1135,6 +1167,7 @@ func TestSubscriptionLogin(t *testing.T) {
 
 // A subscription signed out elsewhere fails its runs; the provider then shows it is signed out, so it can be signed in again.
 func TestSubscriptionSignedOutElsewhere(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		return model.ModelReply{}, model.Errorf(model.CodeSignedOut, "ChatGPT 的登入已失效，請重新登入")
 	})
@@ -1165,6 +1198,7 @@ func TestSubscriptionSignedOutElsewhere(t *testing.T) {
 }
 
 func TestSubscriptionRunsSayNothingAboutPrices(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
 	ctx := context.Background()
 	r.fake.mu.Lock()
@@ -1193,6 +1227,7 @@ func TestSubscriptionRunsSayNothingAboutPrices(t *testing.T) {
 }
 
 func TestEditingATask(t *testing.T) {
+	t.Parallel()
 	block := make(chan struct{})
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		<-block
@@ -1240,6 +1275,7 @@ func logged(s *model.SubTask, key string, args map[string]any) bool {
 // Restaffing a step under way leaves it with whoever began it, unless asked to swap now: then the new employee
 // takes it over at once.
 func TestSwappingAStepUnderWay(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if stepOf(req) == "Clarify requirements" {
@@ -1283,6 +1319,7 @@ func TestSwappingAStepUnderWay(t *testing.T) {
 
 // A step sent back is redone by whoever works it now, when the one who did it was taken off it.
 func TestSendBackGoesToTheNewStaff(t *testing.T) {
+	t.Parallel()
 	review := make(chan struct{})
 	sent := false
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -1319,6 +1356,7 @@ func TestSendBackGoesToTheNewStaff(t *testing.T) {
 }
 
 func TestKeyNeverReachesClients(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say(""), nil })
 	raw, err := r.e.Snapshot()
 	if err != nil {
@@ -1333,6 +1371,7 @@ func TestKeyNeverReachesClients(t *testing.T) {
 }
 
 func TestCannotDeleteWhatIsInUse(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say(""), nil })
 	w := r.world()
 	for id := range w.Providers {
@@ -1351,6 +1390,7 @@ func TestCannotDeleteWhatIsInUse(t *testing.T) {
 }
 
 func TestKeysStayOutOfTheDocuments(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say(""), nil })
 	docs, err := r.store.LoadDocs(context.Background())
 	if err != nil {
@@ -1367,6 +1407,7 @@ func TestKeysStayOutOfTheDocuments(t *testing.T) {
 }
 
 func TestCompanyFolderSkillsComeFirstForEveryBlueprint(t *testing.T) {
+	t.Parallel()
 	writeSkill := func(dir, name, description string) {
 		t.Helper()
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -1417,6 +1458,7 @@ func TestCompanyFolderSkillsComeFirstForEveryBlueprint(t *testing.T) {
 }
 
 func TestSkillsFromSeveralFolders(t *testing.T) {
+	t.Parallel()
 	// one folder links its skill to somewhere else, and both folders have it
 	writeSkill := func(dir, description string) {
 		t.Helper()
@@ -1485,6 +1527,7 @@ func (s *script) requests() []model.ModelRequest {
 }
 
 func TestHandoffKeepsWhatWasLearned(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		return call("submit_handoff", map[string]any{"goal": "g", "done": []string{"d"}, "headline": "h", "did": []string{"x"}, "commit_message": "chore: step", "learned": []string{" 測試要加 -race ", "  "}}), nil
 	})
@@ -1497,6 +1540,7 @@ func TestHandoffKeepsWhatWasLearned(t *testing.T) {
 }
 
 func TestSearchMemoryFindsAnEmployeesNotes(t *testing.T) {
+	t.Parallel()
 	step := 0
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		step++
@@ -1523,6 +1567,7 @@ func TestSearchMemoryFindsAnEmployeesNotes(t *testing.T) {
 }
 
 func TestForgetRemovesANoteAndRejectsAnUnknownOne(t *testing.T) {
+	t.Parallel()
 	step := 0
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
 		step++
@@ -1561,6 +1606,7 @@ func TestForgetRemovesANoteAndRejectsAnUnknownOne(t *testing.T) {
 func ptrTo[T any](v T) *T { return &v }
 
 func TestTaskRunsOnAFlowOfItsOwn(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, nil)
 	own := copyOf(*r.flow)
 	own.ID, own.Name = "ignored", "只為這次"
@@ -1597,6 +1643,7 @@ func copyOf[T any](v T) T {
 // A step's reasoning is saved with its conversation and, after a restart, goes back unchanged and in its place on
 // the next call; the provider decides whether it may read it.
 func TestStepReasoningSurvivesARestart(t *testing.T) {
+	t.Parallel()
 	reasoning := model.Block{Type: enum.BlockReasoning, Raw: json.RawMessage(`{"type":"reasoning","id":"rs_1","encrypted_content":"enc","summary":[]}`), Origin: "codex:fake"}
 	stuck := make(chan struct{})
 	var once sync.Once

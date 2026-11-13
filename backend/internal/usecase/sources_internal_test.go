@@ -29,6 +29,7 @@ func writeSkill(t *testing.T, root, rel string) {
 // Packs that wrote the same repo and branch into themselves share one source after adoption, which keeps the version
 // of the pack that last updated successfully; the folder each read becomes the pack's own, and what they read stays.
 func TestAdoptSourcesMergesTheSameRepo(t *testing.T) {
+	t.Parallel()
 	git := func(path, commit string, at float64, ok bool) *model.BlueprintSource {
 		return &model.BlueprintSource{Kind: "git", Repo: "https://github.com/cursor/plugins", Ref: "main", Path: path, Commit: commit, Latest: commit,
 			Update: &model.SourceUpdate{At: at, OK: ok}}
@@ -74,6 +75,7 @@ func TestAdoptSourcesMergesTheSameRepo(t *testing.T) {
 
 // Read through the source it names, a pack reads the same skills as when the place was written into it.
 func TestAdoptedPacksReadTheSameSkills(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	for _, rel := range []string{"pstack/skills/ship", "pstack/skills/lint", "other/skills/deploy"} {
 		writeSkill(t, root, rel)
@@ -117,6 +119,7 @@ func (f fetchedVersions) Fetch(_ context.Context, _, commit string) (string, err
 func (f fetchedVersions) Cached(_, commit string) bool { return f.dirs[commit] != "" }
 
 func TestSourceUpdateChangesNamesWhoIsAffected(t *testing.T) {
+	t.Parallel()
 	was, is := t.TempDir(), t.TempDir()
 	writeSkill(t, was, "skills/ship")
 	writeSkill(t, was, "skills/lint")
@@ -142,6 +145,7 @@ func TestSourceUpdateChangesNamesWhoIsAffected(t *testing.T) {
 }
 
 func TestItemsAtNamesEachSkillsFolder(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeSkill(t, root, "pstack/skills/ship")
 	writeSkill(t, root, "top")
@@ -152,6 +156,7 @@ func TestItemsAtNamesEachSkillsFolder(t *testing.T) {
 }
 
 func TestSourceSkillReadsTheSkillAtItsPath(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeSkill(t, root, "skills/eng/tdd")
 	writeSkill(t, root, "skills/ops/tdd")
@@ -179,6 +184,7 @@ type newestVersion struct {
 func (n newestVersion) Latest(context.Context, string, string) (string, error) { return n.latest, nil }
 
 func TestPreviewSourceReadsTheNewestVersionWithoutKeepingIt(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeSkill(t, dir, "skills/eng/tdd")
 	e := &Engine{w: model.NewWorld(), git: newestVersion{fetchedVersions{dirs: map[string]string{"c9": dir}}, "c9"}}
@@ -195,6 +201,7 @@ func TestPreviewSourceReadsTheNewestVersionWithoutKeepingIt(t *testing.T) {
 }
 
 func TestAddSourceRefusesARepoWithNoSkills(t *testing.T) {
+	t.Parallel()
 	e := &Engine{w: model.NewWorld(), git: newestVersion{fetchedVersions{dirs: map[string]string{"c9": t.TempDir()}}, "c9"}}
 	if _, err := e.AddSource(context.Background(), NewSource{Kind: "git", Repo: "a/b"}); err == nil {
 		t.Fatal("a repo with no skills was kept")
@@ -219,6 +226,7 @@ func (l latestIs) Fetch(context.Context, string, string) (string, error) {
 func (l latestIs) Cached(string, string) bool { return false }
 
 func TestAnUpdateAppliedByItselfIsUnseenUntilOpened(t *testing.T) {
+	t.Parallel()
 	data := t.TempDir()
 	store, err := repository.NewStore(data)
 	if err != nil {
@@ -271,6 +279,7 @@ func (l latestFails) Cached(string, string) bool { return false }
 
 // A check that fails only for now, like no network, keeps the upstream; only a repo or branch that is gone loses it.
 func TestOnlyAGoneRepoLosesItsUpstream(t *testing.T) {
+	t.Parallel()
 	gitErr := func(stderr string) error { return fmt.Errorf("git ls-remote: exit status 128: %s", stderr) }
 	for name, c := range map[string]struct {
 		err      error

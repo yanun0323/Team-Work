@@ -20,6 +20,7 @@ import (
 )
 
 func TestSumUsageFillsDaysInTheAskersZone(t *testing.T) {
+	t.Parallel()
 	zone := time.FixedZone("", 8*3600)
 	at := func(s string) float64 {
 		v, err := time.ParseInLocation("2006-01-02 15:04", s, zone)
@@ -65,10 +66,11 @@ func TestSumUsageFillsDaysInTheAskersZone(t *testing.T) {
 }
 
 func TestMeterLogsEachCallsCacheUse(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	m := meter{e: &Engine{log: zerolog.New(&buf)}, kind: "anthropic/subscription", model: "opus"}
-	m.logCall("sub-1", model.ModelUsage{Input: 100, Output: 5, CacheRead: 60, CacheWrite: 30, CacheWriteKnown: true}, nil)
-	m.logCall("sub-1", model.ModelUsage{Input: 50, CacheRead: 40}, nil)
+	m.logCall("sub-1", model.ModelUsage{Input: 100, Output: 5, CacheRead: 60, CacheReadKnown: true, CacheWrite: 30, CacheWriteKnown: true}, nil)
+	m.logCall("sub-1", model.ModelUsage{Input: 50, CacheReadKnown: true}, nil)
 	m.logCall("sub-1", model.ModelUsage{}, model.Errorf(model.CodeUnavailable, "private prompt text"))
 	m.logCall("sub-1", model.ModelUsage{}, fmt.Errorf("wrapped: %w", context.Canceled))
 	var lines []map[string]any
@@ -90,6 +92,13 @@ func TestMeterLogsEachCallsCacheUse(t *testing.T) {
 	if _, ok := lines[1]["cacheWrite"]; ok {
 		t.Fatalf("a provider that does not report cache writes logged one: %v", lines[1])
 	}
+	// a reported miss is 0; a provider that did not say is left out, not counted as a miss
+	if lines[1]["cacheRead"] != 0.0 {
+		t.Fatalf("a reported cache miss was not logged: %v", lines[1])
+	}
+	if _, ok := lines[2]["cacheRead"]; ok {
+		t.Fatalf("an unreported cache read was logged: %v", lines[2])
+	}
 	if lines[2]["ok"] != false || lines[2]["error"] != model.CodeUnavailable || lines[3]["error"] != "canceled" {
 		t.Fatalf("failed calls %v %v", lines[2], lines[3])
 	}
@@ -110,6 +119,7 @@ func (s *usageStore) AddUsage(_ context.Context, u model.Usage) error {
 
 // A call that fails after its provider reported usage is still metered and logged, with no reply to act on.
 func TestFailedCallsKeepTheUsageTheyReported(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		kind              enum.ProviderKind
 		stream            string
@@ -128,7 +138,12 @@ data: {"type":"error","error":{"type":"overloaded_error","message":"private text
 		{enum.ProviderAnthropic, `data: {"type":"message_start","message":{"usage":{"input_tokens":3,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
 
 `, 3, 0, 0.0, true},
-		{enum.ProviderOpenAI, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"{}"}}]}}]}
+		{enum.ProviderOpenAI, `data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"c1","name":"t","arguments":"{}"}}
+
+data: {"type":"response.failed","response":{"usage":{"input_tokens":10,"output_tokens":5,"input_tokens_details":{"cached_tokens":4,"cache_write_tokens":6}},"error":{"code":"server_error"}}}
+
+`, 10, 4, 6.0, true},
+		{enum.ProviderCompatible, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"t","arguments":"{}"}}]}}]}
 
 data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":4}}}
 
@@ -170,6 +185,7 @@ data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"prompt_to
 
 // A call canceled after its response finished still counts what it used, and logs as canceled.
 func TestCanceledCallsKeepTheUsageTheyReported(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	store := &usageStore{}
 	m := meter{Provider: canceledProvider{}, e: &Engine{log: zerolog.New(&buf), store: store, ctx: context.Background(), clock: func() float64 { return 1 }},
@@ -193,5 +209,5 @@ func TestCanceledCallsKeepTheUsageTheyReported(t *testing.T) {
 type canceledProvider struct{ adapter.Provider }
 
 func (canceledProvider) Complete(context.Context, model.ModelRequest, func(string)) (model.ModelReply, error) {
-	return model.ModelReply{Usage: model.ModelUsage{Input: 10, Output: 5, CacheRead: 4}}, context.Canceled
+	return model.ModelReply{Usage: model.ModelUsage{Input: 10, Output: 5, CacheRead: 4, CacheReadKnown: true}}, context.Canceled
 }

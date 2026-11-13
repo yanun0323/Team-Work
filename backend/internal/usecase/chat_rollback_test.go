@@ -35,6 +35,7 @@ func TestRollbackPreparationDoesNotCopySavedMessageAttachments(t *testing.T) {
 }
 
 func TestRollbackDoesNotExposeCommittedChatToLaterMutations(t *testing.T) {
+	t.Parallel()
 	e, disk := storageEngine(t)
 	e.w.Chats["c"] = &model.Chat{ID: "c", Messages: []model.ChatMessage{{Text: "original", Files: []model.Attachment{{URL: "original"}}}}}
 	if err := e.sync(); err != nil {
@@ -64,6 +65,7 @@ func TestRollbackDoesNotExposeCommittedChatToLaterMutations(t *testing.T) {
 }
 
 func TestRollbackPreservesUnsavedHistoryInsteadOfCommittedSnapshot(t *testing.T) {
+	t.Parallel()
 	e, disk := storageEngine(t)
 	e.w.Chats["c"] = &model.Chat{ID: "c", Messages: []model.ChatMessage{{Text: "committed"}}}
 	if err := e.sync(); err != nil {
@@ -96,6 +98,7 @@ func TestRollbackPreservesUnsavedHistoryInsteadOfCommittedSnapshot(t *testing.T)
 }
 
 func TestChatMessageComparisonCoversEveryField(t *testing.T) {
+	t.Parallel()
 	zero := model.ChatMessage{}
 	typ := reflect.TypeOf(zero)
 	for i := 0; i < typ.NumField(); i++ {
@@ -154,6 +157,7 @@ func TestChatMessageComparisonCoversEveryField(t *testing.T) {
 }
 
 func TestSameChatMatchesDeepEqualForNilAndMetadata(t *testing.T) {
+	t.Parallel()
 	cases := []*model.Chat{nil, {}, {Messages: []model.ChatMessage{}}, {Title: "title"},
 		{Messages: []model.ChatMessage{{Text: "one"}}}, {Messages: []model.ChatMessage{{Text: "two"}}},
 		{Question: &model.ChatQuestion{Options: []string{"yes"}}},

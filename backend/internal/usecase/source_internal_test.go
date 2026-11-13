@@ -10,6 +10,7 @@ import (
 )
 
 func TestGithubAddressDefaultsToHTTPS(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"mattpocock/skills":                    "https://github.com/mattpocock/skills",
 		" acme/release-bot.git ":               "https://github.com/acme/release-bot",
@@ -24,6 +25,7 @@ func TestGithubAddressDefaultsToHTTPS(t *testing.T) {
 }
 
 func TestSourceProblemSaysWhy(t *testing.T) {
+	t.Parallel()
 	gitErr := func(stderr string) error {
 		return fmt.Errorf("git ls-remote: exit status 128: %s", stderr)
 	}

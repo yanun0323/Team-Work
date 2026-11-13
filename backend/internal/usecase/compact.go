@@ -99,11 +99,12 @@ func chatView(conv []model.Message, compact *model.ChatCompact) []model.Message 
 }
 
 // tokensAbout is a rough guess at what a message takes to send. Saved reasoning is sent back too, so its raw size
-// counts the same rough way, though the provider's real count for it (encrypted or signed) can differ.
+// counts the same rough way, though the provider's real count for it (encrypted or signed) can differ. Words or a
+// call kept raw go out as that raw item alone, so they count once.
 func tokensAbout(m model.Message) int {
 	n := 0
 	for _, b := range m.Content {
-		n += (len(b.Text) + len(b.Args) + len(b.Raw)) / 4
+		n += max(len(b.Text)+len(b.Args), len(b.Raw)) / 4
 		if b.Type == enum.BlockImage || b.Data != "" || b.ImageRef != "" {
 			n += imageTokens
 		}
@@ -203,15 +204,15 @@ func compactParts(entries []string, budget, summary int) (part, rest []string) {
 // summarize sums up a transcript on top of the summary before it, in as many calls as the model needs to read it all.
 // The summary so far goes into every call whole, so nothing it holds is cut off for room. It returns the tokens spent
 // even when it fails.
-func (e *Engine) summarize(ctx context.Context, in chatRun, rules, prior string, entries []string) (string, int, error) {
-	budget := in.chairRoom - reserveOf(in.chairRoom) - summaryWords(in.room)*2 - compactRulesTokens
+func (e *Engine) summarize(ctx context.Context, by agentSpec, cwd, id string, room, byRoom int, rules, prior string, entries []string) (string, int, error) {
+	budget := byRoom - reserveOf(byRoom) - summaryWords(room)*2 - compactRulesTokens
 	budget = max(budget, compactBlockRunes*2)
 	summary, spent := prior, 0
 	for call := 0; len(entries) > 0; call++ {
 		var part []string
 		part, entries = compactParts(entries, budget, utf8.RuneCountInString(summary))
-		reply, err := in.chair.provider.Complete(ctx, model.ModelRequest{Cwd: in.folder, Session: fmt.Sprintf("%s-compact-%v-%d", in.id, e.clock(), call),
-			Model: in.chair.model, Effort: in.chair.effort, System: rules, Messages: []model.Message{userText(compactTranscript(summary, part))}}, func(string) {})
+		reply, err := by.provider.Complete(ctx, model.ModelRequest{Cwd: cwd, Session: fmt.Sprintf("%s-compact-%v-%d", id, e.clock(), call),
+			Model: by.model, Effort: by.effort, System: rules, Messages: []model.Message{userText(compactTranscript(summary, part))}}, func(string) {})
 		spent += tokensUsed(reply.Usage)
 		if err != nil {
 			return "", spent, err
@@ -250,7 +251,7 @@ func (e *Engine) compactChat(ctx context.Context, in chatRun) ([]model.Message, 
 	if cut <= from {
 		return nil, false
 	}
-	text, spent, err := e.summarize(ctx, in, rules, before, compactEntries(conv[from:cut], in.names))
+	text, spent, err := e.summarize(ctx, in.chair, in.folder, in.id, in.room, in.chairRoom, rules, before, compactEntries(conv[from:cut], in.names))
 	if err != nil && ctx.Err() == nil {
 		e.log.Warn().Err(err).Str("chat", in.id).Msg("compact chat")
 	}
@@ -266,4 +267,48 @@ func (e *Engine) compactChat(ctx context.Context, in chatRun) ([]model.Message, 
 		c.Context = in.overhead + tokensOf(view)
 	})
 	return view, kept && view != nil
+}
+
+// workSummaryLead begins the summary a task's step or owner reads in place of its earlier work.
+const workSummaryLead = "Summary of your earlier work in this conversation, which you can no longer see:\n\n"
+
+// workCompactAt is how many tokens a step or an owner may be sent before its conversation is summed up: only when it
+// nears what the model reads, as a summary costs a call and a conversation read back from the cache costs little.
+func (e *Engine) workCompactAt(modelID string) int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	window := e.windowOf(modelID)
+	return window - reserveOf(window)
+}
+
+// compactWork sums up a task's step or owner conversation and returns what to send instead, and the tokens spent. Its
+// first message, the instructions or briefing, stays word for word with the summary after it; the latest words stay
+// too. A summary there from before is summed up again with what came since. It is false when there is nothing worth
+// summing up or the summary failed: the conversation then carries on as it was.
+func (e *Engine) compactWork(ctx context.Context, by agentSpec, cwd, id string, conv []model.Message) ([]model.Message, int, bool) {
+	if len(conv) < 2 {
+		return nil, 0, false
+	}
+	e.mu.Lock()
+	room, lang := e.windowOf(by.model), languageRule(e.w.Language)
+	e.mu.Unlock()
+	cut := compactCut(conv, 1, room)
+	if cut <= 1 {
+		return nil, 0, false
+	}
+	first := conv[0]
+	content, prior := slices.Clone(first.Content), ""
+	if n := len(content); n > 1 && content[n-1].Type == enum.BlockText && strings.HasPrefix(content[n-1].Text, workSummaryLead) {
+		prior, content = strings.TrimPrefix(content[n-1].Text, workSummaryLead), content[:n-1]
+	}
+	rules := chatCompactRules + fmt.Sprintf(" Keep it under about %d words.", summaryWords(room)) + "\n" + lang
+	text, spent, err := e.summarize(ctx, by, cwd, id, room, room, rules, prior, compactEntries(conv[1:cut], nil))
+	if err != nil && ctx.Err() == nil {
+		e.log.Warn().Err(err).Str("run", id).Msg("compact task conversation")
+	}
+	if err != nil || text == "" {
+		return nil, spent, false
+	}
+	first.Content = append(content, model.Block{Type: enum.BlockText, Text: workSummaryLead + text})
+	return append([]model.Message{first}, conv[cut:]...), spent, true
 }

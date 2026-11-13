@@ -31,6 +31,7 @@ func (f *quotaFake) Quota(context.Context) (model.Quota, error) {
 }
 
 func TestQuotasReuseAnAnswerForAMinute(t *testing.T) {
+	t.Parallel()
 	fake := &quotaFake{}
 	now := 1000.0
 	w := model.NewWorld()

@@ -40,6 +40,15 @@ func sentText(req model.ModelRequest) string {
 // them. reply answers what it wants to, with who the employees are.
 func meetingRig(t *testing.T, names []string, reply func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool)) (*rig, *model.Task, []*model.Replica) {
 	t.Helper()
+	return failingMeetingRig(t, names, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool, error) {
+		out, ok := reply(req, people, owner)
+		return out, ok, nil
+	})
+}
+
+// failingMeetingRig is meetingRig whose reply may also fail.
+func failingMeetingRig(t *testing.T, names []string, reply func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool, error)) (*rig, *model.Task, []*model.Replica) {
+	t.Helper()
 	var people []*model.Replica
 	var mu sync.Mutex
 	var r *rig
@@ -47,8 +56,8 @@ func meetingRig(t *testing.T, names []string, reply func(req model.ModelRequest,
 		mu.Lock()
 		them := slices.Clone(people)
 		mu.Unlock()
-		if out, ok := reply(req, them, r.owner.ID); ok {
-			return out, nil
+		if out, ok, err := reply(req, them, r.owner.ID); ok {
+			return out, err
 		}
 		if isOwner(req) && len(req.Messages) == 1 && strings.Contains(req.Messages[0].Content[0].Text, "[task_started]") {
 			ids := []string{}
@@ -119,6 +128,7 @@ func meetingRequests(r *rig) []model.ModelRequest {
 }
 
 func TestMeetingIsHeldInTheConversationAndOnlyItsConclusionGoesBack(t *testing.T) {
+	t.Parallel()
 	r, task, people := meetingRig(t, []string{"Bob"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
 		switch {
 		case isChair(req) && !strings.Contains(sentText(req), "Bob: "):
@@ -199,6 +209,7 @@ type sent struct {
 }
 
 func TestMeetingSendsEachSpeakerWhatTheyWereSentBeforeAndTheNoteLast(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	bySession := map[string][]sent{}
 	r, task, people := meetingRig(t, []string{"Bob", "Carol"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
@@ -295,6 +306,7 @@ func TestMeetingSendsEachSpeakerWhatTheyWereSentBeforeAndTheNoteLast(t *testing.
 }
 
 func TestMeetingStopsAtItsBatchAndGoesOnOnlyWhenTheUserSays(t *testing.T) {
+	t.Parallel()
 	r, task, _ := meetingRig(t, []string{"Bob"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
 		switch {
 		case isChair(req) && strings.Contains(lastText(req), "write its conclusion"):
@@ -348,6 +360,7 @@ func TestMeetingStopsAtItsBatchAndGoesOnOnlyWhenTheUserSays(t *testing.T) {
 }
 
 func TestMeetingTakesTheUsersWordsAndRefusesWhatDoesNotBelong(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var results []string
 	r, task, people := meetingRig(t, []string{"Bob"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {
@@ -430,6 +443,7 @@ func TestMeetingTakesTheUsersWordsAndRefusesWhatDoesNotBelong(t *testing.T) {
 }
 
 func TestPausingTheTaskPausesItsMeeting(t *testing.T) {
+	t.Parallel()
 	r, task, _, _ := idleMeeting(t)
 	if _, err := r.e.ControlTask(task.ID, usecase.TaskControl{RequestID: "p", Action: "pause"}); err != nil {
 		t.Fatal(err)
@@ -457,6 +471,7 @@ func TestPausingTheTaskPausesItsMeeting(t *testing.T) {
 }
 
 func TestAFlowsTalkStepIsAMeetingTheOwnerChairs(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	steps := 0
 	r, task, _ := meetingRig(t, []string{"Bob"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool) {

@@ -48,4 +48,8 @@ appcast:
 
 ## test-backend: run the backend tests
 test-backend:
-	cd backend && go test -race ./...
+	cd backend && go test -timeout 30m ./...
+
+## test-race: run the backend tests with the race detector (slower; before committing)
+test-race:
+	cd backend && go test -race -timeout 30m ./...

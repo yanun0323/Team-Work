@@ -27,6 +27,7 @@ func wordsOf(msgs []model.Message) string {
 
 // A skill named with "$" is picked from everyone's in the chat, so it comes whoever replies first.
 func TestMeetingSkillComesFromWhoeverHasIt(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dir := filepath.Join(root, "skills", "tdd")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -62,6 +63,7 @@ func TestMeetingSkillComesFromWhoeverHasIt(t *testing.T) {
 }
 
 func TestMeetingRepliesInTurn(t *testing.T) {
+	t.Parallel()
 	var beaID string
 	looked := false
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -213,6 +215,7 @@ func TestMeetingRepliesInTurn(t *testing.T) {
 }
 
 func TestMeetingOutlivesItsChair(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	bea, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bea", Model: "fake"})
 	if err != nil {
@@ -245,6 +248,7 @@ func TestMeetingOutlivesItsChair(t *testing.T) {
 }
 
 func TestInviteToChat(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	bea, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bea", Model: "fake"})
 	if err != nil {
@@ -303,6 +307,7 @@ func TestInviteToChat(t *testing.T) {
 }
 
 func TestTalkWithSeveralIsAMeeting(t *testing.T) {
+	t.Parallel()
 	var beaID string
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if stepOf(req) != "討論" {
@@ -392,6 +397,7 @@ func TestTalkWithSeveralIsAMeeting(t *testing.T) {
 // A server stopping mid-round is not the user stopping it: after the restart the reply cut off says so, to try
 // again, and the others still reply.
 func TestMeetingGoesOnAfterARestart(t *testing.T) {
+	t.Parallel()
 	var beaID string
 	started, release := make(chan struct{}), make(chan struct{})
 	held := false
@@ -445,6 +451,7 @@ func TestMeetingGoesOnAfterARestart(t *testing.T) {
 
 // A meeting is summed up once anyone in it is near their limit, by the chair's model, for everyone.
 func TestMeetingCompactsForWhoeverReadsLeast(t *testing.T) {
+	t.Parallel()
 	var chat string
 	var summedBy []string
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {

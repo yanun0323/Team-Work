@@ -11,6 +11,7 @@ import (
 )
 
 func TestAnEmployeeWorksOnSeveralTasksAtOnce(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	defer close(release)
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -31,6 +32,7 @@ func TestAnEmployeeWorksOnSeveralTasksAtOnce(t *testing.T) {
 }
 
 func TestEmployeesAreToldTheyMayShareTheirFolder(t *testing.T) {
+	t.Parallel()
 	const sign = "You may not be the only one changing these files"
 	var mu sync.Mutex
 	systems := []string{}

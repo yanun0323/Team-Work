@@ -18,6 +18,7 @@ import (
 // task waits to be merged again and nothing of the user's is touched, and the user, in the task's conversation, and
 // the owner, in what it reads of the task, are told the merge failed, why, and which file is in the way.
 func TestMergeRefusedByUncommittedChangesSaysWhyAndKeepsThem(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var told string // what the owner was told of the task when the user asked it about the failed merge
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -128,6 +129,7 @@ func TestMergeRefusedByUncommittedChangesSaysWhyAndKeepsThem(t *testing.T) {
 
 // Once the user clears what was in the way, pressing merge again lands the work.
 func TestMergeRefusedByUncommittedChangesSucceedsOnceCleared(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if stepOf(req) == "Clarify requirements" && !lastIsResult(req) {
 			return call("write_file", map[string]string{"path": "AGENTS.md", "content": "task version\n"}), nil
@@ -202,6 +204,7 @@ func TestMergeRefusedByUncommittedChangesSucceedsOnceCleared(t *testing.T) {
 // A merge git refuses with a path of another checkout, here the target branch checked out in a work tree of the
 // user's own: neither the failure, its record nor the task's conversation shows that path, and git's reason stays.
 func TestMergeFailureShowsNoPathOfAnotherCheckout(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
 			if lastIsResult(req) {

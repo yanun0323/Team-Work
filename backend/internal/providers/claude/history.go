@@ -93,7 +93,31 @@ func messagesFor(messages []ModelMessage) ([]historyMessage, error) {
 	return out, nil
 }
 
+// configDir is Team Work's own Claude Code configuration folder, set once at startup by UseConfigDir. Its sign-in,
+// settings and saved conversations are apart from the user's ~/.claude.
+var configDir string
+
+// UseConfigDir makes every Claude Code process use dir as its configuration folder. Claude keys the macOS keychain
+// sign-in to the folder's path, so the path is made absolute and resolved once and then never changes.
+func UseConfigDir(dir string) error {
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("claude config folder must be an absolute path")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return err
+	}
+	configDir = filepath.Clean(resolved)
+	return nil
+}
+
 func claudeDir() string {
+	if configDir != "" {
+		return configDir
+	}
 	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
 		return dir
 	}

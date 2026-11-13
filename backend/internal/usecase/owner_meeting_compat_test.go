@@ -15,6 +15,7 @@ import (
 )
 
 func TestMeetingAllowsSixEmployeesBesidesTheChairButRejectsSeven(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name       string
 		count      int
@@ -26,6 +27,7 @@ func TestMeetingAllowsSixEmployeesBesidesTheChairButRejectsSeven(t *testing.T) {
 		{"seven with repeated employees and chair", 7, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("idle"), nil })
 			wf := *r.flow
 			wf.Nodes = slices.Clone(wf.Nodes)
@@ -113,6 +115,7 @@ func TestMeetingAllowsSixEmployeesBesidesTheChairButRejectsSeven(t *testing.T) {
 }
 
 func TestOldOwnerMeetingRestartsAndFinishesWithoutBecomingV2(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("idle"), nil })
 	var ids []string
 	for _, name := range []string{"Bob", "Carol", "Dave"} {

@@ -12,6 +12,7 @@ import (
 )
 
 func TestTerminalLogReadsAsTheScreenDoes(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		chunks []string
@@ -41,6 +42,7 @@ func TestTerminalLogReadsAsTheScreenDoes(t *testing.T) {
 }
 
 func TestTerminalLogKeepsTheLastLines(t *testing.T) {
+	t.Parallel()
 	var l usecase.TerminalLog
 	for i := range 12000 {
 		_, _ = fmt.Fprintf(&l, "line %d\r\n", i)
@@ -56,6 +58,7 @@ func TestTerminalLogKeepsTheLastLines(t *testing.T) {
 }
 
 func TestEmployeesWhoReadFilesOrRunCommandsReadTheTerminal(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	inChat(t, r, m, doing("read_terminal", map[string]any{}))
 	if got := lastResult(t, r).Text; !strings.Contains(got, "not been opened") {
@@ -100,6 +103,7 @@ func TestEmployeesWhoReadFilesOrRunCommandsReadTheTerminal(t *testing.T) {
 }
 
 func TestAirportChatsReadTheAirportTerminal(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	_, _ = r.e.TerminalOutput(r.team.ID).Write([]byte("company line\r\n"))
 	_, _ = r.e.TerminalOutput("").Write([]byte("$ brew update\r\nAlready up-to-date.\r\n$ "))

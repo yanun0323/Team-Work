@@ -17,6 +17,7 @@ func notes(n int, text func(i int) string) []model.MemoryEntry {
 }
 
 func TestMemorySectionKeepsToItsBudget(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("字", 200)
 	r := &model.Replica{Memory: notes(40, func(int) string { return long })}
 	got := memorySection(r)
@@ -33,6 +34,7 @@ func TestMemorySectionKeepsToItsBudget(t *testing.T) {
 }
 
 func TestMemorySectionShowsAllThatFit(t *testing.T) {
+	t.Parallel()
 	r := &model.Replica{Memory: notes(3, func(i int) string { return fmt.Sprint("note ", i) })}
 	if got := memorySection(r); strings.Count(got, "\n- [") != 3 || strings.Contains(got, "not shown") {
 		t.Fatalf("%s", got)
@@ -40,6 +42,7 @@ func TestMemorySectionShowsAllThatFit(t *testing.T) {
 }
 
 func TestMemorySectionShowsOneNoteOverTheBudget(t *testing.T) {
+	t.Parallel()
 	r := &model.Replica{Memory: notes(1, func(int) string { return strings.Repeat("x", memoryBudget*2) })}
 	if got := memorySection(r); !strings.Contains(got, "[mem-0,") || strings.Contains(got, "not shown") {
 		t.Fatalf("a lone long note went missing")
@@ -47,6 +50,7 @@ func TestMemorySectionShowsOneNoteOverTheBudget(t *testing.T) {
 }
 
 func TestSearchMemoryRanksByWordsThenRecency(t *testing.T) {
+	t.Parallel()
 	all := []model.MemoryEntry{
 		{ID: "a", Text: "Use npm for the frontend"},
 		{ID: "b", Text: "frontend tests need -race? no, Go tests do"},
@@ -64,6 +68,7 @@ func TestSearchMemoryRanksByWordsThenRecency(t *testing.T) {
 }
 
 func TestSearchMemoryCapsItsResults(t *testing.T) {
+	t.Parallel()
 	got := searchMemory(notes(memorySearchLimit+5, func(int) string { return "same" }), "same")
 	if strings.Count(got, "\n- [")+1 != memorySearchLimit || !strings.Contains(got, "5 more match") {
 		t.Fatalf("%s", got)

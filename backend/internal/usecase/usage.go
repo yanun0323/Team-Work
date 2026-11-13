@@ -42,7 +42,10 @@ func (m meter) Complete(ctx context.Context, req model.ModelRequest, onText func
 // prompt, the conversation or an error's text, which can quote them.
 func (m meter) logCall(session string, u model.ModelUsage, err error) {
 	ev := m.e.log.Info().Str("session", session).Str("provider", m.kind).Str("model", m.model).
-		Int("input", u.Input).Int("output", u.Output).Int("cacheRead", u.CacheRead).Bool("ok", err == nil)
+		Int("input", u.Input).Int("output", u.Output).Bool("ok", err == nil)
+	if u.CacheReadKnown {
+		ev = ev.Int("cacheRead", u.CacheRead)
+	}
 	if u.CacheWriteKnown {
 		ev = ev.Int("cacheWrite", u.CacheWrite)
 	}

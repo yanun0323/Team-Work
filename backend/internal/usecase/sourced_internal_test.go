@@ -80,6 +80,7 @@ func (v versionsAt) Fetch(_ context.Context, _, commit string) (string, error) {
 func (v versionsAt) Cached(_, commit string) bool { return v.dirs[commit] != "" }
 
 func TestASourceBringsItsBlueprintsAndFlows(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeSkill(t, root, "skills/review")
 	writeFile(t, root, "blueprints/reviewer.yaml", reviewerFile)
@@ -128,6 +129,7 @@ func TestASourceBringsItsBlueprintsAndFlows(t *testing.T) {
 }
 
 func TestWhatASourceBringsCannotBeChanged(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, root, "blueprints/reviewer.yaml", reviewerFile)
 	writeFile(t, root, "workflows/ship.yaml", shipFlow)
@@ -154,6 +156,7 @@ func TestWhatASourceBringsCannotBeChanged(t *testing.T) {
 }
 
 func TestADeletedSourceTakesWhatItBroughtUnlessSomeoneWorksByIt(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeSkill(t, root, "skills/review")
 	writeFile(t, root, "blueprints/reviewer.yaml", "name: Reviewer\nskills:\n  - path: skills\n")
@@ -185,6 +188,7 @@ func TestADeletedSourceTakesWhatItBroughtUnlessSomeoneWorksByIt(t *testing.T) {
 }
 
 func TestAnUpdateDroppingABlueprintLeavesItsEmployeesTheirOwn(t *testing.T) {
+	t.Parallel()
 	was, is := t.TempDir(), t.TempDir()
 	writeFile(t, was, "blueprints/reviewer.yaml", reviewerFile)
 	writeFile(t, was, "blueprints/writer.yaml", "name: Writer\n")
@@ -234,6 +238,7 @@ func TestAnUpdateDroppingABlueprintLeavesItsEmployeesTheirOwn(t *testing.T) {
 }
 
 func TestTheAppsOwnFolderBringsNoBlueprints(t *testing.T) {
+	t.Parallel()
 	e := &Engine{w: model.NewWorld(), dataDir: "/x/.team-work"}
 	if e.readsSourced(model.Source{Kind: "local", Path: "/x/.team-work/"}) {
 		t.Error("the app's own folder is read for blueprints")
@@ -244,6 +249,7 @@ func TestTheAppsOwnFolderBringsNoBlueprints(t *testing.T) {
 }
 
 func TestSourcedIDs(t *testing.T) {
+	t.Parallel()
 	if got := model.SourceOfID("src-3--reviewer"); got != "src-3" {
 		t.Errorf("source of = %q", got)
 	}
@@ -255,6 +261,7 @@ func TestSourcedIDs(t *testing.T) {
 }
 
 func TestWhatASourceBringsIsThereAgainAfterARestart(t *testing.T) {
+	t.Parallel()
 	root, data := t.TempDir(), t.TempDir()
 	writeFile(t, root, "blueprints/reviewer.yaml", reviewerFile)
 	latest := "p1"

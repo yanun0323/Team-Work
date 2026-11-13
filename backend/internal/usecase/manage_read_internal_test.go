@@ -25,6 +25,7 @@ func readTaskText(t *testing.T, e *Engine, a readArgs) string {
 var earlier = regexp.MustCompile(`before=(\d+)`)
 
 func TestReadTaskPagesTheConversationWithin50KB(t *testing.T) {
+	t.Parallel()
 	e, _, task := logEngine(t)
 	task.Number, task.Title, task.Description = 7, "加功能", "說明"
 	for i := 1; i <= 40; i++ {
@@ -60,6 +61,7 @@ func TestReadTaskPagesTheConversationWithin50KB(t *testing.T) {
 }
 
 func TestReadTaskCutsOnlyAnEntryLargerThanARead(t *testing.T) {
+	t.Parallel()
 	e, _, task := logEngine(t)
 	task.Description = strings.Repeat("長", 40<<10) // more than the description read_task gives
 	e.addActivity(task, model.TaskActivity{Kind: "message", From: "user", Text: "short one"})
@@ -75,6 +77,7 @@ func TestReadTaskCutsOnlyAnEntryLargerThanARead(t *testing.T) {
 }
 
 func TestReadTaskSaysATaskNotLedByAnOwnerHasNoConversation(t *testing.T) {
+	t.Parallel()
 	e, _, _ := logEngine(t)
 	replica := "rep-1"
 	e.w.Replicas[replica] = &model.Replica{ID: replica, Name: "Ada"}

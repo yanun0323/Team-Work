@@ -13,6 +13,7 @@ import (
 )
 
 func TestChatAskUserReplySurvivesRestartAndHandoff(t *testing.T) {
+	t.Parallel()
 	r, _, reopen := diskRig(t)
 	const reply = "放在左下角合適，不會擋住輸入。我建議點一下複製。要哪一種？"
 	r.fake.reply = func(model.ModelRequest) (model.ModelReply, error) {
@@ -56,6 +57,7 @@ func TestChatAskUserReplySurvivesRestartAndHandoff(t *testing.T) {
 
 // Already saved questions have text in an assistant block and no reply argument.
 func TestLegacyChatQuestionStillLoadsAndAcceptsAnAnswer(t *testing.T) {
+	t.Parallel()
 	r, _, reopen := diskRig(t)
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "開始"})
 	if err != nil {

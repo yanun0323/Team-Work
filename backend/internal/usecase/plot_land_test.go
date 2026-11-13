@@ -10,6 +10,7 @@ import (
 
 // The same fixtures run against layoutTown/canPlace in the frontend tests.
 func TestPlacementMatchesFrontendLandAndRules(t *testing.T) {
+	t.Parallel()
 	raw, err := os.ReadFile("testdata/plot_placement.json")
 	if err != nil {
 		t.Fatal(err)

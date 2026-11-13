@@ -196,6 +196,7 @@ func ownerRequests(r *rig) []model.ModelRequest {
 // ---------- tests ----------
 
 func TestOwnerLedTaskNeedsAnOwnerToStartAndDispatchesNothingBefore(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, leading(worker))
 	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "沒負責人", WorkflowID: r.flow.ID})
 	if err != nil {
@@ -225,6 +226,7 @@ func TestOwnerLedTaskNeedsAnOwnerToStartAndDispatchesNothingBefore(t *testing.T)
 }
 
 func TestOwnerDispatchesEmployeesOnOtherModelsAndGatesEveryHandoff(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, leading(worker))
 	ctx := t.Context()
 	r.fake.mu.Lock()
@@ -307,6 +309,7 @@ func TestOwnerDispatchesEmployeesOnOtherModelsAndGatesEveryHandoff(t *testing.T)
 }
 
 func TestHandoffWaitsForTheOwnerAndIsNotRoutedByTheFlow(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
 			return worker(req), nil
@@ -341,6 +344,7 @@ func TestHandoffWaitsForTheOwnerAndIsNotRoutedByTheFlow(t *testing.T) {
 }
 
 func TestUserMessageReachesTheOwnerOnceAndIsAppliedWhenTakenUp(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if isOwner(req) {
 			if strings.Contains(req.Messages[0].Content[0].Text, "改用 Go") {
@@ -424,6 +428,7 @@ func TestUserMessageReachesTheOwnerOnceAndIsAppliedWhenTakenUp(t *testing.T) {
 }
 
 func TestUserWritingMidDecisionStopsItsStaleChanges(t *testing.T) {
+	t.Parallel()
 	var r *rig
 	var taskID string
 	wrote := false
@@ -464,6 +469,7 @@ func TestUserWritingMidDecisionStopsItsStaleChanges(t *testing.T) {
 }
 
 func TestPauseStopsRunsAtOnceAndNothingStartsUntilResume(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, leading(func(req model.ModelRequest) model.ModelReply {
 		if !lastIsResult(req) && stepOf(req) == "Clarify requirements" {
 			return call("run_command", map[string]any{"command": "sleep 30"})
@@ -528,6 +534,7 @@ func TestPauseStopsRunsAtOnceAndNothingStartsUntilResume(t *testing.T) {
 }
 
 func TestReturnKeepsHistoryAndMarksWhatWasBuiltOnIt(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, leading(worker))
 	task := r.ownerTask(r.flow.ID)
 	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
@@ -582,6 +589,7 @@ func TestReturnKeepsHistoryAndMarksWhatWasBuiltOnIt(t *testing.T) {
 // A redo starts a conversation of its own, so it is told what its last attempt handed off and to fix only what the
 // reason names, not to start over.
 func TestRedoIsToldItsLastAttempt(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, leading(func(req model.ModelRequest) model.ModelReply {
 		return call("submit_handoff", map[string]any{"goal": "寫出需求", "done": []string{"列了三條驗收"}, "open": []string{"效能未測"},
 			"headline": "h", "did": []string{"x"}, "commit_message": "chore: step"})
@@ -623,6 +631,7 @@ func TestRedoIsToldItsLastAttempt(t *testing.T) {
 // Every step of an owner-led task can read any run of its own task in full, so a reviewer finds earlier handoffs
 // without the owner pasting them; a run of another task stays out of reach.
 func TestStepsReadRunsOfTheirOwnTask(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, leading(worker))
 	other := r.ownerTask(r.flow.ID)
 	w := r.wait("other done", stage(other.ID, enum.StageAwaitMerge))
@@ -655,6 +664,8 @@ func TestStepsReadRunsOfTheirOwnTask(t *testing.T) {
 			}
 			return ownerCall("read_step", map[string]any{"sub_id": inside}), nil
 		case 1:
+			return ownerCall("read_step", map[string]any{"sub_id": inside, "log": true}), nil
+		case 2:
 			return ownerCall("read_step", map[string]any{"sub_id": outside}), nil
 		}
 		results = got
@@ -662,18 +673,26 @@ func TestStepsReadRunsOfTheirOwnTask(t *testing.T) {
 	})
 	task := r.ownerTask(r.flow.ID)
 	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
-	if inside == "" || len(results) != 2 {
+	if inside == "" || len(results) != 3 {
 		t.Fatalf("%q %q", inside, results)
 	}
 	if !strings.Contains(results[0], "Step run "+inside) || !strings.Contains(results[0], `"goal":"g"`) {
 		t.Fatalf("the run of its own task was not read: %s", results[0])
 	}
-	if !strings.Contains(results[1], "no step run "+outside) {
-		t.Fatalf("a run of another task was read: %s", results[1])
+	// the handoff alone unless the log is asked for: the log is the bulk of a run
+	if strings.Contains(results[0], "Log 0-") || !strings.Contains(results[0], "log=true") {
+		t.Fatalf("the log came without being asked for: %s", results[0])
+	}
+	if !strings.Contains(results[1], "Log 0-") || !strings.Contains(results[1], `"goal":"g"`) {
+		t.Fatalf("log=true did not read the log: %s", results[1])
+	}
+	if !strings.Contains(results[2], "no step run "+outside) {
+		t.Fatalf("a run of another task was read: %s", results[2])
 	}
 }
 
 func TestQuestionsOnlyTheUserAnswersStayUntilAnswered(t *testing.T) {
+	t.Parallel()
 	asked := false
 	r := newRig(t, leading(func(req model.ModelRequest) model.ModelReply {
 		if !asked {
@@ -716,6 +735,7 @@ func TestQuestionsOnlyTheUserAnswersStayUntilAnswered(t *testing.T) {
 }
 
 func TestEmployeesAskTheOwnerWhoAnswers(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if isOwner(req) {
 			brief := req.Messages[0].Content[0].Text
@@ -751,6 +771,7 @@ func TestEmployeesAskTheOwnerWhoAnswers(t *testing.T) {
 }
 
 func TestOwnerCannotUseOrAddEmployeesTheUserDidNotAllow(t *testing.T) {
+	t.Parallel()
 	var stranger *model.Replica
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
@@ -799,6 +820,7 @@ func TestOwnerCannotUseOrAddEmployeesTheUserDidNotAllow(t *testing.T) {
 }
 
 func TestOwnerChangesThePlanWithinWhatWasAllowed(t *testing.T) {
+	t.Parallel()
 	step := 0
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
@@ -842,6 +864,7 @@ func TestOwnerChangesThePlanWithinWhatWasAllowed(t *testing.T) {
 var r0ID string
 
 func TestBudgetStopsTheOwnerUntilTheUserAddsSome(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, leading(worker))
 	team := r.world().Teams[r.team.ID]
 	limit := 0.001
@@ -927,6 +950,7 @@ func TestLongerRunsThanStopWaitAreUncertainAndBlockResuming(t *testing.T) {
 }
 
 func TestRestartKeepsWaitingMessagesAndCallsRunsUnderWayUncertain(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, leading(func(req model.ModelRequest) model.ModelReply {
 		if !lastIsResult(req) && stepOf(req) == "Clarify requirements" {
 			return call("run_command", map[string]any{"command": "sleep 30"})
@@ -963,6 +987,7 @@ func TestRestartKeepsWaitingMessagesAndCallsRunsUnderWayUncertain(t *testing.T) 
 }
 
 func TestFactsKeepWhatTheUserSet(t *testing.T) {
+	t.Parallel()
 	wrote := regexp.MustCompile(`The user wrote \((\S+)\): 不要改 API`)
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
@@ -1017,6 +1042,7 @@ func factID(brief string) string {
 }
 
 func TestOlderTasksKeepTheirWayAndRefuseTheNewOnes(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) { return worker(req), nil })
 	task := r.task(r.flow.ID)
 	if task.Orchestration != "" || task.Coordination != nil {
@@ -1038,6 +1064,7 @@ func TestOlderTasksKeepTheirWayAndRefuseTheNewOnes(t *testing.T) {
 }
 
 func TestOwnerCannotDispatchAStepBeforeWhatItBuildsOnIsAccepted(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
 			return worker(req), nil
@@ -1063,6 +1090,7 @@ func TestOwnerCannotDispatchAStepBeforeWhatItBuildsOnIsAccepted(t *testing.T) {
 }
 
 func TestOwnerFillsInTheAcceptedStepsBeforeWhenNotNamed(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
 			return worker(req), nil
@@ -1088,6 +1116,7 @@ func TestOwnerFillsInTheAcceptedStepsBeforeWhenNotNamed(t *testing.T) {
 }
 
 func TestRejectedHandoffKeepsTheTaskFromBeingDone(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
 			return worker(req), nil
@@ -1118,14 +1147,17 @@ func TestRejectedHandoffKeepsTheTaskFromBeingDone(t *testing.T) {
 	}
 }
 
-// After submit_complete the owner is told to end without repeating the summary, and a model may then reply with
-// nothing. The task is done; that reply must not show as the owner failing.
-func TestNothingSaidAfterCompletingIsNoFailure(t *testing.T) {
+// A submit_complete that worked ends the decision: the summary is what the user reads, so the model is not called
+// again just to end its turn, and the owner is idle, not failed.
+func TestCompletingEndsTheDecision(t *testing.T) {
+	t.Parallel()
+	var after atomic.Int64
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
 			return worker(req), nil
 		}
 		if last := lastBlock(req); last.Name == "submit_complete" && !last.IsError {
+			after.Add(1)
 			return model.ModelReply{}, nil
 		}
 		return autoOwner(req), nil
@@ -1139,11 +1171,15 @@ func TestNothingSaidAfterCompletingIsNoFailure(t *testing.T) {
 		t.Fatalf("the owner is %s after completing", s)
 	}
 	if hasActivity(r.activity(task.ID), func(a model.TaskActivity) bool { return a.Key == "ownerFailed" }) {
-		t.Fatal("an empty reply after completing was shown as the owner failing")
+		t.Fatal("completing was shown as the owner failing")
+	}
+	if n := after.Load(); n != 0 {
+		t.Fatalf("the model was called %d times after the task was completed", n)
 	}
 }
 
 func TestRunsFailingOneAfterAnotherStopTheOwner(t *testing.T) {
+	t.Parallel()
 	var failures atomic.Int64
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
@@ -1184,6 +1220,7 @@ func TestRunsFailingOneAfterAnotherStopTheOwner(t *testing.T) {
 }
 
 func TestRetryingAFailedDecisionSettlesIt(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return model.ModelReply{}, fmt.Errorf("failure") })
 	task := r.ownerTask(r.flow.ID)
 	failed := func(w *model.World) (model.TaskOperation, bool) {
@@ -1235,6 +1272,7 @@ func TestRetryingAFailedDecisionSettlesIt(t *testing.T) {
 }
 
 func TestOwnerReadsAnEntryOfTheConversationInFull(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("x", 700) + "NEVER_DELETE_THIS"
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		brief := req.Messages[0].Content[0].Text
@@ -1278,6 +1316,7 @@ func TestOwnerReadsAnEntryOfTheConversationInFull(t *testing.T) {
 }
 
 func TestRestaffingIsRecordedWithWhoGaveWayToWhom(t *testing.T) {
+	t.Parallel()
 	var bob *model.Replica
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {

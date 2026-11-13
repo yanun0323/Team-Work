@@ -13,6 +13,7 @@ import (
 
 // A blueprint employees were made from, in any company, is deleted by moving them all to another one in the same change.
 func TestDeletingABlueprintInUseMovesItsEmployees(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		return call("submit_handoff", handoff), nil
 	})
@@ -108,6 +109,7 @@ func TestDeletingABlueprintInUseMovesItsEmployees(t *testing.T) {
 
 // With no one on it, a blueprint is deleted as before, whatever to says.
 func TestDeletingABlueprintNoOneUses(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say(""), nil })
 	b, err := r.e.CreateBlueprint(model.Blueprint{Name: "Spare"})
 	if err != nil {

@@ -18,12 +18,14 @@ func textFile(name, text string) model.Attachment {
 }
 
 func TestFileAttachmentsReachChatsAndTasks(t *testing.T) {
+	t.Parallel()
 	for _, task := range []bool{false, true} {
 		name := "chat"
 		if task {
 			name = "task"
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			files := []model.Attachment{textFile("../../requirements.txt", "attached requirements"), textFile("requirements.txt", "second file"), {Name: "empty.bin", URL: "data:application/octet-stream;base64,"}}
 			var paths []string
 			r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
@@ -110,6 +112,7 @@ func TestFileAttachmentsReachChatsAndTasks(t *testing.T) {
 }
 
 func TestInvalidFileAttachmentsAreRejectedBeforeMutation(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "hi"})
 	if err != nil {
@@ -142,6 +145,7 @@ func TestInvalidFileAttachmentsAreRejectedBeforeMutation(t *testing.T) {
 }
 
 func TestUploadedFilesReachChatsAndTasksByReference(t *testing.T) {
+	t.Parallel()
 	content := strings.Repeat("uploaded ", 1<<20) // above the limit for inline data URLs
 	var seen []string
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {

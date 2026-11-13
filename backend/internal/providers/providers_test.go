@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
 	"github.com/yanun0323/Team-Work/internal/model"
@@ -54,7 +55,7 @@ data: [DONE]
 `
 
 func TestChatCompletionsStream(t *testing.T) {
-	p, req, body := serve(t, enum.ProviderOpenAI, 200, chatStream)
+	p, req, body := serve(t, enum.ProviderCompatible, 200, chatStream)
 	var text strings.Builder
 	reply, err := p.Complete(context.Background(), request, func(s string) { text.WriteString(s) })
 	if err != nil {
@@ -63,7 +64,7 @@ func TestChatCompletionsStream(t *testing.T) {
 	if text.String() != "hello" || len(reply.Content) != 2 || reply.Content[1].Name != "t" || string(reply.Content[1].Args) != `{"a":1}` {
 		t.Fatalf("%q %+v", text.String(), reply)
 	}
-	if reply.Usage != (model.ModelUsage{Input: 10, Output: 5, CacheRead: 4}) {
+	if reply.Usage != (model.ModelUsage{Input: 10, Output: 5, CacheRead: 4, CacheReadKnown: true}) {
 		t.Fatalf("%+v", reply.Usage)
 	}
 	if req.Header.Get("Authorization") != "Bearer sk-key" || req.URL.Path != "/chat/completions" {
@@ -118,11 +119,11 @@ func TestMessagesStream(t *testing.T) {
 	if len(reply.Content) != 2 || reply.Content[0].Text != "hi" || string(reply.Content[1].Args) != `{"a":1}` {
 		t.Fatalf("%+v", reply)
 	}
-	if reply.Usage != (model.ModelUsage{Input: 7, Output: 9, CacheRead: 4, CacheWriteKnown: true}) {
+	if reply.Usage != (model.ModelUsage{Input: 7, Output: 9, CacheRead: 4, CacheReadKnown: true, CacheWriteKnown: true}) {
 		t.Fatalf("%+v", reply.Usage)
 	}
 	written, _, _ := serve(t, enum.ProviderAnthropic, 200, strings.Replace(messagesStream, `"cache_creation_input_tokens":0`, `"cache_creation_input_tokens":2`, 1))
-	if r, err := written.Complete(context.Background(), request, func(string) {}); err != nil || r.Usage != (model.ModelUsage{Input: 9, Output: 9, CacheRead: 4, CacheWrite: 2, CacheWriteKnown: true}) {
+	if r, err := written.Complete(context.Background(), request, func(string) {}); err != nil || r.Usage != (model.ModelUsage{Input: 9, Output: 9, CacheRead: 4, CacheReadKnown: true, CacheWrite: 2, CacheWriteKnown: true}) {
 		t.Fatalf("cache writes: %+v %v", r.Usage, err)
 	}
 	if req.Header.Get("x-api-key") != "sk-key" || req.Header.Get("anthropic-version") == "" {
@@ -320,7 +321,11 @@ func TestOnlyOpenAIGetsAPromptCacheKey(t *testing.T) {
 		session string
 		want    bool
 	}{{enum.ProviderOpenAI, "sub-1", true}, {enum.ProviderOpenAI, "", false}, {enum.ProviderGoogle, "sub-1", false}, {enum.ProviderCompatible, "sub-1", false}} {
-		p, _, body := serve(t, c.kind, 200, "data: [DONE]\n")
+		stream := "data: [DONE]\n"
+		if c.kind == enum.ProviderOpenAI {
+			stream = `data: {"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1}}}` + "\n"
+		}
+		p, _, body := serve(t, c.kind, 200, stream)
 		req := request
 		req.Session = c.session
 		if _, err := p.Complete(context.Background(), req, func(string) {}); err != nil {
@@ -343,5 +348,119 @@ func TestKeyedProvidersSkipReasoningBlocks(t *testing.T) {
 		if strings.Contains(body, "sig-x") || !strings.Contains(body, "ok") {
 			t.Fatalf("%s", body)
 		}
+	}
+}
+
+// A compatible API that says nothing about its cache leaves the read unknown, not a miss.
+func TestUnreportedCacheReadIsUnknown(t *testing.T) {
+	p, _, _ := serve(t, enum.ProviderCompatible, 200, strings.Replace(chatStream, `,"prompt_tokens_details":{"cached_tokens":4}`, "", 1))
+	reply, err := p.Complete(context.Background(), request, func(string) {})
+	if err != nil || reply.Usage != (model.ModelUsage{Input: 10, Output: 5}) {
+		t.Fatalf("%+v %v", reply.Usage, err)
+	}
+}
+
+const responsesStream = `data: {"type":"response.output_text.delta","delta":"he"}
+
+data: {"type":"response.output_text.delta","delta":"llo"}
+
+data: {"type":"response.output_item.done","item":{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"hello"}]}}
+
+data: {"type":"response.output_item.done","item":{"id":"fc_1","type":"function_call","call_id":"c1","name":"t","arguments":"{\"a\": 1}"}}
+
+data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5,"input_tokens_details":{"cached_tokens":4,"cache_write_tokens":6}}}}
+`
+
+// OpenAI's own API is spoken as ChatGPT's backend is, through the Responses API, so it keeps the cache the same way:
+// nothing stored there, the system prompt leading the input, and what the model wrote going back as it came.
+func TestOpenAISpeaksResponses(t *testing.T) {
+	p, req, body := serve(t, enum.ProviderOpenAI, 200, responsesStream)
+	var text strings.Builder
+	sent := request
+	sent.Session = "sub-1"
+	reply, err := p.Complete(context.Background(), sent, func(s string) { text.WriteString(s) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.URL.Path != "/responses" || req.Header.Get("Authorization") != "Bearer sk-key" {
+		t.Fatalf("%v %v", req.URL, req.Header)
+	}
+	if text.String() != "hello" || len(reply.Content) != 2 || reply.Content[0].Origin != "openai:m" ||
+		reply.Content[1].Name != "t" || string(reply.Content[1].Args) != `{"a": 1}` {
+		t.Fatalf("%q %+v", text.String(), reply.Content)
+	}
+	if reply.Usage != (model.ModelUsage{Input: 10, Output: 5, CacheRead: 4, CacheReadKnown: true, CacheWrite: 6, CacheWriteKnown: true}) {
+		t.Fatalf("%+v", reply.Usage)
+	}
+	got := string(*body)
+	for _, want := range []string{`"store":false`, `"role":"developer"`, `"include":["reasoning.encrypted_content"]`, `"reasoning":{"effort":"max"}`, `"prompt_cache_key":"sub-1"`, `"type":"function_call_output"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("request has no %s: %s", want, got)
+		}
+	}
+	// the API asks a verified organization for summaries, and not every model takes a verbosity
+	for _, unwanted := range []string{"summary", "verbosity", "instructions", "messages"} {
+		if strings.Contains(got, `"`+unwanted+`"`) {
+			t.Errorf("request has %s: %s", unwanted, got)
+		}
+	}
+}
+
+// Models that do not reason refuse a request for encrypted reasoning.
+func TestOnlyReasoningModelsAreAskedForTheirReasoning(t *testing.T) {
+	for id, want := range map[string]bool{"gpt-5.5": true, "gpt-6-luna": true, "o3": true, "gpt-4.1": false, "gpt-4o-mini": false, "chat-latest": false, "chatgpt-4o-latest": false, "gpt-5-chat-latest": false} {
+		p, _, body := serve(t, enum.ProviderOpenAI, 200, responsesStream)
+		req := request
+		req.Model = id
+		if _, err := p.Complete(context.Background(), req, func(string) {}); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(string(*body), "reasoning.encrypted_content"); got != want {
+			t.Errorf("%s: asked for reasoning %v, want %v", id, got, want)
+		}
+	}
+}
+
+// A reply that stops sending for too long is given up on, as one that can be tried again.
+func TestAStalledReplyIsGivenUp(t *testing.T) {
+	stall := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `data: {"choices":[{"delta":{"content":"he"}}]}`+"\n\n")
+		w.(http.Flusher).Flush()
+		<-stall
+	}))
+	defer srv.Close()
+	defer close(stall) // before the server closes, as it waits for its handlers
+	defer func(d time.Duration) { streamIdle = d }(streamIdle)
+	streamIdle = 50 * time.Millisecond
+	for _, kind := range []enum.ProviderKind{enum.ProviderOpenAI, enum.ProviderCompatible, enum.ProviderAnthropic} {
+		p, err := NewFactory(nil, nil).For(model.ModelProvider{Name: "x", Kind: kind, BaseURL: srv.URL, Auth: model.ProviderAuth{Kind: "apiKey"}}, "sk")
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() {
+			_, err := p.Complete(context.Background(), request, func(string) {})
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			var known *model.Error
+			if !errors.As(err, &known) || known.Code != model.CodeUnavailable {
+				t.Fatalf("%s: %v", kind, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: still waiting", kind)
+		}
+	}
+}
+
+// Every key-paid provider shares one pool of connections, so a conversation's calls reuse the one already open.
+func TestKeyedProvidersShareTheirConnections(t *testing.T) {
+	f := NewFactory(nil, nil)
+	a, _ := f.For(model.ModelProvider{Kind: enum.ProviderOpenAI, Auth: model.ProviderAuth{Kind: "apiKey"}}, "k1")
+	b, _ := f.For(model.ModelProvider{Kind: enum.ProviderCompatible, BaseURL: "http://x", Auth: model.ProviderAuth{Kind: "apiKey"}}, "k2")
+	if a.(openAIResponses).http != b.(openAI).http {
+		t.Fatal("each provider opened its own connections")
 	}
 }

@@ -131,6 +131,21 @@ func (s *Setup) Install(ctx context.Context) error {
 	return nil
 }
 
+// SignIn makes sure Claude Code is signed in to a subscription, running its own sign-in in the browser when it is
+// not. Team Work keeps that sign-in in a folder of its own, which claude auth login in a terminal does not reach.
+func (s *Setup) SignIn(ctx context.Context) error {
+	_, _, err := discover(ctx)
+	var known *Error
+	if !errors.As(err, &known) || known.Code != CodeSignedOut {
+		return err
+	}
+	if err := s.Login(ctx); err != nil {
+		return err
+	}
+	_, _, err = discover(ctx)
+	return err
+}
+
 // Login runs Claude Code's own sign-in, which opens the browser and keeps the credentials itself.
 func (s *Setup) Login(ctx context.Context) error {
 	if !s.busy.TryLock() {
@@ -155,7 +170,7 @@ func (s *Setup) Login(ctx context.Context) error {
 		case ctx.Err() != nil:
 			return ctx.Err()
 		}
-		return rejected("登入沒有完成。可以到終端機執行 claude auth login，再回來重試")
+		return rejected("登入沒有完成，請再按一次「登入 Claude」")
 	}
 	return nil
 }

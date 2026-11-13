@@ -17,6 +17,7 @@ func toolText(t *testing.T, r *rig, m *moves, name string, args map[string]any) 
 }
 
 func TestHiddenBlueprintsAndFlowsAreUnknownToEmployees(t *testing.T) {
+	t.Parallel()
 	r, m := manageRig(t)
 	bp, wf := r.owner.BlueprintID, r.flow.ID
 	waiting, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "排好的", WorkflowID: wf, OwnerID: &r.owner.ID})
@@ -71,6 +72,7 @@ func TestHiddenBlueprintsAndFlowsAreUnknownToEmployees(t *testing.T) {
 }
 
 func TestHiddenCannotBePickedButStaysInUse(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	bp, wf := r.owner.BlueprintID, r.flow.ID
 	other, err := r.e.CreateBlueprint(model.Blueprint{Name: "Other", Prompt: "另一個"})

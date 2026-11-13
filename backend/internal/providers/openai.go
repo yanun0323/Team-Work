@@ -11,12 +11,10 @@ import (
 	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
 
-// openAI speaks Chat Completions: OpenAI's, Google's compatible endpoint and anything compatible.
-// openAI speaks /chat/completions. cacheKey sends prompt_cache_key, which only OpenAI's own API takes: other
-// servers that speak it may refuse a parameter they do not know.
+// openAI speaks Chat Completions: Google's compatible endpoint and anything compatible. OpenAI's own API is spoken
+// through the Responses API instead, by openAIResponses.
 type openAI struct {
 	client
-	cacheKey bool
 }
 
 func (o openAI) auth(req *http.Request) { req.Header.Set("Authorization", "Bearer "+o.key) }
@@ -95,10 +93,6 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 	if req.Effort != "" {
 		body["reasoning_effort"] = req.Effort
 	}
-	// One step's calls share a key, so OpenAI routes them to the machine that cached their start.
-	if o.cacheKey && req.Session != "" {
-		body["prompt_cache_key"] = req.Session
-	}
 	res, err := o.do(ctx, http.MethodPost, "/chat/completions", body, o.auth)
 	if err != nil {
 		return model.ModelReply{}, err
@@ -135,7 +129,7 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 				Prompt     int `json:"prompt_tokens"`
 				Completion int `json:"completion_tokens"`
 				Details    struct {
-					Cached int `json:"cached_tokens"`
+					Cached *int `json:"cached_tokens"` // nil when not reported
 				} `json:"prompt_tokens_details"`
 			} `json:"usage"`
 		}
@@ -146,7 +140,10 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 			return false, model.Errorf(model.CodeInvalid, "模型回報錯誤，請檢查模型與設定")
 		}
 		if u := chunk.Usage; u != nil {
-			reply.Usage = model.ModelUsage{Input: u.Prompt, Output: u.Completion, CacheRead: u.Details.Cached}
+			reply.Usage = model.ModelUsage{Input: u.Prompt, Output: u.Completion}
+			if u.Details.Cached != nil {
+				reply.Usage.CacheRead, reply.Usage.CacheReadKnown = *u.Details.Cached, true
+			}
 		}
 		for _, c := range chunk.Choices {
 			if c.Delta.Content != "" {

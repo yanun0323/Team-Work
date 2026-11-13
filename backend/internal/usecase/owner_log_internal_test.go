@@ -70,6 +70,7 @@ func checkSeqs(t *testing.T, all []model.TaskActivity, n int) {
 }
 
 func TestTaskConversationIsReadWhenNeededAndLetGoWhenSaved(t *testing.T) {
+	t.Parallel()
 	e, disk, task := logEngine(t)
 	say(e, task, tailMost+8)
 	if err := e.sync(); err != nil {
@@ -136,6 +137,7 @@ func TestTaskConversationIsReadWhenNeededAndLetGoWhenSaved(t *testing.T) {
 }
 
 func TestOlderLogsMoveTheirConversationToItsOwnDocument(t *testing.T) {
+	t.Parallel()
 	e, disk, task := logEngine(t)
 	old := map[string]any{"activities": []model.TaskActivity{{ID: "t1-a1", Seq: 1, Kind: "message", Text: "one"}, {ID: "t1-a2", Seq: 2, Kind: "message", Text: "two"}},
 		"operations": map[string]any{}, "requests": map[string]any{}, "events": map[string]any{}, "commands": map[string]any{}}
@@ -161,6 +163,7 @@ func TestOlderLogsMoveTheirConversationToItsOwnDocument(t *testing.T) {
 }
 
 func TestContinuingAStoppedRunWaitsForWhatTheCurrentPlanPutsBeforeIt(t *testing.T) {
+	t.Parallel()
 	e, _, task := logEngine(t)
 	task.TeamID = "team"
 	task.Coordination.Authorization.ReplicaIDs = []string{"r"}
@@ -193,6 +196,7 @@ func TestContinuingAStoppedRunWaitsForWhatTheCurrentPlanPutsBeforeIt(t *testing.
 }
 
 func TestTheFailureGuardStopsQueuedWorkAndTheOwnerDispatching(t *testing.T) {
+	t.Parallel()
 	e, _, task := logEngine(t)
 	task.TeamID, task.Stage = "team", enum.StageRunning
 	task.Coordination.StartedAt = ptr(float64(1))

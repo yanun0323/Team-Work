@@ -10,6 +10,7 @@ import (
 )
 
 func TestOnlyARunAtWorkCanBeToldSomethingAndTheRestSayWhatFits(t *testing.T) {
+	t.Parallel()
 	e, _, task := logEngine(t)
 	task.Workflow = model.Workflow{Nodes: []model.WorkflowNode{{ID: "w", Kind: enum.NodeWork, Name: "做"}, {ID: "m", Kind: enum.NodeTalk, Name: "會議"}}}
 	at := func(fn func(s *model.SubTask)) *model.SubTask {
@@ -45,6 +46,7 @@ func TestOnlyARunAtWorkCanBeToldSomethingAndTheRestSayWhatFits(t *testing.T) {
 }
 
 func TestWhatARunWasToldIsKeptUntilItIsReadAndThenReadOnce(t *testing.T) {
+	t.Parallel()
 	e, _, task := logEngine(t)
 	e.w.Conversations = map[string][]model.Message{"sub-1": {userText("start")}}
 	s := &model.SubTask{ID: "sub-1", TaskID: task.ID, NodeID: "w"}
