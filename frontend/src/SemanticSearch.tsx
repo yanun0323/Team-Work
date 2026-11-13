@@ -102,6 +102,11 @@ export function SemanticSearchView(p: SemanticViewProps) {
 
 /** Reads this computer's status on opening, again and again while it moves, and stops on leaving. */
 export function SemanticSearchSection() {
+  return <SemanticSearchView {...useSemanticSearch()} />
+}
+
+/** The section's state and what its switch and buttons do. */
+export function useSemanticSearch(): SemanticViewProps {
   const [status, setStatus] = useState<SemanticStatus | null>(null)
   const [loadError, setLoadError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -161,9 +166,9 @@ export function SemanticSearchSection() {
     }
   }
 
-  return (
-    <SemanticSearchView status={status} loadError={loadError} saving={saving} saveError={saveError} bridge={canRestart()}
-      restart={restart} restartError={restartError} busy={busy} onToggle={(on) => void toggle(on)} onRetry={again}
-      onRestart={() => void press()} onRestartBlur={() => setRestart((r) => (r === 'asking' ? 'idle' : r))} />
-  )
+  return {
+    status, loadError, saving, saveError, bridge: canRestart(), restart, restartError, busy,
+    onToggle: (on) => void toggle(on), onRetry: again, onRestart: () => void press(),
+    onRestartBlur: () => setRestart((r) => (r === 'asking' ? 'idle' : r)),
+  }
 }
