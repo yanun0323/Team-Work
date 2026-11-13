@@ -153,6 +153,44 @@ it('aborts an older-page request on unmount even after a metadata-only update', 
   await act(async () => { finish(); expect(await pending).toBe(false) })
 })
 
+it('keeps what is shown while replies come faster than they are read, then reads only what was added', async () => {
+  const h = await harness()
+  const urls: string[] = []
+  let hold = false
+  let finish!: () => void
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    urls.push(url)
+    if (hold) await new Promise<void>((resolve) => { finish = resolve })
+    return new Response(JSON.stringify(page(url, 300)))
+  }))
+  await h.render(summary())
+  // a tool line comes in, and another before the first is read
+  hold = true
+  await h.render(summary(251, 'b', 'a', 250))
+  expect(h.get().chat?.messages).toHaveLength(100)
+  await h.render(summary(252, 'c', 'b', 251))
+  expect(h.get().chat?.messages).toHaveLength(100)
+  expect(urls.at(-1)).toContain('before=252&limit=2')
+  hold = false
+  await act(async () => { finish() })
+  expect(h.get().start).toBe(150)
+  expect(h.get().chat?.messages).toHaveLength(102)
+  expect(h.get().chat?.messages.at(-1)?.text).toBe('251')
+  // a message above changed in place, such as a task made under it: only it and those after are read
+  await h.render(summary(252, 'd', 'c', 200))
+  expect(urls.at(-1)).toContain('before=252&limit=52')
+  expect(h.get().start).toBe(150)
+  expect(h.get().chat?.messages).toHaveLength(102)
+  // a reconnect reads it all again, showing what was there until then
+  hold = true
+  await act(async () => { useStore.setState((s) => ({ snapshot: s.snapshot + 1 })) })
+  expect(h.get().chat?.messages).toHaveLength(102)
+  expect(h.get().ready).toBe(false)
+  await act(async () => { finish() })
+  expect(h.get().ready).toBe(true)
+  expect(h.get().chat?.messages).toHaveLength(100)
+})
+
 it('discards an earlier page overtaken by an appended reply', async () => {
   const h = await harness()
   let finish!: () => void

@@ -22,6 +22,22 @@ async function readPage(id: string, version: string, before: number, limit: numb
   return page
 }
 
+type Links = Map<string, { previous: string; changedFrom: number }>
+
+/** From which message on the history may differ between two versions, by the summaries seen in between; 0 when one
+ * of them was missed. */
+function changedSince(links: Links, from: string, to: string) {
+  let at = Infinity
+  for (let v = to, steps = 0; v !== from; steps++) {
+    const link = links.get(v)
+    // a history can come back to an earlier version, so a walk longer than the links goes round in circles
+    if (!link || steps > links.size) return 0
+    at = Math.min(at, link.changedFrom)
+    v = link.previous
+  }
+  return at
+}
+
 export function useChatHistory(summary: Chat | undefined) {
   const snapshot = useStore((s) => s.snapshot)
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -33,6 +49,10 @@ export function useChatHistory(summary: Chat | undefined) {
   const saved = useRef(loaded)
   saved.current = loaded
   const earlierRequest = useRef<AbortController | null>(null)
+  // each summary says what it changed from the one before; several can come while a page is read
+  const links = useRef<Links>(new Map())
+  const told = summary?.history
+  if (told?.previous) links.current.set(told.version, { previous: told.previous, changedFrom: told.changedFrom })
   const id = summary?.id
   const version = summary?.history?.version
   useEffect(() => {
@@ -41,23 +61,25 @@ export function useChatHistory(summary: Chat | undefined) {
     const c = current.current
     if (!c?.history) { setLoaded(null); setError(''); setBusy(false); return }
     const h = c.history
-    const previous = saved.current?.snapshot === snapshot ? saved.current : null
-    // Only an explicitly contiguous transition can reuse pages. Reconnects and skipped versions re-read them.
-    const keep = previous?.id === c.id && previous.version === h.previous && h.changedFrom >= previous.start
-      ? Math.min(h.changedFrom, previous.total, h.count) : h.count
-    const retained = previous?.id === c.id && keep < h.count && previous.version === h.previous && keep >= previous.start
-      ? previous : null
-    if (previous?.id === c.id && previous.version === h.version) { setBusy(false); setError(''); return () => earlierRequest.current?.abort() }
+    // a reconnect may have missed changes, so its pages are all read again
+    const previous = saved.current?.id === c.id && saved.current.snapshot === snapshot ? saved.current : null
+    if (previous?.version === h.version) { setBusy(false); setError(''); return () => earlierRequest.current?.abort() }
+    // the messages before keep are as shown, so only those after are read; the last one is read at least, for a
+    // history that only got shorter
+    const keep = previous ? Math.min(changedSince(links.current, previous.version, h.version), previous.total, h.count - 1) : -1
+    const retained = previous && keep > previous.start ? previous : null
+    // else as many of the newest as were shown are read again, 100 at least
+    const floor = retained ? keep : Math.max(0, h.count - Math.max(100, previous ? previous.total - previous.start : 0))
     setBusy(true)
     setError('')
     void (async () => {
       let before = h.count
       const pages: ChatPage[] = []
       do {
-        const page = await readPage(c.id, h.version, before, retained ? Math.min(100, Math.max(1, before - keep)) : 100, abort.signal)
+        const page = await readPage(c.id, h.version, before, Math.min(100, Math.max(1, before - floor)), abort.signal)
         pages.unshift(page)
         before = page.start
-      } while (retained && before > keep)
+      } while (before > floor)
       if (abort.signal.aborted || current.current?.history?.version !== h.version) return
       const head = pages[0]
       const messages = pages.flatMap((p) => p.messages)
@@ -76,8 +98,9 @@ export function useChatHistory(summary: Chat | undefined) {
   }, [id, version, retry, snapshot])
 
   const valid = !!summary?.history && !!loaded && loaded.id === id && loaded.snapshot === snapshot && loaded.version === version
-  // Keep an unchanged prefix visible while fetching an append, but disable index-based actions until current.
-  const display = valid || (!!loaded && loaded.id === id && loaded.snapshot === snapshot && summary?.history?.previous === loaded.version && summary.history.changedFrom >= loaded.total)
+  // What is shown stays while a newer version is read, so the list never empties under the reader; index-based
+  // actions wait until it is current.
+  const display = !!summary?.history && !!loaded && loaded.id === id
   const start = display && loaded ? loaded.start : summary?.history?.count ?? 0
   const more = async () => {
     if (!valid || busy || !loaded || !summary?.history || loaded.start === 0) return false
