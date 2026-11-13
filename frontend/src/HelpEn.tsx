@@ -49,14 +49,14 @@ export const HELP_EN: Record<string, HelpTopic> = {
   },
   tower: {
     label: 'Cell Tower',
-    alt: 'The open cell tower: the paired computers with their Let it work this computer switches, then Pair a new computer',
+    alt: 'The open cell tower: the paired computers, each with its Off, View and Operate switch, then Pair a new computer',
     body: (
       <>
         <p>The cell tower pairs two computers that both run Team Work. Once paired, you can Go from this one to the other's island and work its companies, employees, tasks, chats and terminals directly. The work runs on that computer, with its model providers, blueprints and settings, and goes on when this one is closed.</p>
         <p className="fx-help-pit">The computer being worked must keep Team Work open: when it closes, nobody can reach it, and its own work stops too.</p>
         <dl>
           <dt>Pairing</dt><dd>Under Pair a new computer, the computer to be worked picks Let another work this one, presses Wait for pairing and copies the address; the other picks Work another, pastes the address and sends it. Pairing is done once the computer being worked presses Agree. The address lasts 10 minutes. After that, reopening the app or losing the connection never needs pairing again.</dd>
-          <dt>Let it work this computer</dt><dd>Each paired computer has its own switch; only while it is on can that computer work this one. Right after pairing, only the computer being worked has it on; for the other way round, turn it on in your own tower. Turning it off or unpairing shuts the other computer out at once. A paired computer can only view at first, including ones paired before this update; to let it act, switch View to Operate beside the switch.</dd>
+          <dt>Off, View, Operate</dt><dd>Each paired computer has its own switch for what it may do here: Off keeps it out, View lets it look, Operate lets it act too. Right after pairing, only the computer being worked lets the other in, and on View, as with ones paired before this update; for the other way round, switch it in your own tower. Switching to Off or unpairing shuts the other computer out at once.</dd>
           <dt>On this island now</dt><dd>The tower lists the computers on this island now, and the company or airport each has open is outlined on the map with its name. You can send one away (it may come back later), block it for 1 hour, or block it until you lift the block. A visitor opening a chat does not clear your unread marks. At the top you can rename this computer, as other towers show it; only computers on the same link version can go to each other.</dd>
           <dt>Going and coming back</dt><dd>Go first checks that the other computer can be worked, then switches to its island. The lower left corner always says which computer you are working; press Back to my island to return. The cell tower on another island opens this computer's tower.</dd>
           <dt>On another island</dt><dd>Interface settings, the language and the tutorial stay this computer's. A new company browses the other computer's folders inside the page. Anything that would open a window on the other computer's screen (Open in Finder, Open settings folder, browser sign-in) is off.</dd>

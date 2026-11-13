@@ -55,9 +55,10 @@ describe('the power tower panel', () => {
     expect(html).toContain('在線')
     expect(html).toContain('版本不相容：這台的 Team Work 太舊，請更新這台')
     expect(html).toContain('Air 沒有允許這台操作它')
-    // a real checkbox inside its label, so it is reached with Tab and toggled with Space
-    expect(html.match(/<label class="fx-tower-allow"><input type="checkbox"[^>]*>允許它操作我<\/label>/g)).toHaveLength(3)
-    expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(1)
+    // one switch each, of real radios, so it is reached with Tab and moved with the arrows; shut out is its first choice
+    expect(html.match(/class="fx-switcher fx-tower-access" role="radiogroup"/g)).toHaveLength(3)
+    expect(html).not.toContain('type="checkbox"')
+    expect(html.match(/<input type="radio"[^>]*checked=""[^>]*><span>([^<]*)<\/span>/g)?.map((m) => m.replace(/.*<span>|<\/span>/g, ''))).toEqual(['操作', '不允許', '不允許', '讓別台操作這台'])
     expect(html.match(/<button[^>]*>前往<\/button>/g)).toHaveLength(3)
     // Go is the dark button only where it can be gone to; elsewhere still pressable, as it checks again first
     expect(html.match(/class="fx-save fx-tower-go"/g)).toHaveLength(1)
