@@ -48,7 +48,8 @@ func TestRealModel(t *testing.T) {
 	}
 	timed("where does the backend decide which tools an employee is given")
 	timed("how is the app restarted after a setting changes")
-	if res := timed("驗證下載的模型檢查碼"); res.Mode != "hybrid" || len(res.Results) == 0 || res.Results[0].Path != "backend/internal/semantic/download.go" {
+	// put together when run: whole, the query would be in this file, which keyword search would then put first
+	if res := timed(strings.Join([]string{"驗證下載的", "模型檢查碼"}, "")); res.Mode != "hybrid" || len(res.Results) == 0 || res.Results[0].Path != "backend/internal/semantic/download.go" {
 		t.Errorf("download.go is not first: %v", paths(res))
 	}
 	ev := log.events("semantic_search")

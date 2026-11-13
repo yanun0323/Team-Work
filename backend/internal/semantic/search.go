@@ -134,32 +134,63 @@ func (s *Service) Search(ctx context.Context, q Query) (Result, error) {
 			return Result{}, &UserError{fmt.Sprintf("the query is %d tokens, over the model's %d; shorten it", tokens, MaxTokens)}
 		}
 	}
+	// a reason given above (not ready, failed, cancelled) stays; the ones below are only about files waiting
+	given := res.Reason != ""
+	waiting := func(pending int) {
+		if given {
+			return
+		}
+		if pending > 0 {
+			res.Reason = fmt.Sprintf("the semantic index is being built (%d files not indexed yet), so this is keyword search only; grep works meanwhile", pending)
+		} else {
+			res.Reason = "a file changed during the search, so this is keyword search only; search again for semantic results, or use grep"
+		}
+	}
 	// counted again after the vectors were compared, as a file changed while the query's vector was on its way waits
 	// too: vectors of part of the folder would rank what is indexed above what is not, so keywords alone until it is
 	// all in
 	_, pending, _ = r.counts()
-	if ready && pending > 0 && (vector != nil || res.Reason == "") {
+	if ready && pending > 0 {
 		vector = nil
-		res.Reason = fmt.Sprintf("the semantic index is being built (%d files not indexed yet), so this is keyword search only; grep works meanwhile", pending)
+		waiting(pending)
+	}
+	keyword := s.keyword(r, q.Text)
+	merged := fuse(keyword, vector, q.Limit)
+	verifyStart := time.Now()
+	hits, kept, dropped, changed := s.verify(r, merged)
+	again := false
+	if changed > 0 {
+		// a file changed behind the index's back, found only now: what the vectors said of it is old, and the folder
+		// waits for it. Once, keywords alone from the files as they are now, read again; a file changing again is
+		// counted, not chased
+		again = true
+		_, pending, _ = r.counts()
+		vector = nil
+		waiting(pending)
+		keyword = s.keyword(r, q.Text)
+		merged = fuse(keyword, nil, q.Limit)
+		var k, d int
+		hits, k, d, changed = s.verify(r, merged)
+		kept, dropped = kept+k, dropped+d
+		if changed > 0 {
+			_, pending, _ = r.counts()
+			waiting(pending)
+		}
 	}
 	if vector != nil {
 		res.Mode = "hybrid"
 	}
-	keyword := s.keyword(r, q.Text)
 	if res.Mode == "keyword" && res.Reason == "" {
 		res.Reason = "keyword search only"
 	}
 	res.PendingFiles = pending
-	merged := fuse(keyword, vector, q.Limit)
-	verifyStart := time.Now()
-	hits, kept, dropped := s.verify(r, merged)
 	res.Results = hits
 	fit(&res)
 	verifyT := time.Since(verifyStart)
 
 	s.log.info("semantic_search").Str("task", q.Task).Str("replica", q.Replica).Str("cwd", r.dir).Str("mode", res.Mode).
 		Int("keyword", len(keyword)).Int("vector", len(vector)).Int("merged", len(merged)).Int("verified", kept).Int("dropped", dropped).
-		Int("results", len(res.Results)).Int("pendingFiles", pending).Int64("scanMs", scanned.Milliseconds()).Int64("queueMs", queueT.Milliseconds()).
+		Bool("verifiedAgain", again).Int("results", len(res.Results)).Int("pendingFiles", pending).Int64("scanMs", scanned.Milliseconds()).Int64("queueMs", queueT.Milliseconds()).
 		Int64("embedMs", embedT.Milliseconds()).Int64("compareMs", compareT.Milliseconds()).Int64("verifyMs", verifyT.Milliseconds()).
 		Int64("ms", time.Since(start).Milliseconds()).Send()
 	if s.log.z.Debug().Enabled() {
@@ -342,8 +373,8 @@ func fuse(keyword, vector []candidate, limit int) []candidate {
 
 // verify reads each result's file again, through the folder so nothing outside it is read: a range whose lines
 // changed since it was found is dropped and its file indexed again. Ranges that touch in one file are merged. It
-// returns the hits and how many ranges passed or not.
-func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int) {
+// returns the hits, how many ranges passed or not, and how many files were found changed.
+func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int, int) {
 	type group struct {
 		first int // rank of the best range in it
 		parts []candidate
@@ -357,11 +388,11 @@ func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int) {
 		byFile[c.path] = append(byFile[c.path], c)
 	}
 	var groups []group
-	kept, dropped := 0, 0
+	kept, dropped, changed := 0, 0, 0
 	read := map[string][]string{}
 	dir, err := os.OpenRoot(r.dir)
 	if err != nil {
-		return []Hit{}, 0, len(found)
+		return []Hit{}, 0, len(found), 0
 	}
 	defer dir.Close()
 	for rel, list := range byFile {
@@ -381,6 +412,7 @@ func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int) {
 			ok = append(ok, c)
 		}
 		if len(ok) < len(list) {
+			changed++
 			s.Changed(filepath.Join(r.dir, filepath.FromSlash(rel)), "scan")
 		}
 		sort.Slice(ok, func(i, j int) bool { return ok[i].start < ok[j].start })
@@ -416,7 +448,7 @@ func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int) {
 		}
 		hits = append(hits, Hit{Path: rel, StartLine: start, EndLine: end, Text: strings.Join(lines[start-1:end], "")})
 	}
-	return hits, kept, dropped
+	return hits, kept, dropped, changed
 }
 
 // fitNote is what the reason gains when results were cut short or left out; fit keeps room for it.

@@ -277,10 +277,15 @@ func TestSemanticSearchForOwnersAndMeetings(t *testing.T) {
 			t.Fatalf("%s: %+v", who, res)
 		}
 	}
+	// the log names the folder with its links resolved, as /tmp is /private/tmp on macOS
+	cwd, err := filepath.EvalSymlinks(owner.cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
 	searched := map[string]bool{}
 	for _, line := range strings.Split(log.String(), "\n") {
 		if strings.Contains(line, `"message":"semantic_search"`) && strings.Contains(line, `"task":"`+task.ID+`"`) &&
-			strings.Contains(line, `"cwd":"`+owner.cwd+`"`) {
+			strings.Contains(line, `"cwd":"`+cwd+`"`) {
 			for _, id := range []string{r.owner.ID, people[0].ID} {
 				if strings.Contains(line, `"replica":"`+id+`"`) {
 					searched[id] = true

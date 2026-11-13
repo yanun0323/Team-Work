@@ -156,7 +156,7 @@ func TestParentSymlinkSwappedMidwayIsRefused(t *testing.T) {
 		t.Fatal("not found inside")
 	}
 	symlinkedParent(t, repo2, "same words\n")
-	if hits, _, dropped := s.verify(r2, found); len(hits) != 0 || dropped == 0 {
+	if hits, _, dropped, _ := s.verify(r2, found); len(hits) != 0 || dropped == 0 {
 		t.Fatalf("handed out through a symlinked folder: %+v", hits)
 	}
 }
@@ -584,6 +584,80 @@ func TestChangeWhileTheQueryIsEmbeddedIsPending(t *testing.T) {
 				t.Fatalf("the log does not match the result: %v", last)
 			}
 		})
+	}
+}
+
+// A file changed behind the index's back while the query's vector is on its way is found out only when the results
+// are read again: the search then says the file waits, and does not hand out a ranking by the vectors it had.
+func TestChangeFoundWhenVerifyingIsPending(t *testing.T) {
+	s := newService(t, "hold_query", zerolog.InfoLevel, nil)
+	gate := t.TempDir()
+	held, release := filepath.Join(gate, "held"), filepath.Join(gate, "release")
+	t.Setenv("FAKE_HELD", held)
+	t.Setenv("FAKE_RELEASE", release)
+	t.Setenv("FAKE_DELAY", "300ms") // the file cannot be indexed again before the search counts
+	defer os.WriteFile(release, nil, 0o644)
+	repo := trackedSrc(t, "steady needle\n")
+	write(t, repo, "src/b.txt", "other needle here\n")
+	git(t, repo, "add", ".")
+	s.Start(true, []string{repo})
+	s.waitState(t, StateReady)
+	waitIndexed(t, s, repo)
+
+	type answer struct {
+		res Result
+		err error
+	}
+	done := make(chan answer, 1)
+	go func() {
+		res, err := s.Search(context.Background(), Query{Cwd: repo, Text: "needle"})
+		done <- answer{res, err}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for _, err := os.Stat(held); err != nil; _, err = os.Stat(held) {
+		if time.Now().After(deadline) {
+			t.Fatal("the query never reached the helper")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// the scan the search woke the indexer for is over, so only reading the results again can find the change: no
+	// scan has set scanned for a second, and each takes milliseconds here
+	r := s.roots[canonical(repo)]
+	for {
+		r.mu.Lock()
+		idle := time.Since(r.scanned) > time.Second
+		r.mu.Unlock()
+		if idle {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the folder never stopped being scanned")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// nobody says so: the user's editor, say
+	write(t, repo, "src/a.txt", "steady thread\n")
+	os.WriteFile(release, nil, 0o644)
+	var a answer
+	select {
+	case a = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the search did not finish")
+	}
+	if a.err != nil {
+		t.Fatal(a.err)
+	}
+	res := a.res
+	if res.Mode != "keyword" || res.PendingFiles != 1 || !strings.Contains(res.Reason, "being built") || !strings.Contains(res.Reason, "grep") {
+		t.Fatalf("%+v", res)
+	}
+	if got := paths(res); !slices.Equal(got, []string{"src/b.txt"}) {
+		t.Fatalf("%v", got)
+	}
+	ev := s.log.events("semantic_search")
+	last := ev[len(ev)-1]
+	if last["mode"] != "keyword" || last["vector"].(float64) != 0 || last["pendingFiles"].(float64) != 1 || last["dropped"].(float64) == 0 || last["verifiedAgain"] != true {
+		t.Fatalf("the log does not match the result: %v", last)
 	}
 }
 
