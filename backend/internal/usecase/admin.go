@@ -1647,7 +1647,7 @@ func (e *Engine) MoveReplica(id, to, heirID string) (*model.Replica, error) {
 			return model.Errorf(model.CodeNotFound, "找不到公司")
 		}
 		if (old.TeamID == model.StaffingID) == (to == model.StaffingID) {
-			return model.Errorf(model.CodeInvalid, "只能在公司和人力資源公司之間移動員工")
+			return model.Errorf(model.CodeInvalid, "只能在公司和移民署之間移動員工")
 		}
 		r, heir, err := e.checkFire(id, heirID)
 		if err != nil {

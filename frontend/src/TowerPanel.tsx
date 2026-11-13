@@ -9,9 +9,9 @@ import { MOCK } from './core/mode'
 import { useIsland } from './core/island'
 import { useStore } from './core/store'
 import {
-  allowPeer, approvePairing, blockPeer, clearOutgoing, goTo, isBlocked, kickPeer, leftPeer, pairWith, readTowers, rejectPairing, setPeerAccess, setProfile,
+  approvePairing, blockPeer, clearOutgoing, goTo, inboundOf, isBlocked, kickPeer, leftPeer, pairWith, readTowers, rejectPairing, setPeerInbound, setProfile,
   startPairing, stopPairing, unblockPeer, unpairPeer,
-  type Outgoing, type Pairing, type Peer, type PeerAccess, type PeerStatus, type Towers, type Visitor,
+  type Outgoing, type Pairing, type Peer, type PeerInbound, type PeerStatus, type Towers, type Visitor,
 } from './core/towers'
 
 /** How often the open panel reads the tower again, in milliseconds. */
@@ -195,13 +195,8 @@ function PeerRow({ peer, me, here, refresh }: { peer: Peer; me: number; here: bo
           {going ? tr('檢查中…') : tr('前往')}
         </button>}
       <div className="fx-tower-acts">
-        <label className="fx-tower-allow">
-          <input type="checkbox" className="fx-tick" checked={peer.allowInbound} disabled={busy || MOCK} aria-describedby={nameId}
-            onChange={(e) => { const on = e.target.checked; void run(() => allowPeer(peer.id, on)) }} />
-          {tr('允許它操作我')}
-        </label>
-        {peer.allowInbound && <AccessSwitch access={peer.access} disabled={busy || MOCK} label={nameId}
-          onChange={(a) => void run(() => setPeerAccess(peer.id, a))} />}
+        <InboundSwitch inbound={inboundOf(peer)} disabled={busy || MOCK} label={nameId}
+          onChange={(to) => void run(() => setPeerInbound(peer.id, to))} />
         <button type="button" className={asking ? 'fx-tool fx-tool-ask fx-hit' : 'fx-tool fx-hit fx-tower-unpair'} disabled={busy}
           aria-describedby={nameId} onClick={unpair} onBlur={() => setAsking(false)}>
           {asking ? tr('確定解除配對') : tr('解除配對')}
@@ -222,22 +217,20 @@ function PeerRow({ peer, me, here, refresh }: { peer: Peer; me: number; here: bo
 /** A clock time, for when a block ends. */
 const timeOf = (unix: number) => new Date(unix * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
-const ACCESS: readonly PeerAccess[] = ['view', 'operate']
-const ACCESS_LABELS = { view: '檢視', operate: '操作#access' } as const satisfies Record<PeerAccess, string>
+const INBOUND: readonly PeerInbound[] = ['off', 'view', 'operate']
+const INBOUND_LABELS = { off: '不允許', view: '檢視', operate: '操作#access' } as const satisfies Record<PeerInbound, string>
 
-/** Whether a computer let in may only look, or work this island too. */
-function AccessSwitch({ access: given, disabled, label, onChange }: { access: PeerAccess; disabled: boolean; label: string; onChange: (a: PeerAccess) => void }) {
+/** Whether a paired computer may come in at all, and if so only look or work this island too. */
+function InboundSwitch({ inbound, disabled, label, onChange }: { inbound: PeerInbound; disabled: boolean; label: string; onChange: (to: PeerInbound) => void }) {
   const name = useId()
-  // only an explicit grant shows as operate; anything missing or unknown is view, as the backend treats it
-  const access: PeerAccess = given === 'operate' ? 'operate' : 'view'
   return (
     <div className="fx-switcher fx-tower-access" role="radiogroup" aria-labelledby={label}
-      style={{ '--count': ACCESS.length, '--at': ACCESS.indexOf(access) } as CSSProperties}>
+      style={{ '--count': INBOUND.length, '--at': INBOUND.indexOf(inbound) } as CSSProperties}>
       <span className="fx-switcher-thumb" aria-hidden="true" />
-      {ACCESS.map((a) => (
+      {INBOUND.map((a) => (
         <label key={a} className="fx-switcher-option">
-          <input type="radio" name={name} checked={a === access} disabled={disabled} onChange={() => onChange(a)} />
-          <span>{tr(ACCESS_LABELS[a])}</span>
+          <input type="radio" name={name} checked={a === inbound} disabled={disabled} onChange={() => onChange(a)} />
+          <span>{tr(INBOUND_LABELS[a])}</span>
         </label>
       ))}
     </div>

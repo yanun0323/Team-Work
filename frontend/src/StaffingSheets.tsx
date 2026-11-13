@@ -1,4 +1,4 @@
-// The sheets that move employees in and out of the staffing agency (人力資源公司), and copy one from another
+// The sheets that move employees in and out of the staffing agency (移民署), and copy one from another
 // computer's island into this computer's. Each one is all or nothing: the sheet waits for the answer and stays open
 // with what went wrong.
 
@@ -64,7 +64,7 @@ export function MoveSheet({ id, onDone, ...h }: Head & { id: string; onDone: () 
     <form className="fx-d-form" onSubmit={go} aria-busy={busy}>
       <header className="fx-d-head fx-d-who">
         <PixelFace look={r.look} name={r.name} size={52} />
-        <Heading {...h}>{shared ? tr('把 {name} 移到公司', { name: r.name }) : tr('把 {name} 移到人力資源公司', { name: r.name })}</Heading>
+        <Heading {...h}>{shared ? tr('把 {name} 移到公司', { name: r.name }) : tr('把 {name} 移到移民署', { name: r.name })}</Heading>
       </header>
       {shared && (
         companies.length
@@ -115,7 +115,7 @@ export function CopyHomeSheet({ id, ...h }: Head & { id: string }) {
     <div className="fx-d-form">
       <header className="fx-d-head fx-d-who">
         <PixelFace look={r.look} name={r.name} size={52} />
-        <Heading {...h}>{tr('把 {name} 複製到我的人力資源公司', { name: r.name })}</Heading>
+        <Heading {...h}>{tr('把 {name} 複製到我的移民署', { name: r.name })}</Heading>
       </header>
       {loadError ? (
         <div role="alert">
@@ -166,7 +166,7 @@ export function CopyForm({ preview, send }: {
   if (done) {
     return (
       <div role="status">
-        <p>{tr('{name} 已在你的人力資源公司，記憶是空的', { name: done.name })}</p>
+        <p>{tr('{name} 已在你的移民署，記憶是空的', { name: done.name })}</p>
         {done.missing.length > 0 && (
           <Section name={tr('要重新指定的技能來源')}>
             <ul className="fx-d-list">{done.missing.map((m) => <li key={m}><code>{m}</code></li>)}</ul>

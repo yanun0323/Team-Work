@@ -521,7 +521,7 @@ export function World() {
     const staffing: LabelSpec = {
       id: 'fusion-staffing', at: [sx, STAFFING.h + 1.6, sz],
       tone: hovered === STAFFING_HOVER && !open && !settingsOpen && !placing && !editing ? 'fusion lifted' : 'fusion',
-      text: <span className="fx-tag">{tr('人力資源公司')}</span>,
+      text: <span className="fx-tag">{tr('移民署')}</span>,
       onClick: selectStaffing,
     }
     const tags = town.lots.map((l, i): LabelSpec => {

@@ -72,8 +72,12 @@ export const approvePairing = (requestId: string) => localRequest<Peer>('POST', 
 export const rejectPairing = (requestId: string) => localRequest('POST', '/towers/pairing/reject', { requestId })
 export const pairWith = (address: string) => localRequest<Outgoing>('POST', '/towers/pair', { address })
 export const clearOutgoing = () => localRequest('DELETE', '/towers/outgoing')
-export const allowPeer = (id: string, allowInbound: boolean) => localRequest<Peer>('PATCH', `/towers/peers/${encodeURIComponent(id)}`, { allowInbound })
-export const setPeerAccess = (id: string, access: PeerAccess) => localRequest<Peer>('PATCH', `/towers/peers/${encodeURIComponent(id)}`, { access })
+/** What a paired computer may do here: nothing, or come in to view or operate. */
+export type PeerInbound = 'off' | PeerAccess
+export const inboundOf = (p: Pick<Peer, 'allowInbound' | 'access'>): PeerInbound => (!p.allowInbound ? 'off' : p.access === 'operate' ? 'operate' : 'view')
+/** Shuts a paired computer out, or lets it in with that access, in one request. */
+export const setPeerInbound = (id: string, to: PeerInbound) =>
+  localRequest<Peer>('PATCH', `/towers/peers/${encodeURIComponent(id)}`, to === 'off' ? { allowInbound: false } : { allowInbound: true, access: to })
 export const setProfile = (name: string) => localRequest<Towers['me']>('PUT', '/towers/profile', { name })
 export const kickPeer = (id: string) => localRequest('POST', `/towers/peers/${encodeURIComponent(id)}/kick`)
 export const blockPeer = (id: string, span: 'hour' | 'manual') => localRequest<Peer>('POST', `/towers/peers/${encodeURIComponent(id)}/block`, { for: span })

@@ -24,6 +24,7 @@ import { UNIT } from './core/voxel/kit'
 import { boxOnScreen, ISO_DIR, SCREEN_RIGHT, SCREEN_UP } from './camera'
 import { CELL, FLOOR_CELLS, floorsOf, footprintOf, hash, rectCenter, spotCenter, type BuildingLook, type BuildingStyle, type Lot, type Spot, type Town } from './layout'
 import { Fade } from './Fade'
+import { HoverShade } from './HoverShade'
 import { Merged, mergeParts } from './Merged'
 import { usePrefs } from './prefs'
 import { NOOK_COUNTER, NOOK_D, NOOK_W, OFFICE_SCALE, officePlan, WALL, type Area, type OfficePlan } from './office'
@@ -562,6 +563,12 @@ export function Building({ lot, town, open, cut = false, another, hover, onHover
   const [x, z] = rectCenter(town, lot.building)
   const detail = usePrefs((s) => s.detail)
   const grounds = useMemo(() => plotBoxes(town, lot, detail), [town, lot, detail])
+  // the plot's paving and street furniture are drawn with the whole town's (World.tsx): the shade lays its own over them
+  const floor = useMemo(() => {
+    const [px, pz] = rectCenter(town, lot.plot)
+    return { x: px - x, z: pz - z, w: lot.plot.w * CELL, d: lot.plot.d * CELL }
+  }, [town, lot, x, z])
+  const furniture = useMemo(() => propBoxes(town, lot, detail).map((b): [V3, V3] => [[b.p[0] - x, b.p[1], b.p[2] - z], b.s]), [town, lot, detail, x, z])
   const [hidden, setHidden] = useState(false)
   const busy = useStore((s) => teamBusy(s.world, lot.id))
   const size = useThree((s) => s.size)
@@ -584,7 +591,7 @@ export function Building({ lot, town, open, cut = false, another, hover, onHover
       <Fade show={!open && !cut && !hidden}><Exterior look={lot} w={lot.building.w * CELL} d={lot.building.d * CELL} floors={lot.floors} decor={lot.decor} busy={busy} /></Fade>
       {/* the paved plot and its street furniture count as the building too, for the pointer and the shade */}
       {!hidden && <PlotHit boxes={grounds} />}
-      <Shade lot={lot} grounds={grounds} on={hover && !open && !cut && !hidden} />
+      <HoverShade on={hover && !open && !cut && !hidden} floor={floor} boxes={furniture} />
       <Fade show={open || cut}><CutAway lot={lot} /></Fade>
     </group>
   )
@@ -723,28 +730,15 @@ function Exterior({ look, w, d, floors, decor, busy }: { look: BuildingLook; w: 
   )
 }
 
-/** How dark the hover shade gets (blended in linear light, so this reads as about a quarter darker on screen), and how fast it comes and goes. */
-const SHADE = 0.5
-const SHADE_RATE = 8
-
 /**
- * A building's plot, as boxes centred on the building: thin layers over the paving round it (not under it,
- * so nothing is shaded twice), and the lamps, planters and benches on it, part for part as `propBoxes` draws them.
+ * A building's plot, as boxes centred on the building, for the pointer: a thin layer over the whole plot, under the
+ * building too (its ground floor is set back under the floors above, and the ground round it there is the building's),
+ * and the lamps, planters and benches on it, part for part as `propBoxes` draws them, a hair bigger.
  */
 export function plotBoxes(town: Town, lot: Lot, detail: boolean): Array<[V3, V3]> {
   const [bx, bz] = rectCenter(town, lot.building)
-  const { plot, building: b } = lot
-  // the paving in four strips: in front of and behind the building across the plot, then either side of it
-  const strips = [
-    { x: plot.x, z: plot.z, w: plot.w, d: b.z - plot.z },
-    { x: plot.x, z: b.z + b.d, w: plot.w, d: plot.z + plot.d - b.z - b.d },
-    { x: plot.x, z: b.z, w: b.x - plot.x, d: b.d },
-    { x: b.x + b.w, z: b.z, w: plot.x + plot.w - b.x - b.w, d: b.d },
-  ].filter((r) => r.w > 0 && r.d > 0)
-  const out: Array<[V3, V3]> = strips.map((r) => {
-    const [x, z] = rectCenter(town, r)
-    return [[x - bx, 0.06, z - bz], [r.w * CELL, 0.12, r.d * CELL]]
-  })
+  const [px, pz] = rectCenter(town, lot.plot)
+  const out: Array<[V3, V3]> = [[[px - bx, 0.06, pz - bz], [lot.plot.w * CELL, 0.12, lot.plot.d * CELL]]]
   for (const p of propBoxes(town, lot, detail)) out.push([[p.p[0] - bx, p.p[1], p.p[2] - bz], [p.s[0] + 0.02, p.s[1] + 0.02, p.s[2] + 0.02]])
   return out
 }
@@ -767,31 +761,6 @@ function PlotHit({ boxes }: { boxes: Array<[V3, V3]> }) {
   const geometry = useMemo(() => plotHitGeometry(boxes), [boxes])
   useEffect(() => () => geometry.dispose(), [geometry])
   return <mesh geometry={geometry} material={unseen} visible={false} />
-}
-
-/** A see-through grey box over the building, and layers over its plot, while the pointer is on it: it can be clicked. */
-function Shade({ lot, grounds, on }: { lot: Lot; grounds: Array<[V3, V3]>; on: boolean }) {
-  const w = lot.building.w * CELL
-  const d = lot.building.d * CELL
-  const h = lot.floors * FLOOR + 0.16 + PARAPET
-  const ref = useRef<THREE.Group>(null)
-  const mat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#1c1f2e', transparent: true, opacity: 0, depthWrite: false }), [])
-  useEffect(() => () => mat.dispose(), [mat])
-  useLayoutEffect(() => ref.current?.traverse((o) => o.layers.set(NO_OUTLINE_LAYER)), [grounds])
-  useFrame((_, dt) => {
-    const to = on ? SHADE : 0
-    mat.opacity += Math.sign(to - mat.opacity) * Math.min(Math.abs(to - mat.opacity), SHADE * SHADE_RATE * dt)
-    if (ref.current) ref.current.visible = mat.opacity > 0.001
-  })
-  const boxes: Array<[V3, V3]> = [[[0, h / 2, 0], [w + 0.06, h + 0.04, d + 0.06]], ...grounds]
-  // drawn over the building and its plot, never picked by the pointer itself
-  return (
-    <group ref={ref}>
-      {boxes.map(([p, s], i) => (
-        <mesh key={i} position={p} scale={s} material={mat} raycast={() => null} renderOrder={2}><boxGeometry /></mesh>
-      ))}
-    </group>
-  )
 }
 
 // ---------------------------------------------------------------- cut away

@@ -198,7 +198,7 @@ export interface FileInfo {
 }
 
 /**
- * The island's staffing agency (人力資源公司) as an employee's `teamId`: its employees are shared, and every company
+ * The island's staffing agency (移民署) as an employee's `teamId`: its employees are shared, and every company
  * can pick them, working in that company. It is no company of its own: no folder, no tasks.
  */
 export const STAFFING_ID = 'staffing'

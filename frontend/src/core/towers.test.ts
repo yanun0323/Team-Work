@@ -5,7 +5,7 @@ vi.mock('./mode', () => ({ MOCK: false }))
 import { emptyWorld } from './backend'
 import { useIsland } from './island'
 import { useStore } from './store'
-import { goHome, goTo, isBlocked, leftPeer, presencePlace, reportPresence, visitorsAt, watchIsland, watchVisitors, useVisitors, type Peer } from './towers'
+import { goHome, goTo, inboundOf, isBlocked, leftPeer, setPeerInbound, presencePlace, reportPresence, visitorsAt, watchIsland, watchVisitors, useVisitors, type Peer } from './towers'
 import { readChat, seeSource } from './ops'
 import { DEFAULT_PREFS, usePrefs } from '../prefs'
 import { setFailureHandler } from './ops'
@@ -216,5 +216,25 @@ describe('visitors on this island', () => {
     expect(isBlocked({ blockedUntil: 200 }, 100)).toBe(true)
     expect(isBlocked({ blockedUntil: 200 }, 300)).toBe(false)
     expect(isBlocked({})).toBe(false)
+  })
+})
+
+describe("a paired computer's switch", () => {
+  it('reads shut out, view or operate, unknown access being view', () => {
+    expect(inboundOf(peer({ allowInbound: false, access: 'operate' }))).toBe('off')
+    expect(inboundOf(peer({ allowInbound: true, access: 'operate' }))).toBe('operate')
+    expect(inboundOf(peer({ allowInbound: true, access: 'admin' as never }))).toBe('view')
+  })
+
+  it('shuts out, or lets in with the access picked, in one request', async () => {
+    const f = answer(200, peer())
+    vi.stubGlobal('fetch', f)
+    await setPeerInbound('b', 'off')
+    await setPeerInbound('b', 'operate')
+    const sent = (f.mock.calls as unknown as Array<[string, RequestInit]>).map(([url, init]) => [url, init.method, JSON.parse(String(init.body))])
+    expect(sent).toEqual([
+      ['/api/v1/towers/peers/b', 'PATCH', { allowInbound: false }],
+      ['/api/v1/towers/peers/b', 'PATCH', { allowInbound: true, access: 'operate' }],
+    ])
   })
 })

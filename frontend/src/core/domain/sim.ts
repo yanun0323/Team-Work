@@ -1498,7 +1498,7 @@ export function moveReplica(w: World, id: string, to: string, heirId: string): R
   const r = w.replicas[id]
   if (!r) throw new Error(`找不到員工`)
   if (to !== STAFFING_ID && !w.teams[to]) throw new Error(`找不到公司`)
-  if ((r.teamId === STAFFING_ID) === (to === STAFFING_ID)) throw new Error(`只能在公司和人力資源公司之間移動員工`)
+  if ((r.teamId === STAFFING_ID) === (to === STAFFING_ID)) throw new Error(`只能在公司和移民署之間移動員工`)
   checkFire(w, id, heirId)
   const own = w.blueprints[r.blueprintId]?.owner === r.id ? structuredClone(w.blueprints[r.blueprintId]) : undefined
   const moved: Replica = { ...structuredClone(r), id: uid(w, 'rep'), teamId: to, memory: [], hiredAt: w.now }

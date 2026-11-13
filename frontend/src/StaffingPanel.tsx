@@ -1,4 +1,4 @@
-// The staffing agency's file (人力資源公司): a drawer over the right half of the map, like a company's, holding only its
+// The staffing agency's file (移民署): a drawer over the right half of the map, like a company's, holding only its
 // employees, whom every company on the island can pick to work. They are hired here, and moved in from a company or
 // out to one from each one's sheet. It has no folder, tasks or settings: it is the island's own, not a company.
 
@@ -50,7 +50,7 @@ export function StaffingPanel({ leaving, onGone }: {
             <div className="fx-title">
               <StaffingIcon />
               <div className="fx-title-text">
-                <h1 id="fx-staffing-title" ref={title} tabIndex={-1}>{tr('人力資源公司')}</h1>
+                <h1 id="fx-staffing-title" ref={title} tabIndex={-1}>{tr('移民署')}</h1>
               </div>
             </div>
           </header>

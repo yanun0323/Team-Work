@@ -2079,8 +2079,6 @@ button.fx-ticket-tag:hover { color: var(--ink); }
 .fx-tower-status:is([data-status="denied"], [data-status="unpaired"], [data-status="incompatible"]) { color: var(--accent); }
 .fx-tower-status:is([data-status="denied"], [data-status="unpaired"], [data-status="incompatible"]) .fx-tower-dot { background: var(--accent); }
 .fx-tower-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 10px; }
-.fx-tower-allow { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
-.fx-tower-allow:has(input:disabled) { cursor: default; opacity: 0.6; }
 .fx-tower-here { transform: rotate(-2deg); }
 .fx-tower-unpair { padding: 0 10px; margin-inline-end: -10px; color: var(--muted); }
 .fx-tower-acts > .fx-tool-ask { margin-inline-end: -12px; }
