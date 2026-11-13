@@ -76,6 +76,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/settings/open-folder", s.openSettingsFolder)
 	api.PUT("/settings/language", s.setLanguage)
 	api.PATCH("/settings/preferences", s.updatePreferences)
+	api.GET("/settings/semantic-search", s.semanticStatus)
 	api.PATCH("/tutorial", s.updateTutorial)
 	api.GET("/settings/global-prompt", s.globalPrompt)
 	api.PUT("/settings/global-prompt", s.setGlobalPrompt)
@@ -1401,6 +1402,11 @@ func (s *Server) updatePreferences(c echo.Context) error {
 		return err
 	}
 	return done(c, s.engine.UpdatePreferences(in))
+}
+
+// semanticStatus is how the experimental semantic search is doing on this computer; reading it starts nothing.
+func (s *Server) semanticStatus(c echo.Context) error {
+	return c.JSON(http.StatusOK, s.engine.SemanticStatus())
 }
 
 func (s *Server) updateTutorial(c echo.Context) error {

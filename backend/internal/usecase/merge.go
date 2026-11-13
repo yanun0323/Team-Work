@@ -292,7 +292,7 @@ func mergeFailureState(f *model.MergeFailure) string {
 }
 
 func (e *Engine) resolveConflict(ctx context.Context, in mergeRun) error {
-	list := tools.For([]enum.Tool{enum.ToolReadFile, enum.ToolWriteFile, enum.ToolRunCommand}, tools.Env{Output: e.outputRoot(in.taskID)})
+	list := tools.For([]enum.Tool{enum.ToolReadFile, enum.ToolWriteFile, enum.ToolRunCommand}, tools.Env{Output: e.outputRoot(in.taskID), Semantic: e.semantic, Task: in.taskID, Replica: replicaOf(in.r)})
 	specs := make([]model.ToolSpec, len(list))
 	byName := make(map[string]adapter.Tool, len(list))
 	for i, tool := range list {

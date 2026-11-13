@@ -318,7 +318,7 @@ func (e *Engine) UpdatePreferences(patch map[string]json.RawMessage) error {
 	if patch == nil {
 		return model.Errorf(model.CodeInvalid, "preferences must be an object")
 	}
-	return e.doSettings(func() error {
+	err := e.doSettings(func() error {
 		next, err := model.MergePreferences(e.w.Preferences, patch)
 		if err != nil {
 			return settingsError("preferences.yaml", err)
@@ -337,6 +337,16 @@ func (e *Engine) UpdatePreferences(patch map[string]json.RawMessage) error {
 		}
 		return nil
 	})
+	// Semantic search stops as soon as it is turned off and saved; turning it on waits for a restart.
+	if _, set := patch["semanticSearch"]; set && err == nil {
+		e.mu.Lock()
+		on := e.w.Preferences.SemanticSearch
+		e.mu.Unlock()
+		if !on {
+			e.semantic.Disable()
+		}
+	}
+	return err
 }
 
 // soundPreference says whether a preference is one of the music and sound settings.

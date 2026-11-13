@@ -12,6 +12,16 @@ sparkle="$PWD/.cache/sparkle/$sparkle_version"
 # Releases live on GitHub, tagged v<version>; the app reads the newest appcast from there (SUFeedURL in macos/Info.plist).
 releases=https://github.com/yanun0323/Team-Work/releases
 
+# Semantic search's helper runs Core AI, which exists only on macOS 27 on Apple silicon: it is built for arm64 and
+# macOS 27 alone, apart from the universal app and backend, which keep running on macOS 13.3 and Intel.
+build_semantic_helper() {
+    local out="$1"
+    mkdir -p "$(dirname "$out")"
+    xcrun swiftc -swift-version 5 -O -target arm64-apple-macos27.0 -framework CoreAI -framework ImageIO -framework CoreGraphics \
+        -framework AVFoundation -framework Accelerate -module-name SemanticHelper \
+        macos/semantic-helper/Sources/EmbeddingGemma2CoreAI/*.swift macos/semantic-helper/Sources/semantic-helper/main.swift -o "$out"
+}
+
 fetch_sparkle() {
     [ -d "$sparkle/Sparkle.framework" ] && return
     local tmp
@@ -27,6 +37,11 @@ fetch_sparkle() {
 }
 
 case "${1:-build}" in
+semantic-helper)
+    # For development: the backend finds it through TEAM_WORK_SEMANTIC_HELPER.
+    build_semantic_helper "$PWD/dist/semantic-helper"
+    echo "Built: $PWD/dist/semantic-helper"
+    ;;
 build)
     fetch_sparkle
     npm --prefix frontend ci
@@ -57,6 +72,10 @@ build)
     done
     xcrun lipo -create "$stage/server-arm64" "$stage/server-x86_64" -output "$bundle/Contents/Helpers/company-server"
     xcrun lipo -create "$stage/app-arm64" "$stage/app-x86_64" -output "$bundle/Contents/MacOS/Team Work"
+    build_semantic_helper "$bundle/Contents/Helpers/semantic-helper"
+    # The helper includes EmbeddingGemma-2-CoreAI's Swift code, under Apache-2.0 with its NOTICE.
+    mkdir -p "$bundle/Contents/Resources/semantic-helper"
+    cp macos/semantic-helper/LICENSE macos/semantic-helper/NOTICE macos/semantic-helper/UPSTREAM "$bundle/Contents/Resources/semantic-helper/"
     plutil -lint "$plist"
     # Replace only the generated bundle, never a source or user data directory.
     rm -rf "$app"
@@ -70,6 +89,7 @@ sign)
     codesign --force --options runtime --timestamp --sign "$identity" "$framework/Versions/B/Updater.app"
     codesign --force --options runtime --timestamp --sign "$identity" "$framework"
     codesign --force --options runtime --timestamp --sign "$identity" --entitlements macos/server.entitlements.plist "$app/Contents/Helpers/company-server"
+    codesign --force --options runtime --timestamp --sign "$identity" "$app/Contents/Helpers/semantic-helper"
     codesign --force --options runtime --timestamp --sign "$identity" "$app"
     codesign --verify --deep --strict --verbose=2 "$app"
     ;;
@@ -99,5 +119,5 @@ appcast)
     "$sparkle/bin/generate_appcast" --download-url-prefix "$releases/download/v$version/" "$release"
     echo "Upload to the GitHub release: $release/$(basename "$zip") and $release/appcast.xml"
     ;;
-*) echo "Usage: $0 {build|sign|notarize|appcast}" >&2; exit 2 ;;
+*) echo "Usage: $0 {build|semantic-helper|sign|notarize|appcast}" >&2; exit 2 ;;
 esac

@@ -34,6 +34,10 @@ official-source:
 build:
 	@./scripts/macos.sh build
 
+## semantic-helper: build only semantic search's helper into dist (arm64, macOS 27); run the backend with TEAM_WORK_SEMANTIC_HELPER=$(PWD)/dist/semantic-helper
+semantic-helper:
+	@./scripts/macos.sh semantic-helper
+
 ## sign: sign the macOS app with Developer ID
 sign:
 	@./scripts/macos.sh sign

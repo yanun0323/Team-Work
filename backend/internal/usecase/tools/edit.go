@@ -14,7 +14,8 @@ import (
 const bom = "\uFEFF"
 
 // Edit replaces exact text in a file in the working directory. It comes with write_file.
-type Edit struct{}
+// Edit replaces text in a file. Changed, when set, hears each file it changed.
+type Edit struct{ Changed func(path, source string) }
 
 func (Edit) Spec() model.ToolSpec {
 	return model.ToolSpec{Name: "edit_file", Description: "Replace exact text in a file. Each edit's old text must appear exactly once in the file as it is before any edit, and edits must not overlap. Include enough surrounding text to make old unique.",
@@ -27,7 +28,7 @@ func (Edit) Spec() model.ToolSpec {
 			`},"required":["path","edits"]}`)}
 }
 
-func (Edit) Run(_ context.Context, cwd string, raw json.RawMessage) model.ToolResult {
+func (t Edit) Run(_ context.Context, cwd string, raw json.RawMessage) model.ToolResult {
 	var args struct {
 		Path  string `json:"path"`
 		Edits []struct {
@@ -112,6 +113,9 @@ func (Edit) Run(_ context.Context, cwd string, raw json.RawMessage) model.ToolRe
 	}
 	if err := os.WriteFile(path, []byte(out), info.Mode().Perm()); err != nil {
 		return fail("%s", problem(err))
+	}
+	if t.Changed != nil {
+		t.Changed(path, "edit_file")
 	}
 	if len(spans) == 1 {
 		return model.ToolResult{Text: "edited " + args.Path + " (1 replacement)"}

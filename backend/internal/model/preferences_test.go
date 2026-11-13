@@ -244,3 +244,22 @@ func TestIdleFollowTarget(t *testing.T) {
 		}
 	}
 }
+
+func TestSemanticSearchIsOffByDefaultAndForOldFiles(t *testing.T) {
+	if DefaultPreferences().SemanticSearch {
+		t.Fatal("semantic search is on by default")
+	}
+	var p Preferences
+	if err := json.Unmarshal([]byte(`{"shadows":false}`), &p); err != nil || p.SemanticSearch {
+		t.Fatalf("%v %+v", err, p)
+	}
+	next, err := MergePreferences(p, map[string]json.RawMessage{"semanticSearch": json.RawMessage(`true`)})
+	if err != nil || !next.SemanticSearch {
+		t.Fatalf("%v %+v", err, next)
+	}
+	for _, bad := range []string{`null`, `"yes"`, `1`} {
+		if _, err := MergePreferences(p, map[string]json.RawMessage{"semanticSearch": json.RawMessage(bad)}); err == nil {
+			t.Fatalf("%s was accepted", bad)
+		}
+	}
+}

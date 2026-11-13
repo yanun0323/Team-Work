@@ -32,6 +32,7 @@ import { DEFAULT_EFFORT, effortsOf, modelGroups, modelsOf } from './crew'
 import { takeAirportTab, tutorialOf, updateTutorial } from './tutorial'
 import { composing } from './ime'
 import { Stats } from './Stats'
+import { SemanticSearchSection, workRunning } from './SemanticSearch'
 import { SourcesTab } from './Sources'
 import { VERSION } from './update'
 import type { Daylight } from './daylight'
@@ -52,9 +53,7 @@ const ISSUE_URL = `https://github.com/yanun0323/Team-Work/issues/new?body=${enco
  * for the message; a page in a browser has no such listener and never shows this.
  */
 export function QuitTool() {
-  const busy = useStore((s) => Object.values(s.world.subTasks).some((x) => x.status === 'progressing' && !x.cancelled)
-    || Object.values(s.world.tasks).some((t) => t.stage === 'merging')
-    || Object.values(s.world.chats).some((c) => c.replyAt !== undefined))
+  const busy = useStore(workRunning)
   const [asking, setAsking] = useState(false)
   const quit = () => (window as unknown as { webkit: { messageHandlers: { quit: { postMessage: (x: null) => void } } } }).webkit.messageHandlers.quit.postMessage(null)
   return (
@@ -609,6 +608,7 @@ export function PrefsPage() {
       {!MOCK && <SystemSection />}
       {!MOCK && <CompactSection />}
       {!MOCK && <AdvancedSection />}
+      <SemanticSearchSection />
       {!remote && <section className="fx-d-group" aria-labelledby="fx-prefs-tutorial">
         <h4 id="fx-prefs-tutorial">{tr('教學')}</h4>
         <TutorialActs />

@@ -21,6 +21,8 @@ const killGrace = 2 * time.Second
 type Command struct {
 	// OutputDir keeps output too long to show; the system's temporary folder when empty.
 	OutputDir string
+	// Changed, when set, hears that the command may have changed files in the working directory.
+	Changed func(path, source string)
 }
 
 func (Command) Spec() model.ToolSpec {
@@ -55,6 +57,9 @@ func (t Command) RunStream(ctx context.Context, cwd string, raw json.RawMessage,
 	}
 	if strings.TrimSpace(args.Command) == "" {
 		return fail("command is required")
+	}
+	if t.Changed != nil {
+		defer t.Changed(cwd, "run_command")
 	}
 	runCtx := ctx
 	if args.Timeout > 0 {

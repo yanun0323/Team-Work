@@ -1,0 +1,7 @@
+Sources/EmbeddingGemma2CoreAI/ is copied unchanged from EmbeddingGemma-2-CoreAI v1.2
+https://huggingface.co/EverPaper/embeddinggemma-2-coreai
+revision ae7b263853425a991f3ed7472298f10cc97ec40f (swift/Sources/EmbeddingGemma2CoreAI)
+Licensed under the Apache License, Version 2.0: see LICENSE and NOTICE in this folder.
+
+Sources/semantic-helper/ is Team Work's own code: a long-running process that the backend drives over
+stdin/stdout, one JSON object per line.

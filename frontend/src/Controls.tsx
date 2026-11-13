@@ -209,12 +209,12 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, on
 const tidy = (v: number) => Math.round(v * 1000) / 1000
 
 /** A field that is on or off: its label, then a tick box. */
-export function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+export function Toggle({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   const id = useId()
   return (
     <div className="fx-field">
       <label htmlFor={id}>{label}</label>
-      <input id={id} type="checkbox" className="fx-tick" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input id={id} type="checkbox" className="fx-tick" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
     </div>
   )
 }

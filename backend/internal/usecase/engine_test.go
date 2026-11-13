@@ -23,6 +23,7 @@ import (
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
 	"github.com/yanun0323/Team-Work/internal/repository"
+	"github.com/yanun0323/Team-Work/internal/semantic"
 	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
@@ -186,6 +187,8 @@ type rig struct {
 	team   *model.Team
 	owner  *model.Replica
 	flow   *model.Workflow
+	// semantic is the semantic search the engine gets, nil for none
+	semantic *semantic.Service
 }
 
 // officialRepo is where the official source lives; a test reads the copy in testdata/official in its place.
@@ -239,7 +242,7 @@ func newEngine(t *testing.T, r *rig) {
 		t.Fatal(err)
 	}
 	e, err := usecase.NewEngine(context.Background(), usecase.Options{
-		Store: store, Git: offline{repository.NewGit(r.data)}, Providers: r.fake, DataDir: r.data, Log: zerolog.Nop(),
+		Store: store, Git: offline{repository.NewGit(r.data)}, Providers: r.fake, DataDir: r.data, Log: zerolog.Nop(), Semantic: r.semantic,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -253,7 +256,13 @@ func newEngine(t *testing.T, r *rig) {
 
 func newRig(t *testing.T, reply func(model.ModelRequest) (model.ModelReply, error)) *rig {
 	t.Helper()
-	r := &rig{t: t, fake: &script{reply: reply}, data: t.TempDir(), folder: t.TempDir()}
+	return newRigWith(t, reply, nil)
+}
+
+// newRigWith is newRig with semantic search given to the engine.
+func newRigWith(t *testing.T, reply func(model.ModelRequest) (model.ModelReply, error), sem *semantic.Service) *rig {
+	t.Helper()
+	r := &rig{t: t, fake: &script{reply: reply}, data: t.TempDir(), folder: t.TempDir(), semantic: sem}
 	newEngine(t, r)
 	ctx := context.Background()
 	team, err := r.e.CreateTeam(ctx, usecase.NewTeam{Name: "公司", Folder: r.folder})

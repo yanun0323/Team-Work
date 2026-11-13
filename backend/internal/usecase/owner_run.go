@@ -582,7 +582,7 @@ func (e *Engine) ownerFailed(t *model.Task, in *ownerRun, err error) {
 // they spend counts towards the task's budget.
 func (e *Engine) ownerTurn(in *ownerRun) *turn {
 	key := ownerKey(in.taskID)
-	list := tools.For(in.spec.allowed, tools.Env{Read: []string{e.attachmentRoot(in.taskID)}, Search: e.search})
+	list := tools.For(in.spec.allowed, tools.Env{Read: []string{e.attachmentRoot(in.taskID)}, Search: e.search, Semantic: e.semantic, Task: in.taskID, Replica: in.ownerID})
 	list = append(list, e.ownerTools(in)...)
 	list = append(list, funcTool{searchMemorySpec, e.searchMemoryTool(func() *string { return ptr(in.ownerID) })})
 	specs := make([]model.ToolSpec, len(list))

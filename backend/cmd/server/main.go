@@ -22,6 +22,7 @@ import (
 	"github.com/yanun0323/Team-Work/internal/providers"
 	"github.com/yanun0323/Team-Work/internal/providers/claude"
 	"github.com/yanun0323/Team-Work/internal/repository"
+	"github.com/yanun0323/Team-Work/internal/semantic"
 	"github.com/yanun0323/Team-Work/internal/tower"
 	"github.com/yanun0323/Team-Work/internal/usecase"
 )
@@ -65,16 +66,21 @@ func run() error {
 		return err
 	}
 	defer store.Close()
+	// Experimental semantic search: off unless the saved setting turns it on, and only on macOS 27 on Apple silicon.
+	// TEAM_WORK_SEMANTIC_HELPER points at a semantic-helper built outside the app, for development.
+	semanticSearch := semantic.New(semantic.Options{DataDir: cfg.DataDir, Log: log.Logger, Platform: semantic.Detect(os.Getenv("TEAM_WORK_SEMANTIC_HELPER"))})
+	defer semanticSearch.Close()
 	factory := providers.NewFactory(store, slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 	defer factory.Close()
 	engine, err := usecase.NewEngine(ctx, usecase.Options{
-		Store: store, Git: repository.NewGit(cfg.DataDir), Providers: factory, DataDir: cfg.DataDir, Log: log.Logger,
+		Store: store, Git: repository.NewGit(cfg.DataDir), Providers: factory, DataDir: cfg.DataDir, Log: log.Logger, Semantic: semanticSearch,
 	})
 	if err != nil {
 		return err
 	}
 	// runs stop first, so nothing is saved to a closing database
 	defer engine.Close()
+	engine.StartSemantic()
 	// a provider may have put out models since the last run
 	engine.RefreshStaleModels(0)
 	// a repo a blueprint names is kept as a source with no version until it is first read, and the official source

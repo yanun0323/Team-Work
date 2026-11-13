@@ -952,6 +952,21 @@ const en = {
   '任務的工作資料夾有未提交的檔案': 'The task\'s work tree has files not committed',
   '解衝突的模型呼叫失敗': 'The model call resolving the conflicts failed',
   '原因無法判斷': 'The reason could not be told',
+  '實驗性功能': 'Experimental',
+  '語意搜尋': 'Semantic search',
+  '重新啟動後生效': 'Takes effect after a restart',
+  '重新啟動 Team Work 後生效': 'Takes effect after restarting Team Work',
+  '下載模型中 {done} / {total} MB': 'Downloading the model {done} / {total} MB',
+  '下載模型中 {done} MB': 'Downloading the model {done} MB',
+  '編譯模型中': 'Compiling the model',
+  '建立索引中 {done} / {total} 個檔案': 'Indexing {done} / {total} files',
+  '可以使用': 'Ready',
+  '{message}，詳情見 {log}': '{message}. Details are in {log}',
+  '重新啟動中…': 'Restarting…',
+  '工作會中斷，確定重新啟動': 'Work will be interrupted. Confirm restart',
+  '確定重新啟動': 'Confirm restart',
+  '重新啟動': 'Restart',
+  '沒辦法重新啟動，請自行重新啟動 Team Work': 'Could not restart. Restart Team Work yourself',
 } satisfies Record<string, Text>
 
 export type Key = keyof typeof en

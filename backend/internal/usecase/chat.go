@@ -1095,7 +1095,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		}
 	}
 	read := append(append(roots, e.attachmentRoot(in.id)), in.spec.read...)
-	list := tools.For(in.spec.allowed, tools.Env{Read: read, Output: e.outputRoot(in.id), Search: e.search})
+	list := tools.For(in.spec.allowed, tools.Env{Read: read, Output: e.outputRoot(in.id), Search: e.search, Semantic: e.semantic, Task: in.id, Replica: replicaOf(in.r)})
 	list = append(list, e.chatAskUser(in))
 	// a company's chats read its terminal, the airport's (team "") the airport's
 	if slices.Contains(in.spec.allowed, enum.ToolReadFile) || slices.Contains(in.spec.allowed, enum.ToolRunCommand) {

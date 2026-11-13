@@ -760,7 +760,7 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 		allowed = slices.DeleteFunc(slices.Clone(allowed), func(x enum.Tool) bool { return x == enum.ToolWriteFile || x == enum.ToolRunCommand })
 	}
 	read := append(roots, e.attachmentRoot(in.taskID))
-	list := tools.For(allowed, tools.Env{Read: read, Output: e.outputRoot(in.taskID), Search: e.search})
+	list := tools.For(allowed, tools.Env{Read: read, Output: e.outputRoot(in.taskID), Search: e.search, Semantic: e.semantic, Task: in.taskID, Replica: replicaOf(in.r)})
 	if !in.talk {
 		list = append(list, imageTools(in.spec, read, nil)...)
 		list = append(list, e.agentTools(in)...)

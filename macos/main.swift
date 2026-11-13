@@ -19,6 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     // The startup screen, the same as #boot in frontend/index.html.
     private let bootPage = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "web/boot")
     private var stopping = false
+    // A restart the page asked for is under way: a new instance opens once this one has quit.
+    private var restarting = false
     private var startupTimer: Timer?
     private let origin = URL(string: "http://127.0.0.1:18787")!
     private let smoke = CommandLine.arguments.contains("--smoke-test")
@@ -59,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         configuration.userContentController.add(self, name: "notify")
         configuration.userContentController.add(self, name: "badge")
         configuration.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "pickFolder")
+        configuration.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "restart")
         webView = WKWebView(frame: .zero, configuration: configuration)
         // Lets Safari's Web Inspector attach to a signed release, where WebKit problems are otherwise invisible.
         webView.isInspectable = true
@@ -304,6 +307,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     // osascript dialog first has to be let into the foreground, which macOS can hold off for seconds.
     // Replies with the full path, or "" when cancelled.
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
+        if message.name == "restart" {
+            restart(message, replyHandler)
+            return
+        }
         guard message.frameInfo.securityOrigin.host == origin.host, window.attachedSheet == nil else {
             replyHandler("", nil)
             return
@@ -317,6 +324,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         panel.beginSheetModal(for: window) { result in
             replyHandler(result == .OK ? panel.url?.path ?? "" : "", nil)
         }
+    }
+
+    // Settings that take effect only on a new start, such as semantic search. Only our own page's main frame may ask,
+    // and it names nothing: the same app bundle opens again, with the same data folder, once this instance and its
+    // backend have stopped, so the new backend finds port 18787 free. Replies {accepted: true}, or an error.
+    private func restart(_ message: WKScriptMessage, _ replyHandler: @escaping (Any?, String?) -> Void) {
+        let from = message.frameInfo.securityOrigin
+        guard !smoke, ready, message.frameInfo.isMainFrame, from.protocol == origin.scheme, from.host == origin.host, from.port == (origin.port ?? 0) else {
+            replyHandler(nil, "restart is not allowed from this page")
+            return
+        }
+        guard !restarting, !stopping else {
+            replyHandler(nil, "Team Work is already quitting")
+            return
+        }
+        // Waits for this process to end, then opens the bundle again. Paths and the pid are arguments, never code.
+        var arguments = ["-c", "while /bin/kill -0 \"$1\" 2>/dev/null; do /bin/sleep 0.2; done; shift; exec /usr/bin/open -n \"$@\"", "sh", String(getpid())]
+        if let home = ProcessInfo.processInfo.environment["TEAM_WORK_HOME"], home.hasPrefix("/") {
+            arguments += ["--env", "TEAM_WORK_HOME=\(home)"]
+        }
+        arguments.append(Bundle.main.bundleURL.path)
+        let waiter = Process()
+        waiter.executableURL = URL(fileURLWithPath: "/bin/sh")
+        waiter.arguments = arguments
+        do {
+            try waiter.run()
+        } catch {
+            replyHandler(nil, "could not schedule the restart")
+            return
+        }
+        restarting = true
+        replyHandler(["accepted": true], nil)
+        // Quit the usual way: the backend saves and stops its processes first.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { NSApp.terminate(nil) }
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {

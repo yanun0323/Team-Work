@@ -69,6 +69,9 @@ type Preferences struct {
 	Compact256K  int `json:"compact256K"`
 	Compact128K  int `json:"compact128K"`
 	CompactSmall int `json:"compactSmall"`
+	// SemanticSearch is the experimental semantic_search tool, off by default; turning it on takes effect after a
+	// restart, turning it off at once.
+	SemanticSearch bool `json:"semanticSearch"`
 }
 
 // IdleFollowChoices are the waits, in seconds, IdleFollow may be set to; 0 is off.

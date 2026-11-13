@@ -27,6 +27,7 @@ import (
 	"github.com/yanun0323/Team-Work/internal/imagefit"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/semantic"
 )
 
 const (
@@ -55,6 +56,10 @@ type Env struct {
 	// Search is the search the engine shares, so its queue and cooldown hold across everyone; a
 	// default one when nil.
 	Search *Search
+	// Semantic is the experimental semantic search: semantic_search comes with read_file while it is on, and
+	// write_file, edit_file and run_command tell it what they changed. Task and Replica say who searches, for its log.
+	Semantic      *semantic.Service
+	Task, Replica string
 }
 
 // For returns the named tools.
@@ -67,15 +72,22 @@ func For(allowed []enum.Tool, env Env) []adapter.Tool {
 	if search == nil {
 		search = exa
 	}
+	var changed func(path, source string)
+	if env.Semantic.Active() {
+		changed = env.Semantic.Changed
+	}
 	var out []adapter.Tool
 	for _, t := range allowed {
 		switch t {
 		case enum.ToolReadFile:
 			out = append(out, Read{Extra: read})
+			if env.Semantic.Active() {
+				out = append(out, SemanticSearch{Service: env.Semantic, Task: env.Task, Replica: env.Replica})
+			}
 		case enum.ToolWriteFile:
-			out = append(out, Write{}, Edit{})
+			out = append(out, Write{Changed: changed}, Edit{Changed: changed})
 		case enum.ToolRunCommand:
-			out = append(out, Command{OutputDir: env.Output})
+			out = append(out, Command{OutputDir: env.Output, Changed: changed})
 		case enum.ToolWebSearch:
 			out = append(out, search, Fetch{})
 		}
@@ -303,15 +315,15 @@ func readImage(r io.Reader, path, mime string) model.ToolResult {
 	return model.ToolResult{Text: text, MimeType: mime, Data: base64.StdEncoding.EncodeToString(data)}
 }
 
-// Write creates or replaces a file in the working directory.
-type Write struct{}
+// Write creates or replaces a file in the working directory. Changed, when set, hears each file it wrote.
+type Write struct{ Changed func(path, source string) }
 
 func (Write) Spec() model.ToolSpec {
 	return model.ToolSpec{Name: "write_file", Description: "Create a file or replace everything in it. Missing folders are created. To change part of a file, use edit_file.",
 		Parameters: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Absolute, or relative to the working directory"},"content":{"type":"string","description":"The whole new content of the file"}},"required":["path","content"]}`)}
 }
 
-func (Write) Run(_ context.Context, cwd string, raw json.RawMessage) model.ToolResult {
+func (t Write) Run(_ context.Context, cwd string, raw json.RawMessage) model.ToolResult {
 	var args struct {
 		Path    string  `json:"path"`
 		Content *string `json:"content"`
@@ -331,6 +343,9 @@ func (Write) Run(_ context.Context, cwd string, raw json.RawMessage) model.ToolR
 	}
 	if err := os.WriteFile(path, []byte(*args.Content), 0o644); err != nil {
 		return fail("%s", problem(err))
+	}
+	if t.Changed != nil {
+		t.Changed(path, "write_file")
 	}
 	return model.ToolResult{Text: fmt.Sprintf("wrote %d bytes to %s", len(*args.Content), args.Path)}
 }

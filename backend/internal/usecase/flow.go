@@ -1225,6 +1225,8 @@ func (e *Engine) removeTree(t *model.Task) {
 	if team == nil {
 		return
 	}
+	// its chunks go with it, and indexing that was under way for it stops
+	e.semantic.Forget(e.worktreeOf(t))
 	if err := e.git.Remove(e.ctx, team.Folder, e.worktreeOf(t), t.Branch); err != nil {
 		e.log.Error().Err(err).Str("task", t.ID).Msg("remove work tree")
 	}
