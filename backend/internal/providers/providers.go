@@ -271,7 +271,8 @@ func (c client) do(ctx context.Context, method, path string, body any, auth func
 var thinkingOrder = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
 
 // listModels reads `{"data":[{"id":...}]}`, which both API families answer. The levels come from where a provider
-// reports them: Anthropic's capabilities.effort, or the effort.supported_levels of some OpenAI-style servers.
+// reports them: Anthropic's capabilities.effort, or the effort.supported_levels or reasoning_efforts of some
+// OpenAI-style servers. Capabilities may also be a list of names, which says nothing of the levels.
 func (c client) listModels(ctx context.Context, path string, auth func(*http.Request)) ([]model.ModelSpec, error) {
 	res, err := c.do(ctx, http.MethodGet, path, nil, auth)
 	if err != nil {
@@ -280,13 +281,12 @@ func (c client) listModels(ctx context.Context, path string, auth func(*http.Req
 	defer res.Body.Close()
 	var body struct {
 		Data []struct {
-			ID           string `json:"id"`
-			Capabilities struct {
-				Effort map[string]json.RawMessage `json:"effort"`
-			} `json:"capabilities"`
-			Effort struct {
+			ID           string          `json:"id"`
+			Capabilities json.RawMessage `json:"capabilities"`
+			Effort       struct {
 				Levels []string `json:"supported_levels"`
 			} `json:"effort"`
+			ReasoningEfforts []string `json:"reasoning_efforts"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(res.Body, 4<<20)).Decode(&body); err != nil {
@@ -297,7 +297,14 @@ func (c client) listModels(ctx context.Context, path string, auth func(*http.Req
 		if m.ID != "" {
 			levels := m.Effort.Levels
 			if len(levels) == 0 {
-				levels = supportedLevels(m.Capabilities.Effort)
+				levels = m.ReasoningEfforts
+			}
+			if len(levels) == 0 {
+				var caps struct {
+					Effort map[string]json.RawMessage `json:"effort"`
+				}
+				_ = json.Unmarshal(m.Capabilities, &caps) // a list of names has no levels
+				levels = supportedLevels(caps.Effort)
 			}
 			out = append(out, model.ModelSpec{ID: strings.TrimPrefix(m.ID, "models/"), Thinking: levels})
 		}

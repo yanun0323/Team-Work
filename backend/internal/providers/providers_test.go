@@ -212,6 +212,19 @@ func TestProvidersReportLevels(t *testing.T) {
 	}
 }
 
+// Some local servers list capabilities as names and the levels as reasoning_efforts.
+func TestCapabilityNamesAndReasoningEfforts(t *testing.T) {
+	p, _, _ := serve(t, enum.ProviderCompatible, 200, `{"object":"list","data":[
+		{"id":"beamster/Qwen","capabilities":["chat","tool_use","reasoning"],"reasoning_efforts":["off","low","medium","xhigh"],
+			"reasoning_effort_budgets":{"low":2048},"meta":{"engine":"mlx"}},
+		{"id":"plain","capabilities":["chat"]}]}`)
+	got, err := p.Models(context.Background())
+	if err != nil || len(got) != 2 || got[0].ID != "beamster/Qwen" ||
+		!slices.Equal(got[0].Thinking, []string{"off", "low", "medium", "xhigh"}) || got[1].Thinking != nil {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
 func TestAnthropicGetsTheLevel(t *testing.T) {
 	p, _, body := serve(t, enum.ProviderAnthropic, 200, messagesStream)
 	if _, err := p.Complete(context.Background(), request, func(string) {}); err != nil {
