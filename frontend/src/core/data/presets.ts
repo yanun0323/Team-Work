@@ -46,11 +46,12 @@ export const textIn = (t: SourcedText, language: Locale): string =>
 const isText = (t: SourcedText, s: string) => (typeof t === 'string' ? t === s : Object.values(t ?? {}).includes(s))
 
 type BlueprintFile = {
-  name: SourcedText; prompt?: SourcedText; comment?: SourcedText; tools?: string[]; look?: Look
+  name: SourcedText; prompt?: SourcedText; comment?: SourcedText; tools?: string[]; look?: Look; order?: number
   skills?: { repo?: string; ref?: string; path?: string; include?: string[]; exclude?: string[] }[]
 }
 type FlowFile = {
   name: SourcedText
+  order?: number
   nodes: { id: string; kind?: WorkflowNode['kind']; name: SourcedText; prompt?: SourcedText }[]
   edges: { from: string; to: string; condition?: string }[]
 }
@@ -108,6 +109,7 @@ function officialFlow(name: string, f: FlowFile, language: Locale): Workflow {
       handoff: 'all', join: 'all', pos: { x: 0, y: 0 },
     })),
     edges: f.edges.map((e, i) => ({ id: `edge-${i + 1}`, from: e.from, to: e.to, condition: e.condition ?? '' })),
+    ...(typeof f.order === 'number' && { order: f.order }),
   }
   autoLayout(wf)
   localizeFlow(wf, language)
@@ -148,6 +150,7 @@ export function installPresets(w: World) {
         if (p.path?.startsWith('~') || p.path?.startsWith('/')) return { sourceId: sourceFor(w, 'local', p.path).id, ...picks }
         return { sourceId: OFFICIAL_SOURCE, ...(p.path && { path: p.path }), ...picks }
       }),
+      ...(typeof f.order === 'number' && { order: f.order }),
     } satisfies Blueprint
   }
   for (const wf of Object.values(w.workflows)) localizeFlow(wf, language)

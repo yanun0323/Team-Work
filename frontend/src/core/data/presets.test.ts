@@ -120,6 +120,15 @@ describe('flowList', () => {
     const w = { workflows: { 'wf-12': wf('wf-12'), 'wf-9': wf('wf-9') } } as unknown as World
     expect(flowList(w).map((x) => x.id)).toEqual(['wf-9', 'wf-12'])
   })
+
+  it('lists a source\'s flows by the order their files give, then those giving none by name', () => {
+    const wf = (id: string, name: string, order?: number) => ({ id, name, nodes: [], edges: [], ...(order !== undefined && { order }) })
+    const w = { workflows: {
+      'src-1--a': wf('src-1--a', 'Alpha'), 'src-1--b': wf('src-1--b', 'Beta', 2), 'src-1--c': wf('src-1--c', 'Gamma', -1),
+      'src-1--d': wf('src-1--d', 'Delta'), 'src-1--e': wf('src-1--e', 'Echo', 0.5), 'wf-1': wf('wf-1', 'Mine', -9),
+    } } as unknown as World
+    expect(flowList(w).map((x) => x.id)).toEqual(['wf-1', 'src-1--c', 'src-1--e', 'src-1--b', 'src-1--a', 'src-1--d'])
+  })
 })
 
 describe('thinking levels', () => {

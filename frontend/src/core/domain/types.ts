@@ -163,6 +163,8 @@ export interface Blueprint {
   owner?: string
   /** The blueprint these settings were copied from, if any. */
   from?: string
+  /** Where its source's file asks it to be listed among that source's blueprints, smaller first; none lists it after. */
+  order?: number
 }
 
 export type MemorySource = 'work' | 'chat' | 'retro' | 'review' | 'user'
@@ -249,6 +251,8 @@ export interface Workflow {
   name: string
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
+  /** Where its source's file asks it to be listed among that source's flows, as a blueprint's `order`. */
+  order?: number
 }
 
 export interface TeamSettings {

@@ -83,14 +83,19 @@ const flowNumber = (id: string) => Number(id.match(/\d+$/)?.[0] ?? 0)
 /** Where a blueprint or flow is listed: the user's own, then those from sources, then the built-in ones. */
 const originRank = (id: string) => (isPreset(id) ? 2 : sourceOfId(id) ? 1 : 0)
 
+/** Where a source's file asks to be listed: its `order`, or after all that give one. */
+const orderOf = (x: { order?: number }) => x.order ?? Infinity
+
 /**
- * The user's own in the order they were made, then those of each source in turn by name, then the built-in ones in
- * their set order.
+ * The user's own in the order they were made, then those of each source in turn by the `order` their files give and
+ * then by name, then the built-in ones in their set order.
  */
-const ownFirst = <T extends { id: string; name: string }>(all: Record<string, T>) => Object.values(all).sort((a, b) =>
+const ownFirst = <T extends { id: string; name: string; order?: number }>(all: Record<string, T>) => Object.values(all).sort((a, b) =>
   originRank(a.id) - originRank(b.id) || presetRank(a.id) - presetRank(b.id)
   || sourceOfId(a.id).localeCompare(sourceOfId(b.id), undefined, { numeric: true })
-  || (sourceOfId(a.id) ? a.name.localeCompare(b.name) : flowNumber(a.id) - flowNumber(b.id)))
+  || (sourceOfId(a.id)
+    ? (orderOf(a) === orderOf(b) ? 0 : orderOf(a) < orderOf(b) ? -1 : 1) || a.name.localeCompare(b.name)
+    : flowNumber(a.id) - flowNumber(b.id)))
 
 /** Flows in the order they were made. Ids end in a running number; as text, wf-12 would come before wf-9. */
 export const flowList = (w: World) => ownFirst(w.workflows)

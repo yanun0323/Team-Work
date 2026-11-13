@@ -83,6 +83,9 @@ type Blueprint struct {
 	// empty for a blueprint anyone can be hired from. From is the blueprint they were copied from, if any.
 	Owner string `json:"owner,omitempty"`
 	From  string `json:"from,omitempty"`
+	// Order is where a source's file asks to be listed among that source's blueprints, smaller first; nil for
+	// one that does not say, listed after those that do.
+	Order *float64 `json:"order,omitempty"`
 }
 
 type MemoryEntry struct {
@@ -150,6 +153,8 @@ type Workflow struct {
 	Name  string         `json:"name"`
 	Nodes []WorkflowNode `json:"nodes"`
 	Edges []WorkflowEdge `json:"edges"`
+	// Order is where a source's file asks to be listed among that source's flows, as a blueprint's Order.
+	Order *float64 `json:"order,omitempty"`
 }
 
 type TeamSettings struct {

@@ -160,6 +160,7 @@ type sourcedBlueprintFile struct {
 	Skills  []sourcedPack `yaml:"skills"`
 	Tools   []string      `yaml:"tools"`
 	Look    *model.Look   `yaml:"look"`
+	Order   *float64      `yaml:"order"`
 }
 
 // readsSourced says whether a source is read for blueprints and flows. The app's own folder is listed as a source
@@ -304,6 +305,7 @@ func readSourcedBlueprint(sourceID, name string, raw []byte) (sourcedBlueprint, 
 		ID: model.SourcedID(sourceID, name), Name: f.Name.in(model.LanguageEn), Prompt: strings.TrimSpace(f.Prompt.in(model.LanguageEn)),
 		Comment: strings.TrimSpace(f.Comment.in(model.LanguageEn)),
 		Source:  model.BlueprintSource{Kind: "yaml", Text: string(raw)}, Skills: []model.SkillPack{}, Tools: []enum.Tool{},
+		Order: f.Order,
 	}
 	for _, t := range f.Tools {
 		tool, ok := toolOfName[t]
@@ -486,7 +488,7 @@ func (e *Engine) putSourced(id string, set sourcedSet) {
 			continue
 		}
 		own := *clone(old)
-		own.From = ""
+		own.From, own.Order = "", nil
 		if err := e.ownBlueprint(r, own); err != nil {
 			e.log.Warn().Err(err).Str("replica", r.ID).Msg("keep a blueprint gone from its source")
 		}

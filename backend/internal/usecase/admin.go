@@ -457,7 +457,7 @@ func (e *Engine) DuplicateWorkflow(id string) (*model.Workflow, error) {
 			n++
 		}
 		wf := clone(from)
-		wf.ID, wf.Name = e.uid("wf"), fmt.Sprintf("%s-%d", from.Name, n)
+		wf.ID, wf.Name, wf.Order = e.uid("wf"), fmt.Sprintf("%s-%d", from.Name, n), nil
 		e.w.Workflows[wf.ID] = wf
 		e.w.Tutorial.Copied(wf.ID)
 		out = clone(wf)

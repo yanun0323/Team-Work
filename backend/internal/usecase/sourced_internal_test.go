@@ -128,6 +128,49 @@ func TestASourceBringsItsBlueprintsAndFlows(t *testing.T) {
 	}
 }
 
+func TestASourcesFileMaySayWhereItIsListed(t *testing.T) {
+	t.Parallel()
+	b, err := readSourcedBlueprint("src-1", "first", []byte("name: First\norder: 2\n"))
+	if err != nil || b.bp.Order == nil || *b.bp.Order != 2 {
+		t.Fatalf("blueprint order = %v, %v", b.bp.Order, err)
+	}
+	if b, err := readSourcedBlueprint("src-1", "plain", []byte(reviewerFile)); err != nil || b.bp.Order != nil {
+		t.Errorf("a blueprint not saying where = %v, %v", b.bp.Order, err)
+	}
+	if b, err := readSourcedBlueprint("src-1", "half", []byte("name: Half\norder: 1.5\n")); err != nil || b.bp.Order == nil || *b.bp.Order != 1.5 {
+		t.Errorf("an order between two = %v, %v", b.bp.Order, err)
+	}
+	if _, err := readSourcedBlueprint("src-1", "word", []byte("name: Word\norder: first\n")); err == nil {
+		t.Error("an order that is not a number was read")
+	}
+	f, err := readSourcedWorkflow("src-1", "ship", []byte("order: -1\n"+shipFlow))
+	if err != nil || f.wf.Order == nil || *f.wf.Order != -1 {
+		t.Fatalf("flow order = %v, %v", f.wf.Order, err)
+	}
+	if f, err := readSourcedWorkflow("src-1", "ship", []byte(shipFlow)); err != nil || f.wf.Order != nil {
+		t.Errorf("a flow not saying where = %v, %v", f.wf.Order, err)
+	}
+}
+
+func TestACopyOfASourcedFlowIsListedAsTheUsersOwn(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "workflows/ship.yaml", "order: 3\n"+shipFlow)
+	latest := "p1"
+	e := sourcedEngine(t, map[string]string{"p1": t.TempDir()}, &latest)
+	src, err := e.AddSource(context.Background(), NewSource{Kind: "local", Path: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wf := e.w.Workflows[src.ID+"--ship"]; wf == nil || wf.Order == nil || *wf.Order != 3 {
+		t.Fatalf("flow = %+v", wf)
+	}
+	cp, err := e.DuplicateWorkflow(src.ID + "--ship")
+	if err != nil || cp.Order != nil {
+		t.Errorf("copy = %+v, %v", cp, err)
+	}
+}
+
 func TestWhatASourceBringsCannotBeChanged(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
