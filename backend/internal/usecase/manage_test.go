@@ -741,6 +741,29 @@ func TestCreateTaskAsksForMissingStaffInsteadOfPicking(t *testing.T) {
 	}
 }
 
+func TestCreateTaskAsksForTheOwnerInsteadOfLeavingItEmpty(t *testing.T) {
+	t.Parallel()
+	r, m := manageRig(t)
+	// every step of the flow has someone, so only the owner is missing
+	inChat(t, r, m, doing("create_task", map[string]any{"title": "沒負責人", "workflow_id": r.flow.ID}))
+	res := lastResult(t, r)
+	if !res.IsError || !strings.Contains(res.Text, "owner_id") || !strings.Contains(res.Text, "ask_user") {
+		t.Fatalf("%+v", res)
+	}
+	if got := len(r.world().Tasks); got != 0 {
+		t.Fatalf("%d tasks", got)
+	}
+	inChat(t, r, m, doing("create_task", map[string]any{"title": "有負責人", "workflow_id": r.flow.ID, "owner_id": r.owner.ID}))
+	if res := lastResult(t, r); res.IsError {
+		t.Fatalf("%+v", res)
+	}
+	for _, task := range r.world().Tasks {
+		if task.OwnerID == nil || *task.OwnerID != r.owner.ID {
+			t.Fatalf("owner %v", task.OwnerID)
+		}
+	}
+}
+
 func TestSaveEmployeesHiresAtOnceAndWaitsForTheUserToChange(t *testing.T) {
 	t.Parallel()
 	r, m := manageRig(t)

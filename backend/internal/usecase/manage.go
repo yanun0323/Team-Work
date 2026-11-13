@@ -143,7 +143,7 @@ func (e *Engine) manageTools(m manager, allowed []enum.Tool, writing bool) []ada
 
 const createTaskDescription = "Create a task, with no confirmation. It waits in to-do until the user starts it. Who works its steps is the user's decision: do not pick employees yourself. " +
 	taskBranchRule + " If the task needs changes not yet committed, tell the user to commit them before starting it. " +
-	"If steps have nobody, this fails and lists them; then ask the user with ask_user, and call again with what they chose in staff or owner_id. " +
+	"If steps have nobody, or no owner_id is given, this fails and lists what is missing; then ask the user with ask_user, and call again with what they chose in staff and owner_id. " +
 	"For a flow this task alone needs, give it in workflow instead of workflow_id: it is the task's own and is not added to the flow list, " +
 	"so do not save it with save_workflow first. Its steps and edges follow save_workflow's rules; its name is the title when left out."
 
@@ -288,11 +288,19 @@ func (e *Engine) staffProblem(teamID string, wf *model.Workflow, label string, s
 	if name := crowdedStep(&probe.Workflow); name != "" {
 		return "no task was created: work step " + name + " can have only one employee; only a discussion can have several"
 	}
-	if len(missing) == 0 {
+	var lacks, asks, args []string
+	if len(missing) > 0 {
+		lacks, asks, args = append(lacks, "these steps have nobody to work them: "+strings.Join(missing, ", ")), append(asks, "who should work them"), append(args, "staff")
+	}
+	// a task with no owner cannot be started, so ask now rather than leave it for the user to find
+	if ownerID == nil || *ownerID == "" {
+		lacks, asks, args = append(lacks, "it has no owner (owner_id)"), append(asks, "who owns the task"), append(args, "owner_id")
+	}
+	if len(lacks) == 0 {
 		return ""
 	}
-	return "no task was created: these steps have nobody to work them: " + strings.Join(missing, ", ") +
-		". Do not pick by yourself: ask the user with ask_user who should work them, then call again with staff or owner_id"
+	return "no task was created: " + strings.Join(lacks, "; ") + ". Do not pick by yourself: ask the user with ask_user " +
+		strings.Join(asks, " and ") + ", then call again with " + strings.Join(args, " and ")
 }
 
 func (e *Engine) updateTaskTool(m manager) func(context.Context, string, json.RawMessage) model.ToolResult {
