@@ -195,3 +195,100 @@ func TestEveryToolListGetsSemanticSearch(t *testing.T) {
 		t.Fatalf("%d calls checked of %d", calls, total)
 	}
 }
+
+// A task's owner and a meeting's participants search the task's work tree as it is when they search, logged with
+// the task and who searched. Each writes a file just before searching: only a search of the work tree as it is
+// then finds it.
+func TestSemanticSearchForOwnersAndMeetings(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS only")
+	}
+	log := &lockedLog{}
+	sem := semantic.New(semantic.Options{DataDir: t.TempDir(), Log: zerolog.New(log), BaseURL: "http://127.0.0.1:1/", Retry: time.Millisecond,
+		Platform: semantic.Platform{OS: "27.0", Build: "T", Arm64: true, Helper: "/nonexistent"}})
+	t.Cleanup(sem.Close)
+	type search struct{ cwd, text string }
+	var mu sync.Mutex
+	asked := map[string]bool{}
+	found := map[string]search{} // owner or member: where they searched and what they got
+	r, task, people := meetingRigWith(t, []string{"Bob"}, func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		who := ""
+		switch {
+		case isChair(req):
+		case isMember(req):
+			who = "member"
+		case isOwner(req):
+			who = "owner"
+		}
+		switch {
+		case who != "" && !asked[who] && hasTool(req, "semantic_search") && (who == "member" || strings.Contains(sentText(req), "[task_started]")):
+			asked[who] = true
+			if err := os.WriteFile(filepath.Join(req.Cwd, who+"_notes.go"), []byte("package main\n// toucan "+who+" notes\n"), 0o644); err != nil {
+				return model.ModelReply{}, true, err
+			}
+			return ownerCall("semantic_search", map[string]string{"query": "toucan feeding"}), true, nil
+		case who != "" && asked[who] && lastIsResult(req) && found[who].cwd == "":
+			found[who] = search{req.Cwd, lastResultText(req)}
+			if who == "owner" {
+				return ownerCall("hold_meeting", map[string]any{"topic": "選方案", "background": "要在 A 和 B 之間選一個", "replica_ids": []string{people[0].ID}}), true, nil
+			}
+			return say("用 A"), true, nil
+		case isChair(req) && !strings.Contains(sentText(req), "Bob: "):
+			return ownerCall("meeting_ask", map[string]any{"replica_ids": []string{people[0].ID}, "text": "Bob 你怎麼看"}), true, nil
+		case isChair(req):
+			return ownerCall("end_meeting", map[string]any{"summary": "結論：用 A"}), true, nil
+		case isOwner(req) && strings.Contains(sentText(req), "[meeting_ended]"):
+			return say("收到結論"), true, nil
+		}
+		return model.ModelReply{}, false, nil
+	}, sem, func(r *rig) {
+		if err := os.WriteFile(filepath.Join(r.folder, "toucan.go"), []byte("package main\n// toucan feeding schedule\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitOut(t, r.folder, "add", "-A")
+		gitOut(t, r.folder, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "toucan")
+		if err := r.e.UpdatePreferences(map[string]json.RawMessage{"semanticSearch": json.RawMessage(`true`)}); err != nil {
+			t.Fatal(err)
+		}
+		r.e.StartSemantic() // the restart
+	})
+	r.wait("the owner's word on the conclusion", func(*model.World) bool {
+		return hasActivity(r.activity(task.ID), func(a model.TaskActivity) bool { return a.Text == "收到結論" })
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	owner, member := found["owner"], found["member"]
+	if owner.cwd == "" || member.cwd == "" || owner.cwd != member.cwd || owner.cwd == r.folder || !strings.Contains(owner.cwd, "worktrees") {
+		t.Fatalf("searched in %q and %q, the project being %q", owner.cwd, member.cwd, r.folder)
+	}
+	for who, s := range found {
+		var res semantic.Result
+		if err := json.Unmarshal([]byte(s.text), &res); err != nil {
+			t.Fatalf("%s: %s", who, s.text)
+		}
+		got := map[string]bool{}
+		for _, h := range res.Results {
+			got[h.Path] = true
+		}
+		if res.Mode != "keyword" || res.Reason == "" || !got["toucan.go"] || !got[who+"_notes.go"] {
+			t.Fatalf("%s: %+v", who, res)
+		}
+	}
+	searched := map[string]bool{}
+	for _, line := range strings.Split(log.String(), "\n") {
+		if strings.Contains(line, `"message":"semantic_search"`) && strings.Contains(line, `"task":"`+task.ID+`"`) &&
+			strings.Contains(line, `"cwd":"`+owner.cwd+`"`) {
+			for _, id := range []string{r.owner.ID, people[0].ID} {
+				if strings.Contains(line, `"replica":"`+id+`"`) {
+					searched[id] = true
+				}
+			}
+		}
+	}
+	if len(searched) != 2 {
+		t.Fatalf("searches logged for %v\n%s", searched, log.String())
+	}
+}

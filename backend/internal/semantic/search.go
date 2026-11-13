@@ -124,8 +124,7 @@ func (s *Service) Search(ctx context.Context, q Query) (Result, error) {
 	case !ready:
 		res.Reason = "the semantic index is being built (" + state + "), so this is keyword search only; grep works meanwhile"
 	case pending > 0:
-		// vectors of part of the folder would rank what is indexed above what is not: keywords alone, until it is all in
-		res.Reason = fmt.Sprintf("the semantic index is being built (%d files not indexed yet), so this is keyword search only; grep works meanwhile", pending)
+		// keywords alone; the reason is given once the files are counted again below
 	default:
 		var tokens int
 		vector, queueT, embedT, compareT, tokens = s.vectorSearch(ctx, r, q, &res)
@@ -134,9 +133,17 @@ func (s *Service) Search(ctx context.Context, q Query) (Result, error) {
 				Int("tokens", tokens).Int64("ms", time.Since(start).Milliseconds()).Send()
 			return Result{}, &UserError{fmt.Sprintf("the query is %d tokens, over the model's %d; shorten it", tokens, MaxTokens)}
 		}
-		if vector != nil {
-			res.Mode = "hybrid"
-		}
+	}
+	// counted again after the vectors were compared, as a file changed while the query's vector was on its way waits
+	// too: vectors of part of the folder would rank what is indexed above what is not, so keywords alone until it is
+	// all in
+	_, pending, _ = r.counts()
+	if ready && pending > 0 && (vector != nil || res.Reason == "") {
+		vector = nil
+		res.Reason = fmt.Sprintf("the semantic index is being built (%d files not indexed yet), so this is keyword search only; grep works meanwhile", pending)
+	}
+	if vector != nil {
+		res.Mode = "hybrid"
 	}
 	keyword := s.keyword(r, q.Text)
 	if res.Mode == "keyword" && res.Reason == "" {

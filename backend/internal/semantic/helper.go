@@ -561,16 +561,36 @@ func forwardStderr(r io.Reader, pid int, log *logger) {
 var helperErrors = map[string]bool{"bundle is required": true, "model is not loaded": true, "unknown op": true,
 	"model, reference and tokenizerCases are required": true}
 
-// errorKind is how the helper reports an error thrown inside it: the error's type, domain and code, nothing else.
-var errorKind = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.<>]{0,120} domain=[A-Za-z0-9_.<>-]{1,120} code=-?[0-9]{1,20}$`)
+// errorKind is how the helper reports an error thrown inside it (ErrorKind.swift): a kind, a domain and a code.
+var errorKind = regexp.MustCompile(`^kind=(\S+) domain=(\S+) code=(-?[0-9]{1,20})$`)
+
+// The kinds and domains the helper reports with; anything else in their place is "unlisted", however plain it
+// looks, as it could be anything the helper was given.
+var (
+	errorKinds   = map[string]bool{"nserror": true, "decoding": true, "encoding": true, "cancelled": true, "coreai": true, "embedder": true, "other": true}
+	errorDomains = map[string]bool{"NSCocoaErrorDomain": true, "NSPOSIXErrorDomain": true, "NSOSStatusErrorDomain": true, "NSMachErrorDomain": true,
+		"NSURLErrorDomain": true, "other": true}
+)
 
 // helperErrorText is an error the helper replied with, safe for the log and the status page: one of its own
-// messages, or an error's kind; anything else, which could quote what it was given, by size only.
+// messages, or an error's kind, domain and code, each only as listed; anything else, which could quote what it was
+// given, by size only.
 func helperErrorText(msg string) string {
-	if helperErrors[msg] || errorKind.MatchString(msg) {
+	if helperErrors[msg] {
 		return msg
 	}
-	return fmt.Sprintf("an unlisted error (%d bytes, not logged)", len(msg))
+	m := errorKind.FindStringSubmatch(msg)
+	if m == nil {
+		return fmt.Sprintf("an unlisted error (%d bytes, not logged)", len(msg))
+	}
+	kind, domain := m[1], m[2]
+	if !errorKinds[kind] {
+		kind = "unlisted"
+	}
+	if !errorDomains[domain] {
+		domain = "unlisted"
+	}
+	return "kind=" + kind + " domain=" + domain + " code=" + m[3]
 }
 
 // recordPid notes the running helper, so leftovers of one that was killed can be found by the next start.

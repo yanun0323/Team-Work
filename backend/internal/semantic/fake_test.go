@@ -86,6 +86,10 @@ func fakeHelper() {
 				reply(map[string]any{"id": req.ID, "ok": false, "error": "cannot read func leakedReplyCode() {}"})
 				continue
 			}
+			if mode == "load_error_text" {
+				reply(map[string]any{"id": req.ID, "ok": false, "error": os.Getenv("FAKE_ERROR")})
+				continue
+			}
 			reply(map[string]any{"id": req.ID, "ok": true, "loadSeconds": 0.01, "maxTokens": 2048, "dim": dim})
 		case "validate":
 			cos := 0.9999
@@ -101,13 +105,32 @@ func fakeHelper() {
 				os.Exit(3)
 			}
 			// a failure quoting its input, then one that is only a type, domain and code
-			if mode == "error_reply" && len(req.Texts) == 1 && strings.HasPrefix(req.Texts[0], "task: code retrieval") {
-				msg := "CoreAIError domain=CoreAI code=7"
+			query := len(req.Texts) == 1 && strings.HasPrefix(req.Texts[0], queryPrefix)
+			if mode == "error_reply" && query {
+				msg := "kind=coreai domain=other code=7"
 				if once() {
 					msg = "bad input: func leakedReplyCode() {}"
 				}
 				reply(map[string]any{"id": req.ID, "ok": false, "error": msg})
 				continue
+			}
+			if mode == "error_text" && query {
+				reply(map[string]any{"id": req.ID, "ok": false, "error": os.Getenv("FAKE_ERROR")})
+				continue
+			}
+			// an indexing batch fails once, as a known kind of error
+			if mode == "index_error_once" && !query && once() {
+				reply(map[string]any{"id": req.ID, "ok": false, "error": "kind=coreai domain=other code=5"})
+				continue
+			}
+			// the query's vector waits, FAKE_HELD saying so, until FAKE_RELEASE exists
+			if mode == "hold_query" && query {
+				os.WriteFile(os.Getenv("FAKE_HELD"), nil, 0o644)
+				for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+					if _, err := os.Stat(os.Getenv("FAKE_RELEASE")); err == nil {
+						break
+					}
+				}
 			}
 			if mode == "bad_frame" && once() {
 				out.WriteString("{not json\n")

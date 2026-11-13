@@ -10,6 +10,7 @@ import (
 
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/semantic"
 	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
@@ -49,10 +50,18 @@ func meetingRig(t *testing.T, names []string, reply func(req model.ModelRequest,
 // failingMeetingRig is meetingRig whose reply may also fail.
 func failingMeetingRig(t *testing.T, names []string, reply func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool, error)) (*rig, *model.Task, []*model.Replica) {
 	t.Helper()
+	return meetingRigWith(t, names, reply, nil, nil)
+}
+
+// meetingRigWith is failingMeetingRig with semantic search given to the engine, and before run on the rig before
+// the task is made.
+func meetingRigWith(t *testing.T, names []string, reply func(req model.ModelRequest, people []*model.Replica, owner string) (model.ModelReply, bool, error),
+	sem *semantic.Service, before func(r *rig)) (*rig, *model.Task, []*model.Replica) {
+	t.Helper()
 	var people []*model.Replica
 	var mu sync.Mutex
 	var r *rig
-	r = newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+	r = newRigWith(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		mu.Lock()
 		them := slices.Clone(people)
 		mu.Unlock()
@@ -67,7 +76,10 @@ func failingMeetingRig(t *testing.T, names []string, reply func(req model.ModelR
 			return ownerCall("hold_meeting", map[string]any{"topic": "選方案", "background": "要在 A 和 B 之間選一個", "replica_ids": ids}), nil
 		}
 		return say("ok"), nil
-	})
+	}, sem)
+	if before != nil {
+		before(r)
+	}
 	ids := []string{}
 	for _, name := range names {
 		p, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.world().Replicas[r.owner.ID].BlueprintID, Name: name, Model: "fake"})

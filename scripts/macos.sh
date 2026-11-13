@@ -19,7 +19,7 @@ build_semantic_helper() {
     mkdir -p "$(dirname "$out")"
     xcrun swiftc -swift-version 5 -O -target arm64-apple-macos27.0 -framework CoreAI -framework ImageIO -framework CoreGraphics \
         -framework AVFoundation -framework Accelerate -module-name SemanticHelper \
-        macos/semantic-helper/Sources/EmbeddingGemma2CoreAI/*.swift macos/semantic-helper/Sources/semantic-helper/main.swift -o "$out"
+        macos/semantic-helper/Sources/EmbeddingGemma2CoreAI/*.swift macos/semantic-helper/Sources/semantic-helper/*.swift -o "$out"
 }
 
 fetch_sparkle() {

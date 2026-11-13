@@ -70,6 +70,8 @@ type Options struct {
 	Client  *http.Client
 	// Retry is how long to wait before downloading again after a failure; 10 seconds when zero.
 	Retry time.Duration
+	// MemoryEvery is how often memory is logged; five minutes when zero.
+	MemoryEvery time.Duration
 }
 
 // Service runs semantic search for this backend. Its methods are safe on a nil Service, which is off.
@@ -108,6 +110,9 @@ func New(o Options) *Service {
 	}
 	if o.Retry == 0 {
 		o.Retry = 10 * time.Second
+	}
+	if o.MemoryEvery == 0 {
+		o.MemoryEvery = 5 * time.Minute
 	}
 	dir := filepath.Join(o.DataDir, "cache", "semantic-search")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -457,7 +462,7 @@ func itoa(n int) string {
 // housekeeping logs memory every five minutes and removes vectors unused for 30 days, at most once a day.
 func (s *Service) housekeeping(h *helper) {
 	defer s.wg.Done()
-	memory := time.NewTicker(5 * time.Minute)
+	memory := time.NewTicker(s.o.MemoryEvery)
 	defer memory.Stop()
 	sweep := time.NewTimer(time.Minute)
 	defer sweep.Stop()

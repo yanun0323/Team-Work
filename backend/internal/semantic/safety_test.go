@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -347,7 +349,7 @@ func TestHelperErrorRepliesStayOutOfTheLog(t *testing.T) {
 						t.Fatalf("%+v", res)
 					}
 				}
-				if !strings.Contains(s.log.String(), "CoreAIError domain=CoreAI code=7") {
+				if !strings.Contains(s.log.String(), "kind=coreai domain=other code=7") {
 					t.Fatalf("the safe part of the error is not logged\n%s", s.log.String())
 				}
 			}
@@ -363,16 +365,19 @@ func TestHelperErrorRepliesStayOutOfTheLog(t *testing.T) {
 
 func TestHelperErrorText(t *testing.T) {
 	for in, want := range map[string]string{
-		// what the helper's errorKind gives for errors Swift and Foundation throw
-		"Swift.DecodingError domain=NSCocoaErrorDomain code=4864":                 "Swift.DecodingError domain=NSCocoaErrorDomain code=4864",
-		"NSError domain=NSCocoaErrorDomain code=260":                              "NSError domain=NSCocoaErrorDomain code=260",
-		"SemanticHelper.EmbedderError domain=SemanticHelper.EmbedderError code=1": "SemanticHelper.EmbedderError domain=SemanticHelper.EmbedderError code=1",
-		"model is not loaded":                                    "model is not loaded",
-		"EmbedderError domain=Embedder code=1":                   "EmbedderError domain=Embedder code=1",
-		"Swift.DecodingError domain=Swift.DecodingError code=-3": "Swift.DecodingError domain=Swift.DecodingError code=-3",
-		"func leaked() { return x }":                             "an unlisted error (26 bytes, not logged)",
-		"x domain=y code=1 func":                                 "an unlisted error (22 bytes, not logged)",
-		"":                                                       "an unlisted error (0 bytes, not logged)",
+		// what the helper's errorKind gives (TestSwiftErrorKindsAreWhatGoLogs): fixed words and a code
+		"kind=decoding domain=NSCocoaErrorDomain code=4864": "kind=decoding domain=NSCocoaErrorDomain code=4864",
+		"kind=nserror domain=NSPOSIXErrorDomain code=2":     "kind=nserror domain=NSPOSIXErrorDomain code=2",
+		"kind=coreai domain=other code=-3":                  "kind=coreai domain=other code=-3",
+		"model is not loaded":                               "model is not loaded",
+		// any other kind or domain, however plain, is not given
+		"kind=secretName domain=NSCocoaErrorDomain code=1":        "kind=unlisted domain=NSCocoaErrorDomain code=1",
+		"kind=coreai domain=secretName code=1":                    "kind=coreai domain=unlisted code=1",
+		"Swift.DecodingError domain=NSCocoaErrorDomain code=4864": "an unlisted error (55 bytes, not logged)",
+		"NSError domain=secret.name code=7":                       "an unlisted error (33 bytes, not logged)",
+		"kind=coreai domain=other code=7 func":                    "an unlisted error (36 bytes, not logged)",
+		"func leaked() { return x }":                              "an unlisted error (26 bytes, not logged)",
+		"":                                                        "an unlisted error (0 bytes, not logged)",
 	} {
 		if got := helperErrorText(in); got != want {
 			t.Errorf("%q: %q", in, got)
@@ -512,4 +517,229 @@ func TestMemoryIsLoggedOnErrors(t *testing.T) {
 	if len(s.log.events("semantic_memory")) <= before {
 		t.Fatal(s.log.String())
 	}
+}
+
+// A file changed while the query's vector is on its way is still waiting to be indexed when the vector comes back:
+// the search is keyword only and says so, rather than ranking by vectors that leave the file out.
+func TestChangeWhileTheQueryIsEmbeddedIsPending(t *testing.T) {
+	for _, source := range []string{"write_file", "run_command"} {
+		t.Run(source, func(t *testing.T) {
+			s := newService(t, "hold_query", zerolog.InfoLevel, nil)
+			gate := t.TempDir()
+			held, release := filepath.Join(gate, "held"), filepath.Join(gate, "release")
+			t.Setenv("FAKE_HELD", held)
+			t.Setenv("FAKE_RELEASE", release)
+			t.Setenv("FAKE_DELAY", "300ms") // the next indexing batch cannot finish before the search counts again
+			defer os.WriteFile(release, nil, 0o644)
+			repo := trackedSrc(t, "steady needle\n")
+			s.Start(true, []string{repo})
+			s.waitState(t, StateReady)
+			waitIndexed(t, s, repo)
+
+			type answer struct {
+				res Result
+				err error
+			}
+			done := make(chan answer, 1)
+			go func() {
+				res, err := s.Search(context.Background(), Query{Cwd: repo, Text: "needle"})
+				done <- answer{res, err}
+			}()
+			deadline := time.Now().Add(5 * time.Second)
+			for _, err := os.Stat(held); err != nil; _, err = os.Stat(held) {
+				if time.Now().After(deadline) {
+					t.Fatal("the query never reached the helper")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			write(t, repo, "new.txt", "new needle content\n")
+			s.Changed(filepath.Join(repo, "new.txt"), source)
+			r := s.roots[canonical(repo)]
+			for _, p, _ := r.counts(); p == 0; _, p, _ = r.counts() { // run_command looks again in the background
+				if time.Now().After(deadline) {
+					t.Fatal("the change was never seen")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			os.WriteFile(release, nil, 0o644)
+			var a answer
+			select {
+			case a = <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the search did not finish")
+			}
+			if a.err != nil {
+				t.Fatal(a.err)
+			}
+			res := a.res
+			if res.Mode != "keyword" || res.PendingFiles == 0 || !strings.Contains(res.Reason, "being built") || !strings.Contains(res.Reason, "grep") {
+				t.Fatalf("%+v", res)
+			}
+			if got := paths(res); !slices.Contains(got, "new.txt") || !slices.Contains(got, "src/a.txt") {
+				t.Fatalf("%v", got)
+			}
+			ev := s.log.events("semantic_search")
+			last := ev[len(ev)-1]
+			if last["mode"] != "keyword" || last["vector"].(float64) != 0 || last["pendingFiles"].(float64) != float64(res.PendingFiles) {
+				t.Fatalf("the log does not match the result: %v", last)
+			}
+		})
+	}
+}
+
+// What the helper says went wrong is logged only as a known kind, domain and code: a domain or type name it does
+// not know could be anything, input included, however plain it looks.
+func TestHelperErrorDomainsStayOutOfTheLog(t *testing.T) {
+	for i, msg := range []string{
+		"NSError domain=leakedReplyCode.value code=7",
+		"SemanticHelper.leakedReplyCode domain=SemanticHelper.leakedReplyCode code=7",
+		"kind=leakedReplyCode domain=NSCocoaErrorDomain code=7",
+		"kind=coreai domain=leakedReplyCode.value code=7",
+	} {
+		for _, mode := range []string{"load_error_text", "error_text"} {
+			// not named after msg: the test's folders, which the log names, would hold it
+			t.Run(fmt.Sprintf("%s/%d", mode, i), func(t *testing.T) {
+				t.Setenv("FAKE_ERROR", msg)
+				s := newService(t, mode, zerolog.DebugLevel, nil)
+				repo := newRepo(t)
+				s.Start(true, []string{repo})
+				if mode == "load_error_text" {
+					s.waitState(t, StateError)
+					if st := s.Status(true); strings.Contains(st.Error.Message, "leaked") {
+						t.Fatalf("%+v", st.Error)
+					}
+				} else {
+					s.waitState(t, StateReady)
+					if res := search(t, s, repo, "monthly ledger balance"); res.Mode != "keyword" || strings.Contains(res.Reason, "leaked") {
+						t.Fatalf("%+v", res)
+					}
+				}
+				if strings.Contains(s.log.String(), "leaked") {
+					t.Fatal(s.log.String())
+				}
+				if !strings.Contains(s.log.String(), "code=7") && !strings.Contains(s.log.String(), "not logged") {
+					t.Fatalf("nothing of the error is logged\n%s", s.log.String())
+				}
+			})
+		}
+	}
+}
+
+// The helper's errorKind (Swift) gives only what helperErrorText (Go) keeps whole: whatever is thrown, its type
+// name, domain and message never come out.
+func TestSwiftErrorKindsAreWhatGoLogs(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS only")
+	}
+	if _, err := exec.LookPath("xcrun"); err != nil {
+		t.Skip("no Xcode")
+	}
+	dir := t.TempDir()
+	main := `import Foundation
+struct leakedReplyCodeError: Error {}
+struct EmbedderError: Error {}
+enum leakedReplyCodeEnum: Error { case leakedReplyCodeCase }
+let errors: [Error] = [
+    NSError(domain: "leakedReplyCode.value", code: 7),
+    NSError(domain: NSCocoaErrorDomain, code: 260, userInfo: [NSLocalizedDescriptionKey: "leakedReplyCode"]),
+    leakedReplyCodeError(),
+    leakedReplyCodeEnum.leakedReplyCodeCase,
+    EmbedderError(),
+    CocoaError(.fileNoSuchFile),
+    POSIXError(.ENOENT),
+    CancellationError(),
+    DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "leakedReplyCode")),
+]
+for e in errors { print(errorKind(e)) }
+`
+	if err := os.WriteFile(filepath.Join(dir, "main.swift"), []byte(main), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	bin := filepath.Join(dir, "kinds")
+	build := exec.CommandContext(ctx, "xcrun", "swiftc", "-swift-version", "5", "-module-cache-path", filepath.Join(dir, "cache"),
+		"../../../macos/semantic-helper/Sources/semantic-helper/ErrorKind.swift", filepath.Join(dir, "main.swift"), "-o", bin)
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	out, err := exec.CommandContext(ctx, bin).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Split(strings.TrimSpace(string(out)), "\n")
+	want := []string{
+		"kind=nserror domain=other code=7",
+		"kind=nserror domain=NSCocoaErrorDomain code=260",
+		"kind=other domain=other code=1",
+		"kind=other domain=other code=0",
+		"kind=embedder domain=other code=1",
+		"kind=nserror domain=NSCocoaErrorDomain code=4", // CocoaError and POSIXError are NSErrors when thrown
+		"kind=nserror domain=NSPOSIXErrorDomain code=2",
+		"kind=cancelled domain=other code=1",
+		"kind=decoding domain=NSCocoaErrorDomain code=4864",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got\n%s", strings.Join(got, "\n"))
+	}
+	for _, line := range got {
+		if helperErrorText(line) != line {
+			t.Errorf("Go does not keep %q: %q", line, helperErrorText(line))
+		}
+	}
+}
+
+// Memory is logged on a timer, the helper's included.
+func TestMemoryIsLoggedPeriodically(t *testing.T) {
+	s := newService(t, "", zerolog.InfoLevel, func(o *Options) { o.MemoryEvery = 20 * time.Millisecond })
+	s.Start(true, nil)
+	s.waitState(t, StateReady)
+	helperBytes := func() int {
+		n := 0
+		for _, e := range s.log.events("semantic_memory") {
+			if e["helperBytes"] == float64(1234) {
+				n++
+			}
+		}
+		return n
+	}
+	before := helperBytes()
+	deadline := time.Now().Add(5 * time.Second)
+	for helperBytes() < before+3 {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d timed memory lines\n%s", helperBytes()-before, s.log.String())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// An indexing batch that fails is logged with where and what happens next, memory with it, and is tried again.
+func TestFailedIndexBatchIsRetried(t *testing.T) {
+	s := newService(t, "index_error_once", zerolog.DebugLevel, nil)
+	repo := newRepo(t)
+	s.Start(true, []string{repo})
+	s.waitState(t, StateReady)
+	waitIndexed(t, s, repo)
+	lines := strings.Split(s.log.String(), "\n")
+	failed := -1
+	for i, l := range lines {
+		if strings.Contains(l, `"message":"semantic_error"`) && strings.Contains(l, `"stage":"index"`) && strings.Contains(l, `"next":"retry"`) &&
+			strings.Contains(l, "kind=coreai domain=other code=5") && strings.Contains(l, `"root":`) && strings.Contains(l, `"file":`) {
+			failed = i
+			break
+		}
+	}
+	if failed < 0 {
+		t.Fatal(s.log.String())
+	}
+	if !slices.ContainsFunc(lines[failed:], func(l string) bool { return strings.Contains(l, `"message":"semantic_memory"`) }) {
+		t.Fatal("no memory after the failure")
+	}
+	if got := paths(search(t, s, repo, "monthly ledger balance")); len(got) == 0 || got[0] != "ledger.go" {
+		t.Fatalf("%v", got)
+	}
+	if ev := s.log.events("semantic_search"); ev[len(ev)-1]["mode"] != "hybrid" {
+		t.Fatalf("%v", ev[len(ev)-1])
+	}
+	assertNoCode(t, s.log.String())
 }
