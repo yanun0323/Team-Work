@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { clockOf, TowerBody, updateWhich } from './TowerPanel'
+import { clockOf, TowerBody, TowerTitle, updateWhich } from './TowerPanel'
 import { IslandSlip } from './IslandBar'
 import { useIsland } from './core/island'
 import { MOCK_TOWERS, readTowers, type Peer, type Towers } from './core/towers'
@@ -166,12 +166,18 @@ describe('which island is shown', () => {
 })
 
 describe('the people on this island, from the tower', () => {
-  it("shows this computer's name to edit and the link version it connects on", () => {
+  it("shows this computer's name to edit", () => {
     const html = body(towers())
     expect(html).toMatch(/<label for="[^"]+">這台的名稱<\/label>/)
     expect(html).toContain('value="MacBook"')
-    expect(html).toContain('連線版本 1')
+    expect(html).not.toContain('連線版本')
     expect(html).toContain('目前沒有其他電腦')
+  })
+
+  it('puts the link version in the head, after the title, once the tower is read', () => {
+    const html = renderToStaticMarkup(<TowerTitle me={me} />)
+    expect(html).toMatch(/<h1[^>]*>基地台<\/h1>.*<p class="fx-tower-version">連線版本 1<\/p>/)
+    expect(renderToStaticMarkup(<TowerTitle me={null} />)).not.toContain('連線版本')
   })
 
   it('lists each visitor once with where it is, and ways to send it away or keep it out', () => {

@@ -4,7 +4,7 @@
 // Everything here is this computer's own, whichever island the map shows.
 
 import { colon, tr } from './core/i18n'
-import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type RefObject } from 'react'
 import { MOCK } from './core/mode'
 import { useIsland } from './core/island'
 import { useStore } from './core/store'
@@ -70,18 +70,29 @@ export function TowerPanel({ leaving, onGone }: {
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
       <div className="fx-sheet">
         <header className="fx-head fx-head-rule">
-          <div className="fx-title fx-title-plain">
-            <div className="fx-title-text">
-              <h1 id="fx-tower-title" ref={title} tabIndex={-1}>{tr('基地台')}</h1>
-              {towers && <p className="fx-where">{towers.me.name}</p>}
-            </div>
-          </div>
+          <TowerTitle me={towers?.me ?? null} titleRef={title} />
         </header>
         <div className="fx-page">
           <TowerBody towers={towers} error={error} refresh={refresh} here={here} />
         </div>
       </div>
     </aside>
+  )
+}
+
+/**
+ * The panel's title, this computer's name under it, and on the right the link version it connects on: only computers
+ * on the same link version can go to each other's islands.
+ */
+export function TowerTitle({ me, titleRef }: { me: Towers['me'] | null; titleRef?: RefObject<HTMLHeadingElement | null> }) {
+  return (
+    <div className="fx-title fx-title-plain">
+      <div className="fx-title-text">
+        <h1 id="fx-tower-title" ref={titleRef} tabIndex={-1}>{tr('基地台')}</h1>
+        {me && <p className="fx-where">{me.name}</p>}
+      </div>
+      {me && <p className="fx-tower-version">{tr('連線版本 {n}', { n: me.protocol })}</p>}
+    </div>
   )
 }
 
@@ -103,7 +114,7 @@ export function TowerBody({ towers, error, refresh, here = null }: {
     <div className="fx-d-groups fx-tower">
       {MOCK && <p className="fx-pill fx-prereq">{tr('模擬模式不能配對')}</p>}
       {error && <p className="fx-tower-error" role="alert">{error}</p>}
-      <ProfileSection name={towers.me.name} protocol={towers.me.protocol} refresh={refresh} />
+      <ProfileSection name={towers.me.name} refresh={refresh} />
       <VisitorsSection visitors={towers.visitors} home={here === null} refresh={refresh} />
       <section className="fx-d-group" aria-labelledby="fx-tower-peers">
         <h4 id="fx-tower-peers">{tr('已配對的電腦')}</h4>
@@ -234,7 +245,7 @@ function AccessSwitch({ access: given, disabled, label, onChange }: { access: Pe
 }
 
 /** This computer's name, as other towers show it. */
-function ProfileSection({ name, protocol, refresh }: { name: string; protocol: number; refresh: () => Promise<void> }) {
+function ProfileSection({ name, refresh }: { name: string; refresh: () => Promise<void> }) {
   const { busy, error, setError, run } = useAction(refresh)
   const [draft, setDraft] = useState(name)
   const fieldId = useId()
@@ -258,8 +269,6 @@ function ProfileSection({ name, protocol, refresh }: { name: string; protocol: n
           aria-invalid={!!error || undefined} onChange={(e) => { setDraft(e.target.value); if (error) setError('') }} />
         <button type="submit" className="fx-save" disabled={busy || MOCK || typed === name}>{busy ? tr('儲存中…') : tr('儲存')}</button>
       </form>
-      {/* only computers on the same link version can go to each other's islands */}
-      <p className="fx-tower-hint">{tr('連線版本 {n}', { n: protocol })}</p>
       {error && <p className="fx-tower-error" role="alert">{error}</p>}
     </section>
   )

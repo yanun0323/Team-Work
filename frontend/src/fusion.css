@@ -2090,6 +2090,8 @@ button.fx-ticket-tag:hover { color: var(--ink); }
 .fx-tower-box { display: grid; gap: 10px; justify-items: start; width: 100%; }
 .fx-tower-box > p { margin: 0; font-size: 13.5px; }
 .fx-tower-hint { font-size: 13px; color: var(--ink-2); }
+/* the link version, at the head's right end */
+.fx-tower-version { font-size: 13px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* an address and its button on one line: copied or pasted whole, never read, so one line of it is enough */
 .fx-tower-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; }
 .fx-tower-line > .fx-save { height: 34px; }
