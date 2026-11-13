@@ -234,7 +234,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const live = useLiveText(chat?.id)
   const output = useLiveOutput(chat?.id)
   const [log, pin] = useStickToBottom<HTMLOListElement>(`${chat?.messages.length}:${writing}:${live.length}:${output}`)
-  const [atBottom, toBottom] = useAtBottom(log)
+  const atBottom = useAtBottom(log)
   // Keep the first visible index fixed as replies arrive; expanding history never hides it again.
   const length = chat?.messages.length ?? 0
   const [history, setHistory] = useState({ id, length, first: Math.max(0, length - 100) })
@@ -649,7 +649,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
         )}
       </ol>
       {!atBottom && (
-        <button type="button" className="fx-room-latest" aria-label={tr('捲到最新的訊息')} title={tr('捲到最新的訊息')} onClick={toBottom}>
+        <button type="button" className="fx-room-latest" aria-label={tr('捲到最新的訊息')} title={tr('捲到最新的訊息')} onClick={() => pin(true)}>
           <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
             <path d="M8 3v9M3.5 7.5L8 12l4.5-4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>

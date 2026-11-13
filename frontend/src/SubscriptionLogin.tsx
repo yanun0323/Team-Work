@@ -32,7 +32,7 @@ export function SubscriptionLogin({ id }: { id: string }) {
           <>
             {login.url && <p>{tr('請在瀏覽器完成登入{a}：', { a: login.userCode ? tr('，並輸入代碼') : '' })}<a href={login.url} target="_blank" rel="noreferrer">{tr('打開登入頁')}<span className="fx-sr">{tr('（另開分頁）')}</span></a></p>}
             {login.userCode && <code>{login.userCode}</code>}
-            {login.command && <p>{tr('正在確認 Claude Code 的登入…')}</p>}
+            {login.command && <p role="status">{tr('請在瀏覽器完成登入…')}</p>}
             {login.method === 'browser' && (
               <>
                 <label className="fx-claude-paste">
@@ -49,7 +49,7 @@ export function SubscriptionLogin({ id }: { id: string }) {
         {login?.error && <p className="fx-field-error" role="alert">{login.error}</p>}
         {!auth.signedIn && (!login || login.error) && (
           <>
-            {!remote && <button type="button" className="fx-control fx-login fx-hit" onClick={() => start(openai ? 'browser' : undefined)}>{openai ? tr('用瀏覽器登入') : tr('確認登入')}</button>}
+            {!remote && <button type="button" className="fx-control fx-login fx-hit" onClick={() => start(openai ? 'browser' : undefined)}>{openai ? tr('用瀏覽器登入') : tr('登入 Claude')}</button>}
             {remote && <p className="fx-d-muted">{openai ? tr('用瀏覽器登入會在對方電腦上打開，這裡請用裝置代碼登入') : tr('登入會在對方電腦上打開瀏覽器，請到那台電腦登入')}</p>}
             {openai && <button type="button" className="fx-control fx-login fx-hit" onClick={() => start('device')}>{tr('用裝置代碼登入')}</button>}
           </>

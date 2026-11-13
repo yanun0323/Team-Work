@@ -279,6 +279,38 @@ it('copies an employee into a new hire sheet filled in from them, where they wor
   expect(sheet({ kind: 'newCrew', copyOf: 'gone' }, r.teamId)).not.toContain('>新增</button>')
 })
 
+it('shows what an employee works by in a dashed box, the blueprint as a button that opens it, and no recent work', () => {
+  const w = useStore.getState().world
+  const r = Object.values(w.replicas).find((x) => x.teamId in w.teams && w.blueprints[x.blueprintId] && !w.blueprints[x.blueprintId].owner)!
+  const bp = w.blueprints[r.blueprintId]
+  const pushed: Item[] = []
+  const noop = () => {}
+  const sheet = (above?: Item) => renderToStaticMarkup(<Detail item={{ kind: 'crew', id: r.id }} teamId={r.teamId} depth={0} covered={false} leaving={false}
+    above={above} onGone={noop} onBack={noop} onDone={noop} onClear={noop} onPush={(x) => pushed.push(x)} onOpen={noop} />)
+  const html = sheet()
+  expect(html).not.toContain('最近的工作')
+  expect(html).toContain('員工藍圖')
+  expect(html).toMatch(new RegExp(`<button type="button" class="fx-row fx-hit" aria-expanded="false">.*<b>${bp.name}</b>`))
+  expect(html).toContain('class="fx-bp-facts"')
+  expect(sheet({ kind: 'blueprint', id: bp.id })).toContain('aria-expanded="true"')
+
+  // their own settings: in the same dashed box, with no blueprint to open
+  const own = { ...bp, id: 'bp-own', name: 'Own', owner: r.id }
+  // rendered on the server, the store is read from its initial state
+  const set = (world: typeof w) => {
+    useStore.setState({ world })
+    Object.assign(useStore.getInitialState(), useStore.getState())
+  }
+  set({ ...w, blueprints: { ...w.blueprints, [own.id]: own }, replicas: { ...w.replicas, [r.id]: { ...r, blueprintId: own.id } } })
+  try {
+    const mine = sheet()
+    expect(mine).toContain('class="fx-bp-facts"')
+    expect(mine).not.toContain('員工藍圖')
+  } finally {
+    set(w)
+  }
+})
+
 it('names a copy with the first free number', () => {
   const w = structuredClone(useStore.getState().world)
   const r = Object.values(w.replicas)[0]

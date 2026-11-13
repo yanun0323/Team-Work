@@ -12,7 +12,7 @@ import { blueprintUsers, flowEditable, gitSources, notStarted, ranSteps, statusO
 import { STAFFING_ID, TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type WorkflowNode, type World } from './core/domain/types'
 import { keptState, sourceName, sourceState, sourceText, toolName } from './source'
 import { composing } from './ime'
-import { crewOf, heirsOf, lastOfTeam, leavesAlone, flowList, hireList, unhidden, activity, fmtClock, fmtTokens, layers, inEdges, lastSub, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
+import { crewOf, heirsOf, lastOfTeam, leavesAlone, flowList, hireList, unhidden, activity, fmtClock, fmtTokens, layers, inEdges, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
 import { useNow, useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -219,7 +219,8 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               moving={above?.kind === 'move'} copying={above?.kind === 'copyHome'} duplicating={above?.kind === 'newCrew'}
               onEdit={() => onPush({ kind: 'crewEdit', id: item.id })} onFire={() => onPush({ kind: 'fire', id: item.id })}
               onMove={() => onPush({ kind: 'move', id: item.id })} onCopy={() => onPush({ kind: 'copyHome', id: item.id })}
-              onDuplicate={() => onPush({ kind: 'newCrew', copyOf: item.id })} />
+              onDuplicate={() => onPush({ kind: 'newCrew', copyOf: item.id })}
+              blueprintOpen={above?.kind === 'blueprint' ? above.id : null} onBlueprint={(x) => onPush({ kind: 'blueprint', id: x })} />
           )}
           {item.kind === 'provider' && (
             <ProviderDetail id={item.id} title={title} tid={id} editing={above?.kind === 'providerEdit'}
@@ -1019,8 +1020,11 @@ function FlowDetail({ id, editing, onEdit, onGoneFlow, ...h }: Head & {
   )
 }
 
-function CrewDetail({ id, editing, firing, moving, copying, duplicating, onEdit, onFire, onMove, onCopy, onDuplicate, ...h }: Head & {
+function CrewDetail({ id, editing, firing, moving, copying, duplicating, blueprintOpen, onEdit, onFire, onMove, onCopy, onDuplicate, onBlueprint, ...h }: Head & {
   id: string
+  /** The blueprint open on the sheet above, if any. */
+  blueprintOpen: string | null
+  onBlueprint: (id: string) => void
   editing: boolean
   firing: boolean
   moving: boolean
@@ -1038,7 +1042,6 @@ function CrewDetail({ id, editing, firing, moving, copying, duplicating, onEdit,
   const remote = useRemote()
   const r = w.replicas[id]
   if (!r) return <Gone {...h} />
-  const last = lastSub(w, r)
   const steps = staffedOn(w, r)
   const doing = doingOf(w, r)
   const alone = lastOfTeam(w, r.id)
@@ -1079,14 +1082,24 @@ function CrewDetail({ id, editing, firing, moving, copying, duplicating, onEdit,
           </p>
         </div>
       </header>
-      {isCustom(w, r) && <BlueprintFacts bp={w.blueprints[r.blueprintId]} />}
+      {/* what they work by, read only, set apart in a dashed box as on the employee form */}
+      {!blueprintGone(w, r) && (isCustom(w, r) ? <div className="fx-bp-facts"><BlueprintFacts bp={w.blueprints[r.blueprintId]} /></div> : (
+        <Section name={tr('員工藍圖')}>
+          <ul className="fx-list fx-list-bare">
+            <li>
+              <button type="button" className="fx-row fx-hit" aria-expanded={blueprintOpen === r.blueprintId} onClick={() => onBlueprint(r.blueprintId)}>
+                <span aria-hidden="true"><BlueprintIcon look={w.blueprints[r.blueprintId].look} name={w.blueprints[r.blueprintId].name} size={26} /></span>
+                <span className="fx-row-main"><b>{w.blueprints[r.blueprintId].name}</b></span>
+              </button>
+            </li>
+          </ul>
+          <div className="fx-bp-facts"><BlueprintFacts bp={w.blueprints[r.blueprintId]} /></div>
+        </Section>
+      ))}
       <Section name={tr('負責的任務')}>
         {steps.length === 0 ? <p className="fx-d-muted">{tr('還沒被安排')}</p> : (
           <p className="fx-d-chips">{steps.map(({ task, n }) => <span key={task.id + n.id}>#{task.number} › {stepName(task.workflow, n.id)}</span>)}</p>
         )}
-      </Section>
-      <Section name={tr('最近的工作')}>
-        <Log lines={(last?.log ?? []).slice(-LOG_LINES).map((l) => ({ ...l, text: logText(l) }))} />
       </Section>
       <Section name={tr('記憶 {length}', { length: r.memory.length })}>
         {r.memory.length === 0 ? <p className="fx-d-muted">{tr('還沒有記憶')}</p> : (

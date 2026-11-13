@@ -256,15 +256,48 @@ export { inEdges, nodeOf, outEdges }
 
 // ---------- DOM hooks ----------
 
-/** Keeps a scrolled-to-bottom list pinned to the bottom as new lines arrive. pin() goes back to the bottom and
- * stays there, as when the user sends a message after scrolling up to read. */
-export function useStickToBottom<E extends HTMLElement>(dep: unknown): [RefObject<E | null>, () => void] {
+/** Keys that scroll a list up. */
+const UP_KEYS = new Set(['ArrowUp', 'PageUp', 'Home'])
+
+/** Keeps a scrolled-to-bottom list pinned to the bottom as new lines arrive. The reader scrolling up, by however
+ * little, lets go of it at once; scrolling back down to the bottom takes hold again. pin() goes back to the bottom
+ * and stays there, as when the user sends a message after scrolling up to read; pin(true) glides there. */
+export function useStickToBottom<E extends HTMLElement>(dep: unknown): [RefObject<E | null>, (smooth?: boolean) => void] {
   const ref = useRef<E>(null)
   const pinned = useRef(true)
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const on = () => (pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24)
+    let last = el.scrollTop
+    // dragging the scroll bar, which is the list's own
+    let held = false
+    let finger = 0
+    // a list too short to scroll has nowhere up to go, so a scroll up there lets nothing go
+    const up = () => { if (el.scrollTop > 0) pinned.current = false }
+    const on = () => {
+      const near = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+      const rose = el.scrollTop < last
+      last = el.scrollTop
+      // near the bottom only a move down takes hold, so a nudge up stays let go; away from it only a move up lets
+      // go, so a smooth scroll on its way down keeps hold
+      if (near && !rose) pinned.current = true
+      else if (rose && (!near || held)) pinned.current = false
+    }
+    const wheel = (e: WheelEvent) => { if (e.deltaY < 0 && !e.ctrlKey) up() }
+    const key = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t?.isContentEditable || t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA') return
+      if (UP_KEYS.has(e.key) || (e.key === ' ' && e.shiftKey)) up()
+    }
+    const touch = (e: TouchEvent) => { finger = e.touches[0]?.clientY ?? 0 }
+    const swipe = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY ?? finger
+      // the finger going down drags the lines down, showing those above
+      if (y > finger) up()
+      finger = y
+    }
+    const press = (e: PointerEvent) => { if (e.target === el) held = true }
+    const release = () => { held = false }
     // something beside the list grew, such as the box to write in: the last line stays in view
     const down = () => { if (pinned.current) el.scrollTop = el.scrollHeight }
     const size = new ResizeObserver(down)
@@ -274,18 +307,36 @@ export function useStickToBottom<E extends HTMLElement>(dep: unknown): [RefObjec
     const lines = new MutationObserver(down)
     lines.observe(el, { childList: true, subtree: true, characterData: true })
     el.addEventListener('scroll', on)
+    el.addEventListener('wheel', wheel, { passive: true })
+    el.addEventListener('keydown', key)
+    el.addEventListener('touchstart', touch, { passive: true })
+    el.addEventListener('touchmove', swipe, { passive: true })
+    el.addEventListener('pointerdown', press)
+    addEventListener('pointerup', release)
+    addEventListener('pointercancel', release)
     return () => {
       size.disconnect()
       lines.disconnect()
       el.removeEventListener('scroll', on)
+      el.removeEventListener('wheel', wheel)
+      el.removeEventListener('keydown', key)
+      el.removeEventListener('touchstart', touch)
+      el.removeEventListener('touchmove', swipe)
+      el.removeEventListener('pointerdown', press)
+      removeEventListener('pointerup', release)
+      removeEventListener('pointercancel', release)
     }
   }, [])
   useEffect(() => {
     const el = ref.current
     if (el && pinned.current) el.scrollTop = el.scrollHeight
   }, [dep])
-  const pin = useCallback(() => {
+  const pin = useCallback((smooth = false) => {
     pinned.current = true
+    const el = ref.current
+    const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+    // what comes in on the way down jumps straight to the bottom, as the list is held there already
+    if (smooth && !calm) return el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
     const down = () => { const el = ref.current; if (el && pinned.current) el.scrollTop = el.scrollHeight }
     down()
     // once what was sent is drawn, such as a message waiting its turn, which leaves dep as it was
@@ -294,8 +345,8 @@ export function useStickToBottom<E extends HTMLElement>(dep: unknown): [RefObjec
   return [ref, pin]
 }
 
-/** Whether a scrolled list shows its last line, and a way back there. A list too short to scroll is at the bottom. */
-export function useAtBottom(ref: RefObject<HTMLElement | null>): [boolean, () => void] {
+/** Whether a scrolled list shows its last line. A list too short to scroll is at the bottom. */
+export function useAtBottom(ref: RefObject<HTMLElement | null>): boolean {
   const [atBottom, setAtBottom] = useState(true)
   useEffect(() => {
     const el = ref.current
@@ -313,12 +364,7 @@ export function useAtBottom(ref: RefObject<HTMLElement | null>): [boolean, () =>
       el.removeEventListener('scroll', on)
     }
   }, [ref])
-  const toBottom = () => {
-    const el = ref.current
-    const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-    el?.scrollTo({ top: el.scrollHeight, behavior: calm ? 'auto' : 'smooth' })
-  }
-  return [atBottom, toBottom]
+  return atBottom
 }
 
 /** Whether a key went to the terminal, where it belongs to the shell and not to the screen around it. */

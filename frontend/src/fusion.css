@@ -497,6 +497,8 @@ body { margin: 0; overflow: hidden; }
 /* employees and blueprints: a column of small portraits */
 .fx-list { margin: 0; padding: 0; list-style: none; }
 .fx-list li { border-bottom: 1px dotted var(--rule); }
+/* a single row, such as the blueprint on an employee's sheet: no rule under it */
+.fx-list-bare li { border-bottom: 0; }
 /* the whole row opens; its shade reaches a little past the text */
 .fx-row {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px;
