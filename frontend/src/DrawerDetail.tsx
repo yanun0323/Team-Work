@@ -1046,14 +1046,14 @@ function CrewDetail({ id, editing, firing, moving, copying, duplicating, bluepri
   const doing = doingOf(w, r)
   const alone = lastOfTeam(w, r.id)
   const shared = r.teamId === STAFFING_ID
-  const moveLabel = shared ? tr('移到公司') : tr('移到人力資源公司')
+  const moveLabel = shared ? tr('移到公司') : tr('移到移民署')
   return (
     <>
       <div className="fx-tools">
         <EditTool onClick={onEdit} open={editing} />
         {remote && !MOCK && (
           <button type="button" className="fx-tool fx-hit" onClick={onCopy} aria-expanded={copying}
-            aria-label={tr('複製到我的人力資源公司')} title={tr('複製到我的人力資源公司')}>
+            aria-label={tr('複製到我的移民署')} title={tr('複製到我的移民署')}>
             <PlaneIcon />
           </button>
         )}

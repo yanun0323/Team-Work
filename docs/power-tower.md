@@ -262,7 +262,7 @@ interface Towers {
 | `POST /api/v1/towers/peers/:id/check` | — | 200 `Peer`（立即檢查，最多等 15 秒） | 404 `not_found` |
 | `DELETE /api/v1/towers/peers/:id` | — | 204 | 404 `not_found` |
 | `GET /api/v1/towers/peers/:id/employees/:rid` | — | 200 複製預覽：對方員工的名字、外觀、藍圖、技能來源（各來源在對方讀到的技能，讀不到為 `null`），加上本機的模型、思考等級，以及 `modelOk`、`effortOk`、`presetOk` | 404 `not_found`、502 `unavailable`、403 `peer_denied`／`peer_unpaired`、409 `incompatible`（對方太舊，沒有匯出員工的 API） |
-| `POST /api/v1/towers/peers/:id/employees/:rid/copy` | `{ "skills": "source" \| "files", "model": string, "effort": string }`，帶 `Idempotency-Key` | 201 `{ replica, missing }`：本機人力資源公司的新員工，以及要重新指定的技能來源；同一個 key 重送回傳同一位，不會重複建立 | 同上；400 `invalid_request`（模型或思考等級本機沒有、技能檔案太大或路徑不正確） |
+| `POST /api/v1/towers/peers/:id/employees/:rid/copy` | `{ "skills": "source" \| "files", "model": string, "effort": string }`，帶 `Idempotency-Key` | 201 `{ replica, missing }`：本機移民署的新員工，以及要重新指定的技能來源；同一個 key 重送回傳同一位，不會重複建立 | 同上；400 `invalid_request`（模型或思考等級本機沒有、技能檔案太大或路徑不正確） |
 
 複製時本機向對方的遠端入口讀 `GET /api/v1/replicas/:rid/export`（`?files=1` 時附上所選技能資料夾裡的一般檔案，不跟隨符號連結、略過隱藏檔，單檔 4MB、總計 16MB、最多 1000 個檔案）。匯出不含記憶、任務、對話、公司資料，Git 位址裡的帳號密碼會去掉。
 

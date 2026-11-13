@@ -1,4 +1,4 @@
-// The staffing agency (人力資源公司), drawn as a domed rotunda: a round stone plinth with steps up to it, a ring of
+// The staffing agency (移民署), drawn as a domed rotunda: a round stone plinth with steps up to it, a ring of
 // columns round a cream drum, a patina-green dome with a lantern and a flag on top, and a giant name badge on a stand
 // out front. Round where every company is a box, low where the power tower is tall, it reads as one of the island's
 // own buildings, on its paved ground past the airport's east end (layout.ts `STAFFING_LOT`). Clicking it, or anywhere

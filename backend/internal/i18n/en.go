@@ -9,7 +9,7 @@ var en = map[string]string{
 	"還有工作要交接，請選擇接手的員工":                  "There is still work to hand over; pick who takes it over",
 	"要交接給另一位員工":                         "Hand over to another employee",
 	"%s 不能在 %s 工作，請改選能接手的員工":            "%s cannot work at %s; pick someone who can take over",
-	"只能在公司和人力資源公司之間移動員工":                "Employees move only between a company and the staffing agency",
+	"只能在公司和移民署之間移動員工":                   "Employees move only between a company and the immigration office",
 	"%s 的藍圖已不存在，請先選擇藍圖":                 "%s's blueprint no longer exists; pick a blueprint first",
 	"技能檔案太多或太大，請改用只複製技能來源設定":            "The skill files are too many or too large; copy only the skill sources instead",
 	"技能 %s 的資料夾在技能來源之外，請改用只複製技能來源設定":    "Skill %s's folder is outside its skill source; copy only the skill sources instead",

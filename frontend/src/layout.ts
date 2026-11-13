@@ -171,7 +171,7 @@ export const TOWER = { x: -14, z: -15, h: 14 }
  */
 export const POWER_TOWER = { x: -35, z: -15.2, w: 9, d: 9, h: 40 }
 /**
- * The staffing agency's ground (人力資源公司), in town cells like `AIRPORT`: fixed just past the airport's east end, on
+ * The staffing agency's ground (移民署), in town cells like `AIRPORT`: fixed just past the airport's east end, on
  * the terminal's side, clear of the runway's line so planes coming in or climbing out pass it by. Like the airport it
  * has land of its own, nothing can be built on it, and it is never moved. Keep in step with backend/internal/usecase/plots.go.
  */
