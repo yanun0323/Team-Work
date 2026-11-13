@@ -265,10 +265,10 @@ func sourcedName(name string) bool {
 	return true
 }
 
-// decodeYAML reads one YAML document into v, refusing fields v does not have.
+// decodeYAML reads one YAML document into v. Fields v does not have are left out rather than refused: a source may be
+// written for a newer app, and an older one should still read what it knows of it.
 func decodeYAML(raw []byte, v any) error {
 	d := yaml.NewDecoder(bytes.NewReader(raw))
-	d.KnownFields(true)
 	if err := d.Decode(v); err != nil {
 		if err == io.EOF {
 			return i18n.Errorf("檔案是空的")
@@ -423,9 +423,7 @@ func readSourcedWorkflow(sourceID, name string, raw []byte) (sourcedFlow, error)
 		return sourcedFlow{}, err
 	}
 	var wf model.Workflow
-	d := json.NewDecoder(bytes.NewReader(js))
-	d.DisallowUnknownFields()
-	if err := d.Decode(&wf); err != nil {
+	if err := json.Unmarshal(js, &wf); err != nil { // fields it does not know are left out, as in decodeYAML
 		return sourcedFlow{}, err
 	}
 	wf.ID = model.SourcedID(sourceID, name)

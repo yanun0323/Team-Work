@@ -152,6 +152,23 @@ func TestASourcesFileMaySayWhereItIsListed(t *testing.T) {
 	}
 }
 
+// A newer source may write fields an older app does not know; the app reads the rest rather than the whole file
+// failing, so adding a field never takes a source's blueprints and flows away from those who have not updated.
+func TestASourcesFileWithFieldsTheAppDoesNotKnowIsStillRead(t *testing.T) {
+	t.Parallel()
+	b, err := readSourcedBlueprint("src-1", "later", []byte("name: Later\nbadge: gold\nskills:\n  - path: skills\n    pin: true\n"))
+	if err != nil || b.bp.Name != "Later" || len(b.packs) != 1 || b.packs[0].Path != "skills" {
+		t.Fatalf("blueprint = %+v, %v", b.bp, err)
+	}
+	f, err := readSourcedWorkflow("src-1", "ship", []byte("icon: rocket\n"+strings.Replace(shipFlow, "    prompt: Check it.\n", "    prompt: Check it.\n    timeout: 5\n", 1)))
+	if err != nil || f.wf.Name != "Ship" || len(f.wf.Nodes) != 2 || f.wf.Nodes[1].Prompt != "Check it." {
+		t.Fatalf("flow = %+v, %v", f.wf, err)
+	}
+	if _, err := readSourcedBlueprint("src-1", "bad", []byte("name: Bad\ntools: fly\n")); err == nil {
+		t.Error("a field the app knows, written wrong, was read")
+	}
+}
+
 func TestACopyOfASourcedFlowIsListedAsTheUsersOwn(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
