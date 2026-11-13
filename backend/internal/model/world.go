@@ -756,6 +756,9 @@ type Message struct {
 	Content []Block   `json:"content"`
 	// By is the employee who wrote it, in a chat, so a meeting shows each one the others' words as said to them.
 	By string `json:"by,omitempty"`
+	// Notes are the notes each employee was given with these words, by who was given them, shown again where they
+	// were first sent so what came before stays the same for the provider's cache.
+	Notes map[string]string `json:"notes,omitempty"`
 }
 
 type ToolSpec struct {

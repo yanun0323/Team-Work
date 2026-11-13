@@ -65,7 +65,7 @@ const talkMeetingRule = "This discussion is a meeting of the user and several em
 	"The employees the user @mentions reply one after another, and @All is everyone, the chair last; with no mention the chair replies alone. " +
 	"Each sees what was said before them. What another employee said comes to you as a user message starting with their name in brackets, like \"[Ada] ...\": " +
 	"it is theirs, not the user's. " + othersRule +
-	"Who is in it and the order of this round come in a [Meeting] note at the end of the user's latest message.\n"
+	"Who is in it and the order of this round come in a [Meeting] note at the end of the user's latest message; notes on earlier messages were for earlier rounds.\n"
 
 // othersRule keeps an employee in a meeting from taking what those before them said as settled, and from leaving a
 // part alone because someone else spoke to it.

@@ -417,7 +417,7 @@ func (e *Engine) talkSpec(t *model.Task, s *model.SubTask, spec agentSpec) agent
 }
 
 // talkSees is a discussion as the one replying reads it: in a meeting what the others said comes as said to them,
-// and the round's note ends the user's latest words.
+// and the round's note is kept with the latest words they hear.
 func (e *Engine) talkSees(t *model.Task, s *model.SubTask, conv []model.Message, speaker string) []model.Message {
 	people := e.talkPeople(t, s)
 	if len(people) < 2 {
@@ -461,7 +461,11 @@ func (e *Engine) talkSees(t *model.Task, s *model.SubTask, conv []model.Message,
 		}
 	}
 	note := fmt.Sprintf("[Meeting] In it: %s. This round replies, in order: %s.", strings.Join(here, ", "), strings.Join(order, ", "))
-	return withNote(chatSees(conv, speaker, names), note)
+	if pinNote(e.w.Conversations[s.ID], speaker, note) >= 0 {
+		e.dirty[s.ID] = true
+	}
+	pinNote(conv, speaker, note) // when it is not the saved slice itself
+	return seesNoted(conv, speaker, note, names)
 }
 
 // startTalkReply has an employee answer in a discussion. Call it holding the lock.

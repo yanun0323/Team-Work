@@ -492,3 +492,37 @@ func TestMeetingCompactsForWhoeverReadsLeast(t *testing.T) {
 		t.Fatalf("context %d", got.Context)
 	}
 }
+
+// In a meeting each one's round note stays on the words it came with, so their next round starts with their last.
+func TestMeetingNoteStaysWhereItWasSent(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) { return say("意見"), nil })
+	bea, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bea", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Guests: []string{bea.ID}, Text: "@All 第一輪", Mentions: []string{bea.ID, r.owner.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first round", chatDone(c.ID))
+	if err := r.e.SayInChatTo(c.ID, "@All 第二輪", nil, nil, []string{bea.ID, r.owner.ID}); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("second round", func(w *model.World) bool { return w.Chats[c.ID].ReplyAt == nil && len(w.Chats[c.ID].Messages) == 6 })
+	for _, who := range []string{bea.ID, r.owner.ID} {
+		var asked []model.ModelRequest
+		for _, req := range r.fake.seen {
+			if req.Session == c.ID+"-"+who {
+				asked = append(asked, req)
+			}
+		}
+		if len(asked) != 2 {
+			t.Fatalf("%s: %d requests", who, len(asked))
+		}
+		before := wordsOf(asked[0].Messages) + "assistant:text:意見\n"
+		if got := wordsOf(asked[1].Messages); !strings.HasPrefix(got, before) || !strings.Contains(got[len(before):], "[Meeting]") {
+			t.Fatalf("%s's second round changed what came before:\n%s\nwas\n%s", who, got, before)
+		}
+	}
+}

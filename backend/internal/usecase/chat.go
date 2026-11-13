@@ -1082,6 +1082,18 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			}
 		}
 	}
+	if i := pinNote(in.conv, in.speaker, in.note); i >= 0 {
+		noted := in.conv[i]
+		kept := e.applyChat(in, func(c *model.Chat) {
+			if conv := e.w.Conversations[c.ID]; i < len(conv) {
+				conv[i].Notes = noted.Notes
+				e.dirty[c.ID] = true
+			}
+		})
+		if !kept {
+			return
+		}
+	}
 	read := append(append(roots, e.attachmentRoot(in.id)), in.spec.read...)
 	list := tools.For(in.spec.allowed, tools.Env{Read: read, Output: e.outputRoot(in.id), Search: e.search})
 	list = append(list, e.chatAskUser(in))

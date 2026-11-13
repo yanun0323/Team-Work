@@ -840,7 +840,8 @@ func TestRewindTakesBackTheMessageAndAllAfterIt(t *testing.T) {
 			}
 		}
 	}
-	if !slices.Equal(said, []string{"第一句", "改過的第二句", zhNote}) {
+	// each note stays with the words it was sent with
+	if !slices.Equal(said, []string{"第一句", zhNote, "改過的第二句", zhNote}) {
 		t.Fatalf("the model heard %q", said)
 	}
 
@@ -1040,7 +1041,7 @@ func TestForkCopiesUpToTheMessageAndGoesOnByItself(t *testing.T) {
 		}
 	}
 	mu.Unlock()
-	if !slices.Equal(said, []string{"第一句", "分支", zhNote}) {
+	if !slices.Equal(said, []string{"第一句", zhNote, "分支", zhNote}) {
 		t.Fatalf("the model heard %q", said)
 	}
 	// the copy has its own attachment, and the model is told where
@@ -1912,5 +1913,41 @@ func TestReasoningIsKeptForTheNextCall(t *testing.T) {
 	}
 	if len(sent) != 1 || string(sent[0].Raw) != string(reasoning.Raw) || sent[0].Origin != reasoning.Origin {
 		t.Fatalf("reasoning in the handed-off chat: %+v", sent)
+	}
+}
+
+// The language note stays on the words it was first sent with, so each request starts with the one before it and the
+// provider's cache of the conversation holds.
+func TestChatNoteStaysWhereItWasSent(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "第一句"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	for i, text := range []string{"第二句", "第三句"} {
+		if err := r.e.SayInChat(c.ID, text, nil); err != nil {
+			t.Fatal(err)
+		}
+		r.wait("reply", func(w *model.World) bool { return w.Chats[c.ID].ReplyAt == nil && len(w.Chats[c.ID].Messages) == 4+2*i })
+	}
+	var asked []model.ModelRequest
+	for _, req := range r.fake.seen {
+		if req.Session == c.ID {
+			asked = append(asked, req)
+		}
+	}
+	if len(asked) != 3 {
+		t.Fatalf("%d requests", len(asked))
+	}
+	for i := 1; i < len(asked); i++ {
+		before := wordsOf(asked[i-1].Messages) + "assistant:text:好\n"
+		if got := wordsOf(asked[i].Messages); !strings.HasPrefix(got, before) || !strings.HasSuffix(got, zhNote+"\n") {
+			t.Fatalf("request %d changed what came before:\n%s\nwas\n%s", i, got, before)
+		}
+	}
+	if n := strings.Count(wordsOf(asked[2].Messages), zhNote); n != 3 {
+		t.Fatalf("%d notes", n)
 	}
 }

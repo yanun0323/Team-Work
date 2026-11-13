@@ -244,7 +244,7 @@ func meetingRule(c *model.Chat, speaker string) string {
 		"Each sees what was said before them. What another employee said comes to you as a user message starting with their name in brackets, like \"[Ada] ...\": " +
 		"it is theirs, not the user's. " + othersRule +
 		"Only one employee a round may create or change tasks, blueprints and flows, or ask the user; when someone else needs to do that, say so for them to do. " +
-		"Who is in the meeting, the order of this round and who acts in it come in a [Meeting] note at the end of the user's latest message.\n"
+		"Who is in the meeting, the order of this round and who acts in it come in a [Meeting] note at the end of the user's latest message; notes on earlier messages were for earlier rounds.\n"
 }
 
 // roundNote is what an employee in a meeting needs to know about the round under way: who is there, who replies
@@ -300,6 +300,56 @@ func chatNote(language, round string) string {
 	return languageNote(language) + "\n" + round
 }
 
+// pinNote keeps a note with the latest words the one replying hears, the user's or another's in a meeting, so every
+// later request shows it where it was first sent: moving it to the newest words each round would change what came
+// before, and the provider's cache of the conversation would be lost. It changes conv in place and returns the index
+// it changed, or -1.
+func pinNote(conv []model.Message, speaker, note string) int {
+	if note == "" {
+		return -1
+	}
+	for i := len(conv) - 1; i >= 0; i-- {
+		m := conv[i]
+		if !heard(m, speaker) {
+			continue
+		}
+		if m.Notes[speaker] == note {
+			return -1
+		}
+		notes := make(map[string]string, len(m.Notes)+1)
+		for k, v := range m.Notes {
+			notes[k] = v
+		}
+		notes[speaker] = note
+		m.Notes = notes
+		conv[i] = m
+		return i
+	}
+	return -1
+}
+
+// heard says whether a message is words the speaker hears from someone: the user's, or what another said in a meeting.
+func heard(m model.Message, speaker string) bool {
+	switch m.Role {
+	case enum.RoleUser:
+		return slices.ContainsFunc(m.Content, func(b model.Block) bool { return b.Type == enum.BlockText })
+	case enum.RoleAssistant:
+		return m.By != "" && m.By != speaker && slices.ContainsFunc(m.Content, func(b model.Block) bool {
+			return b.Type == enum.BlockText && strings.TrimSpace(b.Text) != ""
+		})
+	}
+	return false
+}
+
+// seesNoted is what the one replying reads with the note they were given: pinned where it was first sent, or at the
+// end of the user's latest words when a summary has taken the words it was pinned to.
+func seesNoted(conv []model.Message, speaker, note string, names map[string]string) []model.Message {
+	if note != "" && !slices.ContainsFunc(conv, func(m model.Message) bool { return m.Notes[speaker] == note }) {
+		return withNote(chatSees(conv, speaker, names), note)
+	}
+	return chatSees(conv, speaker, names)
+}
+
 // withNote puts a note at the end of the user's latest words, on a copy, leaving what came before as it was sent.
 func withNote(conv []model.Message, note string) []model.Message {
 	if note == "" {
@@ -330,8 +380,22 @@ func guestIDs(c *model.Chat) []string {
 // said it, and the tools they ran are left out. Untagged messages, from before chats said who wrote what, are theirs.
 func chatSees(conv []model.Message, speaker string, names map[string]string) []model.Message {
 	theirs := func(m model.Message) bool { return m.By == "" || m.By == speaker }
+	noted := func(m model.Message) model.Message {
+		if note := m.Notes[speaker]; note != "" {
+			m.Content = append(slices.Clip(m.Content), model.Block{Type: enum.BlockText, Text: note})
+		}
+		m.Notes = nil // the provider gets the words, not who was told what
+		return m
+	}
 	if !slices.ContainsFunc(conv, func(m model.Message) bool { return m.Role == enum.RoleAssistant && !theirs(m) }) {
-		return conv
+		if !slices.ContainsFunc(conv, func(m model.Message) bool { return m.Notes != nil }) {
+			return conv
+		}
+		out := slices.Clone(conv)
+		for i := range out {
+			out[i] = noted(out[i])
+		}
+		return out
 	}
 	calls := map[string]bool{}
 	var out []model.Message
@@ -366,7 +430,7 @@ func chatSees(conv []model.Message, speaker string, names map[string]string) []m
 				if name == "" {
 					name = "a former colleague"
 				}
-				add(userText("[" + name + "] " + strings.Join(words, "\n\n")))
+				add(noted(model.Message{Role: enum.RoleUser, Content: userText("[" + name + "] " + strings.Join(words, "\n\n")).Content, Notes: m.Notes}))
 			}
 		default:
 			kept := model.Message{Role: m.Role, By: m.By}
@@ -374,6 +438,10 @@ func chatSees(conv []model.Message, speaker string, names map[string]string) []m
 				if b.Type != enum.BlockToolResult || calls[b.ID] {
 					kept.Content = append(kept.Content, b)
 				}
+			}
+			if len(kept.Content) > 0 {
+				kept.Notes = m.Notes
+				kept = noted(kept)
 			}
 			add(kept)
 		}
@@ -403,5 +471,5 @@ func (t refusedTool) Run(context.Context, string, json.RawMessage) model.ToolRes
 
 // sees is the conversation as the one replying reads it, with the round's note.
 func (in chatRun) sees(conv []model.Message) []model.Message {
-	return withNote(chatSees(conv, in.speaker, in.names), in.note)
+	return seesNoted(conv, in.speaker, in.note, in.names)
 }
