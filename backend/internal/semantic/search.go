@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -17,6 +18,8 @@ const (
 	// maxQueryBytes bounds the search sentence.
 	maxQueryBytes = 4096
 	rrfK          = 60
+	// vectorFloor is how close to the best vector match another must be to count.
+	vectorFloor = 0.75
 	// maxMergedLines keeps neighbouring results merged into one from growing without end.
 	maxMergedLines = 200
 )
@@ -95,6 +98,13 @@ func (s *Service) Search(ctx context.Context, q Query) (Result, error) {
 	if _, err := r.scan(ctx, s.log, "scan"); err != nil {
 		s.log.warn("semantic_error").Str("stage", "search").Str("root", r.dir).Str("reason", safeReason(err)).Str("next", "report").Send()
 		if errors.Is(err, errNotGit) {
+			// not kept: nothing to index there, and nothing to look at again
+			s.mu.Lock()
+			if s.roots[r.dir] == r {
+				delete(s.roots, r.dir)
+			}
+			s.mu.Unlock()
+			r.cancel()
 			return Result{}, &UserError{"the working directory is not a Git work tree, so it cannot be indexed; use grep"}
 		}
 		return Result{}, &UserError{"the working directory cannot be listed; use grep"}
@@ -181,6 +191,11 @@ func (s *Service) vectorSearch(ctx context.Context, r *root, q Query, res *Resul
 	sort.Slice(found, func(i, j int) bool { return found[i].cos > found[j].cos })
 	if len(found) > q.Limit*3 {
 		found = found[:q.Limit*3]
+	}
+	// ranks alone would give a far weaker match the same weight as a keyword hit: only ones near the best count
+	if len(found) > 0 {
+		floor := found[0].cos * vectorFloor
+		found = slices.DeleteFunc(found, func(c candidate) bool { return c.cos <= 0 || c.cos < floor })
 	}
 	if found == nil {
 		found = []candidate{}

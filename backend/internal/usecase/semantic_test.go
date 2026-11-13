@@ -128,7 +128,7 @@ func TestSemanticSearchInChatsAndSteps(t *testing.T) {
 		t.Fatal("the step's search is not logged with its task")
 	}
 
-	if err := r.e.CancelTask(task.ID); err != nil {
+	if err := r.e.DeleteTask(task.ID); err != nil {
 		t.Fatal(err)
 	}
 	removed := false

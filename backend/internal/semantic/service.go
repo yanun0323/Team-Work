@@ -133,6 +133,10 @@ func (s *Service) Start(enabled bool, roots []string) {
 		s.state = StateDisabled
 	default:
 		s.active = true
+		s.state = StateDownloading
+		if (&fetcher{dir: filepath.Join(s.dir, "models")}).ready() != "" {
+			s.state = StateCompiling
+		}
 		for _, dir := range roots {
 			s.rootLocked(dir)
 		}
@@ -624,6 +628,12 @@ func (s *Service) indexer() {
 		if !ready {
 			continue
 		}
+		s.mu.Lock()
+		state := s.state
+		s.mu.Unlock()
+		if state == StateReady && !s.allIndexed() { // a new work tree, or files changed
+			s.setState(StateIndexing, "", nil)
+		}
 		for _, r := range roots {
 			if s.ctx.Err() != nil {
 				return
@@ -636,7 +646,7 @@ func (s *Service) indexer() {
 			first[r] = true
 		}
 		s.mu.Lock()
-		state := s.state
+		state = s.state
 		s.mu.Unlock()
 		if state == StateIndexing && s.allIndexed() {
 			s.setState(StateReady, "", nil)

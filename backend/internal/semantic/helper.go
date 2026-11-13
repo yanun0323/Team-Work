@@ -280,12 +280,15 @@ func (h *helper) ensure() (*child, error) {
 // drop stops a helper that failed a request; the next request starts it again, up to maxRestarts times.
 func (h *helper) drop(c *child) {
 	h.mu.Lock()
-	if h.child == c {
+	mine := h.child == c // otherwise its exit was already counted
+	if mine {
 		h.child = nil
 	}
 	h.mu.Unlock()
 	c.close()
-	h.restarted()
+	if mine {
+		h.restarted()
+	}
 }
 
 func (h *helper) restarted() {

@@ -109,6 +109,7 @@ func (f *fetcher) fetch(ctx context.Context, progress progressFunc) (string, err
 	for i, name := range assets {
 		path := filepath.Join(partial, filepath.FromSlash(name))
 		if hashFile(path) == sums[name] { // kept from an earlier try
+			f.log.info("semantic_checksum").Str("file", name).Bool("ok", true).Bool("kept", true).Send()
 			done += sizes[name]
 			progress(done, total, i+1, len(assets))
 			continue
