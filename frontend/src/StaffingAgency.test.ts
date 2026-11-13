@@ -1,7 +1,5 @@
-import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { mergeStatic } from './Merged'
-import { hitBoxes, PAVE_TOP, ROTUNDA, SHADE_FLOOR, shadeTargets } from './StaffingAgency'
+import { hitBoxes, ROTUNDA } from './StaffingAgency'
 import { BED, GROUNDS, HALF_LOT, obstacles, STEPS_HALF, type Footprint } from './staffingGrounds'
 
 type Box = ReturnType<typeof hitBoxes>[number]
@@ -35,28 +33,5 @@ describe('what takes the pointer at the staffing agency', () => {
 
   it('drops the lamps with less detail, as they are not drawn', () => {
     expect(hitBoxes(true).length - hitBoxes(false).length).toBe(GROUNDS.lamps.length)
-  })
-})
-
-describe("the staffing agency's hover shade", () => {
-  it('copies only what is drawn: the merged meshes, not those they stand for, the pointer\'s boxes or its own copies', () => {
-    const box = () => new THREE.BoxGeometry()
-    const root = new THREE.Group()
-    const merged = new THREE.Group()
-    merged.add(new THREE.Mesh(box(), new THREE.MeshBasicMaterial()), new THREE.Mesh(box(), new THREE.MeshBasicMaterial()))
-    const built = mergeStatic(merged)
-    merged.add(...built)
-    const flag = new THREE.Mesh(box(), new THREE.MeshBasicMaterial())
-    const hit = new THREE.Mesh(box(), new THREE.MeshBasicMaterial({ visible: false }))
-    const shade = new THREE.Group()
-    shade.add(new THREE.Mesh(box(), new THREE.MeshBasicMaterial()))
-    root.add(merged, flag, hit, shade)
-    expect(shadeTargets(root, shade)).toEqual([...built, flag])
-  })
-
-  it('lays its layer over the paving clear of the paving, not on it, where it lost to it in bands', () => {
-    // well past what a depth buffer tells apart from 1 to 600, and too little to see
-    expect(SHADE_FLOOR - PAVE_TOP).toBeGreaterThanOrEqual(0.01)
-    expect(SHADE_FLOOR - PAVE_TOP).toBeLessThanOrEqual(0.05)
   })
 })

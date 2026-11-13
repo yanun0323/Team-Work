@@ -8,12 +8,12 @@
 // corners. All of it stays low, clear of the runway's line, and people walk round it.
 
 import { type ThreeEvent } from '@react-three/fiber'
-import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { CELL, rectCenter, STAFFING, type Town } from './layout'
+import { HoverShade } from './HoverShade'
 import { Merged, mergeParts } from './Merged'
-import { NO_OUTLINE_LAYER } from './PixelPass'
 import { usePrefs } from './prefs'
 import { BED, GROUNDS, HALF_LOT, PLINTH, STEPS_HALF, type Footprint } from './staffingGrounds'
 import { LANTERN } from './streetProps'
@@ -83,7 +83,6 @@ export function StaffingAgency({ town, hover, still, onHover, onSelect }: {
   const [cx, cz] = rectCenter(town, town.staffing)
   const detail = usePrefs((s) => s.detail)
   const boxes = useMemo(() => hitBoxes(detail), [detail])
-  const root = useRef<THREE.Group>(null)
   const columns = useMemo(() => Array.from({ length: COLUMNS.n }, (_, i) => {
     const a = (i / COLUMNS.n) * Math.PI * 2 + Math.PI / COLUMNS.n
     return [Math.sin(a) * COLUMNS.r, Math.cos(a) * COLUMNS.r] as const
@@ -96,7 +95,7 @@ export function StaffingAgency({ town, hover, still, onHover, onSelect }: {
     if (e.delta <= 5 && !still) onSelect()
   }
   return (
-    <group ref={root} position={[cx, 0, cz]} onClick={click}
+    <group position={[cx, 0, cz]} onClick={click}
       onPointerOver={(e) => { e.stopPropagation(); onHover(true); document.body.style.cursor = still ? '' : 'pointer' }}
       onPointerOut={() => { onHover(false); document.body.style.cursor = '' }}>
       <Merged deps={[columns, windows, detail]}>
@@ -151,7 +150,7 @@ export function StaffingAgency({ town, hover, still, onHover, onSelect }: {
       ))}
       {/* the columns are mostly air: boxes over the rotunda, its paving and what stands on it take the pointer, unseen */}
       <Hit boxes={boxes} />
-      <Shade root={root} on={hover} />
+      <HoverShade on={hover} floor={LOT_FLOOR} />
     </group>
   )
 }
@@ -344,85 +343,5 @@ function Hit({ boxes }: { boxes: Array<[V3, V3]> }) {
 }
 const UNIT_BOX = new THREE.BoxGeometry()
 
-/** The paving's top (World.tsx `Pavement`). */
-export const PAVE_TOP = 0.08
-/**
- * The height of the shade's layer over the paving: clear of the paving's top, not on it. The paving is many boxes, the
- * layer one plane cut into other triangles, so their depths at the same spot differ in the last bits; lying on it,
- * the layer lost to the paving in bands that moved with the zoom, which no polygon offset made up for. Too little
- * to see as a step at the foot of anything standing there.
- */
-export const SHADE_FLOOR = PAVE_TOP + 0.02
-
-/**
- * The meshes drawn under `root`, for the shade to copy: shown all the way down (so not those `Merged` has hidden in
- * favour of its merged ones), with a material that is drawn (so not the pointer's boxes), and nothing under `skip`.
- */
-export function shadeTargets(root: THREE.Object3D, skip: THREE.Object3D): THREE.Mesh[] {
-  const out: THREE.Mesh[] = []
-  const walk = (o: THREE.Object3D) => {
-    if (o === skip || !o.visible) return
-    const m = o as THREE.Mesh
-    if (m.isMesh && !Array.isArray(m.material) && m.material.visible) out.push(m)
-    for (const c of o.children) walk(c)
-  }
-  walk(root)
-  return out
-}
-
-/**
- * The hover shade, following the agency's own outline: a see-through grey copy of every mesh it draws, flags waving
- * and all, and a layer on its paving. Each copy lies on what it copies, and the depth test lets only the nearest
- * surface at each spot on screen through, so nowhere is shaded twice; nor is anyone walking across the paving.
- */
-function Shade({ root, on }: { root: RefObject<THREE.Group | null>; on: boolean }) {
-  // a nudge towards the camera, so a copy is never lost to the surface it lies on; a fixed one, as one by slope (the
-  // factor) is large on the big pixels here and would lift the paving's layer through the path on it
-  const mat = useMemo(() => new THREE.MeshBasicMaterial({
-    color: '#1c1f2e', transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -4,
-  }), [])
-  const holder = useRef<THREE.Group>(null)
-  const copies = useMemo(() => new Map<THREE.Mesh, THREE.Mesh>(), [])
-  const back = useMemo(() => new THREE.Matrix4(), [])
-  useEffect(() => () => mat.dispose(), [mat])
-  useLayoutEffect(() => holder.current?.traverse((o) => o.layers.set(NO_OUTLINE_LAYER)), [])
-  useFrame((_, dt) => {
-    const to = on ? 0.5 : 0
-    mat.opacity += Math.sign(to - mat.opacity) * Math.min(Math.abs(to - mat.opacity), 4 * dt)
-    const g = holder.current
-    const r = root.current
-    if (!g || !r) return
-    g.visible = mat.opacity > 0.001
-    if (!g.visible) return
-    // what is drawn changes as `Merged` rebuilds (less detail) and the flags wave: copy it as it is now
-    const sources = new Set(shadeTargets(r, g))
-    for (const [src, copy] of copies) if (!sources.has(src)) {
-      g.remove(copy)
-      copies.delete(src)
-    }
-    r.updateWorldMatrix(true, false)
-    back.copy(r.matrixWorld).invert()
-    for (const src of sources) {
-      let copy = copies.get(src)
-      if (!copy) {
-        copy = new THREE.Mesh(src.geometry, mat)
-        copy.matrixAutoUpdate = false
-        copy.raycast = () => null
-        copy.renderOrder = 2
-        copy.layers.set(NO_OUTLINE_LAYER)
-        copies.set(src, copy)
-        g.add(copy)
-      }
-      copy.geometry = src.geometry
-      src.updateWorldMatrix(true, false)
-      copy.matrix.multiplyMatrices(back, src.matrixWorld)
-    }
-  })
-  return (
-    <group ref={holder} visible={false}>
-      <mesh position={[0, SHADE_FLOOR, 0]} rotation={[-Math.PI / 2, 0, 0]} material={mat} raycast={() => null} renderOrder={2}>
-        <planeGeometry args={[2 * HALF_LOT, 2 * HALF_LOT]} />
-      </mesh>
-    </group>
-  )
-}
+/** The paving, for the hover shade's layer over it. */
+const LOT_FLOOR = { x: 0, z: 0, w: 2 * HALF_LOT, d: 2 * HALF_LOT }

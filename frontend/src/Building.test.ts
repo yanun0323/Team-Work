@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { billAt, litShares, plotHitGeometry, LOUNGE_SEAT_D, loungeSeats, moneyTosses, NOOK_SEAT_FRONT, nookPlaces, shoutBursts } from './Building'
+import { billAt, litShares, plotBoxes, plotHitGeometry, LOUNGE_SEAT_D, loungeSeats, moneyTosses, NOOK_SEAT_FRONT, nookPlaces, shoutBursts } from './Building'
 import { NOOK_D, officePlan } from './office'
 import { SHIN_REACH } from './People'
 import { SCREEN_RIGHT } from './camera'
-import { CELL, RING_CELLS } from './layout'
+import { CELL, layoutTown, RING_CELLS } from './layout'
 import { seedWorld } from './core/data/seed'
 import { busyReplicas, createAirportChat, createChat, subsOf } from './core/domain/sim'
 import { teamBusy, teamReplicas, teamTasks, teamWork } from './core/model'
@@ -156,5 +156,18 @@ describe('plotHitGeometry', () => {
     expect(top(1)).toBeCloseTo(0.12)
     expect(top(6)).toBeCloseTo(1)
     expect(top(4), 'between the paving and the lamp').toBeUndefined()
+  })
+
+  it("takes the pointer on the ground under the building's overhang, round its set-back ground floor", () => {
+    const town = layoutTown([{ id: 'a', name: 'A', members: 3, bytes: 0, at: [0, 0] }])
+    const lot = town.lots[0]
+    const mesh = new THREE.Mesh(plotHitGeometry(plotBoxes(town, lot, true)), new THREE.MeshBasicMaterial())
+    mesh.updateMatrixWorld()
+    const down = new THREE.Vector3(0, -1, 0)
+    const hit = (x: number, z: number) => new THREE.Raycaster(new THREE.Vector3(x, 10, z), down).intersectObject(mesh).length > 0
+    const w = lot.building.w * CELL
+    const d = lot.building.d * CELL
+    // just inside each edge: under the floors above, outside the lobby's walls
+    for (const [x, z] of [[w / 2 - 0.4, 0], [-w / 2 + 0.4, 0], [0, d / 2 - 0.4], [0, -d / 2 + 0.4]]) expect(hit(x, z), `${x}, ${z}`).toBe(true)
   })
 })

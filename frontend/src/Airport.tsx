@@ -10,10 +10,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { AirportInterior } from './AirportInterior'
 import { Fade } from './Fade'
+import { HoverShade } from './HoverShade'
 import { Merged } from './Merged'
 import { ROOF_TOP } from './Building'
 import { AIRPORT, CELL, FLOOR_CELLS, rectCenter, RUNWAY_CELLS, RUNWAY_LINE, BRIDGE_DX, HALL_LIFT, STAND_Z, STANDS, TERMINAL, TOWER, type Town } from './layout'
-import { MAX_FRAME, NO_OUTLINE_LAYER } from './PixelPass'
+import { MAX_FRAME } from './PixelPass'
 import { usePrefs } from './prefs'
 import { playSound, stopSound } from './sound'
 import { toon, toonGlow } from './toon'
@@ -347,40 +348,6 @@ function Windsock() {
         <B p={[0.25, 0, 0]} s={[0.5, 0.32, 0.32]} c="#f4f4f0" />
       </group>
     </group>
-  )
-}
-
-/** A see-through grey layer over the whole airport while the pointer is on it: buildings, runway, taxiways, apron and helipad. */
-function Shade({ on }: { on: boolean }) {
-  const mat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#1c1f2e', transparent: true, opacity: 0, depthWrite: false }), [])
-  const refs = useRef<Array<THREE.Mesh | null>>([])
-  useEffect(() => () => mat.dispose(), [mat])
-  useLayoutEffect(() => refs.current.forEach((m) => m?.layers.set(NO_OUTLINE_LAYER)), [])
-  useFrame((_, dt) => {
-    const to = on ? 0.5 : 0
-    mat.opacity += Math.sign(to - mat.opacity) * Math.min(Math.abs(to - mat.opacity), 4 * dt)
-    for (const m of refs.current) if (m) m.visible = mat.opacity > 0.001
-  })
-  const tw = TERMINAL.x1 - TERMINAL.x0
-  const td = TERMINAL.z1 - TERMINAL.z0
-  // paved ground gets a thin layer, just over its markings, so planes on it stay above it
-  const flat = (x0: number, x1: number, z0: number, z1: number): [V3, V3] => [[(x0 + x1) / 2, PAVE / 2 + 0.03, (z0 + z1) / 2], [x1 - x0 + 0.06, PAVE + 0.06, z1 - z0 + 0.06]]
-  const boxes: Array<[V3, V3]> = [
-    [[(TERMINAL.x0 + TERMINAL.x1) / 2, TERMINAL.h / 2 + 0.3, (TERMINAL.z0 + TERMINAL.z1) / 2], [tw + 0.7, TERMINAL.h + 0.7, td + 0.7]],
-    [[TOWER.x, (TOWER.h + 3) / 2, TOWER.z], [3.5, TOWER.h + 3.6, 3.5]],
-    flat(-RUNWAY_HALF, RUNWAY_HALF, RUNWAY_Z - RUNWAY_W / 2 - 0.5, RUNWAY_Z + RUNWAY_W / 2 + 0.5),
-    ...TAXI_X.map((x) => flat(x - TAXI_W / 2, x + TAXI_W / 2, APRON.z1, RUNWAY_Z - RUNWAY_W / 2 - 0.5)),
-    flat(APRON.x0, APRON.x1, APRON.z0, APRON.z1),
-    flat(HELIPAD.x - HELIPAD.r - 0.5, HELIPAD.x + HELIPAD.r + 0.5, HELIPAD.z - HELIPAD.r - 0.5, HELIPAD.z + HELIPAD.r + 0.5),
-  ]
-  return (
-    <>
-      {boxes.map(([p, s], i) => (
-        <mesh key={i} ref={(m) => void (refs.current[i] = m)} position={p} scale={s} material={mat} raycast={() => null} renderOrder={2}>
-          <boxGeometry />
-        </mesh>
-      ))}
-    </>
   )
 }
 
@@ -732,7 +699,7 @@ export function Airport({ town, open, hover, still, calm, away = false, onHover,
       {detail && <GroundCrew />}
       <Flight calm={calm} away={away} obstacles={obstacles} />
       <Fade show={open}><AirportInterior /></Fade>
-      <Shade on={hover} />
+      <HoverShade on={hover} />
     </group>
   )
 }

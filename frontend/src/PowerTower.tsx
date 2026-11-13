@@ -4,11 +4,11 @@
 // panel, where this computer is paired with others and goes to their islands.
 
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { POWER_TOWER, rectCenter, type Town } from './layout'
+import { HoverShade } from './HoverShade'
 import { Merged } from './Merged'
-import { NO_OUTLINE_LAYER } from './PixelPass'
 import { usePrefs } from './prefs'
 import { toon, toonGlow } from './toon'
 
@@ -128,7 +128,7 @@ export function PowerTower({ town, hover, still, onHover, onSelect }: {
       <mesh position={[0, POWER_TOWER.h / 2, 0]} scale={[POWER_TOWER.w, POWER_TOWER.h + 1, POWER_TOWER.d]} material={HIT}>
         <boxGeometry />
       </mesh>
-      <Shade on={hover} />
+      <HoverShade on={hover} />
     </group>
   )
 }
@@ -160,21 +160,3 @@ function Beacon() {
   )
 }
 
-/** A see-through grey box round the tower while the pointer is on it, as over the airport. */
-function Shade({ on }: { on: boolean }) {
-  const mat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#1c1f2e', transparent: true, opacity: 0, depthWrite: false }), [])
-  const mesh = useRef<THREE.Mesh>(null)
-  useEffect(() => () => mat.dispose(), [mat])
-  useLayoutEffect(() => mesh.current?.layers.set(NO_OUTLINE_LAYER), [])
-  useFrame((_, dt) => {
-    const to = on ? 0.5 : 0
-    mat.opacity += Math.sign(to - mat.opacity) * Math.min(Math.abs(to - mat.opacity), 4 * dt)
-    if (mesh.current) mesh.current.visible = mat.opacity > 0.001
-  })
-  return (
-    <mesh ref={mesh} position={[0, (POWER_TOWER.h + 0.6) / 2, 0]} scale={[POWER_TOWER.w + 0.2, POWER_TOWER.h + 0.9, POWER_TOWER.d + 0.2]}
-      material={mat} raycast={() => null} renderOrder={2}>
-      <boxGeometry />
-    </mesh>
-  )
-}
