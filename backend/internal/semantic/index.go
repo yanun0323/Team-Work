@@ -72,12 +72,17 @@ func hashBytes(b []byte) string {
 // vectors at once and waits to be indexed again. It returns how many files changed.
 func (r *root) scan(ctx context.Context, log *logger, source string) (int, error) {
 	l, err := list(ctx, r.dir)
+	var dir *os.Root
+	if err == nil {
+		dir, err = os.OpenRoot(r.dir)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err != nil {
 		r.failed = err
 		return 0, err
 	}
+	defer dir.Close()
 	r.failed = nil
 	r.listing = l
 	last := r.scanned
@@ -91,7 +96,7 @@ func (r *root) scan(ctx context.Context, log *logger, source string) (int, error
 		if f != nil && ok && st == f.stamp && time.Unix(0, st.ctime).Before(last.Add(-racy)) && time.Unix(0, st.mtime).Before(last.Add(-racy)) {
 			continue
 		}
-		data, why := readText(r.dir, rel)
+		data, why := readText(dir, rel)
 		hash := ""
 		if why == "" {
 			hash = hashBytes(data)
@@ -158,13 +163,13 @@ func (r *root) counts() (done, pending, chunks int) {
 	return
 }
 
-// next picks a file waiting to be indexed, in path order.
-func (r *root) next() (string, string, bool) {
+// next picks a file waiting to be indexed, in path order, but none in skip.
+func (r *root) next(skip map[string]bool) (string, string, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var names []string
 	for rel, f := range r.files {
-		if f.pending && !f.working {
+		if f.pending && !f.working && !skip[rel] {
 			names = append(names, rel)
 		}
 	}
@@ -194,29 +199,47 @@ type indexStats struct {
 }
 
 // indexFile embeds one file as it is now and swaps its chunks in, unless it changed meanwhile or the folder was
-// removed.
+// removed. hash is what the file held when it was picked; if it holds something else now, that is what is indexed.
+// It always gives the file back: done, waiting again, or skipped.
 func (r *root) indexFile(ctx context.Context, rel, hash string, emb embedder, cache *vectors, log *logger, st *indexStats) error {
-	release := func(skip string) {
+	release := func() {
 		r.mu.Lock()
 		if f := r.files[rel]; f != nil {
 			f.working = false
-			if skip != "" && f.hash == hash {
-				f.pending, f.skipped = false, skip
-			}
 		}
 		r.mu.Unlock()
 	}
-	data, why := readText(r.dir, rel)
-	if why != "" || hashBytes(data) != hash {
-		release("")
-		if why != "" {
-			r.mu.Lock()
-			if f := r.files[rel]; f != nil && f.hash == hash {
-				f.pending, f.skipped = false, why
-			}
-			r.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		release()
+		return err
+	}
+	dir, err := os.OpenRoot(r.dir)
+	if err != nil {
+		release()
+		return errRemoved
+	}
+	defer dir.Close()
+	data, why := readText(dir, rel)
+	if why != "" {
+		// not text the model can take now; the next scan looks again
+		r.mu.Lock()
+		if f := r.files[rel]; f != nil {
+			f.working, f.pending, f.skipped, f.hash, f.chunks = false, false, why, "", nil
 		}
-		return nil // changed since the scan: the next scan picks it up
+		r.mu.Unlock()
+		return nil
+	}
+	if now := hashBytes(data); now != hash {
+		// changed since it was picked: index what it is now, its old vectors already out of use
+		r.mu.Lock()
+		f := r.files[rel]
+		if f == nil || r.ctx.Err() != nil {
+			r.mu.Unlock()
+			return errRemoved
+		}
+		f.hash, f.stamp, f.chunks, f.skipped, f.pending = now, stamp{}, nil, "", true
+		r.mu.Unlock()
+		hash = now
 	}
 	text := string(data)
 	lines := splitLines(text)
@@ -231,7 +254,7 @@ func (r *root) indexFile(ctx context.Context, rel, hash string, emb embedder, ca
 	var done []chunk
 	for len(work) > 0 {
 		if err := ctx.Err(); err != nil {
-			release("")
+			release()
 			return err
 		}
 		var batch []piece
@@ -257,7 +280,7 @@ func (r *root) indexFile(ctx context.Context, rel, hash string, emb embedder, ca
 		}
 		out, _, err := emb.embed(ctx, inputs, false)
 		if err != nil {
-			release("")
+			release()
 			return err
 		}
 		for i, e := range out {
@@ -292,7 +315,7 @@ func (r *root) indexFile(ctx context.Context, rel, hash string, emb embedder, ca
 	if f.hash != hash { // written again meanwhile: these vectors are for the old content
 		return nil
 	}
-	if now, err := os.ReadFile(filepath.Join(r.dir, filepath.FromSlash(rel))); err != nil || hashBytes(now) != hash {
+	if now, why := readText(dir, rel); why != "" || hashBytes(now) != hash {
 		f.pending, f.chunks = true, nil
 		f.stamp = stamp{}
 		f.hash = ""
@@ -305,3 +328,28 @@ func (r *root) indexFile(ctx context.Context, rel, hash string, emb embedder, ca
 }
 
 var errRemoved = errors.New("the folder was removed")
+
+// maxTries is how often one run picks the same file: one that keeps changing while it is indexed waits for the
+// next run instead of holding this one up.
+const maxTries = 3
+
+// indexPending indexes the root's waiting files one by one, saying which file failed and why.
+func (r *root) indexPending(ctx context.Context, emb embedder, cache *vectors, log *logger, st *indexStats) (string, error) {
+	tries := map[string]int{}
+	skip := map[string]bool{}
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		rel, hash, ok := r.next(skip)
+		if !ok {
+			return "", nil
+		}
+		if tries[rel]++; tries[rel] >= maxTries {
+			skip[rel] = true
+		}
+		if err := r.indexFile(ctx, rel, hash, emb, cache, log, st); err != nil {
+			return rel, err
+		}
+	}
+}

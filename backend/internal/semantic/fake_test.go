@@ -82,6 +82,10 @@ func fakeHelper() {
 				reply(map[string]any{"id": req.ID, "ok": false, "error": "cannot compile"})
 				continue
 			}
+			if mode == "load_error_reply" {
+				reply(map[string]any{"id": req.ID, "ok": false, "error": "cannot read func leakedReplyCode() {}"})
+				continue
+			}
 			reply(map[string]any{"id": req.ID, "ok": true, "loadSeconds": 0.01, "maxTokens": 2048, "dim": dim})
 		case "validate":
 			cos := 0.9999
@@ -95,6 +99,15 @@ func fakeHelper() {
 			embeds++
 			if mode == "crash" {
 				os.Exit(3)
+			}
+			// a failure quoting its input, then one that is only a type, domain and code
+			if mode == "error_reply" && len(req.Texts) == 1 && strings.HasPrefix(req.Texts[0], "task: code retrieval") {
+				msg := "CoreAIError domain=CoreAI code=7"
+				if once() {
+					msg = "bad input: func leakedReplyCode() {}"
+				}
+				reply(map[string]any{"id": req.ID, "ok": false, "error": msg})
+				continue
 			}
 			if mode == "bad_frame" && once() {
 				out.WriteString("{not json\n")

@@ -10,7 +10,8 @@
 //   {"id":2,"op":"embed","texts":["task: code retrieval | query: ..."],"maxTokens":2048}
 //   {"id":3,"op":"validate","reference":"/path/smoke-reference.json","tokenizerCases":"/path/tokenizer-cases.json"}
 //   {"id":4,"op":"memory"}
-// Replies: {"id":1,"ok":true,...} or {"id":1,"ok":false,"error":"..."}.
+// Replies: {"id":1,"ok":true,...} or {"id":1,"ok":false,"error":"..."}. An error thrown inside is given as its
+// type, domain and code only ("<type> domain=<domain> code=<n>"): its message could quote input.
 // embed gives each text its full token count, with <bos> and <eos>; a text over maxTokens gets "tooLong":true and
 // no vector, and is never cut short.
 import CoreAI
@@ -45,6 +46,11 @@ func reply(_ id: Int, _ fields: [String: Any]) {
 
 func failure(_ id: Int, _ message: String) {
     write(out, ["id": id, "ok": false, "error": String(message.prefix(300))])
+}
+
+func errorKind(_ error: Error) -> String {
+    let ns = error as NSError
+    return "\(String(reflecting: type(of: error))) domain=\(ns.domain) code=\(ns.code)"
 }
 
 // diag is a diagnostic line on stderr: an event name and numbers or fixed words, never input text.
@@ -156,7 +162,7 @@ while let line = readLine(strippingNewline: true) {
         }
     } catch {
         diag("error", ["op": req.op])
-        failure(req.id, String(describing: error))
+        failure(req.id, errorKind(error))
     }
 }
 cleanup()

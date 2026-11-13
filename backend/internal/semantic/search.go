@@ -2,8 +2,10 @@ package semantic
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -13,7 +15,7 @@ import (
 )
 
 const (
-	// maxResultBytes bounds the text one search hands the model, like read_file.
+	// maxResultBytes bounds what one search hands the model, as the JSON it gets, like read_file.
 	maxResultBytes = 50 << 10
 	// maxQueryBytes bounds the search sentence.
 	maxQueryBytes = 4096
@@ -112,7 +114,6 @@ func (s *Service) Search(ctx context.Context, q Query) (Result, error) {
 	s.poke()
 	scanned := time.Since(start)
 
-	keyword := s.keyword(r, q.Text)
 	res := Result{Mode: "keyword", Results: []Hit{}}
 	var vector []candidate
 	var queueT, embedT, compareT time.Duration
@@ -122,15 +123,22 @@ func (s *Service) Search(ctx context.Context, q Query) (Result, error) {
 		res.Reason = "semantic search failed (" + failure.Message + "), so this is keyword search only; details are in backend.log"
 	case !ready:
 		res.Reason = "the semantic index is being built (" + state + "), so this is keyword search only; grep works meanwhile"
+	case pending > 0:
+		// vectors of part of the folder would rank what is indexed above what is not: keywords alone, until it is all in
+		res.Reason = fmt.Sprintf("the semantic index is being built (%d files not indexed yet), so this is keyword search only; grep works meanwhile", pending)
 	default:
-		vector, queueT, embedT, compareT = s.vectorSearch(ctx, r, q, &res)
+		var tokens int
+		vector, queueT, embedT, compareT, tokens = s.vectorSearch(ctx, r, q, &res)
+		if tokens > 0 {
+			s.log.info("semantic_search").Str("task", q.Task).Str("replica", q.Replica).Str("cwd", r.dir).Str("result", "query_too_long").
+				Int("tokens", tokens).Int64("ms", time.Since(start).Milliseconds()).Send()
+			return Result{}, &UserError{fmt.Sprintf("the query is %d tokens, over the model's %d; shorten it", tokens, MaxTokens)}
+		}
 		if vector != nil {
 			res.Mode = "hybrid"
-			if pending > 0 {
-				res.Reason = fmt.Sprintf("%d files are not indexed yet; they were searched by keyword only", pending)
-			}
 		}
 	}
+	keyword := s.keyword(r, q.Text)
 	if res.Mode == "keyword" && res.Reason == "" {
 		res.Reason = "keyword search only"
 	}
@@ -139,11 +147,12 @@ func (s *Service) Search(ctx context.Context, q Query) (Result, error) {
 	verifyStart := time.Now()
 	hits, kept, dropped := s.verify(r, merged)
 	res.Results = hits
+	fit(&res)
 	verifyT := time.Since(verifyStart)
 
 	s.log.info("semantic_search").Str("task", q.Task).Str("replica", q.Replica).Str("cwd", r.dir).Str("mode", res.Mode).
 		Int("keyword", len(keyword)).Int("vector", len(vector)).Int("merged", len(merged)).Int("verified", kept).Int("dropped", dropped).
-		Int("results", len(hits)).Int("pendingFiles", pending).Int64("scanMs", scanned.Milliseconds()).Int64("queueMs", queueT.Milliseconds()).
+		Int("results", len(res.Results)).Int("pendingFiles", pending).Int64("scanMs", scanned.Milliseconds()).Int64("queueMs", queueT.Milliseconds()).
 		Int64("embedMs", embedT.Milliseconds()).Int64("compareMs", compareT.Milliseconds()).Int64("verifyMs", verifyT.Milliseconds()).
 		Int64("ms", time.Since(start).Milliseconds()).Send()
 	if s.log.z.Debug().Enabled() {
@@ -157,23 +166,24 @@ func (s *Service) Search(ctx context.Context, q Query) (Result, error) {
 	return res, nil
 }
 
-// vectorSearch compares the query with every ready chunk of the root. On failure it says why in res and returns nil.
-func (s *Service) vectorSearch(ctx context.Context, r *root, q Query, res *Result) ([]candidate, time.Duration, time.Duration, time.Duration) {
+// vectorSearch compares the query with every ready chunk of the root. On failure it says why in res and returns nil;
+// a query over the model's limit gives its token count instead, and nothing else.
+func (s *Service) vectorSearch(ctx context.Context, r *root, q Query, res *Result) ([]candidate, time.Duration, time.Duration, time.Duration, int) {
 	start := time.Now()
 	out, queue, err := helperEmbedder{s}.embed(ctx, []string{queryPrefix + q.Text}, true)
 	embedT := time.Since(start) - queue
 	if err == nil && out[0].tooLong {
-		res.Reason = fmt.Sprintf("the query is %d tokens, over the model's %d; it was searched by keyword only, shorten it for semantic search", out[0].tokens, MaxTokens)
-		return nil, queue, embedT, 0
+		return nil, queue, embedT, 0, out[0].tokens
 	}
 	if err != nil {
 		if ctx.Err() != nil {
 			res.Reason = "the search was cancelled before its vector was ready; keyword search only"
-			return nil, queue, embedT, 0
+			return nil, queue, embedT, 0, 0
 		}
 		s.log.error("semantic_error").Str("stage", "search").Str("root", r.dir).Str("reason", safeReason(err)).Str("next", "keyword_fallback").Send()
+		s.logMemory(nil)
 		res.Reason = "semantic search failed, so this is keyword search only; details are in backend.log"
-		return nil, queue, embedT, 0
+		return nil, queue, embedT, 0, 0
 	}
 	cmp := time.Now()
 	qv := out[0].vec
@@ -200,7 +210,7 @@ func (s *Service) vectorSearch(ctx context.Context, r *root, q Query, res *Resul
 	if found == nil {
 		found = []candidate{}
 	}
-	return found, queue, embedT, time.Since(cmp)
+	return found, queue, embedT, time.Since(cmp), 0
 }
 
 // terms are the words of a query worth looking for.
@@ -227,9 +237,14 @@ func (s *Service) keyword(r *root, query string) []candidate {
 	r.mu.Lock()
 	files := append([]string(nil), r.listing.files...)
 	r.mu.Unlock()
+	dir, err := os.OpenRoot(r.dir)
+	if err != nil {
+		return nil
+	}
+	defer dir.Close()
 	var found []candidate
 	for _, rel := range files {
-		data, why := readText(r.dir, rel)
+		data, why := readText(dir, rel)
 		if why != "" {
 			continue
 		}
@@ -318,8 +333,9 @@ func fuse(keyword, vector []candidate, limit int) []candidate {
 	return out
 }
 
-// verify reads each result's file again: a range whose lines changed since it was found is dropped and its file
-// indexed again. Ranges that touch in one file are merged. It returns the hits and how many ranges passed or not.
+// verify reads each result's file again, through the folder so nothing outside it is read: a range whose lines
+// changed since it was found is dropped and its file indexed again. Ranges that touch in one file are merged. It
+// returns the hits and how many ranges passed or not.
 func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int) {
 	type group struct {
 		first int // rank of the best range in it
@@ -336,8 +352,13 @@ func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int) {
 	var groups []group
 	kept, dropped := 0, 0
 	read := map[string][]string{}
+	dir, err := os.OpenRoot(r.dir)
+	if err != nil {
+		return []Hit{}, 0, len(found)
+	}
+	defer dir.Close()
 	for rel, list := range byFile {
-		data, why := readText(r.dir, rel)
+		data, why := readText(dir, rel)
 		var lines []string
 		if why == "" {
 			lines = splitLines(string(data))
@@ -375,7 +396,6 @@ func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int) {
 		return groups[i].parts[0].start < groups[j].parts[0].start
 	})
 	hits := []Hit{}
-	size := 0
 	for _, g := range groups {
 		rel := g.parts[0].path
 		// the very lines just checked, never anything kept from indexing
@@ -387,12 +407,64 @@ func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int) {
 		if end > len(lines) {
 			continue
 		}
-		text := strings.Join(lines[start-1:end], "")
-		if size+len(text) > maxResultBytes {
-			break
-		}
-		size += len(text)
-		hits = append(hits, Hit{Path: rel, StartLine: start, EndLine: end, Text: text})
+		hits = append(hits, Hit{Path: rel, StartLine: start, EndLine: end, Text: strings.Join(lines[start-1:end], "")})
 	}
 	return hits, kept, dropped
+}
+
+// fitNote is what the reason gains when results were cut short or left out; fit keeps room for it.
+const fitNote = "; %d results were cut short and %d left out to stay within 50 KiB, so read_file for the rest"
+
+// fit keeps res, as the JSON the tool hands out, within maxResultBytes. A result that does not fit keeps as many of
+// its first lines as do; one whose first line alone does not fit is left out. The reason says so.
+func fit(res *Result) {
+	if jsonSize(res) <= maxResultBytes {
+		return
+	}
+	hits := res.Results
+	res.Results = []Hit{}
+	used := jsonSize(res) + len(fmt.Sprintf(fitNote, len(hits), len(hits)))
+	short, left := 0, 0
+	for _, h := range hits {
+		lines := splitLines(h.Text)
+		// a hit's JSON is its fields with an empty text, plus each line escaped: escaping goes rune by rune
+		sizes := make([]int, len(lines))
+		for i, l := range lines {
+			sizes[i] = jsonSize(l) - 2
+		}
+		total := 0
+		for _, n := range sizes {
+			total += n
+		}
+		kept := len(lines)
+		for ; kept > 0; kept-- {
+			empty := Hit{Path: h.Path, StartLine: h.StartLine, EndLine: h.StartLine + kept - 1}
+			if used+jsonSize(empty)+total+1 <= maxResultBytes {
+				break
+			}
+			total -= sizes[kept-1]
+		}
+		if kept == 0 {
+			left++
+			continue
+		}
+		if kept < len(lines) {
+			short++
+			h.EndLine = h.StartLine + kept - 1
+			h.Text = strings.Join(lines[:kept], "")
+		}
+		used += jsonSize(h) + 1
+		res.Results = append(res.Results, h)
+	}
+	if short+left > 0 {
+		res.Reason += fmt.Sprintf(fitNote, short, left)
+	}
+	for len(res.Results) > 0 && jsonSize(res) > maxResultBytes { // never, unless the sizes above are wrong
+		res.Results = res.Results[:len(res.Results)-1]
+	}
+}
+
+func jsonSize(v any) int {
+	raw, _ := json.Marshal(v)
+	return len(raw)
 }

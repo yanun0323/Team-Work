@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -78,7 +79,8 @@ type listing struct {
 }
 
 // list asks Git which files belong to root: tracked and untracked, without what .gitignore leaves out; then adds
-// ignored AGENTS.md and CONTEXT.md. Symlinks and anything outside the root are left out.
+// ignored AGENTS.md and CONTEXT.md. Symlinks and anything outside the root, through a symlinked folder too, are
+// left out.
 func list(ctx context.Context, root string) (listing, error) {
 	out := listing{excluded: map[string]int{}}
 	cmd := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-co", "--exclude-standard", "-z")
@@ -86,6 +88,11 @@ func list(ctx context.Context, root string) (listing, error) {
 	if err != nil {
 		return out, errNotGit
 	}
+	dir, err := os.OpenRoot(root)
+	if err != nil {
+		return out, err
+	}
+	defer dir.Close()
 	seen := map[string]bool{}
 	add := func(rel string) {
 		if rel == "" || seen[rel] {
@@ -96,10 +103,12 @@ func list(ctx context.Context, root string) (listing, error) {
 			out.excluded[why]++
 			return
 		}
-		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel)))
+		info, err := dir.Lstat(filepath.FromSlash(rel))
 		switch {
-		case err != nil:
+		case errors.Is(err, fs.ErrNotExist):
 			out.excluded["missing"]++
+		case err != nil:
+			out.excluded["outside_root"]++
 		case info.Mode()&fs.ModeSymlink != 0:
 			out.excluded["symlink"]++
 		case !info.Mode().IsRegular():
@@ -126,20 +135,32 @@ func list(ctx context.Context, root string) (listing, error) {
 
 var errNotGit = errors.New("not a Git work tree")
 
-// readText reads a file that is plain UTF-8 text, or says why it is not one.
-func readText(root, rel string) ([]byte, string) {
-	full := filepath.Join(root, filepath.FromSlash(rel))
-	info, err := os.Lstat(full)
-	if err != nil {
+// readText reads a file that is plain UTF-8 text, or says why it is not one. It reads through dir, an os.Root,
+// which refuses any path that leads outside the folder, a folder swapped for a symlink included, even one swapped
+// while it is read.
+func readText(dir *os.Root, rel string) ([]byte, string) {
+	name := filepath.FromSlash(rel)
+	info, err := dir.Lstat(name)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
 		return nil, "missing"
-	}
-	if !info.Mode().IsRegular() {
+	case err != nil:
+		return nil, "outside_root"
+	case !info.Mode().IsRegular():
 		return nil, "not_regular"
-	}
-	if info.Size() > maxFileBytes {
+	case info.Size() > maxFileBytes:
 		return nil, "too_large"
 	}
-	data, err := os.ReadFile(full)
+	f, err := dir.Open(name)
+	if err != nil {
+		return nil, "unreadable"
+	}
+	defer f.Close()
+	// swapped for something else since the Lstat
+	if now, err := f.Stat(); err != nil || !now.Mode().IsRegular() || !os.SameFile(info, now) {
+		return nil, "not_regular"
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxFileBytes+1))
 	if err != nil {
 		return nil, "unreadable"
 	}

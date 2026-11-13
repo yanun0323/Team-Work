@@ -518,7 +518,7 @@ func TestPendingFilesAreReported(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	res := search(t, s, repo, "koala")
-	if res.PendingFiles == 0 || !strings.Contains(res.Reason, "not indexed yet") || !slices.Contains(paths(res), "untracked.go") {
+	if res.PendingFiles == 0 || res.Mode != "keyword" || !strings.Contains(res.Reason, "being built") || !strings.Contains(res.Reason, "grep") || !slices.Contains(paths(res), "untracked.go") {
 		t.Fatalf("%+v", res)
 	}
 }
@@ -758,11 +758,12 @@ func TestSearchArguments(t *testing.T) {
 			t.Errorf("%+v: %v", q.Limit, err)
 		}
 	}
-	// a query too long for the model is said so, not cut
+	// a query too long for the model is refused, not cut
 	s.waitState(t, StateReady)
-	res := search(t, s, repo, strings.Repeat("ledger ", 400))
-	if res.Mode != "keyword" || !strings.Contains(res.Reason, "tokens") {
-		t.Fatalf("%+v", res.Reason)
+	waitIndexed(t, s, repo)
+	var user *UserError
+	if _, err := s.Search(context.Background(), Query{Cwd: repo, Text: strings.Repeat("ledger ", 400)}); !errors.As(err, &user) || !strings.Contains(err.Error(), "tokens") {
+		t.Fatal(err)
 	}
 }
 

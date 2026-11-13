@@ -2,6 +2,7 @@ package semantic
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"sync"
 	"syscall"
 	"time"
@@ -197,7 +199,7 @@ func (h *helper) run(j *job) jobResult {
 		h.drop(c)
 	}
 	if err == nil && !reply.OK {
-		err = fmt.Errorf("helper: %s", reply.Error)
+		err = fmt.Errorf("helper: %s", helperErrorText(reply.Error))
 	}
 	return jobResult{reply: reply, queue: queue, err: err}
 }
@@ -237,7 +239,7 @@ func (h *helper) ensure() (*child, error) {
 	h.loading = nil
 	h.mu.Unlock()
 	if err == nil && !reply.OK {
-		err = fmt.Errorf("load: %s", reply.Error)
+		err = fmt.Errorf("load: %s", helperErrorText(reply.Error))
 	}
 	if err != nil {
 		h.log.error("semantic_compile").Str("phase", "failed").Int64("ms", time.Since(start).Milliseconds()).Str("reason", err.Error()).Send()
@@ -349,11 +351,13 @@ func (h *helper) close() {
 
 // child is one running helper process.
 type child struct {
-	cmd    *exec.Cmd
-	pid    int
-	stdin  io.WriteCloser
-	lines  chan []byte
-	done   chan struct{}
+	cmd   *exec.Cmd
+	pid   int
+	stdin io.WriteCloser
+	lines chan []byte
+	done  chan struct{}
+	// quit is closed by close: stdout is read to its end but no longer handed on, so the reader never blocks.
+	quit   chan struct{}
 	log    *logger
 	once   sync.Once
 	readMu sync.Mutex
@@ -379,7 +383,7 @@ func startChild(path string, log *logger) (*child, error) {
 		log.error("semantic_error").Str("stage", "helper").Str("reason", "could not start the helper").Str("next", "keyword_fallback").Send()
 		return nil, &stageError{code: "helper_failed", stage: "helper", err: err}
 	}
-	c := &child{cmd: cmd, pid: cmd.Process.Pid, stdin: stdin, lines: make(chan []byte, 4), done: make(chan struct{}), log: log}
+	c := &child{cmd: cmd, pid: cmd.Process.Pid, stdin: stdin, lines: make(chan []byte, 4), done: make(chan struct{}), quit: make(chan struct{}), log: log}
 	log.info("semantic_helper_start").Int("pid", c.pid).Send()
 	var reading sync.WaitGroup
 	reading.Add(2)
@@ -393,7 +397,10 @@ func startChild(path string, log *logger) (*child, error) {
 			if len(line) == 0 {
 				continue
 			}
-			c.lines <- line
+			select {
+			case c.lines <- line:
+			case <-c.quit:
+			}
 		}
 		if s.Err() != nil {
 			log.error("semantic_error").Str("stage", "helper").Int("pid", c.pid).Str("reason", "reading the helper failed: "+s.Err().Error()).Str("next", "restart").Send()
@@ -436,6 +443,8 @@ func (c *child) roundTrip(req map[string]any, timeout time.Duration) (helperRepl
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
+	case <-c.quit:
+		return helperReply{}, errHelperGone
 	case line, ok := <-c.lines:
 		if !ok {
 			return helperReply{}, errHelperGone
@@ -453,9 +462,11 @@ func (c *child) roundTrip(req map[string]any, timeout time.Duration) (helperRepl
 	}
 }
 
-// close lets the helper see EOF and clean up after itself, then stops it if it does not.
+// close lets the helper see EOF and clean up after itself, then stops it if it does not. It waits about five
+// seconds at most.
 func (c *child) close() {
 	c.once.Do(func() {
+		close(c.quit)
 		_ = c.stdin.Close()
 		select {
 		case <-c.done:
@@ -465,45 +476,101 @@ func (c *child) close() {
 		_ = syscall.Kill(-c.pid, syscall.SIGTERM)
 		select {
 		case <-c.done:
+			return
 		case <-time.After(time.Second):
-			_ = syscall.Kill(-c.pid, syscall.SIGKILL)
-			<-c.done
+		}
+		_ = syscall.Kill(-c.pid, syscall.SIGKILL)
+		select {
+		case <-c.done:
+		case <-time.After(time.Second):
+			c.log.warn("semantic_error").Str("stage", "helper").Int("pid", c.pid).Str("reason", "the helper did not exit after SIGKILL").Str("next", "skip").Send()
 		}
 	})
 }
 
-// stderrKeys are the fields the helper's own diagnostics carry; anything else on stderr is not shown.
-var stderrKeys = map[string]bool{"event": true, "pid": true, "seconds": true, "prewarmSeconds": true, "memory": true, "folders": true, "bytes": true, "op": true}
+// The helper's own diagnostics: these events and ops, and these fields, numbers only. Anything else on stderr, such
+// as a framework's message, could quote input and is logged by size only, marked redacted.
+var (
+	stderrEvents = map[string]bool{"start": true, "compile_start": true, "compile_done": true, "error": true, "bad_request": true, "cleanup": true, "exit": true}
+	stderrOps    = map[string]bool{"load": true, "embed": true, "validate": true, "memory": true}
+	stderrNums   = map[string]bool{"pid": true, "seconds": true, "prewarmSeconds": true, "memory": true, "folders": true, "bytes": true}
+)
 
-// forwardStderr copies every stderr line into the log. Lines that are not the helper's own diagnostics (a
-// framework's message could quote input) are logged by size only, marked redacted.
+// maxStderrLine is the longest stderr line looked at; a longer one is skipped, and reading goes on.
+const maxStderrLine = 64 << 10
+
+// diagnostic says whether a stderr line is one of the helper's own diagnostics, and gives its fields.
+func diagnostic(line []byte) (map[string]any, bool) {
+	var fields map[string]any
+	if json.Unmarshal(line, &fields) != nil || fields == nil {
+		return nil, false
+	}
+	event, ok := fields["event"].(string)
+	if !ok || !stderrEvents[event] {
+		return nil, false
+	}
+	for k, v := range fields {
+		switch {
+		case k == "event":
+		case k == "op":
+			if op, ok := v.(string); !ok || !stderrOps[op] {
+				return nil, false
+			}
+		case stderrNums[k]:
+			if _, ok := v.(float64); !ok {
+				return nil, false
+			}
+		default:
+			return nil, false
+		}
+	}
+	return fields, true
+}
+
+// forwardStderr copies every stderr line into the log, the helper's own diagnostics as they are and anything else
+// by size only. It reads to the end, so the helper never blocks on stderr.
 func forwardStderr(r io.Reader, pid int, log *logger) {
-	s := bufio.NewScanner(r)
-	s.Buffer(make([]byte, 64<<10), 1<<20)
-	for s.Scan() {
-		line := s.Bytes()
-		var fields map[string]any
-		ev := log.info("semantic_helper_stderr").Int("pid", pid)
-		safe := json.Unmarshal(line, &fields) == nil && fields != nil
-		for k, v := range fields {
-			if !stderrKeys[k] {
-				safe = false
-				break
-			}
-			if str, ok := v.(string); ok && len(str) > 40 {
-				safe = false
-				break
+	br := bufio.NewReaderSize(r, maxStderrLine)
+	for {
+		line, err := br.ReadSlice('\n')
+		size := len(line)
+		for errors.Is(err, bufio.ErrBufferFull) {
+			line, err = br.ReadSlice('\n')
+			size += len(line)
+			line = nil
+		}
+		trimmed := bytes.TrimRight(line, "\r\n")
+		if size > 0 {
+			ev := log.info("semantic_helper_stderr").Int("pid", pid)
+			if fields, ok := diagnostic(trimmed); ok {
+				ev.Interface("helper", fields).Send()
+			} else {
+				ev.Bool("redacted", true).Int("bytes", size).Send()
 			}
 		}
-		if !safe {
-			ev.Bool("redacted", true).Int("bytes", len(line)).Send()
-			continue
+		if err != nil {
+			if !errors.Is(err, io.EOF) && !errors.Is(err, os.ErrClosed) {
+				log.warn("semantic_helper_stderr").Int("pid", pid).Bool("truncated", true).Str("reason", err.Error()).Send()
+			}
+			return
 		}
-		ev.Interface("helper", fields).Send()
 	}
-	if err := s.Err(); err != nil {
-		log.warn("semantic_helper_stderr").Int("pid", pid).Bool("truncated", true).Str("reason", err.Error()).Send()
+}
+
+// helperErrors are the helper's own error replies; anything else it replies with is not logged as is.
+var helperErrors = map[string]bool{"bundle is required": true, "model is not loaded": true, "unknown op": true,
+	"model, reference and tokenizerCases are required": true}
+
+// errorKind is how the helper reports an error thrown inside it: the error's type, domain and code, nothing else.
+var errorKind = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.<>]{0,120} domain=[A-Za-z0-9_.<>-]{1,120} code=-?[0-9]{1,20}$`)
+
+// helperErrorText is an error the helper replied with, safe for the log and the status page: one of its own
+// messages, or an error's kind; anything else, which could quote what it was given, by size only.
+func helperErrorText(msg string) string {
+	if helperErrors[msg] || errorKind.MatchString(msg) {
+		return msg
 	}
+	return fmt.Sprintf("an unlisted error (%d bytes, not logged)", len(msg))
 }
 
 // recordPid notes the running helper, so leftovers of one that was killed can be found by the next start.

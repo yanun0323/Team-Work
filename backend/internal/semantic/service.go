@@ -273,7 +273,8 @@ func (s *Service) fail(code, stage, message string, cause error) {
 	s.setState(StateError, message, &StatusError{Code: code, Message: message, Stage: stage, Log: "backend.log"})
 }
 
-// safeReason is an error for the log, without anything a file could have put in it.
+// safeReason is an error for the log, cut short. The errors given to it never hold file content: the helper's
+// replies, the only ones that could quote it, pass helperErrorText first.
 func safeReason(err error) string {
 	if err == nil {
 		return ""
@@ -677,26 +678,21 @@ func (s *Service) indexRoot(r *root, full bool) bool {
 	}
 	var st indexStats
 	emb := helperEmbedder{s}
-	for {
-		rel, hash, ok := r.next()
-		if !ok {
-			break
+	if rel, err := r.indexPending(r.ctx, emb, s.cache, s.log, &st); err != nil {
+		if r.ctx.Err() != nil || errors.Is(err, errRemoved) || s.ctx.Err() != nil {
+			return true
 		}
-		if err := r.indexFile(r.ctx, rel, hash, emb, s.cache, s.log, &st); err != nil {
-			if r.ctx.Err() != nil || errors.Is(err, errRemoved) || s.ctx.Err() != nil {
-				return true
-			}
-			if h := s.currentHelper(); h == nil || h.broken() != nil {
-				s.log.error("semantic_error").Str("stage", "index").Str("root", r.dir).Str("file", rel).Str("reason", safeReason(err)).Str("next", "keyword_fallback").Send()
-				s.mu.Lock()
-				s.ready = false
-				s.mu.Unlock()
-				s.fail("helper_failed", "helper", stageMessage("helper_failed"), err)
-				return true
-			}
-			s.log.warn("semantic_error").Str("stage", "index").Str("root", r.dir).Str("file", rel).Str("reason", safeReason(err)).Str("next", "retry").Send()
-			return false
+		if h := s.currentHelper(); h == nil || h.broken() != nil {
+			s.log.error("semantic_error").Str("stage", "index").Str("root", r.dir).Str("file", rel).Str("reason", safeReason(err)).Str("next", "keyword_fallback").Send()
+			s.mu.Lock()
+			s.ready = false
+			s.mu.Unlock()
+			s.fail("helper_failed", "helper", stageMessage("helper_failed"), err)
+			return true
 		}
+		s.log.warn("semantic_error").Str("stage", "index").Str("root", r.dir).Str("file", rel).Str("reason", safeReason(err)).Str("next", "retry").Send()
+		s.logMemory(nil)
+		return false
 	}
 	if !full && st.files == 0 {
 		return true
