@@ -15,9 +15,16 @@ let root: Root | null = null
 let box: HTMLDivElement | null = null
 let picks: string[] = []
 
+// two blueprints, neither name holding the other: Theo and Ada work by the second, everyone else by the first
+const [usual, other] = (() => {
+  const all = Object.values(useStore.getState().world.blueprints)
+  const first = all[0]
+  return [first, all.find((b) => !b.name.includes(first.name) && !first.name.includes(b.name))!]
+})()
+
 const crewOf = (names: string[]): Replica[] => {
   const one = Object.values(useStore.getState().world.replicas)[0]
-  return names.map((name) => ({ ...one, id: `r-${name}`, name }))
+  return names.map((name) => ({ ...one, id: `r-${name}`, name, blueprintId: ['Theo', 'Ada'].includes(name) ? other.id : usual.id }))
 }
 
 async function draw(names: string[]) {
@@ -100,6 +107,15 @@ it('leaves the Enter that ends a word in the input method to it', async () => {
   })
   expect(picks).toEqual([])
   expect(filter()).not.toBeNull()
+})
+
+it('finds people by their blueprint as well as their name', async () => {
+  await draw(NAMES)
+  await userEvent.click(button())
+  await userEvent.keyboard(other.name)
+  expect(rows()).toEqual(['Theo', 'Ada'])
+  await userEvent.keyboard(' ad')
+  expect(rows()).toEqual(['Ada'])
 })
 
 it('hands off with a click on someone the filter left', async () => {

@@ -74,6 +74,7 @@ export function CrewSelect({ label, value, crew, placeholder, onChange }: {
   return (
     <Select
       label={label} value={value} options={crewOrder(w, crew)} labelOf={name} onChange={onChange}
+      searchOf={(id) => { const r = of(id); return r ? blueprintLabel(w, r) : '' }}
       shownAs={(id) => {
         const r = of(id)
         return r
@@ -109,6 +110,7 @@ export function CrewPicks({ label, value, crew, max, placeholder, onChange }: {
   return (
     <Select
       label={label} value={value[0] ?? ''} options={options} labelOf={(id) => of(id)?.name ?? ''}
+      searchOf={(id) => { const r = of(id); return r ? blueprintLabel(w, r) : '' }}
       picked={(id) => value.includes(id)} onChange={toggle}
       shownAs={() => (!picked.length ? <span className="fx-d-muted">{placeholder}</span> : (
         <span className="fx-pick-value">

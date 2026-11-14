@@ -1,7 +1,7 @@
 // The button under a message that copies the chat up to there for an employee to go on with: the one it had first,
 // then the rest of the company. The menu floats over the page, as the chat it sits in scrolls and would cut it off:
 // it opens down, or up where the window has no room below, and closes when what is under it scrolls away. A company
-// of more than `FILTER_FROM` opens it with a filter on top, which then takes the keys.
+// of more than `FILTER_FROM` opens it with a filter on top, finding people by name or blueprint, which then takes the keys.
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { FILTER_FROM, filterOptions } from './Controls'
@@ -9,6 +9,8 @@ import { tr } from './core/i18n'
 import { composing } from './ime'
 import type { Replica } from './core/domain/types'
 import { CrewRow } from './Pickers'
+import { useStore } from './core/store'
+import { blueprintLabel } from './crew'
 
 export function HandOffMenu({ crew, chairId, end, disabled, label = tr('交給…'), icon = <HandOffIcon />, text, onPick }: {
   /** Who it can go to, in order. */
@@ -36,10 +38,12 @@ export function HandOffMenu({ crew, chairId, end, disabled, label = tr('交給�
   const filterBox = useRef<HTMLInputElement>(null)
   const items = useRef<Array<HTMLButtonElement | null>>([])
   const filtering = crew.length > FILTER_FROM
-  const nameOf = (rid: string) => crew.find((r) => r.id === rid)?.name ?? ''
+  const w = useStore((s) => s.world)
+  // found by name or by blueprint, as the row shows both
+  const textOf = (rid: string) => { const r = crew.find((x) => x.id === rid); return r ? `${r.name} ${blueprintLabel(w, r)}` : '' }
   // who the menu shows; `active` counts in it
   const shown = filtering
-    ? filterOptions(crew.map((r) => r.id), nameOf, query).map((rid) => crew.find((r) => r.id === rid) as Replica)
+    ? filterOptions(crew.map((r) => r.id), textOf, query).map((rid) => crew.find((r) => r.id === rid) as Replica)
     : crew
 
   useLayoutEffect(() => {

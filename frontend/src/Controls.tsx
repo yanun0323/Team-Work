@@ -30,23 +30,24 @@ export const Check = () => (
 /** A list with more options than this opens with a filter on top. */
 export const FILTER_FROM = 10
 
-/** The options whose label holds every word of `query`, in any case, in their order. */
-export function filterOptions(options: string[], labelOf: (o: string) => string, query: string) {
+/** The options whose text holds every word of `query`, in any case, in their order. */
+export function filterOptions(options: string[], textOf: (o: string) => string, query: string) {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   if (!words.length) return options
   return options.filter((o) => {
-    const label = labelOf(o).toLowerCase()
-    return words.every((w) => label.includes(w))
+    const text = textOf(o).toLowerCase()
+    return words.every((w) => text.includes(w))
   })
 }
 
 /**
  * A select-only combobox (WAI-ARIA pattern): a button showing the value, opening a listbox on a paper slip.
  * Arrows, Home/End and typing a letter move; Enter, Space or a click picks; Escape or Tab closes.
- * A list longer than `FILTER_FROM` opens with a box on top that narrows it to the options whose label holds every word
- * typed; the keys then work from that box, and Escape empties it before it closes the list.
+ * A list longer than `FILTER_FROM` opens with a box on top that narrows it to the options whose label, `searchOf` and
+ * group heading hold every word typed between them; the keys then work from that box, and Escape empties it before it
+ * closes the list.
  */
-export function Select({ label, value, options, labelOf = (o) => o, onChange, onOpen, shownAs, rowOf, groups, groupOf, disabled, picked: isPicked }: {
+export function Select({ label, value, options, labelOf = (o) => o, searchOf, onChange, onOpen, shownAs, rowOf, groups, groupOf, disabled, picked: isPicked }: {
   label: string
   /** Called each time the list opens. */
   onOpen?: () => void
@@ -55,6 +56,8 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, on
   options: string[]
   /** What to show for an option, when the value itself is an id. */
   labelOf?: (o: string) => string
+  /** More of an option for the filter to find it by, besides its label and group, such as an employee's blueprint. */
+  searchOf?: (o: string) => string
   onChange: (v: string) => void
   /** The closed list's value, when it is more than the label. */
   shownAs?: (o: string) => ReactNode
@@ -82,7 +85,8 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, on
   const filterBox = useRef<HTMLInputElement>(null)
   const filtering = options.length > FILTER_FROM
   // what the list shows; `active` counts in it
-  const shown = filtering ? filterOptions(options, labelOf, query) : options
+  const textOf = (o: string) => [labelOf(o), searchOf?.(o), groupOf && groups?.[groupOf(o)]?.label].filter(Boolean).join(' ')
+  const shown = filtering ? filterOptions(options, textOf, query) : options
 
   const show = (at = Math.max(0, options.indexOf(value)), typed = '') => {
     setQuery(typed)

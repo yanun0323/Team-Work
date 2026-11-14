@@ -130,6 +130,33 @@ it('stays open on a list of several, picking from what the filter leaves', async
   expect(filter()).not.toBeNull()
 })
 
+it('finds an option by its group heading and by what searchOf adds, across words', async () => {
+  box = document.createElement('div')
+  document.body.append(box)
+  root = createRoot(box)
+  // the heading is the provider's own name, as the model lists group them
+  const groups = [{ label: '公司的 Anthropic', count: 3 }, { label: 'My OpenAI', count: 9 }]
+  await act(async () => root!.render(
+    <Select
+      label="模型" value={MODELS[0]} options={MODELS} onChange={(v) => picks.push(v)}
+      groups={groups} groupOf={(m) => (m.startsWith('claude') ? 0 : 1)}
+      searchOf={(m) => (m === 'o3' ? '推理' : '')}
+    />,
+  ))
+  await userEvent.click(button())
+  await userEvent.keyboard('公司的')
+  expect(rows()).toEqual(['claude-opus-4', 'claude-sonnet-4', 'claude-haiku-4'])
+  await userEvent.clear(filter()!)
+  await userEvent.keyboard('openai nano')
+  expect(rows()).toEqual(['gpt-5-nano'])
+  await userEvent.clear(filter()!)
+  await userEvent.keyboard('anthropic nano')
+  expect(rows()).toEqual([])
+  await userEvent.clear(filter()!)
+  await userEvent.keyboard('推理')
+  expect(rows()).toEqual(['o3'])
+})
+
 it('keeps a short list as it was, with no filter', async () => {
   await draw(['low', 'medium', 'high'])
   button().focus()
