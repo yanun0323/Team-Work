@@ -3,7 +3,7 @@
 
 import { HAIRS, SKINS } from './core/domain/sim'
 import { AIRPORT_STAFF_LOOK } from './core/domain/sim'
-import type { Blueprint, Chat, Look, ModelProvider, Replica, World } from './core/domain/types'
+import type { Blueprint, Chat, Look, ModelProvider, ProviderKind, Replica, World } from './core/domain/types'
 import { tr } from './core/i18n'
 import { blueprintList } from './core/model'
 import { softLean, WARDROBE } from './figureStyle'
@@ -59,12 +59,18 @@ export function modelGroups(w: World): { label: string; models: string[] }[] {
 /** Leaves the level to the provider; every model takes it. */
 export const DEFAULT_EFFORT = 'default'
 
-/** Reported levels take precedence; compatible APIs without metadata get a fallback. */
+/** Levels offered for a key-paid model whose provider reports none; the backend keeps the same lists. */
+const FALLBACK_LEVELS: Partial<Record<ProviderKind, string[]>> = {
+  compatible: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  openai: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+}
+
+/** Reported levels take precedence; key-paid compatible and OpenAI models without metadata get a fallback. */
 export function effortsOf(w: World, model: string): string[] {
   const p = Object.values(w.providers).find((x) => x.models.includes(model))
   const levels = p?.thinking?.[model] ?? []
-  return [DEFAULT_EFFORT, ...(levels.length || p?.kind !== 'compatible'
-    ? levels : ['none', 'low', 'medium', 'high', 'xhigh', 'max'])]
+  return [DEFAULT_EFFORT, ...(levels.length || !p || p.auth.kind !== 'apiKey'
+    ? levels : FALLBACK_LEVELS[p.kind] ?? [])]
 }
 
 /** What a provider's models can read when it has no size of its own and none was set. */

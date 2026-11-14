@@ -332,6 +332,33 @@ func TestRestartKeepsTheUsersOwn(t *testing.T) {
 	}
 }
 
+// OpenAI's /v1/models reports no levels, so a key-paid OpenAI provider offers OpenAI's own set.
+func TestOpenAIKeyFallbackLevels(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "gpt-x"}}
+	r.fake.mu.Unlock()
+	ctx := context.Background()
+	if _, err := r.e.AddProvider(ctx, usecase.NewProvider{Name: "o", Kind: enum.ProviderOpenAI, Login: usecase.ProviderLogin{Kind: "apiKey", APIKey: "sk-secret-5678"}}); err != nil {
+		t.Fatal(err)
+	}
+	bp := r.world().Replicas[r.owner.ID].BlueprintID
+	gpt, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: bp, Name: "Gil", Model: "gpt-x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, level := range []string{"none", "minimal", "low", "medium", "high", "xhigh", "default"} {
+		if err := r.e.UpdateReplica(gpt.ID, usecase.ReplicaPatch{Effort: &level}); err != nil {
+			t.Fatalf("%s: %v", level, err)
+		}
+	}
+	max := "max"
+	if err := r.e.UpdateReplica(gpt.ID, usecase.ReplicaPatch{Effort: &max}); err == nil {
+		t.Fatal("accepted max, which OpenAI has no such level")
+	}
+}
+
 func TestCompatibleFallbackLevelsValidateReloadAndRun(t *testing.T) {
 	t.Parallel()
 	var mu sync.Mutex

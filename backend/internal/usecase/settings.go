@@ -192,7 +192,7 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 	// Use the same provider selection and effort validation as the execution path.
 	candidate := model.NewWorld()
 	for id, p := range s.Providers {
-		candidate.Providers[id] = &model.ModelProvider{ID: id, Kind: p.Kind, Models: p.Models, Thinking: p.Thinking}
+		candidate.Providers[id] = &model.ModelProvider{ID: id, Kind: p.Kind, Auth: model.ProviderAuth{Kind: p.AuthKind}, Models: p.Models, Thinking: p.Thinking}
 	}
 	probe := Engine{w: candidate}
 	for id, r := range s.Replicas {
