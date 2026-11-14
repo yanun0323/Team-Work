@@ -231,9 +231,9 @@ export function useTaskActivity(task: Task | undefined) {
 export function HistoryState({ busy, ready, error, onRetry }: { busy: boolean; ready: boolean; error: string; onRetry: () => void }) {
   return (
     <>
-      {busy && !ready && <li className="fx-d-muted" role="status">{tr('載入中…')}</li>}
+      {busy && !ready && <li className="fx-d-muted" data-scroll-skip role="status">{tr('載入中…')}</li>}
       {error && (
-        <li className="fx-ticket-notice" role="alert"><p>{tr('讀取對話失敗')}{colon()}{error}</p><button type="button" className="fx-chat-act fx-hit" onClick={onRetry}>{tr('重試')}</button></li>
+        <li className="fx-ticket-notice" data-scroll-skip role="alert"><p>{tr('讀取對話失敗')}{colon()}{error}</p><button type="button" className="fx-chat-act fx-hit" onClick={onRetry}>{tr('重試')}</button></li>
       )}
     </>
   )
@@ -988,7 +988,7 @@ export function OwnerTaskDetail({ id, open, onOpen, flowOpen, onFlow, editing, o
         <ol ref={list} className="fx-room-log fx-ticket-log" aria-live="polite" aria-label={tr('和 {name} 的對話', { name: owner?.name ?? tr('負責人') })}>
           <TicketBody task={task} image={image} onImage={onImage} />
           {history.earlier && history.ready && (
-            <li className="fx-room-earlier"><button type="button" className="fx-hit" disabled={history.busy} onClick={() => void history.back()}>{tr('顯示更早訊息')}</button></li>
+            <li className="fx-room-earlier" data-scroll-skip><button type="button" className="fx-hit" disabled={history.busy} onClick={() => void history.back()}>{tr('顯示更早訊息')}</button></li>
           )}
           <HistoryState busy={history.busy} ready={history.ready} error={history.error} onRetry={history.retry} />
           {history.ready && !history.items.length && !unsent.length && (

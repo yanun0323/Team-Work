@@ -7,7 +7,7 @@ import { shownUrl } from './core/island'
 import { colon, listOf, tr } from './core/i18n'
 import { Markdown } from './Markdown'
 import { useChatHistory } from './chatHistory'
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { Select } from './Controls'
@@ -241,22 +241,19 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const first = chat?.history ? 0 : history.id !== id ? Math.max(0, length - 100)
     : length < history.length ? Math.min(history.first, Math.max(0, length - 100)) : history.first
   if (history.id !== id || history.length !== length) setHistory({ id, length, first })
-  const anchor = useRef<{ element: HTMLElement; top: number; id: typeof id } | null>(null)
+  // the messages coming in above stay out of sight: useStickToBottom holds the rows on screen in place
   const earlier = async () => {
-    const el = log.current
-    const element = el?.querySelector<HTMLElement>('[data-message-index]')
-    if (element) anchor.current = { element, top: element.getBoundingClientRect().top, id }
-    if (chat?.history) {
-      if (!await pages.more()) anchor.current = null
-    } else setHistory({ id, length, first: Math.max(0, first - 100) })
+    if (chat?.history) await pages.more()
+    else setHistory({ id, length, first: Math.max(0, first - 100) })
   }
-  useLayoutEffect(() => {
-    const saved = anchor.current
-    anchor.current = null
-    if (saved && saved.id === id && saved.element.isConnected && log.current) {
-      log.current.scrollTop += saved.element.getBoundingClientRect().top - saved.top
-    }
-  }, [first, pages.start, id, log])
+  // What was just written stays as it was until it is read back as a message, so the list never gets shorter under
+  // the reader and the words never blink out: the turn ends, and its live words go, before the page with them is in.
+  const shown = (chat?.history ? pages.start : 0) + length
+  const told = chat?.history?.count ?? length
+  const written = useRef({ id, text: '', by: undefined as string | undefined, told: 0 })
+  if (written.current.id !== id || (!live && shown >= told)) written.current = { id, text: '', by: undefined, told }
+  else if (live) written.current = { id, text: live, by: chat?.speaker, told }
+  const ending = !live && written.current.text && told > written.current.told ? written.current : null
   const readId = chat?.unread ? chat.id : undefined
   const said = chat?.history?.count ?? chat?.messages.length
   const openId = chat?.id
@@ -586,9 +583,9 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
       <Prereqs list={needs} />
       <div className="fx-room-scroll">
       <ol ref={log} className="fx-room-log" aria-live="polite" aria-label={tr('和 {name} 的對話', { name: meeting ? listOf(people.map((x) => x.name)) : name })}>
-        {pages.busy && <li role="status">{tr('載入中…')}</li>}
-        {pages.error && <li role="alert">{tr('讀取歷史失敗，請重試')} <button type="button" onClick={pages.retry}>{tr('重試')}</button></li>}
-        {(first > 0 || (chat?.history && pages.ready && pages.start > 0)) && <li className="fx-room-earlier"><button type="button" className="fx-hit" disabled={pages.busy} onClick={() => void earlier()}>{tr('顯示更早訊息')}</button></li>}
+        {pages.busy && <li data-scroll-skip role="status">{tr('載入中…')}</li>}
+        {pages.error && <li data-scroll-skip role="alert">{tr('讀取歷史失敗，請重試')} <button type="button" onClick={pages.retry}>{tr('重試')}</button></li>}
+        {(first > 0 || (chat?.history && pages.ready && pages.start > 0)) && <li className="fx-room-earlier" data-scroll-skip><button type="button" className="fx-hit" disabled={pages.busy} onClick={() => void earlier()}>{tr('顯示更早訊息')}</button></li>}
         {chat?.messages.slice(first).flatMap((m, offset) => {
           const i = first + offset
           return [...handoffLines(i), ...joinLines(i), ...turnAt(i), m.from === 'tool' && m.text === COMPACT_MARK
@@ -635,6 +632,15 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
         })}
         {chat && handoffLines(chat.messages.length)}
         {chat && joinLines(chat.messages.length)}
+        {ending && meeting && ending.by && (!last || last.from === 'user' || (last.by || chat?.replicaId) !== ending.by) && speakerLine(ending.by, 'speaker-ending')}
+        {ending && (
+          <li className="fx-chat-msg fx-chat-agent" style={noteOf(ending.by)} aria-hidden="true">
+            <div className="fx-chat-said fx-chat-said-agent">
+              <div className="fx-chat-bubble"><Markdown text={ending.text} people={named} /></div>
+              <div className="fx-chat-foot" />
+            </div>
+          </li>
+        )}
         {/* the running command's last lines; the tool line above has already been read out */}
         {writerLine}
         {writing && output && <li className="fx-room-output" aria-hidden="true"><pre>{output}</pre></li>}

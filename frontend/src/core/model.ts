@@ -1,6 +1,6 @@
 // Read-only helpers shared by all three designs. Nothing here renders.
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { depths, inEdges, nodeOf, outEdges, wouldCreateCycle } from './domain/graph'
 import { combine } from './domain/rollup'
 import { busyReplicas, statusOf, subsOf, TRAVEL } from './domain/sim'
@@ -264,29 +264,103 @@ export { inEdges, nodeOf, outEdges }
 /** Keys that scroll a list up. */
 const UP_KEYS = new Set(['ArrowUp', 'PageUp', 'Home'])
 
-/** Keeps a scrolled-to-bottom list pinned to the bottom as new lines arrive. The reader scrolling up, by however
- * little, lets go of it at once; scrolling back down to the bottom takes hold again. pin() goes back to the bottom
- * and stays there, as when the user sends a message after scrolling up to read; pin(true) glides there. */
+/**
+ * The one place a chat-like list is scrolled. Pinned to the bottom, it follows what arrives there. Let go, the rows
+ * the reader sees stay where they are on screen whatever changes around them: rows coming or going above, a reply
+ * ending below, a picture loading. The reader scrolling up, by however little, lets go at once; scrolling back down to
+ * the bottom takes hold again. pin() goes back to the bottom and stays there, as when the user sends a message after
+ * scrolling up to read; pin(true) glides there.
+ *
+ * The browser's own scroll anchoring is off: WebKit and Chromium differ in it, and it moved the list under this one.
+ * Rows marked data-scroll-skip, such as a "loading" line or the button for earlier messages, are never held in place.
+ */
 export function useStickToBottom<E extends HTMLElement>(dep: unknown): [RefObject<E | null>, (smooth?: boolean) => void] {
   const ref = useRef<E>(null)
   const pinned = useRef(true)
-  useEffect(() => {
+  const place = useRef(() => {})
+  const bottom = useRef((_smooth: boolean) => {})
+  useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
+    el.style.overflowAnchor = 'none'
+    // blank space under the last row that holds the reader where they were when rows below them went away, as a
+    // list scrolled past its end is pulled back by the browser; it is [data-scroll-room]::after in fusion.css
+    let room = 0
+    el.dataset.scrollRoom = ''
+    el.style.setProperty('--scroll-gap', `${parseFloat(getComputedStyle(el).rowGap) || 0}px`)
+    // the scrollTop last set here, so its scroll event is not read as the reader's
+    let mine = -1
     let last = el.scrollTop
+    // the rows on screen, then the one just above them, and how far each is from the list's top: the first one still
+    // there is held in place; with none left, as when the rows on screen were all replaced, scrollTop stays as it was
+    let seen: { row: Element; at: number }[] = []
+    let seenTop = el.scrollTop
     // dragging the scroll bar, which is the list's own
     let held = false
     let finger = 0
+    const setRoom = (n: number) => {
+      n = Math.max(0, Math.ceil(n))
+      if (n === room) return
+      room = n
+      el.style.setProperty('--scroll-room', `${n}px`)
+    }
+    const write = (top: number) => {
+      el.scrollTop = top
+      mine = last = el.scrollTop
+    }
+    const look = () => {
+      const top = el.getBoundingClientRect().top
+      seen = []
+      seenTop = el.scrollTop
+      let above: { row: Element; at: number } | undefined
+      for (const row of el.children) {
+        if (row instanceof HTMLElement && row.dataset.scrollSkip !== undefined) continue
+        const r = row.getBoundingClientRect()
+        if (r.top >= top + el.clientHeight) break
+        if (r.bottom > top) seen.push({ row, at: r.top - top })
+        else if (r.height) above = { row, at: r.top - top }
+      }
+      if (above) seen.push(above)
+    }
+    // what the reader's place needs below the rows, for scrollTop top
+    const need = (top: number) => top + el.clientHeight - (el.scrollHeight - room)
+    const keep = () => {
+      if (pinned.current) {
+        setRoom(0)
+        write(el.scrollHeight)
+      } else {
+        const kept = seen.find((s) => s.row.parentElement === el)
+        const want = kept ? el.scrollTop + kept.row.getBoundingClientRect().top - el.getBoundingClientRect().top - kept.at : seenTop
+        setRoom(need(want))
+        if (Math.abs(el.scrollTop - want) >= 0.5) write(want)
+        // what the browser would not scroll to, short of room by its rounding, is made room for
+        if (want - el.scrollTop >= 0.5) { setRoom(room + want - el.scrollTop); write(want) }
+      }
+      look()
+    }
+    place.current = keep
+    bottom.current = (smooth) => {
+      pinned.current = true
+      setRoom(0)
+      if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+      else write(el.scrollHeight)
+    }
     // a list too short to scroll has nowhere up to go, so a scroll up there lets nothing go
     const up = () => { if (el.scrollTop > 0) pinned.current = false }
     const on = () => {
-      const near = el.scrollHeight - el.scrollTop - el.clientHeight < 24
-      const rose = el.scrollTop < last
-      last = el.scrollTop
+      const top = el.scrollTop
+      if (Math.abs(top - mine) < 1) return
+      mine = -1
+      // near the end of the rows, not of the blank space under them
+      const near = el.scrollHeight - room - top - el.clientHeight < 24
+      const rose = top < last
+      last = top
       // near the bottom only a move down takes hold, so a nudge up stays let go; away from it only a move up lets
       // go, so a smooth scroll on its way down keeps hold
       if (near && !rose) pinned.current = true
       else if (rose && (!near || held)) pinned.current = false
+      setRoom(pinned.current ? 0 : need(top))
+      look()
     }
     const wheel = (e: WheelEvent) => { if (e.deltaY < 0 && !e.ctrlKey) up() }
     const key = (e: KeyboardEvent) => {
@@ -303,14 +377,19 @@ export function useStickToBottom<E extends HTMLElement>(dep: unknown): [RefObjec
     }
     const press = (e: PointerEvent) => { if (e.target === el) held = true }
     const release = () => { held = false }
-    // something beside the list grew, such as the box to write in: the last line stays in view
-    const down = () => { if (pinned.current) el.scrollTop = el.scrollHeight }
-    const size = new ResizeObserver(down)
-    size.observe(el)
-    // a row coming or going above, such as "loading", makes the browser move scrollTop to keep its place; going
-    // down before that scroll is told keeps it from reading as the reader scrolling up
-    const lines = new MutationObserver(down)
-    lines.observe(el, { childList: true, subtree: true, characterData: true })
+    // the list's rows and the list itself changing size, as a picture loading or the box to write in growing
+    const watched = new Set<Element>()
+    const sizes = new ResizeObserver(keep)
+    sizes.observe(el, { box: 'border-box' })
+    const watch = () => {
+      for (const row of watched) if (row.parentElement !== el) { sizes.unobserve(row); watched.delete(row) }
+      for (const row of el.children) if (!watched.has(row)) { sizes.observe(row, { box: 'border-box' }); watched.add(row) }
+    }
+    // rows coming, going or changing, before the browser draws them
+    const rows = new MutationObserver(() => { watch(); keep() })
+    rows.observe(el, { childList: true, subtree: true, characterData: true })
+    watch()
+    keep()
     el.addEventListener('scroll', on)
     el.addEventListener('wheel', wheel, { passive: true })
     el.addEventListener('keydown', key)
@@ -320,8 +399,13 @@ export function useStickToBottom<E extends HTMLElement>(dep: unknown): [RefObjec
     addEventListener('pointerup', release)
     addEventListener('pointercancel', release)
     return () => {
-      size.disconnect()
-      lines.disconnect()
+      sizes.disconnect()
+      rows.disconnect()
+      delete el.dataset.scrollRoom
+      el.style.removeProperty('--scroll-room')
+      el.style.removeProperty('--scroll-gap')
+      place.current = () => {}
+      bottom.current = () => {}
       el.removeEventListener('scroll', on)
       el.removeEventListener('wheel', wheel)
       el.removeEventListener('keydown', key)
@@ -332,20 +416,11 @@ export function useStickToBottom<E extends HTMLElement>(dep: unknown): [RefObjec
       removeEventListener('pointercancel', release)
     }
   }, [])
-  useEffect(() => {
-    const el = ref.current
-    if (el && pinned.current) el.scrollTop = el.scrollHeight
-  }, [dep])
+  // what React drew this time, before it is shown; the observers above catch the rest
+  useLayoutEffect(() => place.current(), [dep])
   const pin = useCallback((smooth = false) => {
-    pinned.current = true
-    const el = ref.current
     const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-    // what comes in on the way down jumps straight to the bottom, as the list is held there already
-    if (smooth && !calm) return el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-    const down = () => { const el = ref.current; if (el && pinned.current) el.scrollTop = el.scrollHeight }
-    down()
-    // once what was sent is drawn, such as a message waiting its turn, which leaves dep as it was
-    requestAnimationFrame(down)
+    bottom.current(smooth && !calm)
   }, [])
   return [ref, pin]
 }
