@@ -69,6 +69,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         webView.uiDelegate = self
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Team Work"
+        // Closing only hides the window: the app, its backend and its notifications go on until Quit.
+        window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 800, height: 600)
         window.contentView = webView
         window.backgroundColor = NSColor(srgbRed: 0x3b / 255, green: 0x86 / 255, blue: 0xc6 / 255, alpha: 1)
@@ -124,7 +126,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let editItem = NSMenuItem(title: say("編輯", "Edit", "编辑", "編集", "편집"), action: nil, keyEquivalent: "")
         editItem.submenu = edit
         menu.addItem(editItem)
+        let windows = NSMenu(title: say("視窗", "Window", "窗口", "ウインドウ", "윈도우"))
+        windows.addItem(withTitle: say("最小化", "Minimize", "最小化", "しまう", "최소화"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windows.addItem(withTitle: say("關閉視窗", "Close Window", "关闭窗口", "ウインドウを閉じる", "윈도우 닫기"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        let windowsItem = NSMenuItem(title: windows.title, action: nil, keyEquivalent: "")
+        windowsItem.submenu = windows
+        menu.addItem(windowsItem)
         NSApp.mainMenu = menu
+        NSApp.windowsMenu = windows
     }
 
     // ⌘Q asks first; the airport's power button asks on the page instead.
@@ -383,7 +392,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         webView.evaluateJavaScript("window.twUpdate = \(updateFound); window.twChecking = \(updateChecking); window.dispatchEvent(new Event('tw-update'))")
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    // A click on the Dock icon brings back the closed window; before startup has painted, it opens on its own.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if bootDone && !flag {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+        }
+        return true
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         stopping = true
