@@ -45,6 +45,7 @@ __pycache__
 # ========================
 node_modules
 .vite
+.vitest
 *.tsbuildinfo
 .bun-install
 .bun-cache
