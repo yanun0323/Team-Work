@@ -39,15 +39,20 @@ export function modelsOf(w: World): string[] {
   return modelGroups(w).flatMap((g) => g.models)
 }
 
+/** The models a provider offers to pick: those it lists, less the ones turned off. */
+export const offeredOf = (p: ModelProvider) => p.models.filter((m) => !p.hidden?.includes(m))
+
 /**
  * The same models under the provider each comes from. A model two providers offer sits under the first, the one its
- * thinking levels are read from, and the ones no provider offers now go last under 其他.
+ * thinking levels are read from, and the ones no provider lists now go last under 其他. A model turned off is in no
+ * group; a list shows it only as the value it already holds.
  */
 export function modelGroups(w: World): { label: string; models: string[] }[] {
+  const listed = new Set(Object.values(w.providers).flatMap((p) => p.models))
   const seen = new Set<string>()
   const fresh = (models: string[]) => models.filter((m) => !seen.has(m) && !!seen.add(m))
-  const groups = Object.values(w.providers).map((p) => ({ label: p.name, models: fresh(p.models) }))
-  groups.push({ label: tr('其他'), models: fresh(Object.values(w.replicas).map((r) => r.model)) })
+  const groups = Object.values(w.providers).map((p) => ({ label: p.name, models: fresh(offeredOf(p)) }))
+  groups.push({ label: tr('其他'), models: fresh(Object.values(w.replicas).map((r) => r.model).filter((m) => !listed.has(m))) })
   return groups.filter((g) => g.models.length > 0)
 }
 

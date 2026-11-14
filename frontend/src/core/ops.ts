@@ -516,6 +516,9 @@ export const deleteSource = pick('deleteSource', (_w: World, id: string) => fire
 
 export const deleteProvider = pick('deleteProvider', (_w: World, id: string) => fire_('DELETE', `/providers/${id}`))
 
+export const setModelHidden = pick('setModelHidden', (_w: World, id: string, model: string, hidden: boolean) =>
+  fire_('PUT', `/providers/${id}/hidden`, { model, hidden }))
+
 export const startLogin = (id: string, method?: 'browser' | 'device') => request('POST', `/providers/${id}/login`, { method })
 export const pasteLogin = (id: string, value: string) => request('POST', `/providers/${id}/login/paste`, { value })
 export const cancelLogin = (id: string) => request('DELETE', `/providers/${id}/login`)

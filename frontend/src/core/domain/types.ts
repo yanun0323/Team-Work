@@ -806,6 +806,8 @@ export interface ModelProvider {
   baseUrl: string
   /** What the provider offers, as it lists them; not typed in. */
   models: string[]
+  /** Models the user turned off: whoever is on one still runs on it, but no list offers it. */
+  hidden?: string[]
   /** The thinking levels each model reports, weakest first; a model not in it reports none. */
   thinking?: Record<string, string[]>
   /** How many tokens its models can read, as the user set it; only Google and compatible ones keep one. */

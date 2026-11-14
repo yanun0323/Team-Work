@@ -1207,6 +1207,16 @@ export function updateProvider(w: World, id: string, input: { name: string; base
   if (input.contextWindow !== undefined && !fixedContext(p.kind)) p.contextWindow = input.contextWindow || undefined
 }
 
+/** Turn one of a provider's models off, so no list offers it, or back on; whoever runs on it keeps it. */
+export function setModelHidden(w: World, id: string, model: string, hidden: boolean) {
+  const p = w.providers[id]
+  if (!p?.models.includes(model)) return
+  const rest = (p.hidden ?? []).filter((m) => m !== model)
+  const next = hidden ? [...rest, model].sort() : rest
+  if (next.length) p.hidden = next
+  else delete p.hidden
+}
+
 /** Employees, in any company, running on a model the provider offers. */
 export const providerUsers = (w: World, id: string) => {
   const models = w.providers[id]?.models ?? []

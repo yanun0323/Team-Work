@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addProvider, deleteProvider, providerUsers, updateProvider } from './core/domain/sim'
+import { addProvider, deleteProvider, providerUsers, setModelHidden, updateProvider } from './core/domain/sim'
 import { seedWorld } from './core/data/seed'
 import { modelGroups, modelsOf } from './crew'
 import { authLabel, providerUrl } from './providers'
@@ -62,5 +62,21 @@ describe('modelGroups', () => {
       { label: '其他', models: ['gone'] },
     ])
     expect(modelsOf(w)).toEqual(['m1', 'shared', 'm2', 'gone'])
+  })
+})
+
+describe('turning a model off', () => {
+  it('leaves it out of every list but keeps it for whoever runs on it', () => {
+    const w = seedWorld()
+    w.providers = { a: { ...Object.values(w.providers)[0], id: 'a', name: 'First', models: ['m1', 'm2'] } }
+    w.replicas = { r: { ...Object.values(w.replicas)[0], model: 'm2' } }
+    setModelHidden(w, 'a', 'm2', true)
+    setModelHidden(w, 'a', 'nope', true)
+    expect(w.providers.a.hidden).toEqual(['m2'])
+    expect(modelsOf(w)).toEqual(['m1'])
+    expect(providerUsers(w, 'a')).toHaveLength(1)
+    setModelHidden(w, 'a', 'm2', false)
+    expect(w.providers.a.hidden).toBeUndefined()
+    expect(modelsOf(w)).toEqual(['m1', 'm2'])
   })
 })

@@ -48,7 +48,7 @@ import { addProvider, fixedContext, providerUsers, updateProvider, type Provider
 import { handedImageUrl, readHandedDiff, readHandedFile, request } from './core/backend'
 import { DiffNote, useDocView, useRoomForSplit, ViewSwitch } from './HandedDiff'
 import { tally, type DiffLine } from './diffView'
-import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fireNow, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, pauseTask, refreshModels, refreshStaleModels, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, updateReplica, updateTask } from './core/ops'
+import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fireNow, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, pauseTask, refreshModels, refreshStaleModels, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, setModelHidden, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { NotesSheet } from './Notes'
 import { FileDetail, FileEdit } from './FileSheets'
@@ -1202,7 +1202,15 @@ function ProviderDetail({ id, editing, onEdit, onGoneProvider, ...h }: Head & {
       <Section name={tr('Context window')}><p className="fx-d-text"><code>{providerWindow(p).toLocaleString('en-US')}</code></p></Section>
       <Section name={tr('模型#list')}>
         {p.models.length === 0 ? <p className="fx-d-muted">{tr('沒有')}</p> : (
-          <p className="fx-d-chips fx-d-mono">{p.models.map((m) => <span key={m}>{m}</span>)}</p>
+          <p className="fx-d-chips fx-d-mono">
+            {p.models.map((m) => {
+              const on = !p.hidden?.includes(m)
+              return (
+                <button key={m} type="button" className={on ? undefined : 'fx-chip-out'} aria-pressed={on}
+                  onClick={() => act((x) => void setModelHidden(x, id, m, on))}>{m}</button>
+              )
+            })}
+          </p>
         )}
       </Section>
       <Section name={tr('使用中的員工')}>
@@ -1842,7 +1850,7 @@ function CrewEdit({ id, copyOf, teamId: here, onDone, ...h }: Head & { id: strin
           <span>{tr('名字')}</span>
           <input className="fx-control" value={name} onChange={(e) => setName(e.target.value)} required />
         </label>
-        <Select label={tr('模型')} value={model} options={modelsOf(w)} onChange={setModel} onOpen={refreshStaleModels}
+        <Select label={tr('模型')} value={model} options={modelsOf(w).includes(model) || !model ? modelsOf(w) : [...modelsOf(w), model]} onChange={setModel} onOpen={refreshStaleModels}
           groups={modelGroups(w).map((g) => ({ label: g.label, count: g.models.length }))}
           groupOf={(m) => modelGroups(w).findIndex((g) => g.models.includes(m))} />
         <Select label={tr('思考等級')} value={level} options={levels} onChange={setEffort} />
