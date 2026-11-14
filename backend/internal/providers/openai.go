@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/yanun0323/Team-Work/internal/model"
@@ -112,8 +111,39 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 	origin := chatOrigin(o.base, req.Model)
 	var reply model.ModelReply
 	var text strings.Builder
-	calls := map[int]*model.Block{}
-	var args = map[int]*strings.Builder{}
+	// Calls in the order they began. A piece names its call by index, but Gemini sends parallel calls whole, one to a
+	// chunk, with no index or 0 on each, so a piece with an id not seen yet begins a new call.
+	var calls []*model.Block
+	var args []*strings.Builder
+	byIndex, byID := map[int]int{}, map[string]int{}
+	slot := func(index *int, id string) int {
+		at, known := -1, false
+		if index != nil {
+			at, known = byIndex[*index]
+		}
+		if id != "" {
+			if i, ok := byID[id]; ok {
+				return i
+			}
+			if !known || calls[at].ID != "" {
+				at = -1
+			}
+		} else if !known {
+			at = len(calls) - 1
+		}
+		if at < 0 {
+			calls = append(calls, &model.Block{Type: enum.BlockToolCall})
+			args = append(args, &strings.Builder{})
+			at = len(calls) - 1
+		}
+		if index != nil {
+			byIndex[*index] = at
+		}
+		if id != "" {
+			calls[at].ID, byID[id] = id, at
+		}
+		return at
+	}
 	finished := false
 	err = readSSE(res.Body, func(data []byte) (bool, error) {
 		if string(data) == "[DONE]" {
@@ -126,7 +156,7 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 				Delta struct {
 					Content   string `json:"content"`
 					ToolCalls []struct {
-						Index    int    `json:"index"`
+						Index    *int   `json:"index"`
 						ID       string `json:"id"`
 						Function struct {
 							Name      string `json:"name"`
@@ -163,18 +193,12 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 				onText(c.Delta.Content)
 			}
 			for _, d := range c.Delta.ToolCalls {
-				if calls[d.Index] == nil {
-					calls[d.Index] = &model.Block{Type: enum.BlockToolCall}
-					args[d.Index] = &strings.Builder{}
-				}
-				if d.ID != "" {
-					calls[d.Index].ID = d.ID
-				}
-				calls[d.Index].Name += d.Function.Name
-				args[d.Index].WriteString(d.Function.Arguments)
+				i := slot(d.Index, d.ID)
+				calls[i].Name += d.Function.Name
+				args[i].WriteString(d.Function.Arguments)
 				// it may come on any one of the call's pieces; a later piece without it leaves it be
 				if len(d.ExtraContent) > 0 && string(d.ExtraContent) != "null" {
-					calls[d.Index].Raw, calls[d.Index].Origin = d.ExtraContent, origin
+					calls[i].Raw, calls[i].Origin = d.ExtraContent, origin
 				}
 			}
 			if c.FinishReason == "length" {
@@ -198,15 +222,10 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 	if reply.Truncated { // never run partial tool arguments
 		return reply, nil
 	}
-	indexes := make([]int, 0, len(calls))
-	for i := range calls {
-		indexes = append(indexes, i)
-	}
-	sort.Ints(indexes)
 	var blocks []model.Block
-	for _, i := range indexes {
-		calls[i].Args = json.RawMessage(args[i].String())
-		blocks = append(blocks, *calls[i])
+	for i, c := range calls {
+		c.Args = json.RawMessage(args[i].String())
+		blocks = append(blocks, *c)
 	}
 	if err := validCalls(blocks); err != nil {
 		return failed(reply, err)

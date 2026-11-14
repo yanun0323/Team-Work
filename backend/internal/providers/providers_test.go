@@ -78,6 +78,38 @@ func TestChatCompletionsStream(t *testing.T) {
 	}
 }
 
+// Gemini's compatible endpoint sends parallel calls whole, one to a chunk, with no index (or 0 on each); they were
+// merged into one call whose arguments were not JSON, and the reply was retried over and over.
+func TestParallelCallsWithoutAnIndexStayApart(t *testing.T) {
+	const stream = `data: {"choices":[{"delta":{"role":"assistant","content":"讀兩頁"},"index":0}]}
+
+data: {"choices":[{"delta":{"role":"assistant","tool_calls":[{"function":{"arguments":"{\"url\":\"a\"}","name":"t"},"id":"call_a","type":"function","extra_content":{"google":{"thought_signature":"c2ln"}}}]},"index":0}]}
+
+data: {"choices":[{"delta":{"role":"assistant","tool_calls":[{"function":{"arguments":"{\"url\":\"b\"}","name":"t"},"id":"call_b","type":"function"}]},"index":0}]}
+
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"url\":\"c\"}","name":"t"},"id":"call_c","type":"function"}]},"index":0}]}
+
+data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":"stop","index":0}]}
+
+data: [DONE]
+`
+	p, _, _ := serve(t, enum.ProviderGoogle, 200, stream)
+	reply, err := p.Complete(context.Background(), request, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, b := range reply.Content[1:] {
+		got = append(got, b.ID+" "+string(b.Args))
+	}
+	if want := []string{`call_a {"url":"a"}`, `call_b {"url":"b"}`, `call_c {"url":"c"}`}; !slices.Equal(got, want) {
+		t.Fatalf("%q", got)
+	}
+	if len(reply.Content[1].Raw) == 0 || len(reply.Content[2].Raw) != 0 {
+		t.Fatalf("signature not kept on its own call: %+v", reply.Content)
+	}
+}
+
 // Gemini 3 refuses a tool call sent back without the thought signature it came with (HTTP 400), so the signature
 // goes back with its call, and only to the same model at the same address.
 func TestGeminiThoughtSignaturesGoBackWithTheirCall(t *testing.T) {
