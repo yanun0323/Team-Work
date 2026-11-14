@@ -4,7 +4,7 @@ import type { MusicStyle } from './prefs'
 
 export const RATE = 32000
 export type Stereo = [Float32Array<ArrayBuffer>, Float32Array<ArrayBuffer>]
-export type EffectKey = 'soundTakeoff' | 'soundLanding' | 'soundFlyover' | 'soundUI' | 'soundNotice' | 'soundTutorial' | 'soundOpenTeam' | 'soundOpenAirport' | 'soundOpenTower' | 'soundWaves'
+export type EffectKey = 'soundTakeoff' | 'soundLanding' | 'soundFlyover' | 'soundUI' | 'soundNotice' | 'soundTutorial' | 'soundOpenTeam' | 'soundOpenAirport' | 'soundOpenTower' | 'soundOpenStaffing' | 'soundWaves'
 
 const TAU = Math.PI * 2
 const SINE_SIZE = 1 << 14
@@ -621,6 +621,47 @@ function hum(rate: number): Stereo {
   return levelled(out, 0.5, 0.2)
 }
 
+/** The immigration office opens with a rubber stamp brought down on a desk: a dull thump, then the paper rustles. */
+export const STAMP_SECONDS = 0.5
+/** When the stamp lands, seconds in: a moment of lift first, so the strike does not click. */
+export const STAMP_AT = 0.03
+/** When the paper rustles, seconds in. */
+export const STAMP_PAPER = [0.1, 0.4] as const
+function stamp(rate: number): Stereo {
+  const size = Math.floor(STAMP_SECONDS * rate)
+  const out: Stereo = [new Float32Array(size), new Float32Array(size)]
+  const rng = random(29)
+  const soft = 1 - Math.exp(-TAU * 2500 / rate), dark = 1 - Math.exp(-TAU * 1500 / rate), bright = 1 - Math.exp(-TAU * 5000 / rate)
+  const [from, to] = STAMP_PAPER
+  let felt = 0, below = 0, above = 0, grain = 0, target = 0, next = 0
+  for (let i = 0; i < size; i++) {
+    const t = i / rate, s = t - STAMP_AT
+    let strike = 0
+    if (s >= 0) {
+      // rubber on wood: a low thump that sinks as it settles, a short knock of the desk, and a muffled smack
+      const thud = sin(90 * s + 90 * (1 - Math.exp(-40 * s)) / 40) * Math.exp(-26 * s)
+      const knock = sin(230 * s) * Math.exp(-60 * s) * 0.35
+      felt += (NOISE[(i + 3301) & (NOISE_SIZE - 1)] - felt) * soft
+      strike = (thud + knock + felt * Math.exp(-260 * s) * 0.8) * Math.min(1, s / 0.0015)
+    }
+    // the sheet shifts under the hand: bright noise in uneven grains, swelling and dying away
+    const x = NOISE[(i * 3 + 17011) & (NOISE_SIZE - 1)]
+    below += (x - below) * dark
+    above += (x - above) * bright
+    let paper = 0
+    if (t > from && t < to) {
+      if (i >= next) { target = rng() ** 2; next = i + Math.floor((0.004 + rng() * 0.012) * rate) }
+      grain += (target - grain) * 0.02
+      paper = (above - below) * Math.sin(Math.PI * (t - from) / (to - from)) ** 2 * (0.3 + grain) * 0.45
+    }
+    // the stamp sits in the middle; the paper slides off a little to the right
+    const tail = Math.min(1, (STAMP_SECONDS - t) / 0.03)
+    out[0][i] = (strike + paper * 0.8) * tail
+    out[1][i] = (strike + paper * 1.2) * tail
+  }
+  return levelled(out, 0.5, 0.2)
+}
+
 /** The sea round the island, played as a loop: a deep swell under breakers that rise, spill and wash back. */
 export const WAVES_SECONDS = 26
 /** When each breaker begins, seconds into the loop; uneven, so the loop is hard to hear. */
@@ -659,7 +700,7 @@ function waves(rate: number): Stereo {
 }
 
 const EFFECTS: Record<EffectKey, (rate: number) => Stereo> = {
-  soundTakeoff: takeoff, soundLanding: landing, soundFlyover: flyover, soundUI: tap, soundNotice: notice, soundTutorial: tutorial, soundOpenTeam: whoosh, soundOpenAirport: announce, soundOpenTower: hum, soundWaves: waves,
+  soundTakeoff: takeoff, soundLanding: landing, soundFlyover: flyover, soundUI: tap, soundNotice: notice, soundTutorial: tutorial, soundOpenTeam: whoosh, soundOpenAirport: announce, soundOpenTower: hum, soundOpenStaffing: stamp, soundWaves: waves,
 }
 
 export const effectSamples = (key: EffectKey, rate = RATE) => EFFECTS[key](rate)

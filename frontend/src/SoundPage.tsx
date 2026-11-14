@@ -9,7 +9,10 @@ const SOUND_GROUPS = [
   { key: 'soundUI', label: '介面操作', keys: ['soundUI'] },
   { key: 'soundNotice', label: '通知', keys: ['soundNotice'] },
   { key: 'soundTutorial', label: '教學提示', keys: ['soundTutorial'] },
-  { key: 'soundOpenTeam', label: '打開建築', keys: ['soundOpenTeam', 'soundOpenAirport', 'soundOpenTower'] },
+  { key: 'soundOpenTeam', label: '打開公司', keys: ['soundOpenTeam'] },
+  { key: 'soundOpenAirport', label: '打開機場', keys: ['soundOpenAirport'] },
+  { key: 'soundOpenTower', label: '打開基地台', keys: ['soundOpenTower'] },
+  { key: 'soundOpenStaffing', label: '打開移民署', keys: ['soundOpenStaffing'] },
   { key: 'soundWaves', label: '海浪', keys: ['soundWaves'] },
 ] as const
 /** Sounds that keep playing while on, so there is nothing to preview. */

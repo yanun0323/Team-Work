@@ -15,6 +15,7 @@ export const SOUND_EFFECTS = [
   { key: 'soundOpenTeam', label: '打開公司' },
   { key: 'soundOpenAirport', label: '打開機場' },
   { key: 'soundOpenTower', label: '打開基地台' },
+  { key: 'soundOpenStaffing', label: '打開移民署' },
   { key: 'soundWaves', label: '海浪' },
 ] as const
 export type SoundEffect = (typeof SOUND_EFFECTS)[number]['key']

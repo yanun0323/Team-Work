@@ -161,16 +161,20 @@ func TestRemovedWaitingSubIsIgnoredInOldFiles(t *testing.T) {
 	}
 }
 
-func TestRemovedStaffingSoundIsIgnoredInOldFiles(t *testing.T) {
+func TestStaffingSoundHasItsOwnSwitch(t *testing.T) {
 	var p Preferences
-	if err := json.Unmarshal([]byte(`{"soundOpenStaffing":false,"soundOpenTower":false}`), &p); err != nil {
-		t.Fatalf("old file rejected: %v", err)
+	if err := json.Unmarshal([]byte(`{"soundOpenTower":false}`), &p); err != nil {
+		t.Fatal(err)
 	}
-	if p.SoundOpenTower {
-		t.Fatal("the rest of an old file was not read")
+	if !p.SoundOpenStaffing || p.SoundOpenTower {
+		t.Fatalf("a file without it should turn it on and leave the others alone: %+v", p)
 	}
-	if _, err := MergePreferences(DefaultPreferences(), map[string]json.RawMessage{"soundOpenStaffing": json.RawMessage(`true`)}); err == nil {
-		t.Fatal("removed preference accepted in a patch")
+	if err := json.Unmarshal([]byte(`{"soundOpenStaffing":false}`), &p); err != nil || p.SoundOpenStaffing || !p.SoundOpenTower {
+		t.Fatalf("%v %+v", err, p)
+	}
+	next, err := MergePreferences(DefaultPreferences(), map[string]json.RawMessage{"soundOpenStaffing": json.RawMessage(`false`)})
+	if err != nil || next.SoundOpenStaffing || !next.SoundOpenTeam || !next.SoundOpenAirport || !next.SoundOpenTower {
+		t.Fatalf("%v %+v", err, next)
 	}
 }
 

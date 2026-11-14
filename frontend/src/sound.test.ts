@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { DEFAULT_PREFS, MUSIC_STYLES, usePrefs } from './prefs'
 import { useStore } from './core/store'
-import { silenced, SoundPlayer, subscribeChatSound, subscribeNoticeSound, watchChat } from './sound'
+import { silenced, SOUND_EFFECTS, SoundPlayer, subscribeChatSound, subscribeNoticeSound, watchChat } from './sound'
 import type { Chat } from './core/domain/types'
-import { AIRPORT_GAP, AIRPORT_LEAD_IN, AIRPORT_NOTES, AIRPORT_SECONDS, effectSamples, HUM_BURSTS, HUM_FREQUENCY, HUM_SECONDS, musicSamples, NOTICE_DUCK, NOTICE_GAP, NOTICE_LEAD_IN, NOTICE_NOTES, NOTICE_RISE, NOTICE_SECONDS, TAP_SECOND_SNAP, TUTORIAL_SECONDS, WAVES_BREAKERS, WAVES_SECONDS, WHOOSH_SECONDS, type Stereo } from './soundSynth'
+import { AIRPORT_GAP, AIRPORT_LEAD_IN, AIRPORT_NOTES, AIRPORT_SECONDS, effectSamples, HUM_BURSTS, HUM_FREQUENCY, HUM_SECONDS, musicSamples, NOTICE_DUCK, NOTICE_GAP, NOTICE_LEAD_IN, NOTICE_NOTES, NOTICE_RISE, NOTICE_SECONDS, STAMP_AT, STAMP_PAPER, STAMP_SECONDS, TAP_SECOND_SNAP, TUTORIAL_SECONDS, WAVES_BREAKERS, WAVES_SECONDS, WHOOSH_SECONDS, type Stereo } from './soundSynth'
 
 const param = () => ({ value: 0, setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn(), cancelScheduledValues: vi.fn(), setTargetAtTime: vi.fn() })
 class Node {
@@ -191,6 +191,37 @@ it('opens the power tower on live current: a buzz locked to the mains, twice, wi
   expect(crossings / ((end - begin) / rate)).toBeGreaterThan(HUM_FREQUENCY * 20)
   expect(loudness(samples, HUM_SECONDS - 0.02, HUM_SECONDS, rate)).toBeLessThan(0.01)
   expect(loudness(samples, 0, HUM_SECONDS, rate)).toBeLessThan(loudness(effectSamples('soundNotice', rate), 0, HUM_SECONDS, rate))
+})
+
+it('opens the immigration office with a stamp: a dull thump, then a little rustle of paper', () => {
+  const rate = 32000
+  const samples = effectSamples('soundOpenStaffing', rate)
+  expect(samples[0].length).toBe(Math.floor(STAMP_SECONDS * rate))
+  expect(samples.every((ch) => ch.every(Number.isFinite))).toBe(true)
+  expect(Math.max(...samples[0].map(Math.abs), ...samples[1].map(Math.abs))).toBeLessThanOrEqual(0.2 + 1e-6)
+  // nothing before the stamp comes down, then it lands at once
+  expect(loudness(samples, 0, STAMP_AT - 0.002, rate)).toBeLessThan(0.002)
+  const strike = loudness(samples, STAMP_AT, STAMP_AT + 0.03, rate)
+  expect(strike).toBeGreaterThan(0.05)
+  // dull: most of the strike lies below a few hundred hertz
+  const [left] = samples, k = 1 - Math.exp(-2 * Math.PI * 300 / rate)
+  let low = 0, lowEnergy = 0, energy = 0
+  for (let i = Math.floor(STAMP_AT * rate); i < (STAMP_AT + 0.04) * rate; i++) {
+    low += (left[i] - low) * k
+    lowEnergy += low * low
+    energy += left[i] * left[i]
+  }
+  expect(lowEnergy / energy).toBeGreaterThan(0.5)
+  // the paper is heard after the thump: softer, but there, and bright
+  const [from, to] = STAMP_PAPER, late = from + (to - from) / 2
+  const paper = loudness(samples, late - 0.05, late + 0.05, rate)
+  expect(paper).toBeGreaterThan(0.004)
+  expect(paper).toBeLessThan(strike / 3)
+  let crossings = 0
+  for (let i = Math.floor((late - 0.05) * rate) + 1; i < (late + 0.05) * rate; i++) if ((left[i - 1] < 0) !== (left[i] < 0)) crossings++
+  expect(crossings / 0.1).toBeGreaterThan(2000)
+  expect(loudness(samples, STAMP_SECONDS - 0.02, STAMP_SECONDS, rate)).toBeLessThan(0.002)
+  expect(loudness(samples, 0, STAMP_SECONDS, rate)).toBeLessThan(loudness(effectSamples('soundNotice', rate), 0, STAMP_SECONDS, rate))
 })
 
 it('keeps interface taps short, quieter than everything else, and a double snap', () => {
@@ -451,8 +482,8 @@ it('keeps the sea looping while it is on, and stops and restarts it with the sou
   const { player, sources, gains } = context()
   expect(sources).toHaveLength(2)
   expect(sources[1].loop).toBe(true)
-  // A background: well under the other effects. Its channel follows the music's and the nine before it.
-  expect(gains[10].gain.setTargetAtTime).toHaveBeenLastCalledWith(0.2, 10, 0.03)
+  // A background: well under the other effects. Its channel follows the music's and the effects listed before it.
+  expect(gains[1 + SOUND_EFFECTS.findIndex(({ key }) => key === 'soundWaves')].gain.setTargetAtTime).toHaveBeenLastCalledWith(0.2, 10, 0.03)
   // Other settings changing do not restart it.
   player.update({ ...DEFAULT_PREFS, musicVolume: 20 })
   expect(sources).toHaveLength(2)
