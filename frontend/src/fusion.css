@@ -1040,6 +1040,12 @@ a.fx-save { text-decoration: none; }
 .fx-slip li.active { background: rgb(31 29 43 / 0.07); }
 .fx-slip li[aria-selected="true"] { font-weight: 600; }
 .fx-slip-rows { box-sizing: border-box; max-height: min(340px, 50vh); container-type: inline-size; }
+/* a long list: the filter stays on top while the options scroll under it */
+.fx-slip-filtered { padding-top: 0; }
+.fx-slip-filtered > ul { margin: 0; padding: 0; list-style: none; }
+.fx-slip-filter { position: sticky; top: 0; z-index: 1; margin: 0 -5px 4px; padding: 5px 5px 4px; background: var(--clip); }
+.fx-slip-filter > .fx-control { box-sizing: border-box; width: 100%; }
+.fx-slip-none { margin: 0; padding: 7px 8px; font-size: 14px; color: var(--muted); }
 .fx-slip-group { display: block; padding: 0; cursor: default; }
 .fx-slip-group > ul { margin: 0; padding: 0; list-style: none; }
 .fx-slip-group + .fx-slip-group { margin-top: 6px; }

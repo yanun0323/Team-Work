@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { Select, Switcher } from './Controls'
+import { filterOptions, Select, Switcher } from './Controls'
 import { unhidden } from './core/model'
 import { useStore } from './core/store'
 import { lastFlowId } from './draft'
@@ -11,6 +11,15 @@ it('shows the picked value its own way when closed', () => {
   const html = renderToStaticMarkup(<Select label="員工" value="a" options={['a']} shownAs={() => <i>Mira</i>} onChange={() => {}} />)
   expect(html).toContain('<i>Mira</i>')
   expect(html).not.toContain('role="listbox"')
+})
+
+it('filters by every word of the label, in any case, keeping the order', () => {
+  const names: Record<string, string> = { a: 'Claude Opus', b: 'claude-sonnet', c: 'GPT Opus' }
+  const label = (o: string) => names[o]
+  expect(filterOptions(['a', 'b', 'c'], label, 'opus')).toEqual(['a', 'c'])
+  expect(filterOptions(['a', 'b', 'c'], label, ' CLAUDE  opus ')).toEqual(['a'])
+  expect(filterOptions(['a', 'b', 'c'], label, '   ')).toEqual(['a', 'b', 'c'])
+  expect(filterOptions(['a', 'b', 'c'], label, 'gemini')).toEqual([])
 })
 
 it('lays every choice out in view, with the current one checked', () => {

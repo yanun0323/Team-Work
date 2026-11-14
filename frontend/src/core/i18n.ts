@@ -970,6 +970,8 @@ const en = {
   '確定重新啟動': 'Confirm restart',
   '重新啟動': 'Restart',
   '沒辦法重新啟動，請自行重新啟動 Team Work': 'Could not restart. Restart Team Work yourself',
+  '搜尋': 'Search',
+  '沒有符合的項目': 'No matches',
 } satisfies Record<string, Text>
 
 export type Key = keyof typeof en

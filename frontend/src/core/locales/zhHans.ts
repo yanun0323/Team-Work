@@ -932,4 +932,6 @@ export const zhHans = {
   '確定重新啟動': '确定重新启动',
   '重新啟動': '重新启动',
   '沒辦法重新啟動，請自行重新啟動 Team Work': '无法重新启动，请自行重新启动 Team Work',
+  '搜尋': '搜索',
+  '沒有符合的項目': '没有符合的项目',
 } satisfies Record<Key, Text>

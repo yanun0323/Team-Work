@@ -2,6 +2,7 @@
 // and a number field with paper − / + tabs. Both keep the keyboard behaviour of the native controls.
 
 import { tr } from './core/i18n'
+import { composing } from './ime'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 
 /** A text box as tall as its text: never under its `rows`, and no taller than the CSS `max-height`. */
@@ -26,9 +27,24 @@ export const Check = () => (
   </svg>
 )
 
+/** A list with more options than this opens with a filter on top. */
+export const FILTER_FROM = 10
+
+/** The options whose label holds every word of `query`, in any case, in their order. */
+export function filterOptions(options: string[], labelOf: (o: string) => string, query: string) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return options
+  return options.filter((o) => {
+    const label = labelOf(o).toLowerCase()
+    return words.every((w) => label.includes(w))
+  })
+}
+
 /**
  * A select-only combobox (WAI-ARIA pattern): a button showing the value, opening a listbox on a paper slip.
  * Arrows, Home/End and typing a letter move; Enter, Space or a click picks; Escape or Tab closes.
+ * A list longer than `FILTER_FROM` opens with a box on top that narrows it to the options whose label holds every word
+ * typed; the keys then work from that box, and Escape empties it before it closes the list.
  */
 export function Select({ label, value, options, labelOf = (o) => o, onChange, onOpen, shownAs, rowOf, groups, groupOf, disabled, picked: isPicked }: {
   label: string
@@ -58,24 +74,44 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, on
   const on = (o: string) => (isPicked ? isPicked(o) : o === value)
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
+  const [query, setQuery] = useState('')
   const root = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
-  const list = useRef<HTMLUListElement>(null)
+  // the paper slip: the list itself, or the box holding the filter and the list
+  const list = useRef<HTMLElement>(null)
+  const filterBox = useRef<HTMLInputElement>(null)
+  const filtering = options.length > FILTER_FROM
+  // what the list shows; `active` counts in it
+  const shown = filtering ? filterOptions(options, labelOf, query) : options
 
-  const show = (at = Math.max(0, options.indexOf(value))) => {
-    setActive(at)
+  const show = (at = Math.max(0, options.indexOf(value)), typed = '') => {
+    setQuery(typed)
+    setActive(typed ? 0 : at)
     setOpen(true)
     onOpen?.()
   }
-  const pick = (i: number) => {
-    if (several) {
-      if (options[i] !== undefined) onChange(options[i])
-      return
-    }
-    if (options[i] !== undefined && options[i] !== value) onChange(options[i])
+  const close = () => {
     setOpen(false)
     button.current?.focus()
   }
+  const pick = (i: number) => {
+    const o = shown[i]
+    if (several) {
+      if (o !== undefined) onChange(o)
+      return
+    }
+    if (o !== undefined && o !== value) onChange(o)
+    close()
+  }
+  const narrow = (typed: string) => {
+    setQuery(typed)
+    setActive(0)
+  }
+
+  // the filter takes the keys as soon as the list opens
+  useEffect(() => {
+    if (open && filtering) filterBox.current?.focus({ preventScroll: true })
+  }, [open, filtering])
 
   // a click anywhere else closes it
   useEffect(() => {
@@ -92,11 +128,13 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, on
     // only the slip moves; scrollIntoView would drag the panel behind it along too
     // offsets, as the slip is still tilted while it drops in
     const pad = 5
-    if (row.offsetTop - pad < slip.scrollTop) slip.scrollTop = row.offsetTop - pad
+    // the filter stays on top of the slip, over the rows scrolled under it
+    const top = pad + (filterBox.current?.parentElement?.offsetHeight ?? 0)
+    if (row.offsetTop - top < slip.scrollTop) slip.scrollTop = row.offsetTop - top
     else if (row.offsetTop + row.offsetHeight + pad > slip.scrollTop + slip.clientHeight) {
       slip.scrollTop = row.offsetTop + row.offsetHeight + pad - slip.clientHeight
     }
-  }, [open, active])
+  }, [open, active, query])
   const hasRows = !!rowOf
   // a tall slip stops short of the panel's edge, as long as that leaves it room to be used; short of room under the
   // list, it opens upward when there is more above
@@ -118,6 +156,29 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, on
     const room = flip ? above : below
     if (room >= 160) slip.style.maxHeight = `${Math.min(room, want)}px`
   }, [open, hasRows])
+
+  // keys typed in the filter; a key the input method takes is its own
+  const onFilterKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (composing(e.nativeEvent)) return
+    switch (e.key) {
+      case 'ArrowDown': setActive(Math.min(shown.length - 1, active + 1)); break
+      case 'ArrowUp': setActive(Math.max(0, active - 1)); break
+      case 'Enter': pick(active); break
+      case 'Escape':
+        // close the list only, not the whole drawer
+        e.stopPropagation()
+        if (query) narrow('')
+        else close()
+        break
+      case 'Tab':
+        // as from the button: the focus goes back to it first, so Tab moves on from there
+        if (several || !shown.length) close()
+        else pick(active)
+        return
+      default: return
+    }
+    e.preventDefault()
+  }
 
   const onKey = (e: KeyboardEvent) => {
     const last = options.length - 1
@@ -145,6 +206,12 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, on
         return
       default: {
         if (e.key.length !== 1) return
+        // a long list opens with what was typed already in its filter
+        if (filtering) {
+          if (e.key === ' ' || e.metaKey || e.ctrlKey || e.altKey) return
+          show(0, e.key)
+          break
+        }
         const from = open ? active : options.indexOf(value)
         const hit = [...options.slice(from + 1), ...options.slice(0, from + 1)]
           .find((o) => labelOf(o).toLowerCase().startsWith(e.key.toLowerCase()))
@@ -156,7 +223,7 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, on
   }
 
   const option = (o: string) => {
-    const i = options.indexOf(o)
+    const i = shown.indexOf(o)
     return (
       <li
         key={o} id={`${id}-${i}`} role="option" aria-selected={on(o)}
@@ -182,24 +249,47 @@ export function Select({ label, value, options, labelOf = (o) => o, onChange, on
         <button
           ref={button} type="button" role="combobox" className="fx-control" disabled={disabled}
           aria-labelledby={`${id}-label`} aria-haspopup="listbox" aria-expanded={open} aria-controls={`${id}-list`}
-          aria-activedescendant={open ? `${id}-${active}` : undefined}
+          aria-activedescendant={open && !filtering ? `${id}-${active}` : undefined}
           onClick={() => (open ? setOpen(false) : show())} onKeyDown={onKey}
         >
           <span className="fx-select-value">{shownAs ? shownAs(value) : labelOf(value)}</span>
           <Chevron />
         </button>
-        {open && (
-          <ul ref={list} id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} aria-multiselectable={several || undefined} className={`fx-slip${rowOf ? ' fx-slip-rows' : ''}`}>
-            {groups && groupOf
-              ? [...options.filter((o) => groupOf(o) < 0).map(option), ...groups.map((g, at) => (
+        {open && (() => {
+          const slip = `fx-slip${rowOf ? ' fx-slip-rows' : ''}`
+          const rows = groups && groupOf
+            ? [...shown.filter((o) => groupOf(o) < 0).map(option), ...groups.map((g, at) => {
+              const under = shown.filter((o) => groupOf(o) === at)
+              return under.length > 0 && (
                 <li key={at} role="group" aria-label={g.label} className="fx-slip-group">
-                  <span className="fx-slip-head" aria-hidden="true">{g.label}<span className="fx-count">{g.count}</span></span>
-                  <ul role="presentation">{options.filter((o) => groupOf(o) === at).map(option)}</ul>
+                  <span className="fx-slip-head" aria-hidden="true">{g.label}<span className="fx-count">{query ? under.length : g.count}</span></span>
+                  <ul role="presentation">{under.map(option)}</ul>
                 </li>
-              ))]
-              : options.map(option)}
-          </ul>
-        )}
+              )
+            })]
+            : shown.map(option)
+          const listbox = (ref?: RefObject<HTMLUListElement | null>, className?: string) => (
+            <ul ref={ref} id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} aria-multiselectable={several || undefined} className={className}>
+              {rows}
+            </ul>
+          )
+          if (!filtering) return listbox(list as RefObject<HTMLUListElement | null>, slip)
+          return (
+            <div ref={list as RefObject<HTMLDivElement | null>} className={`${slip} fx-slip-filtered`}>
+              <div className="fx-slip-filter">
+                <input
+                  ref={filterBox} type="text" role="combobox" className="fx-control" value={query} placeholder={tr('搜尋')}
+                  autoComplete="off" spellCheck={false} aria-labelledby={`${id}-label`} aria-autocomplete="list"
+                  aria-expanded="true" aria-controls={`${id}-list`}
+                  aria-activedescendant={shown.length ? `${id}-${active}` : undefined}
+                  onChange={(e) => narrow(e.target.value)} onKeyDown={onFilterKey}
+                />
+              </div>
+              {listbox()}
+              {!shown.length && <p className="fx-slip-none" role="status">{tr('沒有符合的項目')}</p>}
+            </div>
+          )
+        })()}
       </div>
     </div>
   )
