@@ -1207,12 +1207,12 @@ export function updateProvider(w: World, id: string, input: { name: string; base
   if (input.contextWindow !== undefined && !fixedContext(p.kind)) p.contextWindow = input.contextWindow || undefined
 }
 
-/** Turn one of a provider's models off, so no list offers it, or back on; whoever runs on it keeps it. */
-export function setModelHidden(w: World, id: string, model: string, hidden: boolean) {
+/** Turn some of a provider's models off, so no list offers them, or back on; all or none change. Whoever runs on one keeps it. */
+export function setModelsHidden(w: World, id: string, models: string[], hidden: boolean) {
   const p = w.providers[id]
-  if (!p?.models.includes(model)) return
-  const rest = (p.hidden ?? []).filter((m) => m !== model)
-  const next = hidden ? [...rest, model].sort() : rest
+  if (!p || !models.every((m) => p.models.includes(m))) return
+  const rest = (p.hidden ?? []).filter((m) => !models.includes(m))
+  const next = hidden ? [...new Set([...rest, ...models])].sort() : rest
   if (next.length) p.hidden = next
   else delete p.hidden
 }

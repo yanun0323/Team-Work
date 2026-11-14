@@ -661,6 +661,8 @@ const en = {
   '捨棄修改': 'Discard changes',
   '重新讀取': 'Reload',
   '重新讀取模型': 'Reload models',
+  '全部關閉': 'Turn all off',
+  '全部打開': 'Turn all on',
   '正在讀取模型': 'Reading models',
   '在 Finder 顯示': 'Show in Finder',
   '無法預覽這個檔案': 'Can’t preview this file',

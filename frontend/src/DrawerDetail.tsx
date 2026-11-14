@@ -9,7 +9,7 @@ import { colon, listOf, tr, trRecorded } from './core/i18n'
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { canSendBack, nodeOf, reshaped } from './core/domain/graph'
 import { blueprintUsers, flowEditable, gitSources, notStarted, ranSteps, statusOf, subsOf, swappable, type OwnSettings } from './core/domain/sim'
-import { STAFFING_ID, TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type WorkflowNode, type World } from './core/domain/types'
+import { STAFFING_ID, TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ModelProvider, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type WorkflowNode, type World } from './core/domain/types'
 import { keptState, sourceName, sourceState, sourceText, toolName } from './source'
 import { composing } from './ime'
 import { crewOf, heirsOf, lastOfTeam, leavesAlone, flowList, hireList, unhidden, activity, fmtClock, fmtTokens, layers, inEdges, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
@@ -48,7 +48,7 @@ import { addProvider, fixedContext, providerUsers, updateProvider, type Provider
 import { handedImageUrl, readHandedDiff, readHandedFile, request } from './core/backend'
 import { DiffNote, useDocView, useRoomForSplit, ViewSwitch } from './HandedDiff'
 import { tally, type DiffLine } from './diffView'
-import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fireNow, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, pauseTask, refreshModels, refreshStaleModels, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, setModelHidden, updateReplica, updateTask } from './core/ops'
+import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fireNow, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, pauseTask, refreshModels, refreshStaleModels, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, setModelsHidden, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { NotesSheet } from './Notes'
 import { FileDetail, FileEdit } from './FileSheets'
@@ -292,10 +292,11 @@ export function Gone(h: Head) {
   return <Heading {...h}>{tr('已經不在了')}</Heading>
 }
 
-export function Section({ name, children }: { name: string; children: React.ReactNode }) {
+/** A titled block; `tool` sits at the end of the title, acting on the whole block. */
+export function Section({ name, tool, children }: { name: string; tool?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="fx-d-sec">
-      <h3>{name}</h3>
+      <h3>{name}{tool}</h3>
       {children}
     </section>
   )
@@ -1200,14 +1201,14 @@ function ProviderDetail({ id, editing, onEdit, onGoneProvider, ...h }: Head & {
         </>
       )}
       <Section name={tr('Context window')}><p className="fx-d-text"><code>{providerWindow(p).toLocaleString('en-US')}</code></p></Section>
-      <Section name={tr('模型#list')}>
+      <Section name={tr('模型#list')} tool={p.models.length > 0 && <AllModelsTool p={p} />}>
         {p.models.length === 0 ? <p className="fx-d-muted">{tr('沒有')}</p> : (
           <p className="fx-d-chips fx-d-mono">
             {p.models.map((m) => {
               const on = !p.hidden?.includes(m)
               return (
                 <button key={m} type="button" className={on ? undefined : 'fx-chip-out'} aria-pressed={on}
-                  onClick={() => act((x) => void setModelHidden(x, id, m, on))}>{m}</button>
+                  onClick={() => act((x) => void setModelsHidden(x, id, [m], on))}>{m}</button>
               )
             })}
           </p>
@@ -1221,6 +1222,17 @@ function ProviderDetail({ id, editing, onEdit, onGoneProvider, ...h }: Head & {
         )}
       </Section>
     </>
+  )
+}
+
+/** Turns all of a provider's models off while any is on, and all back on once none is. */
+function AllModelsTool({ p }: { p: ModelProvider }) {
+  const act = useStore((s) => s.act)
+  const anyOn = p.models.some((m) => !p.hidden?.includes(m))
+  return (
+    <button type="button" className="fx-d-sec-tool" onClick={() => act((x) => void setModelsHidden(x, p.id, p.models, anyOn))}>
+      {anyOn ? tr('全部關閉') : tr('全部打開')}
+    </button>
   )
 }
 

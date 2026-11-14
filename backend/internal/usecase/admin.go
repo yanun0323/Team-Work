@@ -626,7 +626,14 @@ func (e *Engine) resetEfforts() {
 	}
 }
 
-// takesEffort accepts reported levels, or the compatible API fallback when none were reported.
+// fallbackLevels are offered for a key-paid model whose provider reports no levels: a compatible API may not say,
+// and OpenAI's /v1/models never does. A level the model turns out not to take is refused by the provider.
+var fallbackLevels = map[enum.ProviderKind][]string{
+	enum.ProviderCompatible: {"none", "low", "medium", "high", "xhigh", "max"},
+	enum.ProviderOpenAI:     {"none", "minimal", "low", "medium", "high", "xhigh"},
+}
+
+// takesEffort accepts reported levels, or the fallback when none were reported.
 func (e *Engine) takesEffort(modelID, effort string) bool {
 	if effort == model.ThinkingDefault {
 		return true
@@ -636,8 +643,8 @@ func (e *Engine) takesEffort(modelID, effort string) bool {
 		return false
 	}
 	levels := p.Thinking[modelID]
-	if len(levels) == 0 && p.Kind == enum.ProviderCompatible {
-		levels = []string{"none", "low", "medium", "high", "xhigh", "max"}
+	if len(levels) == 0 && p.Auth.Kind == "apiKey" {
+		levels = fallbackLevels[p.Kind]
 	}
 	return slices.Contains(levels, effort)
 }
@@ -828,20 +835,24 @@ func (e *Engine) deleteSecret(id string) {
 	e.secretOps = append(e.secretOps, model.SecretChange{ID: id, Delete: true})
 }
 
-// SetModelHidden turns one of a provider's models off, so no list offers it, or back on. Whoever runs on it keeps it.
-func (e *Engine) SetModelHidden(id, modelID string, hidden bool) error {
+// SetModelsHidden turns some of a provider's models off, so no list offers them, or back on; all of them or none
+// change. Whoever runs on one keeps it.
+func (e *Engine) SetModelsHidden(id string, models []string, hidden bool) error {
 	return e.doSettings(func() error {
 		p := e.w.Providers[id]
 		if p == nil {
 			return model.Errorf(model.CodeNotFound, "找不到供應商")
 		}
-		if !slices.Contains(p.Models, modelID) {
-			return model.Errorf(model.CodeNotFound, "供應商沒有模型 %s", modelID)
+		for _, m := range models {
+			if !slices.Contains(p.Models, m) {
+				return model.Errorf(model.CodeNotFound, "供應商沒有模型 %s", m)
+			}
 		}
-		p.Hidden = slices.DeleteFunc(p.Hidden, func(m string) bool { return m == modelID })
+		p.Hidden = slices.DeleteFunc(p.Hidden, func(m string) bool { return slices.Contains(models, m) })
 		if hidden {
-			p.Hidden = append(p.Hidden, modelID)
+			p.Hidden = append(p.Hidden, models...)
 			slices.Sort(p.Hidden)
+			p.Hidden = slices.Compact(p.Hidden)
 		}
 		if len(p.Hidden) == 0 {
 			p.Hidden = nil

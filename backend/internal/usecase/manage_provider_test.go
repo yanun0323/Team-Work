@@ -266,11 +266,16 @@ func TestAModelTurnedOffIsOfferedNowhere(t *testing.T) {
 		t.Fatal("the rig's provider lists no models")
 	}
 	off := p.Models[0]
-	if err := r.e.SetModelHidden(p.ID, "no-such-model", true); err == nil {
+	if err := r.e.SetModelsHidden(p.ID, []string{off, "no-such-model"}, true); err == nil {
 		t.Fatal("a model the provider does not list was turned off")
 	}
-	if err := r.e.SetModelHidden(p.ID, off, true); err != nil {
-		t.Fatal(err)
+	if got := providerNamed(r.world(), "p").Hidden; got != nil {
+		t.Fatalf("a refused change turned some off: %v", got)
+	}
+	for range 2 {
+		if err := r.e.SetModelsHidden(p.ID, []string{off, off}, true); err != nil {
+			t.Fatal(err)
+		}
 	}
 	inChat(t, r, m, doing("read_provider", map[string]any{"id": p.ID}))
 	res := lastResult(t, r)
@@ -287,7 +292,7 @@ func TestAModelTurnedOffIsOfferedNowhere(t *testing.T) {
 	if got := providerNamed(r.world(), "p"); !slices.Equal(got.Hidden, []string{off}) || !slices.Contains(got.Models, off) {
 		t.Fatalf("after a refresh and restart: %+v", got)
 	}
-	if err := r.e.SetModelHidden(p.ID, off, false); err != nil {
+	if err := r.e.SetModelsHidden(p.ID, []string{off}, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := providerNamed(r.world(), "p").Hidden; got != nil {

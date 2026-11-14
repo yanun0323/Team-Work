@@ -519,13 +519,13 @@ func (s *Server) deleteProvider(c echo.Context) error {
 
 func (s *Server) setModelHidden(c echo.Context) error {
 	in, err := bind[struct {
-		Model  string `json:"model"`
-		Hidden bool   `json:"hidden"`
+		Models []string `json:"models"`
+		Hidden bool     `json:"hidden"`
 	}](c)
 	if err != nil {
 		return err
 	}
-	return done(c, s.engine.SetModelHidden(c.Param("id"), in.Model, in.Hidden))
+	return done(c, s.engine.SetModelsHidden(c.Param("id"), in.Models, in.Hidden))
 }
 
 func (s *Server) refreshModels(c echo.Context) error {

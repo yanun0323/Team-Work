@@ -886,6 +886,9 @@ a.fx-save { text-decoration: none; }
 .fx-d-chips button { padding: 1px 8px; border: 0; font: inherit; font-size: 12.5px; color: inherit; background: var(--clip); box-shadow: var(--lift); cursor: pointer; }
 .fx-d-chips button:is(:hover, [aria-expanded="true"]) { box-shadow: var(--lift), inset 0 0 0 100vmax var(--shade); }
 .fx-d-mono :is(span, button) { font-family: var(--font-mono); font-size: 12px; }
+/* a quiet word at the end of a block's title, acting on the whole block */
+.fx-d-sec-tool { margin-inline-start: auto; padding: 0; border: 0; background: none; font: inherit; font-weight: 500; color: var(--muted); letter-spacing: 0; cursor: pointer; }
+.fx-d-sec-tool:hover { color: var(--ink); text-decoration: underline; }
 /* every skill a source has; and the ones it leaves out, struck through */
 .fx-d-chips .fx-chip-all { background: none; box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink-2); }
 .fx-d-chips .fx-chip-out { background: none; box-shadow: inset 0 0 0 1px var(--rule); color: var(--muted); text-decoration: line-through; }
