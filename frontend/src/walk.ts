@@ -31,14 +31,14 @@ export function freeCells(g: Grid): P[] {
 
 /** The free cell whose centre is nearest a point. */
 export function nearestFree(g: Grid, px: number, pz: number): P | null {
-  let best: P | null = null
+  let best = -1
   let bestD = Infinity
-  for (const [x, z] of freeCells(g)) {
-    const [cx, cz] = cellPos(g, x, z)
-    const d = (cx - px) ** 2 + (cz - pz) ** 2
-    if (d < bestD) [best, bestD] = [[x, z], d]
+  for (let z = 0; z < g.rows; z++) for (let x = 0; x < g.cols; x++) {
+    if (!g.free[z * g.cols + x]) continue
+    const d = (g.x0 + x * g.step - px) ** 2 + (g.z0 + z * g.step - pz) ** 2
+    if (d < bestD) [best, bestD] = [z * g.cols + x, d]
   }
-  return best
+  return best < 0 ? null : [best % g.cols, (best - (best % g.cols)) / g.cols]
 }
 
 const DIRS: Array<[number, number, number]> = [
@@ -52,66 +52,106 @@ const DIRS: Array<[number, number, number]> = [
  */
 export function findPath(g: Grid, from: P, to: P, penalties?: Float64Array): P[] | null {
   if (!isFree(g, ...from) || !isFree(g, ...to)) return null
-  const n = g.cols * g.rows
-  const cost = new Float64Array(n).fill(Infinity)
-  const prev = new Int32Array(n).fill(-1)
   const start = from[1] * g.cols + from[0]
   const goal = to[1] * g.cols + to[0]
-  cost[start] = 0
-  // a binary heap of [cost, index]
-  const heap: Array<[number, number]> = [[0, start]]
-  const push = (e: [number, number]) => {
-    heap.push(e)
-    for (let i = heap.length - 1; i > 0;) {
-      const p = (i - 1) >> 1
-      if (heap[p][0] <= heap[i][0]) break
-      ;[heap[p], heap[i]] = [heap[i], heap[p]]
-      i = p
-    }
+  return pathTo(g, search(g, start, goal, penalties), start, goal)
+}
+
+/**
+ * Least-cost paths from one free cell to any other, as `findPath` would find each: a goal's path is settled once
+ * the search reaches it, so one search that carries on past it finds the same one.
+ */
+export function pathsFrom(g: Grid, from: P): (to: P) => P[] | null {
+  if (!isFree(g, ...from)) return () => null
+  const start = from[1] * g.cols + from[0]
+  let prev: Int32Array | null = null
+  return (to) => {
+    if (!isFree(g, ...to)) return null
+    prev ??= search(g, start, -1)
+    return pathTo(g, prev, start, to[1] * g.cols + to[0])
   }
-  const pop = () => {
-    const top = heap[0]
-    const last = heap.pop() as [number, number]
-    if (heap.length) {
-      heap[0] = last
-      for (let i = 0; ;) {
-        const l = i * 2 + 1
-        const r = l + 1
-        let m = i
-        if (l < heap.length && heap[l][0] < heap[m][0]) m = l
-        if (r < heap.length && heap[r][0] < heap[m][0]) m = r
-        if (m === i) break
-        ;[heap[m], heap[i]] = [heap[i], heap[m]]
-        i = m
-      }
-    }
-    return top
-  }
-  while (heap.length) {
-    const [c, i] = pop()
-    if (i === goal) break
-    if (c > cost[i]) continue
-    const x = i % g.cols
-    const z = (i - x) / g.cols
-    for (const [dx, dz, step] of DIRS) {
-      const nx = x + dx
-      const nz = z + dz
-      if (!isFree(g, nx, nz)) continue
-      if (dx && dz && (!isFree(g, x + dx, z) || !isFree(g, x, z + dz))) continue
-      const j = nz * g.cols + nx
-      const next = c + step * (1 + ((penalties?.[i] ?? 0) + (penalties?.[j] ?? 0)) / 2)
-      if (next < cost[j]) {
-        cost[j] = next
-        prev[j] = i
-        push([next, j])
-      }
-    }
-  }
+}
+
+/** The cells `prev` leads back through from `goal` to `start`, as cell centres from start to goal; null with no way. */
+function pathTo(g: Grid, prev: Int32Array, start: number, goal: number): P[] | null {
   if (goal !== start && prev[goal] < 0) return null
   const cells: number[] = []
   for (let i = goal; i >= 0; i = i === start ? -1 : prev[i]) cells.push(i)
   return cells.reverse().map((i) => cellPos(g, i % g.cols, Math.floor(i / g.cols)))
 }
+
+/** Dijkstra from `start`, stopping once `goal` is reached (never, at -1): each cell's previous one on its way. */
+function search(g: Grid, start: number, goal: number, penalties?: Float64Array): Int32Array {
+  const n = g.cols * g.rows
+  const cost = new Float64Array(n).fill(Infinity)
+  const prev = new Int32Array(n).fill(-1)
+  cost[start] = 0
+  // a binary heap of (cost, index) pairs, kept in two arrays so nothing is allocated per entry
+  const hc: number[] = [0]
+  const hi: number[] = [start]
+  const swap = (a: number, b: number) => {
+    const c = hc[a]
+    hc[a] = hc[b]
+    hc[b] = c
+    const i = hi[a]
+    hi[a] = hi[b]
+    hi[b] = i
+  }
+  const push = (c: number, j: number) => {
+    hc.push(c)
+    hi.push(j)
+    for (let i = hc.length - 1; i > 0;) {
+      const p = (i - 1) >> 1
+      if (hc[p] <= hc[i]) break
+      swap(p, i)
+      i = p
+    }
+  }
+  while (hc.length) {
+    const c = hc[0]
+    const i = hi[0]
+    const lc = hc.pop() as number
+    const li = hi.pop() as number
+    if (hc.length) {
+      hc[0] = lc
+      hi[0] = li
+      for (let k = 0; ;) {
+        const l = k * 2 + 1
+        const r = l + 1
+        let m = k
+        if (l < hc.length && hc[l] < hc[m]) m = l
+        if (r < hc.length && hc[r] < hc[m]) m = r
+        if (m === k) break
+        swap(m, k)
+        k = m
+      }
+    }
+    if (i === goal) break
+    if (c > cost[i]) continue
+    const x = i % g.cols
+    const z = (i - x) / g.cols
+    const here = penalties ? penalties[i] : 0
+    for (let d = 0; d < DIRS.length; d++) {
+      const dx = DIRS[d][0]
+      const dz = DIRS[d][1]
+      const nx = x + dx
+      const nz = z + dz
+      if (!isFree(g, nx, nz)) continue
+      if (dx && dz && (!isFree(g, x + dx, z) || !isFree(g, x, z + dz))) continue
+      const j = nz * g.cols + nx
+      const next = c + DIRS[d][2] * (1 + (here + (penalties ? penalties[j] : 0)) / 2)
+      if (next < cost[j]) {
+        cost[j] = next
+        prev[j] = i
+        push(next, j)
+      }
+    }
+  }
+  return prev
+}
+
+// the cells a little either side of a straight walk too, so people keep clear of corners
+const CLEAR_OFFSETS: ReadonlyArray<readonly [number, number]> = [[0, 0], [0.3, 0.3], [-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3]]
 
 /** True when a straight walk between two points only crosses free cells. */
 export function clearWalk(g: Grid, a: P, b: P) {
@@ -120,9 +160,10 @@ export function clearWalk(g: Grid, a: P, b: P) {
     const t = steps ? k / steps : 0
     const px = a[0] + (b[0] - a[0]) * t
     const pz = a[1] + (b[1] - a[1]) * t
-    // the cells a little either side too, so people keep clear of corners
-    for (const [ox, oz] of [[0, 0], [0.3, 0.3], [-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3]]) {
-      if (!isFree(g, ...cellOf(g, px + ox * g.step, pz + oz * g.step))) return false
+    for (const [ox, oz] of CLEAR_OFFSETS) {
+      const x = Math.round((px + ox * g.step - g.x0) / g.step)
+      const z = Math.round((pz + oz * g.step - g.z0) / g.step)
+      if (!isFree(g, x, z)) return false
     }
   }
   return true
@@ -165,6 +206,17 @@ export function route(g: Grid, from: P, to: P, penalties?: Float64Array): P[] {
   if (!a || !b) return []
   const path = findPath(g, a, b, penalties)
   return path ? smooth(g, path, penalties) : []
+}
+
+/** Routes from one point to any others, each as `route` would give it, sharing one search. */
+export function routesFrom(g: Grid, from: P): (to: P) => P[] {
+  const a = nearestFree(g, ...from)
+  const paths = a && pathsFrom(g, a)
+  return (to) => {
+    const b = paths && nearestFree(g, ...to)
+    const path = b && paths(b)
+    return path ? smooth(g, path) : []
+  }
 }
 
 /** The way to sit on a bench seat, through its front cell; empty when the seat can't be reached from here. */

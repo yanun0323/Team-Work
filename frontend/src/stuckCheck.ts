@@ -11,7 +11,8 @@ export interface Seen {
 }
 
 export function stuckCheck(near: number, still: number) {
-  const together = new Map<string, number>()
+  // how long each pair has been together, keyed `i * 65536 + j`
+  const together = new Map<number, number>()
   const held = new Map<number, { x: number; z: number; t: number }>()
   let previous: Seen[] = []
   let minimum = Infinity
@@ -24,7 +25,7 @@ export function stuckCheck(near: number, still: number) {
         const a = people[i]
         for (let j = i + 1; j < people.length; j++) {
           const b = people[j]
-          const key = `${i}-${j}`
+          const key = i * 65536 + j
           if (a.solid && b.solid) {
             let distance = Math.hypot(a.x - b.x, a.z - b.z)
             const pa = previous[i], pb = previous[j]

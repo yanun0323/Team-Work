@@ -3,7 +3,7 @@
 // Pure data, no three.js. Callers handle `blocked` by waiting or cancelling, never by teleporting.
 
 import { hash } from './layout'
-import { clearWalk, walkCost, cellPos, freeCells, headingOf, isFree, route, type Grid, type P, type Walker } from './walk'
+import { clearWalk, walkCost, cellPos, freeCells, headingOf, isFree, route, routesFrom, type Grid, type P, type Walker } from './walk'
 
 export interface Avoider extends Walker {
   /** Seconds without getting any nearer the next point on the way. */
@@ -239,8 +239,9 @@ function retreat<T extends Avoider>(people: readonly T[], loser: T, winner: T, g
     return d > gap && d < gap * 6 && !spotTaken(people, loser, p, gap, solid) &&
       legs.slice(1).every((b, i) => fromLeg(legs[i], b, p) >= gap)
   }).sort((a, b) => Math.hypot(a[0] - loser.x, a[1] - loser.z) - Math.hypot(b[0] - loser.x, b[1] - loser.z))
+  const from = routesFrom(g, [loser.x, loser.z])
   for (const at of candidates.slice(0, 24)) {
-    const way = route(g, [loser.x, loser.z], at)
+    const way = from(at)
     if (!way.length) continue
     // The nearest cell centre can be closer to the blocker than our current position.
     // Join the next route point directly when the floor is clear, rather than stepping back into them.
