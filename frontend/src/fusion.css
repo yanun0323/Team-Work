@@ -1737,7 +1737,7 @@ button.fx-said-fact:hover { background: rgb(31 95 168 / 0.12); }
   background: none; color: inherit; font: inherit; font-size: 14.5px; text-align: start; cursor: pointer;
 }
 .fx-handoff-menu button.fx-slip-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 10px; font-size: inherit; }
-.fx-handoff-menu button:is(:hover, :focus-visible) { background: rgb(31 29 43 / 0.07); outline: none; }
+.fx-handoff-menu button:is(:hover, :focus-visible, .active) { background: rgb(31 29 43 / 0.07); outline: none; }
 .fx-handoff-menu svg { flex: none; border-radius: 2px; }
 .fx-room-log .fx-room-handoff { flex: none; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
 .fx-room-handoff::before, .fx-room-handoff::after { content: ""; flex: 1; border-top: 1px dashed currentColor; opacity: 0.5; }
