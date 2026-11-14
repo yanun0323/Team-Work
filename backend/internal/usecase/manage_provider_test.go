@@ -256,3 +256,41 @@ func TestAProviderKeepsTheContextWindowSetForIt(t *testing.T) {
 		t.Fatalf("after a restart: %d", got)
 	}
 }
+
+func TestAModelTurnedOffIsOfferedNowhere(t *testing.T) {
+	t.Parallel()
+	r, m := manageRig(t)
+	ctx := context.Background()
+	p := providerNamed(r.world(), "p")
+	if len(p.Models) == 0 {
+		t.Fatal("the rig's provider lists no models")
+	}
+	off := p.Models[0]
+	if err := r.e.SetModelHidden(p.ID, "no-such-model", true); err == nil {
+		t.Fatal("a model the provider does not list was turned off")
+	}
+	if err := r.e.SetModelHidden(p.ID, off, true); err != nil {
+		t.Fatal(err)
+	}
+	inChat(t, r, m, doing("read_provider", map[string]any{"id": p.ID}))
+	res := lastResult(t, r)
+	var read struct{ Models []string }
+	if err := json.Unmarshal([]byte(res.Text), &read); res.IsError || err != nil || slices.Contains(read.Models, off) {
+		t.Fatalf("read_provider offers %s: %s", off, res.Text)
+	}
+	// listing the models again keeps it off, and so does a restart
+	if err := r.e.RefreshModels(ctx, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.e.Close()
+	newEngine(t, r)
+	if got := providerNamed(r.world(), "p"); !slices.Equal(got.Hidden, []string{off}) || !slices.Contains(got.Models, off) {
+		t.Fatalf("after a refresh and restart: %+v", got)
+	}
+	if err := r.e.SetModelHidden(p.ID, off, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := providerNamed(r.world(), "p").Hidden; got != nil {
+		t.Fatalf("still off: %v", got)
+	}
+}

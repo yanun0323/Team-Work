@@ -542,5 +542,5 @@ func (e *Engine) readProvider(id string) (any, bool) {
 		Thinking map[string][]string         `json:"thinking,omitempty"`
 		Prices   map[string]model.ModelPrice `json:"prices,omitempty"`
 		Window   int                         `json:"contextWindow"`
-	}{p.ID, versionOf(p), p.Name, p.Kind, p.Auth.Kind, p.Auth.KeyHint, p.Auth.SignedIn, p.BaseURL, p.Models, p.Thinking, p.Prices, model.ContextWindow(*p)}, true
+	}{p.ID, versionOf(p), p.Name, p.Kind, p.Auth.Kind, p.Auth.KeyHint, p.Auth.SignedIn, p.BaseURL, p.Offered(), p.Thinking, p.Prices, model.ContextWindow(*p)}, true
 }

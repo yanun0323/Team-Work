@@ -3,6 +3,7 @@ package model
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/yanun0323/Team-Work/internal/model/enum"
@@ -604,12 +605,26 @@ type ModelProvider struct {
 	Auth    ProviderAuth      `json:"auth"`
 	BaseURL string            `json:"baseUrl"`
 	Models  []string          `json:"models"`
+	// Hidden are models the user turned off: whoever is on one still runs on it, but no list offers it. Kept when the
+	// provider lists its models again, so one it drops and brings back stays off.
+	Hidden []string `json:"hidden,omitempty"`
 	// Thinking lists the levels each model reports it accepts, weakest first. Nil until the provider was asked.
 	Thinking map[string][]string   `json:"thinking"`
 	Prices   map[string]ModelPrice `json:"prices,omitempty"`
 	// ContextWindow is how many tokens its models can read, as the user set it. Only kinds with no fixed size keep one;
 	// 0 when it was never set.
 	ContextWindow int `json:"contextWindow,omitempty"`
+}
+
+// Offered are the models a list may offer: those it lists, less the ones turned off.
+func (p ModelProvider) Offered() []string {
+	out := make([]string, 0, len(p.Models))
+	for _, m := range p.Models {
+		if !slices.Contains(p.Hidden, m) {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 const (

@@ -102,6 +102,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.PATCH("/providers/:id", s.updateProvider)
 	api.DELETE("/providers/:id", s.deleteProvider)
 	api.POST("/providers/:id/models", s.refreshModels)
+	api.PUT("/providers/:id/hidden", s.setModelHidden)
 	api.POST("/models/stale", s.refreshStaleModels)
 	api.POST("/providers/:id/login", s.startLogin)
 	api.POST("/providers/:id/login/paste", s.pasteLogin)
@@ -514,6 +515,17 @@ func (s *Server) updateProvider(c echo.Context) error {
 
 func (s *Server) deleteProvider(c echo.Context) error {
 	return done(c, s.engine.DeleteProvider(c.Request().Context(), c.Param("id")))
+}
+
+func (s *Server) setModelHidden(c echo.Context) error {
+	in, err := bind[struct {
+		Model  string `json:"model"`
+		Hidden bool   `json:"hidden"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.SetModelHidden(c.Param("id"), in.Model, in.Hidden))
 }
 
 func (s *Server) refreshModels(c echo.Context) error {

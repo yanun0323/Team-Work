@@ -828,6 +828,28 @@ func (e *Engine) deleteSecret(id string) {
 	e.secretOps = append(e.secretOps, model.SecretChange{ID: id, Delete: true})
 }
 
+// SetModelHidden turns one of a provider's models off, so no list offers it, or back on. Whoever runs on it keeps it.
+func (e *Engine) SetModelHidden(id, modelID string, hidden bool) error {
+	return e.doSettings(func() error {
+		p := e.w.Providers[id]
+		if p == nil {
+			return model.Errorf(model.CodeNotFound, "找不到供應商")
+		}
+		if !slices.Contains(p.Models, modelID) {
+			return model.Errorf(model.CodeNotFound, "供應商沒有模型 %s", modelID)
+		}
+		p.Hidden = slices.DeleteFunc(p.Hidden, func(m string) bool { return m == modelID })
+		if hidden {
+			p.Hidden = append(p.Hidden, modelID)
+			slices.Sort(p.Hidden)
+		}
+		if len(p.Hidden) == 0 {
+			p.Hidden = nil
+		}
+		return nil
+	})
+}
+
 // DeleteProvider removes a provider nobody runs on, and its key.
 func (e *Engine) DeleteProvider(ctx context.Context, id string) error {
 	return e.doSettings(func() error {

@@ -251,6 +251,7 @@ var zhHans = map[string]string{
 	"要填 API Key":                    "要填 API Key",
 	"只有 Anthropic 和 OpenAI 可以用訂閱登入": "只有 Anthropic 和 OpenAI 可以用订阅登录",
 	"找不到供應商":                        "找不到供应商",
+	"供應商沒有模型 %s":                    "供应商没有模型 %s",
 	"還有員工在用「%s」的模型":                 "还有员工在用「%s」的模型",
 	"不認識的登入方式 %s":                   "不认识的登录方式 %s",
 	"這個供應商用 API Key，不用登入":           "这个供应商用 API Key，不用登录",

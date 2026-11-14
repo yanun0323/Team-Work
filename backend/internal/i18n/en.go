@@ -252,6 +252,7 @@ var en = map[string]string{
 	"要填 API Key":                    "An API key is required",
 	"只有 Anthropic 和 OpenAI 可以用訂閱登入": "Only Anthropic and OpenAI can sign in with a subscription",
 	"找不到供應商":                        "Provider not found",
+	"供應商沒有模型 %s":                    "The provider has no model %s",
 	"還有員工在用「%s」的模型":                 "Employees still use models from \"%s\"",
 	"不認識的登入方式 %s":                   "Unknown sign-in method %s",
 	"這個供應商用 API Key，不用登入":           "This provider uses an API key and needs no sign-in",

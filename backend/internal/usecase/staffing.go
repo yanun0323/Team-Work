@@ -260,7 +260,7 @@ func (e *Engine) PreviewCopy(x ReplicaExport) CopyPreview {
 	out := CopyPreview{ReplicaExport: x, Models: []string{}, Thinking: map[string][]string{}}
 	out.Files = nil
 	for _, p := range e.w.Providers {
-		for _, m := range p.Models {
+		for _, m := range p.Offered() {
 			if !slices.Contains(out.Models, m) {
 				out.Models = append(out.Models, m)
 			}
