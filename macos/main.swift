@@ -3,8 +3,10 @@ import Sparkle
 import UserNotifications
 import WebKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply, WKDownloadDelegate, SPUUpdaterDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply, WKDownloadDelegate, SPUUpdaterDelegate, UNUserNotificationCenterDelegate, NSWindowDelegate {
     private var window: NSWindow!
+    // Always in the menu bar, with the count waiting on the user; the only way back once the window is closed and the Dock icon gone.
+    private var statusItem: NSStatusItem?
     // Sparkle checks on its own schedule and shows its own windows; the page only gets a dot when one is found.
     private var updater: SPUStandardUpdaterController!
     private var updateFound = false
@@ -46,6 +48,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        if !smoke {
+            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            item.button?.image = NSImage(systemSymbolName: "person.2.fill", accessibilityDescription: "Team Work")
+            item.button?.image?.isTemplate = true
+            item.button?.imagePosition = .imageLeading
+            item.button?.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+            statusItem = item
+        }
         updater = SPUStandardUpdaterController(startingUpdater: !smoke, updaterDelegate: self, userDriverDelegate: nil)
         // A quiet check on every launch, so the red dot is right from the start; it shows no window.
         if !smoke { updater.updater.checkForUpdateInformation() }
@@ -71,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         window.title = "Team Work"
         // Closing only hides the window: the app, its backend and its notifications go on until Quit.
         window.isReleasedWhenClosed = false
+        window.delegate = self
         window.minSize = NSSize(width: 800, height: 600)
         window.contentView = webView
         window.backgroundColor = NSColor(srgbRed: 0x3b / 255, green: 0x86 / 255, blue: 0xc6 / 255, alpha: 1)
@@ -98,9 +109,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private func bootFinished() {
         guard !bootDone else { return }
         bootDone = true
+        showWindow()
+        openApp()
+    }
+
+    // The Dock icon comes back with the window.
+    private func showWindow() {
+        NSApp.setActivationPolicy(.regular)
+        if window.isMiniaturized { window.deminiaturize(nil) }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        openApp()
+    }
+
+    // A closed window leaves only the menu bar icon, as long as the app is not quitting.
+    func windowWillClose(_ notification: Notification) {
+        guard !stopping else { return }
+        NSApp.setActivationPolicy(.accessory)
+    }
+
+    @objc private func openWindow(_ sender: Any?) {
+        guard bootDone else { return }
+        showWindow()
+    }
+
+    // Without a Dock icon the app is not in front, and Sparkle's window would open behind others.
+    @objc private func checkForUpdates(_ sender: Any?) {
+        NSApp.activate(ignoringOtherApps: true)
+        updater.checkForUpdates(sender)
     }
 
     // Waits for the startup screen too: a file load still under way would replace the app's page.
@@ -113,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let menu = NSMenu()
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: say("關於 Team Work", "About Team Work", "关于 Team Work", "Team Work について", "Team Work 정보"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
-        appMenu.addItem(withTitle: say("檢查更新…", "Check for Updates…", "检查更新…", "アップデートを確認…", "업데이트 확인…"), action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "").target = updater
+        appMenu.addItem(withTitle: say("檢查更新…", "Check for Updates…", "检查更新…", "アップデートを確認…", "업데이트 확인…"), action: #selector(checkForUpdates(_:)), keyEquivalent: "").target = self
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: say("結束 Team Work", "Quit Team Work", "退出 Team Work", "Team Work を終了", "Team Work 종료"), action: #selector(confirmQuit(_:)), keyEquivalent: "q").target = self
         let appItem = NSMenuItem()
@@ -134,6 +169,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         menu.addItem(windowsItem)
         NSApp.mainMenu = menu
         NSApp.windowsMenu = windows
+
+        let status = NSMenu()
+        status.addItem(withTitle: say("打開 Team Work", "Open Team Work", "打开 Team Work", "Team Work を開く", "Team Work 열기"), action: #selector(openWindow(_:)), keyEquivalent: "").target = self
+        status.addItem(.separator())
+        status.addItem(withTitle: say("檢查更新…", "Check for Updates…", "检查更新…", "アップデートを確認…", "업데이트 확인…"), action: #selector(checkForUpdates(_:)), keyEquivalent: "").target = self
+        status.addItem(withTitle: say("結束 Team Work", "Quit Team Work", "退出 Team Work", "Team Work を終了", "Team Work 종료"), action: #selector(confirmQuit(_:)), keyEquivalent: "q").target = self
+        statusItem?.menu = status
     }
 
     // ⌘Q asks first; the airport's power button asks on the page instead.
@@ -143,6 +185,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         alert.informativeText = say("進行中的工作會中斷，開著的終端機也會一起結束。", "Running work will be interrupted, and open terminals will end too.", "进行中的工作会中断，打开的终端也会一起结束。", "進行中の作業は中断され、開いているターミナルも終了します。", "진행 중인 작업이 중단되고, 열린 터미널도 함께 종료됩니다.")
         alert.addButton(withTitle: say("結束", "Quit", "退出", "終了", "종료"))
         alert.addButton(withTitle: say("取消", "Cancel", "取消", "キャンセル", "취소"))
+        // From the menu bar icon the app may have no window in front.
+        NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn { NSApp.terminate(nil) }
     }
 
@@ -223,6 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             let alert = NSAlert()
             alert.messageText = say("Team Work 無法執行", "Team Work cannot run", "Team Work 无法运行", "Team Work を実行できません", "Team Work를 실행할 수 없습니다")
             alert.informativeText = message
+            NSApp.activate(ignoringOtherApps: true)
             alert.runModal()
         }
         NSApp.terminate(nil)
@@ -254,6 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             guard message.frameInfo.securityOrigin.host == origin.host else { return }
             let count = (message.body as? Int) ?? 0
             NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
+            statusItem?.button?.title = count > 0 ? String(count) : ""
         default:
             NSApp.terminate(nil)
         }
@@ -297,9 +343,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     // Brings the window forward and has the page open the clicked task or chat; before the page is up, it waits for didFinish.
     private func showAsked() {
         guard asked != nil, bootDone else { return }
-        if window.isMiniaturized { window.deminiaturize(nil) }
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        showWindow()
         guard ready, webView.url?.host == origin.host, !webView.isLoading,
               let data = try? JSONSerialization.data(withJSONObject: asked as Any), let detail = String(data: data, encoding: .utf8) else { return }
         asked = nil
@@ -394,12 +438,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    // A click on the Dock icon brings back the closed window; before startup has painted, it opens on its own.
+    // A click on the Dock icon, or opening the app again from Finder while only the menu bar icon is left, brings back
+    // the closed window; before startup has painted, it opens on its own.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if bootDone && !flag {
-            if window.isMiniaturized { window.deminiaturize(nil) }
-            window.makeKeyAndOrderFront(nil)
-        }
+        if bootDone && !flag { showWindow() }
         return true
     }
 
