@@ -30,6 +30,9 @@ type Identity struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	Protocol int    `json:"protocol"`
+	// Look is how the person at this computer looks, as the profile sets it; nil until they set it.
+	// Older computers ignore it, so it needs no new protocol.
+	Look *model.Look `json:"look,omitempty"`
 }
 type Peer struct {
 	ID           string `json:"id"`
@@ -44,6 +47,8 @@ type Peer struct {
 	Access string `json:"access"`
 	// BlockedUntil keeps it out until this Unix time; BlockedForever until unblocked by hand; 0 is not blocked.
 	BlockedUntil int64 `json:"blockedUntil,omitempty"`
+	// Look is how the person at it looks, as it last said; nil when it has not said.
+	Look *model.Look `json:"look,omitempty"`
 }
 
 const (
@@ -59,9 +64,10 @@ const (
 
 // Visitor is a paired computer looking at this island now, and the places its pages have open.
 type Visitor struct {
-	ID     string   `json:"id"`
-	Name   string   `json:"name"`
-	Places []string `json:"places"`
+	ID     string      `json:"id"`
+	Name   string      `json:"name"`
+	Look   *model.Look `json:"look,omitempty"`
+	Places []string    `json:"places"`
 }
 type presence struct {
 	place string
@@ -493,6 +499,7 @@ func (s *Service) Check(ctx context.Context, id string) (Peer, error) {
 				if name, err := CleanName(identity.Name); err == nil {
 					p.Name = name
 				}
+				p.Look = remoteLook(identity.Look)
 				p.LastSeenAt = time.Now().Unix()
 				p.Status = "online"
 				p.Message = ""

@@ -11,7 +11,6 @@ import (
 // Credentials, employee memory, task snapshots and project instructions never belong here.
 type Settings struct {
 	Preferences Preferences               `json:"preferences"`
-	Tutorial    Tutorial                  `json:"tutorial"`
 	Version     int                       `json:"version"`
 	Teams       map[string]TeamConfig     `json:"teams"`
 	Replicas    map[string]ReplicaConfig  `json:"replicas"`
@@ -65,7 +64,7 @@ func WithoutLocked[T any](all map[string]T) map[string]T {
 }
 
 func SettingsOf(w *World) Settings {
-	s := Settings{Version: 1, Preferences: w.Preferences, Tutorial: w.Tutorial, Teams: map[string]TeamConfig{}, Replicas: map[string]ReplicaConfig{}, Providers: map[string]ProviderConfig{}, Blueprints: WithoutLocked(w.Blueprints), Sources: map[string]*Source{}, Workflows: WithoutLocked(w.Workflows)}
+	s := Settings{Version: 1, Preferences: w.Preferences, Teams: map[string]TeamConfig{}, Replicas: map[string]ReplicaConfig{}, Providers: map[string]ProviderConfig{}, Blueprints: WithoutLocked(w.Blueprints), Sources: map[string]*Source{}, Workflows: WithoutLocked(w.Workflows)}
 	for id, src := range w.Sources {
 		s.Sources[id] = src
 	}
@@ -84,8 +83,6 @@ func SettingsOf(w *World) Settings {
 // Install changes configuration only; the caller has validated IDs and references.
 func (s Settings) Install(w *World) {
 	w.Preferences = s.Preferences
-	w.Tutorial = s.Tutorial
-	w.Tutorial.Normalize()
 	for id, c := range s.Teams {
 		t := w.Teams[id]
 		t.Name, t.Folder, t.TargetBranch, t.Settings = c.Name, c.Folder, c.TargetBranch, c.Settings

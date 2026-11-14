@@ -269,7 +269,7 @@ func blockedRemote(p, method string) bool {
 			return true
 		}
 	}
-	if method == "PUT" && p == "/api/v1/settings/language" || method == "PATCH" && p == "/api/v1/tutorial" {
+	if method == "PUT" && p == "/api/v1/settings/language" {
 		return true
 	}
 	if method != "POST" {

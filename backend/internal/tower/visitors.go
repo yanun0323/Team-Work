@@ -1,6 +1,7 @@
 package tower
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -21,16 +22,78 @@ func CleanName(name string) (string, error) {
 	return name, nil
 }
 
-// SetProfile renames this computer; paired computers see the new name the next time they check it.
-func (s *Service) SetProfile(name string) (Identity, error) {
+var (
+	hexColour = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+	partName  = regexp.MustCompile(`^[a-z]{1,16}$`)
+)
+
+// maxWardrobe bounds the wardrobe number a look may name; the frontend has three so far.
+const maxWardrobe = 9
+
+// CleanLook checks the look of the person at a computer: colours as #rrggbb and every part a short lowercase word.
+// Which words there are is the frontend's to know; one it does not know draws as the style seed picks.
+func CleanLook(l model.Look) (model.Look, error) {
+	bad := model.Errorf(model.CodeInvalid, "角色外觀格式不正確")
+	for _, c := range []string{l.Skin, l.Hair, l.Shirt, l.Pants} {
+		if !hexColour.MatchString(c) {
+			return model.Look{}, bad
+		}
+	}
+	if !partName.MatchString(l.Extra) || l.Wardrobe < 0 || l.Wardrobe > maxWardrobe || l.Style != nil && *l.Style < 0 {
+		return model.Look{}, bad
+	}
+	if p := l.Parts; p != nil {
+		for _, n := range []string{p.Hair, p.Top, p.Bottom, p.Facial} {
+			if !partName.MatchString(n) {
+				return model.Look{}, bad
+			}
+		}
+		if !hexColour.MatchString(p.Accent) || p.Shoes != "" && !partName.MatchString(p.Shoes) || p.ShoeColor != "" && !hexColour.MatchString(p.ShoeColor) {
+			return model.Look{}, bad
+		}
+		parts := *p
+		l.Parts = &parts
+	}
+	if l.Style != nil {
+		style := *l.Style
+		l.Style = &style
+	}
+	return l, nil
+}
+
+// remoteLook is a paired computer's look as it said, or nil when it said none or one that is not well formed.
+func remoteLook(l *model.Look) *model.Look {
+	if l == nil {
+		return nil
+	}
+	clean, err := CleanLook(*l)
+	if err != nil {
+		return nil
+	}
+	return &clean
+}
+
+// SetProfile renames this computer and, when look is not nil, sets how the person at it looks; paired computers
+// see both the next time they check it.
+func (s *Service) SetProfile(name string, look *model.Look) (Identity, error) {
 	name, err := CleanName(name)
 	if err != nil {
 		return Identity{}, err
+	}
+	if look != nil {
+		clean, err := CleanLook(*look)
+		if err != nil {
+			return Identity{}, err
+		}
+		look = &clean
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	old := s.disk.Me
 	s.disk.Me.Name = name
+	if look != nil {
+		s.disk.Me.Look = look
+	}
 	if err := s.saveLocked(); err != nil {
 		s.disk.Me = old
 		return Identity{}, unavailable()
@@ -182,7 +245,7 @@ func (s *Service) visitorsLocked() []Visitor {
 		if !ok || p.Revoked || !p.AllowInbound || s.blockedLocked(p.Peer) {
 			continue
 		}
-		v := Visitor{ID: id, Name: p.Name, Places: []string{}}
+		v := Visitor{ID: id, Name: p.Name, Look: p.Look, Places: []string{}}
 		seen := map[string]bool{}
 		for _, page := range pages {
 			if page.place != "" && !seen[page.place] {

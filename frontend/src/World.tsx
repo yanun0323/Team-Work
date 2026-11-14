@@ -5,7 +5,7 @@ import { tr } from './core/i18n'
 import { LanguageMenu } from './LanguageMenu'
 import { MapControls } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject, type SetStateAction } from 'react'
 import { guardUnload, leaveTeam } from './fileDrafts'
 import { placeOf, useOpenRequest, useSystemNotices } from './notices'
 import * as THREE from 'three'
@@ -17,14 +17,17 @@ import { PowerTower } from './PowerTower'
 import { StaffingAgency } from './StaffingAgency'
 import { StaffingPanel } from './StaffingPanel'
 import { TowerPanel } from './TowerPanel'
+import { Profile, ProfileButton } from './Profile'
 import { IslandBar } from './IslandBar'
 import { useIsland } from './core/island'
-import { presencePlace, reportPresence, useVisitors, visitorsAt, watchIsland, watchVisitors } from './core/towers'
+import { presencePlace, reportPresence, useMe, useVisitors, visitorsAt, watchIsland, watchVisitors } from './core/towers'
+import { lookOf } from './core/profile'
+import { seedOf } from './figureStyle'
 import { Ambient, shadowHalf } from './Ambient'
 import { fitSunShadow, seenPoints, SHADOW_MAP, sunDepthBias, sunNormalBias } from './sunShadow'
 import { Building, BuildingPreview, CUT, FLOOR, ROOF_TOP } from './Building'
 import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, hidesPoint, islandView, ISO_DIR, SCREEN_RIGHT, MAX_ZOOM, MIN_ZOOM, shotAt, type FocusBox, type Shot } from './camera'
-import { Drawer, putAwaySheets } from './Drawer'
+import { Drawer, putAwaySheets, useLeftSheets } from './Drawer'
 import { putAwaySampleSheet } from './HelpLooks'
 import { Settings } from './Settings'
 import { Help } from './Help'
@@ -56,8 +59,6 @@ import { IndoorLights } from './IndoorLight'
 import { LANTERN, propBoxes, type Box } from './streetProps'
 import { playSound, useSound } from './sound'
 import { Brand, useQuotaPolling } from './Brand'
-import { TutorialList } from './TutorialList'
-import { askTab, lastTeam, learn, rememberTeam, type TutorialGoal } from './tutorial'
 import { introFor, nextIntro, revealBoot, type Intro } from './boot'
 import { startIntro, useVoyage } from './voyagePath'
 import { Voyage } from './Voyage'
@@ -109,6 +110,27 @@ function useRises(n: number) {
 }
 
 /** Before a company's name, clear of the alerts on its corner: a grey ring spinning round how many chats and tasks it has under way; nothing while idle. */
+/**
+ * Which corners of the main screen slide away. The top right goes under anything over the map; the top left stays beside
+ * a drawer on the right, and goes only once a sheet covers the left too, the help is open, or the screen is too narrow
+ * to keep it clear of the drawer.
+ */
+export function cornersAway({ help, drawer, sheets, narrow }: { help: boolean; drawer: boolean; sheets: boolean; narrow: boolean }) {
+  return { left: help || sheets || (drawer && narrow), right: help || drawer }
+}
+
+/** Narrower than this, a drawer's least width of 380px leaves no room beside it for the clock. */
+const NARROW = '(max-width: 640px)'
+
+function useNarrow() {
+  return useSyncExternalStore((changed) => {
+    if (typeof matchMedia !== 'function') return () => {}
+    const q = matchMedia(NARROW)
+    q.addEventListener('change', changed)
+    return () => q.removeEventListener('change', changed)
+  }, () => typeof matchMedia === 'function' && matchMedia(NARROW).matches)
+}
+
 export function TagWork({ chats, tasks }: ReturnType<typeof teamWork>) {
   const n = chats + tasks
   if (!n) return null
@@ -229,47 +251,24 @@ export function World() {
   const lastFollowed = useRef<FollowTarget | null>(null)
   // a press that stopped following: it may click whatever it is on, but doesn't drag the map until it ends
   const pressHeld = useRef(false)
-  useEffect(() => {
-    followed.stroller = following?.kind === 'stroller' ? following.index : -1
-    followed.crew = following?.kind === 'crew' ? following.id : ''
-    followed.seen = false
-    if (!following) return
-    // someone never drawn (an office with no seat left for them) isn't waited for
-    const t = setTimeout(() => {
-      if (!followed.seen) setFollowing(null)
-    }, FOLLOW_SEEN_MS)
-    return () => clearTimeout(t)
-  }, [following])
   // the buildings standing in front of the person followed, cut away so they show
   const [cutAway, setCutAway] = useState<string[]>([])
 
-  // a drawer over the right half that belongs to no company: the settings, the power tower's, or the staffing agency's
-  const [panel, setPanel] = useState<'settings' | 'tower' | 'staffing' | null>(null)
+  // a drawer over the right half that belongs to no company: the settings, the power tower's, the staffing agency's, or the user's profile
+  const [panel, setPanel] = useState<'settings' | 'tower' | 'staffing' | 'profile' | null>(null)
   const settingsOpen = panel !== null
-  // settings opened by clicking the airport, not the plane button: the camera goes to the airport
+  // settings opened by clicking the airport rather than by a tutorial step: the camera goes to the airport
   const [byAirport, setByAirport] = useState(false)
   useEffect(() => {
     if (panel !== 'settings') setByAirport(false)
   }, [panel])
   const [helpOpen, setHelpOpen] = useState(false)
-  // the help button is gone while the help is open; once it is back, focus returns to it
-  const helpClosed = useRef(false)
-  const helpButton = useCallback((el: HTMLButtonElement | null) => {
-    if (el && helpClosed.current) el.focus({ preventScroll: true })
-    helpClosed.current = false
-  }, [])
-  // the gear is gone while settings are open; once it is back, focus returns to it
-  const settingsClosed = useRef(false)
-  const settingsButton = useCallback((el: HTMLButtonElement | null) => {
-    if (el && settingsClosed.current) el.focus({ preventScroll: true })
-    settingsClosed.current = false
-  }, [])
-  // the same goes for the new-company button once the sheet for a picked plot goes
-  const sheetClosed = useRef(false)
-  const newButton = useCallback((el: HTMLButtonElement | null) => {
-    if (el && sheetClosed.current) el.focus({ preventScroll: true })
-    sheetClosed.current = false
-  }, [])
+  // the corners' buttons slide away while the help, a drawer or the new company's sheet is over the map; once they are
+  // back, focus returns to the one that opened it: the help's, the user's face, or the new-company button
+  const helpButton = useRef<HTMLButtonElement>(null)
+  const profileButton = useRef<HTMLButtonElement>(null)
+  const newButton = useRef<HTMLButtonElement>(null)
+  const refocus = useRef<RefObject<HTMLButtonElement | null> | null>(null)
   const [selected, setSelectedNow] = useState<string | null>(null)
   // leaving a company whose files have unsaved changes first asks (the file browser's drafts)
   const selectedNow = useRef(selected)
@@ -282,6 +281,27 @@ export function World() {
   useEffect(guardUnload, [])
   // another island, or back home: whatever was open belonged to the island left
   const remote = useIsland((s) => !!s.island)
+  // the user, out on their own island among its people (`Strollers`, the first of them)
+  const meNow = useMe((s) => s.me)
+  const me = useMemo(() => {
+    if (!meNow || remote) return null
+    const look = lookOf(meNow)
+    return { look, seed: look.style ?? seedOf(meNow.id) }
+  }, [meNow, remote])
+  // with their profile open, the camera follows them as the settings' automatic view says: flying in, or just panning
+  const meFollow = panel === 'profile' && !!me && autoView !== 'off'
+  const tracked = useMemo<FollowTarget | null>(() => (meFollow ? { kind: 'stroller', index: 0 } : following), [meFollow, following])
+  useEffect(() => {
+    followed.stroller = tracked?.kind === 'stroller' ? tracked.index : -1
+    followed.crew = tracked?.kind === 'crew' ? tracked.id : ''
+    followed.seen = false
+    if (!tracked) return
+    // someone never drawn (an office with no seat left for them) isn't waited for
+    const t = setTimeout(() => {
+      if (!followed.seen) setFollowing(null)
+    }, FOLLOW_SEEN_MS)
+    return () => clearTimeout(t)
+  }, [tracked])
   const islandId = useIsland((s) => s.island?.id ?? '')
   const firstIsland = useRef(true)
   useEffect(() => {
@@ -344,7 +364,7 @@ export function World() {
       // a click on the map may put away the sheet over the help first, as with a drawer's detail sheets
       if (!key && putAwaySampleSheet()) return
       setHelpOpen(false)
-      helpClosed.current = true
+      refocus.current = helpButton
       return
     }
     if (moving) {
@@ -357,7 +377,7 @@ export function World() {
     }
     if (spot) {
       setSpot(null)
-      sheetClosed.current = true
+      refocus.current = newButton
       return
     }
     if (placing) {
@@ -367,7 +387,7 @@ export function World() {
     // a click on the map may put away the drawer's detail sheets first (Esc does so on its own)
     if (!key && putAwaySheets()) return
     setSelected(null)
-    if (panel === 'settings') settingsClosed.current = true
+    if (panel === 'profile') refocus.current = profileButton
     setPanel(null)
   }, [panel, spot, placing, editing, moving, helpOpen])
   useEffect(() => {
@@ -552,6 +572,21 @@ export function World() {
   const drawer = useLingering(selected)
   const settings = useLingering(panel)
   const sheet = useLingering(spot ? 'new' : null)
+  // the corners' controls slide off the screen while what is over the map covers them, and back once it has gone
+  const sheetsOut = useLeftSheets((s) => s.count > 0)
+  const narrow = useNarrow()
+  const corners = cornersAway({ help: !!help.value, drawer: !!(drawer.value || settings.value || sheet.value), sheets: sheetsOut, narrow })
+  const chrome = !corners.right
+  useEffect(() => {
+    if (!chrome || !refocus.current) return
+    refocus.current.current?.focus({ preventScroll: true })
+    refocus.current = null
+  }, [chrome])
+  // the hint while placing a company or editing the map; it keeps its words as it slides away
+  const tipNow = placing && missed ? missText(missed.problem) : placing ? tr('在格線範圍內挑選地點，海上也可以')
+    : editing ? (moving ? tr('選取公司新地點') : tr('選取想要移動的公司')) : ''
+  const [tip, setTip] = useState(tipNow)
+  if (tipNow && tipNow !== tip) setTip(tipNow)
 
   // while one company is open, a click anywhere else on the map closes it
   // while one is open, a click on any building, its own office included, closes it as the land and sea do
@@ -561,20 +596,9 @@ export function World() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [settingsOpen, placing, editing, helpOpen, close, selected])
 
-  // the tutorial counts opening the help; the company used last is where its steps go
-  useEffect(() => { if (helpOpen) learn('help') }, [helpOpen])
-  useEffect(() => { if (selected) rememberTeam(selected) }, [selected])
   // a company's file whooshes open, also when going straight from one company to the next; the island's own buildings each have their own cue
   useEffect(() => { if (selected) playSound('soundOpenTeam') }, [selected])
-  useEffect(() => { if (panel) playSound(PANEL_SOUND[panel]) }, [panel])
-  function goTutorial(goal: TutorialGoal) {
-    if (goal.kind === 'help') return setHelpOpen(true)
-    if (goal.kind === 'newCompany') return setPlacing(true)
-    askTab(goal)
-    if (goal.kind === 'airport') return setPanel('settings')
-    const id = lastTeam(useStore.getState().world)
-    if (id) setSelected(id)
-  }
+  useEffect(() => { if (panel && panel !== 'profile') playSound(PANEL_SOUND[panel]) }, [panel])
 
   // the power tower opens its panel, always this computer's; it can't be moved either
   function selectTower() {
@@ -624,11 +648,11 @@ export function World() {
       {(placing || editing) && <MapGrid town={town} moved={moving ?? undefined} />}
       <StreetProps town={town} />
       {/* each person fades in on their own (see Strollers): a Fade round them all would fight theirs over the same meshes */}
-      {crowd && <Strollers town={town} field={land.field} />}
+      {(crowd || me) && <Strollers town={town} field={land.field} crowd={crowd} me={me} />}
       <Trees town={town} />
-      {following !== null && <FollowCut town={town} onChange={setCutAway} />}
+      {tracked !== null && <FollowCut town={town} onChange={setCutAway} />}
       {town.lots.map((lot) => (
-        <Building key={lot.id} lot={lot} town={town} open={lot.id === selected} cut={following !== null && (cutAway.includes(lot.id) || followedCrew?.teamId === lot.id)} another={!!open && lot !== open}
+        <Building key={lot.id} lot={lot} town={town} open={lot.id === selected} cut={tracked !== null && (cutAway.includes(lot.id) || followedCrew?.teamId === lot.id)} another={!!open && lot !== open}
           hover={!selected && !settingsOpen && !placing && (hovered === lot.id || moving === lot.id)} onHover={hover} onSelect={select} />
       ))}
       <Airport town={town} open={panel === 'settings'} calm={calm || !planes} away={takingOff} still={editing} onSelect={selectAirport} onHover={(on) => hover(AIRPORT_ID, on)}
@@ -645,8 +669,8 @@ export function World() {
       <MapControls makeDefault enableRotate={false} enableDamping dampingFactor={0.12} screenSpacePanning={false}
         minZoom={MIN_ZOOM} maxZoom={MAX_ZOOM} zoomSpeed={ZOOM_SPEED * zoomSensitivity / 100} />
       <CameraRig town={town} radius={town.radius} span={span} top={town.top} focus={focus} focusKey={!focus ? null : towerShown ? 'tower' : staffingShown ? 'staffing' : airportShown ? 'airport' : selected ?? (spot ? `spot:${spot}` : null)}
-        panOnly={autoView === 'pan'} blocked={(settingsOpen && (autoView === 'panZoom' || !(airportShown || towerShown || staffingShown))) || helpOpen} wide={(placing || editing) && !selected ? town.middle : null}
-        following={following !== null} held={pressHeld} landing={landing} />
+        panOnly={autoView === 'pan'} blocked={(settingsOpen && !meFollow && (autoView === 'panZoom' || !(airportShown || towerShown || staffingShown))) || helpOpen} wide={(placing || editing) && !selected ? town.middle : null}
+        following={!tracked ? false : meFollow && autoView === 'pan' ? 'pan' : 'zoom'} aside={meFollow} held={pressHeld} landing={landing} />
       <LabelProjector />
       <FigureBatch />
       <ShaderWarmup />
@@ -654,12 +678,9 @@ export function World() {
       {import.meta.env.DEV && <FrameCounter />}
     </Canvas>
     <LabelLayer labels={shownLabels} />
-    {!drawer.value && !settings.value && !sheet.value && !help.value && (
-      <div className="fx-top-left">
-        <Brand />
-        {!placing && !editing && !remote && <TutorialList onGo={goTutorial} />}
-      </div>
-    )}
+    <div className="fx-top-left" {...tucked(corners.left)}>
+      <Brand />
+    </div>
     {import.meta.env.DEV && (
       <div className="fx-debug">
         <FpsDebug />
@@ -667,47 +688,41 @@ export function World() {
         <DaylightDebug />
       </div>
     )}
-    {!drawer.value && !settings.value && !sheet.value && !help.value && (
-      <>
-      {(placing || editing) && (
-        <div className="fx-map-tip">
-          <p className="fx-corner-note fx-tag" role="status">
-            {placing && missed ? missText(missed.problem) : placing ? tr('在格線範圍內挑選地點，海上也可以') : moving ? tr('選取公司新地點') : tr('選取想要移動的公司')}
-          </p>
-        </div>
-      )}
-      <div className="fx-corner">
-      {!editing && <button ref={newButton} type="button" className="fx-corner-text fx-tag"
-        onClick={() => setPlacing(!placing)}>
-        {placing ? tr('取消') : tr('＋ 新公司')}
-      </button>}
-      {!placing && <button type="button" className="fx-corner-text fx-tag" aria-pressed={editing}
-        onClick={() => { setEditing(!editing); setMoving(null) }}>
-        {editing ? tr('完成#button') : tr('編輯地圖')}
-      </button>}
-      {!placing && !editing && <LanguageMenu />}
-      {!placing && !editing && <button ref={helpButton} type="button" className="fx-settings-trigger fx-tag" aria-label={tr('說明')}
-        onClick={() => setHelpOpen(true)}>
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="10" />
-          <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" />
-          <path d="M12 17h.01" />
-        </svg>
-      </button>}
-      {!placing && !editing && <button ref={settingsButton} type="button" className="fx-settings-trigger fx-tag" aria-label={tr('設定')}
-        onClick={() => setPanel('settings')}>
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          {/* a plane seen from above, nose to the top right */}
-          <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
-        </svg>
-      </button>}
+    <div className="fx-map-tip" {...tucked(!chrome || !tipNow)}>
+      <p className="fx-corner-note fx-tag" role="status">{tip}</p>
+    </div>
+    <div className="fx-corner" {...tucked(!chrome)}>
+      {/* the one button a mode leaves stays put, under the pointer; the rest go up off the screen and wait there */}
+      <div className="fx-slot" {...tucked(editing)}>
+        <button ref={newButton} type="button" className="fx-corner-text fx-tag" onClick={() => setPlacing(!placing)}>
+          <TwoWay now={placing ? tr('取消') : tr('＋ 新公司')} other={placing ? tr('＋ 新公司') : tr('取消')} />
+        </button>
       </div>
-      </>
-    )}
+      <div className="fx-slot" {...tucked(placing)}>
+        <button type="button" className="fx-corner-text fx-tag" aria-pressed={editing}
+          onClick={() => { setEditing(!editing); setMoving(null) }}>
+          <TwoWay now={editing ? tr('完成#button') : tr('編輯地圖')} other={editing ? tr('編輯地圖') : tr('完成#button')} />
+        </button>
+      </div>
+      <div className="fx-slot" {...tucked(placing || editing)}><LanguageMenu /></div>
+      <div className="fx-slot" {...tucked(placing || editing)}>
+        <button ref={helpButton} type="button" className="fx-settings-trigger fx-tag" aria-label={tr('說明')} onClick={() => setHelpOpen(true)}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" />
+            <path d="M12 17h.01" />
+          </svg>
+        </button>
+      </div>
+      <div className="fx-slot" {...tucked(placing || editing)}>
+        <ProfileButton buttonRef={profileButton} onClick={() => setPanel('profile')} />
+      </div>
+    </div>
     {sheet.value && <NewCompanySheet leaving={sheet.leaving} onGone={sheet.gone} onCreate={found} look={look} onReroll={() => setLook(randomLook())} />}
     {help.value && <Help leaving={help.leaving} onGone={help.gone} />}
     {settings.value === 'settings' && <Settings leaving={settings.leaving} onGone={settings.gone} />}
-    {settings.value === 'tower' && <TowerPanel leaving={settings.leaving} onGone={settings.gone} />}
+    {settings.value === 'tower' && <TowerPanel leaving={settings.leaving} onGone={settings.gone} onProfile={() => setPanel('profile')} />}
+    {settings.value === 'profile' && <Profile leaving={settings.leaving} onGone={settings.gone} />}
     {settings.value === 'staffing' && <StaffingPanel leaving={settings.leaving} onGone={settings.gone} />}
     <IslandBar />
     {drawer.value && (
@@ -716,6 +731,17 @@ export function World() {
     )}
     </div>
   )
+}
+
+/**
+ * Props for something on the map's edge that slides off the screen when `away` (fusion.css, `data-tucked`), out of
+ * reach of the pointer and the keyboard, and back when not, rather than coming and going at once.
+ */
+const tucked = (away: boolean) => ({ 'data-tucked': away ? '' : undefined, inert: away || undefined, 'aria-hidden': away || undefined })
+
+/** A button's words, as wide as the words it turns into, so it stays the same size under the pointer either way. */
+function TwoWay({ now, other }: { now: string; other: string }) {
+  return <span className="fx-two-way"><span>{now}</span><span aria-hidden="true">{other}</span></span>
 }
 
 /** How long to wait for the person picked to follow to be drawn before giving up on them, in milliseconds. */
@@ -914,12 +940,14 @@ function useLanding(teamIds: string) {
   return landing
 }
 
-function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked, wide, following, held, landing }: {
+function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked, wide, following, aside, held, landing }: {
   town: Town; radius: number; span: number; top: number; focus: FocusBox | null; focusKey: string | null; panOnly: boolean; blocked: boolean
   /** Placing a new company: the middle of the town, which is shown with the sea a new plot may go on. */
   wide: [number, number] | null
-  /** The camera stays on `followed`, and the player can neither pan nor zoom. */
-  following: boolean
+  /** The camera stays on `followed`: zoomed in, the player neither panning nor zooming; or, at `'pan'`, at the player's zoom. */
+  following: false | 'zoom' | 'pan'
+  /** The person followed stays in the middle of the screen the right-hand drawer leaves free. */
+  aside: boolean
   /** Set by a press that stopped following: the map isn't dragged until the press ends. */
   held: { current: boolean }
   /** Counts arrivals on another island (or back): each lands the camera on it again, as the clouds part. */
@@ -1023,20 +1051,26 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
   const followEnter = useRef<{ from: Shot | null; time: number }>({ from: null, time: 0 })
   // the view before following someone, gone back to when it stops
   const beforeFollow = useRef<Shot | null>(null)
+  // following at the player's zoom, panning along only (`following` is 'pan')
+  const followedPanning = useRef(false)
   useEffect(() => {
     if (!following) {
       followZoom.current = null
       const back = beforeFollow.current
       beforeFollow.current = null
       if (!back) return
+      // only panned along: back to where it was, at the zoom the player has now
+      if (followedPanning.current) back.zoom = camera.zoom
       // a company or the airport opening took over the view: closing it comes back here instead
       if (focus) {
         if (home.current) home.current = back
       } else flyTo(back)
       return
     }
+    followedPanning.current = following === 'pan'
     // mid-flight, the view being flown to is the one to come back to
-    beforeFollow.current = fly.current ? { target: fly.current.to.target.clone(), zoom: fly.current.to.zoom }
+    // switching between flying in and panning keeps the view to come back to
+    if (!beforeFollow.current) beforeFollow.current = fly.current ? { target: fly.current.to.target.clone(), zoom: fly.current.to.zoom }
       : controls ? { target: controls.target.clone(), zoom: camera.zoom } : null
     fly.current = null
     pan.current = null
@@ -1045,8 +1079,9 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [following, camera])
   useEffect(() => {
-    locked.current = !!focus || blocked || following || voyaging
-    panLocked.current = !!focus && panOnly && !blocked && !following && !voyaging
+    locked.current = !!focus || blocked || !!following || voyaging
+    // the wheel still zooms while the view pans to stay on a building, or on whom it follows
+    panLocked.current = !blocked && !voyaging && (following ? following === 'pan' : !!focus && panOnly)
     if (controls) {
       controls.enabled = !held.current && (!locked.current || panLocked.current)
       controls.enablePan = !panLocked.current
@@ -1166,7 +1201,11 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
     }
     if (followZoom.current !== null && followed.seen) {
       // the person's waist, slid along the line of sight down to the ground the camera looks at
+      const panning = followedPanning.current
+      const zoom = panning ? camera.zoom : followZoom.current
       const goal = followed.at.clone().setY(followed.at.y + FOLLOW_AIM)
+      // to the middle of what the drawer leaves free, half its width left of the screen's middle
+      if (aside) goal.addScaledVector(SCREEN_RIGHT, drawerWidth(size.width) / 2 / zoom)
       goal.addScaledVector(ISO_DIR, -goal.y / ISO_DIR.y)
       const offset = camera.position.clone().sub(t)
       const enter = followEnter.current
@@ -1176,14 +1215,14 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
       if (p < 1) {
         // on the way there, easing in and out; the goal moves with the person, so the flight bends to meet them
         const u = p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2
-        const shot = shotAt(enter.from, { target: goal, zoom: followZoom.current }, u)
+        const shot = shotAt(enter.from, { target: goal, zoom: panning ? enter.from.zoom : zoom }, u)
         t.copy(shot.target)
-        camera.zoom = shot.zoom
+        if (!panning) camera.zoom = shot.zoom
       } else {
         // there: keep up with them, a little softly
         const k = calm ? 1 : 1 - Math.exp(-FOLLOW_RATE * Math.min(delta, 0.05))
         t.lerp(goal, k)
-        camera.zoom = followZoom.current
+        camera.zoom = zoom
       }
       camera.position.copy(t).add(offset)
       camera.updateProjectionMatrix()

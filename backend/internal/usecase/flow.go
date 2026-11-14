@@ -1017,7 +1017,6 @@ func (e *Engine) resolveReviewOf(subID, optionID, note string) error {
 		if err := e.resolveReview(subID, optionID, note); err != nil {
 			return err
 		}
-		e.w.Tutorial.Learn("review")
 		return nil
 	}
 	if e.resolvesChange(subID, optionID) {
@@ -1175,10 +1174,6 @@ func (e *Engine) ResumeTask(id string) error {
 			}
 			e.newOperation(t, model.TaskOperation{Kind: "resume", Status: model.OpApplied})
 			return nil
-		}
-		// a task that was never started has no PausedAt; starting it is not the pause lesson
-		if t.PausedAt != nil {
-			e.w.Tutorial.Learn("pause")
 		}
 		t.Paused, t.PausedAt, t.PausedStatus = false, nil, ""
 		return nil

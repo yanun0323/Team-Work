@@ -3,7 +3,7 @@ import { DEFAULT_PREFS, MUSIC_STYLES, usePrefs } from './prefs'
 import { useStore } from './core/store'
 import { silenced, SOUND_EFFECTS, SoundPlayer, subscribeChatSound, subscribeNoticeSound, watchChat } from './sound'
 import type { Chat } from './core/domain/types'
-import { AIRPORT_GAP, AIRPORT_LEAD_IN, AIRPORT_NOTES, AIRPORT_SECONDS, effectSamples, HUM_BURSTS, HUM_FREQUENCY, HUM_SECONDS, musicSamples, NOTICE_DUCK, NOTICE_GAP, NOTICE_LEAD_IN, NOTICE_NOTES, NOTICE_RISE, NOTICE_SECONDS, STAMP_AT, STAMP_PAPER, STAMP_SECONDS, TAP_SECOND_SNAP, TUTORIAL_SECONDS, WAVES_BREAKERS, WAVES_SECONDS, WHOOSH_SECONDS, type Stereo } from './soundSynth'
+import { AIRPORT_GAP, AIRPORT_LEAD_IN, AIRPORT_NOTES, AIRPORT_SECONDS, effectSamples, HUM_BURSTS, HUM_FREQUENCY, HUM_SECONDS, musicSamples, NOTICE_DUCK, NOTICE_GAP, NOTICE_LEAD_IN, NOTICE_NOTES, NOTICE_RISE, NOTICE_SECONDS, STAMP_AT, STAMP_PAPER, STAMP_SECONDS, TAP_SECOND_SNAP, WAVES_BREAKERS, WAVES_SECONDS, WHOOSH_SECONDS, type Stereo } from './soundSynth'
 
 const param = () => ({ value: 0, setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn(), cancelScheduledValues: vi.fn(), setTargetAtTime: vi.fn() })
 class Node {
@@ -105,7 +105,7 @@ it('keeps the notice to two quick bubbles, each rising in pitch, low one first',
   expect(samples.every((ch) => ch.every(Number.isFinite))).toBe(true)
   expect(NOTICE_NOTES).toHaveLength(2)
   expect([...NOTICE_NOTES]).toEqual([...NOTICE_NOTES].sort((a, b) => a - b))
-  // Low and round, two octaves below the tutorial's bells.
+  // Low and round.
   expect(NOTICE_NOTES[0]).toBeLessThan(300)
   NOTICE_NOTES.forEach((_, i) => {
     const start = i * NOTICE_GAP
@@ -122,16 +122,6 @@ it('keeps the notice to two quick bubbles, each rising in pitch, low one first',
   }
   expect(crossings(0.08, 0.12)).toBeGreaterThan(crossings(0.002, 0.03) * 1.25)
   expect(NOTICE_RISE.by).toBeGreaterThan(0.25)
-})
-
-it('keeps the tutorial cue short and softer than the notice chime, fading out', () => {
-  const rate = 16000
-  const samples = effectSamples('soundTutorial', rate)
-  expect(samples[0].length).toBe(Math.floor(TUTORIAL_SECONDS * rate))
-  expect(samples.every((ch) => ch.every(Number.isFinite))).toBe(true)
-  expect(Math.max(...samples[0].map(Math.abs), ...samples[1].map(Math.abs))).toBeLessThanOrEqual(0.35)
-  expect(loudness(samples, 0, TUTORIAL_SECONDS, rate)).toBeLessThan(loudness(effectSamples('soundNotice', rate), 0, TUTORIAL_SECONDS, rate))
-  expect(loudness(samples, TUTORIAL_SECONDS - 0.02, TUTORIAL_SECONDS, rate)).toBeLessThan(0.01)
 })
 
 it('opens a company with a soft whoosh that swells, moves to the right and stays below the notice', () => {

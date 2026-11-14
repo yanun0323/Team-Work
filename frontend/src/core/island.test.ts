@@ -29,7 +29,7 @@ describe('the island shown', () => {
     expect(apiBase()).toBe('/api/v1/remote/mac%202')
   })
 
-  it('sends every request about the island to its base, and the tower, language and tutorial home', async () => {
+  it('sends every request about the island to its base, and the tower and language home', async () => {
     const f = ok()
     vi.stubGlobal('fetch', f)
     away()

@@ -4,7 +4,7 @@ import type { MusicStyle } from './prefs'
 
 export const RATE = 32000
 export type Stereo = [Float32Array<ArrayBuffer>, Float32Array<ArrayBuffer>]
-export type EffectKey = 'soundTakeoff' | 'soundLanding' | 'soundFlyover' | 'soundUI' | 'soundNotice' | 'soundTutorial' | 'soundOpenTeam' | 'soundOpenAirport' | 'soundOpenTower' | 'soundOpenStaffing' | 'soundWaves'
+export type EffectKey = 'soundTakeoff' | 'soundLanding' | 'soundFlyover' | 'soundUI' | 'soundNotice' | 'soundOpenTeam' | 'soundOpenAirport' | 'soundOpenTower' | 'soundOpenStaffing' | 'soundWaves'
 
 const TAU = Math.PI * 2
 const SINE_SIZE = 1 << 14
@@ -511,26 +511,6 @@ function notice(rate: number): Stereo {
   return levelled(out, 1, 0.5)
 }
 
-/** A tutorial step crossed off or newly shown: two soft rising bell notes, gentler than the notice chime. */
-export const TUTORIAL_NOTES = [1046.5, 1567.98] as const
-export const TUTORIAL_SECONDS = 0.7
-function tutorial(rate: number): Stereo {
-  const size = Math.floor(TUTORIAL_SECONDS * rate)
-  const out: Stereo = [new Float32Array(size), new Float32Array(size)]
-  TUTORIAL_NOTES.forEach((f, n) => {
-    const first = Math.round(n * 0.09 * rate), ring = size - first
-    for (let i = 0; i < ring; i++) {
-      const t = i / rate
-      const shape = Math.min(1, t / 0.004) * Math.exp(-6 * t) * Math.min(1, (ring / rate - t) / 0.03)
-      const v = (sin(f * t) + sin(f * 2.76 * t) * 0.18 * Math.exp(-20 * t)) * shape
-      // the first note leans left and the second right, so the pair seems to step up and across
-      out[0][first + i] += v * (n === 0 ? 1 : 0.7)
-      out[1][first + i] += v * (n === 0 ? 0.7 : 1)
-    }
-  })
-  return levelled(out, 0.6, 0.35)
-}
-
 /** A company's file slides open: a soft breath of noise sweeping up and to the right, where the drawer opens. */
 export const WHOOSH_SECONDS = 0.36
 /** Where the sweep's band starts, peaks and ends, Hz. */
@@ -700,7 +680,7 @@ function waves(rate: number): Stereo {
 }
 
 const EFFECTS: Record<EffectKey, (rate: number) => Stereo> = {
-  soundTakeoff: takeoff, soundLanding: landing, soundFlyover: flyover, soundUI: tap, soundNotice: notice, soundTutorial: tutorial, soundOpenTeam: whoosh, soundOpenAirport: announce, soundOpenTower: hum, soundOpenStaffing: stamp, soundWaves: waves,
+  soundTakeoff: takeoff, soundLanding: landing, soundFlyover: flyover, soundUI: tap, soundNotice: notice, soundOpenTeam: whoosh, soundOpenAirport: announce, soundOpenTower: hum, soundOpenStaffing: stamp, soundWaves: waves,
 }
 
 export const effectSamples = (key: EffectKey, rate = RATE) => EFFECTS[key](rate)

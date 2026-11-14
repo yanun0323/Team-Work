@@ -32,6 +32,7 @@ var en = map[string]string{
 	"對方已封鎖這台，暫時不能前往":                    "The other computer has blocked this one; it cannot go there for now",
 	"對方已請這台離開，請稍後再前往":                   "The other computer sent this one away; try going again shortly",
 	"名稱需為 1 到 %d 個字，且不能換行":              "The name must be 1 to %d characters on one line",
+	"角色外觀格式不正確":                         "The look is not in the right format",
 	"權限只能是檢視或操作":                        "Access must be view or operate",
 	"同時開啟的頁面太多":                         "Too many pages are open at once",
 	"通行證無效或配對已解除":                       "Invalid pass or pairing has been revoked",

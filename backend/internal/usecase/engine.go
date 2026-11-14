@@ -11,7 +11,6 @@ import (
 	"maps"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -176,10 +175,6 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	}
 	for _, t := range e.w.Teams {
 		e.readPrompt(t)
-	}
-	// the global AGENTS.md can be written outside the app
-	if prompt, err := e.readGlobalPrompt(); err == nil && strings.TrimSpace(prompt) != "" {
-		e.w.Tutorial.Learn("globalAgents")
 	}
 	if err := e.prepareSettings(ctx); err != nil {
 		e.cancel()
@@ -435,8 +430,6 @@ func (e *Engine) documents() map[string][]byte {
 	now[docKey(kindMeta, "world")] = meta
 	prefs, _ := jsonx.Marshal(e.w.Preferences)
 	now[docKey("preferences", "world")] = prefs
-	tutorial, _ := jsonx.Marshal(e.w.Tutorial)
-	now[docKey("tutorial", "world")] = tutorial
 	encodeAll(now, "team", e.w.Teams)
 	encodeAll(now, "provider", e.w.Providers)
 	encodeAll(now, "blueprint", e.w.Blueprints)
@@ -495,7 +488,7 @@ func (e *Engine) sync() error {
 	}
 	runtime := make([]model.Doc, 0, len(upserts))
 	for _, d := range upserts {
-		if d.Kind == "preferences" || d.Kind == "tutorial" {
+		if d.Kind == "preferences" {
 			continue // Published to clients; persisted only in YAML.
 		}
 		row, err := model.RuntimeDoc(d)

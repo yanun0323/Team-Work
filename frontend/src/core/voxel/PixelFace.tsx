@@ -1,5 +1,5 @@
 import type { Look } from '../domain/types'
-import { seedOf, shade, styleOf, type Hair, type Style } from '../../figureStyle'
+import { seedOf, shade, styleFor, type Hair, type Style } from '../../figureStyle'
 
 /** What a rectangle of the face is, so each drawing of a face can colour it its own way. */
 export type FacePart =
@@ -131,11 +131,12 @@ const MOST_FACES = 500
  */
 export function faceUrl(look: Look, name: string): string {
   const seed = look.style ?? seedOf(name)
-  const key = `${seed}|${look.wardrobe}|${look.skin}|${look.hair}|${look.shirt}|${look.extra}`
+  const p = look.parts
+  const key = `${seed}|${look.wardrobe}|${look.skin}|${look.hair}|${look.shirt}|${look.extra}|${p ? `${p.hair},${p.facial}` : ''}`
   let url = faces.get(key)
   if (!url) {
     if (faces.size >= MOST_FACES) faces.clear()
-    url = `data:image/svg+xml,${encodeURIComponent(faceSvg(look, styleOf(seed, look.wardrobe)))}`
+    url = `data:image/svg+xml,${encodeURIComponent(faceSvg(look, styleFor(look, seed)))}`
     faces.set(key, url)
   }
   return url

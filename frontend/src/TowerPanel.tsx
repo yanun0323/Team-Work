@@ -6,10 +6,12 @@
 import { colon, tr } from './core/i18n'
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type RefObject } from 'react'
 import { MOCK } from './core/mode'
+import { PixelFace } from './core/voxel/PixelFace'
+import { lookOf } from './core/profile'
 import { useIsland } from './core/island'
 import { useStore } from './core/store'
 import {
-  approvePairing, blockPeer, clearOutgoing, goTo, inboundOf, isBlocked, kickPeer, leftPeer, pairWith, readTowers, rejectPairing, setPeerInbound, setProfile,
+  approvePairing, blockPeer, clearOutgoing, goTo, inboundOf, isBlocked, kickPeer, leftPeer, pairWith, readTowers, rejectPairing, setPeerInbound,
   startPairing, stopPairing, unblockPeer, unpairPeer,
   type Outgoing, type Pairing, type Peer, type PeerInbound, type PeerStatus, type Towers, type Visitor,
 } from './core/towers'
@@ -53,10 +55,12 @@ export function updateWhich(mine: number, theirs: number, name: string) {
   return mine < theirs ? tr('這台的 Team Work 太舊，請更新這台') : tr('{name} 的 Team Work 太舊，請更新那台', { name })
 }
 
-export function TowerPanel({ leaving, onGone }: {
+export function TowerPanel({ leaving, onGone, onProfile }: {
   leaving: boolean
   /** Called when the page has turned away. */
   onGone: () => void
+  /** Opens the user's profile, where this computer's name is set. */
+  onProfile?: () => void
 }) {
   const title = useRef<HTMLHeadingElement>(null)
   useEffect(() => title.current?.focus({ preventScroll: true }), [])
@@ -70,7 +74,7 @@ export function TowerPanel({ leaving, onGone }: {
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
       <div className="fx-sheet">
         <header className="fx-head fx-head-rule">
-          <TowerTitle me={towers?.me ?? null} titleRef={title} />
+          <TowerTitle me={towers?.me ?? null} titleRef={title} onProfile={onProfile} />
         </header>
         <div className="fx-page">
           <TowerBody towers={towers} error={error} refresh={refresh} here={here} />
@@ -82,14 +86,22 @@ export function TowerPanel({ leaving, onGone }: {
 
 /**
  * The panel's title, this computer's name under it, and on the right the link version it connects on: only computers
- * on the same link version can go to each other's islands.
+ * on the same link version can go to each other's islands. The name is the user's, so it opens their profile to change.
  */
-export function TowerTitle({ me, titleRef }: { me: Towers['me'] | null; titleRef?: RefObject<HTMLHeadingElement | null> }) {
+export function TowerTitle({ me, titleRef, onProfile }: {
+  me: Towers['me'] | null
+  titleRef?: RefObject<HTMLHeadingElement | null>
+  onProfile?: () => void
+}) {
   return (
     <div className="fx-title fx-title-plain">
       <div className="fx-title-text">
         <h1 id="fx-tower-title" ref={titleRef} tabIndex={-1}>{tr('基地台')}</h1>
-        {me && <p className="fx-where">{me.name}</p>}
+        {me && <p className="fx-where">{onProfile
+          ? <button type="button" className="fx-tower-me" title={tr('在個人檔案修改')} onClick={onProfile}>
+            <PixelFace look={lookOf(me)} name={me.name} size={18} />{me.name}
+          </button>
+          : me.name}</p>}
       </div>
       {me && <p className="fx-tower-version">{tr('連線版本 {n}', { n: me.protocol })}</p>}
     </div>
@@ -114,7 +126,6 @@ export function TowerBody({ towers, error, refresh, here = null }: {
     <div className="fx-d-groups fx-tower">
       {MOCK && <p className="fx-pill fx-prereq">{tr('模擬模式不能配對')}</p>}
       {error && <p className="fx-tower-error" role="alert">{error}</p>}
-      <ProfileSection name={towers.me.name} refresh={refresh} />
       <VisitorsSection visitors={towers.visitors} home={here === null} refresh={refresh} />
       <section className="fx-d-group" aria-labelledby="fx-tower-peers">
         <h4 id="fx-tower-peers">{tr('已配對的電腦')}</h4>
@@ -238,35 +249,6 @@ function InboundSwitch({ inbound, disabled, label, onChange }: { inbound: PeerIn
 }
 
 /** This computer's name, as other towers show it. */
-function ProfileSection({ name, refresh }: { name: string; refresh: () => Promise<void> }) {
-  const { busy, error, setError, run } = useAction(refresh)
-  const [draft, setDraft] = useState(name)
-  const fieldId = useId()
-  // a rename saved elsewhere shows once nothing is being typed over it
-  const [shown, setShown] = useState(name)
-  if (name !== shown) {
-    setShown(name)
-    if (draft === shown) setDraft(name)
-  }
-  const typed = draft.trim()
-  const submit = (e: FormEvent) => {
-    e.preventDefault()
-    if (!typed) return setError(tr('請輸入名稱'))
-    void run(() => setProfile(typed))
-  }
-  return (
-    <section className="fx-d-group" aria-labelledby="fx-tower-me">
-      <h4 id="fx-tower-me"><label htmlFor={fieldId}>{tr('這台的名稱')}</label></h4>
-      <form className="fx-tower-line" onSubmit={submit} noValidate>
-        <input id={fieldId} className="fx-control" value={draft} maxLength={40} autoComplete="off" disabled={MOCK}
-          aria-invalid={!!error || undefined} onChange={(e) => { setDraft(e.target.value); if (error) setError('') }} />
-        <button type="submit" className="fx-save" disabled={busy || MOCK || typed === name}>{busy ? tr('儲存中…') : tr('儲存')}</button>
-      </form>
-      {error && <p className="fx-tower-error" role="alert">{error}</p>}
-    </section>
-  )
-}
-
 /** The paired computers on this island now: where each is, and sending it away. */
 function VisitorsSection({ visitors, home, refresh }: { visitors: Visitor[]; home: boolean; refresh: () => Promise<void> }) {
   return (

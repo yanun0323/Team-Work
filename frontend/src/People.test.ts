@@ -1,12 +1,12 @@
 import * as THREE from 'three'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Look } from './core/domain/types'
-import { BOTTOMS, FACIALS, HAIR_CUTS, SWIMWEAR, TOPS, type Style } from './figureStyle'
+import { BOTTOMS, FACIALS, HAIR_CUTS, SHOES, SWIMWEAR, TOPS, type Style } from './figureStyle'
 import { nookPlaces } from './Building'
 import { CELL } from './layout'
 import { officePlan } from './office'
 import { stuckCheck } from './stuckCheck'
-import { FAR_PARTS, FAR_ZOOM, farAway, farParts, headBoxesForTest, HIP, NEAR_ZOOM, newRig, placeFar, LEG, LEG_SWING, OFFICE_GAP_FOR_TEST, officeForTest, standingBodyForTest, strideOf, waist, pickFollowTarget, type FollowTarget } from './People'
+import { FAR_PARTS, FAR_ZOOM, farAway, farParts, headBoxesForTest, HIP, NEAR_ZOOM, newRig, placeFar, LEG, LEG_SWING, OFFICE_GAP_FOR_TEST, officeForTest, standingBodyForTest, strideOf, waist, pickFollowTarget, shoe, type FollowTarget } from './People'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -39,7 +39,7 @@ function fighting(worn: Box[], rest: Box[]) {
 it('wears every hat, pair of glasses and headset clear of the hair and face, never in the same plane', () => {
   const bad: string[] = []
   for (const hair of HAIR_CUTS) for (const facial of FACIALS) for (const extra of EXTRAS.filter((x) => x !== 'none')) {
-    const st = { hair, top: 'tee' as const, bottom: 'pants' as const, facial, accent: '#ffcf5a' }
+    const st = { hair, top: 'tee' as const, bottom: 'pants' as const, facial, accent: '#ffcf5a', shoes: 'leather' as const, shoeColor: '#2a2a30' }
     const bare = new Set(headBoxesForTest(LOOK, st).map((b) => JSON.stringify(b)))
     const boxes = headBoxesForTest({ ...LOOK, extra }, st)
     // what the extra adds, against the rest of the head
@@ -88,7 +88,7 @@ function surface([c, size]: [number[], number[]], n = 12) {
 it('keeps the legs inside a skirt, a dress or a coat\'s tails at every point of a stride', () => {
   const bad: string[] = []
   for (const bottom of [...BOTTOMS, ...SWIMWEAR]) for (const top of TOPS) {
-    const st: Style = { hair: 'short', top, bottom, facial: 'none', accent: '#ffcf5a' }
+    const st: Style = { hair: 'short', top, bottom, facial: 'none', accent: '#ffcf5a', shoes: 'leather', shoeColor: '#2a2a30' }
     // under a long skirt only the feet are drawn
     if (bottom === 'longskirt') continue
     const covers = [...waist(LOOK, st), ...standingBodyForTest(LOOK, st)]
@@ -169,7 +169,7 @@ it('follows only map people by default, without falling back to employees', () =
   expect(pickFollowTarget(0, crew, null, 'all')).toEqual(worker('a'))
 })
 
-const STYLE: Style = { hair: HAIR_CUTS.find((h) => h !== 'bald')!, top: 'tee', bottom: 'pants', facial: FACIALS[0], accent: '#c0453a' }
+const STYLE: Style = { hair: HAIR_CUTS.find((h) => h !== 'bald')!, top: 'tee', bottom: 'pants', facial: FACIALS[0], accent: '#c0453a', shoes: 'leather', shoeColor: '#2a2a30' }
 
 it('draws people far away below one zoom and in full again only past a higher one', () => {
   expect(farAway(FAR_ZOOM - 0.1, false)).toBe(true)
@@ -250,4 +250,35 @@ it('far away, hides each figure\'s detail and puts its boxes where it is, seated
   placeFar(mesh, rigs, parts, false)
   expect(mesh.visible).toBe(false)
   expect(rigs.every((r) => r.detail!.visible)).toBe(true)
+})
+
+it('draws each kind of shoe round the foot, a boot round the leg above it, standing and seated', () => {
+  const base: Style = { hair: 'short', top: 'tee', bottom: 'pants', facial: 'none', accent: '#ffcf5a', shoes: 'leather', shoeColor: '#123456' }
+  // [min, max] of a box along one axis
+  const span = ([p, s]: [number[], number[]], k: number) => [p[k] - s[k] / 2, p[k] + s[k] / 2]
+  const inside = (inner: [number, number], outer: [number, number]) => outer[0] < inner[0] && inner[1] < outer[1]
+  for (const [foot, shin] of [[[0.16, 0.07, 0.23], [LEG[1][0], LEG[1][2]]], [[0.14, 0.07, 0.2], [0.12, 0.12]]] as const) {
+    for (const shoes of SHOES) {
+      const boxes = shoe(LOOK, { ...base, shoes }, [...foot], [...shin])
+      // the foot itself, in the shoe's colour, or bare: on a flip-flop's sole of that colour, or on nothing
+      const bare = shoes === 'flipflops' || shoes === 'barefoot'
+      expect(boxes[0]).toEqual([[0, 0, 0], [...foot], bare ? LOOK.skin : '#123456'])
+      expect(boxes.some(([, , c]) => c === '#123456')).toBe(shoes !== 'barefoot')
+      if (shoes === 'leather' || shoes === 'barefoot') expect(boxes).toHaveLength(1)
+      // a sole under the foot, wider all round, its bottom below the foot's
+      if (shoes === 'sneakers' || shoes === 'flipflops') {
+        const sole = boxes[1]
+        expect(sole[1][0]).toBeGreaterThan(foot[0])
+        expect(sole[1][2]).toBeGreaterThan(foot[2])
+        expect(span([sole[0], sole[1]], 1)[0]).toBeLessThan(-foot[1] / 2)
+      }
+      // a shaft round the leg, standing on the foot: the leg is centred 0.03 behind the toes' middle
+      if (shoes === 'boots') {
+        const [p, s] = boxes[1]
+        expect(inside([-shin[0] / 2, shin[0] / 2], span([p, s], 0) as [number, number])).toBe(true)
+        expect(inside([0.03 - shin[1] / 2, 0.03 + shin[1] / 2], span([p, s], 2) as [number, number])).toBe(true)
+        expect(span([p, s], 1)[0]).toBeLessThanOrEqual(foot[1] / 2 + 0.001)
+      }
+    }
+  }
 })

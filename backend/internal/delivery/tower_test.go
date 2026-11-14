@@ -131,7 +131,7 @@ func TestGatewayBlocksLocalOnlyPathsAndPreferences(t *testing.T) {
 		{"GET", "/", "", 404}, {"GET", "/api/v1/towers", "", 403}, {"POST", "/api/v1/towers/pairing", "", 403}, {"GET", "/api/v1/remote/peer/world", "", 403},
 		{"GET", "/api/v1/diagnostics/memory", "", 403}, {"POST", "/api/v1/git/install", `{"consent":true}`, 403}, {"POST", "/api/v1/folder-picker", "", 403}, {"POST", "/api/v1/settings/open-folder", "", 403}, {"POST", "/api/v1/teams/team/open-folder", "", 403}, {"POST", "/api/v1/airport/open-folder", "", 403}, {"POST", "/api/v1/claude-code/login", "", 403},
 		{"POST", "/api/v1/providers/p/login", `{}`, 403}, {"POST", "/api/v1/providers/p/login", `{"method":"browser"}`, 403}, {"POST", "/api/v1/providers/p/login", `{"method":"device"}`, 204}, {"POST", "/api/v1/providers/p/login", "bad", 400},
-		{"PUT", "/api/v1/settings/language", `{}`, 403}, {"PATCH", "/api/v1/tutorial", `{}`, 403}, {"PATCH", "/api/v1/settings/preferences", `{"language":"en","terminalCommand":"sh"}`, 400}, {"PATCH", "/api/v1/settings/preferences", `{"terminalCommand":"sh","compactSmall":0.5}`, 204}, {"PATCH", "/api/v1/settings/preferences", `null`, 400},
+		{"PUT", "/api/v1/settings/language", `{}`, 403}, {"PATCH", "/api/v1/settings/preferences", `{"language":"en","terminalCommand":"sh"}`, 400}, {"PATCH", "/api/v1/settings/preferences", `{"terminalCommand":"sh","compactSmall":0.5}`, 204}, {"PATCH", "/api/v1/settings/preferences", `null`, 400},
 		{"POST", "/api/v1/%74owers/pairing", "", 403}, {"GET", "/api/v1/teams/../towers", "", 403},
 	} {
 		t.Run(test.method+test.path+test.body, func(t *testing.T) {

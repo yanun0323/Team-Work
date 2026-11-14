@@ -971,10 +971,7 @@ func TestNewTaskWaitsInTodoUntilStarted(t *testing.T) {
 	if err := r.e.ResumeTask(made.ID); err != nil {
 		t.Fatal(err)
 	}
-	w = r.wait("await merge", stage(made.ID, enum.StageAwaitMerge))
-	if slices.Contains(w.Tutorial.Actions, "pause") {
-		t.Fatal("starting a new task counted as pausing one")
-	}
+	r.wait("await merge", stage(made.ID, enum.StageAwaitMerge))
 }
 
 func TestPauseStopsTheRunAndResumeContinues(t *testing.T) {

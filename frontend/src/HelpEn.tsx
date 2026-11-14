@@ -9,7 +9,7 @@ export interface HelpTopic { label: string; title?: string; alt: string; body: R
 export const HELP_EN: Record<string, HelpTopic> = {
   start: {
     label: 'Quick start',
-    alt: 'Two companies and the airport on the island; at the top right, the new company, edit map, language, help and settings (plane) buttons',
+    alt: 'Two companies and the airport on the island; at the top right, the new company, edit map, language, help and profile buttons',
     body: (
       <>
         <p>Team Work treats each project as a company, in a building on the island. The company's employees are AI agents who follow a workflow step by step to finish the tasks you give them.</p>
@@ -25,7 +25,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <dt>Something missing</dt><dd>A red stamp above a company's tabs says what to do first; see Company.</dd>
           <dt>Put away</dt><dd>Press Esc or click an empty part of the map to put away an open company, the airport or the help.</dd>
           <dt>Language</dt><dd>Press the globe at the top right.</dd>
-          <dt>Tutorial</dt><dd>The list beside the clock shows things to try next; click one to be taken where to do it.</dd>
+          <dt>Profile</dt><dd>Press your face at the top right to see your achievements on this island: the days in use, tasks done, chats, messages you sent, tokens, cost, and the employee you work with most. Press Edit beside your name to open your character on the left, and pick a hair cut, facial hair, an accessory, a top, what you wear below, shoes and the colour of each, the last swatch for any colour; each change is saved at once. Your name is also what other towers call this computer. Your character walks about your own island too, and stays out at night; with your profile open, the camera follows you as the Auto view setting says.</dd>
         </dl>
       </>
     ),
@@ -57,9 +57,9 @@ export const HELP_EN: Record<string, HelpTopic> = {
         <dl>
           <dt>Pairing</dt><dd>Under Pair a new computer, the computer to be worked picks Let another work this one, presses Wait for pairing and copies the address; the other picks Work another, pastes the address and sends it. Pairing is done once the computer being worked presses Agree. The address lasts 10 minutes. After that, reopening the app or losing the connection never needs pairing again.</dd>
           <dt>Off, View, Operate</dt><dd>Each paired computer has its own switch for what it may do here: Off keeps it out, View lets it look, Operate lets it act too. Right after pairing, only the computer being worked lets the other in, and on View, as with ones paired before this update; for the other way round, switch it in your own tower. Switching to Off or unpairing shuts the other computer out at once.</dd>
-          <dt>On this island now</dt><dd>The tower lists the computers on this island now, and the company or airport each has open is outlined on the map with its name. You can send one away (it may come back later), block it for 1 hour, or block it until you lift the block. A visitor opening a chat does not clear your unread marks. At the top you can rename this computer, as other towers show it; only computers on the same link version can go to each other.</dd>
+          <dt>On this island now</dt><dd>The tower lists the computers on this island now, and the company or airport each has open is outlined on the map with its name. You can send one away (it may come back later), block it for 1 hour, or block it until you lift the block. A visitor opening a chat does not clear your unread marks. This computer goes by the name you set in your profile (your face at the top right of the map), and other towers show that name and your figure; only computers on the same link version can go to each other.</dd>
           <dt>Going and coming back</dt><dd>Go first checks that the other computer can be worked, then switches to its island. The lower left corner always says which computer you are working; press Back to my island to return. The cell tower on another island opens this computer's tower.</dd>
-          <dt>On another island</dt><dd>Interface settings, the language and the tutorial stay this computer's. A new company browses the other computer's folders inside the page. Anything that would open a window on the other computer's screen (Open in Finder, Open settings folder, browser sign-in) is off.</dd>
+          <dt>On another island</dt><dd>Interface settings and the language stay this computer's. A new company browses the other computer's folders inside the page. Anything that would open a window on the other computer's screen (Open in Finder, Open settings folder, browser sign-in) is off.</dd>
           <dt>Versions</dt><dd>When the two computers' Team Work are not compatible, they cannot pair or go to each other, and the screen says which one to update.</dd>
         </dl>
       </>
@@ -70,7 +70,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
     alt: 'The airport open: the airport on the map and its file on the right',
     body: (
       <>
-        <p>The airport holds what all companies share: chats, model providers, blueprints, workflows, sources, usage, terminal and settings, each with its own topic under Airport on the left. Click the airport or its name tag on the map to open it, and the view zooms in; the plane button at the top right opens it without moving the view.</p>
+        <p>The airport holds what all companies share: chats, model providers, blueprints, workflows, sources, usage, terminal and settings, each with its own topic under Airport on the left. Click the airport or its name tag on the map to open it, and the view zooms in.</p>
         <p className="fx-help-pit">Blueprints, workflows, sources and providers changed here affect every company.</p>
         <dl>
           <dt>Its place</dt><dd>The airport stays where it is, and no company can be built on it.</dd>
@@ -251,7 +251,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <dt>Language</dt><dd>The language of the interface and of official and built-in blueprints and workflows, and the one employees reply in. Employees switch from their next reply, and old messages stay as they are.</dd>
           <dt>Default pages</dt><dd>Which tab the airport and a company open on: Model providers and Tasks by default.</dd>
           <dt>Auto-switch default page</dt><dd>Set to On: unread chats first by default. A task waiting for your reply opens Tasks, and a chat that is unread or waiting for your answer opens Chats; if both are waiting, the option decides. With nothing waiting, the default tab opens. The airport only looks at chats.</dd>
-          <dt>Auto view</dt><dd>What the camera does when you click a company, the airport or a spot for a new company. Pan and zoom (the default) moves there, zooms in and locks the map. Pan only moves there: you can zoom but not pan. Off leaves the camera alone.</dd>
+          <dt>Auto view</dt><dd>What the camera does when you click a company, the airport or a spot for a new company, or open your profile. Pan and zoom (the default) moves there, zooms in and locks the map. Pan only moves there: you can zoom but not pan. Off leaves the camera alone.</dd>
           <dt>Clicking the map</dt><dd>What a click on the map does while a company or the airport is open. Goes back to the main screen puts it away, detail sheets and all. Closes pages first (the default) puts away any open detail sheets first; click again to put away the company or airport.</dd>
           <dt>Task log order</dt><dd>Newest first or last, for task, sub-task and employee logs.</dd>
           <dt>Music and sounds</dt><dd>Music and effects have separate volumes, each with a mute beside its slider, and each kind of sound can be turned off or previewed on its own. Mute in background is on by default, so sound stops when you switch to another app. Notifications sound when a task waits for your reply or merge, or a chat gets a new reply; a chat you have open stays quiet. Sound starts after your first click or key press.</dd>
@@ -263,8 +263,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <dt>Image generation</dt><dd>Under System, pick a ChatGPT subscription and every employee gets the <code>image_gen</code> tool to make or edit pictures, saved as PNG files in the working folder, or as GIFs of 2–16 frames for an animation. You can also tick Default image generation provider when adding or editing a ChatGPT subscription. Pick None to turn it off.</dd>
           <dt>Use Codex skills / Use Claude skills</dt><dd>Under System, both on by default. Turn one off and no blueprint reads the skills in <code>~/.codex/</code> or <code>~/.claude/</code> any more, though blueprints still list the folder. The same options cover <code>.codex/</code> and <code>.claude/</code> in a company's folder.</dd>
           <dt>Global employee rules</dt><dd>Under System. Every employee in every company receives them. They are stored in <code>~/.team-work/AGENTS.md</code>, and edits made outside the app apply from the next run or reply.</dd>
-          <dt>Tutorial</dt><dd>The list beside the clock on the main screen shows 5 things at a time; finished ones are ticked and go, and ones the app can see you have done count as done. Skip tutorial hides the list, and Restart tutorial starts over.</dd>
-          <dt>Settings files</dt><dd>Interface preferences, tutorial progress, companies, employees, your own blueprints and workflows, and providers are stored as files under <code>~/.team-work</code>; built-in ones and those from sources are not there. A reload applies only if the whole batch passes its checks; otherwise the current settings stay. Open settings folder shows this location in Finder.</dd>
+          <dt>Settings files</dt><dd>Interface preferences, companies, employees, your own blueprints and workflows, and providers are stored as files under <code>~/.team-work</code>; built-in ones and those from sources are not there. A reload applies only if the whole batch passes its checks; otherwise the current settings stay. Open settings folder shows this location in Finder.</dd>
           <dt>Reset to defaults</dt><dd>At the bottom of the page; press it twice. Every setting on the page returns to its default, including the language and the terminal startup command. The global employee rules are kept.</dd>
         </dl>
       </>

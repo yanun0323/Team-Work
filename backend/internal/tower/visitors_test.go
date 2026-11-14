@@ -2,6 +2,8 @@ package tower
 
 import (
 	"context"
+
+	"github.com/yanun0323/Team-Work/internal/model"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,14 +71,14 @@ func TestProfileNameReachesPairedTower(t *testing.T) {
 	a, b := testService(t, n), testService(t, n)
 	pair(t, a, b)
 	for _, bad := range []string{"", "   ", "a\tb", strings.Repeat("x", 41)} {
-		if _, err := b.SetProfile(bad); err == nil {
+		if _, err := b.SetProfile(bad, nil); err == nil {
 			t.Fatalf("%q accepted", bad)
 		}
 	}
-	if _, err := b.SetProfile("  Studio  "); err != nil {
+	if _, err := b.SetProfile("  Studio  ", nil); err != nil {
 		t.Fatal(err)
 	}
-	if b.View().Me.Name != "Studio" {
+	if b.View().Me.Name != "Studio" || b.View().Me.Look != nil {
 		t.Fatal(b.View().Me)
 	}
 	p, err := a.Check(context.Background(), b.View().Me.ID)
@@ -90,6 +92,76 @@ func TestProfileNameReachesPairedTower(t *testing.T) {
 	}
 	defer again.Close()
 	if again.View().Me.Name != "Studio" {
+		t.Fatal(again.View().Me)
+	}
+}
+
+func validLook() model.Look {
+	return model.Look{Skin: "#f2d3b3", Hair: "#1f1a24", Shirt: "#3f6fb5", Pants: "#2c2c3a", Extra: "glasses", Wardrobe: 2,
+		Parts: &model.LookParts{Hair: "bob", Top: "hoodie", Bottom: "skirt", Facial: "none", Accent: "#c23b3b", Shoes: "boots", ShoeColor: "#5b3a26"}}
+}
+
+func TestProfileLookReachesPairedTowerAndItsVisitorList(t *testing.T) {
+	n := &memoryNetwork{}
+	a, b := testService(t, n), testService(t, n)
+	pair(t, a, b)
+	broken := []func(*model.Look){
+		func(l *model.Look) { l.Skin = "red" },
+		func(l *model.Look) { l.Extra = "<script>" },
+		func(l *model.Look) { l.Wardrobe = 99 },
+		func(l *model.Look) { l.Parts.Hair = "" },
+		func(l *model.Look) { l.Parts.Accent = "#12345" },
+		func(l *model.Look) { l.Parts.Shoes = "Boots!" },
+		func(l *model.Look) { l.Parts.ShoeColor = "brown" },
+	}
+	for i, change := range broken {
+		l := validLook()
+		change(&l)
+		if _, err := b.SetProfile("Studio", &l); err == nil {
+			t.Fatal("broken look accepted", i)
+		}
+	}
+	if b.View().Me.Look != nil || b.View().Me.Name == "Studio" {
+		t.Fatal("a refused look changed the profile", b.View().Me)
+	}
+	// parts picked before shoes could be have none, and still save
+	older := validLook()
+	older.Parts.Shoes, older.Parts.ShoeColor = "", ""
+	if _, err := b.SetProfile("Studio", &older); err != nil {
+		t.Fatal(err)
+	}
+	look := validLook()
+	if _, err := b.SetProfile("Studio", &look); err != nil {
+		t.Fatal(err)
+	}
+	// a later rename alone keeps the look
+	if _, err := b.SetProfile("Studio 2", nil); err != nil {
+		t.Fatal(err)
+	}
+	if l := b.View().Me.Look; l == nil || l.Parts == nil || l.Parts.Top != "hoodie" {
+		t.Fatal(b.View().Me)
+	}
+	bID := b.View().Me.ID
+	p, err := a.Check(context.Background(), bID)
+	if err != nil || p.Look == nil || p.Look.Extra != "glasses" || p.Look.Parts.Bottom != "skirt" || p.Look.Parts.Shoes != "boots" || p.Look.Parts.ShoeColor != "#5b3a26" {
+		t.Fatal(p, err)
+	}
+	if _, err := a.SetAllowed(bID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Visit(bID, "page1", "airport", false); err != nil {
+		t.Fatal(err)
+	}
+	if v := a.View().Visitors; len(v) != 1 || v[0].Look == nil || v[0].Look.Parts.Hair != "bob" {
+		t.Fatal(v)
+	}
+	// kept across a restart
+	again, err := New(context.Background(), filepath.Dir(b.file), n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	if l := again.View().Me.Look; l == nil || l.Parts == nil || l.Parts.Accent != "#c23b3b" {
 		t.Fatal(again.View().Me)
 	}
 }

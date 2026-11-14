@@ -18,8 +18,9 @@ import { STYLE_NAMES } from './NewCompany'
 import { PixelPass } from './PixelPass'
 import { usePrefs } from './prefs'
 import { Figure, newRig } from './People'
-import { BOTTOMS, HAIR_CUTS, styleOf, SWIMWEAR, TOPS, WARDROBE, type Bottom, type Facial, type Hair, type Style, type Top } from './figureStyle'
+import { BOTTOMS, FLIPFLOP, HAIR_CUTS, SHOE, SHOES, styleOf, SWIMWEAR, TOPS, WARDROBE, type Hair, type Shoes, type Style } from './figureStyle'
 import type { Look } from './core/domain/types'
+import { BOTTOM_NAMES, EXTRAS, FACIALS, HAIR_NAMES, SHOE_NAMES, TOP_NAMES } from './lookNames'
 
 export const GALLERIES = ['buildings', 'furniture', 'characters'] as const
 export type Gallery = (typeof GALLERIES)[number]
@@ -110,6 +111,8 @@ function seedFor(want: Partial<Pick<Style, 'hair' | 'top' | 'bottom' | 'facial'>
 /** Heads framed close: the tallest hair and hats, the widest cut, a cap's brim. Bodies whole. */
 const HEAD: [V3, V3] = [[-0.27, 0.7, -0.3], [0.27, 1.32, 0.3]]
 const BODY: [V3, V3] = [[-0.33, 0, -0.3], [0.33, 1.32, 0.3]]
+/** Feet and shins: the tallest is a boot's shaft. */
+const FEET: [V3, V3] = [[-0.3, -0.02, -0.3], [0.3, 0.5, 0.3]]
 /** Turned three-quarters to the camera, as on the hire sheet (Standee.tsx); a ponytail is shown from behind. */
 const FACING = Math.PI
 const FROM_BEHIND = Math.PI / 2
@@ -126,23 +129,15 @@ function Person({ look, seed, turn }: { look: Look; seed: number; turn: number }
   return <Figure look={look} rig={rig} seed={seed} />
 }
 
-const HAIR_NAMES: Record<Hair, Key> = {
-  short: '短髮', long: '長髮', bun: '包頭', fringe: '瀏海', buzz: '平頭', spiky: '刺蝟頭',
-  ponytail: '馬尾', bob: '鮑伯頭', afro: '爆炸頭', mohawk: '莫霍克頭', bald: '光頭', side: '旁分',
-  twintails: '雙馬尾', sidetail: '側馬尾', waves: '大波浪', buns: '雙丸子頭', braid: '麻花辮', halfup: '公主頭', curly: '捲髮', quiff: '油頭',
+/** Each kind of shoe in a colour of its own, on someone dressed plainly. */
+const SHOE_SAMPLES: Record<Shoes, string> = { leather: SHOE, sneakers: '#e85d4a', boots: '#5b3a26', flipflops: FLIPFLOP, barefoot: SHOE }
+const shod = (shoes: Shoes): Look => {
+  const seed = seedFor({})
+  return { ...MODEL, style: seed, parts: { ...styleOf(seed, WARDROBE), shoes, shoeColor: SHOE_SAMPLES[shoes] } }
 }
+
 /** Cuts whose shape shows best from behind. */
 const SEEN_FROM_BEHIND = new Set<Hair>(['ponytail', 'halfup'])
-const TOP_NAMES: Record<Top, Key> = {
-  tee: 'T 恤', hoodie: '帽 T', jacket: '西裝外套', tie: '襯衫領帶', sweater: '毛衣', polo: 'Polo 衫', vest: '背心', stripes: '條紋衫',
-  cardigan: '針織開襟衫', bowshirt: '領結襯衫', plaid: '格子襯衫', labcoat: '實驗袍', turtleneck: '高領毛衣',
-}
-const BOTTOM_NAMES: Record<Bottom, Key> = { pants: '長褲', skirt: '短裙', longskirt: '長裙', dress: '連身裙', trunks: '泳褲', bikini: '比基尼' }
-const FACIALS: Array<[Exclude<Facial, 'none'>, Key]> = [['mustache', '八字鬍'], ['beard', '落腮鬍'], ['stubble', '鬍渣'], ['goatee', '山羊鬍']]
-const EXTRAS: Array<[Exclude<Look['extra'], 'none'>, Key]> = [
-  ['glasses', '眼鏡'], ['sunglasses', '墨鏡'], ['cap', '棒球帽'], ['beanie', '毛帽'], ['headset', '耳機麥克風'], ['bow', '蝴蝶結'],
-  ['strawhat', '草帽'], ['beret', '貝雷帽'], ['bandana', '頭巾'], ['headband', '髮箍'], ['hairclip', '髮夾'], ['flower', '花朵髮飾'],
-]
 
 const person = (id: string, name: Key, group: Key, note: Key, frame: [V3, V3], seed: number, look = MODEL, turn = FACING): Item => ({
   id, name, group, note, frame, draw: () => <Person look={look} seed={seed} turn={turn} />,
@@ -156,6 +151,7 @@ const CHARACTERS: Item[] = [
   ...SWIMWEAR.map((b) => person(`swim-${b}`, BOTTOM_NAMES[b], '泳裝', '泳褲用褲子的顏色，比基尼用上衣的顏色，都配夾腳拖。島上的路人比較常穿。', BODY, seedFor({ bottom: b }))),
   ...FACIALS.map(([f, name]) => person(`facial-${f}`, name, '鬍子', '和頭髮同色，鬍渣是深一點的膚色。大部分的人沒有鬍子。', HEAD, seedFor({ facial: f }))),
   ...EXTRAS.map(([x, name]) => person(`extra-${x}`, name, '配件', '每人最多一件，也常常沒有。', HEAD, seedFor({}), { ...MODEL, extra: x })),
+  ...SHOES.map((s) => person(`shoes-${s}`, SHOE_NAMES[s], '鞋子', '鞋子顏色因人而異。較早進來的員工都穿深色皮鞋，之後新進的也會穿運動鞋或靴子；穿泳裝時配夾腳拖。', FEET, seedFor({}), shod(s))),
 ]
 
 const ITEMS: Record<Gallery, Item[]> = {

@@ -9,6 +9,7 @@ import { tr } from './core/i18n'
 import { openFolder } from './core/ops'
 import { MOCK } from './core/mode'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { create } from 'zustand'
 import { inTerminal, keepsEscape, waitingTab } from './core/model'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { useStore } from './core/store'
@@ -19,7 +20,6 @@ import { usePrefs } from './prefs'
 import { fmtBytes, useProjectBytes } from './projectSize'
 import type { BuildingLook } from './layout'
 import type { Team } from './core/domain/types'
-import { takeCompanyTab } from './tutorial'
 import { useOpenedFromNotice, type OpenTarget } from './notices'
 import { NotesPin } from './Notes'
 import { answerLeaving, unsavedIn, useFileDrafts } from './fileDrafts'
@@ -142,12 +142,8 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   const last = useRef(live)
   if (live) last.current = live
   const team = live ?? (last.current?.id === teamId ? last.current : undefined)
-  // the tab a tutorial step asked for, kept until the opening effect below has used it
-  const [askedTab] = useState(takeCompanyTab)
-  const asked = useRef(askedTab)
   const startTab = () => {
     const { autoTab, defaultTab } = usePrefs.getState()
-    if (asked.current) return asked.current
     return tabOr((autoTab !== 'off' && waitingTab(useStore.getState().world, teamId, autoTab)) || defaultTab)
   }
   const [tab, setTab] = useState<Tab>(startTab)
@@ -165,7 +161,6 @@ export function Drawer({ teamId, look, leaving, onGone }: {
     title.current?.focus({ preventScroll: true })
     back(-1, false)
     const start = startTab()
-    asked.current = null
     setTab(start)
     if (start === 'terminal') {
       setTerminalTeam(teamId)
@@ -343,9 +338,23 @@ export function openOnce(sheets: Sheets, x: OpenTarget) {
   if (!top || top.leaving || itemKey(top.item) !== itemKey(item)) sheets.open(item)
 }
 
+/** How many sheet stacks have a sheet out over the left of the screen, where the main screen's top left gives way. */
+export const useLeftSheets = create<{ count: number }>(() => ({ count: 0 }))
+
+/** Counts this stack among those over the left while `shown`. */
+export function useCoversLeft(shown: boolean) {
+  useEffect(() => {
+    if (!shown) return
+    useLeftSheets.setState((s) => ({ count: s.count + 1 }))
+    return () => useLeftSheets.setState((s) => ({ count: s.count - 1 }))
+  }, [shown])
+}
+
 /** The detail sheets opened from a drawer, over the upper left of the map. */
 export function SheetStack({ sheets, teamId, leaving }: { sheets: Sheets; teamId: string; leaving: boolean }) {
   const { layers, top, back } = sheets
+  // until the last one has gone, those going away included
+  useCoversLeft(layers.length > 0)
   return layers.map((l, i) => (
     <Detail key={`${i}:${itemKey(l.item)}`} item={l.item} teamId={teamId} depth={i}
       covered={i < top} above={i < top ? layers[i + 1]?.item : undefined} leaving={leaving || l.leaving}

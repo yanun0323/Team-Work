@@ -197,7 +197,7 @@ body { margin: 0; overflow: hidden; }
 .fx-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* ---- head: title block, then section tabs; space alone keeps them apart */
-.fx-head { flex: none; padding: 24px clamp(18px, 3vw, 30px) 0; }
+.fx-head { --head-pad: clamp(18px, 3vw, 30px); flex: none; padding: 24px var(--head-pad) 0; }
 .fx-title {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px;
   padding-bottom: 22px;
@@ -1111,6 +1111,63 @@ a.fx-save { text-decoration: none; }
 .fx-look-building { grid-template-columns: auto minmax(0, 1fr) auto; }
 .fx-standee canvas { image-rendering: pixelated; }
 
+/* the user's profile: their face on the map's corner, and the look editor with the figure kept in view beside it */
+.fx-profile-trigger svg { display: block; border-radius: 2px; }
+.fx-profile-blank { width: 22px; height: 22px; border-radius: 2px; background: var(--paper-2); }
+.fx-profile-title > svg { flex: none; padding: 3px; background: var(--clip); box-shadow: var(--lift); transform: rotate(-2deg); }
+.fx-profile-look { display: grid; grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); align-items: start; gap: 20px; }
+.fx-profile-look .fx-fields { gap: 14px; }
+/* every row of picks is 32px a line, and each label sits level with the first line */
+.fx-profile-look .fx-field { grid-template-columns: 5.5em minmax(0, 1fr); align-items: start; }
+.fx-profile-look .fx-field > :first-child { display: flex; align-items: center; min-height: 32px; padding-top: 0; }
+.fx-profile-look .fx-control { height: 32px; }
+.fx-profile-look .fx-look-picks { row-gap: 6px; }
+.fx-profile-figure { position: sticky; top: 0; display: grid; gap: 8px; min-width: 0; }
+.fx-profile-figure .fx-standee { min-width: 0; height: 150px; overflow: hidden; }
+.fx-profile-figure .fx-reroll { justify-self: center; }
+/* on its sheet beside the profile, the figure stays at the top and only the parts below it scroll, so it needs no
+   backing to hide them; a little room round the parts keeps their focus rings in view */
+.fx-detail-body:has(> .fx-profile-look) { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+.fx-detail .fx-profile-look { flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+.fx-detail .fx-profile-figure { position: static; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.fx-detail .fx-profile-figure .fx-reroll { justify-self: end; }
+/* the parts use the sheet's whole width, and the scroller reaches its right edge */
+.fx-detail .fx-profile-look > .fx-fields {
+  align-self: stretch; overflow-y: auto; max-width: none; grid-template-columns: minmax(0, 1fr);
+  margin: -4px -28px 0 -4px; padding: 4px 28px 28px 4px;
+}
+@media (max-width: 720px) {
+  .fx-profile-look { grid-template-columns: minmax(0, 1fr); }
+  .fx-profile-figure { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .fx-profile-figure .fx-reroll { justify-self: end; }
+  .fx-profile-figure .fx-standee { height: 112px; }
+}
+.fx-look-picks { display: flex; flex-wrap: wrap; gap: 4px; }
+.fx-look-pick {
+  position: relative; display: grid; place-items: center; min-width: 32px; min-height: 32px; padding: 3px 8px; box-sizing: border-box;
+  border-radius: 3px; background: var(--clip); box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink); font: 500 12px/1.3 var(--font-sans); cursor: pointer;
+}
+.fx-look-faces .fx-look-pick { padding: 2px; }
+.fx-look-pick > span { display: block; }
+.fx-look-pick svg { display: block; }
+.fx-look-pick input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.fx-look-pick:hover { box-shadow: inset 0 0 0 1px var(--muted); }
+.fx-look-pick:has(input:checked) { background: var(--ink); color: var(--paper); box-shadow: none; }
+.fx-look-faces .fx-look-pick:has(input:checked) { background: var(--clip); box-shadow: inset 0 0 0 2px var(--ink); }
+.fx-look-pick:has(input:focus-visible) { outline: 2px solid rgb(31 29 43 / 0.3); outline-offset: 2px; }
+.fx-swatches { gap: 6px; }
+.fx-swatch { min-width: 24px; min-height: 24px; width: 24px; height: 24px; margin-block: 4px; padding: 0; border-radius: 50%; background: var(--swatch); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.18); }
+.fx-swatch:has(input:checked), .fx-swatch-own[data-checked] { background: var(--swatch); box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ink); }
+.fx-swatch-own:not([data-checked]) { background: conic-gradient(#e85d4a, #ffcf5a, #8fd0c8, #3f7fbf, #8a5bb8, #e85d4a); }
+.fx-profile-sum { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+.fx-profile-partner { display: flex; align-items: center; gap: 10px; margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.fx-profile-partner b { color: var(--ink); font-size: 15px; }
+.fx-profile-partner svg { flex: none; padding: 3px; background: var(--clip); box-shadow: var(--lift); transform: rotate(-2deg); }
+.fx-tower-me { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.fx-tower-me svg { display: block; border-radius: 2px; }
+.fx-tower-me:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.fx-tower-me:focus-visible { outline: 2px solid rgb(31 29 43 / 0.3); outline-offset: 2px; }
+
 /* the buttons over the map's top right corner: a new company, and the gear that opens the settings drawer */
 .fx-corner {
   position: absolute; top: 22px; inset-inline-end: 22px; z-index: 4;
@@ -1230,8 +1287,8 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
   :is(.fx-settings-trigger, .fx-corner-text) { transition: scale 150ms ease-out; }
   :is(.fx-settings-trigger, .fx-corner-text):active:not(:disabled) { scale: 0.96; }
 }
-/* a drawer head with no tabs under it still ends in a rule */
-.fx-head-rule { border-bottom: 1px solid var(--ink); }
+/* a drawer head with no tabs under it still ends in a rule, inset like the tabs' */
+.fx-head-rule { background: linear-gradient(var(--ink), var(--ink)) 50% 100% / calc(100% - 2 * var(--head-pad)) 1px no-repeat; padding-bottom: 1px; }
 /* a drawer head with no stamp in front of the title */
 .fx-title-plain { grid-template-columns: minmax(0, 1fr) auto; }
 .fx-row > span > .fx-bp-icon { display: block; }
@@ -2031,49 +2088,10 @@ button.fx-ticket-tag:hover { color: var(--ink); }
 .fx-mute { display: inline-flex; flex: none; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; }
 .fx-sound-effect { display: grid; grid-template-columns: minmax(0, 1fr) 32px; gap: 12px; align-items: center; }
 
-/* the clock and, beside it, the tutorial's next steps */
+/* the clock */
 .fx-top-left { position: absolute; top: 22px; inset-inline-start: 22px; z-index: 4; display: flex; align-items: flex-start; gap: 16px; pointer-events: none; }
 .fx-top-left > .fx-brand { position: relative; top: auto; inset-inline-start: auto; }
-@media (max-width: 640px) { .fx-top-left { top: 78px; flex-direction: column; } .fx-top-left > .fx-tutorial { margin-inline-start: 0; } }
-/* the top leaves room under the tape */
-.fx-tutorial { width: 300px; margin-inline-start: 14px; padding: 12px 6px 5px; font-size: 15px; rotate: 1deg; pointer-events: auto; }
-.fx-tutorial ol { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0; padding: 0; list-style: none; }
-.fx-tutorial li { display: grid; grid-template-rows: 1fr; }
-.fx-tutorial button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 0 8px; border: 0; border-radius: 2px; color: inherit; font: inherit; font-weight: 600; text-align: start; cursor: pointer; }
-.fx-tutorial button { background: none; }
-/* --shade belongs to the drawers, and the slip sits outside them */
-.fx-tutorial button:hover { box-shadow: none; background: rgb(31 29 43 / 0.14); }
-.fx-tutorial button:disabled { cursor: default; box-shadow: none; background: none; }
-.fx-tutorial button:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
-/* long steps wrap; the padding sits on the span so a done row still closes up to nothing */
-.fx-tutorial button span { min-width: 0; padding-block: 4px; line-height: 1.25; overflow-wrap: anywhere; text-wrap: pretty; }
-.fx-tutorial-mark { flex: none; overflow: visible; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-.fx-tutorial-mark circle { opacity: 0.25; }
-/* done: a green disc with a white tick */
-.fx-tutorial-done { --tutorial-green: #2f9e5b; border-radius: 2px; }
-.fx-tutorial-done .fx-tutorial-mark circle { opacity: 1; fill: var(--tutorial-green); stroke: var(--tutorial-green); }
-.fx-tutorial-done .fx-tutorial-mark path { stroke: #fff; stroke-width: 1.8; }
-.fx-tutorial-done .fx-tutorial-mark .fx-tutorial-burst { opacity: 0; fill: none; }
-.fx-tutorial-done > button { transform-origin: 0 50%; }
-@media (prefers-reduced-motion: no-preference) {
-  /* the tick draws in, then the row fades and closes up */
-  /* the disc fills, the tick draws in, a ring bursts out and the row swells with a green flash; then it fades and closes up */
-  .fx-tutorial-done .fx-tutorial-mark circle { animation: fx-tutorial-fill 180ms ease-out both; }
-  .fx-tutorial-done .fx-tutorial-mark path { stroke-dasharray: 9; stroke-dashoffset: 9; animation: fx-tutorial-tick 300ms ease-out 120ms forwards; }
-  .fx-tutorial-done .fx-tutorial-mark .fx-tutorial-burst { transform-origin: 7px 7px; animation: fx-tutorial-burst 550ms ease-out 80ms both; }
-  .fx-tutorial-done > button { animation: fx-tutorial-pop 450ms cubic-bezier(0.3, 1.6, 0.5, 1) both; }
-  .fx-tutorial-done { animation: fx-tutorial-flash 500ms ease-out both, fx-tutorial-out 400ms ease-in 550ms forwards; }
-  .fx-tutorial-done > button { overflow: hidden; min-height: 0; }
-  .fx-tutorial-new { animation: fx-tutorial-in 400ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
-}
-@media (prefers-reduced-motion: reduce) { .fx-tutorial-done { opacity: 0.5; } }
-@keyframes fx-tutorial-tick { to { stroke-dashoffset: 0; } }
-@keyframes fx-tutorial-fill { from { fill: transparent; stroke: currentColor; opacity: 0.25; } }
-@keyframes fx-tutorial-burst { from { opacity: 0.9; scale: 1; stroke-width: 2; } to { opacity: 0; scale: 2.4; stroke-width: 0.4; } }
-@keyframes fx-tutorial-pop { 0% { scale: 1; } 45% { scale: 1.07; } 100% { scale: 1; } }
-@keyframes fx-tutorial-flash { from { background: rgb(47 158 91 / 0.28); } to { background: rgb(47 158 91 / 0); } }
-@keyframes fx-tutorial-out { to { opacity: 0; grid-template-rows: 0fr; } }
-@keyframes fx-tutorial-in { from { opacity: 0; translate: -12px 0; } }
+@media (max-width: 640px) { .fx-top-left { top: 78px; } }
 
 /* ---------- the power tower (TowerPanel.tsx) ---------- */
 .fx-tower { gap: 30px; }
@@ -2218,6 +2236,25 @@ button.fx-ticket-tag:hover { color: var(--ink); }
 }
 @media (prefers-reduced-motion: reduce) {
   .fusion-stage > :not(.fusion-canvas, .labels), .fusion-stage[data-away] > :not(.fusion-canvas, .labels) { transition: none; }
+}
+
+/* Out of the way (data-tucked, World.tsx): while a drawer, the help or a sheet is over the map, the corners go off the
+   screen over the edge they sit by, as on a flight, and come back once it has gone. A slot in a corner that a mode has no
+   use for (placing a company, editing the map) goes up off the screen, keeping its place, so the button left stays
+   under the pointer. Off the screen they are out of reach of the pointer and the keyboard (inert). */
+.fusion-stage > :is(.fx-top-left, .fx-corner, .fx-map-tip), .fx-slot { transition: translate 360ms cubic-bezier(0.2, 0.8, 0.3, 1); }
+.fusion-stage > [data-tucked], .fx-slot[data-tucked] {
+  translate: var(--away, 0 calc(-100% - 40px)); visibility: hidden; pointer-events: none;
+  transition: translate 260ms cubic-bezier(0.55, 0, 0.8, 0.4), visibility 0s linear 260ms;
+}
+.fx-slot[data-tucked] { --away: 0 calc(-100% - 40px); }
+/* the top left gives way to a sheet pasted down over it: gone quickly, before the sheet shows */
+.fusion-stage > .fx-top-left[data-tucked] { transition: translate 100ms cubic-bezier(0.2, 0, 0.8, 1), visibility 0s linear 100ms; }
+.fx-two-way { display: inline-grid; justify-items: center; }
+.fx-two-way > span { grid-area: 1 / 1; }
+.fx-two-way > span + span { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .fusion-stage > :is(.fx-top-left, .fx-corner, .fx-map-tip), .fx-slot, .fusion-stage > [data-tucked], .fx-slot[data-tucked] { transition: none; }
 }
 
 /* a paired computer has this place open: the slip is outlined, with who is there hanging below it */

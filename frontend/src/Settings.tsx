@@ -29,7 +29,6 @@ import { request } from './core/backend'
 import { MusicSection, Volume } from './SoundPage'
 import { MOCK } from './core/mode'
 import { DEFAULT_EFFORT, effortsOf, modelGroups, modelsOf } from './crew'
-import { takeAirportTab, tutorialOf, updateTutorial } from './tutorial'
 import { composing } from './ime'
 import { Stats } from './Stats'
 import { SemanticSearchSection, workRunning } from './SemanticSearch'
@@ -76,8 +75,6 @@ export function Settings({ leaving, onGone }: {
 }) {
   const [tab, setTab] = useState<AirportTab>(() => {
     const { autoTab, defaultAirportTab } = usePrefs.getState()
-    const asked = takeAirportTab()
-    if (asked) return asked
     // the airport has no tasks, so only its chats can be waiting
     return autoTab !== 'off' && waitingTab(useStore.getState().world, '') === 'chats' ? 'chats' : airportTabOr(defaultAirportTab)
   })
@@ -522,17 +519,6 @@ export function ResetSettings() {
   )
 }
 
-/** Skipping hides the list until it is started over; starting over empties what was learned, both at once. */
-function TutorialActs() {
-  const hidden = useStore((s) => tutorialOf(s.world).hidden)
-  return (
-    <div className="fx-settings-file-acts">
-      {!hidden && <button type="button" className="fx-save" onClick={() => updateTutorial({ hidden: true })}>{tr('略過教學')}</button>}
-      <button type="button" className="fx-save" onClick={() => updateTutorial({ reset: true })}>{tr('重新開始教學')}</button>
-    </div>
-  )
-}
-
 /** A wait in seconds as the settings show it: off, or in seconds, minutes or hours. */
 export const idleFollowLabel = (s: number) =>
   s === 0 ? tr('關閉#view') : s < 60 ? tr('{a} 秒', { a: s }) : s < 3600 ? tr('{a} 分鐘', { a: s / 60 }) : tr('{a} 小時', { a: s / 3600 })
@@ -609,10 +595,6 @@ export function PrefsPage() {
       {!MOCK && <CompactSection />}
       {!MOCK && <AdvancedSection />}
       <SemanticSearchSection />
-      {!remote && <section className="fx-d-group" aria-labelledby="fx-prefs-tutorial">
-        <h4 id="fx-prefs-tutorial">{tr('教學')}</h4>
-        <TutorialActs />
-      </section>}
       {!MOCK && <ReloadSettings />}
       {!remote && <ResetSettings />}
     </div>

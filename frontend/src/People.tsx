@@ -17,7 +17,7 @@ import { Fade, FADE_SECONDS } from './Fade'
 import { batchFigure } from './FigureBatch'
 import { LIVE } from './Merged'
 import { light } from './daylight'
-import { isSwimwear, seedOf, styleOf, type Style } from './figureStyle'
+import { isSwimwear, seedOf, styleFor, styleOf, type Style } from './figureStyle'
 import { BEACH, BEACH_TOP } from './Island'
 import { sample, type Field } from './land'
 import { hash, type Town } from './layout'
@@ -63,7 +63,7 @@ export interface Rig {
   arms: Array<THREE.Group | null>
   /** Seated shins and feet, stretched down to the floor from a seat higher than a chair. */
   shins: Array<THREE.Mesh | null>
-  feet: Array<THREE.Mesh | null>
+  feet: Array<THREE.Object3D | null>
   /** A mug in the right hand, shown while having a coffee. */
   mug: THREE.Group | null
   /** How far the seated shins already reach below the feet (`Figure`'s `drop`). */
@@ -84,8 +84,6 @@ const tone = (c: string, k: number) => `#${new THREE.Color(c).multiplyScalar(k).
 const INK = '#1f1d2b'
 /** A lab coat's white. */
 const COAT = '#f4f4f0'
-/** Flip-flops, worn with swimwear. */
-const FLIPFLOP = '#f2a93b'
 
 /** How far a leg swings either way at a full stride, in radians. */
 export const LEG_SWING = 0.55
@@ -109,7 +107,27 @@ export function waist(look: Look, st: Style): Array<[V3, V3, string]> {
   parts.push([[0, (0.47 + hem) / 2, 0], [0.42, 0.47 - hem, 0.27], skirt], [[0, hem + 0.02, 0], [0.48, 0.06, 0.31], tone(skirt, 0.9)])
   return parts
 }
-const SHOE = '#2a2a30'
+/** A sneaker's sole. */
+const SOLE = '#f4f1e8'
+
+/**
+ * A pair's one shoe as boxes round the foot's middle: `foot` is the foot's size, `shin` the width and depth of the leg
+ * above it, standing just behind the toes (a boot's shaft goes round it).
+ */
+export function shoe(look: Look, st: Style, foot: V3, shin: [number, number]): Array<[V3, V3, string]> {
+  const [w, h, d] = foot
+  const c = st.shoeColor
+  const sole = (colour: string): [V3, V3, string] => [[0, -h / 2 + 0.008, 0], [w + 0.01, 0.025, d + 0.01], colour]
+  switch (st.shoes) {
+    // bare feet on a thin sole
+    case 'flipflops': return [[[0, 0, 0], foot, look.skin], [[0, -h / 2 + 0.008, 0], [w + 0.01, 0.02, d + 0.01], c]]
+    case 'barefoot': return [[[0, 0, 0], foot, look.skin]]
+    case 'sneakers': return [[[0, 0, 0], foot, c], sole(SOLE)]
+    // up the shin, round the leg
+    case 'boots': return [[[0, 0, 0], foot, c], [[0, h / 2 + 0.055, 0.03], [shin[0] + 0.03, 0.13, shin[1] + 0.02], c]]
+    default: return [[[0, 0, 0], foot, c]]
+  }
+}
 
 /** Head, face, hair and headwear, centred at height `y`; the face looks towards -z. */
 function head(y: number, look: Look, st: Style) {
@@ -348,14 +366,14 @@ export const Figure = memo(function Figure({ look, rig, seed, drop = 0, scale = 
   /** Out on the island: more often in swimwear. */
   beach?: boolean
 }) {
-  const st = useMemo(() => styleOf(seed, look.wardrobe, beach), [seed, look.wardrobe, beach])
+  const st = useMemo(() => styleFor(look, seed, beach), [seed, look.wardrobe, look.parts, beach])
   const sleeve = st.top === 'jacket' || st.top === 'cardigan' ? st.accent : st.top === 'labcoat' ? COAT : look.shirt
   // short sleeves on a tee, a polo, a striped top or a blouse, so the forearms show
   const forearm = st.top === 'tee' || st.top === 'polo' || st.top === 'stripes' || st.top === 'bowshirt' ? look.skin : sleeve
   // a skirt in the trousers' colour, a dress in the shirt's; bare legs below either, but a long skirt hides them
   const skirt = st.bottom === 'dress' ? look.shirt : look.pants
   const legs = st.bottom === 'pants' || st.bottom === 'longskirt' ? look.pants : look.skin
-  // swimwear: bare arms and legs, trunks in the trousers' colour or a bikini in the shirt's, and flip-flops
+  // swimwear: bare arms and legs, trunks in the trousers' colour or a bikini in the shirt's
   const swim = isSwimwear(st.bottom)
   const suit = st.bottom === 'bikini' ? look.shirt : look.pants
   const arm = swim ? look.skin : sleeve
@@ -384,7 +402,11 @@ export const Figure = memo(function Figure({ look, rig, seed, drop = 0, scale = 
               <M p={[0, st.bottom === 'longskirt' ? 0.15 : 0.2, -0.37]} s={[0.38, st.bottom === 'longskirt' ? 0.22 : 0.1, 0.02]} c={skirt} />
             </>}
           {[-1, 1].map((k, i) => <M key={`s${k}`} r={(m) => void (rig.shins[i] = m)} p={[k * 0.09, (0.24 - drop) / 2, -SHIN_Z]} s={[0.12, 0.24 + drop, SHIN_D]} c={legs} />)}
-          {[-1, 1].map((k, i) => <M key={`f${k}`} r={(m) => void (rig.feet[i] = m)} p={[k * 0.09, 0.035 - drop, -0.31]} s={[0.14, 0.07, 0.2]} c={swim ? FLIPFLOP : SHOE} />)}
+          {[-1, 1].map((k, i) => (
+            <group key={`f${k}`} ref={(g) => void (rig.feet[i] = g)} position={[k * 0.09, 0.035 - drop, -0.31]}>
+              {boxes(shoe(look, st, [0.14, 0.07, 0.2], [0.12, SHIN_D]), 'f')}
+            </group>
+          ))}
           {boxes(torso(0.35, 0.69, 0.42, look, st), 't')}
           {[-1, 1].map((k) => (
             <group key={`a${k}`}>
@@ -401,14 +423,9 @@ export const Figure = memo(function Figure({ look, rig, seed, drop = 0, scale = 
             <group key={`l${k}`} ref={(g) => void (rig.legs[i] = g)} position={[k * HIP[0], HIP[1], HIP[2]]}>
               {/* under a long skirt only the feet show, stepping out from under the hem */}
               {st.bottom !== 'longskirt' && <M p={LEG[0]} s={LEG[1]} c={legs} />}
-              {swim
-                ? <>
-                  {/* the trunks' legs, or a bikini's sides, swinging with the leg; bare feet on flip-flops */}
-                  <M p={[0, st.bottom === 'trunks' ? -0.075 : -0.03, 0]} s={[0.16, st.bottom === 'trunks' ? 0.14 : 0.05, 0.18]} c={suit} />
-                  <M p={[0, -0.405, -0.03]} s={[0.16, 0.07, 0.23]} c={look.skin} />
-                  <M p={[0, -0.432, -0.03]} s={[0.17, 0.02, 0.24]} c={FLIPFLOP} />
-                </>
-                : <M p={[0, -0.405, -0.03]} s={[0.16, 0.07, 0.23]} c={SHOE} />}
+              {/* the trunks' legs, or a bikini's sides, swinging with the leg */}
+              {swim && <M p={[0, st.bottom === 'trunks' ? -0.075 : -0.03, 0]} s={[0.16, st.bottom === 'trunks' ? 0.14 : 0.05, 0.18]} c={suit} />}
+              <group position={[0, -0.405, -0.03]}>{boxes(shoe(look, st, [0.16, 0.07, 0.23], [LEG[1][0], LEG[1][2]]), 'f')}</group>
             </group>
           ))}
           {boxes(waist(look, st), 'w')}
@@ -1110,7 +1127,14 @@ function useKept<T>(size: number, make: (i: number) => T): T[] {
  * needs fewer, the last ones walk in there and are gone. `field` is the land's, for the beach. With reduced motion
  * they stand where they are, and come and go at once.
  */
-export function Strollers({ town, field }: { town: Town; field?: Field }) {
+export function Strollers({ town, field, crowd = true, me = null }: {
+  town: Town
+  field?: Field
+  /** Whether the island's people are out; the user is, either way. */
+  crowd?: boolean
+  /** The user, out among them as the first of them: as they look, and the seed for what they haven't picked. */
+  me?: { look: Look; seed: number } | null
+}) {
   const grid = useMemo(() => townGrid(town), [town])
   const seats = useMemo(() => benchSeats(town, grid), [town, grid])
   const cells = useMemo(() => freeCells(grid), [grid])
@@ -1121,15 +1145,21 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
     return d > 0.25 && d < BEACH - 0.25
   })), [town, grid, field])
   // how many the island needs, and how many are out: those, and any still on their way out through the staffing agency
-  const n = useMemo(() => crowdSize(town), [town])
+  const n = useMemo(() => Math.max(crowd ? crowdSize(town) : 0, me ? 1 : 0), [town, crowd, !!me])
   const [kept, setKept] = useState(n)
   if (n > kept) setKept(n)
   const size = Math.max(n, kept)
-  const looks = useKept(size, lookOf)
+  const passers = useKept(size, lookOf)
   const rigs = useKept(size, newRig)
-  const styles = useKept(size, (i) => styleOf(i * 7 + 3, looks[i].wardrobe, true))
+  const passerStyles = useKept(size, (i) => styleOf(i * 7 + 3, passers[i].wardrobe, true))
+  const passerFar = useKept(size, (i) => farParts(passers[i], passerStyles[i], BENCH_LIFT))
+  // the user takes the first one's place, dressed as they are now, as in their profile's preview
+  const meStyle = useMemo(() => me && styleFor(me.look, me.seed), [me])
+  const mine = <T,>(list: T[], made: (look: Look, st: Style) => T) => (me && meStyle && list.length ? [made(me.look, meStyle), ...list.slice(1)] : list)
+  const looks = useMemo(() => mine(passers, (look) => look), [passers, me])
+  const styles = useMemo(() => mine(passerStyles, (_, st) => st), [passerStyles, meStyle])
+  const farLooks = useMemo(() => mine(passerFar, (look, st) => farParts(look, st, BENCH_LIFT)), [passerFar, me, meStyle])
   const swim = useMemo(() => styles.map((st) => isSwimwear(st.bottom)), [styles])
-  const farLooks = useKept(size, (i) => farParts(looks[i], styles[i], BENCH_LIFT))
   const farMesh = useRef<THREE.InstancedMesh | null>(null)
   const far = useRef(false)
   const bubbles = useKept(size, () => ({ talk: null as THREE.Group | null, think: null as THREE.Group | null }))
@@ -1180,7 +1210,7 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
     const dt = Math.min(rawDt, MAX_FRAME)
     clock.current += dt
     const scene: Scene = {
-      grid, seats, cells, paved, places, swim, night: light.glow, followed: followed.stroller,
+      grid, seats, cells, paved, places, swim, night: light.glow, followed: followed.stroller, me: me ? 0 : -1,
     }
     // those no longer needed head for the staffing agency, and are let go once in
     const left = settleCount(people, n, calm)
@@ -1287,7 +1317,8 @@ export function Strollers({ town, field }: { town: Town; field?: Field }) {
         <group key={i}>
           {/* a newcomer starts out of sight, inside the staffing agency's door */}
           <Fade show={!(inside[i] ?? people[i]?.home)}>
-            <Figure look={look} rig={rigs[i]} seed={i * 7 + 3} drop={BENCH_LIFT} scale={OFFICE_SCALE} beach />
+            {i === 0 && me ? <Figure look={me.look} rig={rigs[i]} seed={me.seed} drop={BENCH_LIFT} scale={OFFICE_SCALE} />
+              : <Figure look={look} rig={rigs[i]} seed={i * 7 + 3} drop={BENCH_LIFT} scale={OFFICE_SCALE} beach />}
           </Fade>
           <Bubble kind="talk" bind={(g) => void ((bubbles[i].talk = g), big(g))} />
           <Bubble kind="think" bind={(g) => void ((bubbles[i].think = g), big(g))} />

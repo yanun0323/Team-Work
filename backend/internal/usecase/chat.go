@@ -220,7 +220,6 @@ func (e *Engine) SayInChatTo(id, text string, images, files []model.Attachment, 
 			}
 			images = stored
 			c.Queue = append(c.Queue, model.QueuedMessage{ID: e.uid("queued"), At: e.w.Now, Text: text, Images: images, Files: files, Mentions: mentions})
-			e.w.Tutorial.Learn("queue")
 			return nil
 		}
 		return e.beginRound(c, text, images, files, mentions)
@@ -435,7 +434,6 @@ func (e *Engine) HandOffChat(id string, index int, replicaID string, version ...
 		e.w.Chats[fork.ID] = fork
 		e.w.Conversations[fork.ID] = copied
 		e.dirty[fork.ID] = true
-		e.w.Tutorial.Learn("fork") // the id it was learned under before it was called handing off
 		out = clone(fork)
 		return nil
 	})

@@ -3,7 +3,7 @@
 
 import type { Look } from './core/domain/types'
 import { facePixels, type FacePart } from './core/voxel/PixelFace'
-import { seedOf, styleOf } from './figureStyle'
+import { seedOf, styleFor } from './figureStyle'
 
 const PAPER = '#fff'
 const INK = '#407bcf'
@@ -49,7 +49,7 @@ function outlineOf(shapes: Shapes) {
 }
 
 export function BlueprintIcon({ look, name, size = 40 }: { look: Look; name: string; size?: number }) {
-  const pixels = facePixels(look.extra, styleOf(look.style ?? seedOf(name), look.wardrobe))
+  const pixels = facePixels(look.extra, styleFor(look, look.style ?? seedOf(name)))
   const shapes: Shapes = Array.from({ length: 10 }, () => Array(10).fill(undefined))
   const features = new Set<string>()
   for (const [x, y, w, h, part] of pixels) {

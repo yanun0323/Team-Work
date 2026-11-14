@@ -50,9 +50,6 @@ func (s *Server) terminal(c echo.Context) error {
 	}
 	defer conn.Close()
 	conn.SetReadLimit(terminalReadLimit)
-	if teamID != "" {
-		_ = s.engine.Learn("terminal") // only the tutorial's record, whose step is a company's terminal
-	}
 	// what the employees in its chats can read
 	log := s.engine.TerminalOutput(teamID)
 

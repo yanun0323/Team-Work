@@ -17,6 +17,7 @@ func copyChat(c *model.Chat) *model.Chat {
 	}
 	out := *c
 	out.Look.Style = copyPointer(c.Look.Style)
+	out.Look.Parts = copyPointer(c.Look.Parts)
 	out.PinnedAt = copyPointer(c.PinnedAt)
 	out.ReplyAt = copyPointer(c.ReplyAt)
 	out.Compact = copyPointer(c.Compact)
@@ -39,6 +40,7 @@ func copyChat(c *model.Chat) *model.Chat {
 	out.Guests = slices.Clone(c.Guests)
 	for i, g := range c.Guests {
 		out.Guests[i].Look.Style = copyPointer(g.Look.Style)
+		out.Guests[i].Look.Parts = copyPointer(g.Look.Parts)
 	}
 	out.Joins = slices.Clone(c.Joins)
 	out.Next = slices.Clone(c.Next)

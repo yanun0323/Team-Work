@@ -9,7 +9,6 @@ import { chatPreview, chatSortAt } from './crew'
 import { noticeOf } from './notices'
 import { DEFAULT_PREFS } from './prefs'
 import { emptyWorld } from './core/backend'
-import { STEPS } from './tutorial'
 
 const roots: ReturnType<typeof createRoot>[] = []
 afterEach(async () => {
@@ -18,7 +17,7 @@ afterEach(async () => {
 })
 const summary = (count = 250, version = 'a', previous?: string, changedFrom = 0): Chat => ({
   id: 'c', teamId: '', replicaId: '', name: '', look: AIRPORT_STAFF_LOOK, model: 'm', tokens: 0, createdAt: 0, messages: [],
-  history: { count, version, previous, changedFrom, preview: 'first', sortAt: 0, hasFileMention: false, hasAttachment: false },
+  history: { count, version, previous, changedFrom, preview: 'first', sortAt: 0 },
 })
 async function harness() {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
@@ -116,20 +115,18 @@ it('reloads after a reconnect and rejects malformed or out-of-version pages', as
   expect(h.get().chat?.messages).toHaveLength(100)
 })
 
-it('keeps list previews, notifications, tutorial checks and the meeting actor without message bodies', () => {
+it('keeps list previews, notifications and the meeting actor without message bodies', () => {
   const c = summary()
   c.teamId = 't'
   c.replicaId = 'chair'
   c.history = { ...c.history!, preview: 'first question', sortAt: 123,
-    lastAgent: { from: 'agent', text: 'latest reply', at: 120, by: 'guest' }, mentions: ['guest'], hasFileMention: true, hasAttachment: true }
+    lastAgent: { from: 'agent', text: 'latest reply', at: 120, by: 'guest' }, mentions: ['guest'] }
   expect(chatPreview(c)).toBe('first question')
   expect(chatSortAt(c)).toBe(123)
   expect(roundActor(c)).toBe('guest')
   const w = emptyWorld()
   w.chats.c = c
   expect(noticeOf(w, { kind: 'chat', id: 'c' }, DEFAULT_PREFS)?.body).toBe('latest reply')
-  expect(STEPS.find((s) => s.id === 'mention')!.met!(w)).toBe(true)
-  expect(STEPS.find((s) => s.id === 'attach')!.met!(w)).toBe(true)
   expect(c.messages).toHaveLength(0)
 })
 

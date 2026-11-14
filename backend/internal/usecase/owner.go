@@ -438,9 +438,6 @@ func (e *Engine) beginOwner(t *model.Task) error {
 	if openQuestion(t, "budget") || openQuestion(t, "recovery") {
 		return model.Errorf(model.CodeConflict, "要先回答費用或確認問題才能繼續")
 	}
-	if t.PausedAt != nil {
-		e.w.Tutorial.Learn("pause")
-	}
 	t.Paused, t.PausedAt, t.PausedStatus = false, nil, ""
 	c.ControlVersion++
 	e.requeuePaused(t)

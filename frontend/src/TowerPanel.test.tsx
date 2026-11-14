@@ -167,12 +167,18 @@ describe('which island is shown', () => {
 })
 
 describe('the people on this island, from the tower', () => {
-  it("shows this computer's name to edit", () => {
+  it("has no field for this computer's name: the profile sets it", () => {
     const html = body(towers())
-    expect(html).toMatch(/<label for="[^"]+">這台的名稱<\/label>/)
-    expect(html).toContain('value="MacBook"')
+    expect(html).not.toContain('這台的名稱')
+    expect(html).not.toContain('value="MacBook"')
     expect(html).not.toContain('連線版本')
     expect(html).toContain('目前沒有其他電腦')
+  })
+
+  it("shows this computer's name under the title, as a way to the profile when there is one", () => {
+    expect(renderToStaticMarkup(<TowerTitle me={me} />)).toMatch(/<p class="fx-where">MacBook<\/p>/)
+    const linked = renderToStaticMarkup(<TowerTitle me={me} onProfile={() => {}} />)
+    expect(linked).toMatch(/<button type="button" class="fx-tower-me" title="在個人檔案修改">.*MacBook<\/button>/)
   })
 
   it('puts the link version in the head, after the title, once the tower is read', () => {

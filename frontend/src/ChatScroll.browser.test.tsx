@@ -49,7 +49,7 @@ function summary(version: string, previous: string | undefined, messages: ChatMe
   const last = messages[messages.length - 1]
   return {
     id: 'c', teamId: '', replicaId: '', name: '', look: AIRPORT_STAFF_LOOK, model: 'gpt-5', tokens: 0, createdAt: 0, messages: [], replyAt,
-    history: { version, previous, changedFrom: previous ? messages.length - 1 : 0, count: messages.length, preview: last.text, sortAt: last.at, hasFileMention: false, hasAttachment: false },
+    history: { version, previous, changedFrom: previous ? messages.length - 1 : 0, count: messages.length, preview: last.text, sortAt: last.at },
   }
 }
 

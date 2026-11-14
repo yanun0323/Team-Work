@@ -391,9 +391,6 @@ func (e *Engine) saveWorkflow(id string, wf model.Workflow) error {
 	}
 	e.localize(&wf, e.w.Language)
 	e.w.Workflows[id] = &wf
-	if e.w.Tutorial.ChangedCopy(id) {
-		e.w.Tutorial.Learn("copyFlow")
-	}
 	return nil
 }
 
@@ -459,7 +456,6 @@ func (e *Engine) DuplicateWorkflow(id string) (*model.Workflow, error) {
 		wf := clone(from)
 		wf.ID, wf.Name, wf.Order = e.uid("wf"), fmt.Sprintf("%s-%d", from.Name, n), nil
 		e.w.Workflows[wf.ID] = wf
-		e.w.Tutorial.Copied(wf.ID)
 		out = clone(wf)
 		return nil
 	})

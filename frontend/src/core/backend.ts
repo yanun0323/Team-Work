@@ -35,7 +35,6 @@ const BOOKS: Record<string, keyof World> = {
 export function applyPatches(w: World, ev: { upserts?: Patch[]; deletes?: Patch[] }, skip: (kind: string, id: string) => boolean = () => false) {
   for (const p of ev.upserts ?? []) {
     if (p.kind === 'preferences') { w.preferences = p.data as Prefs; continue }
-    if (p.kind === 'tutorial') { w.tutorial = p.data as World['tutorial']; continue }
     const book = w[BOOKS[p.kind]] as Record<string, unknown> | undefined
     if (book && !skip(p.kind, p.id)) book[p.id] = p.data
     else if (p.kind === 'team' && w.teams[p.id]) {
@@ -118,7 +117,7 @@ export const request = <T = void>(method: string, path: string, body?: unknown, 
   send<T>(apiBase(), method, path, body, signal)
 
 /**
- * The same, always to this computer's backend: the power tower, the language, the tutorial, interface preferences.
+ * The same, always to this computer's backend: the power tower, the language, interface preferences.
  * `key`, when given, is the Idempotency-Key, kept by the caller across retries of one action.
  */
 export const localRequest = <T = void>(method: string, path: string, body?: unknown, signal?: AbortSignal, key?: string): Promise<T> =>

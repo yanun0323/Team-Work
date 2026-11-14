@@ -198,7 +198,12 @@ export interface Scene {
   night: number
   /** Whom the camera follows, by index (-1 for nobody): they stay out and about. */
   followed: number
+  /** The user, by index (-1 or left out when not on the island): they stay out and about too. */
+  me?: number
 }
+
+/** Whether someone stays out, night or day: the one the camera follows, and the user. */
+const staysOut = (s: Scene, i: number) => i === s.followed || i === s.me
 
 const dist = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z)
 
@@ -324,7 +329,7 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
         return
       }
     }
-    if (goesHome(i, s.night) && i !== s.followed) {
+    if (goesHome(i, s.night) && !staysOut(s, i)) {
       const k = nearestDoor(p)
       const door = s.places.doors[k]
       if (door && go(wayTo(from, door.at, false), 'home', door.at, door.inside)) {
@@ -394,7 +399,7 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
     }
     if (r < 0.75 && go(wayTo(from, somewhere(p)), 'daze')) return
     // by day, now and then, calling in at the staffing agency for a while
-    if (r < 0.75 + VISIT_SHARE && s.night < 0.5 && agency && i !== s.followed && go(wayTo(from, agency.at, false), 'home', agency.at, agency.inside)) {
+    if (r < 0.75 + VISIT_SHARE && s.night < 0.5 && agency && !staysOut(s, i) && go(wayTo(from, agency.at, false), 'home', agency.at, agency.inside)) {
       p.door = s.places.agency
       return
     }
@@ -546,8 +551,8 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
       // gone for good: `settleCount` lets them go
       if (p.leaving) return
       // back out once it is light again; the one the camera follows comes out at once
-      if (i === s.followed) p.wait = Math.min(p.wait, 0)
-      if (p.wait > 0 || (goesHome(i, s.night) && i !== s.followed)) return
+      if (staysOut(s, i)) p.wait = Math.min(p.wait, 0)
+      if (p.wait > 0 || (goesHome(i, s.night) && !staysOut(s, i))) return
       const door = s.places.doors[p.door] ?? s.places.doors[0]
       // Keep the whole doorway clear; someone already approaching it enters before we emerge.
       if (door && people.some((q) => q !== p && solid(q) && (

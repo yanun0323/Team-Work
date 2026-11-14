@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"reflect"
-	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -17,17 +16,15 @@ import (
 // ChatHistory is the bounded list/notification metadata sent instead of message bodies.
 // Version identifies the history, not mutable UI metadata such as unread or title.
 type ChatHistory struct {
-	Version        string             `json:"version"`
-	Previous       string             `json:"previous,omitempty"`
-	ChangedFrom    int                `json:"changedFrom"`
-	Count          int                `json:"count"`
-	Preview        string             `json:"preview"`
-	PreviewKind    string             `json:"previewKind,omitempty"`
-	SortAt         float64            `json:"sortAt"`
-	LastAgent      *model.ChatMessage `json:"lastAgent,omitempty"`
-	Mentions       []string           `json:"mentions,omitempty"`
-	HasFileMention bool               `json:"hasFileMention"`
-	HasAttachment  bool               `json:"hasAttachment"`
+	Version     string             `json:"version"`
+	Previous    string             `json:"previous,omitempty"`
+	ChangedFrom int                `json:"changedFrom"`
+	Count       int                `json:"count"`
+	Preview     string             `json:"preview"`
+	PreviewKind string             `json:"previewKind,omitempty"`
+	SortAt      float64            `json:"sortAt"`
+	LastAgent   *model.ChatMessage `json:"lastAgent,omitempty"`
+	Mentions    []string           `json:"mentions,omitempty"`
 }
 
 type ChatSummary struct {
@@ -48,8 +45,6 @@ type ChatPage struct {
 	Handoffs []PageHandoff       `json:"handoffs"`
 	Joins    []model.ChatJoin    `json:"joins"`
 }
-
-var fileMention = regexp.MustCompile(`(^|\s)#\S`)
 
 func previewText(text string, limit int) string {
 	// Keep only the prefix; trailing whitespace alone must not cause truncation.
@@ -129,8 +124,6 @@ func summarizeChat(c, old *model.Chat, previous ChatHistory) ChatSummary {
 		}
 		if m.From == "user" {
 			mentions = m.Mentions
-			h.HasFileMention = h.HasFileMention || fileMention.MatchString(m.Text)
-			h.HasAttachment = h.HasAttachment || len(m.Images)+len(m.Files) > 0
 		}
 	}
 	h.Mentions = slices.Clone(mentions)

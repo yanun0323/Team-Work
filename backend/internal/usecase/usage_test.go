@@ -52,3 +52,34 @@ func TestModelCallsAreSummedByProvider(t *testing.T) {
 		t.Fatalf("calls before since were counted: %+v", later)
 	}
 }
+
+func TestProfileStatsSumTheUsersMilestones(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		reply := say("好")
+		reply.Usage = model.ModelUsage{Input: 100, Output: 20}
+		return reply, nil
+	})
+	before, err := r.e.ProfileStats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Chats != 0 || before.Messages != 0 || before.Partner != nil || before.Usage.Calls != 0 {
+		t.Fatalf("a new island has milestones: %+v", before)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	stats, err := r.e.ProfileStats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Chats != 1 || stats.Messages != 1 || stats.Usage.Calls != 1 || stats.Usage.Tokens != 120 || stats.Since <= 0 {
+		t.Fatalf("%+v", stats)
+	}
+	if p := stats.Partner; p == nil || p.ID != r.owner.ID || p.Name != r.owner.Name || p.Count != 1 {
+		t.Fatalf("partner %+v", stats.Partner)
+	}
+}

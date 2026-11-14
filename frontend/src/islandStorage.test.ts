@@ -18,19 +18,3 @@ it('restores project sizes on each island switch, including before its world arr
   useIsland.setState({ island: null })
   expect(useProjectBytes.getState()).toEqual({ same: 100 })
 })
-
-it('keeps the tutorial last company on its own island', async () => {
-  const data = new Map<string, string>()
-  vi.stubGlobal('localStorage', { getItem: (k: string) => data.get(k), setItem: (k: string, v: string) => data.set(k, v) })
-  const { useIsland } = await import('./core/island')
-  const { rememberTeam, lastTeam } = await import('./tutorial')
-  const { emptyWorld } = await import('./core/backend')
-  const w = emptyWorld()
-  w.teams = { local: { id: 'local' }, remote: { id: 'remote' } } as unknown as typeof w.teams
-  rememberTeam('local')
-  useIsland.setState({ island: { id: 'remote', name: 'Remote' } })
-  rememberTeam('remote')
-  expect(lastTeam(w)).toBe('remote')
-  useIsland.setState({ island: null })
-  expect(lastTeam(w)).toBe('local')
-})

@@ -113,7 +113,7 @@ func TestPagedEventsFollowSuccessfulSavesOnly(t *testing.T) {
 	if err = jsonx.Unmarshal((<-small).Upserts[0].Data, &s); err != nil {
 		t.Fatal(err)
 	}
-	if len(s.Messages) != 0 || s.History.Previous != old || s.History.ChangedFrom != 1 || s.History.Count != 2 || !s.History.HasFileMention || s.History.LastAgent.Text != "reply" {
+	if len(s.Messages) != 0 || s.History.Previous != old || s.History.ChangedFrom != 1 || s.History.Count != 2 || s.History.LastAgent.Text != "reply" {
 		t.Fatalf("bad summary %+v", s.History)
 	}
 	var legacy model.Chat

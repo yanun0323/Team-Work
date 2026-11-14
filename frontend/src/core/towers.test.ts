@@ -9,7 +9,6 @@ import { goHome, goTo, inboundOf, isBlocked, leftPeer, setPeerInbound, presenceP
 import { readChat, seeSource } from './ops'
 import { DEFAULT_PREFS, usePrefs } from '../prefs'
 import { setFailureHandler } from './ops'
-import { updateTutorial, learn } from '../tutorial'
 
 const peer = (p: Partial<Peer> = {}): Peer => ({ id: 'b', name: 'Studio', status: 'online', allowInbound: false, pairedAt: 1, access: 'view', ...p })
 const answer = (status: number, body: unknown) => vi.fn(async () => new Response(JSON.stringify(body), { status }))
@@ -129,19 +128,6 @@ describe("another island's world", () => {
       ['/api/v1/settings/preferences', '{"shadows":false}'],
     ])
     expect(usePrefs.getState().shadows).toBe(false)
-  })
-
-  it("leaves this computer's tutorial alone, and sends it home when changed by hand", async () => {
-    setFailureHandler(() => {})
-    const f = vi.fn(async () => new Response(null, { status: 204 }))
-    vi.stubGlobal('fetch', f)
-    useIsland.setState({ island: { id: 'b', name: 'Studio' } })
-    learn('help')
-    await turn()
-    expect(f).not.toHaveBeenCalled()
-    updateTutorial({ hidden: true })
-    await turn()
-    expect((f.mock.calls as unknown as Array<[string]>)[0][0]).toBe('/api/v1/tutorial')
   })
 })
 

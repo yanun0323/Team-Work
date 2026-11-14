@@ -224,6 +224,8 @@ func TestTowerProfileAccessAndBlockRoutes(t *testing.T) {
 		status             int
 	}{
 		{"PUT", "/towers/profile", `{"name":"  "}`, 400}, {"PUT", "/towers/profile", `{"name":"a\nb"}`, 400}, {"PUT", "/towers/profile", `{"name":"` + strings.Repeat("名", 41) + `"}`, 400},
+		{"PUT", "/towers/profile", `{"name":"Desk","look":{"skin":"red","hair":"#000000","shirt":"#000000","pants":"#000000","extra":"none"}}`, 400},
+		{"PUT", "/towers/profile", `{"name":" Desk ","look":{"skin":"#f2d3b3","hair":"#000000","shirt":"#000000","pants":"#000000","extra":"cap"}}`, 200},
 		{"PUT", "/towers/profile", `{"name":" Desk "}`, 200},
 		{"PATCH", "/towers/peers/peer", `{"access":"admin"}`, 400}, {"PATCH", "/towers/peers/peer", `{"access":"view"}`, 200}, {"PATCH", "/towers/peers/missing", `{"access":"view"}`, 404},
 		{"POST", "/towers/peers/peer/block", `{"for":"day"}`, 400}, {"POST", "/towers/peers/peer/block", `{"for":"hour"}`, 200}, {"DELETE", "/towers/peers/peer/block", "", 200},
@@ -234,7 +236,7 @@ func TestTowerProfileAccessAndBlockRoutes(t *testing.T) {
 		}
 	}
 	v := service.View()
-	if v.Me.Name != "Desk" || v.Peers[0].Access != "view" || v.Peers[0].BlockedUntil != 0 {
+	if v.Me.Name != "Desk" || v.Me.Look == nil || v.Me.Look.Extra != "cap" || v.Peers[0].Access != "view" || v.Peers[0].BlockedUntil != 0 {
 		t.Fatal(v)
 	}
 }

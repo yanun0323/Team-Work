@@ -5,6 +5,7 @@ import { travel } from '../boot'
 import { create } from 'zustand'
 import { ApiError, connectAhead, idempotencyKey, localRequest, request, setIslandRefusedHandler } from './backend'
 import { LOCAL_BASE, useIsland, type Island } from './island'
+import type { Look } from './domain/types'
 import { MOCK } from './mode'
 import { useStore } from './store'
 
@@ -26,12 +27,14 @@ export interface Peer {
   access: PeerAccess
   /** Kept out until this Unix time; -1 until unblocked by hand; absent when not blocked. */
   blockedUntil?: number
+  /** How the person at it looks, as it last said; absent until it has. */
+  look?: Look
 }
 
 export type PeerAccess = 'view' | 'operate'
 
 /** A paired computer on this island now, with the places its pages have open: `airport` or `team:{id}`. */
-export interface Visitor { id: string; name: string; places: string[] }
+export interface Visitor { id: string; name: string; look?: Look; places: string[] }
 
 export interface PairRequest { id: string; name: string; protocol: number; compatible: boolean }
 
@@ -51,8 +54,11 @@ export interface Outgoing {
   peerId?: string
 }
 
+/** This computer, and the person at it: their name is the computer's on other towers, and their look goes with it. */
+export interface Me { id: string; name: string; protocol: number; look?: Look }
+
 export interface Towers {
-  me: { id: string; name: string; protocol: number }
+  me: Me
   pairing: Pairing | null
   outgoing: Outgoing | null
   peers: Peer[]
@@ -63,9 +69,33 @@ export interface Towers {
 export const MOCK_TOWERS: Towers = { me: { id: 'mock', name: 'Team Work', protocol: 2 }, pairing: null, outgoing: null, peers: [], visitors: [] }
 
 /** The tower as it is now; a backend with nothing paired may send no list at all. */
-export const readTowers = (signal?: AbortSignal) => (MOCK
-  ? Promise.resolve(MOCK_TOWERS)
-  : localRequest<Towers>('GET', '/towers', undefined, signal).then((t) => ({ ...t, peers: t.peers ?? [], visitors: t.visitors ?? [] })))
+export const readTowers = (signal?: AbortSignal): Promise<Towers> => (MOCK
+  ? Promise.resolve({ ...MOCK_TOWERS, me: useMe.getState().me ?? MOCK_TOWERS.me })
+  : localRequest<Towers>('GET', '/towers', undefined, signal).then((t) => {
+    useMe.setState({ me: t.me })
+    return { ...t, peers: t.peers ?? [], visitors: t.visitors ?? [] }
+  }))
+
+/** This computer and the person at it, as last read or saved; null until first read. */
+export const useMe = create<{ me: Me | null }>(() => ({ me: null }))
+
+/** Reads this computer's profile into `useMe`; answers what went wrong, or '' when it was read. A failure leaves it as it was. */
+export const loadMe = () => readTowers().then(() => {
+  if (MOCK) useMe.setState({ me: useMe.getState().me ?? MOCK_TOWERS.me })
+  return ''
+}, (e: Error) => e.message)
+
+/**
+ * Names the person at this computer, which names the computer on other towers too, and sets how they look. The mock has
+ * no tower to keep it, so it lasts until the page reloads.
+ */
+export async function setProfile(name: string, look?: Look): Promise<Me> {
+  const me = MOCK
+    ? { ...(useMe.getState().me ?? MOCK_TOWERS.me), name: name.trim(), ...(look ? { look } : {}) }
+    : await localRequest<Me>('PUT', '/towers/profile', look ? { name, look } : { name })
+  useMe.setState({ me })
+  return me
+}
 export const startPairing = () => localRequest<Pairing>('POST', '/towers/pairing')
 export const stopPairing = () => localRequest('DELETE', '/towers/pairing')
 export const approvePairing = (requestId: string) => localRequest<Peer>('POST', '/towers/pairing/approve', { requestId })
@@ -78,7 +108,6 @@ export const inboundOf = (p: Pick<Peer, 'allowInbound' | 'access'>): PeerInbound
 /** Shuts a paired computer out, or lets it in with that access, in one request. */
 export const setPeerInbound = (id: string, to: PeerInbound) =>
   localRequest<Peer>('PATCH', `/towers/peers/${encodeURIComponent(id)}`, to === 'off' ? { allowInbound: false } : { allowInbound: true, access: to })
-export const setProfile = (name: string) => localRequest<Towers['me']>('PUT', '/towers/profile', { name })
 export const kickPeer = (id: string) => localRequest('POST', `/towers/peers/${encodeURIComponent(id)}/kick`)
 export const blockPeer = (id: string, span: 'hour' | 'manual') => localRequest<Peer>('POST', `/towers/peers/${encodeURIComponent(id)}/block`, { for: span })
 export const unblockPeer = (id: string) => localRequest<Peer>('DELETE', `/towers/peers/${encodeURIComponent(id)}/block`)

@@ -1,7 +1,7 @@
 import { act, createRoot } from '@react-three/fiber'
 import type { WebGLRenderer } from 'three'
 import { afterEach, expect, it, vi } from 'vitest'
-import { useSheets, type Sheets } from './Drawer'
+import { useCoversLeft, useLeftSheets, useSheets, type Sheets } from './Drawer'
 
 const roots: ReturnType<typeof createRoot>[] = []
 afterEach(async () => {
@@ -67,4 +67,26 @@ it('still puts away the sheet on Esc from outside any menu', async () => {
   await s.escapeWith(e)
   expect(stop).toHaveBeenCalled()
   expect(s.live()).toEqual([])
+})
+
+it('counts the stacks with a sheet out over the left, until their sheets are gone', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  const canvas = {} as HTMLCanvasElement
+  const gl = { render: vi.fn(), setSize: vi.fn(), setPixelRatio: vi.fn(), domElement: canvas } as unknown as WebGLRenderer
+  const root = createRoot(canvas)
+  roots.push(root)
+  await root.configure({ gl, frameloop: 'never', size: { width: 1, height: 1, top: 0, left: 0 } })
+  function Stack({ shown }: { shown: boolean }) { useCoversLeft(shown); return null }
+  const show = async (a: boolean, b: boolean) => { await act(async () => { root.render(<><Stack shown={a} /><Stack shown={b} /></>) }) }
+  await show(false, false)
+  expect(useLeftSheets.getState().count).toBe(0)
+  await show(true, false)
+  expect(useLeftSheets.getState().count).toBe(1)
+  // the company closes as the airport opens with a sheet of its own
+  await show(true, true)
+  expect(useLeftSheets.getState().count).toBe(2)
+  await show(false, true)
+  expect(useLeftSheets.getState().count).toBe(1)
+  await act(async () => { root.render(null) })
+  expect(useLeftSheets.getState().count).toBe(0)
 })

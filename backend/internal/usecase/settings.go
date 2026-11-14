@@ -75,9 +75,6 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 	if _, err := model.MergePreferences(s.Preferences, nil); err != nil {
 		return s, settingsError("preferences.yaml", err)
 	}
-	if err := model.CheckTutorial(s.Tutorial); err != nil {
-		return s, settingsError("tutorial.yaml", err)
-	}
 	if s.Sources == nil {
 		s.Sources = map[string]*model.Source{}
 	}
@@ -329,11 +326,6 @@ func (e *Engine) UpdatePreferences(patch map[string]json.RawMessage) error {
 		}
 		e.w.Preferences = next
 		e.installPresets() // the built-in blueprints' skill folders follow the preferences
-		for key := range patch {
-			if soundPreference(key) {
-				e.w.Tutorial.Learn("sound")
-			}
-		}
 		return nil
 	})
 	// Semantic search stops as soon as it is turned off and saved; turning it on waits for a restart.
@@ -346,27 +338,4 @@ func (e *Engine) UpdatePreferences(patch map[string]json.RawMessage) error {
 		}
 	}
 	return err
-}
-
-// soundPreference says whether a preference is one of the music and sound settings.
-func soundPreference(key string) bool {
-	return strings.HasPrefix(key, "music") || strings.HasPrefix(key, "sound") || strings.HasPrefix(key, "effects")
-}
-
-// UpdateTutorial adds to how far the user has come through the tutorial.
-func (e *Engine) UpdateTutorial(patch model.TutorialPatch) error {
-	return e.doSettings(func() error {
-		if err := e.w.Tutorial.Apply(patch); err != nil {
-			return settingsError("tutorial.yaml", err)
-		}
-		return nil
-	})
-}
-
-// Learn records something the user did for the tutorial, from outside a change.
-func (e *Engine) Learn(action string) error {
-	return e.do(func() error {
-		e.w.Tutorial.Learn(action)
-		return nil
-	})
 }

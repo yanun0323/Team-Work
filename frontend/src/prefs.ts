@@ -77,7 +77,6 @@ export interface Prefs {
   soundFlyover: boolean
   soundUI: boolean
   soundNotice: boolean
-  soundTutorial: boolean
   /** Opening a company, and each of the island's own buildings: the airport, the tower and the immigration office. */
   soundOpenTeam: boolean
   soundOpenAirport: boolean
@@ -144,7 +143,7 @@ export interface Prefs {
 export const COMPACT_DEFAULTS = { compact1M: 40, compact256K: 90, compact128K: 95, compactSmall: 95 } satisfies Partial<Prefs>
 export const COMPACT_SHARE = { min: 10, max: 100 }
 
-export const DEFAULT_PREFS: Prefs = { muteInBackground: true, systemNotices: true, musicStyle: 'bossa', soundNotice: true, soundTutorial: true, soundOpenTeam: true, soundOpenAirport: true, soundOpenTower: true, soundOpenStaffing: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, mapClick: 'sheets', autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, idleFollow: 15, idleFollowTarget: 'map', terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], ...COMPACT_DEFAULTS, semanticSearch: false }
+export const DEFAULT_PREFS: Prefs = { muteInBackground: true, systemNotices: true, musicStyle: 'bossa', soundNotice: true, soundOpenTeam: true, soundOpenAirport: true, soundOpenTower: true, soundOpenStaffing: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, mapClick: 'sheets', autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, idleFollow: 15, idleFollowTarget: 'map', terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], ...COMPACT_DEFAULTS, semanticSearch: false }
 
 /** The range of `zoomSensitivity`; the backend checks the same. */
 export const ZOOM_SENSITIVITY = { min: 20, max: 300 }

@@ -67,7 +67,7 @@ func TestSummaryKeepsLatestReplyAndMentionsDetached(t *testing.T) {
 		{From: "tool", Text: "tool", At: 6},
 	}}
 	h := summarizeChat(c, nil, ChatHistory{}).History
-	if h.Preview != "#file" || h.SortAt != 4 || !h.HasAttachment || !h.HasFileMention || h.LastAgent.Text != "latest reply" || h.LastAgent.By != "last" || h.LastAgent.At != 5 {
+	if h.Preview != "#file" || h.SortAt != 4 || h.LastAgent.Text != "latest reply" || h.LastAgent.By != "last" || h.LastAgent.At != 5 {
 		t.Fatalf("summary changed: %+v", h)
 	}
 	h.Mentions[0] = "client edit"

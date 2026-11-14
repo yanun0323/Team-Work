@@ -77,7 +77,6 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.PUT("/settings/language", s.setLanguage)
 	api.PATCH("/settings/preferences", s.updatePreferences)
 	api.GET("/settings/semantic-search", s.semanticStatus)
-	api.PATCH("/tutorial", s.updateTutorial)
 	api.GET("/settings/global-prompt", s.globalPrompt)
 	api.PUT("/settings/global-prompt", s.setGlobalPrompt)
 	api.GET("/events", s.events)
@@ -110,6 +109,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/providers/:id/logout", s.logout)
 	api.GET("/quotas", s.quotas)
 	api.GET("/usage", s.usage)
+	api.GET("/profile/stats", s.profileStats)
 
 	api.GET("/claude-code", s.claudeStatus)
 	api.POST("/claude-code/install", s.claudeInstall)
@@ -589,6 +589,14 @@ func (s *Server) usage(c echo.Context) error {
 	return c.JSON(http.StatusOK, stats)
 }
 
+func (s *Server) profileStats(c echo.Context) error {
+	stats, err := s.engine.ProfileStats(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, stats)
+}
+
 func (s *Server) claudeStatus(c echo.Context) error {
 	status, err := s.claude.Status(c.Request().Context())
 	if err != nil {
@@ -924,10 +932,7 @@ func (s *Server) openFolder(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := s.folders.OpenFolder(c.Request().Context(), folder); err != nil {
-		return err
-	}
-	return done(c, s.engine.Learn("openFolder"))
+	return done(c, s.folders.OpenFolder(c.Request().Context(), folder))
 }
 
 func (s *Server) projectFile(c echo.Context) error {
@@ -1419,12 +1424,4 @@ func (s *Server) updatePreferences(c echo.Context) error {
 // semanticStatus is how the experimental semantic search is doing on this computer; reading it starts nothing.
 func (s *Server) semanticStatus(c echo.Context) error {
 	return c.JSON(http.StatusOK, s.engine.SemanticStatus())
-}
-
-func (s *Server) updateTutorial(c echo.Context) error {
-	in, err := bind[model.TutorialPatch](c)
-	if err != nil {
-		return err
-	}
-	return done(c, s.engine.UpdateTutorial(in))
 }

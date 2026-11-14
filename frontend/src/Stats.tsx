@@ -262,7 +262,7 @@ function DailyChart({ list, providers, colors, shown, onShow }: {
 }
 
 /** Made-up numbers for the simulator, steady for each provider and range. */
-function mockStats(w: World, range: StatsRange, since: number): UsageStats {
+export function mockStats(w: World, range: StatsRange, since: number): UsageStats {
   const empty = emptyTotals
   const add = addTotals
   const n = range === '30d' ? 30 : 120

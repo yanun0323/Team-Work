@@ -23,7 +23,9 @@ import { Standee } from './Standee'
 import { ordered, usePrefs, type LogOrder } from './prefs'
 import { ClaudeAccount } from './ClaudeAccount'
 import { Markdown, MarkdownLine } from './Markdown'
-import { useAutoGrow, Select, Switcher, Toggle, WaitBadge } from './Controls'
+import { LookEditor } from './LookEditor'
+import { useMe } from './core/towers'
+import { useAutoGrow, Reroll, Select, Switcher, Toggle, WaitBadge } from './Controls'
 import { changeAsk, ChangeLines } from './ChangeCard'
 import { FlowNotes, openCard } from './FlowNotes'
 import { copyDraft, customFlow, draftFlow, draftStaff, editCustom, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
@@ -53,7 +55,6 @@ import { SubscriptionLogin } from './SubscriptionLogin'
 import { NotesSheet } from './Notes'
 import { FileDetail, FileEdit } from './FileSheets'
 import { CodeFile } from './Highlight'
-import { learn } from './tutorial'
 import { ChatSheet, SentTo, type ChatTaskSeed } from './ChatSheet'
 import { addStep, blankFlow, branchStep, canLink, insertStep, editFlowDraft, link, nextChoices, putStep, removeStep, unlink, useFlowDraft } from './flowDraft'
 import { isOwnerTask } from './core/domain/owner'
@@ -96,6 +97,8 @@ export type Item =
   | { kind: 'image'; key: string; image: Attachment; task?: string; chat?: string }
   | { kind: 'flowEdit'; id: string }
   | { kind: 'newFlow' }
+  /** The user's own look and name, from their profile. */
+  | { kind: 'look' }
   /** A step of the blueprint being written on the sheet under it. */
   | { kind: 'flowStep'; node: string }
   /** With copyOf, the sheet starts filled in from that blueprint. */
@@ -113,7 +116,7 @@ export type Item =
   | { kind: 'newSource' }
 
 export const itemKey = (x: Item) =>
-  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newCrew' && x.copyOf ? `newCrew:${x.copyOf}` : x.kind === 'newChat' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' || x.kind === 'newSource' ? x.kind : x.kind === 'staff' || x.kind === 'flowStep' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' || x.kind === 'fileEdit' ? `${x.kind}:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'sourceSkill' ? `sourceSkill:${x.source}:${x.path}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
+  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newCrew' && x.copyOf ? `newCrew:${x.copyOf}` : x.kind === 'newChat' || x.kind === 'look' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' || x.kind === 'newSource' ? x.kind : x.kind === 'staff' || x.kind === 'flowStep' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' || x.kind === 'fileEdit' ? `${x.kind}:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'sourceSkill' ? `sourceSkill:${x.source}:${x.path}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 const HANDOFF = { pickOne: '交給其中一個下一步', all: '交給所有下一步' } as const
@@ -188,6 +191,7 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
               onFact={(x) => onPush({ kind: 'fact', id: x })} />
           )}
           {item.kind === 'fact' && <FactDetail id={item.id} title={title} tid={id} />}
+          {item.kind === 'look' && <LookSheet title={title} tid={id} />}
           {item.kind === 'doc' && <DocDetail sub={item.sub} path={item.path} title={title} tid={id} />}
           {item.kind === 'file' && (teamId && !MOCK
             ? <FileDetail teamId={teamId} path={item.path} title={title} tid={id} editing={above?.kind === 'fileEdit'}
@@ -286,6 +290,17 @@ export type Head = { title: Title; tid: string }
 
 export function Heading({ title, tid, children }: Head & { children: React.ReactNode }) {
   return <h2 id={tid} ref={title} tabIndex={-1}>{children}</h2>
+}
+
+/** The user's look and name, on a sheet beside their profile; always this computer's. */
+function LookSheet(h: Head) {
+  const me = useMe((s) => s.me)
+  return (
+    <>
+      <header className="fx-d-head"><Heading {...h}>{tr('編輯角色')}</Heading></header>
+      {me ? <LookEditor key={me.id} me={me} /> : <p className="fx-empty" role="status">{tr('載入中…')}</p>}
+    </>
+  )
 }
 
 export function Gone(h: Head) {
@@ -1649,7 +1664,6 @@ function BlueprintEdit({ id, copyOf, onDone, ...h }: Head & { id: string | null;
   const hash = () => Math.random().toString(16).slice(2, 9)
   const keep = (bp: Omit<Blueprint, 'id' | 'look'>) => {
     act((x) => saveBlueprint(x, id, (key) => blueprintOf(key, look, bp)))
-    if (copyOf) learn('copyBlueprint')
     onDone()
   }
   const save = (e: React.FormEvent) => {
@@ -1756,19 +1770,6 @@ function ToolPicks({ tools, setTools }: { tools: Tool[]; setTools: React.Dispatc
         ))}
       </div>
     </Section>
-  )
-}
-
-/** Roll a look again, at random: a die. */
-export function Reroll({ onClick, label }: { onClick: () => void; label: string }) {
-  return (
-    <button type="button" className="fx-control fx-reroll fx-hit" onClick={onClick} aria-label={label} title={label}>
-      <svg viewBox="0 0 16 16" width="24" height="24" aria-hidden="true">
-        <rect x="2.5" y="2.5" width="11" height="11" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        <circle cx="5.6" cy="5.6" r="1.1" fill="currentColor" /><circle cx="10.4" cy="10.4" r="1.1" fill="currentColor" />
-        <circle cx="8" cy="8" r="1.1" fill="currentColor" />
-      </svg>
-    </button>
   )
 }
 
@@ -2111,7 +2112,6 @@ function NewTask({ teamId, copyOf, seed, open, onOpen, image, onImage, onDone, .
     const { title, description, workflowId, staff, ownerId, images, files } = draft
     const workflow = custom && trimmedFlow(custom)
     act((x) => void createTask(x, { teamId, title: title.trim(), description: description.trim(), workflowId, workflow, staff, ownerId, images, files, chatId: seed?.chatId }))
-    if (seed) learn('chatTask')
     onDone()
   }
   // a blueprint to run on, its staff from the company's last task on it

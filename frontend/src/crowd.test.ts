@@ -196,6 +196,17 @@ describe('stepCrowd', () => {
     expect(people[homebody].home).toBe(false)
   })
 
+  it('keeps the user out and about, at night and when others call in at the staffing agency', () => {
+    const { scene, people } = island()
+    const me = people.findIndex((_, i) => goesHome(i, 1))
+    scene.me = me
+    scene.night = 1
+    run(people, scene, 400, seeded(5), () => expect(people[me].home).toBe(false))
+    scene.night = 0
+    // always choosing to call in
+    run(people, scene, 120, () => 0.75 + VISIT_SHARE / 2, () => expect(people[me].home).toBe(false))
+  })
+
   it('pairs people up to talk, face to face, and only ever both ways', () => {
     const { scene, people } = island()
     let talks = 0

@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/yanun0323/Team-Work/internal/model"
 )
@@ -119,9 +118,6 @@ func (e *Engine) SetGlobalPrompt(prompt string) error {
 		if err := saveAgentsFile(path, prompt); err != nil {
 			e.log.Error().Err(err).Msg("write global AGENTS.md")
 			return model.Errorf(model.CodeUnavailable, "寫不進 %s", path)
-		}
-		if strings.TrimSpace(prompt) != "" {
-			e.w.Tutorial.Learn("globalAgents")
 		}
 		return nil
 	})

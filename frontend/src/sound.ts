@@ -11,7 +11,6 @@ export const SOUND_EFFECTS = [
   { key: 'soundFlyover', label: '飛機飛越' },
   { key: 'soundUI', label: '介面操作' },
   { key: 'soundNotice', label: '通知' },
-  { key: 'soundTutorial', label: '教學提示' },
   { key: 'soundOpenTeam', label: '打開公司' },
   { key: 'soundOpenAirport', label: '打開機場' },
   { key: 'soundOpenTower', label: '打開基地台' },

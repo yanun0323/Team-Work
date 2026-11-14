@@ -126,7 +126,7 @@
     - `POST /api/v1/git/install`（會在對方電腦開 Apple 安裝視窗）。
     - `POST /api/v1/claude-code/login`（會在對方電腦開瀏覽器）。
     - `POST /api/v1/providers/:id/login`，method 是 `browser` 或空白時（瀏覽器登入要開對方的瀏覽器，回呼也落在對方本機；`device` 照常允許）。
-    - `PUT /api/v1/settings/language`、`PATCH /api/v1/tutorial`（語言和教學屬於本機）。
+    - `PUT /api/v1/settings/language`（語言屬於本機）。
     - `/api/v1/diagnostics/…`。
   - `PATCH /api/v1/settings/preferences` 只接受 6.4 的「島上工作設定」欄位，含其他欄位就整個回 400，`invalid_request`。
 - 不重複執行（見 6.6）：除了 GET 以外，每個請求都必須帶 `Idempotency-Key`，沒帶就回 400，`invalid_request`。
@@ -146,15 +146,14 @@
   - `request()`、`/events` 的 WebSocket、終端機的 WebSocket；
   - `claudeCode.ts` 自己發的 `fetch`；
   - 圖片和檔案網址（`handedImageUrl`、`projectImageUrl`、附件網址等）。
-  - **例外**：基地台 API（`/api/v1/towers…`）、`PUT /settings/language`、`PATCH /tutorial`、介面偏好的寫入，一律送本機。
+  - **例外**：基地台 API（`/api/v1/towers…`）、`PUT /settings/language`、介面偏好的寫入，一律送本機。
 - 切換過程：先清空畫面上的 World，顯示載入中，等對方的快照到了再畫出對方的島。地圖、建築、公司、員工、任務、聊天、終端機、機場（對方的供應商、藍圖、任務藍圖），都用現有畫面直接顯示。
 - **一直標示目前在哪台電腦**：在對方島上時，畫面上固定顯示「正在操作：{對方名稱}」，旁邊有「回到自己的島」按鈕，鍵盤可以操作。在自己島上不顯示（照全域規則不放多餘標示）。
 - 回到自己的島：基底換回 `/api/v1`，重新連本機的 `/events`，畫出本機 World。
 - App 每次啟動都先在自己的島，不記住上次在哪座島。
 - 介面偏好和語言：
   - **島上工作設定**（會影響對方電腦上怎麼工作的偏好，用對方 World 裡的值，在對方島上改的也是對方的）：`terminalCommand`、`chatTitleModel`、`chatTitleEffort`、`imageProvider`、`codexSkills`、`claudeSkills`、`hiddenBlueprints`、`hiddenWorkflows`、`compact1M`、`compact256K`、`compact128K`、`compactSmall`。
-  - **其他 `Prefs` 欄位都是介面偏好**，加上 `language` 和教學進度：在對方島上一律用本機的值，不被對方 World 覆蓋。設定頁的介面偏好區在對方島上停用，旁邊說明「回到自己的島再改」。語言選單照樣能用，改的是本機語言。
-  - 教學清單和教學提示在對方島上隱藏。
+  - **其他 `Prefs` 欄位都是介面偏好**，加上 `language`：在對方島上一律用本機的值，不被對方 World 覆蓋。設定頁的介面偏好區在對方島上停用，旁邊說明「回到自己的島再改」。語言選單照樣能用，改的是本機語言。
 - 本機暫存的東西不能跨島混在一起：聊天草稿、檔案草稿、聊天輸入紀錄、終端機工作階段等以 id 為鍵的暫存，要依電腦分開，或切換時清掉。對方島上的 id 可能剛好和本機的一樣。離開一座島時，那座島的終端機工作階段一律關掉（不管有沒有開「保留終端機」）。
 - 對方後端回的錯誤訊息，可能是對方電腦的語言。這可以接受，不用處理。
 
@@ -166,7 +165,7 @@
 | 打開設定資料夾、在 Finder 打開專案或檔案 | 停用，提示說明「這會在對方電腦上打開視窗，這裡不能用」。 |
 | Claude Code 登入 | 停用，說明原因。 |
 | 訂閱供應商用瀏覽器登入 | 停用，說明原因；用裝置碼（device）登入和貼上授權碼照常可用。 |
-| 介面偏好、教學 | 見 6.4。 |
+| 介面偏好 | 見 6.4。 |
 | 其他（任務、聊天、終端機、檔案瀏覽和編輯、圖片、附件上傳、供應商、藍圖、任務藍圖、公司設定、用量） | 照常，全部在對方電腦上執行。 |
 
 在自己的島上，以上功能的行為都不變。
@@ -255,7 +254,7 @@ interface Towers {
 | `POST /api/v1/towers/pair` | `{ "address": string }` | 202 `Towers['outgoing']`；結果之後從 `GET /towers` 讀 | 400 `invalid_request`（格式錯誤，立即回）、400 `pair_self`、409 `conflict`（已經有一筆在進行） |
 | `DELETE /api/v1/towers/outgoing` | — | 204（取消進行中的請求，或清掉已顯示的結果） | — |
 | `PATCH /api/v1/towers/peers/:id` | `{ "allowInbound"?: boolean, "access"?: "view" \| "operate" }` | 200 `Peer`；從操作切到檢視會關掉對方已開的連線 | 400 `invalid_request`、404 `not_found` |
-| `PUT /api/v1/towers/profile` | `{ "name": string }`（1–40 字、單行） | 200 `Towers['me']`；對方下次檢查時看到新名稱 | 400 `invalid_request` |
+| `PUT /api/v1/towers/profile` | `{ "name": string, "look"?: Look }`（名稱 1–40 字、單行；`look` 的顏色（含 `parts.accent`、`parts.shoeColor`）是 `#rrggbb`，`extra` 與 `parts` 的每個部位是 1–16 個小寫英文字母；`parts.shoes`、`parts.shoeColor` 可省略（鞋子加入前存的外觀沒有），省略時照種子挑；沒給 `look` 就保留原本的） | 200 `Towers['me']`；對方下次檢查時看到新名稱和外觀 | 400 `invalid_request` |
 | `POST /api/v1/towers/peers/:id/kick` | — | 204；立即關掉對方的連線並移出訪客清單 | 404 `not_found` |
 | `POST /api/v1/towers/peers/:id/block` | `{ "for": "hour" \| "manual" }` | 200 `Peer`（`blockedUntil` 為 Unix 秒，`-1` 是到手動解除），保存在 `tower-private.json` | 400 `invalid_request`、404 `not_found` |
 | `DELETE /api/v1/towers/peers/:id/block` | — | 200 `Peer` | 404 `not_found` |
@@ -339,7 +338,7 @@ interface Towers {
 | 3 | 後端測試：配對後重新建立服務（同一個資料夾），長期位址不變，用原本的通行證照樣能通過遠端入口；轉接斷線之後會換一個新的連線重連。 |
 | 4 | 後端測試：撤銷或關掉開關之後，下一個請求得到 401 或 403；已開著的 `/events` WebSocket 被關掉。 |
 | 5 | 後端測試：遠端入口的處理器收到沒有、錯誤、已撤銷的通行證，以及通行證放在網址參數裡時，都回 401，而且原本的 API 處理器沒有被呼叫；被擋的路徑（6.3 列出的全部）都回 403 `remote_unavailable`；`/api/v1/` 以外的路徑回 404；轉過去的請求不帶 `Authorization`，也不會被當成從本機回環位址（loopback）來的。 |
-| 6 | 前端測試：切換基底之後，`request`、`/events`、終端機、`claudeCode.ts`、圖片和附件網址都用 `/api/v1/remote/{id}`，基地台、語言、教學、介面偏好的請求仍然送本機；有「正在操作」標示和回家按鈕；介面偏好不被對方的 World 覆蓋；暫存資料不跨島。手動測試寫在交接。 |
+| 6 | 前端測試：切換基底之後，`request`、`/events`、終端機、`claudeCode.ts`、圖片和附件網址都用 `/api/v1/remote/{id}`，基地台、語言、介面偏好的請求仍然送本機；有「正在操作」標示和回家按鈕；介面偏好不被對方的 World 覆蓋；暫存資料不跨島。手動測試寫在交接。 |
 | 7 | 後端測試：`GET /folders` 的正常、空白、不存在、不是資料夾、相對路徑等情況。前端測試：在遠端模式下，新增公司用畫面內的瀏覽器，不會呼叫 `/folder-picker`，也不會用 Mac App 的原生選資料夾。 |
 | 8 | 後端測試：同一個 `Idempotency-Key` 送兩次只執行一次，第二次帶 `Idempotent-Replayed: true`；兩次同時送也只執行一次；非 GET 請求沒有 key 就回 400；轉接斷在半途時，用同一個 key 重試。 |
 | 9 | 後端測試：配對時版本不同會被拒，「前往」前的檢查回 `incompatible`，而且訊息寫明要更新哪一台。前端測試：顯示這個訊息，並且不會切換。 |
@@ -376,7 +375,7 @@ interface Towers {
 - `frontend/src/core/backend.ts`（請求和 WebSocket 的基底、`Idempotency-Key`、網址改寫）
 - `frontend/src/core/ops.ts`、`frontend/src/core/store.ts`、`frontend/src/terminalSessions.ts`、`frontend/src/claudeCode.ts`、`frontend/src/pickFolder.ts`、`frontend/src/attachments.tsx`
 - `frontend/src/World.tsx`、`frontend/src/layout.ts`（基地台位置和佔地）
-- `frontend/src/NewCompany.tsx`、`frontend/src/Settings.tsx`、`frontend/src/Drawer.tsx`、`frontend/src/FileBrowser.tsx`、`frontend/src/FileSheets.tsx`、`frontend/src/ChatSheet.tsx`、`frontend/src/SubscriptionLogin.tsx`、`frontend/src/ClaudeAccount.tsx`、`frontend/src/LanguageMenu.tsx`、`frontend/src/TutorialList.tsx`（遠端時停用或隱藏）
+- `frontend/src/NewCompany.tsx`、`frontend/src/Settings.tsx`、`frontend/src/Drawer.tsx`、`frontend/src/FileBrowser.tsx`、`frontend/src/FileSheets.tsx`、`frontend/src/ChatSheet.tsx`、`frontend/src/SubscriptionLogin.tsx`、`frontend/src/ClaudeAccount.tsx`、`frontend/src/LanguageMenu.tsx`（遠端時停用或隱藏）
 - `frontend/src/prefs.ts`（區分介面偏好和島上工作設定）
 - 草稿和紀錄類的暫存：`frontend/src/chatDraft.ts`、`frontend/src/fileDrafts.ts`、`frontend/src/chatHistory.ts`（依電腦分開）
 - `frontend/src/core/i18n.ts`、`frontend/src/Help.tsx`、`HelpEn.tsx`、`HelpJa.tsx`、`HelpKo.tsx`、`HelpZhHans.tsx`
@@ -395,4 +394,5 @@ interface Towers {
 - 每台配對電腦有 `access`：`view`（只能看）或 `operate`（可操作）。新配對一律是 `view`；這個欄位出現前就存在的配對（沒有 `access`）或值不認得時，讀進來也當作 `view`，配對身分不變，要島主手動切到 `operate`；切換後立刻存檔，重開後保持。權限在遠端入口（`delivery/gateway.go`）逐一請求檢查，含 WebSocket；從 `operate` 改成 `view`、踢出、封鎖都會換掉該電腦的租約，已開的連線立刻關閉。
 - 訪客對 `POST /api/v1/chats/:id/read` 與 `POST /api/v1/sources/:id/seen` 一律回 204 而不轉進本機 API，所以訪客打開公司、機場的對話不會清掉島主的未讀提示；島主本機照舊。
 - 訪客的每個分頁每 10 秒經遠端入口送 `POST /api/v1/presence`（`{ page, place, gone? }`，`place` 是 `""`、`airport` 或 `team:{id}`）。是哪台電腦只看通行證，不看內容；同一台的多個分頁合成一位，30 秒沒回報就移除。`GET /api/v1/towers` 的 `visitors` 列出目前的訪客，島主地圖上框出他們開著的公司或機場。訪客彼此看不到。
-- 基地台可改本機名稱（`PUT /towers/profile`），配對的另一台在定時檢查（`/tower/v1/hello`）時更新顯示的名稱。基地台顯示本機的遠端相容版本。
+- 本機名稱就是使用者在個人檔案（地圖右上角的頭像）設定的名字，和使用者的角色外觀一起用 `PUT /towers/profile` 存在 `tower-private.json` 的 `Me`；基地台面板不再有名稱欄位，標題下的名字點了會打開個人檔案。配對的另一台在定時檢查（`/tower/v1/hello`）時更新顯示的名稱和外觀，存在 `Peer.look`，`visitors` 也帶著 `look`，供之後在島上、建築名牌畫出訪客。`look` 不需要新的連線版本：舊版會忽略這個欄位；收到格式不對的 `look` 就當作沒有。基地台顯示本機的遠端相容版本。
+- 個人檔案的統計讀 `GET /api/v1/profile/stats`（一律打本機）：`{ since, tasksDone, chats, messages, partner?: { id, name, look, count }, usage: UsageTotals }`。`since` 是最早的任務、對話訊息或模型呼叫時間（Unix 秒，沒有就是 0）；`messages` 是使用者在對話裡說的話；`partner` 是對話數加完成步驟數最多、仍在職的員工。

@@ -1,6 +1,6 @@
 // Which computer's island the screen shows: this one's (null), or a paired computer's, reached through this
 // computer's backend at /api/v1/remote/{id}. Every request about the island goes to that base; the power tower,
-// the language, the tutorial and the interface preferences always stay with this computer.
+// the language and the interface preferences always stay with this computer.
 
 import { create } from 'zustand'
 

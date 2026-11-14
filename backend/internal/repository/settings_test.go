@@ -154,6 +154,55 @@ func TestSettingsPreserveUnchangedYAMLComments(t *testing.T) {
 	}
 }
 
+func TestSettingsFromBeforeTheTutorialWasRemovedStillLoadAndLoseIt(t *testing.T) {
+	ctx := context.Background()
+	s, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	c := model.SettingsOf(model.NewWorld())
+	raw, _ := json.Marshal(c)
+	if err := s.Apply(ctx, nil, nil, nil, model.SettingsChange{After: raw}); err != nil {
+		t.Fatal(err)
+	}
+	// as an older version left them: its progress in a file of its own, and its sound among the preferences
+	prefs := filepath.Join(s.dataDir, "preferences.yaml")
+	var lines []string
+	old, _ := os.ReadFile(prefs)
+	for _, line := range strings.Split(strings.TrimSpace(string(old)), "\n") {
+		if !strings.HasPrefix(line, "soundTutorial:") {
+			lines = append(lines, line)
+		}
+	}
+	if err := os.WriteFile(prefs, []byte(strings.Join(append(lines, "soundTutorial: false"), "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tutorial := filepath.Join(s.dataDir, "tutorial.yaml")
+	if err := os.WriteFile(tutorial, []byte("seeded: true\ndone: [provider]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.LoadSettings(ctx)
+	if err != nil {
+		t.Fatalf("older settings no longer load: %v", err)
+	}
+	if bytes.Contains(before.Data, []byte("utorial")) {
+		t.Fatalf("the tutorial is still read: %s", before.Data)
+	}
+	// the next save leaves both out
+	c.Preferences.Shadows = false
+	raw, _ = json.Marshal(c)
+	if err := s.Apply(ctx, nil, nil, nil, model.SettingsChange{Before: before, After: raw}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tutorial); !os.IsNotExist(err) {
+		t.Fatalf("tutorial.yaml is still there: %v", err)
+	}
+	if got, _ := os.ReadFile(prefs); bytes.Contains(got, []byte("soundTutorial")) {
+		t.Fatalf("preferences.yaml still has the tutorial's sound:\n%s", got)
+	}
+}
+
 func TestFileNameIsTheIDOfBlueprintsAndWorkflows(t *testing.T) {
 	c := model.Settings{Version: 1, Preferences: model.DefaultPreferences(), Providers: map[string]model.ProviderConfig{},
 		Blueprints: map[string]*model.Blueprint{"bp-a": {ID: "bp-a", Name: "a"}},

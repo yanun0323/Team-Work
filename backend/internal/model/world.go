@@ -19,6 +19,21 @@ type Look struct {
 	// Wardrobe is which set of clothes and cuts Style picks from; 0 is the first, which everyone hired before the
 	// second keeps, so their looks never change.
 	Wardrobe int `json:"wardrobe,omitempty"`
+	// Parts is what the person wears picked one by one, in place of what Style would pick; nil leaves it all to Style.
+	Parts *LookParts `json:"parts,omitempty"`
+}
+
+// LookParts names a hair cut, a top, what is worn below, facial hair, the colour of a jacket, tie or stripe, and
+// the shoes and their colour. The names are the frontend's (figureStyle.ts); one it does not know falls back to what
+// Style picks. Parts picked before shoes could be have none.
+type LookParts struct {
+	Hair      string `json:"hair"`
+	Top       string `json:"top"`
+	Bottom    string `json:"bottom"`
+	Facial    string `json:"facial"`
+	Accent    string `json:"accent"`
+	Shoes     string `json:"shoes,omitempty"`
+	ShoeColor string `json:"shoeColor,omitempty"`
 }
 
 // BlueprintSource is a Git repo pinned to a commit, or a blueprint written by hand as YAML.
@@ -687,7 +702,6 @@ type Quota struct {
 // World is everything the backend knows. Conversations stay inside the backend, so clients never get them.
 type World struct {
 	Preferences   Preferences               `json:"preferences"`
-	Tutorial      Tutorial                  `json:"tutorial"`
 	Now           float64                   `json:"now"`
 	Seq           int                       `json:"seq"`
 	Language      string                    `json:"language"`
@@ -746,7 +760,7 @@ func IsLockedID(id string) bool { return IsPresetID(id) || SourceOfID(id) != "" 
 
 func NewWorld() *World {
 	return &World{
-		Language: LanguageZh, Preferences: DefaultPreferences(), Tutorial: Tutorial{Done: []string{}, Shown: []string{}, Played: []string{}, Actions: []string{}, Copies: []string{}},
+		Language: LanguageZh, Preferences: DefaultPreferences(),
 		Teams: map[string]*Team{}, Providers: map[string]*ModelProvider{}, Blueprints: map[string]*Blueprint{}, Sources: map[string]*Source{},
 		Replicas: map[string]*Replica{}, Workflows: map[string]*Workflow{}, Tasks: map[string]*Task{},
 		SubTasks: map[string]*SubTask{}, Chats: map[string]*Chat{}, Conversations: map[string][]Message{},

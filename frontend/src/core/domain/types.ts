@@ -1,5 +1,6 @@
 import type { Prefs } from '../../prefs'
 import type { BuildingLook, Spot } from '../../layout'
+import type { Style } from '../../figureStyle'
 // Domain types. Names follow CONTEXT.md at the repo root.
 
 /** zh is Traditional Chinese, the language the interface's words are keyed by; zh-Hans is Simplified Chinese. */
@@ -23,6 +24,8 @@ export interface Look {
    * looks never change; 2 adds skirts, dresses and more cuts and clothes.
    */
   wardrobe?: number
+  /** What the person wears picked one by one, in place of what `style` picks; only the user's own look has it so far. */
+  parts?: Style
 }
 
 /** How hard an employee thinks before answering. */
@@ -402,7 +405,7 @@ export interface Chat {
   history?: {
     version: string; previous?: string; changedFrom: number; count: number
     preview: string; previewKind?: 'image' | 'file'; sortAt: number
-    lastAgent?: ChatMessage; mentions?: string[]; hasFileMention: boolean; hasAttachment: boolean
+    lastAgent?: ChatMessage; mentions?: string[]
   }
   tokens: number
   /** About how many tokens the next call sends, which the chat is summed up to keep under the model's context window. */
@@ -814,26 +817,8 @@ export interface ModelProvider {
   contextWindow?: number
 }
 
-/**
- * How far the user has come through the tutorial, as kept in tutorial.yaml. Which steps there are and when each is
- * met is decided here, in `tutorial.ts`; every list only grows.
- */
-export interface TutorialState {
-  /** The steps already met when the tutorial first ran have been put down as done, without a tick. */
-  seeded: boolean
-  hidden: boolean
-  done: string[]
-  /** Steps the user has seen appear in the list. */
-  shown: string[]
-  /** Done steps whose tick has played. */
-  played: string[]
-  /** Things the user did that leave nothing in the world to show for them. */
-  actions: string[]
-}
-
 export interface World {
   preferences?: Prefs
-  tutorial?: TutorialState
   now: number
   seq: number
   /** The language of the app and of what employees write to the user. */

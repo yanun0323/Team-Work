@@ -72,12 +72,13 @@ func (s *Server) EnableTowers(service *tower.Service) {
 	api.DELETE("/towers/outgoing", func(c echo.Context) error { service.CancelOutgoing(); return c.NoContent(204) })
 	api.PUT("/towers/profile", func(c echo.Context) error {
 		in, err := bind[struct {
-			Name string `json:"name"`
+			Name string      `json:"name"`
+			Look *model.Look `json:"look"`
 		}](c)
 		if err != nil {
 			return err
 		}
-		v, err := service.SetProfile(in.Name)
+		v, err := service.SetProfile(in.Name, in.Look)
 		if err != nil {
 			return err
 		}

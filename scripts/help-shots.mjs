@@ -62,6 +62,8 @@ try {
         // noon by the default daylight, a Minecraft day, and the same clock on every shot
         await page.clock.setFixedTime(new Date('2026-11-05T10:05:00+08:00'))
         await page.goto(url)
+        // the plane that brings the camera in has landed, and the controls it took off the screen are back
+        await page.waitForSelector('.fusion-stage:not([data-away])', { timeout: 30000 })
         await page.waitForTimeout(3000)
         if (language === 'en') {
           await page.click('[aria-label="語言"]')

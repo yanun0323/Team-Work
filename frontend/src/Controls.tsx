@@ -386,3 +386,16 @@ export function WaitBadge({ merge, inline, label = merge ? tr('可以合併') : 
     </span>
   )
 }
+
+/** Roll a look again, at random: a die. */
+export function Reroll({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button type="button" className="fx-control fx-reroll fx-hit" onClick={onClick} aria-label={label} title={label}>
+      <svg viewBox="0 0 16 16" width="24" height="24" aria-hidden="true">
+        <rect x="2.5" y="2.5" width="11" height="11" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="5.6" cy="5.6" r="1.1" fill="currentColor" /><circle cx="10.4" cy="10.4" r="1.1" fill="currentColor" />
+        <circle cx="8" cy="8" r="1.1" fill="currentColor" />
+      </svg>
+    </button>
+  )
+}
