@@ -68,10 +68,19 @@ type Visitor struct {
 	Name   string      `json:"name"`
 	Look   *model.Look `json:"look,omitempty"`
 	Places []string    `json:"places"`
+	// Since is when it came onto this island (Unix seconds); a page reloaded or swapped for another keeps it.
+	Since int64 `json:"since"`
 }
 type presence struct {
 	place string
 	at    time.Time
+}
+
+// stay is one paired computer on this island: when it came, when any of its pages last said anything, and its pages.
+// It outlives its last page by presenceLifetime, so a page reloaded is the same visit.
+type stay struct {
+	since, last time.Time
+	pages       map[string]presence
 }
 type Request struct {
 	Identity
@@ -157,14 +166,14 @@ type Service struct {
 	pairing        *waiting
 	outgoing       *Outgoing
 	outgoingCancel context.CancelFunc
-	presence       map[string]map[string]presence
+	presence       map[string]*stay
 	kicked         map[string]time.Time
 	now            func() time.Time
 }
 
 func New(ctx context.Context, dir string, transport Transport) (*Service, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{ctx: ctx, cancel: cancel, transport: transport, file: filepath.Join(dir, "tower-private.json"), leases: map[string]lease{}, presence: map[string]map[string]presence{}, kicked: map[string]time.Time{}, now: time.Now}
+	s := &Service{ctx: ctx, cancel: cancel, transport: transport, file: filepath.Join(dir, "tower-private.json"), leases: map[string]lease{}, presence: map[string]*stay{}, kicked: map[string]time.Time{}, now: time.Now}
 	raw, err := os.ReadFile(s.file)
 	if err == nil {
 		err = json.Unmarshal(raw, &s.disk)
@@ -375,7 +384,9 @@ func (s *Service) SetAllowed(id string, allow bool) (Peer, error) {
 	}
 	return p.Peer, nil
 }
-func missing() error { return model.Errorf(model.CodeNotFound, "找不到配對電腦或配對請求") }
+func missing() error {
+	return model.Errorf(model.CodeNotFound, "找不到配對的小島或配對請求")
+}
 func (s *Service) Unpair(ctx context.Context, id string) error {
 	s.mu.Lock()
 	p, ok := s.disk.Peers[id]
@@ -415,13 +426,13 @@ func (s *Service) Authorize(token string, allowDisabled bool) (Peer, context.Con
 		for id, p := range s.disk.Peers {
 			if !p.Revoked && subtle.ConstantTimeCompare([]byte(digest), []byte(p.InboundHash)) == 1 {
 				if !allowDisabled && !p.AllowInbound {
-					return Peer{}, nil, model.Errorf("peer_denied", "對方沒有允許這台操作它")
+					return Peer{}, nil, model.Errorf("peer_denied", "對方沒有對你開放小島")
 				}
 				if !allowDisabled && s.blockedLocked(p.Peer) {
-					return Peer{}, nil, model.Errorf("peer_blocked", "對方已封鎖這台，暫時不能前往")
+					return Peer{}, nil, model.Errorf("peer_blocked", "對方已封鎖這座島，暫時不能前往")
 				}
 				if until, ok := s.kicked[id]; !allowDisabled && ok && s.now().Before(until) {
-					return Peer{}, nil, model.Errorf("peer_kicked", "對方已請這台離開，請稍後再前往")
+					return Peer{}, nil, model.Errorf("peer_kicked", "對方已請這座島離開，請稍後再前往")
 				}
 				return p.Peer, s.leases[id].ctx, nil
 			}
@@ -441,7 +452,7 @@ func (s *Service) RemoteUnpair(id string) error {
 	p.InboundHash = ""
 	p.Token = ""
 	p.Status = "unpaired"
-	p.Message = i18n.T("對方已解除配對")
+	p.Message = i18n.T("對方已移除好友")
 	s.disk.Peers[id] = p
 	if err := s.saveLocked(); err != nil {
 		s.disk.Peers[id] = old
@@ -453,9 +464,9 @@ func (s *Service) RemoteUnpair(id string) error {
 }
 func incompatible(remote Identity) *model.Error {
 	if remote.Protocol > Protocol {
-		return model.Errorf("incompatible", "這台的 Team Work 太舊，請更新這台")
+		return model.Errorf("incompatible", "這座島的 Team Work 太舊，請更新")
 	}
-	return model.Errorf("incompatible", "%s 的 Team Work 太舊，請更新那台", remote.Name)
+	return model.Errorf("incompatible", "%s 的 Team Work 太舊，請對方更新", remote.Name)
 }
 func (s *Service) Target(id string) (string, string, context.Context, error) {
 	s.mu.Lock()
@@ -465,7 +476,7 @@ func (s *Service) Target(id string) (string, string, context.Context, error) {
 		return "", "", nil, missing()
 	}
 	if p.Revoked {
-		return "", "", nil, model.Errorf("peer_unpaired", "對方已解除配對")
+		return "", "", nil, model.Errorf("peer_unpaired", "對方已移除好友")
 	}
 	if p.Protocol != Protocol {
 		return "", "", nil, incompatible(Identity{ID: p.ID, Name: p.Name, Protocol: p.Protocol})
@@ -510,10 +521,10 @@ func (s *Service) Check(ctx context.Context, id string) (Peer, error) {
 			}
 		case 401:
 			p.Status = "unpaired"
-			p.Message = i18n.T("對方已解除配對")
+			p.Message = i18n.T("對方已移除好友")
 		case 403:
 			p.Status = "denied"
-			p.Message = i18n.T("對方沒有允許這台操作它")
+			p.Message = i18n.T("對方沒有對你開放小島")
 			var failed struct {
 				Error struct {
 					Code    string `json:"code"`
@@ -614,7 +625,7 @@ func (s *Service) Get(ctx context.Context, id, path string, most int64) ([]byte,
 	}
 	switch {
 	case resp.StatusCode == 401:
-		return nil, model.Errorf("peer_unpaired", "對方已解除配對")
+		return nil, model.Errorf("peer_unpaired", "對方已移除好友")
 	case resp.StatusCode == 200:
 		return raw, nil
 	}
@@ -626,10 +637,10 @@ func (s *Service) Get(ctx context.Context, id, path string, most int64) ([]byte,
 	}
 	if json.Unmarshal(raw, &failed) == nil && failed.Error.Code != "" {
 		if resp.StatusCode == 404 && failed.Error.Code != model.CodeNotFound { // a route it does not have
-			return nil, model.Errorf("incompatible", "對方的 Team Work 太舊，請更新那台")
+			return nil, model.Errorf("incompatible", "對方的 Team Work 太舊，請對方更新")
 		}
 		if failed.Error.Code == "peer_denied" {
-			return nil, model.Errorf("peer_denied", "對方沒有允許這台操作它")
+			return nil, model.Errorf("peer_denied", "對方沒有對你開放小島")
 		}
 		return nil, &model.Error{Code: failed.Error.Code, Message: failed.Error.Message}
 	}

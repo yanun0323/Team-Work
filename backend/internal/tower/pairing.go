@@ -138,9 +138,9 @@ func (s *Service) receivePair(ctx context.Context, w *waiting, rw http.ResponseW
 		s.mu.Unlock()
 		var err *model.Error
 		if x.Protocol < Protocol {
-			err = model.Errorf("incompatible", "這台的 Team Work 太舊，請更新這台")
+			err = model.Errorf("incompatible", "這座島的 Team Work 太舊，請更新")
 		} else {
-			err = model.Errorf("incompatible", "%s 的 Team Work 太舊，請更新那台", me.Name)
+			err = model.Errorf("incompatible", "%s 的 Team Work 太舊，請對方更新", me.Name)
 		}
 		pairFailure(conn, err.Code, err.Message)
 		return
@@ -442,7 +442,7 @@ func (s *Service) runPair(ctx context.Context, address string, o *Outgoing) {
 			s.pairFailed(o, model.Errorf("pair_self", "不能和自己配對"))
 			return
 		}
-		peer := savedPeer{Peer: Peer{ID: remote.ID, Name: remote.Name, Protocol: remote.Protocol, Status: "online", AllowInbound: false, Access: AccessView, PairedAt: time.Now().Unix(), LastSeenAt: time.Now().Unix(), Look: remoteLook(remote.Look)}, Address: remote.Address, Token: remote.Token, InboundHash: hash(token)}
+		peer := savedPeer{Peer: Peer{ID: remote.ID, Name: remote.Name, Protocol: remote.Protocol, Status: "online", AllowInbound: true, Access: AccessView, PairedAt: time.Now().Unix(), LastSeenAt: time.Now().Unix(), Look: remoteLook(remote.Look)}, Address: remote.Address, Token: remote.Token, InboundHash: hash(token)}
 		old, exists := s.disk.Peers[peer.ID]
 		s.disk.Peers[peer.ID] = peer
 		if s.saveLocked() != nil {

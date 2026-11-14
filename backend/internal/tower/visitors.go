@@ -200,37 +200,40 @@ func (s *Service) Visit(id, page, place string, gone bool) error {
 	if _, ok := s.disk.Peers[id]; !ok {
 		return missing()
 	}
-	pages := s.presence[id]
+	now := s.now()
+	st := s.presence[id]
 	if gone {
-		delete(pages, page)
-		if len(pages) == 0 {
-			delete(s.presence, id)
+		if st != nil {
+			delete(st.pages, page)
+			st.last = now
 		}
 		return nil
 	}
-	if pages == nil {
-		pages = map[string]presence{}
-		s.presence[id] = pages
+	// a computer silent for longer than a page may be is coming again, not still here
+	if st == nil || now.Sub(st.last) > presenceLifetime {
+		st = &stay{since: now, pages: map[string]presence{}}
+		s.presence[id] = st
 	}
-	if _, ok := pages[page]; !ok && len(pages) >= maxPresencePages {
+	if _, ok := st.pages[page]; !ok && len(st.pages) >= maxPresencePages {
 		s.prunePresenceLocked()
-		if len(pages) >= maxPresencePages {
+		if len(st.pages) >= maxPresencePages {
 			return model.Errorf(model.CodeInvalid, "同時開啟的頁面太多")
 		}
 	}
-	pages[page] = presence{place: place, at: s.now()}
+	st.pages[page] = presence{place: place, at: now}
+	st.last = now
 	return nil
 }
 
 func (s *Service) prunePresenceLocked() {
 	now := s.now()
-	for id, pages := range s.presence {
-		for page, p := range pages {
+	for id, st := range s.presence {
+		for page, p := range st.pages {
 			if now.Sub(p.at) > presenceLifetime {
-				delete(pages, page)
+				delete(st.pages, page)
 			}
 		}
-		if len(pages) == 0 {
+		if len(st.pages) == 0 && now.Sub(st.last) > presenceLifetime {
 			delete(s.presence, id)
 		}
 	}
@@ -240,14 +243,14 @@ func (s *Service) prunePresenceLocked() {
 func (s *Service) visitorsLocked() []Visitor {
 	s.prunePresenceLocked()
 	out := []Visitor{}
-	for id, pages := range s.presence {
+	for id, st := range s.presence {
 		p, ok := s.disk.Peers[id]
-		if !ok || p.Revoked || !p.AllowInbound || s.blockedLocked(p.Peer) {
+		if !ok || p.Revoked || !p.AllowInbound || s.blockedLocked(p.Peer) || len(st.pages) == 0 {
 			continue
 		}
-		v := Visitor{ID: id, Name: p.Name, Look: p.Look, Places: []string{}}
+		v := Visitor{ID: id, Name: p.Name, Look: p.Look, Places: []string{}, Since: st.since.Unix()}
 		seen := map[string]bool{}
-		for _, page := range pages {
+		for _, page := range st.pages {
 			if page.place != "" && !seen[page.place] {
 				seen[page.place] = true
 				v.Places = append(v.Places, page.place)

@@ -39,8 +39,8 @@ describe('going to another island', () => {
   })
 
   it('stays where it is and says why when the computer cannot be worked, including which one to update', async () => {
-    vi.stubGlobal('fetch', answer(200, peer({ status: 'incompatible', message: 'Studio 的 Team Work 太舊，請更新那台' })))
-    await expect(goTo('b')).resolves.toEqual({ ok: false, message: 'Studio 的 Team Work 太舊，請更新那台' })
+    vi.stubGlobal('fetch', answer(200, peer({ status: 'incompatible', message: 'Studio 的 Team Work 太舊，請對方更新' })))
+    await expect(goTo('b')).resolves.toEqual({ ok: false, message: 'Studio 的 Team Work 太舊，請對方更新' })
     expect(useIsland.getState().island).toBeNull()
     expect(useStore.getState().arriving).toBe(false)
     vi.stubGlobal('fetch', answer(404, { error: { code: 'not_found', message: '找不到這台電腦' } }))
@@ -175,12 +175,12 @@ describe('visiting another island', () => {
   it('goes home saying why when the island sends it away', async () => {
     const stop = watchIsland(60_000)
     useIsland.setState({ island: { id: 'b', name: 'Studio' } })
-    vi.stubGlobal('fetch', answer(403, { error: { code: 'peer_kicked', message: '對方已請這台離開，請稍後再前往' } }))
+    vi.stubGlobal('fetch', answer(403, { error: { code: 'peer_kicked', message: '對方已請這座島離開，請稍後再前往' } }))
     reportPresence(() => '', 60_000).stop()
     await turn()
     await turn()
     stop()
-    expect(useIsland.getState().notice).toBe('對方已請這台離開，請稍後再前往')
+    expect(useIsland.getState().notice).toBe('對方已請這座島離開，請稍後再前往')
   })
 })
 

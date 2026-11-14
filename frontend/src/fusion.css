@@ -2096,32 +2096,34 @@ button.fx-ticket-tag:hover { color: var(--ink); }
 /* ---------- the power tower (TowerPanel.tsx) ---------- */
 .fx-tower { gap: 30px; }
 .fx-tower-empty { margin: 0; padding-block: 6px 2px; color: var(--muted); font-size: 13.5px; }
-/* a computer: name and status, Go at the end; its switch and unpairing on a second line, under the name */
-.fx-tower-peers li { display: grid; padding: 12px 0; }
-.fx-tower-peer { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 14px; }
-.fx-tower-peer b { overflow-wrap: anywhere; }
-.fx-tower-peer > :is(.fx-tower-acts, .fx-tower-error) { grid-column: 1 / -1; }
+/* a friend island: the row opens its sheet, Go stays outside it at the end */
+.fx-tower-friend { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; }
+.fx-row.fx-tower-row { grid-template-columns: auto minmax(0, 1fr); width: calc(100% + 8px); margin-inline: -8px 0; padding-block: 10px; }
+.fx-tower-friend > .fx-tower-line-under { grid-column: 1 / -1; padding-bottom: 10px; }
+.fx-tower-friend b { overflow-wrap: anywhere; }
+.fx-tower-face { flex: none; display: flex; }
+.fx-tower-face svg { display: block; border-radius: 3px; }
 .fx-tower-go { min-width: 5.5em; }
 .fx-tower-status { display: inline-flex; align-items: baseline; gap: 6px; }
 /* a dot beside the words, never alone: green online, grey offline or checking, the accent when it can't be worked */
 .fx-tower-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); translate: 0 -1px; }
-.fx-tower-status[data-status="online"] .fx-tower-dot { background: #2f9e5b; }
+.fx-tower-status:is([data-status="online"], [data-status="visiting"]) .fx-tower-dot { background: #2f9e5b; }
+/* on this island now: said in ink, as the most telling thing on the row */
+.fx-tower-status[data-status="visiting"] { color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .fx-tower-status:is([data-status="denied"], [data-status="unpaired"], [data-status="incompatible"]) { color: var(--accent); }
 .fx-tower-status:is([data-status="denied"], [data-status="unpaired"], [data-status="incompatible"]) .fx-tower-dot { background: var(--accent); }
-.fx-tower-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 10px; }
-.fx-tower-here { transform: rotate(-2deg); }
-.fx-tower-unpair { padding: 0 10px; margin-inline-end: -10px; color: var(--muted); }
-.fx-tower-acts > .fx-tool-ask { margin-inline-end: -12px; }
+.fx-tower-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; }
+.fx-tower-here { justify-self: center; transform: rotate(-2deg); }
+/* a friend island's sheet: whether to open my island to it and how far, on one line that wraps when narrow;
+   removing it is the bin among the sheet's tools */
+.fx-tower-access-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.fx-tower-access-label { flex: 1 1 12em; font-size: 14px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.fx-tower-access { flex: none; width: min(100%, 19em); }
+.fx-tower-done { margin: 0; font-size: 13.5px; }
 .fx-tower-error { margin: 0; color: var(--accent); font-size: 13px; overflow-wrap: anywhere; }
-/* pairing: which side this computer takes, then the one thing to do for it */
-.fx-tower-start, .fx-tower-under-way { display: grid; gap: 14px; justify-items: start; max-width: 520px; }
-.fx-tower-roles { width: 100%; height: auto; min-height: 34px; }
-.fx-tower-roles .fx-switcher-option { padding-block: 5px; }
-/* a longer language wraps inside its half rather than being cut off */
-.fx-tower-roles .fx-switcher-option > span { white-space: normal; text-align: center; text-wrap: balance; }
-.fx-tower-box { display: grid; gap: 10px; justify-items: start; width: 100%; }
+/* adding a friend island: this island's code, then the other's */
+.fx-tower-box { container-type: inline-size; display: grid; gap: 10px; justify-items: start; width: 100%; margin-top: 6px; }
 .fx-tower-box > p { margin: 0; font-size: 13.5px; }
-.fx-tower-hint { font-size: 13px; color: var(--ink-2); }
 /* the link version, at the head's right end */
 .fx-tower-version { font-size: 13px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* an address and its button on one line: copied or pasted whole, never read, so one line of it is enough */
@@ -2130,7 +2132,6 @@ button.fx-ticket-tag:hover { color: var(--ink); }
 .fx-control.fx-tower-code { font: 12.5px/1.4 var(--font-mono); text-overflow: ellipsis; }
 /* read only, yet kept on its wash: it lines up with its Copy button as a field, and selects whole on focus */
 .fx-control.fx-tower-code[readonly] { color: var(--ink-2); background: var(--wash); }
-.fx-tower-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .fx-tower-left { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* someone asking to pair: a note pasted on, until it is answered */
 .fx-tower-ask { display: grid; gap: 8px; width: 100%; box-sizing: border-box; padding: 12px 14px; background: var(--note); box-shadow: var(--lift); transform: rotate(-0.4deg); }

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { clockOf, TowerBody, TowerTitle, updateWhich } from './TowerPanel'
+import { AddFriendBody, clockOf, PeerSheet, stayOf, TowerBody, TowerTitle, updateWhich } from './TowerPanel'
 import { IslandSlip } from './IslandBar'
 import { useIsland } from './core/island'
 import { MOCK_TOWERS, readTowers, type Peer, type Towers } from './core/towers'
@@ -12,6 +12,9 @@ const refresh = async () => {}
 const body = (towers: Towers | null, error = '') => renderToStaticMarkup(<TowerBody towers={towers} error={error} refresh={refresh} />)
 const me = { id: 'a', name: 'MacBook', protocol: 1 }
 const towers = (t: Partial<Towers> = {}): Towers => ({ me, pairing: null, outgoing: null, peers: [], visitors: [], ...t })
+const adding = (t: Partial<Towers> = {}) => renderToStaticMarkup(<AddFriendBody towers={towers(t)} refresh={refresh} />)
+const sheet = (peer: Peer) => renderToStaticMarkup(<PeerSheet peer={peer} me={1} refresh={refresh} />)
+const checked = (html: string) => html.match(/<input type="radio"[^>]*checked=""[^>]*\/?><span>([^<]*)<\/span>/g)?.map((m) => m.replace(/.*<span>|<\/span>/g, ''))
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -29,52 +32,72 @@ describe('the power tower panel', () => {
     expect(failed).toContain('重試')
   })
 
-  it('with nothing paired, says so, and asks which side of a new pairing this computer takes', () => {
+  it('with no friend islands, says so, with one way to add one and nothing to pick first', () => {
     const html = body(towers())
-    expect(html).toContain('還沒有配對的電腦')
-    expect(html).toContain('配對新電腦')
-    // both sides as real radios, named by the section, the side being worked picked first
-    expect(html).toMatch(/role="radiogroup" aria-labelledby="fx-tower-pair"/)
-    expect(html.match(/<input type="radio"/g)).toHaveLength(2)
-    expect(html).toMatch(/<input type="radio"[^>]*checked=""[^>]*\/><span>讓別台操作這台<\/span>/)
-    expect(html).toContain('操作別台')
-    expect(html).toMatch(/<button[^>]*>等待配對<\/button>/)
-    // the address to enter shows only once that side is picked
-    expect(html).not.toContain('placeholder="貼上對方的配對位址"')
+    expect(html).toContain('還沒有好友小島')
+    expect(html).toMatch(/<button type="button" class="fx-task fx-task-new fx-flow-new fx-hit" aria-expanded="false">＋ 新增好友小島<\/button>/)
+    expect(html).not.toContain('role="radiogroup"')
+    expect(html).not.toContain('fx-tower-code')
     // the mock pairs with nothing, and says so
     expect(html).toContain('模擬模式不能配對')
   })
 
-  it('lists each computer with its status in words, its switch and its actions, all named', () => {
+  it('lists each friend island with its status in words and Go; what it may do here is on its sheet', () => {
     const html = body(towers({ peers: [
       { id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'operate' },
       { id: 'c', name: 'Mini', status: 'incompatible', allowInbound: false, pairedAt: 2, protocol: 2, access: 'view' },
-      { id: 'd', name: 'Air', status: 'denied', allowInbound: false, pairedAt: 3, message: 'Air 沒有允許這台操作它', access: 'view' },
+      { id: 'd', name: 'Air', status: 'denied', allowInbound: false, pairedAt: 3, message: 'Air 沒有允許這座島操作它', access: 'view' },
     ] }))
     expect(html).toContain('Studio')
     expect(html).toContain('在線')
-    expect(html).toContain('版本不相容：這台的 Team Work 太舊，請更新這台')
-    expect(html).toContain('Air 沒有允許這台操作它')
-    // one switch each, of real radios, so it is reached with Tab and moved with the arrows; shut out is its first choice
-    expect(html.match(/class="fx-switcher fx-tower-access" role="radiogroup"/g)).toHaveLength(3)
-    expect(html).not.toContain('type="checkbox"')
-    expect(html.match(/<input type="radio"[^>]*checked=""[^>]*><span>([^<]*)<\/span>/g)?.map((m) => m.replace(/.*<span>|<\/span>/g, ''))).toEqual(['操作', '不允許', '不允許', '讓別台操作這台'])
+    expect(html).toContain('版本不相容：這座島的 Team Work 太舊，請更新')
+    expect(html).toContain('Air 沒有允許這座島操作它')
+    // the row opens the sheet, so the switch beside Go can't be read as Go's
+    expect(html).not.toContain('role="radiogroup"')
+    expect(html).not.toContain('移除好友')
+    expect(html.match(/<button type="button" class="fx-row fx-hit fx-tower-row" aria-expanded="false"/g)).toHaveLength(3)
     expect(html.match(/<button[^>]*>前往<\/button>/g)).toHaveLength(3)
     // Go is the dark button only where it can be gone to; elsewhere still pressable, as it checks again first
     expect(html.match(/class="fx-save fx-tower-go"/g)).toHaveLength(1)
     expect(html.match(/class="fx-save fx-save-quiet fx-tower-go"/g)).toHaveLength(2)
-    expect(html.match(/<button[^>]*>解除配對<\/button>/g)).toHaveLength(3)
     // never colour alone
     expect(html).toContain('data-status="denied"')
   })
 
-  it('shows a computer whose access is missing or unknown as view only', () => {
+  it('marks what its open sheet is about', () => {
+    const peers: Peer[] = [{ id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'view' }]
+    const row = renderToStaticMarkup(<TowerBody towers={towers({ peers })} error="" refresh={refresh} open={{ kind: 'peer', id: 'b' }} />)
+    expect(row).toContain('class="fx-row fx-hit fx-tower-row" aria-expanded="true"')
+    const add = renderToStaticMarkup(<TowerBody towers={towers({ peers })} error="" refresh={refresh} open={{ kind: 'add' }} />)
+    expect(add).toMatch(/<button[^>]*aria-expanded="true"[^>]*>＋ 新增好友小島<\/button>/)
+    expect(add).toContain('aria-expanded="false"')
+  })
+
+  it("on a friend island's sheet: who it is, one line asking whether to open my island to it, and a bin to remove it", () => {
+    const html = sheet({ id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'operate' })
+    expect(html).toMatch(/<h2 id="fx-tower-sheet-title" tabindex="-1">Studio<\/h2>/)
+    // the question and its switch on one line, the switch named by the question
+    expect(html).toMatch(/<div class="fx-tower-access-row"><span id="([^"]+)" class="fx-tower-access-label">是否對 Studio 開放我的小島<\/span><div class="fx-switcher fx-tower-access" role="radiogroup" aria-labelledby="\1"/)
+    expect(html).not.toContain('type="checkbox"')
+    expect(checked(html)).toEqual(['可操作'])
+    expect(html).toContain('<span>不開放</span>')
+    expect(html).toContain('<span>僅檢視</span>')
+    // removing is the bin among the sheet's tools, not a word at its foot
+    expect(html).toMatch(/<div class="fx-tools"><button type="button" class="fx-tool fx-hit" aria-label="移除好友" title="移除好友"><svg/)
+    expect(checked(sheet({ id: 'c', name: 'Mini', status: 'offline', allowInbound: false, pairedAt: 2, access: 'operate' }))).toEqual(['不開放'])
+  })
+
+  it('writes the times it shows on a 24-hour clock', () => {
+    const at = new Date(2026, 10, 15, 15, 9).getTime() / 1000
+    const html = sheet({ id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'view', blockedUntil: at })
+    expect(html).toContain('封鎖到 15:09')
+    expect(html).not.toMatch(/AM|PM/)
+  })
+
+  it('shows a friend island whose access is missing or unknown as view only', () => {
     for (const access of [undefined, 'admin']) {
       const peer = { id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access } as unknown as Peer
-      const html = body(towers({ peers: [peer] }))
-      expect(html).toMatch(/<input type="radio"[^>]*checked=""[^>]*><span>檢視<\/span>/)
-      expect(html).toMatch(/<input type="radio"[^>]*><span>操作<\/span>/)
-      expect(html).not.toMatch(/<input type="radio"[^>]*checked=""[^>]*><span>操作<\/span>/)
+      expect(checked(sheet(peer))).toEqual(['僅檢視'])
     }
   })
 
@@ -85,44 +108,54 @@ describe('the power tower panel', () => {
     expect(html).not.toContain('>前往<')
   })
 
-  it('shows the address to hand over, the time left, and a request to answer', () => {
+  it('adding one: this island\'s code to copy with the time left, and the other\'s to paste, with no side to pick', () => {
     const now = Date.now() / 1000
-    const waiting = body(towers({ pairing: { address: 'tc0123456789abcdef', expiresAt: now + 600, request: null } }))
+    const waiting = adding({ pairing: { address: 'tc0123456789abcdef', expiresAt: now + 600, request: null } })
+    expect(waiting).toMatch(/<h2 id="fx-tower-sheet-title" tabindex="-1">新增好友小島<\/h2>/)
+    expect(waiting).toContain('我的配對碼')
     expect(waiting).toContain('value="tc0123456789abcdef"')
     expect(waiting).toContain('readOnly=""')
-    expect(waiting).toContain('在另一台選「操作別台」，貼上這串位址')
     expect(waiting).toContain('複製')
-    // under way, there is no choosing a side until it is stopped
-    expect(waiting).not.toContain('role="radiogroup"')
-    expect(waiting).toContain('停止等待')
     expect(waiting).toMatch(/剩下 (10:00|9:59)/)
-    const asked = body(towers({ pairing: { address: 'tc0', expiresAt: now + 60, request: { id: 'r', name: 'Studio', protocol: 1, compatible: true } } }))
-    expect(asked).toContain('Studio 想要配對')
+    expect(waiting).toContain('或貼上對方的配對碼')
+    expect(waiting).toMatch(/<button type="submit"[^>]*>加入<\/button>/)
+    expect(waiting).not.toContain('role="radiogroup"')
+    // closing the sheet stops waiting, so there is no button for it
+    expect(waiting).not.toContain('停止等待')
+    // before the code is ready, after it ran out or was used: a way to make one
+    expect(adding()).toMatch(/<button[^>]*>產生配對碼<\/button>/)
+  })
+
+  it('answers a request to be friends, unless the versions do not match', () => {
+    const now = Date.now() / 1000
+    const asked = adding({ pairing: { address: 'tc0', expiresAt: now + 60, request: { id: 'r', name: 'Studio', protocol: 1, compatible: true } } })
+    expect(asked).toContain('Studio 想加你為好友')
     expect(asked).toContain('>同意<')
     expect(asked).toContain('>拒絕<')
-    const old = body(towers({ pairing: { address: 'tc0', expiresAt: now + 60, request: { id: 'r', name: 'Studio', protocol: 0, compatible: false } } }))
-    expect(old).toContain('Studio 的 Team Work 太舊，請更新那台')
+    const old = adding({ pairing: { address: 'tc0', expiresAt: now + 60, request: { id: 'r', name: 'Studio', protocol: 0, compatible: false } } })
+    expect(old).toContain('Studio 的 Team Work 太舊，請對方更新')
     expect(old).not.toContain('>同意<')
   })
 
-  it('follows a pairing it asked for: connecting, waiting, paired, or why it failed', () => {
-    expect(body(towers({ outgoing: { state: 'connecting' } }))).toContain('正在連線…')
-    expect(body(towers({ outgoing: { state: 'waiting', name: 'Studio' } }))).toContain('等待 Studio 同意…')
-    expect(body(towers({ outgoing: { state: 'waiting' } }))).toContain('等待對方同意…')
-    expect(body(towers({ outgoing: { state: 'paired', name: 'Studio', peerId: 'b' } }))).toContain('已和 Studio 配對')
-    const failed = body(towers({ outgoing: { state: 'failed', code: 'pair_rejected', message: '對方拒絕了配對' } }))
+  it('follows a code it pasted: connecting, waiting, friends, or why it failed', () => {
+    expect(adding({ outgoing: { state: 'connecting' } })).toContain('正在連線…')
+    expect(adding({ outgoing: { state: 'waiting', name: 'Studio' } })).toContain('等待 Studio 同意…')
+    expect(adding({ outgoing: { state: 'waiting' } })).toContain('等待對方同意…')
+    expect(adding({ outgoing: { state: 'paired', name: 'Studio', peerId: 'b' } })).toContain('已和 Studio 成為好友')
+    const failed = adding({ outgoing: { state: 'failed', code: 'pair_rejected', message: '對方拒絕了配對' } })
     expect(failed).toContain('role="alert"')
     expect(failed).toContain('對方拒絕了配對')
-    // while one is under way there is no second address to enter, nor a side to pick
-    expect(body(towers({ outgoing: { state: 'waiting' } }))).not.toContain('placeholder="貼上對方的配對位址"')
-    expect(body(towers({ outgoing: { state: 'waiting' } }))).not.toContain('role="radiogroup"')
-    // after a pairing it asked for, the side picked is still to enter an address
-    expect(body(towers({ outgoing: { state: 'paired', name: 'Studio' } }))).toContain('>關閉<')
+    // while one is under way there is no second code to paste; this island's own code stays
+    const going = adding({ outgoing: { state: 'waiting' } })
+    expect(going).not.toContain('type="submit"')
+    expect(going).toContain('>取消<')
+    expect(going).toContain('產生配對碼')
+    expect(adding({ outgoing: { state: 'paired', name: 'Studio' } })).toContain('>關閉<')
   })
 
   it('writes which computer to update, and the time left as m:ss', () => {
-    expect(updateWhich(1, 2, 'Studio')).toBe('這台的 Team Work 太舊，請更新這台')
-    expect(updateWhich(2, 1, 'Studio')).toBe('Studio 的 Team Work 太舊，請更新那台')
+    expect(updateWhich(1, 2, 'Studio')).toBe('這座島的 Team Work 太舊，請更新')
+    expect(updateWhich(2, 1, 'Studio')).toBe('Studio 的 Team Work 太舊，請對方更新')
     expect(clockOf(600)).toBe('10:00')
     expect(clockOf(61.2)).toBe('1:02')
     expect(clockOf(-3)).toBe('0:00')
@@ -172,7 +205,8 @@ describe('the people on this island, from the tower', () => {
     expect(html).not.toContain('這台的名稱')
     expect(html).not.toContain('value="MacBook"')
     expect(html).not.toContain('連線版本')
-    expect(html).toContain('目前沒有其他電腦')
+    // who is here is told on the friend islands' rows, not in a list of its own
+    expect(html).not.toContain('正在這座島上')
   })
 
   it("shows this computer's name under the title, as a way to the profile when there is one", () => {
@@ -187,22 +221,61 @@ describe('the people on this island, from the tower', () => {
     expect(renderToStaticMarkup(<TowerTitle me={null} />)).not.toContain('連線版本')
   })
 
-  it('lists each visitor once with where it is, and ways to send it away or keep it out', () => {
-    const html = body(towers({ visitors: [{ id: 'b', name: 'Studio', places: ['airport'] }] }))
-    expect(html).toContain('Studio')
-    expect(html).toContain('機場')
-    for (const act of ['踢出', '封鎖 1 小時', '封鎖']) expect(html).toMatch(new RegExp(`<button[^>]*>${act}</button>`))
+  it("shows each person's face at the start of its row, or a black block with a question mark until it has said how it looks", () => {
+    const look = { skin: '#f2c9a0', hair: '#2b1d14', shirt: '#3f7fbf', pants: '#2f3542', extra: 'none', style: 1, wardrobe: 3 } as const
+    const html = body(towers({
+      peers: [
+        { id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'operate', look },
+        { id: 'c', name: 'Mini', status: 'offline', allowInbound: false, pairedAt: 2, access: 'view' },
+      ],
+    }))
+    expect(html).toMatch(/fx-tower-row" aria-expanded="false"><span class="fx-tower-face" aria-hidden="true"><svg class="pixel-face"[^]*?<\/span><span class="fx-row-main"><b[^>]*>Studio<\/b>/)
+    expect(html).toMatch(/fx-tower-row" aria-expanded="false"><span class="fx-tower-face" aria-hidden="true"><svg class="fx-tower-unknown"[^]*?<\/span><span class="fx-row-main"><b[^>]*>Mini<\/b>/)
   })
 
-  it('switches between looking and working for a computer let in, and lifts a block', () => {
-    const html = body(towers({ peers: [
-      { id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'view', blockedUntil: -1 },
-      { id: 'c', name: 'Mini', status: 'online', allowInbound: false, pairedAt: 2, access: 'view' },
-    ] }))
-    expect(html.match(/<input type="radio"[^>]*checked=""[^>]*\/><span>檢視<\/span>/g)).toHaveLength(1)
-    expect(html).toContain('<span>操作</span>')
+  it('lays a friend island out in one line: face, name over status, then Go', () => {
+    const html = body(towers({ peers: [{ id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'operate' }] }))
+    const order = ['fx-tower-face', 'fx-row-main', 'fx-tower-go'].map((c) => html.search(new RegExp(`class="[^"]*\\b${c}\\b`)))
+    expect(order.every((n) => n >= 0)).toBe(true)
+    expect([...order].sort((a, b) => a - b)).toEqual(order)
+  })
+
+  it('says on a friend island\'s row that it is on this island, since when and for how long, and lists those first', () => {
+    vi.useFakeTimers({ now: new Date(2026, 10, 15, 15, 30) })
+    try {
+      const since = new Date(2026, 10, 15, 14, 5).getTime() / 1000
+      const html = body(towers({
+        peers: [
+          { id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'view' },
+          { id: 'c', name: 'Mini', status: 'online', allowInbound: true, pairedAt: 2, access: 'view' },
+        ],
+        visitors: [{ id: 'c', name: 'Mini', places: ['airport'], since }],
+      }))
+      expect(html).toContain('data-status="visiting"><span class="fx-tower-dot" aria-hidden="true"></span>正在我的小島 · 14:05 登島 · 待了 1 小時 25 分鐘</span>')
+      expect(html.indexOf('>Mini<')).toBeLessThan(html.indexOf('>Studio<'))
+      // the one not here stays online, after
+      expect(html).toContain('data-status="online"')
+      // an older backend says nothing of when
+      const old = body(towers({ peers: [{ id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'view' }], visitors: [{ id: 'b', name: 'Studio', places: [] }] }))
+      expect(old).toContain('正在我的小島</span>')
+      expect(old).not.toContain('登島')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('says how long a visitor has stayed in minutes, then hours', () => {
+    expect(stayOf(30)).toBe('剛到')
+    expect(stayOf(25 * 60 + 59)).toBe('待了 25 分鐘')
+    expect(stayOf(2 * 3600)).toBe('待了 2 小時')
+    expect(stayOf(2 * 3600 + 5 * 60)).toBe('待了 2 小時 5 分鐘')
+  })
+
+  it('shows a block left from before on the sheet, with a way to lift it', () => {
+    const html = sheet({ id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'view', blockedUntil: -1 })
     expect(html).toContain('已封鎖')
     expect(html.match(/<button[^>]*>解除封鎖<\/button>/g)).toHaveLength(1)
+    expect(sheet({ id: 'c', name: 'Mini', status: 'online', allowInbound: true, pairedAt: 2, access: 'view' })).not.toContain('解除封鎖')
   })
 })
 

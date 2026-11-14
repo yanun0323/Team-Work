@@ -93,7 +93,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if peer.Protocol != tower.Protocol {
-		remoteError(w, model.Errorf("incompatible", "這台的 Team Work 太舊，請更新這台"))
+		remoteError(w, model.Errorf("incompatible", "這座島的 Team Work 太舊，請更新"))
 		return
 	}
 	// Reject ambiguous paths rather than allowing normalization to bypass a protected route.

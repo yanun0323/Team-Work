@@ -93,7 +93,7 @@ func (s *Server) EnableTowers(service *tower.Service) {
 			return err
 		}
 		if in.Allow == nil && in.Access == nil {
-			return model.Errorf(model.CodeInvalid, "請指定是否允許對方操作這台電腦")
+			return model.Errorf(model.CodeInvalid, "請指定是否允許對方操作這座島")
 		}
 		var v tower.Peer
 		if in.Access != nil {
@@ -227,7 +227,7 @@ func (s *Server) EnableTowers(service *tower.Service) {
 			ModifyResponse: func(r *http.Response) error {
 				if r.StatusCode == 401 {
 					r.Body.Close()
-					return model.Errorf("peer_unpaired", "對方已解除配對")
+					return model.Errorf("peer_unpaired", "對方已移除好友")
 				}
 				if r.StatusCode == 403 {
 					raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -237,7 +237,7 @@ func (s *Server) EnableTowers(service *tower.Service) {
 					}
 					r.Body = io.NopCloser(bytes.NewReader(raw))
 					if bytes.Contains(raw, []byte(`"peer_denied"`)) {
-						return model.Errorf("peer_denied", "對方沒有允許這台操作它")
+						return model.Errorf("peer_denied", "對方沒有對你開放小島")
 					}
 				}
 				return nil
@@ -327,7 +327,7 @@ func proxyTowerSocket(c echo.Context, service *tower.Service, r *http.Request, a
 		if response != nil {
 			defer response.Body.Close()
 			if response.StatusCode == 401 {
-				return model.Errorf("peer_unpaired", "對方已解除配對")
+				return model.Errorf("peer_unpaired", "對方已移除好友")
 			}
 			if response.StatusCode == 403 {
 				var failed struct {
@@ -337,10 +337,10 @@ func proxyTowerSocket(c echo.Context, service *tower.Service, r *http.Request, a
 					(failed.Error.Code == "peer_blocked" || failed.Error.Code == "peer_kicked" || failed.Error.Code == "peer_readonly") {
 					return &model.Error{Code: failed.Error.Code, Message: failed.Error.Message}
 				}
-				return model.Errorf("peer_denied", "對方沒有允許這台操作它")
+				return model.Errorf("peer_denied", "對方沒有對你開放小島")
 			}
 			if response.StatusCode == 409 {
-				return model.Errorf("incompatible", "這台的 Team Work 太舊，請更新這台")
+				return model.Errorf("incompatible", "這座島的 Team Work 太舊，請更新")
 			}
 		}
 		return service.Unreachable(id)

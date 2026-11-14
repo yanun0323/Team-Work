@@ -33,8 +33,15 @@ export interface Peer {
 
 export type PeerAccess = 'view' | 'operate'
 
-/** A paired computer on this island now, with the places its pages have open: `airport` or `team:{id}`. */
-export interface Visitor { id: string; name: string; look?: Look; places: string[] }
+/** A paired computer on this island now, with the places its pages have open: `airport` or `team:{id}`, and when it came. */
+export interface Visitor {
+  id: string
+  name: string
+  look?: Look
+  places: string[]
+  /** When it came onto this island, in Unix seconds; a page reloaded keeps it. Absent from an older backend. */
+  since?: number
+}
 
 export interface PairRequest { id: string; name: string; protocol: number; compatible: boolean }
 

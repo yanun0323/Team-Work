@@ -166,6 +166,65 @@ func TestProfileLookReachesPairedTowerAndItsVisitorList(t *testing.T) {
 	}
 }
 
+func TestVisitorSinceOutlivesReloadButNotLeaving(t *testing.T) {
+	n := &memoryNetwork{}
+	a, b := testService(t, n), testService(t, n)
+	pair(t, a, b)
+	id := a.View().Me.ID
+	start := time.Unix(1_800_000_000, 0)
+	clock := start
+	b.mu.Lock()
+	b.now = func() time.Time { return clock }
+	b.mu.Unlock()
+	since := func() int64 {
+		v := b.View().Visitors
+		if len(v) != 1 {
+			t.Fatal(v)
+		}
+		return v[0].Since
+	}
+	visit := func(page string, gone bool) {
+		t.Helper()
+		if err := b.Visit(id, page, "airport", gone); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// a page says it is there every 10 seconds
+	for range 60 {
+		visit("p1", false)
+		clock = clock.Add(10 * time.Second)
+	}
+	if since() != start.Unix() {
+		t.Fatal("arrival moved while it stayed")
+	}
+	// a reload: the page says it has gone, and a new one comes at once
+	visit("p1", true)
+	clock = clock.Add(2 * time.Second)
+	visit("p2", false)
+	if since() != start.Unix() {
+		t.Fatal("a reload started a new visit")
+	}
+	// gone for longer than a page may be silent: coming back is a new visit
+	visit("p2", true)
+	clock = clock.Add(presenceLifetime + time.Second)
+	if len(b.View().Visitors) != 0 {
+		t.Fatal("still listed after leaving")
+	}
+	visit("p3", false)
+	if since() != clock.Unix() {
+		t.Fatal("a new visit kept the old arrival")
+	}
+	// kicked, it starts again however soon it is back
+	if err := b.Kick(id); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(time.Second)
+	visit("p3", false)
+	if since() != clock.Unix() {
+		t.Fatal("a kick kept the old arrival")
+	}
+}
+
 func TestBlockKickAndPresenceExpire(t *testing.T) {
 	n := &memoryNetwork{}
 	a, b := testService(t, n), testService(t, n)

@@ -66,7 +66,8 @@ func TestPairPersistAndRevoke(t *testing.T) {
 	a, b := testService(t, n), testService(t, n)
 	pair(t, a, b)
 	av, bv := a.View(), b.View()
-	if len(av.Peers) != 1 || av.Peers[0].AllowInbound || !bv.Peers[0].AllowInbound {
+	// both sides let the other in to view, whichever asked
+	if len(av.Peers) != 1 || !av.Peers[0].AllowInbound || av.Peers[0].Access != AccessView || !bv.Peers[0].AllowInbound || bv.Peers[0].Access != AccessView {
 		t.Fatal(av, bv)
 	}
 	_, token, _, err := a.Target(bv.Me.ID)
@@ -253,6 +254,9 @@ func TestVersionCheckBeforeForwardingAndDisabledDirection(t *testing.T) {
 	n := &memoryNetwork{}
 	a, b := testService(t, n), testService(t, n)
 	pair(t, a, b)
+	if _, err := a.SetAllowed(b.View().Me.ID, false); err != nil {
+		t.Fatal(err)
+	}
 	p, err := b.Check(context.Background(), a.View().Me.ID)
 	if err != nil || p.Status != "denied" {
 		t.Fatal(p, err)
