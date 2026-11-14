@@ -63,9 +63,10 @@ export const DEFAULT_EFFORT = 'default'
 const FALLBACK_LEVELS: Partial<Record<ProviderKind, string[]>> = {
   compatible: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   openai: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+  google: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
 }
 
-/** Reported levels take precedence; key-paid compatible and OpenAI models without metadata get a fallback. */
+/** Reported levels take precedence; key-paid compatible, OpenAI and Google models without metadata get a fallback. */
 export function effortsOf(w: World, model: string): string[] {
   const p = Object.values(w.providers).find((x) => x.models.includes(model))
   const levels = p?.thinking?.[model] ?? []

@@ -150,11 +150,21 @@ it('offers fallback thinking levels only for compatible models without metadata'
   }
   p.thinking = { [model]: ['low', 'high'] }
   expect(effortsOf(w, model)).toEqual(['default', 'low', 'high'])
-  for (const kind of ['anthropic', 'google'] as const) {
-    p.kind = kind
-    p.thinking = {}
-    expect(effortsOf(w, model)).toEqual(['default'])
-  }
+  p.kind = 'anthropic'
+  p.thinking = {}
+  expect(effortsOf(w, model)).toEqual(['default'])
+})
+
+it('offers Gemini levels for key-paid Google models without metadata', () => {
+  const w = seedWorld()
+  const p = Object.values(w.providers).find((p) => p.kind === 'compatible')!
+  const model = p.models[0]
+  p.kind = 'google'
+  p.auth = { kind: 'apiKey', keyHint: '1234' }
+  p.thinking = {}
+  expect(effortsOf(w, model)).toEqual(['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh'])
+  p.thinking = { [model]: ['low', 'high'] }
+  expect(effortsOf(w, model)).toEqual(['default', 'low', 'high'])
 })
 
 it('offers OpenAI levels for key-paid OpenAI models without metadata', () => {

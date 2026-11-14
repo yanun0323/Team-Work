@@ -359,6 +359,34 @@ func TestOpenAIKeyFallbackLevels(t *testing.T) {
 	}
 }
 
+// Gemini's OpenAI-compatible /models reports no levels either, so a key-paid Google provider offers the set its
+// reasoning_effort takes.
+func TestGoogleKeyFallbackLevels(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return call("submit_handoff", handoff), nil })
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "gemini-x"}}
+	r.fake.mu.Unlock()
+	ctx := context.Background()
+	if _, err := r.e.AddProvider(ctx, usecase.NewProvider{Name: "g", Kind: enum.ProviderGoogle, Login: usecase.ProviderLogin{Kind: "apiKey", APIKey: "AIza-secret-5678"}}); err != nil {
+		t.Fatal(err)
+	}
+	bp := r.world().Replicas[r.owner.ID].BlueprintID
+	gem, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: bp, Name: "Gem", Model: "gemini-x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, level := range []string{"none", "minimal", "low", "medium", "high", "xhigh", "default"} {
+		if err := r.e.UpdateReplica(gem.ID, usecase.ReplicaPatch{Effort: &level}); err != nil {
+			t.Fatalf("%s: %v", level, err)
+		}
+	}
+	max := "max"
+	if err := r.e.UpdateReplica(gem.ID, usecase.ReplicaPatch{Effort: &max}); err == nil {
+		t.Fatal("accepted max, which Gemini has no such level")
+	}
+}
+
 func TestCompatibleFallbackLevelsValidateReloadAndRun(t *testing.T) {
 	t.Parallel()
 	var mu sync.Mutex

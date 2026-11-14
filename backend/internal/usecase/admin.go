@@ -627,10 +627,12 @@ func (e *Engine) resetEfforts() {
 }
 
 // fallbackLevels are offered for a key-paid model whose provider reports no levels: a compatible API may not say,
-// and OpenAI's /v1/models never does. A level the model turns out not to take is refused by the provider.
+// and neither OpenAI's /v1/models nor Gemini's OpenAI-compatible /models ever does. A level the model turns out not
+// to take is refused, or lowered, by the provider.
 var fallbackLevels = map[enum.ProviderKind][]string{
 	enum.ProviderCompatible: {"none", "low", "medium", "high", "xhigh", "max"},
 	enum.ProviderOpenAI:     {"none", "minimal", "low", "medium", "high", "xhigh"},
+	enum.ProviderGoogle:     {"none", "minimal", "low", "medium", "high", "xhigh"},
 }
 
 // takesEffort accepts reported levels, or the fallback when none were reported.
