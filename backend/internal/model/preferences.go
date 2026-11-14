@@ -13,16 +13,18 @@ type Preferences struct {
 	SoundTutorial    bool   `json:"soundTutorial"`
 	SoundOpenTeam    bool   `json:"soundOpenTeam"`
 	SoundOpenAirport bool   `json:"soundOpenAirport"`
-	SoundWaves       bool   `json:"soundWaves"`
-	MusicVolume      int    `json:"musicVolume"`
-	EffectsVolume    int    `json:"effectsVolume"`
-	MusicMuted       bool   `json:"musicMuted"`
-	EffectsMuted     bool   `json:"effectsMuted"`
-	SoundTakeoff     bool   `json:"soundTakeoff"`
-	SoundLanding     bool   `json:"soundLanding"`
-	SoundFlyover     bool   `json:"soundFlyover"`
-	SoundUI          bool   `json:"soundUI"`
-	MuteInBackground bool   `json:"muteInBackground"`
+	// SoundOpenTower is the power tower's buzz of current.
+	SoundOpenTower   bool `json:"soundOpenTower"`
+	SoundWaves       bool `json:"soundWaves"`
+	MusicVolume      int  `json:"musicVolume"`
+	EffectsVolume    int  `json:"effectsVolume"`
+	MusicMuted       bool `json:"musicMuted"`
+	EffectsMuted     bool `json:"effectsMuted"`
+	SoundTakeoff     bool `json:"soundTakeoff"`
+	SoundLanding     bool `json:"soundLanding"`
+	SoundFlyover     bool `json:"soundFlyover"`
+	SoundUI          bool `json:"soundUI"`
+	MuteInBackground bool `json:"muteInBackground"`
 	// SystemNotices lets the Mac app post macOS notifications for tasks and chats waiting on the user, and count them on its Dock icon.
 	SystemNotices bool   `json:"systemNotices"`
 	LogOrder      string `json:"logOrder"`
@@ -97,7 +99,7 @@ func (p Preferences) CompactShare(window int) int {
 }
 
 func DefaultPreferences() Preferences {
-	return Preferences{MuteInBackground: true, SystemNotices: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, MapClick: "sheets", AutoView: "panZoom", BusyAnimation: "money", Daylight: "minecraft", ZoomSensitivity: 100, IdleFollow: 15, IdleFollowTarget: "map", DefaultTab: "tasks", DefaultAirportTab: "providers", AutoTab: "chats", CodexSkills: true, ClaudeSkills: true, HiddenBlueprints: []string{}, HiddenWorkflows: []string{}, Compact1M: 40, Compact256K: 90, Compact128K: 95, CompactSmall: 95}
+	return Preferences{MuteInBackground: true, SystemNotices: true, MusicStyle: "bossa", SoundNotice: true, SoundTutorial: true, SoundOpenTeam: true, SoundOpenAirport: true, SoundOpenTower: true, SoundWaves: true, MusicVolume: 50, EffectsVolume: 100, SoundTakeoff: true, SoundLanding: true, SoundFlyover: true, SoundUI: true, LogOrder: "newestFirst", Detail: true, Shadows: true, Crowd: true, Planes: true, Clouds: true, MapClick: "sheets", AutoView: "panZoom", BusyAnimation: "money", Daylight: "minecraft", ZoomSensitivity: 100, IdleFollow: 15, IdleFollowTarget: "map", DefaultTab: "tasks", DefaultAirportTab: "providers", AutoTab: "chats", CodexSkills: true, ClaudeSkills: true, HiddenBlueprints: []string{}, HiddenWorkflows: []string{}, Compact1M: 40, Compact256K: 90, Compact128K: 95, CompactSmall: 95}
 }
 
 // MergePreferences accepts only known, non-null fields; omitted fields keep their values.
@@ -171,6 +173,8 @@ func (p *Preferences) UnmarshalJSON(raw []byte) error {
 	}
 	// Files written while opening a waiting task could also open its sub-task.
 	delete(patch, "openWaitingSub")
+	// Files written while the staffing agency had a sound of its own.
+	delete(patch, "soundOpenStaffing")
 	// Files written while 10 seconds was a choice.
 	if string(patch["idleFollow"]) == "10" {
 		patch["idleFollow"] = json.RawMessage(`15`)

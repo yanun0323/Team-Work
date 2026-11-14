@@ -161,6 +161,19 @@ func TestRemovedWaitingSubIsIgnoredInOldFiles(t *testing.T) {
 	}
 }
 
+func TestRemovedStaffingSoundIsIgnoredInOldFiles(t *testing.T) {
+	var p Preferences
+	if err := json.Unmarshal([]byte(`{"soundOpenStaffing":false,"soundOpenTower":false}`), &p); err != nil {
+		t.Fatalf("old file rejected: %v", err)
+	}
+	if p.SoundOpenTower {
+		t.Fatal("the rest of an old file was not read")
+	}
+	if _, err := MergePreferences(DefaultPreferences(), map[string]json.RawMessage{"soundOpenStaffing": json.RawMessage(`true`)}); err == nil {
+		t.Fatal("removed preference accepted in a patch")
+	}
+}
+
 func TestCompactSharesStayInRange(t *testing.T) {
 	var p Preferences
 	if err := json.Unmarshal([]byte(`{"shadows":false}`), &p); err != nil {

@@ -150,6 +150,9 @@ export function TagAlerts({ waitingChats, waitingTasks }: ReturnType<typeof team
   )
 }
 
+// The island's own buildings with a cue of their own, when their panel opens; the staffing agency stays quiet.
+const PANEL_SOUND = { settings: 'soundOpenAirport', tower: 'soundOpenTower' } as const
+
 export function World() {
   useSound()
   useSystemNotices()
@@ -561,9 +564,9 @@ export function World() {
   // the tutorial counts opening the help; the company used last is where its steps go
   useEffect(() => { if (helpOpen) learn('help') }, [helpOpen])
   useEffect(() => { if (selected) rememberTeam(selected) }, [selected])
-  // a company's file whooshes open, also when going straight from one company to the next; the airport announces itself
+  // a company's file whooshes open, also when going straight from one company to the next; the island's own buildings each have their own cue
   useEffect(() => { if (selected) playSound('soundOpenTeam') }, [selected])
-  useEffect(() => { if (panel === 'settings') playSound('soundOpenAirport') }, [panel])
+  useEffect(() => { if (panel && panel !== 'staffing') playSound(PANEL_SOUND[panel]) }, [panel])
   function goTutorial(goal: TutorialGoal) {
     if (goal.kind === 'help') return setHelpOpen(true)
     if (goal.kind === 'newCompany') return setPlacing(true)

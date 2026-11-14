@@ -3,7 +3,7 @@ import { DEFAULT_PREFS, MUSIC_STYLES, usePrefs } from './prefs'
 import { useStore } from './core/store'
 import { silenced, SoundPlayer, subscribeChatSound, subscribeNoticeSound, watchChat } from './sound'
 import type { Chat } from './core/domain/types'
-import { AIRPORT_GAP, AIRPORT_LEAD_IN, AIRPORT_NOTES, AIRPORT_SECONDS, effectSamples, musicSamples, NOTICE_DUCK, NOTICE_GAP, NOTICE_LEAD_IN, NOTICE_NOTES, NOTICE_RISE, NOTICE_SECONDS, TAP_SECOND_SNAP, TUTORIAL_SECONDS, WAVES_BREAKERS, WAVES_SECONDS, WHOOSH_SECONDS, type Stereo } from './soundSynth'
+import { AIRPORT_GAP, AIRPORT_LEAD_IN, AIRPORT_NOTES, AIRPORT_SECONDS, effectSamples, HUM_BURSTS, HUM_FREQUENCY, HUM_SECONDS, musicSamples, NOTICE_DUCK, NOTICE_GAP, NOTICE_LEAD_IN, NOTICE_NOTES, NOTICE_RISE, NOTICE_SECONDS, TAP_SECOND_SNAP, TUTORIAL_SECONDS, WAVES_BREAKERS, WAVES_SECONDS, WHOOSH_SECONDS, type Stereo } from './soundSynth'
 
 const param = () => ({ value: 0, setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn(), cancelScheduledValues: vi.fn(), setTargetAtTime: vi.fn() })
 class Node {
@@ -167,6 +167,30 @@ it('opens the airport with Do Mi So Do rising, quieter than the notice and fadin
   expect(peak).toBeLessThanOrEqual(0.225 + 1e-6)
   expect(peak).toBeLessThan(Math.max(...effectSamples('soundNotice', rate)[0].map(Math.abs)))
   expect(loudness(samples, AIRPORT_SECONDS - 0.02, AIRPORT_SECONDS, rate)).toBeLessThan(0.01)
+})
+
+it('opens the power tower on live current: a buzz locked to the mains, twice, with a gap between', () => {
+  const rate = 32000
+  const samples = effectSamples('soundOpenTower', rate)
+  expect(samples[0].length).toBe(Math.floor(HUM_SECONDS * rate))
+  expect(samples.every((ch) => ch.every(Number.isFinite))).toBe(true)
+  expect(Math.max(...samples[0].map(Math.abs), ...samples[1].map(Math.abs))).toBeLessThanOrEqual(0.2 + 1e-6)
+  // Two bursts of current, zzt and zzzzt, with quiet between them.
+  const [first, second] = HUM_BURSTS
+  const gap = loudness(samples, first[1] + 0.045, second[0] - 0.005, rate)
+  for (const [from, to] of HUM_BURSTS) expect(loudness(samples, from + 0.03, to - 0.02, rate)).toBeGreaterThan(gap * 10 + 0.01)
+  // A buzz, not a scatter of clicks: the sound repeats on each cycle of the mains...
+  const [left] = samples, lag = Math.round(rate / HUM_FREQUENCY)
+  const begin = Math.floor((second[0] + 0.05) * rate), end = Math.floor((second[1] - 0.05) * rate)
+  let same = 0, power = 0
+  for (let i = begin; i < end; i++) { same += left[i] * left[i + lag]; power += left[i] * left[i] }
+  expect(same / power).toBeGreaterThan(0.5)
+  // ...and is bright with sizzle, not a smooth low hum.
+  let crossings = 0
+  for (let i = begin + 1; i < end; i++) if ((left[i - 1] < 0) !== (left[i] < 0)) crossings++
+  expect(crossings / ((end - begin) / rate)).toBeGreaterThan(HUM_FREQUENCY * 20)
+  expect(loudness(samples, HUM_SECONDS - 0.02, HUM_SECONDS, rate)).toBeLessThan(0.01)
+  expect(loudness(samples, 0, HUM_SECONDS, rate)).toBeLessThan(loudness(effectSamples('soundNotice', rate), 0, HUM_SECONDS, rate))
 })
 
 it('keeps interface taps short, quieter than everything else, and a double snap', () => {
@@ -427,8 +451,8 @@ it('keeps the sea looping while it is on, and stops and restarts it with the sou
   const { player, sources, gains } = context()
   expect(sources).toHaveLength(2)
   expect(sources[1].loop).toBe(true)
-  // A background: well under the other effects. Its channel follows the music's and the eight before it.
-  expect(gains[9].gain.setTargetAtTime).toHaveBeenLastCalledWith(0.2, 10, 0.03)
+  // A background: well under the other effects. Its channel follows the music's and the nine before it.
+  expect(gains[10].gain.setTargetAtTime).toHaveBeenLastCalledWith(0.2, 10, 0.03)
   // Other settings changing do not restart it.
   player.update({ ...DEFAULT_PREFS, musicVolume: 20 })
   expect(sources).toHaveLength(2)

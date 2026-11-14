@@ -4,7 +4,7 @@ import type { MusicStyle } from './prefs'
 
 export const RATE = 32000
 export type Stereo = [Float32Array<ArrayBuffer>, Float32Array<ArrayBuffer>]
-export type EffectKey = 'soundTakeoff' | 'soundLanding' | 'soundFlyover' | 'soundUI' | 'soundNotice' | 'soundTutorial' | 'soundOpenTeam' | 'soundOpenAirport' | 'soundWaves'
+export type EffectKey = 'soundTakeoff' | 'soundLanding' | 'soundFlyover' | 'soundUI' | 'soundNotice' | 'soundTutorial' | 'soundOpenTeam' | 'soundOpenAirport' | 'soundOpenTower' | 'soundWaves'
 
 const TAU = Math.PI * 2
 const SINE_SIZE = 1 << 14
@@ -582,6 +582,45 @@ function announce(rate: number): Stereo {
   return levelled(out, 0.45, 0.225)
 }
 
+/** The power tower opens on live current: a raw mains buzz with a sizzle riding each cycle, twice — zzt, zzzzt. */
+export const HUM_SECONDS = 0.85
+/** When each burst of current starts and stops, seconds in. */
+export const HUM_BURSTS = [[0.02, 0.27], [0.34, 0.78]] as const
+/** The mains buzz, Hz: twice the mains, as a transformer hums. */
+export const HUM_FREQUENCY = 100
+function hum(rate: number): Stereo {
+  const size = Math.floor(HUM_SECONDS * rate)
+  const out: Stereo = [new Float32Array(size), new Float32Array(size)]
+  const rng = random(17)
+  // the current flickers: a fresh level every few milliseconds, smoothed, so the buzz sputters rather than drones
+  let flicker = 1, target = 1, next = 0
+  const smooth = 1 - Math.exp(-1 / (0.004 * rate))
+  let phase = 0, hiss = 0
+  for (let i = 0; i < size; i++) {
+    const t = i / rate
+    const burst = HUM_BURSTS.find(([from, to]) => t >= from - 0.01 && t <= to + 0.04)
+    if (!burst) { phase += HUM_FREQUENCY / rate; continue }
+    const [from, to] = burst
+    const gate = Math.min(1, Math.max(0, t - from) / 0.004) * Math.min(1, Math.max(0, to + 0.04 - t) / 0.04)
+    if (i >= next) { target = 0.45 + rng() * 0.55; next = i + Math.floor((0.008 + rng() * 0.02) * rate) }
+    flicker += (target - flicker) * smooth
+    phase += HUM_FREQUENCY * (1 + 0.004 * sin(7 * t)) / rate
+    const cycle = phase % 1
+    // a narrow pulse is all harmonics: the hard edge of the buzz
+    const buzz = pulse(phase, HUM_FREQUENCY, 0.18, rate) + pulse(phase * 2, HUM_FREQUENCY * 2, 0.4, rate) * 0.4
+    // the arc fires on each peak of the current: bright noise in short spurts locked to the cycle
+    const x = NOISE[(i * 7 + 1301) & (NOISE_SIZE - 1)]
+    hiss += (x - hiss) * 0.35
+    const spurt = Math.exp(-cycle * 9) + Math.exp(-((cycle + 0.5) % 1) * 9) * 0.6
+    const sizzle = (x - hiss) * spurt * 2.2
+    // the buzz sits in the middle; the sizzle wanders a little from side to side
+    const level = flicker * gate, sway = 0.15 * sin(3 * t)
+    out[0][i] = (buzz * 0.32 + sizzle * (1 - sway)) * level
+    out[1][i] = (buzz * 0.32 + sizzle * (1 + sway)) * level
+  }
+  return levelled(out, 0.5, 0.2)
+}
+
 /** The sea round the island, played as a loop: a deep swell under breakers that rise, spill and wash back. */
 export const WAVES_SECONDS = 26
 /** When each breaker begins, seconds into the loop; uneven, so the loop is hard to hear. */
@@ -620,7 +659,7 @@ function waves(rate: number): Stereo {
 }
 
 const EFFECTS: Record<EffectKey, (rate: number) => Stereo> = {
-  soundTakeoff: takeoff, soundLanding: landing, soundFlyover: flyover, soundUI: tap, soundNotice: notice, soundTutorial: tutorial, soundOpenTeam: whoosh, soundOpenAirport: announce, soundWaves: waves,
+  soundTakeoff: takeoff, soundLanding: landing, soundFlyover: flyover, soundUI: tap, soundNotice: notice, soundTutorial: tutorial, soundOpenTeam: whoosh, soundOpenAirport: announce, soundOpenTower: hum, soundWaves: waves,
 }
 
 export const effectSamples = (key: EffectKey, rate = RATE) => EFFECTS[key](rate)
