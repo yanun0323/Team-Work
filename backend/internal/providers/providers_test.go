@@ -78,6 +78,68 @@ func TestChatCompletionsStream(t *testing.T) {
 	}
 }
 
+// Gemini 3 refuses a tool call sent back without the thought signature it came with (HTTP 400), so the signature
+// goes back with its call, and only to the same model at the same address.
+func TestGeminiThoughtSignaturesGoBackWithTheirCall(t *testing.T) {
+	const stream = `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"t","arguments":"{}"},"extra_content":{"google":{"thought_signature":"c2lnLWE="}}}]}}]}
+
+data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"c2","type":"function","function":{"name":"t","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+`
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		if len(bodies) == 1 {
+			io.WriteString(w, stream)
+			return
+		}
+		io.WriteString(w, "data: [DONE]\n")
+	}))
+	t.Cleanup(srv.Close)
+	at := func(base string) adapter.Provider {
+		p, err := NewFactory(nil, nil).For(model.ModelProvider{Name: "g", Kind: enum.ProviderGoogle, BaseURL: base, Auth: model.ProviderAuth{Kind: "apiKey"}}, "k")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	reply, err := at(srv.URL).Complete(context.Background(), model.ModelRequest{Model: "gemini-3"}, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reply.Content) != 2 || len(reply.Content[0].Raw) == 0 || reply.Content[0].Origin == "" || len(reply.Content[1].Raw) != 0 {
+		t.Fatalf("signature not kept on its own call: %+v", reply.Content)
+	}
+
+	sendBack := func(p adapter.Provider, modelID string) string {
+		t.Helper()
+		req := model.ModelRequest{Model: modelID, Messages: []model.Message{
+			{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "hi"}}},
+			{Role: enum.RoleAssistant, Content: reply.Content},
+			{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "c1", Text: "ok"}, {Type: enum.BlockToolResult, ID: "c2", Text: "ok"}}},
+		}}
+		if _, err := p.Complete(context.Background(), req, func(string) {}); err != nil {
+			t.Fatal(err)
+		}
+		return bodies[len(bodies)-1]
+	}
+	body := sendBack(at(srv.URL), "gemini-3")
+	if !strings.Contains(body, `"extra_content":{"google":{"thought_signature":"c2lnLWE="}}`) || strings.Count(body, "extra_content") != 1 {
+		t.Fatalf("signature not sent back once, with its call: %s", body)
+	}
+	if body := sendBack(at(srv.URL), "gemini-other"); strings.Contains(body, "extra_content") {
+		t.Fatalf("another model was sent the signature: %s", body)
+	}
+	if body := sendBack(at(srv.URL+"/"), "gemini-3"); !strings.Contains(body, "extra_content") {
+		t.Fatalf("a trailing slash made it another address: %s", body)
+	}
+	if body := sendBack(at(strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)), "gemini-3"); strings.Contains(body, "extra_content") {
+		t.Fatalf("another address was sent the signature: %s", body)
+	}
+}
+
 func TestNoLevelSendsNoReasoningField(t *testing.T) {
 	p, _, body := serve(t, enum.ProviderCompatible, 200, "data: [DONE]\n")
 	plain := request
@@ -305,7 +367,7 @@ func TestToolResultImagesReachTheModel(t *testing.T) {
 	}
 
 	// every tool message must come straight after the call, so the image waits behind them
-	chat := chatMessages(model.ModelRequest{Messages: msgs})
+	chat := chatMessages(model.ModelRequest{Messages: msgs}, "")
 	if len(chat) != 3 || chat[0].Role != "tool" || chat[1].Role != "tool" || chat[2].Role != "user" {
 		t.Fatalf("openai: %+v", chat)
 	}
@@ -356,7 +418,7 @@ func TestKeyedProvidersSkipReasoningBlocks(t *testing.T) {
 		{Type: enum.BlockText, Text: "ok"},
 	}}}
 	a, _ := json.Marshal(anthropicMessages(msgs))
-	o, _ := json.Marshal(chatMessages(model.ModelRequest{Messages: msgs}))
+	o, _ := json.Marshal(chatMessages(model.ModelRequest{Messages: msgs}, ""))
 	for _, body := range []string{string(a), string(o)} {
 		if strings.Contains(body, "sig-x") || !strings.Contains(body, "ok") {
 			t.Fatalf("%s", body)

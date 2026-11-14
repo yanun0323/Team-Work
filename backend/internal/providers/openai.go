@@ -37,9 +37,16 @@ type chatCall struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
 	} `json:"function"`
+	// ExtraContent is what a provider attached to the call to have it back: Gemini's thought signature, which Gemini 3
+	// requires with each call it made (`{"google":{"thought_signature":...}}`).
+	ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 }
 
-func chatMessages(req model.ModelRequest) []chatMessage {
+// chatOrigin marks what this model at this address attached to its calls. A signature holds only for the model that
+// made it, so no other one is sent it.
+func chatOrigin(base, modelID string) string { return "chat:" + base + " " + modelID }
+
+func chatMessages(req model.ModelRequest, origin string) []chatMessage {
 	var out []chatMessage
 	if req.System != "" {
 		out = append(out, chatMessage{Role: "system", Content: req.System})
@@ -56,6 +63,9 @@ func chatMessages(req model.ModelRequest) []chatMessage {
 			case enum.BlockToolCall:
 				c := chatCall{ID: b.ID, Type: "function"}
 				c.Function.Name, c.Function.Arguments = b.Name, string(b.Args)
+				if m.Role == enum.RoleAssistant && b.Origin == origin && len(b.Raw) > 0 {
+					c.ExtraContent = b.Raw
+				}
 				calls = append(calls, c)
 			case enum.BlockToolResult:
 				out = append(out, chatMessage{Role: "tool", ToolCallID: b.ID, Content: b.Text})
@@ -79,7 +89,7 @@ func chatMessages(req model.ModelRequest) []chatMessage {
 
 func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText func(string)) (model.ModelReply, error) {
 	body := map[string]any{
-		"model": req.Model, "messages": chatMessages(req), "stream": true,
+		"model": req.Model, "messages": chatMessages(req, chatOrigin(o.base, req.Model)), "stream": true,
 		"stream_options": map[string]bool{"include_usage": true},
 	}
 	if len(req.Tools) > 0 {
@@ -99,6 +109,7 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 	}
 	defer res.Body.Close()
 
+	origin := chatOrigin(o.base, req.Model)
 	var reply model.ModelReply
 	var text strings.Builder
 	calls := map[int]*model.Block{}
@@ -121,6 +132,7 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 							Name      string `json:"name"`
 							Arguments string `json:"arguments"`
 						} `json:"function"`
+						ExtraContent json.RawMessage `json:"extra_content"`
 					} `json:"tool_calls"`
 				} `json:"delta"`
 				FinishReason string `json:"finish_reason"`
@@ -160,6 +172,10 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 				}
 				calls[d.Index].Name += d.Function.Name
 				args[d.Index].WriteString(d.Function.Arguments)
+				// it may come on any one of the call's pieces; a later piece without it leaves it be
+				if len(d.ExtraContent) > 0 && string(d.ExtraContent) != "null" {
+					calls[d.Index].Raw, calls[d.Index].Origin = d.ExtraContent, origin
+				}
 			}
 			if c.FinishReason == "length" {
 				reply.Truncated = true
