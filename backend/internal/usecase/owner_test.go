@@ -1219,6 +1219,53 @@ func TestRunsFailingOneAfterAnotherStopTheOwner(t *testing.T) {
 	}
 }
 
+// A guard stopped the owner and asked the user whether to go on; the user writing to the owner instead is stepping in,
+// so the owner wakes and reads it rather than leaving it unanswered until the card is pressed.
+func TestTheUserWritingToAStoppedOwnerLetsItGoOn(t *testing.T) {
+	t.Parallel()
+	var heard atomic.Bool
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if !isOwner(req) {
+			return model.ModelReply{}, fmt.Errorf("worker failure")
+		}
+		for _, m := range req.Messages {
+			for _, b := range m.Content {
+				if strings.Contains(b.Text, "try another way") {
+					heard.Store(true)
+					return say("ok"), nil
+				}
+			}
+		}
+		if len(req.Messages) > 1 {
+			return say("idle"), nil
+		}
+		v := readView(req.Messages[0].Content[0].Text)
+		if len(v.runs) == 0 {
+			return ownerCall("dispatch_step", map[string]any{"node_id": "start", "instructions": "go"}), nil
+		}
+		for _, s := range v.runs {
+			if strings.Contains(s.rest, "run stopped") && s.counts() {
+				return ownerCall("dispatch_step", map[string]any{"node_id": "start", "instructions": "anew"}), nil
+			}
+		}
+		return say("idle"), nil
+	})
+	task := r.ownerTask(r.flow.ID)
+	r.wait("the owner to stop", func(w *model.World) bool {
+		c := w.Tasks[task.ID].Coordination
+		return c.OwnerState == model.OwnerBlocked && c.BlockedReason == "loop" && c.OwnerState != model.OwnerResponding
+	})
+	if _, err := r.e.SayToOwner(task.ID, usecase.TaskMessage{RequestID: "step-in", Text: "try another way"}); err != nil {
+		t.Fatal(err)
+	}
+	w := r.wait("the owner to read it", func(w *model.World) bool {
+		return heard.Load() && w.Tasks[task.ID].Coordination.OwnerState != model.OwnerBlocked
+	})
+	if slices.ContainsFunc(w.Tasks[task.ID].Coordination.Questions, func(q model.TaskQuestion) bool { return q.Audience == "user" && q.Kind == "approval" }) {
+		t.Fatal("the card asking whether to go on is still there after the user stepped in")
+	}
+}
+
 func TestRetryingAFailedDecisionSettlesIt(t *testing.T) {
 	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return model.ModelReply{}, fmt.Errorf("failure") })

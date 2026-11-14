@@ -648,10 +648,28 @@ func (e *Engine) SayToOwner(id string, in TaskMessage) (MessageResult, error) {
 		e.showOperations(t)
 		l.Requests[in.RequestID] = requestRecord{Fingerprint: print, OperationID: operation.ID, ActivityID: a.ID}
 		e.addEvent(t, ownerEvent{Kind: evUserMessage, OperationID: operation.ID, ActivityID: a.ID, Text: "The user wrote (" + a.ID + "): " + text + attachmentNote(images, in.Files)})
+		e.steppedIn(t)
 		out = MessageResult{Operation: operation, Activity: a}
 		return nil
 	})
 	return out, err
+}
+
+// steppedIn is the user writing to an owner a loop guard stopped: that is the user stepping in, as pressing to go on
+// is, so the guard's question goes and the owner reads what was written. A budget hold stays, as waking costs more.
+func (e *Engine) steppedIn(t *model.Task) {
+	c := t.Coordination
+	if c.OwnerState != model.OwnerBlocked || c.BlockedReason != "loop" {
+		return
+	}
+	for _, q := range slices.Clone(c.Questions) {
+		if q.Audience == "user" && q.Kind == "approval" && slices.ContainsFunc(q.Options, func(o model.ReviewOption) bool { return o.ID == optionContinue }) {
+			dropQuestion(t, q.ID)
+		}
+	}
+	l := e.editLog(t.ID)
+	l.Exchanges, l.Returns, l.Failures = 0, 0, 0
+	e.unblock(t)
 }
 
 func attachmentNote(images, files []model.Attachment) string {
