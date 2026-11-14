@@ -358,6 +358,44 @@ func TestAnEmployeeWhoseBlueprintIsGoneWaitsForAnother(t *testing.T) {
 	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
 }
 
+func TestAnEmployeeWhoseModelIsGoneStillStarts(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
+	high := "high"
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Effort: &high}); err != nil {
+		t.Fatal(err)
+	}
+	var provider string
+	for id := range r.world().Providers {
+		provider = id
+	}
+	// the provider stops offering the employee's model, as after changing its address or key
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "other-model"}}
+	r.fake.mu.Unlock()
+	if err := r.e.RefreshModels(context.Background(), provider); err != nil {
+		t.Fatal(err)
+	}
+	r.e.Close()
+	newEngine(t, r)
+	if got := r.world().Replicas[r.owner.ID]; got.Model != "fake" || got.Effort != high {
+		t.Fatalf("model %s effort %s", got.Model, got.Effort)
+	}
+	other := "other-model"
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Model: &other}); err != nil {
+		t.Fatal(err)
+	}
+	// a level is still checked against a model someone offers
+	s := readSettings(t, r)
+	rep := s.Replicas[r.owner.ID]
+	rep.Effort = "nonsense"
+	s.Replicas[rep.ID] = rep
+	writeSettings(t, r, s)
+	if err := r.e.ReloadSettings(context.Background()); err == nil || !strings.Contains(err.Error(), "effort") {
+		t.Fatalf("accepted a level the model lacks: %v", err)
+	}
+}
+
 func TestOlderFlowKeepsFirstOnAWorkStep(t *testing.T) {
 	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })

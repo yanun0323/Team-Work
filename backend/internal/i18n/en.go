@@ -421,7 +421,6 @@ var en = map[string]string{
 	"不能為 null 或修改 id":                          "Cannot be null or change the id",
 	"preset- 開頭的 id 保留給內建項目":                   "Ids starting with preset- are reserved for built-in items",
 	"不能搬移員工到別間公司":                              "An employee cannot move to another company",
-	"沒有供應商提供這個模型":                              "No provider offers this model",
 	"模型沒有這個思考等級":                               "The model has no such thinking level",
 	"不認識的節點種類":                                 "Unknown step kind",
 	"不認識的交接模式":                                 "Unknown handoff mode",

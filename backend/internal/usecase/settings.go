@@ -208,10 +208,9 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 		}
 		// a blueprint not there (one a source no longer brings, one not read yet, one from before) stops nothing: they
 		// wait for the user to pick another before they work again
-		if probe.providerFor(r.Model) == nil {
-			return bad(field+".model", "沒有供應商提供這個模型")
-		}
-		if !probe.takesEffort(r.Model, r.Effort) {
+		// Nor does a model nobody offers any more, as when a provider's list drops it on a refresh: refusing it here
+		// would keep the app from starting, with no screen left to pick another. Hiring and patching still check it.
+		if probe.providerFor(r.Model) != nil && !probe.takesEffort(r.Model, r.Effort) {
 			return bad(field+".effort", "模型沒有這個思考等級")
 		}
 	}
