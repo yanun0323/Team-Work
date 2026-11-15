@@ -1,14 +1,17 @@
 package usecase
 
 import (
+	"cmp"
 	"context"
+	"slices"
+	"strings"
 
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
 
 // ProfileStats sums the user's milestones on this island: since when it was used, tasks finished, chats and what
-// the user said in them, the employee worked with most, and every model call's usage.
+// the user said in them, the employees worked with most, and every model call's usage.
 func (e *Engine) ProfileStats(ctx context.Context) (model.ProfileStats, error) {
 	records, err := e.store.LoadUsage(ctx, 0)
 	if err != nil {
@@ -50,14 +53,17 @@ func (e *Engine) ProfileStats(ctx context.Context) (model.ProfileStats, error) {
 			}
 		}
 	}
+	out.Partners = []model.ProfilePartner{}
 	for id, n := range together {
-		r := e.w.Replicas[id]
-		if r == nil {
-			continue
+		if r := e.w.Replicas[id]; r != nil {
+			out.Partners = append(out.Partners, model.ProfilePartner{ID: id, Name: r.Name, Look: r.Look, Count: n})
 		}
-		if p := out.Partner; p == nil || n > p.Count || n == p.Count && (r.Name < p.Name || r.Name == p.Name && id < p.ID) {
-			out.Partner = &model.ProfilePartner{ID: id, Name: r.Name, Look: r.Look, Count: n}
-		}
+	}
+	slices.SortFunc(out.Partners, func(a, b model.ProfilePartner) int {
+		return cmp.Or(b.Count-a.Count, strings.Compare(a.Name, b.Name), strings.Compare(a.ID, b.ID))
+	})
+	if len(out.Partners) > model.MaxProfilePartners {
+		out.Partners = out.Partners[:model.MaxProfilePartners]
 	}
 	return out, nil
 }

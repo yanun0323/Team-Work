@@ -513,6 +513,29 @@ func TestOpenAISpeaksResponses(t *testing.T) {
 	}
 }
 
+// A reply OpenAI fails partway says why, from its code: a used-up balance is no setting to check, and a rate limit
+// passes. The server's own text stays out.
+func TestOpenAISaysWhyItFailed(t *testing.T) {
+	for _, c := range []struct {
+		stream string
+		code   string
+		want   string
+	}{
+		{`data: {"type":"error","error":{"type":"insufficient_quota","code":"credit_balance_exhausted","message":"secret"}}`, model.CodeInvalid, "額度用完"},
+		{`data: {"type":"response.failed","response":{"error":{"type":"insufficient_quota","code":"insufficient_quota","message":"secret"}}}`, model.CodeInvalid, "額度用完"},
+		{`data: {"type":"error","error":{"type":"tokens","code":"rate_limit_exceeded","message":"secret"}}`, model.CodeUnavailable, "速率上限"},
+		{`data: {"type":"response.failed","response":{"error":{"code":"server_error","message":"secret"}}}`, model.CodeInvalid, "server_error"},
+		{`data: {"type":"error","message":"secret"}`, model.CodeInvalid, "請檢查模型與設定"},
+	} {
+		p, _, _ := serve(t, enum.ProviderOpenAI, 200, c.stream+"\n")
+		_, err := p.Complete(context.Background(), request, func(string) {})
+		var known *model.Error
+		if !errors.As(err, &known) || known.Code != c.code || !strings.Contains(known.Message, c.want) || strings.Contains(known.Message, "secret") {
+			t.Errorf("%s: %v", c.stream, err)
+		}
+	}
+}
+
 // Models that do not reason refuse a request for encrypted reasoning.
 func TestOnlyReasoningModelsAreAskedForTheirReasoning(t *testing.T) {
 	for id, want := range map[string]bool{"gpt-5.5": true, "gpt-6-luna": true, "o3": true, "gpt-4.1": false, "gpt-4o-mini": false, "chat-latest": false, "chatgpt-4o-latest": false, "gpt-5-chat-latest": false} {

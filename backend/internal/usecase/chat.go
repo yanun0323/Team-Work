@@ -1216,9 +1216,12 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	}
 }
 
-// withSkills adds the skills the user's words name to their message in the conversation; false if they name none.
+// withSkills adds the skills the user's words name to their message in the conversation; false if it adds none.
+// A skill the message already holds, as when its reply is tried again, is not added twice.
 func withSkills(said model.Message, words string, skills []skill) (model.Message, bool) {
-	named := mentionedSkills(words, skills)
+	named := slices.DeleteFunc(mentionedSkills(words, skills), func(text string) bool {
+		return slices.ContainsFunc(said.Content, func(b model.Block) bool { return b.Type == enum.BlockText && b.Text == text })
+	})
 	if len(named) == 0 {
 		return said, false
 	}

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AddFriendBody, clockOf, PeerSheet, stayOf, TowerBody, TowerTitle, updateWhich } from './TowerPanel'
+import { AddFriendBody, clockOf, PeerSheet, stayOf, TowerBody, TowerTitle, updateWhich, visitLength } from './TowerPanel'
 import { IslandSlip } from './IslandBar'
 import { useIsland } from './core/island'
 import { MOCK_TOWERS, readTowers, type Peer, type Towers } from './core/towers'
@@ -271,6 +271,20 @@ describe('the people on this island, from the tower', () => {
     expect(stayOf(25 * 60 + 59)).toBe('待了 25 分鐘')
     expect(stayOf(2 * 3600)).toBe('待了 2 小時')
     expect(stayOf(2 * 3600 + 5 * 60)).toBe('待了 2 小時 5 分鐘')
+  })
+
+  it("lists a friend's latest visits on its sheet, newest first, with how long each lasted", () => {
+    const t = 1_800_000_000
+    const friend: Peer = { id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'view',
+      visits: [{ since: t + 9000 }, { since: t + 3600, until: t + 3600 + 3900 }, { since: t, until: t + 20 }] }
+    const html = renderToStaticMarkup(<PeerSheet peer={friend} me={1} refresh={refresh}
+      visit={{ id: 'b', name: 'Studio', places: [], since: t + 9000 }} />)
+    expect(html).toContain('最近登島')
+    expect(html.match(/<li><time[^>]*>[^<]+<\/time><span>[^<]+<\/span><\/li>/g)?.map((li) => li.replace(/.*<span>|<\/span>.*/g, '')))
+      .toEqual(['正在我的小島', '1 小時 5 分鐘', '不到 1 分鐘'])
+    // still marked as visiting once it has gone, if the end was never heard: a dash
+    expect(visitLength({ since: t })).toBe('—')
+    expect(sheet({ ...friend, visits: undefined })).toContain('還沒有登島紀錄')
   })
 
   it('shows a block left from before on the sheet, with a way to lift it', () => {

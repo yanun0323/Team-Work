@@ -49,6 +49,15 @@ type Peer struct {
 	BlockedUntil int64 `json:"blockedUntil,omitempty"`
 	// Look is how the person at it looks, as it last said; nil when it has not said.
 	Look *model.Look `json:"look,omitempty"`
+	// Visits are its latest visits to this island, newest first, at most maxVisits.
+	Visits []VisitRecord `json:"visits,omitempty"`
+}
+
+// VisitRecord is one visit of a paired computer to this island, in Unix seconds. Until is 0 while it is still here,
+// or when this computer stopped before the visit ended.
+type VisitRecord struct {
+	Since int64 `json:"since"`
+	Until int64 `json:"until,omitempty"`
 }
 
 const (
@@ -60,6 +69,8 @@ const (
 	// presenceLifetime is how long a page's last report keeps it on the visitor list.
 	presenceLifetime = 30 * time.Second
 	maxPresencePages = 16
+	// maxVisits is how many visits each paired computer keeps.
+	maxVisits = 10
 )
 
 // Visitor is a paired computer looking at this island now, and the places its pages have open.
@@ -291,6 +302,10 @@ func (s *Service) Close() {
 	if s.outgoingCancel != nil {
 		s.outgoingCancel()
 	}
+	// visits under way end with this computer, so their history has an end
+	for id := range s.presence {
+		s.leaveLocked(id)
+	}
 	s.mu.Unlock()
 	s.wg.Wait()
 	s.startMu.Lock()
@@ -352,10 +367,11 @@ func (s *Service) View() View {
 		o := *s.outgoing
 		v.Outgoing = &o
 	}
+	// visitors first: the ones gone are ended in the friends' visit history
+	v.Visitors = s.visitorsLocked()
 	for _, p := range s.disk.Peers {
 		v.Peers = append(v.Peers, p.Peer)
 	}
-	v.Visitors = s.visitorsLocked()
 	sort.Slice(v.Peers, func(i, j int) bool {
 		if v.Peers[i].PairedAt == v.Peers[j].PairedAt {
 			return v.Peers[i].ID < v.Peers[j].ID
@@ -380,7 +396,7 @@ func (s *Service) SetAllowed(id string, allow bool) (Peer, error) {
 	}
 	if old.AllowInbound != allow {
 		s.newLeaseLocked(id)
-		delete(s.presence, id)
+		s.leaveLocked(id)
 	}
 	return p.Peer, nil
 }
@@ -459,7 +475,7 @@ func (s *Service) RemoteUnpair(id string) error {
 		return unavailable()
 	}
 	s.newLeaseLocked(id)
-	delete(s.presence, id)
+	s.leaveLocked(id)
 	return nil
 }
 func incompatible(remote Identity) *model.Error {
@@ -548,6 +564,8 @@ func (s *Service) Check(ctx context.Context, id string) (Peer, error) {
 	p.AllowInbound = current.AllowInbound
 	p.Access = current.Access
 	p.BlockedUntil = current.BlockedUntil
+	// visits may have come and gone while it was asked
+	p.Visits = current.Visits
 	if p.Status == "unpaired" {
 		p.Revoked = true
 		p.InboundHash = ""

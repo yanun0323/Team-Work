@@ -6,6 +6,7 @@ package codex
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -702,16 +703,18 @@ func outputItem(event string) json.RawMessage {
 // response's output items, as OpenAI asks of history sent back by hand.
 func readStream(ctx context.Context, body io.Reader, onText func(string), origin string) (model.ModelReply, error) {
 	return Read(ctx, body, onText, origin, Wording{
-		Unfinished: rejected("ChatGPT 沒有完成這次回覆"), Failed: func(code string) *model.Error { return rejected("ChatGPT 無法回覆（%s）", orUnknown(code)) },
+		Unfinished: rejected("ChatGPT 沒有完成這次回覆"), Failed: func(code, kind string) *model.Error {
+			return rejected("ChatGPT 無法回覆（%s）", orUnknown(cmp.Or(code, kind)))
+		},
 		Cut: unavailable("ChatGPT 的回覆中斷了"),
 	})
 }
 
 // Wording is what a reply's failures tell the user, naming the service that failed.
 type Wording struct {
-	Unfinished *model.Error // ended for a reason other than its length
-	Failed     func(code string) *model.Error
-	Cut        *model.Error // the stream stopped before the reply finished
+	Unfinished *model.Error                         // ended for a reason other than its length
+	Failed     func(code, kind string) *model.Error // the error's code and type, either of which may be empty
+	Cut        *model.Error                         // the stream stopped before the reply finished
 }
 
 // usage is what a response used. Reads and writes are parts of the input, known only when reported.
@@ -751,9 +754,10 @@ func Read(ctx context.Context, body io.Reader, onText func(string), origin strin
 			continue
 		}
 		var ev struct {
-			Type  string `json:"type"`
-			Delta string `json:"delta"`
-			Code  string `json:"code"`
+			Type  string     `json:"type"`
+			Delta string     `json:"delta"`
+			Code  string     `json:"code"`
+			Error replyError `json:"error"` // where an error event holds its code
 			Item  struct {
 				Type      string `json:"type"`
 				CallID    string `json:"call_id"`
@@ -769,9 +773,7 @@ func Read(ctx context.Context, body io.Reader, onText func(string), origin strin
 						Written *int `json:"cache_write_tokens"`
 					} `json:"input_tokens_details"`
 				} `json:"usage"`
-				Error struct {
-					Code string `json:"code"`
-				} `json:"error"`
+				Error      replyError `json:"error"`
 				Incomplete struct {
 					Reason string `json:"reason"`
 				} `json:"incomplete_details"`
@@ -815,16 +817,16 @@ func Read(ctx context.Context, body io.Reader, onText func(string), origin strin
 			}
 			finished = true
 		case "response.failed", "error":
-			code := ev.Code
+			code, kind := cmp.Or(ev.Code, ev.Error.Code), ev.Error.Type
 			if ev.Type == "response.failed" {
-				code = ev.Response.Error.Code
+				code, kind = ev.Response.Error.Code, ev.Response.Error.Type
 				// a failed response can still report what it used, so it is counted
 				reply.Usage = usage(ev.Response.Usage.Input, ev.Response.Usage.Output, ev.Response.Usage.Details.Cached, ev.Response.Usage.Details.Written)
 			}
 			if code == "context_length_exceeded" {
 				return model.ModelReply{Usage: reply.Usage}, overflowed()
 			}
-			return model.ModelReply{Usage: reply.Usage}, say.Failed(code)
+			return model.ModelReply{Usage: reply.Usage}, say.Failed(code, kind)
 		}
 	}
 	if ctx.Err() != nil {
@@ -840,6 +842,12 @@ func Read(ctx context.Context, body io.Reader, onText func(string), origin strin
 	}
 	reply.Content = content
 	return reply, nil
+}
+
+// replyError is what a failed reply says of itself; its message is left out, as it can quote the conversation.
+type replyError struct {
+	Code string `json:"code"`
+	Type string `json:"type"`
 }
 
 func orUnknown(code string) string {

@@ -300,3 +300,103 @@ func TestBlockKickAndPresenceExpire(t *testing.T) {
 		t.Fatal(p)
 	}
 }
+
+func TestVisitHistoryKeepsLatestTenWithTheirEnds(t *testing.T) {
+	n := &memoryNetwork{}
+	a, b := testService(t, n), testService(t, n)
+	pair(t, a, b)
+	id := a.View().Me.ID
+	clock := time.Unix(1_800_000_000, 0)
+	b.mu.Lock()
+	b.now = func() time.Time { return clock }
+	b.mu.Unlock()
+	visits := func() []VisitRecord {
+		t.Helper()
+		for _, p := range b.View().Peers {
+			if p.ID == id {
+				return p.Visits
+			}
+		}
+		t.Fatal("peer missing")
+		return nil
+	}
+	visit := func(page string, gone bool) {
+		t.Helper()
+		if err := b.Visit(id, page, "airport", gone); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// a visit under way has no end yet
+	first := clock.Unix()
+	visit("p1", false)
+	if v := visits(); len(v) != 1 || v[0] != (VisitRecord{Since: first}) {
+		t.Fatal(v)
+	}
+	// it leaves after five minutes; the end is its last word, not when the list noticed
+	clock = clock.Add(5 * time.Minute)
+	visit("p1", true)
+	clock = clock.Add(presenceLifetime + time.Second)
+	if v := visits(); len(v) != 1 || v[0] != (VisitRecord{Since: first, Until: first + 300}) {
+		t.Fatal(v)
+	}
+	// coming back after a silence ends the old visit at its last word and starts a new one
+	second := clock.Unix()
+	for range 4 {
+		visit("p2", false)
+		clock = clock.Add(20 * time.Second)
+	}
+	clock = clock.Add(presenceLifetime + time.Second)
+	visit("p3", false)
+	if v := visits(); len(v) != 3 || v[1] != (VisitRecord{Since: second, Until: second + 60}) || v[0].Until != 0 {
+		t.Fatal(v)
+	}
+	// a kick ends it at once
+	clock = clock.Add(time.Minute)
+	if err := b.Kick(id); err != nil {
+		t.Fatal(err)
+	}
+	if v := visits(); v[0].Until != clock.Unix() {
+		t.Fatal(v)
+	}
+	// only the latest ten stay, newest first
+	for range 12 {
+		clock = clock.Add(kickCooldown + time.Second)
+		visit("p4", false)
+		if err := b.Kick(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v := visits()
+	if len(v) != maxVisits || v[0].Since != clock.Unix() || v[0].Since <= v[1].Since {
+		t.Fatal(v)
+	}
+	// a check of the friend keeps the history
+	if _, err := b.Check(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	if len(visits()) != maxVisits {
+		t.Fatal("check dropped the history")
+	}
+}
+
+func TestVisitHistoryOutlivesRestart(t *testing.T) {
+	n := &memoryNetwork{}
+	a, b := testService(t, n), testService(t, n)
+	pair(t, a, b)
+	id := a.View().Me.ID
+	if err := b.Visit(id, "p1", "airport", false); err != nil {
+		t.Fatal(err)
+	}
+	// closing ends the visit under way
+	b.Close()
+	again, err := New(context.Background(), filepath.Dir(b.file), n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	for _, p := range again.View().Peers {
+		if p.ID == id && (len(p.Visits) != 1 || p.Visits[0].Until == 0) {
+			t.Fatal(p.Visits)
+		}
+	}
+}

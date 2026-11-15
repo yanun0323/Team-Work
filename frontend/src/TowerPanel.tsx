@@ -7,7 +7,7 @@
 import { colon, tr } from './core/i18n'
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { MOCK } from './core/mode'
-import { fmtClock, keepsEscape } from './core/model'
+import { fmtClock, fmtDateTime, keepsEscape } from './core/model'
 import { PixelFace } from './core/voxel/PixelFace'
 import { lookOf } from './core/profile'
 import type { Look } from './core/domain/types'
@@ -17,7 +17,7 @@ import { BinIcon } from './DrawerDetail'
 import {
   approvePairing, clearOutgoing, goTo, inboundOf, isBlocked, leftPeer, pairWith, readTowers, rejectPairing, setPeerInbound,
   startPairing, stopPairing, unblockPeer, unpairPeer,
-  type Outgoing, type Pairing, type Peer, type PeerInbound, type PeerStatus, type Towers, type Visitor,
+  type Outgoing, type Pairing, type Peer, type PeerInbound, type PeerStatus, type PeerVisit, type Towers, type Visitor,
 } from './core/towers'
 
 /** How often the open panel reads the tower again, in milliseconds. */
@@ -326,7 +326,7 @@ function PeerRow({ peer, visit, me, here, refresh, open, onOpen }: {
   )
 }
 
-/** A friend island's sheet: what it may do on this island, a block left from before, and removing it. */
+/** A friend island's sheet: what it may do on this island, a block left from before, its latest visits, and removing it. */
 export function PeerSheet({ peer, visit, me, refresh }: { peer: Peer; visit?: Visitor; me: number; refresh: () => Promise<void> }) {
   const { busy, error, run } = useAction(refresh)
   const [asking, setAsking] = useState(false)
@@ -367,9 +367,37 @@ export function PeerSheet({ peer, visit, me, refresh }: { peer: Peer; visit?: Vi
             onClick={() => void run(() => unblockPeer(peer.id))}>{tr('解除封鎖')}</button>
         </div>
       )}
+      <Visits visits={peer.visits ?? []} here={visit} />
       {error && <p className="fx-tower-error" role="alert">{error}</p>}
     </>
   )
+}
+
+/** A friend island's latest visits to this one: when each came and how long it stayed. */
+function Visits({ visits, here }: { visits: PeerVisit[]; here?: Visitor }) {
+  const id = useId()
+  return (
+    <section className="fx-d-group" aria-labelledby={id}>
+      <h4 id={id}>{tr('最近登島')}</h4>
+      {visits.length ? (
+        <ol className="fx-tower-visits">
+          {visits.map((v) => (
+            <li key={v.since}>
+              <time dateTime={new Date(v.since * 1000).toISOString()}>{fmtDateTime(v.since)}</time>
+              <span>{visitLength(v, here)}</span>
+            </li>
+          ))}
+        </ol>
+      ) : <p className="fx-tower-empty">{tr('還沒有登島紀錄')}</p>}
+    </section>
+  )
+}
+
+/** How long a visit lasted, in words; the one under way says so, and one with no known end shows a dash. */
+export function visitLength(v: PeerVisit, here?: Visitor) {
+  if (!v.until) return here?.since === v.since ? tr('正在我的小島') : '—'
+  const m = Math.floor((v.until - v.since) / 60)
+  return m < 1 ? tr('不到 1 分鐘') : minutesOf(m)
 }
 
 /** A clock time, for when a block ends or a visitor came. */
@@ -398,10 +426,12 @@ function InboundSwitch({ inbound, disabled, label, onChange }: { inbound: PeerIn
 /** How long a visitor has been here, in words. */
 export function stayOf(seconds: number) {
   const m = Math.floor(seconds / 60)
-  if (m < 1) return tr('剛到')
-  const long = m < 60 ? tr('{a} 分鐘', { a: m }) : m % 60 ? tr('{a} 小時 {b} 分鐘', { a: Math.floor(m / 60), b: m % 60 }) : tr('{a} 小時', { a: m / 60 })
-  return tr('待了 {a}', { a: long })
+  return m < 1 ? tr('剛到') : tr('待了 {a}', { a: minutesOf(m) })
 }
+
+/** Whole minutes, in hours and minutes once there are an hour's worth. */
+const minutesOf = (m: number) => (m < 60 ? tr('{a} 分鐘', { a: m })
+  : m % 60 ? tr('{a} 小時 {b} 分鐘', { a: Math.floor(m / 60), b: m % 60 }) : tr('{a} 小時', { a: m / 60 }))
 
 /** Seconds left as m:ss. */
 export const clockOf = (seconds: number) => {

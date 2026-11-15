@@ -102,7 +102,6 @@ export const daysSince = (since: number, now = Date.now() / 1000) => (since > 0 
 
 export function MilestoneList({ stats, now }: { stats: ProfileStats; now?: number }) {
   if (!stats.since && !stats.chats && !stats.tasksDone && !stats.usage.calls) return <p className="fx-empty">{tr('還沒有使用紀錄')}</p>
-  const p = stats.partner
   return (
     <div className="fx-stats">
       <dl className="fx-stats-sum fx-profile-sum">
@@ -113,14 +112,18 @@ export function MilestoneList({ stats, now }: { stats: ProfileStats; now?: numbe
         <div><dt>{tr('Token')}</dt><dd>{fmtCount(stats.usage.tokens)}</dd></div>
         <div><dt>{tr('費用')}</dt><dd>{fmtUsd(stats.usage)}</dd></div>
       </dl>
-      {p && (
+      {stats.partners.length > 0 && (
         <section className="fx-d-group" aria-labelledby="fx-profile-partner">
           <h4 id="fx-profile-partner">{tr('最常合作')}</h4>
-          <p className="fx-profile-partner">
-            <PixelFace look={p.look} name={p.name} size={36} />
-            <b>{p.name}</b>
-            <span>{tr('一起 {n} 次', { n: fmtCount(p.count) })}</span>
-          </p>
+          <ol className="fx-profile-partners">
+            {stats.partners.map((p) => (
+              <li key={p.id} className="fx-profile-partner">
+                <PixelFace look={p.look} name={p.name} size={28} />
+                <b>{p.name}</b>
+                <span>{tr('一起 {n} 次', { n: fmtCount(p.count) })}</span>
+              </li>
+            ))}
+          </ol>
         </section>
       )}
     </div>

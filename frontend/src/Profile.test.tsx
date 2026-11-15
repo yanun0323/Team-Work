@@ -58,7 +58,7 @@ describe("the user's look", () => {
 })
 
 describe("the user's milestones", () => {
-  const stats = (s: Partial<ProfileStats> = {}): ProfileStats => ({ since: 0, tasksDone: 0, chats: 0, messages: 0, usage, ...s })
+  const stats = (s: Partial<ProfileStats> = {}): ProfileStats => ({ since: 0, tasksDone: 0, chats: 0, messages: 0, partners: [], usage, ...s })
 
   it('says there are none on a new island', () => {
     expect(renderToStaticMarkup(<MilestoneList stats={stats()} />)).toContain('還沒有使用紀錄')
@@ -74,13 +74,13 @@ describe("the user's milestones", () => {
     const look = defaultLook('ivy')
     const html = renderToStaticMarkup(<MilestoneList now={1 + 86400 * 3} stats={stats({
       since: 1, tasksDone: 12, chats: 34, messages: 560, usage: { ...usage, calls: 3, tokens: 12_345, costUsd: 1.5 },
-      partner: { id: 'ivy', name: 'Ivy', look, count: 7 },
+      partners: [{ id: 'ivy', name: 'Ivy', look, count: 7 }, { id: 'bo', name: 'Bo', look, count: 3 }],
     })} />)
     for (const [label, value] of [['使用天數', '4'], ['完成任務', '12'], ['對話', '34'], ['你說的話', '560'], ['Token', '12.3K'], ['費用', '$1.50']]) {
       expect(html).toContain(`<dt>${label}</dt><dd>${value}</dd>`)
     }
     expect(html).toContain('最常合作')
-    expect(html).toMatch(/<b>Ivy<\/b><span>一起 7 次<\/span>/)
+    expect(html).toMatch(/<b>Ivy<\/b><span>一起 7 次<\/span><\/li><li[^>]*>.*<b>Bo<\/b><span>一起 3 次<\/span>/)
   })
 
   it("are summed from the simulator's world", () => {
@@ -88,6 +88,8 @@ describe("the user's milestones", () => {
     const s = mockProfileStats(w)
     expect(s.chats).toBe(Object.keys(w.chats).length)
     expect(s.tasksDone).toBe(Object.values(w.tasks).filter((t) => t.stage === 'done').length)
-    if (s.partner) expect(w.replicas[s.partner.id]?.name).toBe(s.partner.name)
+    expect(s.partners.length).toBeLessThanOrEqual(10)
+    for (const p of s.partners) expect(w.replicas[p.id]?.name).toBe(p.name)
+    expect(s.partners.map((p) => p.count)).toEqual(s.partners.map((p) => p.count).sort((a, b) => b - a))
   })
 })

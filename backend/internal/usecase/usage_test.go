@@ -2,7 +2,9 @@ package usecase_test
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,7 +66,7 @@ func TestProfileStatsSumTheUsersMilestones(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.Chats != 0 || before.Messages != 0 || before.Partner != nil || before.Usage.Calls != 0 {
+	if before.Chats != 0 || before.Messages != 0 || len(before.Partners) != 0 || before.Usage.Calls != 0 {
 		t.Fatalf("a new island has milestones: %+v", before)
 	}
 	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "嗨"})
@@ -79,7 +81,35 @@ func TestProfileStatsSumTheUsersMilestones(t *testing.T) {
 	if stats.Chats != 1 || stats.Messages != 1 || stats.Usage.Calls != 1 || stats.Usage.Tokens != 120 || stats.Since <= 0 {
 		t.Fatalf("%+v", stats)
 	}
-	if p := stats.Partner; p == nil || p.ID != r.owner.ID || p.Name != r.owner.Name || p.Count != 1 {
-		t.Fatalf("partner %+v", stats.Partner)
+	if p := stats.Partners; len(p) != 1 || p[0].ID != r.owner.ID || p[0].Name != r.owner.Name || p[0].Count != 1 {
+		t.Fatalf("partners %+v", stats.Partners)
+	}
+	// eleven more employees with a chat each: the owner's two lead, then by name, ten in all
+	chat := func(id string) {
+		t.Helper()
+		c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: id, Text: "嗨"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.wait("reply", chatDone(c.ID))
+	}
+	chat(r.owner.ID)
+	for i := range 11 {
+		hired, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: fmt.Sprintf("E%02d", 10-i), Model: "fake"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		chat(hired.ID)
+	}
+	stats, err = r.e.ProfileStats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, p := range stats.Partners {
+		names = append(names, fmt.Sprintf("%s:%d", p.Name, p.Count))
+	}
+	if got := strings.Join(names, " "); got != "Ada:2 E00:1 E01:1 E02:1 E03:1 E04:1 E05:1 E06:1 E07:1 E08:1" {
+		t.Fatal(got)
 	}
 }

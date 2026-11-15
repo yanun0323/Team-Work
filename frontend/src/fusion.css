@@ -1163,7 +1163,8 @@ a.fx-save { text-decoration: none; }
 .fx-swatch:has(input:checked), .fx-swatch-own[data-checked] { background: var(--swatch); box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--ink); }
 .fx-swatch-own:not([data-checked]) { background: conic-gradient(#e85d4a, #ffcf5a, #8fd0c8, #3f7fbf, #8a5bb8, #e85d4a); }
 .fx-profile-sum { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
-.fx-profile-partner { display: flex; align-items: center; gap: 10px; margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.fx-profile-partners { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 8px; }
+.fx-profile-partner { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
 .fx-profile-partner b { color: var(--ink); font-size: 15px; }
 .fx-profile-partner svg { flex: none; padding: 3px; background: var(--clip); box-shadow: var(--lift); transform: rotate(-2deg); }
 .fx-tower-me { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
@@ -2116,6 +2117,10 @@ button.fx-ticket-tag:hover { color: var(--ink); }
 .fx-tower-here { justify-self: center; transform: rotate(-2deg); }
 /* a friend island's sheet: whether to open my island to it and how far, on one line that wraps when narrow;
    removing it is the bin among the sheet's tools */
+.fx-tower-visits { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.fx-tower-visits li { display: flex; justify-content: space-between; gap: 12px; }
+.fx-tower-visits time { color: var(--ink); font-variant-numeric: tabular-nums; }
+.fx-tower-visits span { color: var(--muted); }
 .fx-tower-access-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
 .fx-tower-access-label { flex: 1 1 12em; font-size: 14px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
 .fx-tower-access { flex: none; width: min(100%, 19em); }
