@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -20,8 +23,14 @@ const (
 	// maxQueryBytes bounds the search sentence.
 	maxQueryBytes = 4096
 	rrfK          = 60
-	// vectorFloor is how close to the best vector match another must be to count.
+	// vectorFloor is how close to the best vector match another must be to count, for memory notes.
 	vectorFloor = 0.75
+	// codeVectorFloor is the same for the files of a folder.
+	codeVectorFloor = 0.75
+	// notCodeWeight is what notCode files' fused scores are multiplied by when there are vector results.
+	notCodeWeight = 0.8
+	// segmentContext is how much of a long line is given on either side of the part of it that was found.
+	segmentContext = 400
 	// maxMergedLines keeps neighbouring results merged into one from growing without end.
 	maxMergedLines = 200
 )
@@ -48,6 +57,16 @@ type Hit struct {
 	StartLine int    `json:"startLine"`
 	EndLine   int    `json:"endLine"`
 	Text      string `json:"text"`
+	// Note says which bytes of a line text is, when it is not the whole line.
+	Note string `json:"note,omitempty"`
+	// from and lineLen place text in its line when it is part of one, as Note says; lineLen is 0 for whole lines.
+	from, lineLen int
+}
+
+// partOf says text is part of line n, of size bytes, from its byte from on.
+func (h *Hit) partOf(n, size, from int, text string) {
+	h.Text, h.from, h.lineLen = text, from, size
+	h.Note = fmt.Sprintf("line %d is %d bytes; text is its bytes %d to %d (from 0, end excluded); read_file shows the whole line", n, size, from, from+len(text))
 }
 
 // UserError is a problem with the call itself; the tool reports it as an error.
@@ -55,14 +74,32 @@ type UserError struct{ msg string }
 
 func (e *UserError) Error() string { return e.msg }
 
-// candidate is a range of a file found by keyword or vector, with the hash its lines had when found.
+// candidate is a range of a file found by keyword or vector, with the hash its lines had when found; col and size
+// are the piece's, for part of a long line.
 type candidate struct {
 	path       string
 	start, end int
+	col, size  int
 	lines      string
 	score      float64
 	vector     bool
 	cos        float32
+}
+
+func (c candidate) rangeKey() string { return fmt.Sprintf("%s:%d:%d", c.path, c.start, c.end) }
+
+// bestPerRange keeps, of a list best first, the first candidate of each range: the parts of one long line count
+// once.
+func bestPerRange(list []candidate) []candidate {
+	seen := map[string]bool{}
+	return slices.DeleteFunc(list, func(c candidate) bool {
+		k := c.rangeKey()
+		if seen[k] {
+			return true
+		}
+		seen[k] = true
+		return false
+	})
 }
 
 // Search finds what in cwd is about the query: keywords in the files as they are now, and, once the model and the
@@ -232,43 +269,187 @@ func (s *Service) vectorSearch(ctx context.Context, r *root, q Query, res *Resul
 			continue
 		}
 		for _, c := range f.chunks {
-			found = append(found, candidate{path: rel, start: c.start, end: c.end, lines: c.lines, vector: true, cos: dot(qv, c.vec)})
+			found = append(found, candidate{path: rel, start: c.start, end: c.end, col: c.col, size: c.size, lines: c.lines, vector: true, cos: dot(qv, c.vec)})
 		}
 	}
 	r.mu.Unlock()
-	sort.Slice(found, func(i, j int) bool { return found[i].cos > found[j].cos })
-	if len(found) > q.Limit*3 {
-		found = found[:q.Limit*3]
-	}
-	// ranks alone would give a far weaker match the same weight as a keyword hit: only ones near the best count
-	if len(found) > 0 {
-		floor := found[0].cos * vectorFloor
-		found = slices.DeleteFunc(found, func(c candidate) bool { return c.cos <= 0 || c.cos < floor })
-	}
+	found = rankVectors(found, q.Limit*3)
 	if found == nil {
 		found = []candidate{}
 	}
 	return found, queue, embedT, time.Since(cmp), 0
 }
 
-// terms are the words of a query worth looking for.
-func terms(q string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, w := range strings.FieldsFunc(strings.ToLower(q), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' }) {
-		if len([]rune(w)) < 2 || seen[w] {
-			continue
+// rankVectors sorts vector matches best first, ties in file order so a search ranks the same way each time, keeps
+// each range's best part, at most limit of them, and only those near the best.
+func rankVectors(found []candidate, limit int) []candidate {
+	// ties in file order, so the same search ranks the same way
+	sort.Slice(found, func(i, j int) bool {
+		a, b := found[i], found[j]
+		switch {
+		case a.cos != b.cos:
+			return a.cos > b.cos
+		case a.path != b.path:
+			return a.path < b.path
+		case a.start != b.start:
+			return a.start < b.start
 		}
-		seen[w] = true
-		out = append(out, w)
+		return a.col < b.col
+	})
+	found = bestPerRange(found)
+	if len(found) > limit {
+		found = found[:limit]
+	}
+	// ranks alone would give a far weaker match the same weight as a keyword hit: only ones near the best count
+	if len(found) > 0 {
+		floor := found[0].cos * codeVectorFloor
+		found = slices.DeleteFunc(found, func(c candidate) bool { return c.cos <= 0 || c.cos < floor })
+	}
+	return found
+}
+
+// stopWords are English words too common to look for, unless the query has nothing else.
+var stopWords = toSet("a an and are as at be by do does for from how in is it its of on or that the this to was what when where which who why with")
+
+// cjkStop are Chinese characters too common to look for: a pair of two of them is left out.
+var cjkStop = []rune{
+	'的', '了', '是', '在', '和', '與', '及', '或', '把', '被', '讓', '從', '到', '對', '為', '有', '也', '就', '都', '而',
+	'之', '其', '這', '那', '個', '嗎', '呢', '吧', '啊', '怎', '麼', '什', '如', '何', '哪', '裡', '時', '會', '要', '能',
+	'可', '以', '用', '中', '上', '下', '一', '不', '我', '你', '他', '它', '們', '該', '找', '給', '地', '得', '著',
+}
+
+func toSet(words string) map[string]bool {
+	out := map[string]bool{}
+	for _, w := range strings.Fields(words) {
+		out[w] = true
 	}
 	return out
 }
 
-// keyword scores the pieces of every file in the root as it is now by how many of the query's words they hold.
+// cjk is a character of Chinese, Japanese or Korean, written without spaces between words.
+func cjk(r rune) bool {
+	return unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul) || r == 'ー'
+}
+
+// terms are the words of a query worth looking for: words of two characters or more but common English ones, and
+// for Chinese, Japanese and Korean, each pair of neighbouring characters but pairs of common ones. If nothing is
+// left, the common ones are looked for after all.
+func terms(q string) []string {
+	seen := map[string]bool{}
+	var out, common []string
+	add := func(w string, stop bool) {
+		if seen[w] {
+			return
+		}
+		seen[w] = true
+		if stop {
+			common = append(common, w)
+		} else {
+			out = append(out, w)
+		}
+	}
+	for _, field := range strings.FieldsFunc(strings.ToLower(q), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' }) {
+		runes := []rune(field)
+		for i := 0; i < len(runes); {
+			j := i + 1
+			for j < len(runes) && cjk(runes[j]) == cjk(runes[i]) {
+				j++
+			}
+			seg := runes[i:j]
+			if !cjk(seg[0]) {
+				if len(seg) >= 2 {
+					add(string(seg), stopWords[string(seg)])
+				}
+			} else {
+				for k := 0; k+1 < len(seg); k++ {
+					add(string(seg[k:k+2]), slices.Contains(cjkStop, seg[k]) && slices.Contains(cjkStop, seg[k+1]))
+				}
+			}
+			i = j
+		}
+	}
+	if len(out) == 0 {
+		return common
+	}
+	return out
+}
+
+// short is a term matched only as a whole word, or as a part of a camelCase name: "to" in "go to" and "toOne", not
+// in "toon" or "auto".
+func short(t string) bool {
+	return len(t) <= 3 && !strings.ContainsFunc(t, func(r rune) bool { return r >= utf8.RuneSelf })
+}
+
+func wordByte(b byte) bool {
+	return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+}
+
+func lowerOrDigit(b byte) bool { return b >= 'a' && b <= 'z' || b >= '0' && b <= '9' }
+
+func upper(b byte) bool { return b >= 'A' && b <= 'Z' }
+
+// asciiLower lowers ASCII letters alone, so every byte stays where it was.
+func asciiLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if upper(c) {
+			b[i] = c + 'a' - 'A'
+		}
+	}
+	return string(b)
+}
+
+// wordCount counts the short term t in body as words: each found where a word or a camelCase part starts and ends.
+// low is body with ASCII lowered.
+func wordCount(body, low, t string) int {
+	n := 0
+	for i := 0; ; {
+		at := strings.Index(low[i:], t)
+		if at < 0 {
+			return n
+		}
+		at += i
+		end := at + len(t)
+		starts := at == 0 || !wordByte(body[at-1]) || lowerOrDigit(body[at-1]) && upper(body[at])
+		ends := end == len(body) || !wordByte(body[end]) || lowerOrDigit(body[end-1]) && upper(body[end])
+		if starts && ends {
+			n++
+		}
+		i = at + 1
+	}
+}
+
+// pathWords are the words of a path, camelCase cut apart, with each file name whole: frontend/src/SemanticSearch.tsx
+// is frontend, src, semantic, search, tsx and semanticsearch.
+func pathWords(rel string) map[string]bool {
+	var b strings.Builder
+	for i := 0; i < len(rel); i++ {
+		if i > 0 && lowerOrDigit(rel[i-1]) && upper(rel[i]) {
+			b.WriteByte(' ')
+		}
+		b.WriteByte(rel[i])
+	}
+	out := map[string]bool{}
+	for _, w := range strings.FieldsFunc(strings.ToLower(b.String()), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		out[w] = true
+	}
+	name := path.Base(rel)
+	out[strings.ToLower(strings.TrimSuffix(name, path.Ext(name)))] = true
+	return out
+}
+
+const (
+	// bm25K1 and bm25B are the usual BM25 settings, as mho's tool search uses.
+	bm25K1 = 1.2
+	bm25B  = 0.75
+)
+
+// keyword scores the pieces of every file in the root as it is now by BM25 over the query's terms, in one read of
+// each file: a term found in few pieces counts for more than one found everywhere. A term that is a whole word of the
+// path adds to pieces that hold some term, never alone. The parts of a long line count once.
 func (s *Service) keyword(r *root, query string) []candidate {
 	words := terms(query)
-	phrase := strings.ToLower(query)
+	phrase := strings.ToLower(strings.TrimSpace(query))
 	if len(words) == 0 {
 		return nil
 	}
@@ -280,42 +461,96 @@ func (s *Service) keyword(r *root, query string) []candidate {
 		return nil
 	}
 	defer dir.Close()
-	var found []candidate
+	type match struct {
+		c      candidate
+		tf     []int
+		size   int
+		phrase bool
+		path   map[string]bool
+	}
+	var matches []match
+	df := make([]int, len(words))
+	pieces, total := 0, 0
 	for _, rel := range files {
 		data, why := readText(dir, rel)
 		if why != "" {
 			continue
 		}
-		lower := strings.ToLower(string(data))
-		if !strings.Contains(lower, words[0]) && !anyIn(lower, words[1:]) {
-			continue
-		}
-		pathLower := strings.ToLower(rel)
-		for _, p := range cut(string(data)) {
-			if p.body == "" {
+		text := string(data)
+		lower := strings.ToLower(text)
+		has := anyIn(lower, words)
+		var inPath map[string]bool
+		for _, p := range cut(text) {
+			if shell(p.body) {
 				continue
 			}
-			body := strings.ToLower(p.body)
-			distinct, count := 0, 0
-			for _, w := range words {
-				if n := strings.Count(body, w); n > 0 {
-					distinct++
-					count += n
-				} else if strings.Contains(pathLower, w) {
-					distinct++
+			pieces++
+			total += len(p.body)
+			if !has {
+				continue
+			}
+			body, low := strings.ToLower(p.body), asciiLower(p.body)
+			var tf []int
+			for i, w := range words {
+				n := 0
+				if short(w) {
+					n = wordCount(p.body, low, w)
+				} else {
+					n = strings.Count(body, w)
+				}
+				if n > 0 {
+					if tf == nil {
+						tf = make([]int, len(words))
+					}
+					tf[i] = n
+					df[i]++
 				}
 			}
-			if distinct == 0 {
+			if tf == nil {
 				continue
 			}
-			score := float64(distinct)*10 + float64(min(count, 20))
-			if len(words) > 1 && strings.Contains(body, phrase) {
-				score += 15
+			if inPath == nil {
+				inPath = pathWords(rel)
 			}
-			found = append(found, candidate{path: rel, start: p.start, end: p.end, lines: p.lines, score: score})
+			matches = append(matches, match{
+				c:      candidate{path: rel, start: p.start, end: p.end, col: p.col, size: p.size, lines: p.lines},
+				tf:     tf,
+				size:   len(p.body),
+				phrase: len(words) > 1 && strings.Contains(body, phrase),
+				path:   inPath,
+			})
 		}
 	}
+	if len(matches) == 0 {
+		return nil
+	}
+	idf := make([]float64, len(words))
+	for i := range words {
+		idf[i] = math.Log(1 + (float64(pieces-df[i])+0.5)/(float64(df[i])+0.5))
+	}
+	avg := float64(total) / float64(pieces)
+	found := make([]candidate, 0, len(matches))
+	for _, m := range matches {
+		score := 0.0
+		for i, n := range m.tf {
+			if n > 0 {
+				tf := float64(n)
+				score += idf[i] * tf * (bm25K1 + 1) / (tf + bm25K1*(1-bm25B+bm25B*float64(m.size)/avg))
+			}
+		}
+		if m.phrase {
+			score *= 1.5
+		}
+		for i, w := range words {
+			if m.path[w] {
+				score += 0.5 * idf[i]
+			}
+		}
+		m.c.score = score
+		found = append(found, m.c)
+	}
 	sort.SliceStable(found, func(i, j int) bool { return found[i].score > found[j].score })
+	found = bestPerRange(found)
 	if len(found) > 60 {
 		found = found[:60]
 	}
@@ -331,29 +566,32 @@ func anyIn(s string, words []string) bool {
 	return false
 }
 
-// fuse ranks keyword and vector results together by reciprocal rank, keeping the best limit ranges.
+// fuse ranks keyword and vector results together by reciprocal rank, keeping the best limit ranges. A range counts
+// once in each list, however many parts of a long line it has there; the part kept is the one ranked higher. With
+// vector results, files that are not code rank a little lower.
 func fuse(keyword, vector []candidate, limit int) []candidate {
 	type entry struct {
 		c     candidate
 		score float64
-		parts []candidate
+		rank  int
 	}
 	byRange := map[string]*entry{}
 	var order []string
 	add := func(list []candidate) {
-		for rank, c := range list {
-			k := fmt.Sprintf("%s:%d:%d", c.path, c.start, c.end)
+		for rank, c := range bestPerRange(slices.Clone(list)) {
+			k := c.rangeKey()
 			e := byRange[k]
 			if e == nil {
-				e = &entry{c: c}
+				e = &entry{c: c, rank: rank}
 				byRange[k] = e
 				order = append(order, k)
+			} else if rank < e.rank {
+				e.c.col, e.c.size, e.rank = c.col, c.size, rank
 			}
 			e.score += 1 / float64(rrfK+rank+1)
 			if c.vector {
 				e.c.cos = c.cos
 			}
-			e.parts = append(e.parts, c)
 		}
 	}
 	add(keyword)
@@ -361,6 +599,9 @@ func fuse(keyword, vector []candidate, limit int) []candidate {
 	out := make([]candidate, 0, len(order))
 	for _, k := range order {
 		e := byRange[k]
+		if len(vector) > 0 && notCode(e.c.path) {
+			e.score *= notCodeWeight
+		}
 		e.c.score = e.score
 		out = append(out, e.c)
 	}
@@ -372,20 +613,25 @@ func fuse(keyword, vector []candidate, limit int) []candidate {
 }
 
 // verify reads each result's file again, through the folder so nothing outside it is read: a range whose lines
-// changed since it was found is dropped and its file indexed again. Ranges that touch in one file are merged. It
-// returns the hits, how many ranges passed or not, and how many files were found changed.
+// changed since it was found is dropped and its file indexed again. Ranges that touch in one file are merged, and
+// rank where the best of them did. Of a line longer than chunkBytes, only the part found is given, with some of the
+// line on either side. It returns the hits, how many ranges passed or not, and how many files were found changed.
 func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int, int) {
+	type ranked struct {
+		candidate
+		rank int
+	}
 	type group struct {
 		first int // rank of the best range in it
-		parts []candidate
+		parts []ranked
 	}
-	byFile := map[string][]candidate{}
-	rank := map[string]int{}
+	byFile := map[string][]ranked{}
+	var files []string
 	for i, c := range found {
-		if _, ok := rank[c.path]; !ok {
-			rank[c.path] = i
+		if byFile[c.path] == nil {
+			files = append(files, c.path)
 		}
-		byFile[c.path] = append(byFile[c.path], c)
+		byFile[c.path] = append(byFile[c.path], ranked{c, i})
 	}
 	var groups []group
 	kept, dropped, changed := 0, 0, 0
@@ -395,16 +641,18 @@ func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int, int) {
 		return []Hit{}, 0, len(found), 0
 	}
 	defer dir.Close()
-	for rel, list := range byFile {
+	for _, rel := range files {
+		list := byFile[rel]
 		data, why := readText(dir, rel)
 		var lines []string
 		if why == "" {
 			lines = splitLines(string(data))
 		}
 		read[rel] = lines
-		var ok []candidate
+		var ok []ranked
 		for _, c := range list {
-			if why != "" || c.end > len(lines) || textHash(strings.Join(lines[c.start-1:c.end], "")) != c.lines {
+			if why != "" || c.end > len(lines) || textHash(strings.Join(lines[c.start-1:c.end], "")) != c.lines ||
+				c.size > 0 && c.col+c.size > len(lines[c.start-1]) {
 				dropped++
 				continue
 			}
@@ -417,15 +665,16 @@ func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int, int) {
 		}
 		sort.Slice(ok, func(i, j int) bool { return ok[i].start < ok[j].start })
 		for _, c := range ok {
-			if n := len(groups); n > 0 && groups[n-1].parts[0].path == rel {
+			if n := len(groups); n > 0 && groups[n-1].parts[0].path == rel && c.size == 0 {
 				last := &groups[n-1]
 				end := last.parts[len(last.parts)-1].end
-				if c.start <= end+1 && c.end-last.parts[0].start < maxMergedLines {
+				if last.parts[0].size == 0 && c.start <= end+1 && c.end-last.parts[0].start < maxMergedLines {
 					last.parts = append(last.parts, c)
+					last.first = min(last.first, c.rank)
 					continue
 				}
 			}
-			groups = append(groups, group{first: rank[rel], parts: []candidate{c}})
+			groups = append(groups, group{first: c.rank, parts: []ranked{c}})
 		}
 	}
 	sort.SliceStable(groups, func(i, j int) bool {
@@ -446,7 +695,19 @@ func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int, int) {
 		if end > len(lines) {
 			continue
 		}
-		hits = append(hits, Hit{Path: rel, StartLine: start, EndLine: end, Text: strings.Join(lines[start-1:end], "")})
+		h := Hit{Path: rel, StartLine: start, EndLine: end, Text: strings.Join(lines[start-1:end], "")}
+		if c := g.parts[0]; c.size > 0 && len(lines[start-1]) > chunkBytes {
+			line := lines[start-1]
+			from, to := max(0, c.col-segmentContext), min(len(line), c.col+c.size+segmentContext)
+			for from < len(line) && !utf8.RuneStart(line[from]) {
+				from++
+			}
+			for to < len(line) && !utf8.RuneStart(line[to]) {
+				to--
+			}
+			h.partOf(start, len(line), from, line[from:to])
+		}
+		hits = append(hits, h)
 	}
 	return hits, kept, dropped, changed
 }
@@ -454,8 +715,12 @@ func (s *Service) verify(r *root, found []candidate) ([]Hit, int, int, int) {
 // fitNote is what the reason gains when results were cut short or left out; fit keeps room for it.
 const fitNote = "; %d results were cut short and %d left out to stay within 50 KiB, so read_file for the rest"
 
+// minPrefix is the least room worth giving the start of a line that does not fit whole.
+const minPrefix = 512
+
 // fit keeps res, as the JSON the tool hands out, within maxResultBytes. A result that does not fit keeps as many of
-// its first lines as do; one whose first line alone does not fit is left out. The reason says so.
+// its first lines as do; one whose first line alone does not fit keeps the start of it, its note saying which bytes,
+// or is left out when there is little room. The reason says so.
 func fit(res *Result) {
 	if jsonSize(res) <= maxResultBytes {
 		return
@@ -477,13 +742,19 @@ func fit(res *Result) {
 		}
 		kept := len(lines)
 		for ; kept > 0; kept-- {
-			empty := Hit{Path: h.Path, StartLine: h.StartLine, EndLine: h.StartLine + kept - 1}
+			empty := Hit{Path: h.Path, StartLine: h.StartLine, EndLine: h.StartLine + kept - 1, Note: h.Note}
 			if used+jsonSize(empty)+total+1 <= maxResultBytes {
 				break
 			}
 			total -= sizes[kept-1]
 		}
 		if kept == 0 {
+			if p, ok := prefix(h, lines[0], maxResultBytes-used); ok {
+				short++
+				used += jsonSize(p) + 1
+				res.Results = append(res.Results, p)
+				continue
+			}
 			left++
 			continue
 		}
@@ -503,7 +774,50 @@ func fit(res *Result) {
 	}
 }
 
+// prefix is h cut to the longest start of its first line that fits in room bytes of JSON, if room is worth it.
+func prefix(h Hit, first string, room int) (Hit, bool) {
+	if room < minPrefix {
+		return Hit{}, false
+	}
+	line, size, from := h.StartLine, len(first), 0
+	if h.lineLen > 0 { // already part of a line
+		size, from = h.lineLen, h.from
+	}
+	take := func(n int) Hit {
+		for n > 0 && n < len(first) && !utf8.RuneStart(first[n]) {
+			n--
+		}
+		p := Hit{Path: h.Path, StartLine: line, EndLine: line}
+		p.partOf(line, size, from, first[:n])
+		return p
+	}
+	// the longest n whose hit fits
+	n := sort.Search(len(first)+1, func(n int) bool { return jsonSize(take(n))+1 > room }) - 1
+	if n <= 0 {
+		return Hit{}, false
+	}
+	p := take(n)
+	if p.Text == "" {
+		return Hit{}, false
+	}
+	return p, true
+}
+
 func jsonSize(v any) int {
 	raw, _ := json.Marshal(v)
 	return len(raw)
+}
+
+// notCode is a file of translations, help, tests or docs. With vectors, which bring such text up for any question
+// in its language, it ranks a little lower; keyword search alone keeps it as is, as it is where interface text is
+// found.
+func notCode(rel string) bool {
+	switch {
+	case strings.HasPrefix(rel, "backend/internal/i18n/"), strings.HasPrefix(rel, "frontend/src/core/locales/"),
+		rel == "frontend/src/core/i18n.ts", strings.HasPrefix(rel, "frontend/src/Help"),
+		strings.HasSuffix(rel, "_test.go"), strings.HasSuffix(rel, ".test.ts"), strings.HasSuffix(rel, ".test.tsx"),
+		strings.HasSuffix(rel, ".md"):
+		return true
+	}
+	return false
 }

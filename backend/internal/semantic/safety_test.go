@@ -440,7 +440,8 @@ func TestResultJSONStaysWithinTheLimit(t *testing.T) {
 	s.waitState(t, StateError)
 	repo := t.TempDir()
 	git(t, repo, "init", "-q")
-	write(t, repo, "quotes.txt", "needle "+strings.Repeat(`"`, 30000)+"\n")
+	// lines just under a piece's size, each twice as long escaped; a long line gives only part of itself
+	write(t, repo, "quotes.txt", strings.Repeat(strings.Repeat("needle ", 40)+strings.Repeat(`"`, 3600)+"\n", 8))
 	write(t, repo, "slashes.txt", "needle "+strings.Repeat(`\`, 20000)+"\n")
 	var ctrl strings.Builder
 	for i := range 400 {
@@ -449,7 +450,11 @@ func TestResultJSONStaysWithinTheLimit(t *testing.T) {
 	write(t, repo, "control.txt", ctrl.String())
 	var many strings.Builder
 	for i := range 3000 {
-		fmt.Fprintf(&many, "needle line %d\n", i)
+		if i%20 == 0 {
+			fmt.Fprintf(&many, "needle line %d\n", i)
+		} else {
+			fmt.Fprintf(&many, "line %d\n", i)
+		}
 	}
 	write(t, repo, "many.txt", many.String())
 	write(t, repo, "small.txt", "needle small\n")
@@ -467,6 +472,12 @@ func TestResultJSONStaysWithinTheLimit(t *testing.T) {
 	for _, h := range res.Results {
 		data, _ := os.ReadFile(filepath.Join(repo, h.Path))
 		lines := splitLines(string(data))
+		if h.Note != "" {
+			if h.EndLine != h.StartLine || lines[h.StartLine-1][h.from:h.from+len(h.Text)] != h.Text {
+				t.Fatalf("%s:%d is not part of the line: %s", h.Path, h.StartLine, h.Note)
+			}
+			continue
+		}
 		if h.EndLine < h.StartLine || strings.Join(lines[h.StartLine-1:h.EndLine], "") != h.Text {
 			t.Fatalf("%s:%d-%d is not the file's lines", h.Path, h.StartLine, h.EndLine)
 		}

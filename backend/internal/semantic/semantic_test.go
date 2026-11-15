@@ -773,6 +773,7 @@ func TestExcluded(t *testing.T) {
 		".env": "secret", ".env.production": "secret", "a/.envrc": "secret", "keys/id_ed25519": "secret", "tls/server.key": "secret",
 		"x.p12": "secret", "config/secrets.yml": "secret", "credentials.json": "secret", ".ssh/config": "secret", "home/.aws/config": "secret",
 		"package-lock.json": "lockfile", "backend/go.sum": "lockfile", "yarn.lock": "lockfile", "Cargo.lock": "lockfile",
+		"a.svg": "vector_image", "x/B.SVG": "vector_image", "frontend/public/boot/wordmark.svg": "vector_image", "a.svg.go": "",
 		"node_modules/a/b.js": "dependency_or_output", "dist/app.js": "dependency_or_output", "a/.git/HEAD": "dependency_or_output",
 	} {
 		if got := excluded(rel); got != want {
@@ -814,7 +815,7 @@ func TestCutCoversEveryByte(t *testing.T) {
 }
 
 func TestVectorKeyDependsOnEverything(t *testing.T) {
-	if key("a") == key("b") || key(docPrefix+"x") == key(queryPrefix+"x") || len(key("a")) != 64 {
+	if key("a") == key("b") || key(docInput("a.go", "x")) == key(queryPrefix+"x") || len(key("a")) != 64 {
 		t.Fatal("keys collide")
 	}
 }

@@ -198,7 +198,7 @@ func TestRealTokenLimits(t *testing.T) {
 	var joined strings.Builder
 	var walk func(p piece)
 	walk = func(p piece) {
-		out, sent := seen[docPrefix+p.body]
+		out, sent := seen[docInput("long.txt", p.body)]
 		switch {
 		case sent && out.tooLong:
 			parts, ok := p.split(lineText)
@@ -208,7 +208,7 @@ func TestRealTokenLimits(t *testing.T) {
 			for _, q := range parts {
 				walk(q)
 			}
-		case sent || s.cache.get(key(docPrefix+p.body)) != nil:
+		case sent || s.cache.get(key(docInput("long.txt", p.body))) != nil:
 			joined.WriteString(p.body)
 		default:
 			t.Fatalf("a piece at line %d got no vector", p.start)

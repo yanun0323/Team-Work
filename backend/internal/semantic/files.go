@@ -68,6 +68,9 @@ func excluded(rel string) string {
 		return "secret"
 	case secretStems[strings.TrimSuffix(lower, path.Ext(lower))] && settingsExts[path.Ext(lower)]:
 		return "secret"
+	case path.Ext(lower) == ".svg":
+		// drawing coordinates: nothing to search for, and far over the model's limit
+		return "vector_image"
 	}
 	return ""
 }

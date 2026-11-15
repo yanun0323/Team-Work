@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -21,9 +22,10 @@ type stamp struct {
 
 const racy = 2 * time.Second
 
-// chunk is an indexed piece with its vector.
+// chunk is an indexed piece with its vector; col and size are the piece's.
 type chunk struct {
 	start, end int
+	col, size  int
 	key        string
 	lines      string
 	vec        []float32
@@ -250,7 +252,8 @@ func (r *root) indexFile(ctx context.Context, rel, hash string, emb embedder, ca
 		}
 		return s
 	}
-	work := cut(text)
+	// shells have nothing to find, and their vectors would come near every query: no chunk is one
+	work := slices.DeleteFunc(cut(text), func(p piece) bool { return shell(p.body) })
 	var done []chunk
 	for len(work) > 0 {
 		if err := ctx.Err(); err != nil {
@@ -261,15 +264,15 @@ func (r *root) indexFile(ctx context.Context, rel, hash string, emb embedder, ca
 		var inputs []string
 		var rest []piece
 		for _, p := range work {
-			k := key(docPrefix + p.body)
+			k := key(docInput(rel, p.body))
 			if vec := cache.get(k); vec != nil {
 				st.hits++
-				done = append(done, chunk{start: p.start, end: p.end, key: k, lines: p.lines, vec: vec})
+				done = append(done, chunk{start: p.start, end: p.end, col: p.col, size: p.size, key: k, lines: p.lines, vec: vec})
 				continue
 			}
 			if len(batch) < 16 {
 				batch = append(batch, p)
-				inputs = append(inputs, docPrefix+p.body)
+				inputs = append(inputs, docInput(rel, p.body))
 			} else {
 				rest = append(rest, p)
 			}
@@ -293,7 +296,7 @@ func (r *root) indexFile(ctx context.Context, rel, hash string, emb embedder, ca
 				}
 				st.splits++
 				log.debug("semantic_split").Str("root", r.dir).Str("file", rel).Int("start", p.start).Int("end", p.end).Int("tokens", e.tokens).Send()
-				work = append(work, parts...)
+				work = append(work, slices.DeleteFunc(parts, func(p piece) bool { return shell(p.body) })...)
 				continue
 			}
 			k := key(inputs[i])
@@ -301,10 +304,15 @@ func (r *root) indexFile(ctx context.Context, rel, hash string, emb embedder, ca
 				log.error("semantic_error").Str("stage", "index").Str("root", r.dir).Str("file", rel).Str("reason", "could not keep a vector: "+err.Error()).Str("next", "skip").Send()
 			}
 			st.computed++
-			done = append(done, chunk{start: p.start, end: p.end, key: k, lines: p.lines, vec: e.vec})
+			done = append(done, chunk{start: p.start, end: p.end, col: p.col, size: p.size, key: k, lines: p.lines, vec: e.vec})
 		}
 	}
-	sort.Slice(done, func(i, j int) bool { return done[i].start < done[j].start })
+	sort.Slice(done, func(i, j int) bool {
+		if done[i].start != done[j].start {
+			return done[i].start < done[j].start
+		}
+		return done[i].col < done[j].col
+	})
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	f := r.files[rel]

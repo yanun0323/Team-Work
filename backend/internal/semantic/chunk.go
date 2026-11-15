@@ -11,15 +11,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
 const (
 	// formatVersion changes whenever what is sent to the model changes, so old vectors are not reused.
-	formatVersion = "eg2-code-v1"
-	// docPrefix and queryPrefix are the official EmbeddingGemma formats for code retrieval. The document title is
-	// always none: paths and line numbers stay out of the model's input.
-	docPrefix   = "title: none | text: "
+	formatVersion = "eg2-code-v2"
+	// queryPrefix is the official EmbeddingGemma format for a code retrieval query; docInput is the document's, its
+	// title the file's path relative to the folder, never an absolute one, and no line numbers.
 	queryPrefix = "task: code retrieval | query: "
 	// MaxTokens is the most the model takes, <bos> and <eos> included.
 	MaxTokens = 2048
@@ -30,11 +30,25 @@ const (
 )
 
 // piece is part of a file: lines start..end, 1-based and inclusive, and the text the model reads, which is those
-// lines or, for a line too long on its own, part of it.
+// lines or, for a line too long on its own, part of it: then size is the part's length and col where it starts in
+// the line, in bytes from 0; both are 0 for whole lines.
 type piece struct {
 	start, end int
+	col, size  int
 	body       string
 	lines      string // hash of the whole lines start..end, to tell whether they are still what was read
+}
+
+// shell is a text with no letter or digit in it, such as a lone closing brace: nothing to search for, and a vector
+// of it lands near every other.
+func shell(s string) bool {
+	return !strings.ContainsFunc(s, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) })
+}
+
+// docInput is what the model reads of a piece of the file rel, its path relative to the folder searched: the same
+// file in two work trees is the same input, so its vector is shared.
+func docInput(rel, body string) string {
+	return "title: " + rel + " | text: " + body
 }
 
 // key is the vector cache's key for a piece: the model, its tokenizer, the input format and the whole input.
@@ -65,7 +79,8 @@ func splitLines(text string) []string {
 }
 
 // cut makes the first pieces of a file: whole lines up to chunkLines or chunkBytes, and a line longer than
-// chunkBytes in parts of its own. Every byte is in exactly one piece.
+// chunkBytes in parts of its own. Every byte is in exactly one piece; ones that are shells are for the caller to
+// leave out.
 func cut(text string) []piece {
 	lines := splitLines(text)
 	var out []piece
@@ -81,8 +96,10 @@ func cut(text string) []piece {
 	for i, line := range lines {
 		if len(line) > chunkBytes {
 			flush(i)
+			col := 0
 			for _, part := range halvesUntil(line, chunkBytes) {
-				out = append(out, piece{start: i + 1, end: i + 1, body: part, lines: textHash(line)})
+				out = append(out, piece{start: i + 1, end: i + 1, col: col, size: len(part), body: part, lines: textHash(line)})
+				col += len(part)
 			}
 			start, size = i+1, 0
 			continue
@@ -132,7 +149,8 @@ func (p piece) split(lineText func(start, end int) string) ([]piece, bool) {
 			at++
 		}
 	}
-	return []piece{{start: p.start, end: p.end, body: p.body[:at], lines: p.lines}, {start: p.start, end: p.end, body: p.body[at:], lines: p.lines}}, true
+	return []piece{{start: p.start, end: p.end, col: p.col, size: at, body: p.body[:at], lines: p.lines},
+		{start: p.start, end: p.end, col: p.col + at, size: len(p.body) - at, body: p.body[at:], lines: p.lines}}, true
 }
 
 // vectors keeps every vector once on disk, by key, shared by every folder. A vector's file time is when it was last

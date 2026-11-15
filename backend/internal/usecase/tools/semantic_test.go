@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -96,6 +97,44 @@ func TestSemanticSearchToolFallsBackToKeywords(t *testing.T) {
 	}
 	if r := tool.Run(context.Background(), "", json.RawMessage(`{"query":"x"}`)); !r.IsError {
 		t.Fatal("searched with no working directory")
+	}
+}
+
+// A very long line gives only the part that matched, the same to the model and to exec, which sees note typed.
+func TestSemanticSearchLongLineIsPartOfIt(t *testing.T) {
+	on := onService(t)
+	dir := t.TempDir()
+	exec.Command("git", "init", "-q", dir).Run()
+	line := strings.Repeat("lorem ipsum ", 1700) + "toucan feeding " + strings.Repeat("dolor sit ", 1000) + "\n"
+	os.WriteFile(filepath.Join(dir, "long.md"), []byte("# title\n"+line), 0o644)
+	tool := SemanticSearch{Service: on}
+	raw := json.RawMessage(`{"query":"toucan feeding"}`)
+	r := tool.Run(context.Background(), dir, raw)
+	if r.IsError {
+		t.Fatal(r.Text)
+	}
+	got, err := tool.Structured(context.Background(), dir, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if structured, _ := json.Marshal(got); string(structured) != r.Text {
+		t.Fatalf("exec and the tool differ:\n%s\n%s", structured, r.Text)
+	}
+	res := got.(semantic.Result)
+	if len(res.Results) != 1 {
+		t.Fatalf("%+v", res)
+	}
+	h := res.Results[0]
+	if h.StartLine != 2 || h.EndLine != 2 || !strings.Contains(h.Text, "toucan feeding") || !strings.Contains(line, h.Text) || len(h.Text) >= len(line)/2 ||
+		!strings.HasPrefix(h.Note, fmt.Sprintf("line 2 is %d bytes; text is its bytes ", len(line))) {
+		t.Fatalf("%d:%d %d bytes, %q", h.StartLine, h.EndLine, len(h.Text), h.Note)
+	}
+	if ret := tool.Returns(); !strings.Contains(ret, "note?: string") || !strings.Contains(ret, "text: string") {
+		t.Fatal(ret)
+	}
+	spec := tool.Spec()
+	if !strings.Contains(spec.Description, "note says which bytes") || !strings.Contains(string(spec.Parameters), "in the language of the code and its comments") {
+		t.Fatalf("%+v", spec)
 	}
 }
 
