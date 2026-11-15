@@ -20,6 +20,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"syscall"
 	"unicode/utf8"
 
 	"golang.org/x/image/webp"
@@ -190,7 +191,7 @@ func (Read) Spec() model.ToolSpec {
 		Parameters: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Absolute, or relative to the working directory"},"offset":{"type":"integer","minimum":1,"description":"Line to start from, 1-indexed"},"limit":{"type":"integer","minimum":1,"description":"Maximum number of lines"}},"required":["path"]}`)}
 }
 
-func (t Read) Run(_ context.Context, cwd string, raw json.RawMessage) model.ToolResult {
+func (t Read) Run(ctx context.Context, cwd string, raw json.RawMessage) model.ToolResult {
 	args, r, mime, done, err := t.open(cwd, raw)
 	if err != nil {
 		return fail("%s", err)
@@ -199,7 +200,7 @@ func (t Read) Run(_ context.Context, cwd string, raw json.RawMessage) model.Tool
 	if mime != "" {
 		return readImage(r, args.Path, mime)
 	}
-	w, err := readLines(r, args.Offset, args.Limit)
+	w, err := readLines(ctx, r, args.Offset, args.Limit)
 	if err != nil {
 		return fail("%s", err)
 	}
@@ -228,7 +229,7 @@ type FileText struct {
 }
 
 // Structured reads a text file as Run does, from the same folders and within the same limits, as data.
-func (t Read) Structured(_ context.Context, cwd string, raw json.RawMessage) (any, error) {
+func (t Read) Structured(ctx context.Context, cwd string, raw json.RawMessage) (any, error) {
 	args, r, mime, done, err := t.open(cwd, raw)
 	if err != nil {
 		return nil, err
@@ -237,7 +238,7 @@ func (t Read) Structured(_ context.Context, cwd string, raw json.RawMessage) (an
 	if mime != "" {
 		return nil, errors.New("exec reads text files only; read images with read_file directly")
 	}
-	w, err := readLines(r, args.Offset, args.Limit)
+	w, err := readLines(ctx, r, args.Offset, args.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +266,9 @@ func (t Read) open(cwd string, raw json.RawMessage) (args readArgs, r *bufio.Rea
 	if err != nil {
 		return args, nil, "", nil, errors.New(problem(err))
 	}
-	f, err := os.Open(path)
+	// Opened without waiting, so a pipe or device is refused below instead of blocking until something writes to it;
+	// what is checked is what was opened.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return args, nil, "", nil, errors.New(problem(err))
 	}
@@ -297,8 +300,9 @@ type window struct {
 	cutLine           bool
 }
 
-// readLines reads a window of lines, up to maxLines and maxBytes.
-func readLines(r *bufio.Reader, offset, limit int) (window, error) {
+// readLines reads a window of lines, up to maxLines and maxBytes. It counts every line of the file, so it stops when
+// ctx ends.
+func readLines(ctx context.Context, r *bufio.Reader, offset, limit int) (window, error) {
 	start := max(offset, 1)
 	if limit <= 0 || limit > maxLines {
 		limit = maxLines
@@ -306,6 +310,9 @@ func readLines(r *bufio.Reader, offset, limit int) (window, error) {
 	var b strings.Builder
 	total, end, full, cutLine := 0, start-1, false, false
 	for {
+		if err := ctx.Err(); err != nil {
+			return window{}, err
+		}
 		line, err := r.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
 			return window{}, errors.New(problem(err))

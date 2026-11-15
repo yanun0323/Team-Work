@@ -367,3 +367,49 @@ text("after")`
 		t.Fatal("the user was not asked")
 	}
 }
+
+// A script that uses up the owner's limit exactly leaves nothing for the next tool of the same reply: that tool is
+// refused with its result kept, and the owner stops for the user as when the script itself went past the limit.
+func TestExecThatUsesUpTheOwnersLimitStopsTheNextTool(t *testing.T) {
+	t.Parallel()
+	var phase atomic.Int32
+	const script = `for (let i = 0; i < 31; i++) tools.read_task({}); text("done")`
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if !isOwner(req) {
+			return call("submit_handoff", handoff), nil
+		}
+		if phase.Add(1) == 1 {
+			return toolCalls(ownerBlock("exec", map[string]string{"code": script}), ownerBlock("read_task", map[string]any{})), nil
+		}
+		return say("idle"), nil
+	})
+	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codeMode": json.RawMessage(`true`)}); err != nil {
+		t.Fatal(err)
+	}
+	task := r.ownerTask(r.flow.ID)
+	r.wait("the owner to stop", func(w *model.World) bool {
+		c := w.Tasks[task.ID].Coordination
+		return phase.Load() > 1 || c.OwnerState == model.OwnerBlocked && c.BlockedReason == "loop"
+	})
+	time.Sleep(200 * time.Millisecond)
+	if phase.Load() != 1 {
+		t.Fatalf("the owner's model was called %d times", phase.Load())
+	}
+	c := r.world().Tasks[task.ID].Coordination
+	if c.OwnerState != model.OwnerBlocked || c.BlockedReason != "loop" ||
+		!slices.ContainsFunc(c.Questions, func(q model.TaskQuestion) bool { return q.Audience == "user" && q.Kind == "approval" }) {
+		t.Fatalf("%+v", c)
+	}
+	conv := r.e.OwnerConversation(task.ID)
+	calls, last := conv[len(conv)-2], conv[len(conv)-1]
+	if len(calls.Content) != 2 || len(last.Content) != 2 {
+		t.Fatalf("%+v\n%+v", calls, last)
+	}
+	ran, after := last.Content[0], last.Content[1]
+	if ran.IsError || ran.ID != calls.Content[0].ID || !strings.HasSuffix(ran.Text, "done") {
+		t.Fatalf("exec: %+v", ran)
+	}
+	if !after.IsError || after.ID != calls.Content[1].ID || after.Text != "owner tool limit reached; not run" {
+		t.Fatalf("after: %+v", after)
+	}
+}

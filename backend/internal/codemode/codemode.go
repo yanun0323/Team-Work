@@ -128,8 +128,9 @@ type sandbox struct {
 	failed *Failure
 
 	// jsonText, jsonValue and toText are JSON.stringify, JSON.parse and String as the script found them, before it
-	// could replace them.
+	// could replace them; so is errorType, Error.
 	jsonText, jsonValue, toText goja.Callable
+	errorType                   goja.Constructor
 }
 
 // fail ends the script for good: the first failure stands, the interpreter stops at its next step whatever the
@@ -243,6 +244,7 @@ func (s *sandbox) setup(fns []Func) error {
 	s.jsonValue, _ = goja.AssertFunction(jsonObj.Get("parse"))
 	s.jsonText, _ = goja.AssertFunction(jsonObj.Get("stringify"))
 	s.toText, _ = goja.AssertFunction(vm.Get("String"))
+	s.errorType, _ = goja.AssertConstructor(vm.Get("Error"))
 	tools := vm.NewObject()
 	list := make([]any, 0, len(fns))
 	for _, fn := range fns {
@@ -267,7 +269,7 @@ func (s *sandbox) setup(fns []Func) error {
 		for i, v := range call.Arguments {
 			shown, err := s.show(v, false)
 			if err != nil {
-				panic(thrown(err))
+				panic(s.thrown(err))
 			}
 			parts[i] = shown
 		}
@@ -302,8 +304,11 @@ func (s *sandbox) tool(fn Func) func(goja.FunctionCall) goja.Value {
 				panic(s.vm.NewTypeError("tools.%s takes one object of arguments", fn.Name))
 			}
 			raw, err := s.stringify(a)
+			if errors.Is(err, errNoJSON) {
+				panic(s.vm.NewTypeError("tools.%s takes arguments JSON can write", fn.Name))
+			}
 			if err != nil {
-				panic(thrown(err))
+				panic(s.thrown(err))
 			}
 			args = json.RawMessage(raw)
 		}
@@ -336,17 +341,17 @@ func (s *sandbox) tool(fn Func) func(goja.FunctionCall) goja.Value {
 		}
 		out, err := s.jsonValue(goja.Undefined(), s.vm.ToValue(string(raw)))
 		if err != nil {
-			panic(thrown(err))
+			panic(s.thrown(err))
 		}
 		return out
 	}
 }
 
-func (s *sandbox) newError(message string) *goja.Object {
-	ctor, _ := goja.AssertConstructor(s.vm.Get("Error"))
-	o, err := ctor(nil, s.vm.ToValue(message))
+// newError is an Error made by Error as the script found it, so replacing Error changes nothing; it is what to throw.
+func (s *sandbox) newError(message string) any {
+	o, err := s.errorType(nil, s.vm.ToValue(message))
 	if err != nil {
-		panic(err)
+		return s.thrown(err)
 	}
 	return o
 }
@@ -389,13 +394,20 @@ func (s *sandbox) stringify(v goja.Value) (string, error) {
 	return out.String(), nil
 }
 
-// thrown is an error from inside the interpreter, thrown back into the script as it came.
-func thrown(err error) any {
+// thrown is an error from inside the interpreter as the host throws it back into the script: what the script threw
+// as it came, an interruption or stack overflow as it is, so the script still cannot catch it, and anything else as a
+// TypeError. The interpreter turns no other Go error into JavaScript; it would crash the process.
+func (s *sandbox) thrown(err error) any {
+	var stopped *goja.InterruptedError
+	var overflow *goja.StackOverflowError
 	var ex *goja.Exception
-	if errors.As(err, &ex) {
+	switch {
+	case errors.As(err, &stopped) || errors.As(err, &overflow):
+		return err
+	case errors.As(err, &ex):
 		return ex.Value()
 	}
-	return err
+	return s.vm.NewTypeError("%s", err.Error())
 }
 
 // write adds a line of output, or ends the script when the output would grow past its limits; what fits is kept.

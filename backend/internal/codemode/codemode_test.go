@@ -395,6 +395,61 @@ return {b: 2, toJSON() { return {c: 3} }};`, echo)
 	})
 }
 
+// A script that replaces Error still gets a tool's failure as an error it can catch, and the run ends as a run: the
+// host never looks Error up where the script can change it.
+func TestToolErrorsDoNotUseTheScriptsError(t *testing.T) {
+	guarded(t, func(t *testing.T) {
+		bad := codemode.Func{Name: "bad", Call: func(context.Context, json.RawMessage) (any, error) { return nil, errors.New("no task x") }}
+		for _, poison := range []string{
+			`Error = undefined;`,
+			`Error = () => {};`,
+			`Error = 1;`,
+			`Error = function () { throw new TypeError("poisoned") };`,
+			`Error = new Proxy(function () {}, {construct() { throw 1 }});`,
+			`Object.defineProperty(globalThis, "Error", {get() { throw 1 }});`,
+		} {
+			res := run(t, poison+` try { tools.bad({}) } catch (e) { text("caught", e.message) }`, bad)
+			if res.Err != nil || res.Output != "caught no task x" {
+				t.Fatalf("%s %+v", poison, res)
+			}
+			res = run(t, poison+" text('a')\ntools.bad({})", bad)
+			if res.Err == nil || res.Err.Reason != codemode.ReasonScript || !strings.Contains(res.Err.Message, "no task x") || res.Err.Line != 2 || res.Output != "a" {
+				t.Fatalf("%s %+v", poison, res)
+			}
+		}
+	})
+}
+
+// Arguments JSON has no form for are refused as an error the script can catch, and the tool does not run; what
+// ends the script while its arguments are written still cannot be caught.
+func TestArgumentsWithoutJSONAreRefused(t *testing.T) {
+	guarded(t, func(t *testing.T) {
+		for _, arg := range []string{
+			`{toJSON() { return undefined }}`,
+			`{toJSON() { return function () {} }}`,
+			`{toJSON() { return Symbol("s") }}`,
+		} {
+			n := 0
+			res := run(t, `try { tools.f(`+arg+`) } catch (e) { text(e instanceof TypeError, e.message) }`, counter("f", &n, 1))
+			if res.Err != nil || res.Output != "true tools.f takes arguments JSON can write" || n != 0 {
+				t.Fatalf("%s %+v n=%d", arg, res, n)
+			}
+			res = run(t, `tools.f(`+arg+`)`, counter("f", &n, 1))
+			if res.Err == nil || res.Err.Reason != codemode.ReasonScript || !strings.Contains(res.Err.Message, "JSON") || n != 0 {
+				t.Fatalf("%s %+v n=%d", arg, res.Err, n)
+			}
+		}
+
+		lim := codemode.DefaultLimits()
+		lim.Timeout = 100 * time.Millisecond
+		n := 0
+		res := codemode.Run(context.Background(), `try { tools.f({toJSON() { for (;;) {} }}) } catch (e) { text("caught") }`, []codemode.Func{counter("f", &n, 1)}, lim, codemode.Hooks{})
+		if res.Err == nil || res.Err.Reason != codemode.ReasonTimeout || res.Output != "" || n != 0 {
+			t.Fatalf("%+v n=%d", res, n)
+		}
+	})
+}
+
 // However much the script throws, the message stays short.
 func TestFailureMessageIsShort(t *testing.T) {
 	res := run(t, `throw "x\n".repeat(100000) + "y".repeat(1000000)`)

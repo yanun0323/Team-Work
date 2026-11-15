@@ -677,8 +677,11 @@ func (e *Engine) ownerTurn(in *ownerRun) *turn {
 		in.calls++
 		return nil
 	}})
+	// a reply's own calls were counted when it came, so only an exec script's can leave the limit used up before the
+	// reply's next tool: refused, it is past the limit, and the decision stops for the user too
 	tr.gate = func(model.Block) (model.ToolResult, bool) {
 		if in.overLimit || in.calls >= maxOwnerTools {
+			in.overLimit = true
 			return model.ToolResult{Text: "owner tool limit reached; not run", IsError: true}, false
 		}
 		return model.ToolResult{}, true
