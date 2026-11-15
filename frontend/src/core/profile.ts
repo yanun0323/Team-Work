@@ -17,8 +17,8 @@ export interface ProfileStats {
   chats: number
   /** What the user said in chats. */
   messages: number
-  /** The employee worked with most: chats with them and steps they finished. */
-  partner?: ProfilePartner
+  /** The employees worked with most, most first, at most ten: chats with them and steps they finished. */
+  partners: ProfilePartner[]
   usage: UsageTotals
 }
 
@@ -29,11 +29,9 @@ export function mockProfileStats(w: World): ProfileStats {
   const chats = Object.values(w.chats)
   for (const s of Object.values(w.subTasks)) if (s.status === 'complete' && !s.skipped && !s.cancelled) bump(s.replicaId)
   for (const c of chats) bump(c.replicaId)
-  let partner: ProfilePartner | undefined
-  for (const [id, count] of together) {
-    const r = w.replicas[id]
-    if (!partner || count > partner.count) partner = { id, name: r.name, look: r.look, count }
-  }
+  const partners = [...together].map(([id, count]): ProfilePartner => ({ id, name: w.replicas[id].name, look: w.replicas[id].look, count }))
+    .sort((a, b) => b.count - a.count || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .slice(0, 10)
   const starts = [...Object.values(w.tasks).map((t) => t.createdAt), ...chats.flatMap((c) => c.messages.map((m) => m.at))].filter((t) => t > 0)
   return {
     // the simulator keeps its own clock: as long ago as that, from now
@@ -41,14 +39,14 @@ export function mockProfileStats(w: World): ProfileStats {
     tasksDone: Object.values(w.tasks).filter((t) => t.stage === 'done').length,
     chats: chats.length,
     messages: chats.reduce((n, c) => n + c.messages.filter((m) => m.from === 'user').length, 0),
-    partner,
+    partners,
     usage: mockStats(w, 'all', 0).total,
   }
 }
 
 export const readProfileStats = (signal?: AbortSignal): Promise<ProfileStats> => (MOCK
   ? Promise.resolve(mockProfileStats(useStore.getState().world))
-  : localRequest<ProfileStats>('GET', '/profile/stats', undefined, signal))
+  : localRequest<ProfileStats>('GET', '/profile/stats', undefined, signal).then((s) => ({ ...s, partners: s.partners ?? [] })))
 
 /** The person at a computer as they look now: as they picked, or as they look before picking. */
 export const lookOf = (me: { id: string; look?: Look }) => me.look ?? defaultLook(me.id)

@@ -8,10 +8,13 @@ type ProfileStats struct {
 	Chats     int     `json:"chats"`
 	// Messages counts what the user said in chats.
 	Messages int `json:"messages"`
-	// Partner is the employee the user has worked with most; nil when there is none yet.
-	Partner *ProfilePartner `json:"partner,omitempty"`
-	Usage   UsageTotals     `json:"usage"`
+	// Partners are the employees the user has worked with most, most first, at most MaxProfilePartners.
+	Partners []ProfilePartner `json:"partners"`
+	Usage    UsageTotals      `json:"usage"`
 }
+
+// MaxProfilePartners is how many employees the profile lists as worked with most.
+const MaxProfilePartners = 10
 
 // ProfilePartner is an employee and how many chats and finished steps the user had with them.
 type ProfilePartner struct {

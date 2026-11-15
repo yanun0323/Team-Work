@@ -25,7 +25,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <dt>Something missing</dt><dd>A red stamp above a company's tabs says what to do first; see Company.</dd>
           <dt>Put away</dt><dd>Press Esc or click an empty part of the map to put away an open company, the airport or the help.</dd>
           <dt>Language</dt><dd>Press the globe at the top right.</dd>
-          <dt>Profile</dt><dd>Press your face at the top right to see your achievements on this island: the days in use, tasks done, chats, messages you sent, tokens, cost, and the employee you work with most. Press Edit beside your name to open your character on the left, and pick a hair cut, facial hair, an accessory, a top, what you wear below, shoes and the colour of each, the last swatch for any colour; each change is saved at once. Your name is also what other towers call your island. Your character walks about your own island too, and stays out at night; with your profile open, the camera follows you as the Auto view setting says.</dd>
+          <dt>Profile</dt><dd>Press your face at the top right to see your achievements on this island: the days in use, tasks done, chats, messages you sent, tokens, cost, and the ten employees you work with most. Press Edit beside your name to open your character on the left, and pick a hair cut, facial hair, an accessory, a top, what you wear below, shoes and the colour of each, the last swatch for any colour; each change is saved at once. Your name is also what other towers call your island. Your character walks about your own island too, and stays out at night; with your profile open, the camera follows you as the Auto view setting says.</dd>
         </dl>
       </>
     ),
