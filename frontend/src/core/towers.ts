@@ -29,7 +29,12 @@ export interface Peer {
   blockedUntil?: number
   /** How the person at it looks, as it last said; absent until it has. */
   look?: Look
+  /** Its latest visits to this island, newest first, at most ten; absent from an older backend or before any. */
+  visits?: PeerVisit[]
 }
+
+/** One visit to this island, in Unix seconds; no `until` while it is still here, or when this computer stopped first. */
+export interface PeerVisit { since: number; until?: number }
 
 export type PeerAccess = 'view' | 'operate'
 

@@ -2,6 +2,7 @@ package tower
 
 import (
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -117,7 +118,7 @@ func (s *Service) updatePeerLocked(id string, change func(*savedPeer), revoke bo
 	}
 	if revoke {
 		s.newLeaseLocked(id)
-		delete(s.presence, id)
+		s.leaveLocked(id)
 	}
 	return p.Peer, nil
 }
@@ -145,7 +146,7 @@ func (s *Service) Kick(id string) error {
 	}
 	s.kicked[id] = s.now().Add(kickCooldown)
 	s.newLeaseLocked(id)
-	delete(s.presence, id)
+	s.leaveLocked(id)
 	return nil
 }
 
@@ -211,8 +212,12 @@ func (s *Service) Visit(id, page, place string, gone bool) error {
 	}
 	// a computer silent for longer than a page may be is coming again, not still here
 	if st == nil || now.Sub(st.last) > presenceLifetime {
+		if st != nil {
+			s.endVisitLocked(id, st, st.last)
+		}
 		st = &stay{since: now, pages: map[string]presence{}}
 		s.presence[id] = st
+		s.arriveLocked(id, now)
 	}
 	if _, ok := st.pages[page]; !ok && len(st.pages) >= maxPresencePages {
 		s.prunePresenceLocked()
@@ -235,8 +240,50 @@ func (s *Service) prunePresenceLocked() {
 		}
 		if len(st.pages) == 0 && now.Sub(st.last) > presenceLifetime {
 			delete(s.presence, id)
+			s.endVisitLocked(id, st, st.last)
 		}
 	}
+}
+
+// arriveLocked starts a new visit in id's history, dropping the oldest past maxVisits. History is best effort: a
+// failed save is kept in memory and goes out with the next one.
+func (s *Service) arriveLocked(id string, at time.Time) {
+	p, ok := s.disk.Peers[id]
+	if !ok {
+		return
+	}
+	p.Visits = append([]VisitRecord{{Since: at.Unix()}}, p.Visits...)
+	if len(p.Visits) > maxVisits {
+		p.Visits = p.Visits[:maxVisits]
+	}
+	s.disk.Peers[id] = p
+	_ = s.saveLocked()
+}
+
+// leaveLocked takes id off the visitor list now, ending its visit in its history.
+func (s *Service) leaveLocked(id string) {
+	if st := s.presence[id]; st != nil {
+		delete(s.presence, id)
+		s.endVisitLocked(id, st, s.now())
+	}
+}
+
+// endVisitLocked records when the visit st ended. The slice is copied, not changed in place, since views handed out
+// earlier may still share it.
+func (s *Service) endVisitLocked(id string, st *stay, at time.Time) {
+	p, ok := s.disk.Peers[id]
+	if !ok {
+		return
+	}
+	since := st.since.Unix()
+	i := slices.IndexFunc(p.Visits, func(v VisitRecord) bool { return v.Since == since && v.Until == 0 })
+	if i < 0 {
+		return
+	}
+	p.Visits = slices.Clone(p.Visits)
+	p.Visits[i].Until = max(at.Unix(), since)
+	s.disk.Peers[id] = p
+	_ = s.saveLocked()
 }
 
 // visitorsLocked lists each computer on this island once, however many pages it has open.
