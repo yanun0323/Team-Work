@@ -1,10 +1,13 @@
 package usecase
 
 import (
+	"context"
+	"encoding/json"
 	"slices"
 	"time"
 
 	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/semantic"
 )
 
 // SetStopWait shortens how long a stopped run may take to end before it is called uncertain, for a test.
@@ -54,4 +57,17 @@ func (e *Engine) Conversation(id string) []model.Message {
 // OwnerConversation is the conversation of a task's owner, for a test.
 func (e *Engine) OwnerConversation(taskID string) []model.Message {
 	return e.Conversation(ownerKey(taskID))
+}
+
+// SetRankNotes puts a stand-in for the model's ranking of memory notes, for a test.
+func (e *Engine) SetRankNotes(f func(ctx context.Context, query string, notes []semantic.Note) ([]string, bool)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.rankNotes = f
+}
+
+// SearchMemory is search_memory as replicaID calls it in company teamID, for a test.
+func (e *Engine) SearchMemory(teamID, replicaID, query string) model.ToolResult {
+	raw, _ := json.Marshal(map[string]string{"query": query})
+	return e.searchMemoryTool(func() (string, *string) { return teamID, &replicaID })(context.Background(), "", raw)
 }

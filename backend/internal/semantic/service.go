@@ -80,6 +80,9 @@ type Service struct {
 	log   *logger
 	cache *vectors
 	dir   string
+	// notes are the vectors of memory notes, in memory only and apart from cache; noteBudget bounds one memory search.
+	notes      *noteCache
+	noteBudget time.Duration
 
 	mu       sync.Mutex
 	active   bool
@@ -117,6 +120,7 @@ func New(o Options) *Service {
 	dir := filepath.Join(o.DataDir, "cache", "semantic-search")
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Service{o: o, log: &logger{z: o.Log}, dir: dir, cache: &vectors{dir: filepath.Join(dir, "vectors"), touched: map[string]bool{}},
+		notes: newNoteCache(memoryCacheSize), noteBudget: memoryBudget,
 		roots: map[string]*root{}, wake: make(chan struct{}, 1), ctx: ctx, cancel: cancel, state: StateDisabled}
 }
 

@@ -1,9 +1,11 @@
 package usecase
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/yanun0323/Team-Work/internal/i18n"
 	"github.com/yanun0323/Team-Work/internal/model"
@@ -130,30 +132,64 @@ func dropNote(list *[]model.MemoryEntry, id string) (string, bool) {
 // memorySearchLimit is how many notes one search returns at most.
 const memorySearchLimit = 20
 
-// searchMemory finds the notes holding any of the query's words, ignoring case: those holding more words first, then
-// the newest. line writes each found note.
-func searchMemory(notes []model.MemoryEntry, query string, line func(model.MemoryEntry) string) string {
-	words := strings.Fields(strings.ToLower(query))
+// searchMemory finds the notes holding any of the query's words, ignoring case, and, when vector is not nil, the notes
+// it names, closest in meaning first: the two lists are fused by reciprocal rank, so a note found both ways comes
+// first and an exact word (a command, a file name) still finds its note. By keyword alone, notes holding more of the
+// words come first, then the order they are in. line writes each found note.
+func searchMemory(notes []model.MemoryEntry, query string, vector []string, line func(model.MemoryEntry) string) string {
+	words, pairs := memoryTerms(query)
 	type hit struct {
 		note  model.MemoryEntry
-		score int
+		score float64
 	}
 	var hits []hit
 	for _, m := range notes {
 		text, score := strings.ToLower(m.Text), 0
 		for _, w := range words {
 			if strings.Contains(text, w) {
+				score += 10
+			}
+		}
+		for _, p := range pairs {
+			if strings.Contains(text, p) {
 				score++
 			}
 		}
 		if score > 0 {
-			hits = append(hits, hit{m, score})
+			hits = append(hits, hit{m, float64(score)})
 		}
+	}
+	slices.SortStableFunc(hits, func(a, b hit) int { return cmp.Compare(b.score, a.score) })
+	if vector != nil {
+		byID := map[string]model.MemoryEntry{}
+		for _, m := range notes {
+			if _, ok := byID[m.ID]; !ok {
+				byID[m.ID] = m
+			}
+		}
+		fused := map[string]int{} // id to its place in hits
+		for i := range hits {
+			id := hits[i].note.ID
+			hits[i].score = 1 / float64(memoryRRF+i+1)
+			fused[id] = i
+		}
+		for rank, id := range vector {
+			m, ok := byID[id]
+			if !ok {
+				continue // never one the caller may not read
+			}
+			if i, ok := fused[id]; ok {
+				hits[i].score += 1 / float64(memoryRRF+rank+1)
+				continue
+			}
+			fused[id] = len(hits)
+			hits = append(hits, hit{m, 1 / float64(memoryRRF+rank+1)})
+		}
+		slices.SortStableFunc(hits, func(a, b hit) int { return cmp.Compare(b.score, a.score) })
 	}
 	if len(hits) == 0 {
 		return "No notes match."
 	}
-	slices.SortStableFunc(hits, func(a, b hit) int { return b.score - a.score })
 	var b strings.Builder
 	for _, h := range hits[:min(len(hits), memorySearchLimit)] {
 		b.WriteString(line(h.note))
@@ -162,6 +198,34 @@ func searchMemory(notes []model.MemoryEntry, query string, line func(model.Memor
 		fmt.Fprintf(&b, "%d more match; narrow the search.\n", len(hits)-memorySearchLimit)
 	}
 	return b.String()
+}
+
+// memoryRRF is the k of reciprocal rank fusion, as semantic_search has it.
+const memoryRRF = 60
+
+// memoryTerms are what searchMemory looks for: the query's words, lowercased, and, for words with Chinese characters,
+// each two characters next to each other, so a Chinese sentence with no spaces still finds notes sharing some of it.
+func memoryTerms(query string) (words, pairs []string) {
+	seen := map[string]bool{}
+	for _, w := range strings.Fields(strings.ToLower(query)) {
+		if !seen[w] {
+			seen[w] = true
+			words = append(words, w)
+		}
+	}
+	for _, w := range words {
+		run := []rune(w)
+		for i := 0; i+1 < len(run); i++ {
+			if !unicode.Is(unicode.Han, run[i]) || !unicode.Is(unicode.Han, run[i+1]) {
+				continue
+			}
+			if p := string(run[i : i+2]); !seen[p] {
+				seen[p] = true
+				pairs = append(pairs, p)
+			}
+		}
+	}
+	return words, pairs
 }
 
 func (e *Engine) spawn(t *model.Task, nodeID string, upstream []string, parent *string, waiting bool, round int) *model.SubTask {

@@ -14,6 +14,7 @@ import (
 	"github.com/yanun0323/Team-Work/internal/i18n"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
+	"github.com/yanun0323/Team-Work/internal/semantic"
 	"github.com/yanun0323/Team-Work/internal/usecase/tools"
 )
 
@@ -1132,8 +1133,8 @@ var (
 		Parameters: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"scope":{"type":"string","enum":["company","mine"],"description":"company (default) or mine"}},"required":["text"]}`)}
 	forgetSpec = model.ToolSpec{Name: "forget", Description: "Remove a note by its id, this company's or your own, because it is wrong or out of date.",
 		Parameters: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`)}
-	searchMemorySpec = model.ToolSpec{Name: "search_memory", Description: "Search this company's notes and your own, including older ones your prompt leaves out, for any of the query's words. Each line says whether it is the company's or yours.",
-		Parameters: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Words to look for, separated by spaces"}},"required":["query"]}`)}
+	searchMemorySpec = model.ToolSpec{Name: "search_memory", Description: "Search this company's notes and your own, including older ones your prompt leaves out, by meaning and by keyword. Each line says whether it is the company's or yours.",
+		Parameters: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Words or a sentence saying what you are looking for"}},"required":["query"]}`)}
 )
 
 // rememberArgs are remember's: the text, trimmed, and where it goes.
@@ -1157,10 +1158,11 @@ func rememberArgs(raw json.RawMessage) (text, scope string, err *model.ToolResul
 	return strings.TrimSpace(a.Text), a.Scope, nil
 }
 
-// searchMemoryTool searches the notes of the company and employee where names, read under the lock; in a task step and
-// in a chat alike.
+// searchMemoryTool searches the notes of the company and employee where names, in a task step and in a chat alike.
+// Under the lock it copies only those notes, as the lines it hands out; the model ranks that copy with the lock let
+// go, and when it cannot, the search is by keyword alone.
 func (e *Engine) searchMemoryTool(where func() (string, *string)) func(context.Context, string, json.RawMessage) model.ToolResult {
-	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+	return func(ctx context.Context, _ string, raw json.RawMessage) model.ToolResult {
 		var a struct {
 			Query string `json:"query"`
 		}
@@ -1168,25 +1170,38 @@ func (e *Engine) searchMemoryTool(where func() (string, *string)) func(context.C
 			return toolError("query is required")
 		}
 		e.mu.Lock()
-		defer e.mu.Unlock()
 		teamID, replicaID := where()
 		var notes []model.MemoryEntry
-		company := map[string]bool{}
+		lines := map[string]string{}
+		keep := func(m model.MemoryEntry, line string) {
+			if _, ok := lines[m.ID]; !ok {
+				notes = append(notes, m)
+				lines[m.ID] = line
+			}
+		}
 		if t := e.w.Teams[teamID]; t != nil && teamID != "" {
-			notes = append(notes, t.Memory...)
 			for _, m := range t.Memory {
-				company[m.ID] = true
+				keep(m, "company "+e.companyLine(m)[2:])
 			}
 		}
 		if replicaID != nil && e.w.Replicas[*replicaID] != nil {
-			notes = append(notes, e.w.Replicas[*replicaID].Memory...)
-		}
-		return model.ToolResult{Text: searchMemory(notes, a.Query, func(m model.MemoryEntry) string {
-			if company[m.ID] {
-				return "company " + e.companyLine(m)[2:]
+			for _, m := range e.w.Replicas[*replicaID].Memory {
+				keep(m, "yours "+memoryLine(m)[2:])
 			}
-			return "yours " + memoryLine(m)[2:]
-		})}
+		}
+		rank := e.rankNotes
+		e.mu.Unlock()
+		var vector []string
+		if rank != nil && len(notes) > 0 {
+			readable := make([]semantic.Note, len(notes))
+			for i, m := range notes {
+				readable[i] = semantic.Note{ID: m.ID, Text: m.Text}
+			}
+			if ranked, ok := rank(ctx, a.Query, readable); ok {
+				vector = ranked
+			}
+		}
+		return model.ToolResult{Text: searchMemory(notes, a.Query, vector, func(m model.MemoryEntry) string { return lines[m.ID] })}
 	}
 }
 

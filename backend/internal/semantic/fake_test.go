@@ -29,6 +29,7 @@ func fakeTokens(s string) int { return len([]rune(s)) + 2 }
 // fakeVector is a bag of words: texts sharing words point the same way.
 func fakeVector(s string) []float32 {
 	v := make([]float32, dim)
+	s = strings.TrimPrefix(strings.TrimPrefix(s, memoryQueryPrefix), memoryDocPrefix)
 	for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
 		if w == "task" || w == "code" || w == "retrieval" || w == "query" || w == "title" || w == "none" || w == "text" {
 			continue
