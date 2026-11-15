@@ -31,7 +31,7 @@ func Log(z zerolog.Logger, res Result) *zerolog.Event {
 	if res.Output != "" {
 		lines = strings.Count(res.Output, "\n") + 1
 	}
-	e = e.Str(zerolog.MessageFieldName, name).Int("calls", total).Str("tools", strings.Join(names, ",")).
+	e = e.Str(zerolog.MessageFieldName, name).Int("calls", total).Int("parallel", res.Batches).Str("tools", strings.Join(names, ",")).
 		Int64("ms", res.Duration.Milliseconds()).Int("out_bytes", len(res.Output)).Int("out_lines", lines)
 	if res.Err != nil {
 		e = e.Str("reason", res.Err.Reason).Int("line", res.Err.Line).Int("column", res.Err.Column)

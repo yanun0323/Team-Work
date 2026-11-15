@@ -403,6 +403,17 @@ func TestUserMessageReachesTheOwnerOnceAndIsAppliedWhenTakenUp(t *testing.T) {
 	if woken != 1 {
 		t.Fatalf("the owner was woken %d times by one message", woken)
 	}
+	// every wake goes to the provider as the same session, so its cache of the tools and instructions holds
+	briefs := map[string]bool{}
+	for _, req := range ownerRequests(r) {
+		if req.Session != "owner:"+task.ID {
+			t.Fatalf("session %q", req.Session)
+		}
+		briefs[req.Messages[0].Content[0].Text] = true
+	}
+	if len(briefs) < 2 {
+		t.Fatalf("woken %d times", len(briefs))
+	}
 	op, err := r.e.TaskOperation(task.ID, first.Operation.ID)
 	if err != nil || op.Status != model.OpApplied {
 		t.Fatalf("%+v %v", op, err)

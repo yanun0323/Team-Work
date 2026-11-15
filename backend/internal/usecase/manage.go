@@ -29,6 +29,9 @@ const (
 	toolListProviders  = "list_providers"
 	toolSaveProvider   = "save_provider"
 	toolSaveEmployees  = "save_employees"
+	// toolSaveSetting is the one tool that writes blueprints, flows, providers and employees; the four above are
+	// its targets' old names, still found in conversations saved before it.
+	toolSaveSetting = "save_setting"
 
 	optionApprove = "approve"
 	optionReject  = "reject"
@@ -42,9 +45,10 @@ const (
 	maxTaskDepth = 3
 )
 
-// isChangeTool says whether a tool can stop to have the user agree to what it writes.
+// isChangeTool says whether a tool can stop to have the user agree to what it writes: save_setting, or one of the
+// tools it replaced, whose calls a change saved before it may still wait on.
 func isChangeTool(name string) bool {
-	return name == toolSaveBlueprint || name == toolSaveWorkflow || name == toolSaveProvider || name == toolSaveEmployees
+	return name == toolSaveSetting || name == toolSaveBlueprint || name == toolSaveWorkflow || name == toolSaveProvider || name == toolSaveEmployees
 }
 
 // manager is who is using the tools: an employee on a task, or in a chat.
@@ -130,13 +134,61 @@ func (e *Engine) manageTools(m manager, allowed []enum.Tool, writing bool) []ada
 		out = append(out,
 			funcTool{model.ToolSpec{Name: toolCreateTask, Description: createTaskDescription, Parameters: createTaskSchema(m.teamID == "")}, e.createTaskTool(m)},
 			funcTool{model.ToolSpec{Name: toolUpdateTask, Description: "Change a task's title, description, who works its steps, or its owner. It takes effect at once: work under way keeps what it was told, later steps see the change.", Parameters: json.RawMessage(updateTaskSchema)}, e.updateTaskTool(m)},
-			funcTool{model.ToolSpec{Name: toolSaveBlueprint, Description: saveBlueprintDescription, Parameters: json.RawMessage(saveBlueprintSchema)}, e.saveBlueprintTool(m)},
-			funcTool{model.ToolSpec{Name: toolSaveWorkflow, Description: saveWorkflowDescription, Parameters: json.RawMessage(saveWorkflowSchema)}, e.saveWorkflowTool(m)},
-			funcTool{model.ToolSpec{Name: toolSaveProvider, Description: saveProviderDescription, Parameters: json.RawMessage(saveProviderSchema)}, e.saveProviderTool(m)},
-			funcTool{model.ToolSpec{Name: toolSaveEmployees, Description: saveEmployeesDescription, Parameters: saveEmployeesSchema(m)}, e.saveEmployeesTool(m)},
+			funcTool{model.ToolSpec{Name: toolSaveSetting, Description: saveSettingDescription, Parameters: json.RawMessage(saveSettingSchema)}, e.saveSettingTool(m)},
 		)
 	}
 	return out
+}
+
+// ---------- settings ----------
+
+// saveSettingDescription keeps what is offered on every call short: each target's rules and fields come with action
+// schema, so the tools offered never change and a provider's cache of them holds.
+const saveSettingDescription = "Create or change a blueprint, task flow, model provider or employees. Call with action \"schema\" first for the target's rules and the fields data takes; " +
+	"then call with action \"save\" and those fields in data. Creating takes effect at once; changing waits for the user to agree."
+
+const saveSettingSchema = `{"type":"object","properties":{"target":{"type":"string","enum":["blueprint","workflow","provider","employees"]},` +
+	`"action":{"type":"string","enum":["schema","save"],"description":"schema: the target's rules and fields, changing nothing; save: write data"},` +
+	`"data":{"type":"object","description":"With save: the fields schema gives for the target"}},"required":["target","action"]}`
+
+// settingTarget is what save_setting does for one target: its rules, its fields, and the save itself.
+type settingTarget struct {
+	rules  string
+	fields json.RawMessage
+	save   func(context.Context, string, json.RawMessage) model.ToolResult
+}
+
+func (e *Engine) saveSettingTool(m manager) func(context.Context, string, json.RawMessage) model.ToolResult {
+	targets := map[string]settingTarget{
+		changeBlueprint: {saveBlueprintDescription, json.RawMessage(saveBlueprintSchema), e.saveBlueprintTool(m)},
+		changeWorkflow:  {saveWorkflowDescription, json.RawMessage(saveWorkflowSchema), e.saveWorkflowTool(m)},
+		changeProvider:  {saveProviderDescription, json.RawMessage(saveProviderSchema), e.saveProviderTool(m)},
+		changeEmployees: {saveEmployeesDescription, saveEmployeesSchema(m), e.saveEmployeesTool(m)},
+	}
+	return func(ctx context.Context, cwd string, raw json.RawMessage) model.ToolResult {
+		var a struct {
+			Target string          `json:"target"`
+			Action string          `json:"action"`
+			Data   json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return toolError("invalid arguments: %v", err)
+		}
+		target, ok := targets[a.Target]
+		if !ok {
+			return toolError("target must be blueprint, workflow, provider or employees")
+		}
+		switch a.Action {
+		case "schema":
+			return model.ToolResult{Text: target.rules + "\n\nCall save_setting with target " + a.Target + ", action save and data, an object of these fields (JSON Schema):\n" + string(target.fields)}
+		case "save":
+			if data := strings.TrimSpace(string(a.Data)); !strings.HasPrefix(data, "{") {
+				return toolError("data is required with action save: an object of the fields action schema gives for %s", a.Target)
+			}
+			return target.save(ctx, cwd, a.Data)
+		}
+		return toolError("action must be schema or save")
+	}
 }
 
 // ---------- tasks ----------
@@ -145,7 +197,7 @@ const createTaskDescription = "Create a task, with no confirmation. It waits in 
 	taskBranchRule + " If the task needs changes not yet committed, tell the user to commit them before starting it. " +
 	"If steps have nobody, or no owner_id is given, this fails and lists what is missing; then ask the user with ask_user, and call again with what they chose in staff and owner_id. " +
 	"For a flow this task alone needs, give it in workflow instead of workflow_id: it is the task's own and is not added to the flow list, " +
-	"so do not save it with save_workflow first. Its steps and edges follow save_workflow's rules; its name is the title when left out."
+	"so do not save it with save_setting first. Its steps and edges follow the rules save_setting gives for target workflow; its name is the title when left out."
 
 const staffProperty = `"staff":{"type":"object","description":"Step id to the ids of the employees who work it","additionalProperties":{"type":"array","items":{"type":"string"}}}`
 
@@ -574,7 +626,7 @@ func (e *Engine) saveBlueprintTool(m manager) func(context.Context, string, json
 				}
 				b.ID = e.uid("bp")
 				e.w.Blueprints[b.ID] = b
-				e.pinMadeBy(m, toolSaveBlueprint, changeBlueprint, b.ID)
+				e.pinMadeBy(m, toolSaveSetting, changeBlueprint, b.ID)
 				made = clone(b)
 				return nil
 			})
@@ -738,7 +790,7 @@ func (e *Engine) saveProviderTool(m manager) func(context.Context, string, json.
 				return toolError("%s", safeText(err))
 			}
 			_ = e.do(func() error {
-				e.pinMadeBy(m, toolSaveProvider, changeProvider, made.ID)
+				e.pinMadeBy(m, toolSaveSetting, changeProvider, made.ID)
 				return nil
 			})
 			text := fmt.Sprintf("added provider %s, version %s, with models: %s", made.ID, versionOf(made), strings.Join(made.Models, ", "))
@@ -844,7 +896,7 @@ const saveWorkflowDescription = "Without id, create a task flow; it can be used 
 
 const saveWorkflowSchema = `{"type":"object","properties":{"id":{"type":"string"},"version":{"type":"string"},` + flowProperties + `}}`
 
-// flowProperties are a flow's name, steps and edges, as save_workflow and create_task take them.
+// flowProperties are a flow's name, steps and edges, as save_setting and create_task take them.
 const flowProperties = `"name":{"type":"string"},` +
 	`"nodes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"kind":{"type":"string","enum":["work","talk"]},"name":{"type":"string"},"prompt":{"type":"string"},` +
 	`"replica_ids":{"type":"array","items":{"type":"string"},"description":"Usually left out: each task decides who works its steps. One on a work step; a talk step may have several, who hold it as a meeting, the first chairing"},` +
@@ -1002,7 +1054,7 @@ func (e *Engine) saveWorkflowTool(m manager) func(context.Context, string, json.
 				}
 				wf.ID = e.uid("wf")
 				e.w.Workflows[wf.ID] = wf
-				e.pinMadeBy(m, toolSaveWorkflow, changeWorkflow, wf.ID)
+				e.pinMadeBy(m, toolSaveSetting, changeWorkflow, wf.ID)
 				made = clone(wf)
 				return nil
 			})

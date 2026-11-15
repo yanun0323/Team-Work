@@ -35,7 +35,7 @@ func ids(notes []semantic.Note) []string {
 }
 
 func searchAs(e *Engine, teamID, replicaID, query string) model.ToolResult {
-	return e.searchMemoryTool(func() (string, *string) { return teamID, &replicaID })(context.Background(), "", []byte(`{"query":`+quote(query)+`}`))
+	return e.searchMemoryTool(func() (string, *string) { return teamID, &replicaID }).Run(context.Background(), "", []byte(`{"query":`+quote(query)+`}`))
 }
 
 func quote(s string) string { return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"` }
@@ -177,7 +177,7 @@ func TestSearchMemoryNeedsAQuery(t *testing.T) {
 	r := &ranker{pick: ids}
 	e.rankNotes = r.rank
 	for _, raw := range []string{`{"query":"  "}`, `{}`, `nope`} {
-		got := e.searchMemoryTool(func() (string, *string) { id := "ada"; return "A", &id })(context.Background(), "", []byte(raw))
+		got := e.searchMemoryTool(func() (string, *string) { id := "ada"; return "A", &id }).Run(context.Background(), "", []byte(raw))
 		if !got.IsError || got.Text != "query is required" || r.got != nil {
 			t.Fatalf("%s: %+v", raw, got)
 		}

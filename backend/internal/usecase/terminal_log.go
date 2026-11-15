@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -314,17 +315,17 @@ var readAirportTerminalSpec = model.ToolSpec{Name: readTerminalSpec.Name, Descri
 	Parameters: readTerminalSpec.Parameters}
 
 // readTerminalTool reads the company's terminal, or the airport's (teamID ""), for an employee who may read its files.
-func (e *Engine) readTerminalTool(teamID string) funcTool {
+func (e *Engine) readTerminalTool(teamID string) dataTool {
 	spec := readTerminalSpec
 	if teamID == "" {
 		spec = readAirportTerminalSpec
 	}
-	return funcTool{spec, func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+	return jsonTool(spec.Name, spec.Description, string(spec.Parameters), func(_ context.Context, _ string, raw json.RawMessage) (textData, error) {
 		var a struct {
 			Lines int `json:"lines"`
 		}
 		if len(raw) > 0 && json.Unmarshal(raw, &a) != nil {
-			return toolError("lines must be a number")
+			return textData{}, errors.New("lines must be a number")
 		}
 		n := readTerminalLines
 		if a.Lines > 0 {
@@ -332,7 +333,7 @@ func (e *Engine) readTerminalTool(teamID string) funcTool {
 		}
 		log := e.terminalLog(teamID)
 		if log == nil {
-			return model.ToolResult{Text: "The terminal has not been opened since the app started."}
+			return textData{Text: "The terminal has not been opened since the app started."}, nil
 		}
 		lines, ended := log.Tail(n)
 		text := strings.Join(lines, "\n")
@@ -348,6 +349,6 @@ func (e *Engine) readTerminalTool(teamID string) funcTool {
 		if ended {
 			text += "\n[the shell has ended]"
 		}
-		return model.ToolResult{Text: text}
-	}}
+		return textData{Text: text}, nil
+	}, textData.result)
 }

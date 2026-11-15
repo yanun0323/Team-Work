@@ -715,3 +715,31 @@ func TestAStalledReplyIsGivenUp(t *testing.T) {
 		t.Fatal("still waiting")
 	}
 }
+
+// A task's owner is woken with one new brief each time, under the same session: every wake sends the same
+// prompt_cache_key, so the backend's cache of the tools and instructions holds, and none carries the last wake's turn.
+func TestWakesOfOneSessionShareTheCacheKeyNotTheTurn(t *testing.T) {
+	f := &fake{stream: stream, turnStates: []string{"ts-1", "", "ts-2"}}
+	c, secrets := setup(t, f)
+	signIn(t, c, secrets, time.Now().Add(time.Hour).UnixMilli())
+	brief := func(text string) model.Message {
+		return model.Message{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: text}}}
+	}
+	called := model.Message{Role: enum.RoleAssistant, Content: []model.Block{{Type: enum.BlockToolCall, ID: "c1", Name: "t", Args: json.RawMessage(`{}`)}}}
+	result := model.Message{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockToolResult, ID: "c1", Text: "done"}}}
+	for _, conv := range [][]model.Message{{brief("wake 1")}, {brief("wake 1"), called, result}, {brief("wake 2")}} {
+		if _, err := c.Complete(context.Background(), model.ModelRequest{Model: "gpt-a", Session: "owner:t1", Messages: conv}, func(string) {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var states []string
+	for i, h := range f.headers {
+		states = append(states, h.Get("x-codex-turn-state"))
+		if !strings.Contains(f.bodies[i], `"prompt_cache_key":"owner:t1"`) {
+			t.Fatalf("request %d: %s", i, f.bodies[i])
+		}
+	}
+	if want := []string{"", "ts-1", ""}; !slices.Equal(states, want) {
+		t.Fatalf("sent %q, want %q", states, want)
+	}
+}

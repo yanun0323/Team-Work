@@ -135,3 +135,48 @@ func TestStructuredReadDeclaresItsKeys(t *testing.T) {
 		t.Fatal("not the same twice")
 	}
 }
+
+// exec searches and fetches through Structured: the same results as the direct calls, the same refusals, and the
+// fields the declared type names.
+func TestStructuredWebToolsMatchTheirDirectCalls(t *testing.T) {
+	ctx := context.Background()
+	body := `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"Title: A\nURL: https://a.test"}]}}`
+	s, _ := exaServer(t, answer("application/json", body))
+	raw := json.RawMessage(`{"query":"a"}`)
+	direct := s.Run(ctx, "", raw)
+	v, err := s.Structured(ctx, "", raw)
+	if err != nil || direct.IsError || v.(SearchText).Text != direct.Text || !strings.Contains(s.Returns(), "text: string") {
+		t.Fatalf("%+v %v %q", v, err, direct.Text)
+	}
+	if _, err := s.Structured(ctx, "", json.RawMessage(`{"query":""}`)); err == nil {
+		t.Fatal("an empty query was searched")
+	}
+
+	f := Fetch{Client: page(200, "text/html", `<main><p>One</p><p>Two</p></main>`)}
+	raw = json.RawMessage(`{"url":"https://example.org","limit":1}`)
+	v, err = f.Structured(ctx, "", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(v)
+	var direct2, data map[string]any
+	_ = json.Unmarshal([]byte(f.Run(ctx, "", raw).Text), &direct2)
+	_ = json.Unmarshal(out, &data)
+	delete(direct2, "fetched_at")
+	delete(data, "fetched_at")
+	if !reflect.DeepEqual(direct2, data) || data["next_offset"] != float64(2) || data["content"] != "[1] One" {
+		t.Fatalf("direct %v, data %v", direct2, data)
+	}
+	for k := range data {
+		if !strings.Contains(f.Returns(), k+":") && !strings.Contains(f.Returns(), k+"?:") {
+			t.Fatalf("%s returned but not declared in %s", k, f.Returns())
+		}
+	}
+	// the private network stays out of reach from a script too
+	if _, err := (Fetch{}).Structured(ctx, "", json.RawMessage(`{"url":"http://localhost/x"}`)); err == nil || !strings.Contains(err.Error(), "private") {
+		t.Fatalf("%v", err)
+	}
+	if _, err := (Fetch{}).Structured(ctx, "", json.RawMessage(`{"url":"http://127.0.0.1/x"}`)); err == nil {
+		t.Fatal("fetched a loopback address")
+	}
+}

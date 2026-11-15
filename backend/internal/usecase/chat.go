@@ -552,6 +552,7 @@ func (e *Engine) SkipChatQuestion(id string) error {
 		e.w.Conversations[c.ID] = answerPending(e.w.Conversations[c.ID], chatAskDismissed, "")
 		c.Question = nil
 		e.dirty[c.ID] = true
+		e.wakeForJobs(c.ID) // background commands that ended while it waited
 		return nil
 	})
 }
@@ -569,6 +570,7 @@ func (e *Engine) DeleteChat(id string) error {
 
 func (e *Engine) dropChat(id string) {
 	e.stopRun(id)
+	e.jobs.End(chatJobScope(id))
 	e.removeOutputs(id)
 	delete(e.w.Chats, id)
 	delete(e.w.Conversations, id)
@@ -1001,7 +1003,7 @@ func (e *Engine) chatMemoryTools(in chatRun) []adapter.Tool {
 		return model.ToolResult{Text: "forgotten"}
 	}
 	search := e.searchMemoryTool(func() (string, *string) { return in.team, &in.speaker })
-	return []adapter.Tool{funcTool{rememberSpec, remember}, funcTool{forgetSpec, forget}, funcTool{searchMemorySpec, search}}
+	return []adapter.Tool{funcTool{rememberSpec, remember}, funcTool{forgetSpec, forget}, search}
 }
 
 func (e *Engine) runChat(ctx context.Context, in chatRun) {
@@ -1030,6 +1032,10 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 					if err := e.sendQueued(c); err != nil {
 						e.log.Warn().Err(err).Str("chat", in.id).Msg("send queued message")
 					}
+				}
+				// a background command that ended while the reply was being written, after its last tools
+				if !stopped {
+					e.wakeForJobs(in.id)
 				}
 			}
 			e.settle()
@@ -1091,7 +1097,8 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		}
 	}
 	read := append(append(roots, e.attachmentRoot(in.id)), in.spec.read...)
-	list := tools.For(in.spec.allowed, tools.Env{Read: read, Output: e.outputRoot(in.id), Search: e.search, Semantic: e.semantic, Task: in.id, Replica: replicaOf(in.r)})
+	list := tools.For(in.spec.allowed, tools.Env{Read: read, Output: e.outputRoot(in.id), Search: e.search, Semantic: e.semantic, Task: in.id, Replica: replicaOf(in.r),
+		Jobs: e.jobs, JobScope: chatJobScope(in.id)})
 	list = append(list, e.chatAskUser(in))
 	// a company's chats read its terminal, the airport's (team "") the airport's
 	if slices.Contains(in.spec.allowed, enum.ToolReadFile) || slices.Contains(in.spec.allowed, enum.ToolRunCommand) {
@@ -1170,10 +1177,15 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 				conv := e.w.Conversations[c.ID]
 				conv[len(conv)-1], _ = withSkills(conv[len(conv)-1], q.Text, known)
 			}
+			e.chatJobsHeard(c, in.speaker)
 			heard = slices.Clone(e.w.Conversations[c.ID][before:])
 		})
 		return heard
 	}
+	// what ended while the chat waited on the user, or between rounds, comes with what starts this reply
+	e.applyChat(in, func(c *model.Chat) {
+		t.req.Messages = append(t.req.Messages, e.chatJobsHeard(c, in.speaker)...)
+	})
 	if in.context >= in.compactAt {
 		if shorter, ok := t.compact(ctx); ok {
 			t.req.Messages = shorter

@@ -579,7 +579,9 @@ func (s *Service) Forget(dir string) {
 }
 
 // Changed says a tool wrote path: its vectors stop being used at once and it is indexed again. source is
-// write_file, edit_file or run_command; for run_command the path is the working directory, which is scanned.
+// write_file, edit_file or run_command; for run_command the path is the working directory, which is scanned in the
+// background, one scan of a folder at a time with at most one more waiting. A search scans first anyway, so it never
+// reads what a scan still waits to see.
 func (s *Service) Changed(path, source string) {
 	if s == nil || !s.Active() {
 		return
@@ -608,11 +610,12 @@ func (s *Service) Changed(path, source string) {
 		hit.mu.Unlock()
 		s.log.info("semantic_file_change").Str("root", hit.dir).Str("source", source).Int("files", 1).Int("pending", pending).Send()
 	} else {
-		go func() {
+		hit.background(func() {
 			if _, err := hit.scan(hit.ctx, s.log, source); err != nil {
 				s.log.warn("semantic_error").Str("stage", "scan").Str("root", hit.dir).Str("reason", safeReason(err)).Str("next", "skip").Send()
 			}
-		}()
+			s.poke()
+		})
 	}
 	s.poke()
 }

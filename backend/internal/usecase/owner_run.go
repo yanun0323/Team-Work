@@ -594,12 +594,12 @@ func (e *Engine) ownerTurn(in *ownerRun) *turn {
 	key := ownerKey(in.taskID)
 	list := tools.For(in.spec.allowed, tools.Env{Read: []string{e.attachmentRoot(in.taskID)}, Search: e.search, Semantic: e.semantic, Task: in.taskID, Replica: in.ownerID})
 	list = append(list, e.ownerTools(in)...)
-	list = append(list, funcTool{searchMemorySpec, e.searchMemoryTool(func() (string, *string) {
+	list = append(list, e.searchMemoryTool(func() (string, *string) {
 		if t := e.w.Tasks[in.taskID]; t != nil {
 			return t.TeamID, ptr(in.ownerID)
 		}
 		return "", ptr(in.ownerID)
-	})})
+	}))
 	specs := make([]model.ToolSpec, len(list))
 	byName := make(map[string]adapter.Tool, len(list))
 	for i, tool := range list {
@@ -623,8 +623,10 @@ func (e *Engine) ownerTurn(in *ownerRun) *turn {
 	}
 	tr := &turn{
 		provider: in.spec.provider,
-		req:      model.ModelRequest{Cwd: in.dir, Session: in.wake, Model: in.spec.model, Effort: in.spec.effort, Messages: []model.Message{in.message}, Tools: specs},
-		tools:    byName, cwd: in.dir,
+		// one session for every wake, not one each: the provider's cache of the tools and instructions, the same from
+		// wake to wake, holds across them (a prompt_cache_key for OpenAI); in.wake still tells the wakes' events apart
+		req:   model.ModelRequest{Cwd: in.dir, Session: key, Model: in.spec.model, Effort: in.spec.effort, Messages: []model.Message{in.message}, Tools: specs},
+		tools: byName, cwd: in.dir,
 		onStart: func() { e.restartLive(key, in.r) },
 		onText:  func(text string) { e.addLive(key, in.r, text) },
 		onReply: func(reply model.ModelReply) bool {

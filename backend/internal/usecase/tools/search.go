@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/yanun0323/Team-Work/internal/codemode"
 	"github.com/yanun0323/Team-Work/internal/model"
 )
 
@@ -63,6 +65,22 @@ func (s *Search) Run(ctx context.Context, _ string, raw json.RawMessage) model.T
 	}
 	return model.ToolResult{Text: text}
 }
+
+// SearchText is what web_search found, as exec reads it.
+type SearchText struct {
+	Text string `json:"text"`
+}
+
+// Structured searches as Run does, through the same queue and cooldown, as data for exec.
+func (s *Search) Structured(ctx context.Context, _ string, raw json.RawMessage) (any, error) {
+	text, err := s.search(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+	return SearchText{Text: text}, nil
+}
+
+func (*Search) Returns() string { return codemode.TypeOf(reflect.TypeFor[SearchText]()) }
 
 func (s *Search) search(ctx context.Context, raw json.RawMessage) (string, error) {
 	var input struct {

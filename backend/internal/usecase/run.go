@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -554,8 +555,10 @@ func (e *Engine) launch(t *model.Task, s *model.SubTask, spec agentSpec, replica
 			session = s.ID + "-" + replicaID
 		}
 	}
+	e.jobScopes++
 	in := subRun{r: r, subID: s.ID, taskID: t.ID, spec: spec, conv: conv, talk: talk, speaker: speaker, session: session, gen: s.RunGeneration,
-		folder: e.w.Teams[t.TeamID].Folder, dir: e.worktreeOf(t), branch: t.Branch, target: e.w.Teams[t.TeamID].TargetBranch}
+		folder: e.w.Teams[t.TeamID].Folder, dir: e.worktreeOf(t), branch: t.Branch, target: e.w.Teams[t.TeamID].TargetBranch,
+		jobs: subJobs + s.ID + "#" + strconv.Itoa(e.jobScopes)}
 	e.wg.Add(1)
 	go e.runSub(ctx, in)
 }
@@ -597,6 +600,8 @@ type subRun struct {
 	folder, dir, branch, target string
 	// gen is which run of the step this is, in an owner-led task.
 	gen int
+	// jobs is the scope of the run's background commands, its own: a retry's are not the run's before it.
+	jobs string
 }
 
 // apply changes the world for a run, unless the run was stopped or replaced meanwhile.
@@ -618,6 +623,8 @@ func (e *Engine) apply(in subRun, fn func(t *model.Task, s *model.SubTask)) bool
 
 func (e *Engine) runSub(ctx context.Context, in subRun) {
 	defer e.wg.Done()
+	// a step's background commands, with all they started, do not outlive its run: done, retried or stopped
+	defer e.jobs.End(in.jobs)
 	defer in.r.cancel()
 	defer func() {
 		e.mu.Lock()
@@ -733,8 +740,17 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 			e.apply(in, func(tk *model.Task, s *model.SubTask) { e.talkSays(tk, s, in.speaker, res.Text) })
 			return
 		}
-		// what the owner said meanwhile comes before being told to hand off, and may be why they go on
-		if heard := t.steer(); len(heard) > 0 {
+		// what the owner said meanwhile comes before being told to hand off, and may be why they go on; so does how a
+		// background command ended, which they wait for while one runs rather than be told they stopped
+		heard := t.steer()
+		for len(heard) == 0 && len(e.jobs.Running(in.jobs)) > 0 {
+			if err := e.awaitJobs(ctx, in); err != nil {
+				stop(err)
+				return
+			}
+			heard = t.steer()
+		}
+		if len(heard) > 0 {
 			t.req.Messages = append(t.req.Messages, heard...)
 			nudges--
 			continue
@@ -783,7 +799,7 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 		allowed = slices.DeleteFunc(slices.Clone(allowed), func(x enum.Tool) bool { return x == enum.ToolWriteFile || x == enum.ToolRunCommand })
 	}
 	read := append(roots, e.attachmentRoot(in.taskID))
-	list := tools.For(allowed, tools.Env{Read: read, Output: e.outputRoot(in.taskID), Search: e.search, Semantic: e.semantic, Task: in.taskID, Replica: replicaOf(in.r)})
+	list := tools.For(allowed, tools.Env{Read: read, Output: e.outputRoot(in.taskID), Search: e.search, Semantic: e.semantic, Task: in.taskID, Replica: replicaOf(in.r), Jobs: e.jobs, JobScope: in.jobs})
 	if !in.talk {
 		list = append(list, imageTools(in.spec, read, nil)...)
 		list = append(list, e.agentTools(in)...)
@@ -829,6 +845,9 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 						heard = e.takeSteers(t, s)
 					}
 				})
+			}
+			if !in.talk {
+				heard = append(heard, e.stepJobsHeard(in)...)
 			}
 			return heard
 		},
@@ -926,22 +945,31 @@ func toolLine(call model.Block) string {
 	if call.Name == toolExec {
 		return execLine(call.Args)
 	}
+	if call.Name == toolSaveSetting {
+		// what it writes first, so cutting the line short keeps it
+		var a struct {
+			Target, Action string
+			Data           json.RawMessage
+		}
+		if json.Unmarshal(call.Args, &a) == nil {
+			line := fmt.Sprintf(`{"target":%q,"action":%q`, a.Target, a.Action)
+			if len(a.Data) > 0 {
+				line += `,"data":` + maskSecrets(a.Data)
+			}
+			return call.Name + " " + clip(line+"}", 200)
+		}
+	}
 	return call.Name + " " + clip(maskSecrets(call.Args), 200)
 }
 
+// maskSecrets is a tool call's arguments with every secret down to its last 4 characters, however deep in objects
+// and arrays it is, such as save_setting's data.api_key.
 func maskSecrets(raw []byte) string {
-	var args map[string]any
+	var args any
 	if json.Unmarshal(raw, &args) != nil {
 		return string(raw)
 	}
-	masked := false
-	for k, v := range args {
-		if s, ok := v.(string); ok && secretField(k) {
-			args[k] = hideSecret(s)
-			masked = true
-		}
-	}
-	if !masked {
+	if !maskIn(args) {
 		return string(raw)
 	}
 	out, err := json.Marshal(args)
@@ -949,6 +977,54 @@ func maskSecrets(raw []byte) string {
 		return "{}"
 	}
 	return string(out)
+}
+
+// maskIn hides the secrets in v in place, and says whether there were any. A secret field holding an object or array
+// has every string in it hidden.
+func maskIn(v any) bool {
+	masked := false
+	switch x := v.(type) {
+	case map[string]any:
+		for k, item := range x {
+			if s, ok := item.(string); ok && secretField(k) {
+				x[k] = hideSecret(s)
+				masked = true
+			} else if secretField(k) {
+				masked = hideAll(item) || masked
+			} else {
+				masked = maskIn(item) || masked
+			}
+		}
+	case []any:
+		for _, item := range x {
+			masked = maskIn(item) || masked
+		}
+	}
+	return masked
+}
+
+// hideAll hides every string in v, in place.
+func hideAll(v any) bool {
+	hid := false
+	switch x := v.(type) {
+	case map[string]any:
+		for k, item := range x {
+			if s, ok := item.(string); ok {
+				x[k], hid = hideSecret(s), true
+			} else {
+				hid = hideAll(item) || hid
+			}
+		}
+	case []any:
+		for i, item := range x {
+			if s, ok := item.(string); ok {
+				x[i], hid = hideSecret(s), true
+			} else {
+				hid = hideAll(item) || hid
+			}
+		}
+	}
+	return hid
 }
 
 func secretField(name string) bool {
@@ -1055,13 +1131,13 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 			Parameters: json.RawMessage(askUserSchema)}, e.askUser(in)},
 		funcTool{rememberSpec, e.rememberTool(in)},
 		funcTool{forgetSpec, e.forgetTool(in)},
-		funcTool{searchMemorySpec, e.searchMemoryTool(func() (string, *string) {
+		e.searchMemoryTool(func() (string, *string) {
 			s, t := e.w.SubTasks[in.subID], e.w.Tasks[in.taskID]
 			if s == nil || t == nil {
 				return "", nil
 			}
 			return t.TeamID, s.ReplicaID
-		})},
+		}),
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -1164,16 +1240,16 @@ const memoryQueryBytes = 4096
 // searchMemoryTool searches the notes of the company and employee where names, in a task step and in a chat alike.
 // Under the lock it copies only those notes, as the lines it hands out; the model ranks that copy with the lock let
 // go, and when it cannot, the search is by keyword alone.
-func (e *Engine) searchMemoryTool(where func() (string, *string)) func(context.Context, string, json.RawMessage) model.ToolResult {
-	return func(ctx context.Context, _ string, raw json.RawMessage) model.ToolResult {
+func (e *Engine) searchMemoryTool(where func() (string, *string)) dataTool {
+	return jsonTool(searchMemorySpec.Name, searchMemorySpec.Description, string(searchMemorySpec.Parameters), func(ctx context.Context, _ string, raw json.RawMessage) (textData, error) {
 		var a struct {
 			Query string `json:"query"`
 		}
 		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Query) == "" {
-			return toolError("query is required")
+			return textData{}, errors.New("query is required")
 		}
 		if len(a.Query) > memoryQueryBytes {
-			return toolError("query is longer than %d bytes; shorten it", memoryQueryBytes)
+			return textData{}, fmt.Errorf("query is longer than %d bytes; shorten it", memoryQueryBytes)
 		}
 		e.mu.Lock()
 		teamID, replicaID := where()
@@ -1207,9 +1283,16 @@ func (e *Engine) searchMemoryTool(where func() (string, *string)) func(context.C
 				vector = ranked
 			}
 		}
-		return model.ToolResult{Text: searchMemory(notes, a.Query, vector, func(m model.MemoryEntry) string { return lines[m.ID] })}
-	}
+		return textData{Text: searchMemory(notes, a.Query, vector, func(m model.MemoryEntry) string { return lines[m.ID] })}, nil
+	}, textData.result)
 }
+
+// textData is what a tool that answers in text finds, as exec reads it: the text a direct call shows.
+type textData struct {
+	Text string `json:"text"`
+}
+
+func (d textData) result() model.ToolResult { return model.ToolResult{Text: d.Text} }
 
 func toolError(format string, args ...any) model.ToolResult {
 	return model.ToolResult{Text: fmt.Sprintf(format, args...), IsError: true}
@@ -1233,6 +1316,9 @@ func (e *Engine) submitHandoff(in subRun) func(context.Context, string, json.Raw
 		}
 		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Goal) == "" || strings.TrimSpace(a.Headline) == "" || strings.TrimSpace(a.Commit) == "" {
 			return toolError("goal, headline and commit_message are required")
+		}
+		if refused := e.jobsRunning(in); refused != nil {
+			return *refused
 		}
 		// checked before committing, so a wrong id costs nothing
 		badNext := false
@@ -1271,6 +1357,17 @@ func (e *Engine) submitHandoff(in subRun) func(context.Context, string, json.Raw
 		})
 		return model.ToolResult{Stop: true}
 	}
+}
+
+// jobsRunning refuses to end a step while its background commands still run: what they write half done would be
+// committed with it.
+func (e *Engine) jobsRunning(in subRun) *model.ToolResult {
+	ids := e.jobs.Running(in.jobs)
+	if len(ids) == 0 {
+		return nil
+	}
+	res := toolError("background commands are still running: %s. Wait for them (run_command with job_id and action wait) or stop them (action kill) first", strings.Join(ids, ", "))
+	return &res
 }
 
 func (e *Engine) finish(_ *model.Task, s *model.SubTask, commit string) {
@@ -1363,6 +1460,9 @@ func (e *Engine) sendBackTool(in subRun) func(context.Context, string, json.RawM
 		}
 		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Reason) == "" {
 			return toolError("reason is required")
+		}
+		if refused := e.jobsRunning(in); refused != nil {
+			return *refused
 		}
 		message := strings.TrimSpace(a.Commit)
 		if message == "" {

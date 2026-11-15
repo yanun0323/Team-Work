@@ -73,11 +73,16 @@ func (f *Failure) Error() string { return f.Reason + ": " + f.Message }
 // Result is how a run went: what it wrote, and why it failed when it did. Output is kept on failure too, cut at the
 // limit when the output itself was too long.
 type Result struct {
-	Output   string
-	Err      *Failure
-	Calls    map[string]int
+	Output string
+	Err    *Failure
+	Calls  map[string]int
+	// Batches is how many times the script called parallel; its calls count in Calls too.
+	Batches  int
 	Duration time.Duration
 }
+
+// maxParallel is how many calls of one parallel batch run at the same time.
+const maxParallel = 8
 
 // file names the script in positions and stacks.
 const file = "exec.js"
@@ -91,6 +96,7 @@ func Run(ctx context.Context, code string, fns []Func, lim Limits, h Hooks) Resu
 	started := time.Now()
 	s := &sandbox{lim: lim, h: h, calls: map[string]int{}}
 	res := s.run(ctx, code, fns)
+	res.Batches = s.batches
 	if res.Err != nil {
 		res.Err.Message = Fit(res.Err.Message, maxMessageLines, maxMessageBytes)
 	}
@@ -121,8 +127,11 @@ type sandbox struct {
 	parent context.Context
 	calls  map[string]int
 	total  int
-	out    strings.Builder
-	lines  int
+	// batches counts parallel calls; byName finds a function for them.
+	batches int
+	byName  map[string]Func
+	out     strings.Builder
+	lines   int
 	// mu guards failed, which the watcher may set while the script runs.
 	mu     sync.Mutex
 	failed *Failure
@@ -247,7 +256,9 @@ func (s *sandbox) setup(fns []Func) error {
 	s.errorType, _ = goja.AssertConstructor(vm.Get("Error"))
 	tools := vm.NewObject()
 	list := make([]any, 0, len(fns))
+	s.byName = make(map[string]Func, len(fns))
 	for _, fn := range fns {
+		s.byName[fn.Name] = fn
 		if err := tools.Set(fn.Name, s.tool(fn)); err != nil {
 			return err
 		}
@@ -284,7 +295,7 @@ func (s *sandbox) setup(fns []Func) error {
 			return err
 		}
 	}
-	for name, v := range map[string]any{"tools": tools, "ALL_TOOLS": all, "console": console, "text": text} {
+	for name, v := range map[string]any{"tools": tools, "ALL_TOOLS": all, "console": console, "text": text, "parallel": s.parallel} {
 		if err := vm.Set(name, v); err != nil {
 			return err
 		}
@@ -312,22 +323,9 @@ func (s *sandbox) tool(fn Func) func(goja.FunctionCall) goja.Value {
 			}
 			args = json.RawMessage(raw)
 		}
-		if s.total >= s.lim.MaxCalls {
-			s.fail(&Failure{Reason: ReasonCallLimit, Message: fmt.Sprintf("the script called tools more than %d times", s.lim.MaxCalls)})
+		if !s.admit(fn.Name, 1) {
 			return goja.Undefined()
 		}
-		if s.h.BeforeCall != nil {
-			if err := s.h.BeforeCall(fn.Name); err != nil {
-				var f *Failure
-				if !errors.As(err, &f) {
-					f = &Failure{Reason: "refused", Message: err.Error()}
-				}
-				s.fail(f)
-				return goja.Undefined()
-			}
-		}
-		s.total++
-		s.calls[fn.Name]++
 		v, err := fn.Call(s.ctx, args)
 		if s.stopped() {
 			return goja.Undefined()
@@ -345,6 +343,152 @@ func (s *sandbox) tool(fn Func) func(goja.FunctionCall) goja.Value {
 		}
 		return out
 	}
+}
+
+// admit counts n calls to name, the next of a batch each, failing the script when that passes the call limit or the
+// host refuses one; false then, and none of them runs. It runs on the interpreter's goroutine only.
+func (s *sandbox) admit(name string, n int) bool {
+	if s.total+n > s.lim.MaxCalls {
+		s.fail(&Failure{Reason: ReasonCallLimit, Message: fmt.Sprintf("the script called tools more than %d times", s.lim.MaxCalls)})
+		return false
+	}
+	if s.h.BeforeCall != nil {
+		for range n {
+			if err := s.h.BeforeCall(name); err != nil {
+				var f *Failure
+				if !errors.As(err, &f) {
+					f = &Failure{Reason: "refused", Message: err.Error()}
+				}
+				s.fail(f)
+				return false
+			}
+		}
+	}
+	s.total += n
+	s.calls[name] += n
+	return true
+}
+
+// pending is one call of a parallel batch: what it calls, and once it ran, what came back.
+type pending struct {
+	fn    Func
+	args  json.RawMessage
+	value any
+	err   error
+}
+
+// parallel runs a batch of calls at the same time and returns, in the order given, {ok: true, value} for each that
+// succeeded and {ok: false, error} for each that failed, so one failure does not lose the others. Every call is counted
+// and allowed before any runs; the interpreter is touched on its own goroutine only, the functions alone run on others.
+func (s *sandbox) parallel(call goja.FunctionCall) goja.Value {
+	if s.stopped() {
+		return goja.Undefined()
+	}
+	list, ok := call.Argument(0).(*goja.Object)
+	if !ok || list.ClassName() != "Array" {
+		panic(s.vm.NewTypeError("parallel takes an array of {tool, args}"))
+	}
+	var batch []*pending
+	for i := range int(list.Get("length").ToInteger()) {
+		item, ok := list.Get(fmt.Sprint(i)).(*goja.Object)
+		if !ok || item.ClassName() == "Array" || item.ClassName() == "Function" {
+			panic(s.vm.NewTypeError("parallel: item %d is not {tool, args}", i))
+		}
+		name := ""
+		if v := item.Get("tool"); v != nil {
+			name, _ = v.Export().(string)
+		}
+		fn, known := s.byName[name]
+		if !known {
+			panic(s.vm.NewTypeError("parallel: item %d calls %q, which is not one of the tools", i, name))
+		}
+		args := json.RawMessage("{}")
+		if a := item.Get("args"); a != nil && !goja.IsUndefined(a) && !goja.IsNull(a) {
+			if o, ok := a.(*goja.Object); !ok || o.ClassName() == "Array" || o.ClassName() == "Function" {
+				panic(s.vm.NewTypeError("parallel: item %d takes one object of arguments", i))
+			}
+			raw, err := s.stringify(a)
+			if errors.Is(err, errNoJSON) {
+				panic(s.vm.NewTypeError("parallel: item %d takes arguments JSON can write", i))
+			}
+			if err != nil {
+				panic(s.thrown(err))
+			}
+			args = json.RawMessage(raw)
+		}
+		batch = append(batch, &pending{fn: fn, args: args})
+	}
+	s.batches++
+	if s.total+len(batch) > s.lim.MaxCalls {
+		s.fail(&Failure{Reason: ReasonCallLimit, Message: fmt.Sprintf("the script called tools more than %d times", s.lim.MaxCalls)})
+		return goja.Undefined()
+	}
+	for _, p := range batch {
+		if !s.admit(p.fn.Name, 1) {
+			return goja.Undefined()
+		}
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var wg sync.WaitGroup
+		slots := make(chan struct{}, maxParallel)
+		for _, p := range batch {
+			wg.Add(1)
+			slots <- struct{}{}
+			go func() {
+				defer wg.Done()
+				defer func() { <-slots }()
+				if s.ctx.Err() != nil {
+					p.err = s.ctx.Err()
+					return
+				}
+				p.value, p.err = p.fn.Call(s.ctx, p.args)
+			}()
+		}
+		wg.Wait()
+	}()
+	// A function that does not heed its context is not waited for once the run is over; what it hands back then is
+	// never read.
+	select {
+	case <-done:
+	case <-s.ctx.Done():
+		s.ended()
+		return goja.Undefined()
+	}
+	if s.stopped() {
+		return goja.Undefined()
+	}
+	var b strings.Builder
+	b.WriteByte('[')
+	for i, p := range batch {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		var raw []byte
+		err := p.err
+		if err == nil {
+			if raw, err = json.Marshal(p.value); err != nil {
+				err = fmt.Errorf("tools.%s returned what is not JSON", p.fn.Name)
+			}
+		}
+		if err != nil {
+			msg, _ := json.Marshal(err.Error())
+			b.WriteString(`{"ok":false,"error":`)
+			b.Write(msg)
+			b.WriteByte('}')
+			continue
+		}
+		b.WriteString(`{"ok":true,"value":`)
+		b.Write(raw)
+		b.WriteByte('}')
+	}
+	b.WriteByte(']')
+	out, err := s.jsonValue(goja.Undefined(), s.vm.ToValue(b.String()))
+	if err != nil {
+		panic(s.thrown(err))
+	}
+	return out
 }
 
 // newError is an Error made by Error as the script found it, so replacing Error changes nothing; it is what to throw.

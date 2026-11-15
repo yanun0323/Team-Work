@@ -107,13 +107,16 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 ## 安全
 
 - API 沒有登入。所以只聽本機，並檢查 `Host` 與 `Origin`，別的網站不能透過使用者的瀏覽器連進來。
-- API Key 和 ChatGPT Token 只存在 `data.db`（權限 `0600`）的 `secrets` 表，不會出現在任何回應或事件裡，API Key 對外只有最後 4 碼。工具紀錄（對話、任務和合併的工具列）裡，名稱含 `api_key`、`token`、`secret`、`password` 的參數只顯示最後 4 碼。例外是使用者在對話裡打給員工的 Key，它和其他訊息一樣留在紀錄裡；模型自己的對話歷史也保留完整參數。
+- API Key 和 ChatGPT Token 只存在 `data.db`（權限 `0600`）的 `secrets` 表，不會出現在任何回應或事件裡，API Key 對外只有最後 4 碼。工具紀錄（對話、任務和合併的工具列）裡，名稱含 `api_key`、`token`、`secret`、`password` 的參數只顯示最後 4 碼，不論在參數的哪一層（例如 `save_setting` 的 `data.api_key`、陣列裡的物件）；這種名稱下若是物件或陣列，裡面每個字串都只顯示最後 4 碼。例外是使用者在對話裡打給員工的 Key，它和其他訊息一樣留在紀錄裡；模型自己的對話歷史也保留完整參數。
 - `read_file`、`write_file`、`edit_file` 限制在任務的 work tree 內（技能資料夾可讀），符號連結也擋。有寫入檔案權限就同時有 `edit_file`（只替換檔案中一段唯一的文字，保留 BOM 和 CRLF）。`read_file` 依行讀取（一次最多 2000 行或 50KB，用 `offset`、`limit` 續讀），也能讀 PNG、JPEG、GIF、WebP 圖片（最大 3.75MB、2000 萬像素，壞掉的圖檔會被拒絕），圖片會交給模型看。
-- `run_command` 優先用 `bash`，輸出超過 2000 行或 50KB 時只回最後一段，完整輸出存到資料目錄的 `outputs/<task-or-chat-id>/` 並附上路徑，員工可用 `read_file` 讀取。
+- `run_command` 優先用 `bash`，輸出超過 2000 行或 50KB 時只回最後一段，完整輸出存到資料目錄的 `outputs/<task-or-chat-id>/` 並附上路徑，員工可用 `read_file` 讀取。語意搜尋開著時，改檔的指令結束後會在背景重新掃描該資料夾（`git ls-files`）；明確只讀的指令（`pwd`、`ls`、`cat`、`head`、`tail`、`wc`、`rg`、`grep`、`find`、`git status`、`git diff`、`git log`、`git show`、`git rev-parse` 等，用 `|` 或 `;` 串起來也算，但有重導向、`$`、反引號、萬用字元、`&&`、`||`、`&`、括號，或會寫檔、會執行其他程式的參數如 `git diff --output`、`rg --pre`、`find -delete`/`-exec` 時都不算）不觸發掃描。同一個資料夾的背景掃描一次只跑一個，掃描中又有變動時最多再補掃一次。搜尋前本來就會先掃描，所以略過不會搜出舊內容。
+- **背景指令**：`run_command` 帶 `background: true` 時立即回傳 `job_id`（如 `job-3`）並在背景執行（獨立的程序群組，輸出同樣寫進上面的檔案，`timeout` 秒數到了就停止，省略則不限時）。之後用 `job_id` 加 `action`：`status` 立刻回目前狀態和輸出尾端，`wait` 等它結束（帶 `timeout` 時最多等這麼久，沒結束就回「還在跑」、不停止它），`kill` 用 `SIGKILL` 停掉整個程序群組（含孫程序）。同一個任務步驟執行或同一個對話同時最多 8 個（`MaxJobs`），超過回錯誤並列出還在跑的 `job_id`；只能操作自己這次執行或這個對話的背景指令。結束狀態是 `exited`（附結束碼）、`timed_out`、`killed` 或 `failed`；結束後會照改檔指令的規則通知語意搜尋。
+  - **任務步驟**：背景指令屬於該步驟這一次執行。結束時，下一輪工具結果之後由 `steer` 把結果（`job_id`、狀態、結束碼、輸出尾端、完整輸出檔路徑）帶進對話，已用 `status`、`wait`、`kill` 拿到結果的不再重複。模型沒有呼叫工具、也還沒交接，但還有背景指令在跑時，不算「沒有交接就停下來」：等到有背景指令結束、負責人送來訊息，或步驟逾時／被停止。還有背景指令在跑時 `submit_handoff` 和 `send_back` 會被拒絕並列出 `job_id`，避免把寫到一半的產物提交進分支。步驟結束、交接、`ask_user` 暫停、重試或被停止時，這次執行的所有背景程序群組都會被終止。
+  - **對話**：背景指令屬於對話，員工回覆結束後仍繼續跑；刪除對話或伺服器關閉時終止。結束時若員工正在回覆，結果在下一輪工具結果後帶入；若對話閒置，先加一筆工具列（`From: "tool"`，內容如 `run_command {"job_id":"job-3","state":"exited","exit_code":0}`），再請最後發言的員工（機場對話是服務人員）回報結果。對話正等使用者回答 `ask_user` 或確認修改時只加工具列、不喚醒，員工在使用者回答後的那一輪一起讀到；略過問題時也會喚醒。被使用者停止的回覆不會因背景指令結束而自動再開始，結果留到下一輪。
 - `web_search` 使用 Exa 免金鑰的公開服務，有使用額度。所有員工共用一個佇列，一次只送一個請求；Exa 回報額度用完（HTTP 429 或免費額度提示）時，工具回傳 `rate_limited` 錯誤，並依 `Retry-After` 暫停，沒有給時暫停 30 秒；暫停期限存在 `search-cooldown.json`，重啟後沿用。每次嘗試、限流和被暫停擋下都會寫進伺服器 log，不記搜尋內容。有網路搜尋權限就同時有 `web_fetch`：把公開網頁轉成編號段落（一次最多 100 段，用 `offset`、`limit` 續讀），只支援 HTML 和純文字、最大 2MB，不執行 JavaScript。連線前會檢查實際 IP，擋掉內網、本機和非 80、443 的連接埠，轉址也一樣檢查。
 - `exec`（實驗性，預設關閉）只能呼叫員工當下已有的唯讀工具，腳本本身碰不到檔案、網路、環境變數、程序或計時器；但它隔離的是能力，不是資源：直譯器沒有記憶體上限，跑在後端同一個程序裡。詳見「唯讀腳本工具 exec（實驗性）」。
 - `run_command` **沒有沙盒**：員工能做到伺服器使用者能做的任何事。只雇用你信任其指示的藍圖，也留意任務內容與網頁可能夾帶指示。
-- **修改確認可以被 `run_command` 繞過**（已知限制）：有這個工具的員工仍可能直接改藍圖或流程的設定檔，再觸發重新載入（`POST /settings/reload`，即 `ReloadSettings`），不會出現確認卡。確認只約束 `save_blueprint`、`save_workflow`、`save_provider`、`save_employees` 這四個工具。
+- **修改確認可以被 `run_command` 繞過**（已知限制）：有這個工具的員工仍可能直接改藍圖或流程的設定檔，再觸發重新載入（`POST /settings/reload`，即 `ReloadSettings`），不會出現確認卡。確認只約束 `save_setting` 的寫入。
 
 ## API
 
@@ -198,7 +201,7 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 | 藍圖勾選 | 可使用 |
 |---|---|
 | `read_file` | `list_tasks`、`read_task`、`list_blueprints`、`read_blueprint`、`list_workflows`、`read_workflow`、`list_employees`、`read_employee`、`list_companies`、`read_company`、`list_providers`、`read_provider`、`read_chat` |
-| `write_file` 或 `run_command` | 上面的讀取工具，加上 `create_task`、`update_task`、`save_blueprint`、`save_workflow`、`save_provider`、`save_employees` |
+| `write_file` 或 `run_command` | 上面的讀取工具，加上 `create_task`、`update_task`、`save_setting` |
 | `web_search` | 沒有額外工具 |
 
 機場服務人員四個工具都有，所以擁有全部能力。內建的 15 個藍圖都有讀寫能力。任務藍圖的「開會討論」步驟只有讀取工具。沒有刪除工具。錯誤和拒絕都以工具結果回傳給模型。
@@ -206,31 +209,33 @@ Mac App 和網頁版使用同一個 `TEAM_WORK_HOME` 時，共用介面偏好及
 - **列出與讀取**：`list_*` 只回傳分辨用的欄位：`id` 和 `name`；`list_tasks` 是 `id`、`number`、`title`、`stage`、`status`。機場服務人員呼叫時，`list_tasks` 和 `list_employees` 多一個 `teamId`。細節和修改要用的 `version` 用對應的 `read_*` 帶 id 讀一項，看不到的項目（別家公司的任務、員工、公司，員工的自訂藍圖、隱藏的藍圖和任務藍圖、機場服務人員的藍圖）和不存在的一樣回 `no <種類> <id>`。
 - **讀任務**：`read_task` 帶 `task_id`，先回任務細節（說明、步驟和人員、負責人、來源等），再列每個步驟各次執行的狀態和交接標題，最後是任務對話：負責人主導的任務從最新的往前放，預設 30 則（`limit` 最多 100），整次回傳不超過 50KB，放不下時附上 `before=<編號>`，帶 `before` 只回更早的對話；單一則比整次上限還大才截斷，說明超過 32KB 也會截斷。舊制任務沒有任務對話，會直接說明。不含步驟的指示和執行紀錄。
 - **讀對話**：`read_chat` 用對話 ID（對話下方可複製，例如 `chat-805`）讀整段對話：誰說了什麼、員工跑了哪些工具，由舊到新，每次最多 50KB，用 `offset`、`limit` 往下讀。任何員工都能讀任何公司和機場的對話，不受下面的公司範圍限制。
-- **範圍**：公司的員工只能讀取、建立、修改自己公司的任務，也只列得到、只能雇用和修改自己公司的員工；機場服務人員可以跨公司，`create_task` 和 `save_employees` 雇用時要帶 `team_id`。藍圖、任務藍圖和供應商由所有公司共用，修改會影響每間公司。
-- **直接生效**：新增藍圖、新增任務藍圖、新增供應商、`save_employees` 雇用、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。負責人主導且已開始的任務只有使用者能改，`update_task` 會被拒絕。
-- **要確認**：帶 `id` 的 `save_blueprint`、`save_workflow`、`save_provider`、`save_employees`，包括員工修改自己用的藍圖。後端先檢查內容並算出差異，然後暫停，同意前不會寫入。任務的子任務進入等待回覆（`review.kind` 為 `change`），對話則是 `chat.change`；兩者都會保存，重新啟動後還在。同意或拒絕都會回傳給模型，模型接著工作。內容沒有差異時不會暫停。同一輪在這個呼叫之後的工具不會執行，模型會收到 `interrupted`。
+- **範圍**：公司的員工只能讀取、建立、修改自己公司的任務，也只列得到、只能雇用和修改自己公司的員工；機場服務人員可以跨公司，`create_task` 和 `save_setting` 雇用員工時要帶 `team_id`。藍圖、任務藍圖和供應商由所有公司共用，修改會影響每間公司。
+- **`save_setting`**：藍圖、任務藍圖、供應商和員工共用這一個工具，參數只有 `target`（`blueprint`、`workflow`、`provider`、`employees`）、`action`（`schema`、`save`）和 `data`。`action: "schema"` 只回傳該目標的完整規則與 `data` 的 JSON Schema（含機場服務人員雇用時要帶的 `team_id`），不改任何東西、不出確認卡；`action: "save"` 把 `data` 交給原本的寫入邏輯，以下各目標的規則不變。四個目標的長說明不放在工具清單裡，工具清單不會因此變動，供應商的前綴快取和 Claude 訂閱子程序都不受影響。舊版的 `save_blueprint`、`save_workflow`、`save_provider`、`save_employees` 已不再提供，但升級前存下、還在等同意的確認卡仍能照常同意或拒絕。會議中只有這一輪的行動者能用 `save_setting`（含 `schema`）。對話裡新增的項目釘在 `save_setting` 那一行工具列下。
+- **直接生效**：新增藍圖、新增任務藍圖、新增供應商、雇用員工、`create_task`、`update_task`。`update_task` 不用確認是暫定做法：舊內容會被直接蓋掉，員工也能換掉負責人和節點員工。正在執行的工作不受影響，之後的步驟會看到新內容。負責人主導且已開始的任務只有使用者能改，`update_task` 會被拒絕。
+- **要確認**：`save_setting` 的 `data` 帶 `id` 時（修改藍圖、任務藍圖、供應商或員工），包括員工修改自己用的藍圖。後端先檢查內容並算出差異，然後暫停，同意前不會寫入。任務的子任務進入等待回覆（`review.kind` 為 `change`），對話則是 `chat.change`；兩者都會保存，重新啟動後還在。同意或拒絕都會回傳給模型，模型接著工作。內容沒有差異時不會暫停。同一輪在這個呼叫之後的工具不會執行，模型會收到 `interrupted`。
 - **不能修改**：`preset-` 開頭的內建項目和來源帶來的（id 含 `--`，例如官方的 `team-work--assistant`）項目（要新增一份自己的）、Git 來源的藍圖。修改要帶 `read_*` 回傳的 `version`，不符就拒絕；等待確認期間內容被改過或刪除時，同意也不會寫入，模型會收到原因。
 - **設定檔**：寫入藍圖、任務藍圖和供應商的規則和介面相同：有外部修改尚未載入時回傳 `conflict`。
 - **生效範圍**：任務建立時留一份任務藍圖，修改共用流程不影響進行中的任務。藍圖不同：同意後正在進行的步驟不變，但每次開始步驟都讀最新藍圖，所以同一任務之後的步驟會用新藍圖。
-- **`create_task`**：帶標題、說明，以及已存的任務藍圖（`workflow_id`）或只給這個任務用的流程（`workflow`，格式同 `save_workflow`，不會加進任務藍圖列表，沒給名稱時用標題），兩者擇一，立即建立，不需要確認；任務和使用者建立的一樣留在待辦（`paused: true`、沒有 `pausedAt`），等使用者按開始（`POST /tasks/:id/resume`）。內建流程的步驟沒有指定員工，有步驟沒有人、或沒帶 `owner_id`（沒有負責人的任務無法開始）時會失敗並列出缺的部分，模型應該問使用者後再用 `staff` 和 `owner_id` 重試；負責人用 `create_task` 時負責人預設是自己，不受這條影響；模型自己填人選時後端無法分辨。
+- **`create_task`**：帶標題、說明，以及已存的任務藍圖（`workflow_id`）或只給這個任務用的流程（`workflow`，格式同 `save_setting` 的 `workflow` 目標，不會加進任務藍圖列表，沒給名稱時用標題），兩者擇一，立即建立，不需要確認；任務和使用者建立的一樣留在待辦（`paused: true`、沒有 `pausedAt`），等使用者按開始（`POST /tasks/:id/resume`）。內建流程的步驟沒有指定員工，有步驟沒有人、或沒帶 `owner_id`（沒有負責人的任務無法開始）時會失敗並列出缺的部分，模型應該問使用者後再用 `staff` 和 `owner_id` 重試；負責人用 `create_task` 時負責人預設是自己，不受這條影響；模型自己填人選時後端無法分辨。
 - **連鎖深度**：任務中的員工建立的任務，深度是來源任務加 1，最多 3 層（`maxTaskDepth`，暫定值），超過就拒絕並告知模型。從對話建立的任務深度是 0。同時執行的任務數量沒有限制。
-- **`save_blueprint`**：模型不能設定外觀，新藍圖的外觀取自 `presets.json` 的 `looks` 之一。技能用 Git 來源時不會在儲存當下解析 commit，執行時才取 `origin/HEAD`，也不會套用 `ref`；要固定版本請呼叫 `POST /blueprints/:id/update`。
-- **`save_workflow`**：`nodes`、`edges` 是完整的新清單，已存在的節點 id 沒帶的欄位保留原值。模型不指定座標，新節點由後端排版。有迴圈等無效內容會被拒絕。
-- **`save_provider`**：新增時帶 `name`、`kind`、`api_key`（`compatible` 另帶 `base_url`），和介面新增一樣先向供應商查模型清單，Key 或網址錯誤就失敗。修改可改 `name`、`base_url`、`api_key`、`prices`（`prices` 是整份取代），不能改 `kind` 和登入方式；查模型清單在送出確認卡之前做；但只改 `base_url` 而沿用已存的 Key 時，確認前不連新網址，同意寫入後才用已存的 Key 到新網址重新讀模型清單。確認卡列出名稱、網址、Key 最後 4 碼、價格和模型清單的差異。新的 Key 在等待確認期間只放在記憶體，不寫進確認卡和狀態檔，所以重新啟動後同意會失敗並告知模型。訂閱登入要開瀏覽器，工具做不到：可用 `login: subscription` 新增，再請使用者到設定頁登入。`read_provider` 只回傳 Key 最後 4 碼。
-- **`save_employees`**：`employees` 陣列一次處理多位。沒有 `id` 是雇用，要帶 `name`、`blueprint_id`、`model`，`effort` 沒給用 `default`，立即生效；有 `id` 要帶 `read_employee` 回傳的 `version`（只由名字、藍圖、模型、思考等級算出，記憶變動不影響），可改 `name`、`blueprint_id`、`model`、`effort`，同一次呼叫的修改合成一張確認卡，每行標出是哪位員工。任何一項檢查不通過就全部不寫入，包括雇用。同一次呼叫有雇用又有修改時，雇用先生效，使用者拒絕修改也不會撤銷雇用，模型在收到同意或拒絕時一併得知雇了誰。不能設定外觀、自訂藍圖，也不能解雇。`read_provider` 會列出每個模型的思考等級。
-- **請使用者輸入答案**：`ask_user` 一定要有選項，所以需要使用者打字的答案（例如名字、API Key），員工會在回覆裡直接問。輸入的內容和一般訊息一樣，會留在對話紀錄並交給模型；員工呼叫 `save_provider` 時，對話裡顯示的工具參數也包含 Key。
+- **藍圖（`blueprint`）**：模型不能設定外觀，新藍圖的外觀取自 `presets.json` 的 `looks` 之一。技能用 Git 來源時不會在儲存當下解析 commit，執行時才取 `origin/HEAD`，也不會套用 `ref`；要固定版本請呼叫 `POST /blueprints/:id/update`。
+- **任務藍圖（`workflow`）**：`nodes`、`edges` 是完整的新清單，已存在的節點 id 沒帶的欄位保留原值。模型不指定座標，新節點由後端排版。有迴圈等無效內容會被拒絕。
+- **供應商（`provider`）**：新增時帶 `name`、`kind`、`api_key`（`compatible` 另帶 `base_url`），和介面新增一樣先向供應商查模型清單，Key 或網址錯誤就失敗。修改可改 `name`、`base_url`、`api_key`、`prices`（`prices` 是整份取代），不能改 `kind` 和登入方式；查模型清單在送出確認卡之前做；但只改 `base_url` 而沿用已存的 Key 時，確認前不連新網址，同意寫入後才用已存的 Key 到新網址重新讀模型清單。確認卡列出名稱、網址、Key 最後 4 碼、價格和模型清單的差異。新的 Key 在等待確認期間只放在記憶體，不寫進確認卡和狀態檔，所以重新啟動後同意會失敗並告知模型。訂閱登入要開瀏覽器，工具做不到：可用 `login: subscription` 新增，再請使用者到設定頁登入。`read_provider` 只回傳 Key 最後 4 碼。
+- **員工（`employees`）**：`employees` 陣列一次處理多位。沒有 `id` 是雇用，要帶 `name`、`blueprint_id`、`model`，`effort` 沒給用 `default`，立即生效；有 `id` 要帶 `read_employee` 回傳的 `version`（只由名字、藍圖、模型、思考等級算出，記憶變動不影響），可改 `name`、`blueprint_id`、`model`、`effort`，同一次呼叫的修改合成一張確認卡，每行標出是哪位員工。任何一項檢查不通過就全部不寫入，包括雇用。同一次呼叫有雇用又有修改時，雇用先生效，使用者拒絕修改也不會撤銷雇用，模型在收到同意或拒絕時一併得知雇了誰。不能設定外觀、自訂藍圖，也不能解雇。`read_provider` 會列出每個模型的思考等級。
+- **請使用者輸入答案**：`ask_user` 一定要有選項，所以需要使用者打字的答案（例如名字、API Key），員工會在回覆裡直接問。輸入的內容和一般訊息一樣，會留在對話紀錄並交給模型；員工呼叫 `save_setting` 新增供應商時，對話裡顯示的工具參數只有 Key 最後 4 碼，但使用者打的那則訊息仍是全文。
 
 ## 唯讀腳本工具 exec（實驗性）
 
 偏好 `codeMode` 開啟時，員工多一個 `exec` 工具：模型寫一段 JavaScript（函式本體，可 `return`），在純 Go 的直譯器（[goja](https://github.com/dop251/goja)）裡同步呼叫 `tools.<名稱>(參數)`，拿到 JSON 物件或陣列，在腳本內篩選、統計，只有 `text(...)`（`console.log` 相同，非字串轉成 JSON）寫出的內容和 `return` 的值（JSON）交回模型。工具回傳的中間資料不進對話紀錄。實作在 `internal/codemode/` 和 `internal/usecase/codemode.go`。
 
 - **誰有**：任務步驟、討論步驟、負責人、負責人召開的會議、公司和機場的對話，只要當下有下列任一工具就有 `exec`；藍圖沒勾 `run_command` 的唯讀員工和討論步驟也有。每次呼叫模型前（包括同一輪的下一次、重試和整理摘要後重送）都重新讀偏好，所以切換後下一次呼叫就生效；同一次回覆裡已發出的 `exec` 照該次呼叫時的工具清單執行，關閉後模型再送 `exec` 會收到 `unknown tool exec`。Claude 訂閱的工具清單因此改變時，子程序以 `settings_changed` 重開，不沿用舊的 `--resume` 紀錄。
-- **能呼叫什麼**：只有當下已獲准、且列在白名單裡的唯讀工具：`read_file`（只讀文字檔，圖片請直接用 `read_file`）、`semantic_search`（語意搜尋開著時）、上表 `read_file` 那一列的讀取工具，以及負責人和負責人主導任務步驟的 `read_step`，負責人的 `read_task_history`、`read_task_entry`。寫入、指令、網路（`web_search`、`web_fetch`）、提問、記憶和需要確認的工具一律不在裡面。`exec` 的說明會依當下可用的工具產生 TypeScript 宣告，沒列出的工具在腳本裡是 `undefined`。讀取範圍、公司範圍與直接呼叫完全相同：`read_file` 一樣只讀 work tree 和原本允許的資料夾，`list_tasks` 一樣只列自己公司的任務，`read_provider` 一樣只有 Key 最後 4 碼。
-- **回傳格式**：`read_file` 回 `{path, startLine, endLine, totalLines, truncated, content}`（`content` 不帶行號，截斷時從 `endLine+1` 續讀）；`semantic_search` 和 `list_*`、`read_blueprint`、`read_workflow`、`read_employee`、`read_company`、`read_provider` 回與直接呼叫相同的 JSON；`read_task` 回 `{id, number, title, teamId?, stage, status, text}`，`read_chat` 回 `{id, title, teamId?, total, text}`，`read_step` 回 `{subId, taskId, nodeId, replicaId?, status, text}`，`read_task_history` 回 `{taskId, text}`，`read_task_entry` 回 `{activityId, text}`，其中 `text` 是直接呼叫看到的全文。工具本身的錯誤（找不到、參數錯、路徑不允許）在腳本裡是可以 `try/catch` 的 `Error`。
+- **能呼叫什麼**：只有當下已獲准、且列在白名單裡的唯讀工具：`read_file`（只讀文字檔，圖片請直接用 `read_file`）、`semantic_search`（語意搜尋開著時）、上表 `read_file` 那一列的讀取工具，負責人和負責人主導任務步驟的 `read_step`，負責人的 `read_task_history`、`read_task_entry`，以及有網路搜尋權限時的 `web_search`、`web_fetch`（與直接呼叫共用同一個佇列、限流冷卻和內網阻擋）、有記憶工具時（公司任務步驟、負責人、公司對話；機場和討論步驟沒有）的 `search_memory`（一樣只搜該公司和自己的筆記）、對話裡有的 `read_terminal`（公司對話讀公司的、機場對話讀機場的）。寫入、指令、提問、記住或刪除筆記和需要確認的工具一律不在裡面。`exec` 的說明會依當下可用的工具產生 TypeScript 宣告，沒列出的工具在腳本裡是 `undefined`。讀取範圍、公司範圍與直接呼叫完全相同：`read_file` 一樣只讀 work tree 和原本允許的資料夾，`list_tasks` 一樣只列自己公司的任務，`read_provider` 一樣只有 Key 最後 4 碼。
+- **回傳格式**：`read_file` 回 `{path, startLine, endLine, totalLines, truncated, content}`（`content` 不帶行號，截斷時從 `endLine+1` 續讀）；`semantic_search` 和 `list_*`、`read_blueprint`、`read_workflow`、`read_employee`、`read_company`、`read_provider` 回與直接呼叫相同的 JSON；`read_task` 回 `{id, number, title, teamId?, stage, status, text}`，`read_chat` 回 `{id, title, teamId?, total, text}`，`read_step` 回 `{subId, taskId, nodeId, replicaId?, status, text}`，`read_task_history` 回 `{taskId, text}`，`read_task_entry` 回 `{activityId, text}`，`web_search`、`search_memory`、`read_terminal` 回 `{text}`，其中 `text` 是直接呼叫看到的全文；`web_fetch` 回與直接呼叫相同的 JSON（`next_offset` 讀完時是 `null`）。工具本身的錯誤（找不到、參數錯、路徑不允許）在腳本裡是可以 `try/catch` 的 `Error`。
 - **上限**：每次 `exec` 最多 60 秒、呼叫工具 64 次、輸出 2000 行或 50KB。逾時、按下停止、超過次數或輸出、負責人用完額度時，腳本立即中止，`try/catch/finally` 攔不住，之後的工具呼叫和輸出都不再進行。失敗回 `exec failed (<原因>): <訊息>`，原因是 `invalid_arguments`、`timeout`、`call_limit`、`output_limit`、`owner_limit`、`script_error`（附行、欄），已有的輸出接在 `Output before the failure:` 後面；訊息最多 20 行或 2KB，整段失敗結果同樣不超過 2000 行或 50KB（超出時截掉輸出的尾端）。`return` 值或丟出的值在轉成文字時（`toJSON`、`toString`）仍受同樣的時間與停止限制；轉文字用的是腳本開始前的 `JSON.stringify`、`String`，腳本換掉它們也沒有影響。按下停止時這一輪照常結束，不寫工具結果。沒有輸出時回 `(no output)`。
+- **平行查詢**：`parallel([{tool: "read_file", args: {...}}, ...])` 同時執行一批互不相依的呼叫（一次最多 8 個同時跑），依輸入順序回傳 `{ok: true, value}` 或 `{ok: false, error}`，單一呼叫自己的錯誤（找不到、參數錯）不會丟出、也不影響其他項；格式錯誤（不是陣列、未知工具、參數不是物件）會丟出可攔截的 `TypeError`。批次裡每一項都算一次呼叫，在任何一項開始前一起檢查 64 次上限和負責人額度，超過就整個腳本中止、一項都不執行；逾時或按下停止也立即中止整批。工具只在背景平行執行，直譯器本身只在原本的執行緒操作。原本的 `tools.<名稱>(參數)` 同步寫法不變。
 - **負責人的 32 次**：`exec` 本身算 1 次，腳本裡的每次工具呼叫在執行前再算 1 次；第 33 次不執行並以 `owner_limit` 結束腳本，同一則回覆中 `exec` 之後的工具回 `owner tool limit reached; not run`，這一輪隨即停下等使用者決定，不再呼叫模型。腳本剛好用完 32 次而正常結束時也一樣：同一則回覆的下一個工具不執行、回同樣的訊息，這一輪停下等使用者決定。
 - **不是資源隔離**：沒有記憶體上限，腳本在 60 秒內可以配置大量記憶體。工具交回腳本的資料不一定受 50KB 限制：`read_file`、`read_task`、`read_chat` 有上限，`list_*`、`read_blueprint`、`read_workflow` 等沒有；只有交回模型的輸出受 2000 行／50KB 限制。只在使用者開啟偏好時提供。
-- **紀錄**：任務、對話和合併紀錄裡，`exec` 不顯示程式碼，只顯示腳本用到的可呼叫工具名稱和字數，例如 `exec list_tasks, read_task (312 chars)`；模型自己的對話歷史保留完整參數。`backend.log` 每次記一筆 `codemode_done`（info）或 `codemode_failed`（warn），欄位有 `source`（`step`、`talk`、`owner`、`meeting`、`chat`）、`task`、`chat`、`replica`、`calls`、`tools`（如 `list_tasks:1,read_task:3`）、`ms`、`out_bytes`、`out_lines`，失敗另有 `reason`、`line`、`column`；不記程式碼、參數、結果或錯誤訊息原文。
+- **紀錄**：任務、對話和合併紀錄裡，`exec` 不顯示程式碼，只顯示腳本用到的可呼叫工具名稱和字數，例如 `exec list_tasks, read_task (312 chars)`，用了 `parallel` 時是 `exec parallel: read_file, web_search (…)`（工具名稱也從 `{tool: "<名稱>"}` 找）；模型自己的對話歷史保留完整參數。`backend.log` 每次記一筆 `codemode_done`（info）或 `codemode_failed`（warn），欄位有 `source`（`step`、`talk`、`owner`、`meeting`、`chat`）、`task`、`chat`、`replica`、`calls`、`parallel`（呼叫 `parallel` 的次數）、`tools`（如 `list_tasks:1,read_task:3`，含 `parallel` 裡的呼叫）、`ms`、`out_bytes`、`out_lines`，失敗另有 `reason`、`line`、`column`；不記程式碼、參數、結果或錯誤訊息原文。
 
 ## 訂閱登入
 
@@ -312,7 +317,7 @@ App 帶的十二個員工藍圖（通才、前端工程師、後端工程師、�
 - **Work tree**：任務第一次開工時從目標分支開 `task/<編號>`，work tree 放在資料目錄。所有步驟共用它，每次交接自動 commit，同時進行的步驟會改到同一份檔案。
 - **合併**：使用者按合併後，先把目標分支合進任務分支，有衝突由負責人解；再以 fast-forward 更新目標分支，然後移除 work tree 與分支。目標分支所在的資料夾有會被覆蓋的未 commit 變更時，合併會失敗並回到等待合併。取消或更換任務藍圖會直接刪除任務分支與 work tree。
 - **失敗**：供應商暫時性錯誤先重試 3 次；之後依公司的「重試次數」重跑，再不行就等使用者選重試或略過。逾時（公司的 `timeoutMin`）同樣處理。
-- **呼叫方式**：ChatGPT 訂閱和 OpenAI API Key 走 Responses API（`/codex/responses`、`/v1/responses`），`store: false`，每次送整段對話；系統提示放在 `input` 開頭的 developer 訊息，模型寫的訊息（含 `phase`）、工具呼叫（含參數原文）和推理原樣保存，同一個模型再原樣送回，讓快取從頭命中。不會推理的模型（`gpt-3`、`gpt-4`、`chat` 開頭或名稱含 `-chat`）不要求加密推理。Google 和相容 API 走 `/chat/completions`。ChatGPT 訂閱照 Codex 的做法送回 `x-codex-turn-state`：只在同一輪（送工具結果的請求）裡帶，新的一輪不帶。API Key 的供應商共用一個連線池。任何供應商的回覆超過 5 分鐘沒有新資料就中斷，當作暫時性錯誤重試。
+- **呼叫方式**：ChatGPT 訂閱和 OpenAI API Key 走 Responses API（`/codex/responses`、`/v1/responses`），`store: false`，每次送整段對話；系統提示放在 `input` 開頭的 developer 訊息，模型寫的訊息（含 `phase`）、工具呼叫（含參數原文）和推理原樣保存，同一個模型再原樣送回，讓快取從頭命中。不會推理的模型（`gpt-3`、`gpt-4`、`chat` 開頭或名稱含 `-chat`）不要求加密推理。Google 和相容 API 走 `/chat/completions`。ChatGPT 訂閱照 Codex 的做法送回 `x-codex-turn-state`：只在同一輪（送工具結果的請求）裡帶，新的一輪不帶。任務負責人每次被喚醒都用同一個 session `owner:<任務 id>`（`prompt_cache_key` 因此跨喚醒穩定，工具與系統提示的前綴快取可以命中），新的一次喚醒只有一則新的說明，不帶上一次的 turn state；Claude 訂閱遇到同一 session 的新對話時，直接關掉上一次的閒置程序並刪除它的續接紀錄，再開新的程序。API Key 的供應商共用一個連線池。任何供應商的回覆超過 5 分鐘沒有新資料就中斷，當作暫時性錯誤重試。
 - **費用**：依供應商的 `prices` 計算。**沒設定價格的模型費用算 0，費用上限對它無效**，子任務 log 會提醒一次。
 - **重新啟動**：進行中的工作回到佇列，從保存的對話接著做（負責人主導的任務改標成 `uncertain`，見上一節）。
 

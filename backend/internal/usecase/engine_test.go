@@ -147,9 +147,16 @@ func (s *script) Logout(context.Context, model.ModelProvider) error {
 }
 
 func call(name string, args any) model.ModelReply {
+	// the tools save_setting replaced are called through it, so their tests keep checking the same behavior
+	if target, ok := settingTargets[name]; ok {
+		name, args = "save_setting", map[string]any{"target": target, "action": "save", "data": args}
+	}
 	raw, _ := json.Marshal(args)
 	return model.ModelReply{Content: []model.Block{{Type: enum.BlockToolCall, ID: name + "-1", Name: name, Args: raw}}, Usage: model.ModelUsage{Input: 1000, Output: 1000}}
 }
+
+// settingTargets are the tools save_setting replaced, by the target each is now.
+var settingTargets = map[string]string{"save_blueprint": "blueprint", "save_workflow": "workflow", "save_provider": "provider", "save_employees": "employees"}
 
 func say(text string) model.ModelReply {
 	return model.ModelReply{Content: []model.Block{{Type: enum.BlockText, Text: text}}}

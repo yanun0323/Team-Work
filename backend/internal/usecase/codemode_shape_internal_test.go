@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -38,6 +39,8 @@ func TestStructuredToolsReturnWhatTheyDeclare(t *testing.T) {
 	}
 	list := e.readingTools(manager{teamID: "team1"})
 	list = append(list, e.ownerTools(&ownerRun{taskID: task.ID, r: &run{}})...)
+	list = append(list, e.searchMemoryTool(func() (string, *string) { return "team1", ptr("rep1") }), e.readTerminalTool("team1"))
+	args["search_memory"] = `{"query":"x"}`
 	checked := map[string]bool{}
 	for _, tool := range list {
 		name := tool.Spec().Name
@@ -94,7 +97,8 @@ func TestStructuredToolsReturnWhatTheyDeclare(t *testing.T) {
 	}
 	want := []string{}
 	for name := range execTools {
-		if name != "read_file" && name != "semantic_search" {
+		// these are checked where they are made, in the tools package
+		if !slices.Contains([]string{"read_file", "semantic_search", "web_search", "web_fetch"}, name) {
 			want = append(want, name)
 		}
 	}

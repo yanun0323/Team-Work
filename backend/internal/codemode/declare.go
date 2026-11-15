@@ -24,9 +24,15 @@ func Declarations(fns []Func) string {
 		}
 		b.WriteString("  " + fn.Name + "(args: " + schemaType(fn.Params, "  ") + "): " + returns + ";\n")
 	}
-	b.WriteString("};")
+	b.WriteString("};\n")
+	b.WriteString(parallelDeclaration)
 	return b.String()
 }
+
+// parallelDeclaration is the global parallel, for calls that do not depend on each other.
+const parallelDeclaration = "/** Run several tool calls at the same time and get their results in the order given; each counts as one call. " +
+	"A failed call gives {ok: false, error} in its place instead of throwing, so the others are kept. Limits and stopping still end the whole script. */\n" +
+	"declare function parallel(calls: { tool: string; args?: object }[]): ({ ok: true; value: any } | { ok: false; error: string })[];"
 
 // schema is the part of JSON Schema tool parameters use.
 type schema struct {

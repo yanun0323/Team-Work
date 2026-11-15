@@ -235,8 +235,8 @@ func TestDeclarations(t *testing.T) {
 		Params:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Where"},"offset":{"type":"integer"},"kind":{"type":"string","enum":["a","b"]},"tags":{"type":"array","items":{"type":"string"}}},"required":["path"]}`),
 		Returns: "{ content: string }"}}
 	got := codemode.Declarations(fns)
-	want := "declare const tools: {\n  /** Read a file. */\n  read_file(args: {\n    /** Where */\n    path: string;\n    offset?: number;\n    kind?: \"a\" | \"b\";\n    tags?: string[];\n  }): { content: string };\n};"
-	if got != want {
+	want := "declare const tools: {\n  /** Read a file. */\n  read_file(args: {\n    /** Where */\n    path: string;\n    offset?: number;\n    kind?: \"a\" | \"b\";\n    tags?: string[];\n  }): { content: string };\n};\n"
+	if !strings.HasPrefix(got, want) || !strings.HasSuffix(got, "declare function parallel(calls: { tool: string; args?: object }[]): ({ ok: true; value: any } | { ok: false; error: string })[];") {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
 	if codemode.Declarations(fns) != got {

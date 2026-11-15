@@ -993,3 +993,54 @@ func TestRestartReasons(t *testing.T) {
 		}
 	}
 }
+
+// A task's owner is woken under one session, each wake a new conversation of one brief: the last wake's idle process
+// gives way at once, with what was saved for resuming it, and the next wake runs in a process of its own, without a
+// busy error or a second process left waiting.
+func TestFreshConversationsOfOneSessionReplaceTheIdleProcess(t *testing.T) {
+	fakeClaude(t)
+	logs := &lockedBuffer{}
+	b := newBridge()
+	b.log = slog.New(slog.NewJSONHandler(logs, nil))
+	defer b.close()
+	p := base(t)
+	p.Session = "owner:t1"
+	_, blocks := runTurn(t, b, &p)
+	for i := range blocks {
+		p.Messages = append(p.Messages, ModelMessage{Role: "tool", CallID: blocks[i].ID, Content: []Block{text(fmt.Sprint("result", i))}})
+	}
+	runTurn(t, b, &p)
+	first := b.sessions[p.Session]
+	if first == nil {
+		t.Fatal("no idle process after the first wake")
+	}
+	firstID := first.claudeID
+	next := base(t)
+	next.Session, next.Cwd = p.Session, p.Cwd
+	next.Messages = []ModelMessage{{Role: "user", Content: []Block{text("second brief")}}}
+	runTurn(t, b, &next)
+	select {
+	case <-first.child.done:
+	default:
+		t.Fatal("the last wake's process is still running")
+	}
+	b.mu.Lock()
+	now, count := b.sessions[p.Session], len(b.sessions)
+	b.mu.Unlock()
+	if now == nil || now == first || count != 1 {
+		t.Fatalf("%d processes", count)
+	}
+	if s := loadSaved(p.Session); s != nil && firstID != "" && s.Session == firstID {
+		t.Fatal("the last wake's conversation is still saved for resuming")
+	}
+	var reasons []any
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var e map[string]any
+		if json.Unmarshal([]byte(line), &e) == nil && e["msg"] == "request_process" && e["reused"] == false {
+			reasons = append(reasons, e["reason"])
+		}
+	}
+	if len(reasons) != 2 || reasons[1] != "history_changed" {
+		t.Fatalf("%v", reasons)
+	}
+}

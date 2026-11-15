@@ -84,16 +84,16 @@ func (e *Engine) readingTools(m manager) []adapter.Tool {
 			defer e.mu.Unlock()
 			return e.readTask(m, a)
 		}, func(v taskText) model.ToolResult { return model.ToolResult{Text: v.Text} }),
-		lister(e, toolListBlueprints, "List the blueprints by id and name. read_blueprint reads one in full, with the version to pass to save_blueprint.", e.listBlueprints),
-		reader(e, toolReadBlueprint, "blueprint", "Read a blueprint in full by its id: its prompt, tools, skills, whether it can be changed, and the version to pass to save_blueprint. Built-in blueprints, ones from Git and ones a source provides cannot be changed.", e.readBlueprint),
-		lister(e, toolListWorkflows, "List the task flows by id and name. read_workflow reads one in full, with the version to pass to save_workflow.", e.listWorkflows),
-		reader(e, toolReadWorkflow, "workflow", "Read a task flow in full by its id: its steps with their prompts, its edges, whether it can be changed, and the version to pass to save_workflow. Built-in flows and ones a source provides cannot be changed.", e.readWorkflow),
-		lister(e, toolListEmployees, "List the employees you can reach by id and name. read_employee reads one in full, with the version to pass to save_employees.", func() []item { return e.listEmployees(m) }),
-		reader(e, toolReadEmployee, "employee", "Read an employee you can reach by their id: blueprint, model, thinking level, and the version to pass to save_employees.", func(id string) (employeeView, bool) { return e.readEmployee(m, id) }),
+		lister(e, toolListBlueprints, "List the blueprints by id and name. read_blueprint reads one in full, with the version to pass to save_setting.", e.listBlueprints),
+		reader(e, toolReadBlueprint, "blueprint", "Read a blueprint in full by its id: its prompt, tools, skills, whether it can be changed, and the version to pass to save_setting. Built-in blueprints, ones from Git and ones a source provides cannot be changed.", e.readBlueprint),
+		lister(e, toolListWorkflows, "List the task flows by id and name. read_workflow reads one in full, with the version to pass to save_setting.", e.listWorkflows),
+		reader(e, toolReadWorkflow, "workflow", "Read a task flow in full by its id: its steps with their prompts, its edges, whether it can be changed, and the version to pass to save_setting. Built-in flows and ones a source provides cannot be changed.", e.readWorkflow),
+		lister(e, toolListEmployees, "List the employees you can reach by id and name. read_employee reads one in full, with the version to pass to save_setting.", func() []item { return e.listEmployees(m) }),
+		reader(e, toolReadEmployee, "employee", "Read an employee you can reach by their id: blueprint, model, thinking level, and the version to pass to save_setting.", func(id string) (employeeView, bool) { return e.readEmployee(m, id) }),
 		lister(e, toolListCompanies, "List the companies you can reach by id and name. read_company reads one in full.", func() []item { return e.listCompanies(m) }),
 		reader(e, toolReadCompany, "company", "Read a company you can reach by its id: its folder and target branch.", func(id string) (companyView, bool) { return e.readCompany(m, id) }),
-		lister(e, toolListProviders, "List the model providers by id and name. read_provider reads one in full, with the version to pass to save_provider.", e.listProviders),
-		reader(e, toolReadProvider, "provider", "Read a model provider in full by its id: its models, each model's thinking levels, prices, and the version to pass to save_provider. API keys are never shown, only their last 4 characters.", e.readProvider),
+		lister(e, toolListProviders, "List the model providers by id and name. read_provider reads one in full, with the version to pass to save_setting.", e.listProviders),
+		reader(e, toolReadProvider, "provider", "Read a model provider in full by its id: its models, each model's thinking levels, prices, and the version to pass to save_setting. API keys are never shown, only their last 4 characters.", e.readProvider),
 		e.readChatTool(),
 	}
 }

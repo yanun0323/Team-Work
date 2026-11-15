@@ -222,11 +222,21 @@ text(JSON.stringify({todo: todo.length, matched, other, wrote, teamIds: all.filt
 		got := execTools(req)
 		switch step {
 		case "空":
-			if got != nil {
-				t.Fatalf("exec with nothing to read: %v", got)
+			// no blueprint tool to read with: only the notes every step may search
+			if !slices.Equal(got, []string{"search_memory"}) {
+				t.Fatalf("exec beyond the notes: %v", got)
 			}
 		case "讀", "談", "":
-			if !slices.Equal(got, readingTools) {
+			// a step keeps notes, a discussion only reads, and a chat reads the company's terminal too
+			want := slices.Clone(readingTools)
+			switch step {
+			case "讀":
+				want = append(want, "search_memory")
+			case "":
+				want = append(want, "read_terminal", "search_memory")
+			}
+			slices.Sort(want)
+			if !slices.Equal(got, want) {
 				t.Fatalf("%q declares %v", step, got)
 			}
 			seen[step] = true
@@ -324,7 +334,7 @@ text("after")`
 			}
 			return toolCalls(blocks...), nil
 		case 2:
-			if !slices.Equal(execTools(req), []string{"read_file", "read_step", "read_task", "read_task_entry", "read_task_history"}) {
+			if !slices.Equal(execTools(req), []string{"read_file", "read_step", "read_task", "read_task_entry", "read_task_history", "search_memory"}) {
 				return say("wrong tools: " + strings.Join(execTools(req), ",")), nil
 			}
 			return toolCalls(ownerBlock("exec", map[string]string{"code": script}), ownerBlock("read_task", map[string]any{})), nil

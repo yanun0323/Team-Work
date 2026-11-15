@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 	"github.com/yanun0323/Team-Work/internal/semantic"
 )
 
@@ -69,5 +70,25 @@ func (e *Engine) SetRankNotes(f func(ctx context.Context, query string, notes []
 // SearchMemory is search_memory as replicaID calls it in company teamID, for a test.
 func (e *Engine) SearchMemory(teamID, replicaID, query string) model.ToolResult {
 	raw, _ := json.Marshal(map[string]string{"query": query})
-	return e.searchMemoryTool(func() (string, *string) { return teamID, &replicaID })(context.Background(), "", raw)
+	return e.searchMemoryTool(func() (string, *string) { return teamID, &replicaID }).Run(context.Background(), "", raw)
+}
+
+// RenameWaitingCall renames the tool call a chat's conversation last made, as a conversation saved before the tool
+// was renamed has it.
+func (e *Engine) RenameWaitingCall(chatID, name string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.loadConversation(chatID) != nil {
+		return
+	}
+	conv := e.w.Conversations[chatID]
+	for i := len(conv) - 1; i >= 0; i-- {
+		for j, b := range conv[i].Content {
+			if b.Type == enum.BlockToolCall {
+				conv[i].Content[j].Name = name
+				e.dirty[chatID] = true
+				return
+			}
+		}
+	}
 }

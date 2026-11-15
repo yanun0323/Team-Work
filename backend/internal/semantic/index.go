@@ -58,6 +58,37 @@ type root struct {
 	splits  int
 	// indexed: a full indexing run has finished at least once.
 	indexed bool
+
+	// bgMu guards the scans changes ask for: at most one runs at a time, and again says one more is wanted after it.
+	bgMu      sync.Mutex
+	bgRunning bool
+	bgAgain   bool
+}
+
+// background runs scan off the caller's goroutine, one at a time: a change while one runs asks for one more after it,
+// however many changes there were, so a burst of commands does not start a git ls-files each.
+func (r *root) background(scan func()) {
+	r.bgMu.Lock()
+	if r.bgRunning {
+		r.bgAgain = true
+		r.bgMu.Unlock()
+		return
+	}
+	r.bgRunning = true
+	r.bgMu.Unlock()
+	go func() {
+		for {
+			scan()
+			r.bgMu.Lock()
+			if !r.bgAgain {
+				r.bgRunning = false
+				r.bgMu.Unlock()
+				return
+			}
+			r.bgAgain = false
+			r.bgMu.Unlock()
+		}
+	}()
 }
 
 func newRoot(dir string) *root {

@@ -117,6 +117,9 @@ type Engine struct {
 	clock     func() float64
 	// search is the one web search everyone shares, so its queue and cooldown hold across them all.
 	search *tools.Search
+	// jobs are run_command's background commands, of task steps' runs and of chats; jobScopes numbers the runs'.
+	jobs      *tools.Jobs
+	jobScopes int
 	// semantic is the experimental semantic search, nil when the backend has none.
 	semantic *semantic.Service
 	// rankNotes ranks memory notes by meaning, ok false for keyword search alone; semantic's, or a test's stand-in.
@@ -154,6 +157,7 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 		search: &tools.Search{Endpoint: tools.ExaEndpoint, Log: o.Log, State: filepath.Join(o.DataDir, "cache", "search-cooldown.json")},
 	}
 	e.ctx, e.cancel = context.WithCancel(context.Background())
+	e.jobs = &tools.Jobs{Done: e.jobEnded}
 	if err := e.load(ctx); err != nil {
 		e.cancel()
 		return nil, err
@@ -225,6 +229,7 @@ func (e *Engine) Close() {
 	e.mu.Unlock()
 	e.cancel()
 	e.wg.Wait()
+	e.jobs.Close() // a chat's go on after its reply, until now
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for ch := range e.subs {

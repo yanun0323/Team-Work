@@ -26,9 +26,10 @@ const (
 )
 
 // execTools are the tools exec may call, when the one running it has them: read-only ones, each giving plain data.
-// Nothing here writes, runs commands, reaches the network, asks anyone or waits for the user.
+// Nothing here writes, runs commands, asks anyone or waits for the user; web_search and web_fetch reach the web only
+// for those allowed to, through the same queue, cooldown and private-network checks as their direct calls.
 var execTools = map[string]bool{
-	"read_file": true, "semantic_search": true,
+	"read_file": true, "semantic_search": true, "web_search": true, "web_fetch": true, "search_memory": true, "read_terminal": true,
 	toolListTasks: true, toolReadTask: true, toolListEmployees: true, toolReadEmployee: true,
 	toolListBlueprints: true, toolReadBlueprint: true, toolListWorkflows: true, toolReadWorkflow: true,
 	toolListCompanies: true, toolReadCompany: true, toolListProviders: true, toolReadProvider: true, toolReadChat: true,
@@ -41,7 +42,7 @@ var execDescriptions = map[string]string{
 }
 
 const execRules = "Run a short JavaScript script that calls your read-only tools below as tools.<name>(args), synchronously, each returning plain data, " +
-	"to chain and filter many reads in one call. Only what the script writes with text(value) (console.log alike; values other than strings as JSON) " +
+	"to chain and filter many reads in one call; parallel([{tool, args}, ...]) runs calls that do not depend on each other at the same time. Only what the script writes with text(value) (console.log alike; values other than strings as JSON) " +
 	"and the value it returns (as JSON) come back to you: what the tools return stays in the script. The code is a function body: use return; there is no await. " +
 	"A tool's own failure throws an Error you may catch. There are no files, network, timers or modules beyond these tools; ALL_TOOLS lists them. " +
 	"Each call may run 60 seconds, call tools 64 times and write 2000 lines or 50KB; passing a limit ends the script, which cannot catch it.\n\n"
@@ -135,9 +136,12 @@ func execCode(raw json.RawMessage) (string, bool) {
 	return *a.Code, true
 }
 
-var execNames = regexp.MustCompile(`tools\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*["'` + "`" + `]([A-Za-z_$][\w$]*)["'` + "`" + `]\s*\])`)
+var execNames = regexp.MustCompile(`tools\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*["'` + "`" + `]([A-Za-z_$][\w$]*)["'` + "`" + `]\s*\])|\btool\s*:\s*["'` + "`" + `]([A-Za-z_$][\w$]*)["'` + "`" + `]`)
 
-// execLine is how an exec call shows in a log: the tools its script names that exec may call, and its size. Never the
+var execParallel = regexp.MustCompile(`\bparallel\s*\(`)
+
+// execLine is how an exec call shows in a log: the tools its script names that exec may call, as tools.<name> or as
+// {tool: "<name>"} in a parallel batch, which it says it uses, and its size. Never the
 // code, which may hold anything; the secrets maskSecrets hides are only those in an argument of their own.
 func execLine(raw json.RawMessage) string {
 	code, ok := execCode(raw)
@@ -146,15 +150,19 @@ func execLine(raw json.RawMessage) string {
 	}
 	var names []string
 	for _, m := range execNames.FindAllStringSubmatch(code, -1) {
-		name := m[1] + m[2]
+		name := m[1] + m[2] + m[3]
 		if execTools[name] && !slices.Contains(names, name) {
 			names = append(names, name)
 		}
 	}
 	slices.Sort(names)
+	head := toolExec + " "
+	if execParallel.MatchString(code) {
+		head += "parallel: "
+	}
 	size := fmt.Sprintf("(%d chars)", utf8.RuneCountInString(code))
 	if len(names) == 0 {
-		return toolExec + " " + size
+		return head + size
 	}
-	return toolExec + " " + strings.Join(names, ", ") + " " + size
+	return head + strings.Join(names, ", ") + " " + size
 }

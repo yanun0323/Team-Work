@@ -63,6 +63,10 @@ type Env struct {
 	// write_file, edit_file and run_command tell it what they changed. Task and Replica say who searches, for its log.
 	Semantic      *semantic.Service
 	Task, Replica string
+	// Jobs keeps run_command's background commands, those of JobScope; run_command runs nothing in the background
+	// without it.
+	Jobs     *Jobs
+	JobScope string
 }
 
 // For returns the named tools.
@@ -90,7 +94,7 @@ func For(allowed []enum.Tool, env Env) []adapter.Tool {
 		case enum.ToolWriteFile:
 			out = append(out, Write{Changed: changed}, Edit{Changed: changed})
 		case enum.ToolRunCommand:
-			out = append(out, Command{OutputDir: env.Output, Changed: changed})
+			out = append(out, Command{OutputDir: env.Output, Changed: changed, Jobs: env.Jobs, JobScope: env.JobScope})
 		case enum.ToolWebSearch:
 			out = append(out, search, Fetch{})
 		}

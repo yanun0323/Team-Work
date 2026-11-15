@@ -88,7 +88,7 @@ func TestMemorySectionKeepsEvenTheFirstNoteToItsBudget(t *testing.T) {
 		if !strings.Contains(got, "2 older notes are not shown") {
 			t.Fatalf("%s: does not count what is left out:\n%s", c.title, got)
 		}
-		found := e.searchMemoryTool(func() (string, *string) { id := "ada"; return "A", &id })(t.Context(), "", []byte(`{"query":"needle"}`))
+		found := e.searchMemoryTool(func() (string, *string) { id := "ada"; return "A", &id }).Run(t.Context(), "", []byte(`{"query":"needle"}`))
 		if found.IsError || !strings.Contains(found.Text, "mem-long") || !strings.Contains(found.Text, long) {
 			t.Fatalf("%s: search_memory does not find the whole note:\n%s", c.title, found.Text)
 		}

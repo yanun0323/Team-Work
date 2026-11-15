@@ -142,7 +142,7 @@ func inChat(t *testing.T, r *rig, m *moves, fn ...func(model.ModelRequest) model
 func TestManageToolsFollowTheBlueprint(t *testing.T) {
 	t.Parallel()
 	reading := []string{"list_tasks", "read_task", "list_blueprints", "read_blueprint", "list_workflows", "read_workflow", "list_employees", "read_employee", "list_companies", "read_company", "list_providers", "read_provider", "read_chat"}
-	writing := []string{"create_task", "update_task", "save_blueprint", "save_workflow", "save_provider", "save_employees"}
+	writing := []string{"create_task", "update_task", "save_setting"}
 	for _, tc := range []struct {
 		name         string
 		tools        []enum.Tool
@@ -180,6 +180,12 @@ func TestManageToolsFollowTheBlueprint(t *testing.T) {
 					t.Errorf("%s: %v", name, got)
 				}
 			}
+			// save_setting stands for the four it replaced, which are offered no more
+			for _, name := range []string{"save_blueprint", "save_workflow", "save_provider", "save_employees"} {
+				if slices.Contains(got, name) {
+					t.Errorf("%s still offered: %v", name, got)
+				}
+			}
 		})
 	}
 }
@@ -210,7 +216,7 @@ func TestAirportStaffHaveEveryManageTool(t *testing.T) {
 	}
 	r.wait("reply", chatDone(c.ID))
 	got := toolsOf(r.fake.requests()[0])
-	for _, name := range []string{"list_tasks", "list_companies", "list_providers", "create_task", "update_task", "save_blueprint", "save_workflow", "save_provider"} {
+	for _, name := range []string{"list_tasks", "list_companies", "list_providers", "create_task", "update_task", "save_setting"} {
 		if !slices.Contains(got, name) {
 			t.Errorf("%s: %v", name, got)
 		}
@@ -241,7 +247,7 @@ func TestDiscussionOnlyReads(t *testing.T) {
 			continue
 		}
 		got := toolsOf(req)
-		if !slices.Contains(got, "list_tasks") || slices.Contains(got, "create_task") || slices.Contains(got, "save_workflow") {
+		if !slices.Contains(got, "list_tasks") || slices.Contains(got, "create_task") || slices.Contains(got, "save_setting") {
 			t.Fatalf("%v", got)
 		}
 	}
@@ -279,9 +285,9 @@ func TestCreatingABlueprintAndFlowTakesEffectAtOnce(t *testing.T) {
 		t.Fatalf("%+v", made)
 	}
 	// each shows under the line of the tool that made it
-	for tool, want := range map[string]model.Made{"save_blueprint ": {Kind: "blueprint", ID: bp.ID}, "save_workflow ": {Kind: "workflow", ID: made.ID}} {
+	for tool, want := range map[string]model.Made{`"target":"blueprint"`: {Kind: "blueprint", ID: bp.ID}, `"target":"workflow"`: {Kind: "workflow", ID: made.ID}} {
 		pinned := slices.IndexFunc(w.Chats[c.ID].Messages, func(x model.ChatMessage) bool { return slices.Equal(x.Made, []model.Made{want}) })
-		if pinned < 0 || !strings.HasPrefix(w.Chats[c.ID].Messages[pinned].Text, tool) {
+		if pinned < 0 || !strings.HasPrefix(w.Chats[c.ID].Messages[pinned].Text, "save_setting ") || !strings.Contains(w.Chats[c.ID].Messages[pinned].Text, tool) {
 			t.Fatalf("%s: %+v", tool, w.Chats[c.ID].Messages)
 		}
 	}
@@ -479,7 +485,7 @@ func TestChangeRefusedInATaskGoesOn(t *testing.T) {
 	for _, req := range r.fake.requests() {
 		for _, msg := range req.Messages {
 			for _, b := range msg.Content {
-				found = found || (b.Type == enum.BlockToolResult && b.Name == "save_blueprint" && strings.Contains(b.Text, "太大"))
+				found = found || (b.Type == enum.BlockToolResult && b.Name == "save_setting" && strings.Contains(b.Text, "太大"))
 			}
 		}
 	}
