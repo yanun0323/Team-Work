@@ -280,3 +280,16 @@ func TestSemanticSearchIsOffByDefaultAndForOldFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestCodeModeIsOffForOldFiles(t *testing.T) {
+	var p Preferences
+	if err := json.Unmarshal([]byte(`{"musicStyle":"piano"}`), &p); err != nil || p.CodeMode || DefaultPreferences().CodeMode {
+		t.Fatalf("%v %+v", err, p.CodeMode)
+	}
+	if err := json.Unmarshal([]byte(`{"codeMode":true}`), &p); err != nil || !p.CodeMode {
+		t.Fatal(err)
+	}
+	if _, err := MergePreferences(DefaultPreferences(), map[string]json.RawMessage{"codeMode": json.RawMessage(`null`)}); err == nil {
+		t.Fatal("null accepted")
+	}
+}

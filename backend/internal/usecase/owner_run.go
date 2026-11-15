@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/codemode"
 	"github.com/yanun0323/Team-Work/internal/i18n"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
@@ -28,7 +29,10 @@ type ownerRun struct {
 	folder, dir, branch, target string
 	plan, control               int
 	callID                      string
-	calls                       int
+	// calls counts the tools this decision called, those an exec script called included.
+	calls int
+	// overLimit is set once an exec script reached maxOwnerTools: nothing more runs, and the decision stops for the user.
+	overLimit bool
 	// stale is set once the task moved on under the decision: what is left of it is not done, and its events wait for
 	// the next one.
 	stale bool
@@ -279,23 +283,29 @@ func activityLine(a model.TaskActivity) string {
 // entryPage is how much of one entry read_task_entry gives at a time, in characters.
 const entryPage = 20000
 
-func (e *Engine) readEntryTool(in *ownerRun) func(context.Context, string, json.RawMessage) model.ToolResult {
-	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+// entryText is read_task_entry's answer; Text is what a direct call shows.
+type entryText struct {
+	ActivityID string `json:"activityId"`
+	Text       string `json:"text"`
+}
+
+func (e *Engine) readEntryTool(in *ownerRun) func(context.Context, string, json.RawMessage) (entryText, error) {
+	return func(_ context.Context, _ string, raw json.RawMessage) (entryText, error) {
 		var a struct {
 			ID     string `json:"activity_id"`
 			Offset int    `json:"offset"`
 		}
 		if err := parseArgs(raw, &a); err != nil {
-			return toolError("%s", safeText(err))
+			return entryText{}, errors.New(safeText(err))
 		}
-		return e.ownerRead(in, func(t *model.Task) model.ToolResult {
+		return ownerReading(e, in, func(t *model.Task) (entryText, error) {
 			all, err := e.activities(t.ID)
 			if err != nil {
-				return toolError("%s", safeText(err))
+				return entryText{}, errors.New(safeText(err))
 			}
 			i := slices.IndexFunc(all, func(x model.TaskActivity) bool { return x.ID == a.ID && ownerSees(x) })
 			if i < 0 {
-				return toolError("no entry %s in this task", a.ID)
+				return entryText{}, fmt.Errorf("no entry %s in this task", a.ID)
 			}
 			x := all[i]
 			who := x.From
@@ -323,7 +333,7 @@ func (e *Engine) readEntryTool(in *ownerRun) func(context.Context, string, json.
 			if to < len(text) {
 				fmt.Fprintf(&b, "\nMore: offset=%d", to)
 			}
-			return model.ToolResult{Text: b.String()}
+			return entryText{x.ID, b.String()}, nil
 		})
 	}
 }
@@ -632,8 +642,7 @@ func (e *Engine) ownerTurn(in *ownerRun) *turn {
 				case e.taskCost(t) >= e.costLimit(t):
 					e.budgetHold(t)
 				case calls > maxOwnerTools:
-					e.block(t, "loop", model.TaskQuestion{Kind: "approval", Prompt: i18n.T("負責人一次處理呼叫太多工具，已停下來等你決定"),
-						Options: []model.ReviewOption{{ID: optionContinue, Label: i18n.T("讓負責人繼續")}}})
+					e.ownerTooManyTools(t)
 				default:
 					goOn = true
 				}
@@ -658,7 +667,36 @@ func (e *Engine) ownerTurn(in *ownerRun) *turn {
 		return shorter, ok && kept
 	}
 	tr.compactAt = e.workCompactAt(in.spec.model)
+	// an exec script's tools count one by one, the one past the limit not run; then nothing else of the reply runs,
+	// and the decision stops for the user once its results are kept
+	e.codeMode(tr, codeModeSource{Kind: "owner", TaskID: in.taskID, Replica: in.ownerID, BeforeCall: func(string) error {
+		if in.calls >= maxOwnerTools {
+			in.overLimit = true
+			return &codemode.Failure{Reason: reasonOwnerLimit, Message: fmt.Sprintf("the owner may call %d tools in one decision; stopped for the user", maxOwnerTools)}
+		}
+		in.calls++
+		return nil
+	}})
+	tr.gate = func(model.Block) (model.ToolResult, bool) {
+		if in.overLimit || in.calls >= maxOwnerTools {
+			return model.ToolResult{Text: "owner tool limit reached; not run", IsError: true}, false
+		}
+		return model.ToolResult{}, true
+	}
+	tr.halt = func() bool {
+		if !in.overLimit {
+			return false
+		}
+		record(func(t *model.Task) { e.ownerTooManyTools(t) })
+		return true
+	}
 	return tr
+}
+
+// ownerTooManyTools stops the owner, who called too many tools in one decision, until the user lets them go on.
+func (e *Engine) ownerTooManyTools(t *model.Task) {
+	e.block(t, "loop", model.TaskQuestion{Kind: "approval", Prompt: i18n.T("負責人一次處理呼叫太多工具，已停下來等你決定"),
+		Options: []model.ReviewOption{{ID: optionContinue, Label: i18n.T("讓負責人繼續")}}})
 }
 
 // ---------- the owner's tools ----------
@@ -706,17 +744,6 @@ func (e *Engine) ownerChange(in *ownerRun, fn func(t *model.Task) (string, error
 	return out
 }
 
-// ownerRead reads the task under the lock.
-func (e *Engine) ownerRead(in *ownerRun, fn func(t *model.Task) model.ToolResult) model.ToolResult {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	t := e.w.Tasks[in.taskID]
-	if t == nil || !t.OwnerLed() {
-		return toolError("the task is gone")
-	}
-	return fn(t)
-}
-
 func parseArgs(raw json.RawMessage, v any) error {
 	if err := json.Unmarshal(raw, v); err != nil {
 		return model.Errorf(model.CodeInvalid, "參數不正確：%s", err.Error())
@@ -730,16 +757,16 @@ func ownerTool(name, description, schema string, fn func(context.Context, string
 
 func (e *Engine) ownerTools(in *ownerRun) []adapter.Tool {
 	return []adapter.Tool{
-		ownerTool(toolReadTask, "Read a task. Your own, when task_id is left out: its formal state now (plan, step runs, constraints and decisions, open questions), "+
+		jsonTool(toolReadTask, "Read a task. Your own, when task_id is left out: its formal state now (plan, step runs, constraints and decisions, open questions), "+
 			"then its conversation, the latest entries fitting in 50KB. Another task in this company, by task_id: its description, steps and how they went, then its conversation. "+
 			"With before, read older entries of the conversation alone.",
-			readTaskSchema(true), e.ownerReadTaskTool(in)),
-		ownerTool("read_task_history", "Read the task's conversation by page, oldest first: the entries before seq before, or the latest.",
-			`{"type":"object","properties":{"before":{"type":"integer"},"limit":{"type":"integer","maximum":100}}}`, e.readHistoryTool(in)),
-		ownerTool("read_task_entry", "Read one entry of the task's conversation in full, with what was attached, by page of its text.",
-			`{"type":"object","properties":{"activity_id":{"type":"string"},"offset":{"type":"integer"}},"required":["activity_id"]}`, e.readEntryTool(in)),
-		ownerTool("read_step", "Read a step run: its instructions, handoff and open question; its log, by page, only with log=true.",
-			readStepSchema, e.readStepTool(in)),
+			readTaskSchema(true), e.ownerReadTaskTool(in), showText[taskText]),
+		jsonTool(toolReadTaskHistory, "Read the task's conversation by page, oldest first: the entries before seq before, or the latest.",
+			`{"type":"object","properties":{"before":{"type":"integer"},"limit":{"type":"integer","maximum":100}}}`, e.readHistoryTool(in), showText[historyText]),
+		jsonTool(toolReadTaskEntry, "Read one entry of the task's conversation in full, with what was attached, by page of its text.",
+			`{"type":"object","properties":{"activity_id":{"type":"string"},"offset":{"type":"integer"}},"required":["activity_id"]}`, e.readEntryTool(in), showText[entryText]),
+		jsonTool(toolReadStep, "Read a step run: its instructions, handoff and open question; its log, by page, only with log=true.",
+			readStepSchema, e.readStepTool(in), showText[stepText]),
 		ownerTool("dispatch_step", "Start a step of the plan with your instructions, by an allowed employee (the step's first when left out). "+
 			"upstream_ids are accepted runs whose handoffs it builds on. With sub_id, go on with a stopped run instead, adding the instructions.",
 			`{"type":"object","properties":{"node_id":{"type":"string"},"replica_id":{"type":"string"},"instructions":{"type":"string"},"upstream_ids":{"type":"array","items":{"type":"string"}},"sub_id":{"type":"string"}},"required":["instructions"]}`,
@@ -785,15 +812,37 @@ func (e *Engine) ownerTools(in *ownerRun) []adapter.Tool {
 	}
 }
 
+// ownerReading reads the owner's task under the lock, for what they read.
+func ownerReading[T any](e *Engine, in *ownerRun, fn func(t *model.Task) (T, error)) (T, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	t := e.w.Tasks[in.taskID]
+	if t == nil || !t.OwnerLed() {
+		var none T
+		return none, errors.New("the task is gone")
+	}
+	return fn(t)
+}
+
+// texter is an answer read as text by a direct call.
+type texter interface{ text() string }
+
+func (v taskText) text() string    { return v.Text }
+func (v historyText) text() string { return v.Text }
+func (v entryText) text() string   { return v.Text }
+func (v stepText) text() string    { return v.Text }
+
+func showText[T texter](v T) model.ToolResult { return model.ToolResult{Text: v.text()} }
+
 // ownerReadTaskTool is read_task for the owner: their own task's formal state, or another of the company's as
 // employees read it.
-func (e *Engine) ownerReadTaskTool(in *ownerRun) func(context.Context, string, json.RawMessage) model.ToolResult {
-	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+func (e *Engine) ownerReadTaskTool(in *ownerRun) func(context.Context, string, json.RawMessage) (taskText, error) {
+	return func(_ context.Context, _ string, raw json.RawMessage) (taskText, error) {
 		a, err := parseRead(raw)
 		if err != nil {
-			return toolError("bad arguments: %v", err)
+			return taskText{}, fmt.Errorf("bad arguments: %v", err)
 		}
-		return e.ownerRead(in, func(t *model.Task) model.ToolResult {
+		return ownerReading(e, in, func(t *model.Task) (taskText, error) {
 			if a.TaskID != "" && a.TaskID != t.ID {
 				return e.readTask(manager{teamID: t.TeamID}, a)
 			}
@@ -803,29 +852,35 @@ func (e *Engine) ownerReadTaskTool(in *ownerRun) func(context.Context, string, j
 			}
 			text, err := e.taskConversation(t, head, a.Before, a.Limit)
 			if err != nil {
-				return toolError("%s", safeText(err))
+				return taskText{}, errors.New(safeText(err))
 			}
-			return model.ToolResult{Text: text}
+			return taskText{t.ID, t.Number, t.Title, "", t.Stage, e.statusOf(t), text}, nil
 		})
 	}
 }
 
-func (e *Engine) readHistoryTool(in *ownerRun) func(context.Context, string, json.RawMessage) model.ToolResult {
-	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+// historyText is read_task_history's answer; Text is what a direct call shows.
+type historyText struct {
+	TaskID string `json:"taskId"`
+	Text   string `json:"text"`
+}
+
+func (e *Engine) readHistoryTool(in *ownerRun) func(context.Context, string, json.RawMessage) (historyText, error) {
+	return func(_ context.Context, _ string, raw json.RawMessage) (historyText, error) {
 		var a struct {
 			Before int `json:"before"`
 			Limit  int `json:"limit"`
 		}
 		if err := parseArgs(raw, &a); err != nil {
-			return toolError("%s", safeText(err))
+			return historyText{}, errors.New(safeText(err))
 		}
-		return e.ownerRead(in, func(t *model.Task) model.ToolResult {
+		return ownerReading(e, in, func(t *model.Task) (historyText, error) {
 			all, err := e.activities(t.ID)
 			if err != nil {
-				return toolError("%s", safeText(err))
+				return historyText{}, errors.New(safeText(err))
 			}
 			if len(all) == 0 {
-				return model.ToolResult{Text: "The conversation is empty."}
+				return historyText{t.ID, "The conversation is empty."}, nil
 			}
 			limit := a.Limit
 			if limit <= 0 || limit > activityMost {
@@ -845,18 +900,18 @@ func (e *Engine) readHistoryTool(in *ownerRun) func(context.Context, string, jso
 			if start > 0 {
 				fmt.Fprintf(&b, "Earlier entries: before=%d\n", start+1)
 			}
-			return model.ToolResult{Text: b.String()}
+			return historyText{t.ID, b.String()}, nil
 		})
 	}
 }
 
-func (e *Engine) readStepTool(in *ownerRun) func(context.Context, string, json.RawMessage) model.ToolResult {
-	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+func (e *Engine) readStepTool(in *ownerRun) func(context.Context, string, json.RawMessage) (stepText, error) {
+	return func(_ context.Context, _ string, raw json.RawMessage) (stepText, error) {
 		var a readStepArgs
 		if err := parseArgs(raw, &a); err != nil {
-			return toolError("%s", safeText(err))
+			return stepText{}, errors.New(safeText(err))
 		}
-		return e.ownerRead(in, func(t *model.Task) model.ToolResult { return e.stepRun(t, a) })
+		return ownerReading(e, in, func(t *model.Task) (stepText, error) { return e.stepRun(t, a) })
 	}
 }
 
@@ -872,11 +927,25 @@ type readStepArgs struct {
 	Offset int    `json:"log_offset"`
 }
 
+// stepText is read_step's answer; Text is what a direct call shows.
+type stepText struct {
+	SubID     string      `json:"subId"`
+	TaskID    string      `json:"taskId"`
+	NodeID    string      `json:"nodeId"`
+	ReplicaID string      `json:"replicaId,omitempty"`
+	Status    enum.Status `json:"status"`
+	Text      string      `json:"text"`
+}
+
 // stepRun is read_step's answer: a run of task t, with its log by page when asked for it. Call it holding the lock.
-func (e *Engine) stepRun(t *model.Task, a readStepArgs) model.ToolResult {
+func (e *Engine) stepRun(t *model.Task, a readStepArgs) (stepText, error) {
 	s := e.w.SubTasks[a.SubID]
 	if s == nil || s.TaskID != t.ID {
-		return toolError("no step run %s in this task", a.SubID)
+		return stepText{}, fmt.Errorf("no step run %s in this task", a.SubID)
+	}
+	out := stepText{SubID: s.ID, TaskID: t.ID, NodeID: s.NodeID, Status: s.Status}
+	if s.ReplicaID != nil {
+		out.ReplicaID = *s.ReplicaID
 	}
 	var b strings.Builder
 	who := ""
@@ -910,7 +979,8 @@ func (e *Engine) stepRun(t *model.Task, a readStepArgs) model.ToolResult {
 		if len(s.Log) > 0 {
 			fmt.Fprintf(&b, "Log: %d lines, not shown; read_step with log=true to read them\n", len(s.Log))
 		}
-		return model.ToolResult{Text: b.String()}
+		out.Text = b.String()
+		return out, nil
 	}
 	const page = 80
 	from := min(max(a.Offset, 0), len(s.Log))
@@ -922,7 +992,8 @@ func (e *Engine) stepRun(t *model.Task, a readStepArgs) model.ToolResult {
 	if to < len(s.Log) {
 		fmt.Fprintf(&b, "More: log_offset=%d\n", to)
 	}
-	return model.ToolResult{Text: b.String()}
+	out.Text = b.String()
+	return out, nil
 }
 
 // held says whether the user must answer before the task's queued work starts: its cost limit or a loop guard stopped it.

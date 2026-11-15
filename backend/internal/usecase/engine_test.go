@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -189,6 +190,8 @@ type rig struct {
 	flow   *model.Workflow
 	// semantic is the semantic search the engine gets, nil for none
 	semantic *semantic.Service
+	// log, when set, gets the engine's log; nothing does otherwise
+	log io.Writer
 }
 
 // officialRepo is where the official source lives; a test reads the copy in testdata/official in its place.
@@ -242,7 +245,7 @@ func newEngine(t *testing.T, r *rig) {
 		t.Fatal(err)
 	}
 	e, err := usecase.NewEngine(context.Background(), usecase.Options{
-		Store: store, Git: offline{repository.NewGit(r.data)}, Providers: r.fake, DataDir: r.data, Log: zerolog.Nop(), Semantic: r.semantic,
+		Store: store, Git: offline{repository.NewGit(r.data)}, Providers: r.fake, DataDir: r.data, Log: r.logger(), Semantic: r.semantic,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -252,6 +255,13 @@ func newEngine(t *testing.T, r *rig) {
 	if err := e.CheckSource(context.Background(), usecase.OfficialSourceID); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func (r *rig) logger() zerolog.Logger {
+	if r.log == nil {
+		return zerolog.Nop()
+	}
+	return zerolog.New(r.log)
 }
 
 func newRig(t *testing.T, reply func(model.ModelRequest) (model.ModelReply, error)) *rig {

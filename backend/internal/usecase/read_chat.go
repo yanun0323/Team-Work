@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -23,32 +24,44 @@ var readChatSpec = model.ToolSpec{Name: toolReadChat,
 		`"offset":{"type":"integer","minimum":1,"description":"Message to start from, 1-indexed"},` +
 		`"limit":{"type":"integer","minimum":1,"description":"Maximum number of messages"}},"required":["id"]}`)}
 
+// chatRead is read_chat's answer; Text is what a direct call shows.
+type chatRead struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	TeamID string `json:"teamId,omitempty"`
+	// Total is how many messages the chat has.
+	Total int    `json:"total"`
+	Text  string `json:"text"`
+}
+
+func (v chatRead) text() string { return v.Text }
+
 // readChatTool reads any chat by its ID, in any company or the airport.
-func (e *Engine) readChatTool() funcTool {
-	return funcTool{readChatSpec, func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+func (e *Engine) readChatTool() dataTool {
+	return jsonTool(readChatSpec.Name, readChatSpec.Description, string(readChatSpec.Parameters), func(_ context.Context, _ string, raw json.RawMessage) (chatRead, error) {
 		var a struct {
 			ID     string `json:"id"`
 			Offset int    `json:"offset"`
 			Limit  int    `json:"limit"`
 		}
 		if err := json.Unmarshal(raw, &a); err != nil {
-			return toolError("bad arguments: %v", err)
+			return chatRead{}, fmt.Errorf("bad arguments: %v", err)
 		}
 		id := strings.TrimPrefix(strings.TrimSpace(a.ID), "#")
 		if id == "" {
-			return toolError("id is required, such as chat-805")
+			return chatRead{}, errors.New("id is required, such as chat-805")
 		}
 		if a.Offset < 0 || a.Limit < 0 {
-			return toolError("offset and limit must be positive")
+			return chatRead{}, errors.New("offset and limit must be positive")
 		}
 		e.mu.Lock()
 		defer e.mu.Unlock()
 		c := e.w.Chats[id]
 		if c == nil {
-			return toolError("no chat %s", id)
+			return chatRead{}, fmt.Errorf("no chat %s", id)
 		}
-		return model.ToolResult{Text: e.chatText(c, a.Offset, a.Limit)}
-	}}
+		return chatRead{c.ID, c.Title, c.TeamID, len(c.Messages), e.chatText(c, a.Offset, a.Limit)}, nil
+	}, showText[chatRead])
 }
 
 // chatText writes a chat's messages from offset (1-indexed), at most limit of them (0: all) and readChatBytes.

@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"reflect"
 
+	"github.com/yanun0323/Team-Work/internal/codemode"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/semantic"
 )
@@ -22,21 +25,36 @@ func (SemanticSearch) Spec() model.ToolSpec {
 }
 
 func (t SemanticSearch) Run(ctx context.Context, cwd string, raw json.RawMessage) model.ToolResult {
+	res, err := t.search(ctx, cwd, raw)
+	if err != nil {
+		return fail("%s", err)
+	}
+	out, _ := json.Marshal(res)
+	return model.ToolResult{Text: string(out)}
+}
+
+// Structured is what Run says, as data for exec.
+func (t SemanticSearch) Structured(ctx context.Context, cwd string, raw json.RawMessage) (any, error) {
+	return t.search(ctx, cwd, raw)
+}
+
+func (SemanticSearch) Returns() string { return codemode.TypeOf(reflect.TypeFor[semantic.Result]()) }
+
+func (t SemanticSearch) search(ctx context.Context, cwd string, raw json.RawMessage) (semantic.Result, error) {
 	var args struct {
 		Query string `json:"query"`
 		Limit int    `json:"limit"`
 	}
 	if err := decode(raw, &args); err != nil {
-		return fail("invalid arguments: %v", err)
+		return semantic.Result{}, fmt.Errorf("invalid arguments: %v", err)
 	}
 	res, err := t.Service.Search(ctx, semantic.Query{Cwd: cwd, Text: args.Query, Limit: args.Limit, Task: t.Task, Replica: t.Replica})
 	var user *semantic.UserError
 	switch {
 	case errors.As(err, &user):
-		return fail("%s", user.Error())
+		return semantic.Result{}, errors.New(user.Error())
 	case err != nil:
-		return fail("semantic search failed; use grep")
+		return semantic.Result{}, errors.New("semantic search failed; use grep")
 	}
-	out, _ := json.Marshal(res)
-	return model.ToolResult{Text: string(out)}
+	return res, nil
 }

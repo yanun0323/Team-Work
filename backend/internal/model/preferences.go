@@ -75,6 +75,9 @@ type Preferences struct {
 	// SemanticSearch is the experimental semantic_search tool, off by default; turning it on takes effect after a
 	// restart, turning it off at once.
 	SemanticSearch bool `json:"semanticSearch"`
+	// CodeMode is the experimental exec tool, off by default: a script that calls the read-only tools an employee has.
+	// It takes effect at the next model call.
+	CodeMode bool `json:"codeMode"`
 }
 
 // IdleFollowChoices are the waits, in seconds, IdleFollow may be set to; 0 is off.

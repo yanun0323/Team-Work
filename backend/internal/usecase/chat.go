@@ -1157,6 +1157,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			})
 		},
 	}
+	e.codeMode(t, codeModeSource{Kind: "chat", ChatID: in.id, Replica: in.speaker})
 	in.overhead = requestTokens(t.req)
 	t.compact = func(ctx context.Context) ([]model.Message, bool) { return e.compactChat(ctx, in) }
 	t.compactAt = in.compactAt

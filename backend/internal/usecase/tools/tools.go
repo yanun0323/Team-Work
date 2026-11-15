@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -24,6 +25,7 @@ import (
 	"golang.org/x/image/webp"
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/codemode"
 	"github.com/yanun0323/Team-Work/internal/imagefit"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
@@ -189,45 +191,114 @@ func (Read) Spec() model.ToolSpec {
 }
 
 func (t Read) Run(_ context.Context, cwd string, raw json.RawMessage) model.ToolResult {
-	var args struct {
-		Path   string `json:"path"`
-		Offset int    `json:"offset"`
-		Limit  int    `json:"limit"`
+	args, r, mime, done, err := t.open(cwd, raw)
+	if err != nil {
+		return fail("%s", err)
 	}
+	defer done()
+	if mime != "" {
+		return readImage(r, args.Path, mime)
+	}
+	w, err := readLines(r, args.Offset, args.Limit)
+	if err != nil {
+		return fail("%s", err)
+	}
+	if w.total == 0 {
+		return model.ToolResult{}
+	}
+	text := w.content
+	if w.cutLine {
+		text += fmt.Sprintf("\n\n[Line %d is cut at 50KB.]", w.end)
+	}
+	if w.end < w.total {
+		text += fmt.Sprintf("\n[Showing lines %d-%d of %d. Use offset=%d to continue.]", w.start, w.end, w.total, w.end+1)
+	}
+	return model.ToolResult{Text: text}
+}
+
+// FileText is a window of a text file, as exec reads it.
+type FileText struct {
+	Path       string `json:"path"`
+	StartLine  int    `json:"startLine"`
+	EndLine    int    `json:"endLine"`
+	TotalLines int    `json:"totalLines"`
+	// Truncated says there is more after EndLine, or EndLine itself is cut at 50KB; read on from EndLine+1.
+	Truncated bool   `json:"truncated"`
+	Content   string `json:"content"`
+}
+
+// Structured reads a text file as Run does, from the same folders and within the same limits, as data.
+func (t Read) Structured(_ context.Context, cwd string, raw json.RawMessage) (any, error) {
+	args, r, mime, done, err := t.open(cwd, raw)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	if mime != "" {
+		return nil, errors.New("exec reads text files only; read images with read_file directly")
+	}
+	w, err := readLines(r, args.Offset, args.Limit)
+	if err != nil {
+		return nil, err
+	}
+	return FileText{Path: args.Path, StartLine: w.start, EndLine: w.end, TotalLines: w.total, Truncated: w.cutLine || w.end < w.total, Content: w.content}, nil
+}
+
+func (Read) Returns() string { return codemode.TypeOf(reflect.TypeFor[FileText]()) }
+
+type readArgs struct {
+	Path   string `json:"path"`
+	Offset int    `json:"offset"`
+	Limit  int    `json:"limit"`
+}
+
+// open finds the file read_file is asked for, inside the folders it may read, and opens it: mime is an image's type,
+// "" for text. done closes it.
+func (t Read) open(cwd string, raw json.RawMessage) (args readArgs, r *bufio.Reader, mime string, done func(), err error) {
 	if err := decode(raw, &args); err != nil {
-		return fail("invalid arguments: %v", err)
+		return args, nil, "", nil, fmt.Errorf("invalid arguments: %v", err)
 	}
 	if args.Path == "" {
-		return fail("path is required")
+		return args, nil, "", nil, errors.New("path is required")
 	}
 	path, err := within(cwd, args.Path, t.Extra...)
 	if err != nil {
-		return fail("%s", problem(err))
+		return args, nil, "", nil, errors.New(problem(err))
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return fail("%s", problem(err))
+		return args, nil, "", nil, errors.New(problem(err))
 	}
-	defer f.Close()
 	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
-		return fail("%s is not a regular file", args.Path)
+		f.Close()
+		return args, nil, "", nil, fmt.Errorf("%s is not a regular file", args.Path)
 	}
-	r := bufio.NewReaderSize(f, 64<<10)
+	r = bufio.NewReaderSize(f, 64<<10)
 	head, err := r.Peek(8 << 10)
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, bufio.ErrBufferFull) {
-		return fail("%s", problem(err))
+		f.Close()
+		return args, nil, "", nil, errors.New(problem(err))
 	}
 	if mime := http.DetectContentType(head); images[mime] {
-		return readImage(r, args.Path, mime)
+		return args, r, mime, func() { f.Close() }, nil
 	}
 	if bytes.IndexByte(head, 0) >= 0 {
-		return fail("%s is a binary file", args.Path)
+		f.Close()
+		return args, nil, "", nil, fmt.Errorf("%s is a binary file", args.Path)
 	}
-	return readLines(r, args.Offset, args.Limit)
+	return args, r, "", func() { f.Close() }, nil
 }
 
-// readLines shows a window of lines as they are in the file, and says how to read on.
-func readLines(r *bufio.Reader, offset, limit int) model.ToolResult {
+// window is the lines of a file read_file shows: start to end of total, as they are in the file. cutLine says end is
+// one line longer than everything that may be shown, cut short.
+type window struct {
+	content           string
+	start, end, total int
+	cutLine           bool
+}
+
+// readLines reads a window of lines, up to maxLines and maxBytes.
+func readLines(r *bufio.Reader, offset, limit int) (window, error) {
 	start := max(offset, 1)
 	if limit <= 0 || limit > maxLines {
 		limit = maxLines
@@ -237,7 +308,7 @@ func readLines(r *bufio.Reader, offset, limit int) model.ToolResult {
 	for {
 		line, err := r.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
-			return fail("%s", problem(err))
+			return window{}, errors.New(problem(err))
 		}
 		if line == "" {
 			break
@@ -250,7 +321,6 @@ func readLines(r *bufio.Reader, offset, limit int) model.ToolResult {
 				end = total
 			case total == start: // one line longer than everything that may be shown
 				b.WriteString(cutUTF8(line, maxBytes))
-				b.WriteString("\n")
 				end, full, cutLine = total, true, true
 			default:
 				full = true
@@ -260,19 +330,10 @@ func readLines(r *bufio.Reader, offset, limit int) model.ToolResult {
 			break
 		}
 	}
-	if start > total {
-		if total == 0 {
-			return model.ToolResult{}
-		}
-		return fail("offset %d is past the end of the file, which has %d lines", start, total)
+	if start > total && total > 0 {
+		return window{}, fmt.Errorf("offset %d is past the end of the file, which has %d lines", start, total)
 	}
-	if cutLine {
-		fmt.Fprintf(&b, "\n[Line %d is cut at 50KB.]", end)
-	}
-	if end < total {
-		fmt.Fprintf(&b, "\n[Showing lines %d-%d of %d. Use offset=%d to continue.]", start, end, total, end+1)
-	}
-	return model.ToolResult{Text: b.String()}
+	return window{content: b.String(), start: start, end: end, total: total, cutLine: cutLine}, nil
 }
 
 func readImage(r io.Reader, path, mime string) model.ToolResult {
@@ -348,4 +409,11 @@ func (t Write) Run(_ context.Context, cwd string, raw json.RawMessage) model.Too
 		t.Changed(path, "write_file")
 	}
 	return model.ToolResult{Text: fmt.Sprintf("wrote %d bytes to %s", len(*args.Content), args.Path)}
+}
+
+// Structured is a read-only tool exec may call from a script: what it finds as plain data, of the TypeScript type
+// Returns says, and its failures as errors. It reads what Run reads, from the same places.
+type Structured interface {
+	Structured(ctx context.Context, cwd string, args json.RawMessage) (any, error)
+	Returns() string
 }

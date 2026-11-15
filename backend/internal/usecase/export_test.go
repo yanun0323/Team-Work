@@ -1,6 +1,11 @@
 package usecase
 
-import "time"
+import (
+	"slices"
+	"time"
+
+	"github.com/yanun0323/Team-Work/internal/model"
+)
 
 // SetStopWait shortens how long a stopped run may take to end before it is called uncertain, for a test.
 func SetStopWait(d time.Duration) func() {
@@ -22,4 +27,19 @@ func (e *Engine) Remember(replicaID, text string) {
 	defer e.mu.Unlock()
 	e.remember(&replicaID, text, "test", "")
 	e.settle()
+}
+
+// Conversation is what the model was told and said in a run, a chat or an owner's decisions, for a test.
+func (e *Engine) Conversation(id string) []model.Message {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if err := e.loadConversation(id); err != nil {
+		return nil
+	}
+	return slices.Clone(e.w.Conversations[id])
+}
+
+// OwnerConversation is the conversation of a task's owner, for a test.
+func (e *Engine) OwnerConversation(taskID string) []model.Message {
+	return e.Conversation(ownerKey(taskID))
 }

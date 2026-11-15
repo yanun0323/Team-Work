@@ -275,7 +275,10 @@ func TestWhatTheOwnerSaidOutlivesARestartAndIsReadOnce(t *testing.T) {
 	}
 	r.wait("the command to run", func(w *model.World) bool {
 		s := w.SubTasks[sub.ID]
-		return len(results) == 1 && len(s.Log) > 0 && strings.HasPrefix(s.Log[len(s.Log)-1].Text, "run_command")
+		r.fake.mu.Lock() // results is written by the model's calls, which hold it
+		sent := len(results)
+		r.fake.mu.Unlock()
+		return sent == 1 && len(s.Log) > 0 && strings.HasPrefix(s.Log[len(s.Log)-1].Text, "run_command")
 	})
 	r.e.Close()
 

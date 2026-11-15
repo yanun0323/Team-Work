@@ -911,7 +911,7 @@ func (e *Engine) meetingTurn(in *meetingRun) *turn {
 		e.settle()
 		return true
 	}
-	return &turn{
+	tr := &turn{
 		provider: meetingGate{Provider: in.spec.provider, e: e, in: in},
 		req: model.ModelRequest{Cwd: in.dir, Session: in.key, Model: in.spec.model, Effort: in.spec.effort, System: in.system,
 			Messages: in.conv, Tools: specs},
@@ -983,6 +983,8 @@ func (e *Engine) meetingTurn(in *meetingRun) *turn {
 			return heard
 		},
 	}
+	e.codeMode(tr, codeModeSource{Kind: "meeting", TaskID: in.taskID, Replica: in.turn.Speaker})
+	return tr
 }
 
 // meetingChange runs a chair's tool under the lock, while their turn is still the meeting's.

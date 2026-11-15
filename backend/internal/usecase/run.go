@@ -53,6 +53,13 @@ type turn struct {
 	steer func() []model.Message
 	// noRetry is for a call the user authorized once, such as a meeting conclusion.
 	noRetry bool
+	// prepare, when set, comes before every try at the model, before onStart: it may change the tools offered, so a
+	// setting changed meanwhile counts from the next call on.
+	prepare func()
+	// gate, when set, comes before each tool call: false skips it, uncounted, with the result given instead.
+	gate func(model.Block) (model.ToolResult, bool)
+	// halt, when set, comes after a round of tool results is recorded: true stops the turn there.
+	halt func() bool
 }
 
 // turnResult is how a turn ended: Stopped by a tool or callback, or with the model's Text and no tool calls.
@@ -64,6 +71,9 @@ type turnResult struct {
 func (t *turn) complete(ctx context.Context) (model.ModelReply, error) {
 	delay := retryDelay
 	for attempt := 0; ; attempt++ {
+		if t.prepare != nil {
+			t.prepare()
+		}
 		t.onStart()
 		reply, err := t.provider.Complete(ctx, t.req, t.onText)
 		var failure *model.Error
@@ -111,6 +121,12 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 			if b.Type != enum.BlockToolCall || stopped {
 				continue
 			}
+			if t.gate != nil {
+				if refused, ok := t.gate(b); !ok {
+					results = append(results, model.Block{Type: enum.BlockToolResult, ID: b.ID, Name: b.Name, Text: refused.Text, IsError: true})
+					continue
+				}
+			}
 			t.onTool(b)
 			tool := t.tools[b.Name]
 			result := model.ToolResult{Text: "unknown tool " + b.Name, IsError: true}
@@ -148,6 +164,9 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 		msg := model.Message{Role: enum.RoleUser, Content: results}
 		t.req.Messages = append(t.req.Messages, msg)
 		t.onResults(msg)
+		if t.halt != nil && t.halt() {
+			return turnResult{Stopped: true}, nil
+		}
 		if t.steer != nil {
 			t.req.Messages = append(t.req.Messages, t.steer()...)
 		}
@@ -814,6 +833,11 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 		tr.compact = func(ctx context.Context) ([]model.Message, bool) { return e.compactStep(ctx, in, tr.req.Messages) }
 		tr.compactAt = e.workCompactAt(in.spec.model)
 	}
+	kind := "step"
+	if in.talk {
+		kind = "talk"
+	}
+	e.codeMode(tr, codeModeSource{Kind: kind, TaskID: in.taskID, Replica: replicaOf(in.r)})
 	return tr
 }
 
@@ -895,6 +919,9 @@ func (e *Engine) clearOutput(id string) {
 // toolLine is how a tool call shows in a log: its name and arguments, cut short, with secrets down to their last 4
 // characters first.
 func toolLine(call model.Block) string {
+	if call.Name == toolExec {
+		return execLine(call.Args)
+	}
 	return call.Name + " " + clip(maskSecrets(call.Args), 200)
 }
 
@@ -1034,22 +1061,22 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if t := e.w.Tasks[in.taskID]; t != nil && t.OwnerLed() {
-		out = append(out, e.askOwnerTool(in), funcTool{model.ToolSpec{Name: "read_step",
-			Description: "Read a run of a step of this task by its id (sub-…): its instructions and handoff; its log, by page, only with log=true. " +
+		out = append(out, e.askOwnerTool(in), jsonTool(toolReadStep,
+			"Read a run of a step of this task by its id (sub-…): its instructions and handoff; its log, by page, only with log=true. "+
 				"For the handoffs and earlier attempts your instructions name.",
-			Parameters: json.RawMessage(readStepSchema)}, func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
-			var a readStepArgs
-			if err := parseArgs(raw, &a); err != nil {
-				return toolError("%s", safeText(err))
-			}
-			e.mu.Lock()
-			defer e.mu.Unlock()
-			t := e.w.Tasks[in.taskID]
-			if t == nil {
-				return toolError("the task is gone")
-			}
-			return e.stepRun(t, a)
-		}})
+			readStepSchema, func(_ context.Context, _ string, raw json.RawMessage) (stepText, error) {
+				var a readStepArgs
+				if err := parseArgs(raw, &a); err != nil {
+					return stepText{}, errors.New(safeText(err))
+				}
+				e.mu.Lock()
+				defer e.mu.Unlock()
+				t := e.w.Tasks[in.taskID]
+				if t == nil {
+					return stepText{}, errors.New("the task is gone")
+				}
+				return e.stepRun(t, a)
+			}, showText[stepText]))
 	}
 	if s, t := e.w.SubTasks[in.subID], e.w.Tasks[in.taskID]; s != nil && t != nil && e.maySendBack(t, s) {
 		out = append(out, funcTool{model.ToolSpec{Name: "send_back", Description: "The work does not pass: commit what is here and send it back to the steps before this one, to redo.",

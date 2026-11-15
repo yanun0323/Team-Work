@@ -221,3 +221,48 @@ func TestExitedProcessIsReplacedNotReused(t *testing.T) {
 		t.Fatalf("the conversation was not taken up again: %+v", got)
 	}
 }
+
+// Turning the experimental exec tool on or off changes the tools a request offers: a process or a saved transcript
+// made with the other list is not reused, so Claude never answers from a history with the wrong tools. The same list
+// again is reused.
+func TestToolListChangeIsNotResumed(t *testing.T) {
+	fakeClaude(t)
+	t.Setenv("MHO_TEST_CLAUDE_LOG", filepath.Join(t.TempDir(), "sent.jsonl"))
+	p := plain(t)
+	b := newBridge()
+	runTurn(t, b, &p)
+	b.close()
+	cwd, _ := filepath.EvalSymlinks(p.Cwd)
+	exec := ToolSpec{Name: "exec", Description: "Run a script.\n\ndeclare const tools: {\n  read(args: {}): unknown;\n};", Parameters: json.RawMessage(`{"type":"object","properties":{"code":{"type":"string"}},"required":["code"]}`)}
+
+	next := p
+	next.Messages = append(append([]ModelMessage{}, p.Messages...), ModelMessage{Role: "user", Content: []Block{text("next")}})
+	on := next
+	on.Tools = append(append([]ToolSpec{}, p.Tools...), exec)
+	other := on
+	other.Tools = append(append([]ToolSpec{}, p.Tools...), exec)
+	other.Tools[len(other.Tools)-1].Description += "\n  more(args: {}): unknown;"
+	if signature(on) == signature(next) || signature(other) == signature(on) {
+		t.Fatal("the signature does not tell the tool lists apart")
+	}
+	if resumable(p.Session, on, cwd, time.Now()) != nil {
+		t.Fatal("resumed a transcript made without exec")
+	}
+	live := &session{child: &child{done: make(chan struct{})}, signature: signature(p), expected: p.Messages}
+	if got := restartReason(live, on); got != "settings_changed" {
+		t.Fatalf("turning exec on: %q", got)
+	}
+	withExec := &session{child: &child{done: make(chan struct{})}, signature: signature(on), expected: p.Messages}
+	if got := restartReason(withExec, next); got != "settings_changed" {
+		t.Fatalf("turning exec off: %q", got)
+	}
+	if got := restartReason(withExec, other); got != "settings_changed" {
+		t.Fatalf("exec over other tools: %q", got)
+	}
+	if got := restartReason(withExec, on); got != "" {
+		t.Fatalf("the same tools: %q", got)
+	}
+	if resumable(p.Session, next, cwd, time.Now()) == nil {
+		t.Fatal("the same tools could not resume")
+	}
+}

@@ -5,12 +5,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/codemode"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
 )
@@ -67,64 +70,99 @@ func parseRead(raw json.RawMessage) (readArgs, error) {
 
 // readingTools are list_* and read_*: lists give what tells items apart, and read_* one item in full.
 func (e *Engine) readingTools(m manager) []adapter.Tool {
-	noArgs := json.RawMessage(`{"type":"object","properties":{}}`)
-	lister := func(name, description string, list func() any) adapter.Tool {
-		return funcTool{model.ToolSpec{Name: name, Description: description, Parameters: noArgs}, func(context.Context, string, json.RawMessage) model.ToolResult {
-			e.mu.Lock()
-			defer e.mu.Unlock()
-			return jsonResult(list())
-		}}
-	}
-	// reader reads one item by id; ok false is one that is not there or not theirs, told the same way
-	reader := func(name, kind, description string, read func(id string) (any, bool)) adapter.Tool {
-		schema := json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"The ` + kind + `'s id, from list_` + kind + `s"}},"required":["id"]}`)
-		if kind == "company" {
-			schema = json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"The company's id, from list_companies"}},"required":["id"]}`)
-		}
-		return funcTool{model.ToolSpec{Name: name, Description: description, Parameters: schema}, func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
-			a, err := parseRead(raw)
-			if err != nil {
-				return toolError("bad arguments: %v", err)
-			}
-			if a.ID == "" {
-				return toolError("id is required")
-			}
-			e.mu.Lock()
-			defer e.mu.Unlock()
-			v, ok := read(a.ID)
-			if !ok {
-				return toolError("no %s %s", kind, a.ID)
-			}
-			return jsonResult(v)
-		}}
-	}
 	return []adapter.Tool{
-		lister(toolListTasks, "List the tasks you can reach: id, number, title, stage and status. read_task reads one in full.", func() any { return e.listTasks(m) }),
-		funcTool{model.ToolSpec{Name: toolReadTask, Description: readTaskDescriptionText, Parameters: json.RawMessage(readTaskSchema(false))}, func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+		lister(e, toolListTasks, "List the tasks you can reach: id, number, title, stage and status. read_task reads one in full.", func() []taskRow { return e.listTasks(m) }),
+		jsonTool(toolReadTask, readTaskDescriptionText, readTaskSchema(false), func(_ context.Context, _ string, raw json.RawMessage) (taskText, error) {
 			a, err := parseRead(raw)
 			if err != nil {
-				return toolError("bad arguments: %v", err)
+				return taskText{}, fmt.Errorf("bad arguments: %v", err)
 			}
 			if a.TaskID == "" {
-				return toolError("task_id is required")
+				return taskText{}, errors.New("task_id is required")
 			}
 			e.mu.Lock()
 			defer e.mu.Unlock()
 			return e.readTask(m, a)
-		}},
-		lister(toolListBlueprints, "List the blueprints by id and name. read_blueprint reads one in full, with the version to pass to save_blueprint.", e.listBlueprints),
-		reader(toolReadBlueprint, "blueprint", "Read a blueprint in full by its id: its prompt, tools, skills, whether it can be changed, and the version to pass to save_blueprint. Built-in blueprints, ones from Git and ones a source provides cannot be changed.", e.readBlueprint),
-		lister(toolListWorkflows, "List the task flows by id and name. read_workflow reads one in full, with the version to pass to save_workflow.", e.listWorkflows),
-		reader(toolReadWorkflow, "workflow", "Read a task flow in full by its id: its steps with their prompts, its edges, whether it can be changed, and the version to pass to save_workflow. Built-in flows and ones a source provides cannot be changed.", e.readWorkflow),
-		lister(toolListEmployees, "List the employees you can reach by id and name. read_employee reads one in full, with the version to pass to save_employees.", func() any { return e.listEmployees(m) }),
-		reader(toolReadEmployee, "employee", "Read an employee you can reach by their id: blueprint, model, thinking level, and the version to pass to save_employees.", func(id string) (any, bool) { return e.readEmployee(m, id) }),
-		lister(toolListCompanies, "List the companies you can reach by id and name. read_company reads one in full.", func() any { return e.listCompanies(m) }),
-		reader(toolReadCompany, "company", "Read a company you can reach by its id: its folder and target branch.", func(id string) (any, bool) { return e.readCompany(m, id) }),
-		lister(toolListProviders, "List the model providers by id and name. read_provider reads one in full, with the version to pass to save_provider.", e.listProviders),
-		reader(toolReadProvider, "provider", "Read a model provider in full by its id: its models, each model's thinking levels, prices, and the version to pass to save_provider. API keys are never shown, only their last 4 characters.", e.readProvider),
+		}, func(v taskText) model.ToolResult { return model.ToolResult{Text: v.Text} }),
+		lister(e, toolListBlueprints, "List the blueprints by id and name. read_blueprint reads one in full, with the version to pass to save_blueprint.", e.listBlueprints),
+		reader(e, toolReadBlueprint, "blueprint", "Read a blueprint in full by its id: its prompt, tools, skills, whether it can be changed, and the version to pass to save_blueprint. Built-in blueprints, ones from Git and ones a source provides cannot be changed.", e.readBlueprint),
+		lister(e, toolListWorkflows, "List the task flows by id and name. read_workflow reads one in full, with the version to pass to save_workflow.", e.listWorkflows),
+		reader(e, toolReadWorkflow, "workflow", "Read a task flow in full by its id: its steps with their prompts, its edges, whether it can be changed, and the version to pass to save_workflow. Built-in flows and ones a source provides cannot be changed.", e.readWorkflow),
+		lister(e, toolListEmployees, "List the employees you can reach by id and name. read_employee reads one in full, with the version to pass to save_employees.", func() []item { return e.listEmployees(m) }),
+		reader(e, toolReadEmployee, "employee", "Read an employee you can reach by their id: blueprint, model, thinking level, and the version to pass to save_employees.", func(id string) (employeeView, bool) { return e.readEmployee(m, id) }),
+		lister(e, toolListCompanies, "List the companies you can reach by id and name. read_company reads one in full.", func() []item { return e.listCompanies(m) }),
+		reader(e, toolReadCompany, "company", "Read a company you can reach by its id: its folder and target branch.", func(id string) (companyView, bool) { return e.readCompany(m, id) }),
+		lister(e, toolListProviders, "List the model providers by id and name. read_provider reads one in full, with the version to pass to save_provider.", e.listProviders),
+		reader(e, toolReadProvider, "provider", "Read a model provider in full by its id: its models, each model's thinking levels, prices, and the version to pass to save_provider. API keys are never shown, only their last 4 characters.", e.readProvider),
 		e.readChatTool(),
 	}
 }
+
+// dataTool is a read-only funcTool exec may call too: data is what it finds, of the TypeScript type returns. Its Run
+// shows the same, so a direct call and a script read alike.
+type dataTool struct {
+	funcTool
+	data    func(ctx context.Context, cwd string, args json.RawMessage) (any, error)
+	returns string
+}
+
+func (d dataTool) Structured(ctx context.Context, cwd string, args json.RawMessage) (any, error) {
+	return d.data(ctx, cwd, args)
+}
+
+func (d dataTool) Returns() string { return d.returns }
+
+// jsonTool makes a dataTool from what it finds, of type T, and how a direct call shows it.
+func jsonTool[T any](name, description, schema string, data func(context.Context, string, json.RawMessage) (T, error), show func(T) model.ToolResult) dataTool {
+	return dataTool{
+		funcTool: funcTool{model.ToolSpec{Name: name, Description: description, Parameters: json.RawMessage(schema)}, func(ctx context.Context, cwd string, raw json.RawMessage) model.ToolResult {
+			v, err := data(ctx, cwd, raw)
+			if err != nil {
+				return toolError("%s", err)
+			}
+			return show(v)
+		}},
+		data:    func(ctx context.Context, cwd string, raw json.RawMessage) (any, error) { return data(ctx, cwd, raw) },
+		returns: codemode.TypeOf(reflect.TypeFor[T]()),
+	}
+}
+
+// lister is a list_* tool: its list as JSON.
+func lister[T any](e *Engine, name, description string, list func() []T) dataTool {
+	return jsonTool(name, description, `{"type":"object","properties":{}}`, func(context.Context, string, json.RawMessage) ([]T, error) {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return list(), nil
+	}, jsonOf[[]T])
+}
+
+// reader is a read_* tool that reads one item by id as JSON; ok false is one that is not there or not theirs, told the
+// same way.
+func reader[T any](e *Engine, name, kind, description string, read func(id string) (T, bool)) dataTool {
+	schema := `{"type":"object","properties":{"id":{"type":"string","description":"The ` + kind + `'s id, from list_` + kind + `s"}},"required":["id"]}`
+	if kind == "company" {
+		schema = `{"type":"object","properties":{"id":{"type":"string","description":"The company's id, from list_companies"}},"required":["id"]}`
+	}
+	return jsonTool(name, description, schema, func(_ context.Context, _ string, raw json.RawMessage) (T, error) {
+		var none T
+		a, err := parseRead(raw)
+		if err != nil {
+			return none, fmt.Errorf("bad arguments: %v", err)
+		}
+		if a.ID == "" {
+			return none, errors.New("id is required")
+		}
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		v, ok := read(a.ID)
+		if !ok {
+			return none, fmt.Errorf("no %s %s", kind, a.ID)
+		}
+		return v, nil
+	}, jsonOf[T])
+}
+
+func jsonOf[T any](v T) model.ToolResult { return jsonResult(v) }
 
 func jsonResult(v any) model.ToolResult {
 	raw, err := json.Marshal(v)
@@ -169,22 +207,24 @@ func sortedItems(out []item) []item {
 
 // ---------- tasks ----------
 
-func (e *Engine) listTasks(m manager) any {
-	type row struct {
-		ID     string         `json:"id"`
-		TeamID string         `json:"teamId,omitempty"`
-		Number int            `json:"number"`
-		Title  string         `json:"title"`
-		Stage  enum.TaskStage `json:"stage"`
-		Status enum.Status    `json:"status"`
-	}
-	out := []row{}
+// taskRow is a task in list_tasks.
+type taskRow struct {
+	ID     string         `json:"id"`
+	TeamID string         `json:"teamId,omitempty"`
+	Number int            `json:"number"`
+	Title  string         `json:"title"`
+	Stage  enum.TaskStage `json:"stage"`
+	Status enum.Status    `json:"status"`
+}
+
+func (e *Engine) listTasks(m manager) []taskRow {
+	out := []taskRow{}
 	for _, t := range e.w.Tasks {
 		if m.reaches(t.TeamID) {
-			out = append(out, row{t.ID, m.teamShown(t.TeamID), t.Number, t.Title, t.Stage, e.statusOf(t)})
+			out = append(out, taskRow{t.ID, m.teamShown(t.TeamID), t.Number, t.Title, t.Stage, e.statusOf(t)})
 		}
 	}
-	slices.SortFunc(out, func(a, b row) int {
+	slices.SortFunc(out, func(a, b taskRow) int {
 		if c := strings.Compare(a.TeamID, b.TeamID); c != 0 {
 			return c
 		}
@@ -201,11 +241,22 @@ func (e *Engine) reachableTask(m manager, id string) *model.Task {
 	return nil
 }
 
+// taskText is read_task's answer: what tells the task apart, and Text, what a direct call shows.
+type taskText struct {
+	ID     string         `json:"id"`
+	Number int            `json:"number"`
+	Title  string         `json:"title"`
+	TeamID string         `json:"teamId,omitempty"`
+	Stage  enum.TaskStage `json:"stage"`
+	Status enum.Status    `json:"status"`
+	Text   string         `json:"text"`
+}
+
 // readTask is read_task for employees, and for the owner on a task not their own. Call it holding the lock.
-func (e *Engine) readTask(m manager, a readArgs) model.ToolResult {
+func (e *Engine) readTask(m manager, a readArgs) (taskText, error) {
 	t := e.reachableTask(m, a.TaskID)
 	if t == nil {
-		return toolError("no task %s", a.TaskID)
+		return taskText{}, fmt.Errorf("no task %s", a.TaskID)
 	}
 	head := fmt.Sprintf("Task #%d %q (%s).\n", t.Number, t.Title, t.ID)
 	if a.Before == 0 {
@@ -213,9 +264,9 @@ func (e *Engine) readTask(m manager, a readArgs) model.ToolResult {
 	}
 	text, err := e.taskConversation(t, head, a.Before, a.Limit)
 	if err != nil {
-		return toolError("%s", safeText(err))
+		return taskText{}, errors.New(safeText(err))
 	}
-	return model.ToolResult{Text: text}
+	return taskText{t.ID, t.Number, t.Title, m.teamShown(t.TeamID), t.Stage, e.statusOf(t), text}, nil
 }
 
 // taskDetails is a task as employees read it: what list_tasks used to give, then how each step went.
@@ -375,7 +426,7 @@ func (e *Engine) readableBlueprint(id string) *model.Blueprint {
 	return b
 }
 
-func (e *Engine) listBlueprints() any {
+func (e *Engine) listBlueprints() []item {
 	out := []item{}
 	for id := range e.w.Blueprints {
 		if b := e.readableBlueprint(id); b != nil {
@@ -385,27 +436,30 @@ func (e *Engine) listBlueprints() any {
 	return sortedItems(out)
 }
 
-func (e *Engine) readBlueprint(id string) (any, bool) {
+// blueprintView is a blueprint as read_blueprint reads it.
+type blueprintView struct {
+	ID       string            `json:"id"`
+	Version  string            `json:"version"`
+	Name     string            `json:"name"`
+	Source   string            `json:"source"`
+	Editable bool              `json:"editable"`
+	Prompt   string            `json:"prompt"`
+	Comment  string            `json:"comment"`
+	Tools    []enum.Tool       `json:"tools"`
+	Skills   []model.SkillPack `json:"skills"`
+}
+
+func (e *Engine) readBlueprint(id string) (blueprintView, bool) {
 	b := e.readableBlueprint(id)
 	if b == nil {
-		return nil, false
+		return blueprintView{}, false
 	}
-	return struct {
-		ID       string            `json:"id"`
-		Version  string            `json:"version"`
-		Name     string            `json:"name"`
-		Source   string            `json:"source"`
-		Editable bool              `json:"editable"`
-		Prompt   string            `json:"prompt"`
-		Comment  string            `json:"comment"`
-		Tools    []enum.Tool       `json:"tools"`
-		Skills   []model.SkillPack `json:"skills"`
-	}{b.ID, versionOf(b), b.Name, b.Source.Kind, !model.IsLockedID(b.ID) && b.Source.Kind != "git", b.Prompt, b.Comment, b.Tools, e.writtenPacks(b.Skills)}, true
+	return blueprintView{b.ID, versionOf(b), b.Name, b.Source.Kind, !model.IsLockedID(b.ID) && b.Source.Kind != "git", b.Prompt, b.Comment, b.Tools, e.writtenPacks(b.Skills)}, true
 }
 
 // ---------- flows ----------
 
-func (e *Engine) listWorkflows() any {
+func (e *Engine) listWorkflows() []item {
 	out := []item{}
 	for _, wf := range e.w.Workflows {
 		if !e.workflowHidden(wf.ID) {
@@ -415,45 +469,50 @@ func (e *Engine) listWorkflows() any {
 	return sortedItems(out)
 }
 
-func (e *Engine) readWorkflow(id string) (any, bool) {
+// workflowView is a flow as read_workflow reads it.
+type workflowView struct {
+	ID       string     `json:"id"`
+	Version  string     `json:"version"`
+	Name     string     `json:"name"`
+	Editable bool       `json:"editable"`
+	Nodes    []flowNode `json:"nodes"`
+	Edges    []flowEdge `json:"edges"`
+}
+
+type flowNode struct {
+	ID         string           `json:"id"`
+	Kind       enum.NodeKind    `json:"kind"`
+	Name       string           `json:"name"`
+	Prompt     string           `json:"prompt"`
+	ReplicaIDs []string         `json:"replicaIds"`
+	Handoff    enum.HandoffMode `json:"handoff"`
+	Join       enum.JoinMode    `json:"join"`
+}
+
+type flowEdge struct {
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Condition string `json:"condition,omitempty"`
+}
+
+func (e *Engine) readWorkflow(id string) (workflowView, bool) {
 	wf := e.w.Workflows[id]
 	if wf == nil || e.workflowHidden(wf.ID) {
-		return nil, false
+		return workflowView{}, false
 	}
-	type node struct {
-		ID         string           `json:"id"`
-		Kind       enum.NodeKind    `json:"kind"`
-		Name       string           `json:"name"`
-		Prompt     string           `json:"prompt"`
-		ReplicaIDs []string         `json:"replicaIds"`
-		Handoff    enum.HandoffMode `json:"handoff"`
-		Join       enum.JoinMode    `json:"join"`
-	}
-	type edge struct {
-		From      string `json:"from"`
-		To        string `json:"to"`
-		Condition string `json:"condition,omitempty"`
-	}
-	out := struct {
-		ID       string `json:"id"`
-		Version  string `json:"version"`
-		Name     string `json:"name"`
-		Editable bool   `json:"editable"`
-		Nodes    []node `json:"nodes"`
-		Edges    []edge `json:"edges"`
-	}{ID: wf.ID, Version: versionOf(wf), Name: wf.Name, Editable: !model.IsLockedID(wf.ID), Nodes: []node{}, Edges: []edge{}}
+	out := workflowView{ID: wf.ID, Version: versionOf(wf), Name: wf.Name, Editable: !model.IsLockedID(wf.ID), Nodes: []flowNode{}, Edges: []flowEdge{}}
 	for _, n := range wf.Nodes {
-		out.Nodes = append(out.Nodes, node{n.ID, n.Kind, n.Name, n.Prompt, n.ReplicaIDs, n.Handoff, n.Join})
+		out.Nodes = append(out.Nodes, flowNode{n.ID, n.Kind, n.Name, n.Prompt, n.ReplicaIDs, n.Handoff, n.Join})
 	}
 	for _, x := range wf.Edges {
-		out.Edges = append(out.Edges, edge{x.From, x.To, x.Condition})
+		out.Edges = append(out.Edges, flowEdge{x.From, x.To, x.Condition})
 	}
 	return out, true
 }
 
 // ---------- employees and companies ----------
 
-func (e *Engine) listEmployees(m manager) any {
+func (e *Engine) listEmployees(m manager) []item {
 	out := []item{}
 	for _, r := range e.w.Replicas {
 		if m.sees(r.TeamID) {
@@ -467,10 +526,22 @@ func (e *Engine) listEmployees(m manager) any {
 	return sortedItems(out)
 }
 
-func (e *Engine) readEmployee(m manager, id string) (any, bool) {
+// employeeView is an employee as read_employee reads them.
+type employeeView struct {
+	ID          string `json:"id"`
+	TeamID      string `json:"teamId"`
+	Name        string `json:"name"`
+	BlueprintID string `json:"blueprintId"`
+	Blueprint   string `json:"blueprint"`
+	Model       string `json:"model"`
+	Effort      string `json:"effort"`
+	Version     string `json:"version"`
+}
+
+func (e *Engine) readEmployee(m manager, id string) (employeeView, bool) {
 	r := e.w.Replicas[id]
 	if r == nil || !m.sees(r.TeamID) {
-		return nil, false
+		return employeeView{}, false
 	}
 	blueprint := ""
 	if b := e.w.Blueprints[r.BlueprintID]; b != nil {
@@ -479,19 +550,10 @@ func (e *Engine) readEmployee(m manager, id string) (any, bool) {
 			blueprint = "(custom)"
 		}
 	}
-	return struct {
-		ID          string `json:"id"`
-		TeamID      string `json:"teamId"`
-		Name        string `json:"name"`
-		BlueprintID string `json:"blueprintId"`
-		Blueprint   string `json:"blueprint"`
-		Model       string `json:"model"`
-		Effort      string `json:"effort"`
-		Version     string `json:"version"`
-	}{r.ID, r.TeamID, r.Name, r.BlueprintID, blueprint, r.Model, r.Effort, employeeVersion(r)}, true
+	return employeeView{r.ID, r.TeamID, r.Name, r.BlueprintID, blueprint, r.Model, r.Effort, employeeVersion(r)}, true
 }
 
-func (e *Engine) listCompanies(m manager) any {
+func (e *Engine) listCompanies(m manager) []item {
 	out := []item{}
 	for _, t := range e.w.Teams {
 		if m.reaches(t.ID) {
@@ -501,22 +563,25 @@ func (e *Engine) listCompanies(m manager) any {
 	return sortedItems(out)
 }
 
-func (e *Engine) readCompany(m manager, id string) (any, bool) {
+// companyView is a company as read_company reads it.
+type companyView struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Folder       string `json:"folder"`
+	TargetBranch string `json:"targetBranch"`
+}
+
+func (e *Engine) readCompany(m manager, id string) (companyView, bool) {
 	t := e.w.Teams[id]
 	if t == nil || !m.reaches(t.ID) {
-		return nil, false
+		return companyView{}, false
 	}
-	return struct {
-		ID           string `json:"id"`
-		Name         string `json:"name"`
-		Folder       string `json:"folder"`
-		TargetBranch string `json:"targetBranch"`
-	}{t.ID, t.Name, t.Folder, t.TargetBranch}, true
+	return companyView{t.ID, t.Name, t.Folder, t.TargetBranch}, true
 }
 
 // ---------- providers ----------
 
-func (e *Engine) listProviders() any {
+func (e *Engine) listProviders() []item {
 	out := []item{}
 	for _, p := range e.w.Providers {
 		out = append(out, item{ID: p.ID, Name: p.Name})
@@ -524,23 +589,26 @@ func (e *Engine) listProviders() any {
 	return sortedItems(out)
 }
 
-func (e *Engine) readProvider(id string) (any, bool) {
+// providerView is a provider as read_provider reads it: of its key, only the last 4 characters.
+type providerView struct {
+	ID       string                      `json:"id"`
+	Version  string                      `json:"version"`
+	Name     string                      `json:"name"`
+	Kind     enum.ProviderKind           `json:"kind"`
+	Login    string                      `json:"login"`
+	KeyHint  string                      `json:"keyHint,omitempty"`
+	SignedIn bool                        `json:"signedIn,omitempty"`
+	BaseURL  string                      `json:"baseUrl"`
+	Models   []string                    `json:"models"`
+	Thinking map[string][]string         `json:"thinking,omitempty"`
+	Prices   map[string]model.ModelPrice `json:"prices,omitempty"`
+	Window   int                         `json:"contextWindow"`
+}
+
+func (e *Engine) readProvider(id string) (providerView, bool) {
 	p := e.w.Providers[id]
 	if p == nil {
-		return nil, false
+		return providerView{}, false
 	}
-	return struct {
-		ID       string                      `json:"id"`
-		Version  string                      `json:"version"`
-		Name     string                      `json:"name"`
-		Kind     enum.ProviderKind           `json:"kind"`
-		Login    string                      `json:"login"`
-		KeyHint  string                      `json:"keyHint,omitempty"`
-		SignedIn bool                        `json:"signedIn,omitempty"`
-		BaseURL  string                      `json:"baseUrl"`
-		Models   []string                    `json:"models"`
-		Thinking map[string][]string         `json:"thinking,omitempty"`
-		Prices   map[string]model.ModelPrice `json:"prices,omitempty"`
-		Window   int                         `json:"contextWindow"`
-	}{p.ID, versionOf(p), p.Name, p.Kind, p.Auth.Kind, p.Auth.KeyHint, p.Auth.SignedIn, p.BaseURL, p.Offered(), p.Thinking, p.Prices, model.ContextWindow(*p)}, true
+	return providerView{p.ID, versionOf(p), p.Name, p.Kind, p.Auth.Kind, p.Auth.KeyHint, p.Auth.SignedIn, p.BaseURL, p.Offered(), p.Thinking, p.Prices, model.ContextWindow(*p)}, true
 }

@@ -12,9 +12,9 @@ import (
 // readTaskText is read_task as an employee of every company reads it.
 func readTaskText(t *testing.T, e *Engine, a readArgs) string {
 	t.Helper()
-	res := e.readTask(manager{}, a)
-	if res.IsError {
-		t.Fatal(res.Text)
+	res, err := e.readTask(manager{}, a)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if len(res.Text) > readChatBytes {
 		t.Fatalf("read %d bytes, more than %d", len(res.Text), readChatBytes)

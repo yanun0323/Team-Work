@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/yanun0323/Team-Work/internal/model"
@@ -84,7 +85,13 @@ func TestOwnerCreatesATaskTheUserAskedFor(t *testing.T) {
 func TestOwnerCannotCreateATaskBeyondTheChainLimit(t *testing.T) {
 	t.Parallel()
 	var flowID string
-	var result model.Block
+	var mu sync.Mutex
+	var result model.Block // what create_task told the owner, written by the model's goroutine
+	got := func() model.Block {
+		mu.Lock()
+		defer mu.Unlock()
+		return result
+	}
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
 			return worker(req), nil
@@ -93,7 +100,9 @@ func TestOwnerCannotCreateATaskBeyondTheChainLimit(t *testing.T) {
 		case woken(req, "再開一個"):
 			return ownerCall("create_task", map[string]any{"title": "太多層", "workflow_id": flowID}), nil
 		case lastBlock(req).Name == "create_task":
+			mu.Lock()
 			result = lastBlock(req)
+			mu.Unlock()
 			return say("不行"), nil
 		}
 		return say("待命"), nil
@@ -109,8 +118,8 @@ func TestOwnerCannotCreateATaskBeyondTheChainLimit(t *testing.T) {
 	}
 	r.ownerIdle(task.ID)
 	r.tell(task.ID, "req-1", "再開一個")
-	r.wait("refused", func(*model.World) bool { return result.Name != "" })
-	if !result.IsError || !strings.Contains(result.Text, "limit is 3") {
+	r.wait("refused", func(*model.World) bool { return got().Name != "" })
+	if result := got(); !result.IsError || !strings.Contains(result.Text, "limit is 3") {
 		t.Fatalf("%+v", result)
 	}
 	for _, x := range r.world().Tasks {
