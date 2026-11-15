@@ -98,9 +98,10 @@ func (e *Engine) execTool(fns []codemode.Func, src codeModeSource) adapter.Tool 
 	spec := model.ToolSpec{Name: toolExec, Description: execRules + codemode.Declarations(fns), Parameters: execParams}
 	return funcTool{spec, func(ctx context.Context, _ string, raw json.RawMessage) model.ToolResult {
 		var res codemode.Result
+		lim := codemode.DefaultLimits()
 		code, ok := execCode(raw)
 		if ok {
-			res = codemode.Run(ctx, code, fns, codemode.DefaultLimits(), codemode.Hooks{BeforeCall: src.BeforeCall})
+			res = codemode.Run(ctx, code, fns, lim, codemode.Hooks{BeforeCall: src.BeforeCall})
 		} else {
 			res = codemode.Result{Err: &codemode.Failure{Reason: codemode.ReasonInvalid, Message: "code is required and must be a string"}}
 		}
@@ -118,7 +119,8 @@ func (e *Engine) execTool(fns []codemode.Func, src codeModeSource) adapter.Tool 
 		if res.Output != "" {
 			text += "\nOutput before the failure:\n" + res.Output
 		}
-		return model.ToolResult{Text: text, IsError: true}
+		// The output alone fits the limits; with the failure before it, its end gives way.
+		return model.ToolResult{Text: codemode.Fit(text, lim.MaxLines, lim.MaxBytes), IsError: true}
 	}}
 }
 

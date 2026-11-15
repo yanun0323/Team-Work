@@ -326,3 +326,25 @@ func TestExecRefusesWhatIsNoScript(t *testing.T) {
 		t.Fatalf("%+v", res)
 	}
 }
+
+// A failed exec, its message and the output before it together, still fits what a tool may hand back.
+func TestExecFailureFitsTheLimits(t *testing.T) {
+	e := codeModeEngine()
+	e.setCodeMode(true)
+	tr := readTurn(e, &stepsFake{}, t.TempDir())
+	for _, c := range []struct{ code, starts string }{
+		{`for (let i = 0; i < 1999; i++) text('a'.repeat(20)); throw 'x\n'.repeat(100000)`, "exec failed (script_error): x\nx\n"},
+		{`for (let i = 0; i < 50; i++) text('b'.repeat(1000)); throw 'y'.repeat(1000000)`, "exec failed (script_error): yyy"},
+		{`for (;;) text('c'.repeat(1000))`, "exec failed (output_limit): "},
+		{`for (;;) text('d')`, "exec failed (output_limit): "},
+	} {
+		raw, _ := json.Marshal(map[string]string{"code": c.code})
+		res := tr.tools[toolExec].Run(context.Background(), tr.cwd, raw)
+		if !res.IsError || !strings.HasPrefix(res.Text, c.starts) || !strings.Contains(res.Text, "\nOutput before the failure:\n") {
+			t.Fatalf("%s: %.200q", c.code, res.Text)
+		}
+		if n := strings.Count(res.Text, "\n") + 1; n > 2000 || len(res.Text) > 50<<10 {
+			t.Fatalf("%s: %d lines, %d bytes", c.code, n, len(res.Text))
+		}
+	}
+}

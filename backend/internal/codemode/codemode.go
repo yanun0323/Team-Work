@@ -91,8 +91,25 @@ func Run(ctx context.Context, code string, fns []Func, lim Limits, h Hooks) Resu
 	started := time.Now()
 	s := &sandbox{lim: lim, h: h, calls: map[string]int{}}
 	res := s.run(ctx, code, fns)
+	if res.Err != nil {
+		res.Err.Message = Fit(res.Err.Message, maxMessageLines, maxMessageBytes)
+	}
 	res.Duration = time.Since(started)
 	return res
+}
+
+// A failure's message is kept short, whatever the script threw, so the output before it still has room.
+const (
+	maxMessageLines = 20
+	maxMessageBytes = 2 << 10
+)
+
+// Fit cuts text to at most lines lines and bytes bytes, never inside a character.
+func Fit(text string, lines, bytes int) string {
+	if parts := strings.SplitN(text, "\n", lines+1); len(parts) > lines {
+		text = strings.Join(parts[:lines], "\n")
+	}
+	return cutUTF8(text, bytes)
 }
 
 type sandbox struct {
@@ -109,6 +126,10 @@ type sandbox struct {
 	// mu guards failed, which the watcher may set while the script runs.
 	mu     sync.Mutex
 	failed *Failure
+
+	// jsonText, jsonValue and toText are JSON.stringify, JSON.parse and String as the script found them, before it
+	// could replace them.
+	jsonText, jsonValue, toText goja.Callable
 }
 
 // fail ends the script for good: the first failure stands, the interpreter stops at its next step whatever the
@@ -169,37 +190,63 @@ func (s *sandbox) run(parent context.Context, code string, fns []Func) Result {
 		}
 	}()
 	value, runErr := s.vm.RunProgram(program)
+	// Showing what the script returned or threw runs its code again (toJSON, toString), so it is still watched until
+	// the result is settled.
+	failed := s.finish(value, runErr)
 	close(done)
-	<-watched // the watcher may still be interrupting; it is gone before the result is read
-
-	s.mu.Lock()
-	failed := s.failed
-	s.mu.Unlock()
-	if failed == nil && runErr != nil {
-		failed = scriptFailure(runErr)
-	}
-	if failed == nil && value != nil && !goja.IsUndefined(value) {
-		if text, err := s.show(value, true); err != nil {
-			failed = scriptFailure(err)
-		} else {
-			s.write(text)
-			s.mu.Lock()
-			failed = s.failed
-			s.mu.Unlock()
-		}
-	}
+	<-watched // the watcher may still be interrupting; it is gone before Run returns
 	return Result{Output: s.out.String(), Err: failed, Calls: s.calls}
+}
+
+// finish settles how the run went once the script's body is over: what it threw, or what it returned added to the
+// output. A failure that came first, or while showing these, stands over anything else.
+func (s *sandbox) finish(value goja.Value, runErr error) *Failure {
+	if s.stopped() {
+		return s.failure()
+	}
+	if runErr != nil {
+		f := s.scriptFailure(runErr)
+		if s.stopped() {
+			return s.failure()
+		}
+		return f
+	}
+	if value == nil || goja.IsUndefined(value) {
+		return nil
+	}
+	text, err := s.show(value, true)
+	if s.stopped() {
+		return s.failure()
+	}
+	if err != nil {
+		f := s.scriptFailure(err)
+		if s.stopped() {
+			return s.failure()
+		}
+		return f
+	}
+	s.write(text)
+	return s.failure()
+}
+
+func (s *sandbox) failure() *Failure {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.failed
 }
 
 // setup gives the script its globals: tools, ALL_TOOLS, text and console, and nothing else the host has.
 func (s *sandbox) setup(fns []Func) error {
 	vm := s.vm
 	freeze, _ := goja.AssertFunction(vm.Get("Object").ToObject(vm).Get("freeze"))
-	parse, _ := goja.AssertFunction(vm.Get("JSON").ToObject(vm).Get("parse"))
+	jsonObj := vm.Get("JSON").ToObject(vm)
+	s.jsonValue, _ = goja.AssertFunction(jsonObj.Get("parse"))
+	s.jsonText, _ = goja.AssertFunction(jsonObj.Get("stringify"))
+	s.toText, _ = goja.AssertFunction(vm.Get("String"))
 	tools := vm.NewObject()
 	list := make([]any, 0, len(fns))
 	for _, fn := range fns {
-		if err := tools.Set(fn.Name, s.tool(fn, parse)); err != nil {
+		if err := tools.Set(fn.Name, s.tool(fn)); err != nil {
 			return err
 		}
 		item := vm.NewObject()
@@ -244,7 +291,7 @@ func (s *sandbox) setup(fns []Func) error {
 }
 
 // tool is fn as the script calls it: arguments in as JSON, the result out as plain JavaScript values.
-func (s *sandbox) tool(fn Func, parse goja.Callable) func(goja.FunctionCall) goja.Value {
+func (s *sandbox) tool(fn Func) func(goja.FunctionCall) goja.Value {
 	return func(call goja.FunctionCall) goja.Value {
 		if s.stopped() {
 			return goja.Undefined()
@@ -287,7 +334,7 @@ func (s *sandbox) tool(fn Func, parse goja.Callable) func(goja.FunctionCall) goj
 		if err != nil {
 			panic(s.newError(fmt.Sprintf("tools.%s returned what is not JSON", fn.Name)))
 		}
-		out, err := parse(goja.Undefined(), s.vm.ToValue(string(raw)))
+		out, err := s.jsonValue(goja.Undefined(), s.vm.ToValue(string(raw)))
 		if err != nil {
 			panic(thrown(err))
 		}
@@ -307,22 +354,32 @@ func (s *sandbox) newError(message string) *goja.Object {
 // show is a value as text: a string as it is, anything else as JSON, or as JavaScript prints it when JSON has no
 // form for it. A returned string is JSON too, so it reads as the value it is.
 func (s *sandbox) show(v goja.Value, quoteStrings bool) (string, error) {
-	if str, ok := v.Export().(string); ok && !quoteStrings {
-		return str, nil
+	if _, obj := v.(*goja.Object); !obj && !quoteStrings {
+		if str, ok := v.Export().(string); ok {
+			return str, nil
+		}
 	}
 	out, err := s.stringify(v)
 	if errors.Is(err, errNoJSON) {
-		return v.String(), nil
+		return s.str(v)
 	}
 	return out, err
+}
+
+// str is String(v) as the script would get it, which may run its code (toString) and may throw.
+func (s *sandbox) str(v goja.Value) (string, error) {
+	out, err := s.toText(goja.Undefined(), v)
+	if err != nil {
+		return "", err
+	}
+	return out.String(), nil
 }
 
 var errNoJSON = errors.New("no JSON form")
 
 // stringify is JSON.stringify inside the script, so what it drops (functions, undefined) is dropped the same way.
 func (s *sandbox) stringify(v goja.Value) (string, error) {
-	stringify, _ := goja.AssertFunction(s.vm.Get("JSON").ToObject(s.vm).Get("stringify"))
-	out, err := stringify(goja.Undefined(), v)
+	out, err := s.jsonText(goja.Undefined(), v)
 	if err != nil {
 		return "", err
 	}
@@ -399,13 +456,23 @@ func syntaxFailure(err error) *Failure {
 	return f
 }
 
-// scriptFailure is what the script threw and did not catch, at the deepest place in the script it came from.
-func scriptFailure(err error) *Failure {
-	f := &Failure{Reason: ReasonScript, Message: err.Error()}
+// scriptFailure is what the script threw and did not catch, at the deepest place in the script it came from. Showing
+// what it threw may run its code (toString), so it is called while the script is still watched.
+func (s *sandbox) scriptFailure(err error) *Failure {
+	f := &Failure{Reason: ReasonScript, Message: "the script failed"}
+	var so *goja.StackOverflowError
 	var ex *goja.Exception
-	if errors.As(err, &ex) {
+	switch {
+	case errors.As(err, &so):
+		f.Message = "RangeError: Maximum call stack size exceeded"
+	case errors.As(err, &ex):
+		// Never ex.Error(): it turns the value into text outside the interpreter's guard.
 		if v := ex.Value(); v != nil {
-			f.Message = v.String()
+			if shown, err := s.str(v); err == nil {
+				f.Message = shown
+			} else {
+				f.Message = "the script threw what cannot be shown"
+			}
 		}
 		for _, frame := range ex.Stack() {
 			if frame.SrcName() == file {
@@ -414,10 +481,8 @@ func scriptFailure(err error) *Failure {
 				break
 			}
 		}
-	}
-	var so *goja.StackOverflowError
-	if errors.As(err, &so) {
-		f.Message = "RangeError: Maximum call stack size exceeded"
+	default:
+		f.Message = err.Error()
 	}
 	if f.Line == 1 {
 		f.Column = max(f.Column-len(prefix), 1)

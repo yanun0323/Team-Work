@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"os/exec"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -279,5 +282,126 @@ func TestLogKeepsNoContent(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("log lacks %s: %s", want, out)
 		}
+	}
+}
+
+// guarded runs body in a child test process that is killed after a hard limit, so a sandbox that does not stop shows
+// as a failure instead of hanging the tests.
+func guarded(t *testing.T, body func(t *testing.T)) {
+	t.Helper()
+	if os.Getenv("CODEMODE_GUARDED") == t.Name() {
+		body(t)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+regexp.QuoteMeta(t.Name())+"$", "-test.v", "-test.count=1")
+	cmd.Env = append(os.Environ(), "CODEMODE_GUARDED="+t.Name())
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("the child did not finish in time:\n%s", out)
+	}
+	if err != nil || !strings.Contains(string(out), "--- PASS: "+t.Name()) {
+		t.Fatalf("child: %v\n%s", err, out)
+	}
+}
+
+// What the script returned or threw is shown while the run is still watched: code that runs then (toJSON, toString)
+// cannot outlast the time limit, nor stopping.
+func TestShowingTheResultIsStillWatched(t *testing.T) {
+	guarded(t, func(t *testing.T) {
+		lim := codemode.DefaultLimits()
+		lim.Timeout = 200 * time.Millisecond
+		for _, code := range []string{
+			`text("before"); return {toJSON() { while (true) {} }}`,
+			`text("before"); return {a: {toJSON() { try { for (;;) {} } finally { text("finally") } }}}`,
+			`text("before"); throw {toString() { while (true) {} }}`,
+			`text("before"); throw {toString() { try { for (;;) {} } catch (e) { return "caught" } }}`,
+			`text("before"); return function f() {}`, // shown with String, after Function.prototype.toString is replaced below
+		} {
+			if strings.Contains(code, "function f") {
+				code = `Function.prototype.toString = function () { for (;;) {} }; ` + code
+			}
+			before := runtime.NumGoroutine()
+			started := time.Now()
+			res := codemode.Run(context.Background(), code, nil, lim, codemode.Hooks{})
+			if res.Err == nil || res.Err.Reason != codemode.ReasonTimeout || res.Output != "before" {
+				t.Fatalf("%s: %+v", code, res)
+			}
+			if d := time.Since(started); d > 2*time.Second {
+				t.Fatalf("%s: took %s", code, d)
+			}
+			goroutinesSettle(t, before)
+		}
+
+		before := runtime.NumGoroutine()
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(100*time.Millisecond, cancel)
+		started := time.Now()
+		var n int
+		res := codemode.Run(ctx, `return {toJSON() { tools.c({}); for (;;) {} }}`, []codemode.Func{counter("c", &n, 1)}, codemode.DefaultLimits(), codemode.Hooks{})
+		if res.Err == nil || res.Err.Reason != codemode.ReasonCancelled || res.Output != "" || n != 1 {
+			t.Fatalf("%+v", res)
+		}
+		if d := time.Since(started); d > time.Second {
+			t.Fatalf("took %s", d)
+		}
+		goroutinesSettle(t, before)
+
+		// Limits met while showing the result end the run the same way.
+		res = codemode.Run(context.Background(), `return {toJSON() { for (;;) text("x".repeat(1000)) }}`, nil, codemode.DefaultLimits(), codemode.Hooks{})
+		if res.Err == nil || res.Err.Reason != codemode.ReasonOutputLimit || len(res.Output) > 50<<10 {
+			t.Fatalf("%v %d", res.Err, len(res.Output))
+		}
+	})
+}
+
+// A thrown value that cannot be turned into text still fails as the script's error.
+func TestThrownValueThatCannotBeShown(t *testing.T) {
+	guarded(t, func(t *testing.T) {
+		res := run(t, `throw {toString() { throw new Error("no") }}`)
+		if res.Err == nil || res.Err.Reason != codemode.ReasonScript || res.Err.Message != "the script threw what cannot be shown" {
+			t.Fatalf("%+v", res.Err)
+		}
+		res = run(t, `throw {toString() { return "custom" }}`)
+		if res.Err == nil || res.Err.Reason != codemode.ReasonScript || res.Err.Message != "custom" {
+			t.Fatalf("%+v", res.Err)
+		}
+		res = run(t, `return {toJSON() { throw new TypeError("bad") }}`)
+		if res.Err == nil || res.Err.Reason != codemode.ReasonScript || res.Err.Message != "TypeError: bad" {
+			t.Fatalf("%+v", res.Err)
+		}
+	})
+}
+
+// The script cannot change how its output and arguments are written by replacing JSON or String.
+func TestReplacedBuiltinsAreNotUsed(t *testing.T) {
+	guarded(t, func(t *testing.T) {
+		var got string
+		echo := codemode.Func{Name: "echo", Call: func(_ context.Context, raw json.RawMessage) (any, error) {
+			got = string(raw)
+			return map[string]any{"back": 1}, nil
+		}}
+		res := run(t, `
+JSON.stringify = function () { for (;;) {} };
+JSON.parse = function () { for (;;) {} };
+String = function () { for (;;) {} };
+text({a: 1});
+text(tools.echo({p: "x"}).back);
+return {b: 2, toJSON() { return {c: 3} }};`, echo)
+		if res.Err != nil || res.Output != "{\"a\":1}\n1\n{\"c\":3}" || got != `{"p":"x"}` {
+			t.Fatalf("%+v %q", res, got)
+		}
+	})
+}
+
+// However much the script throws, the message stays short.
+func TestFailureMessageIsShort(t *testing.T) {
+	res := run(t, `throw "x\n".repeat(100000) + "y".repeat(1000000)`)
+	if res.Err == nil || strings.Count(res.Err.Message, "\n") >= 20 || len(res.Err.Message) > 2<<10 {
+		t.Fatalf("%d bytes", len(res.Err.Message))
+	}
+	if got := codemode.Fit("é"+strings.Repeat("a\n", 5), 3, 4); got != "éa\n" {
+		t.Fatalf("%q", got)
 	}
 }
