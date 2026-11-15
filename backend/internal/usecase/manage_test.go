@@ -253,6 +253,26 @@ func TestDiscussionOnlyReads(t *testing.T) {
 	}
 }
 
+func TestWhatIsMadeShowsUnderTheSaveNotTheSchemaLookup(t *testing.T) {
+	t.Parallel()
+	r, m := manageRig(t)
+	c := inChat(t, r, m,
+		doing("save_setting", map[string]any{"target": "blueprint", "action": "schema"}),
+		doing("save_blueprint", map[string]any{"name": "查過規格的藍圖", "prompt": "你是誰", "tools": []string{"readFile"}}))
+	w := r.world()
+	var id string
+	for _, b := range w.Blueprints {
+		if b.Name == "查過規格的藍圖" {
+			id = b.ID
+		}
+	}
+	msgs := w.Chats[c.ID].Messages
+	pinned := slices.IndexFunc(msgs, func(x model.ChatMessage) bool { return len(x.Made) > 0 })
+	if id == "" || pinned < 0 || !strings.Contains(msgs[pinned].Text, `"action":"save"`) || !slices.Equal(msgs[pinned].Made, []model.Made{{Kind: "blueprint", ID: id}}) {
+		t.Fatalf("%+v", msgs)
+	}
+}
+
 func TestCreatingABlueprintAndFlowTakesEffectAtOnce(t *testing.T) {
 	t.Parallel()
 	r, m := manageRig(t)

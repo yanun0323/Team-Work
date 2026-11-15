@@ -806,7 +806,10 @@ func (e *Engine) pinMade(chatID, tool, kind, id string) {
 	if c == nil || len(c.Messages) == 0 {
 		return
 	}
-	at := toolLineOf(c, tool, func(m model.ChatMessage) bool { return len(m.Made) == 0 })
+	// a save_setting line that only looked up a schema made nothing
+	at := toolLineOf(c, tool, func(m model.ChatMessage) bool {
+		return len(m.Made) == 0 && !strings.Contains(m.Text, `"action":"schema"`)
+	})
 	if at < 0 {
 		at = len(c.Messages) - 1
 	}
