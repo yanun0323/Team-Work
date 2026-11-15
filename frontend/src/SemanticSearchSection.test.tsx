@@ -8,7 +8,9 @@ vi.mock('./core/mode', () => ({ MOCK: false }))
 import { Toggle } from './Controls'
 import { emptyWorld } from './core/backend'
 import { useStore } from './core/store'
-import { SemanticSearchView, useSemanticSearch } from './SemanticSearch'
+import { setFailureHandler } from './core/ops'
+import { usePrefs } from './prefs'
+import { SemanticSearchView, useCodeMode, useSemanticSearch } from './SemanticSearch'
 import { OFF, type SemanticStatus } from './semanticStatus'
 
 const roots: ReturnType<typeof createRoot>[] = []
@@ -17,6 +19,8 @@ afterEach(async () => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
   useStore.setState({ world: emptyWorld() })
+  usePrefs.setState({ codeMode: false })
+  setFailureHandler(() => {})
 })
 
 const status = (state: SemanticStatus['state'], p: Partial<SemanticStatus> = {}, progress: Partial<SemanticStatus['progress']> = {}): SemanticStatus =>
@@ -72,9 +76,9 @@ async function mount() {
   roots.push(root)
   await root.configure({ gl, frameloop: 'never', size: { width: 1, height: 1, top: 0, left: 0 } })
   let drawn: ReactNode = null
-  let props!: ReturnType<typeof useSemanticSearch>
+  let props!: Parameters<typeof SemanticSearchView>[0]
   function View() {
-    props = useSemanticSearch()
+    props = { ...useSemanticSearch(), codeMode: useCodeMode() }
     // a component without hooks of its own: called here, it gives the tree the page would show
     drawn = SemanticSearchView(props)
     return null
@@ -82,7 +86,8 @@ async function mount() {
   await act(async () => { root.render(<View />) })
   const all = () => elements(drawn)
   const text = () => all().flatMap((e) => [e.props.children, e.props.label]).filter((x) => typeof x === 'string').join('\n')
-  const toggle = () => all().find((e) => e.type === Toggle)
+  const toggle = () => all().find((e) => e.type === Toggle && e.props.label === '語意搜尋')
+  const codeMode = () => all().find((e) => e.type === Toggle && e.props.label === '唯讀腳本工具')
   const button = (name: string) => all().find((e) => e.type === 'button' && e.props.children === name)
   const alerts = () => {
     const alert = all().find((e) => e.props.role === 'alert')!
@@ -90,7 +95,7 @@ async function mount() {
   }
   const step = (f: () => unknown) => act(async () => { f() })
   return {
-    props: () => props, drawn: () => drawn, text, toggle, button, alerts, step,
+    props: () => props, drawn: () => drawn, text, toggle, codeMode, button, alerts, step,
     unmount: () => act(async () => { root.unmount(); roots.splice(roots.indexOf(root), 1) }),
     wait: (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms) }),
   }
@@ -100,7 +105,7 @@ it('reads on opening, then every second while the model moves, and seldom once i
   const b = backend()
   const s = await mount()
   expect(b.reads()).toHaveLength(1)
-  expect(s.drawn()).toBeNull()
+  expect(s.toggle()).toBeUndefined()
 
   await s.step(() => b.lastRead().answer(200, status('downloading', {}, { downloadedBytes: 120_000_000, totalBytes: 632_000_000 })))
   expect(s.text()).toContain('下載模型中 120 / 632 MB')
@@ -322,9 +327,78 @@ it('shows the reason an error gives, and where the details are', async () => {
   expect(b.reads()).toHaveLength(2)
 })
 
-it('draws nothing on a computer that cannot run it, and the switch is never there', async () => {
+it('on a computer that cannot run it, leaves out only the semantic search switch', async () => {
   const b = backend()
   const s = await mount()
   await s.step(() => b.lastRead().answer(200, status('unsupported', { supported: false, enabled: false })))
-  expect(s.drawn()).toBeNull()
+  expect(s.toggle()).toBeUndefined()
+  expect(s.codeMode()).toBeDefined()
+  expect(s.text()).toContain('實驗性功能')
+})
+
+it('shows the script tool switch before semantic search answers, and after it fails', async () => {
+  const b = backend()
+  const s = await mount()
+  expect(s.codeMode()?.props.checked).toBe(false)
+  expect(s.toggle()).toBeUndefined()
+  await s.step(() => b.lastRead().answer(500, { error: { code: 'internal', message: '讀不到狀態' } }))
+  expect(s.codeMode()).toBeDefined()
+  expect(s.alerts()).toEqual(['讀不到狀態'])
+})
+
+it('saves the script tool switch to the island once, and follows the world', async () => {
+  const b = backend()
+  const s = await mount()
+  const change = (on: boolean) => s.step(() => (s.codeMode()!.props.onChange as (on: boolean) => void)(on))
+
+  await change(true)
+  expect(b.saves().map((x) => x.body)).toEqual([{ codeMode: true }])
+  // it shows what was asked for at once, and a second press while saving sends nothing
+  expect(s.codeMode()?.props.checked).toBe(true)
+  await change(false)
+  await change(true)
+  expect(b.saves()).toHaveLength(1)
+  expect(s.props().codeMode.saving).toBe(true)
+
+  await s.step(() => b.lastSave().answer(204))
+  expect(s.props().codeMode.saving).toBe(false)
+  expect(s.codeMode()?.props.checked).toBe(true)
+  // the world says so, as it does after every save
+  await s.step(() => usePrefs.setState({ codeMode: true }))
+  expect(s.codeMode()?.props.checked).toBe(true)
+
+  await change(false)
+  expect(b.lastSave().body).toEqual({ codeMode: false })
+  await s.step(() => b.lastSave().answer(204))
+  await s.step(() => usePrefs.setState({ codeMode: false }))
+  expect(s.codeMode()?.props.checked).toBe(false)
+  expect(b.saves()).toHaveLength(2)
+})
+
+it("goes back to the island's value and says why when saving the script tool switch fails", async () => {
+  const failures: string[] = []
+  setFailureHandler((m) => failures.push(m))
+  const b = backend()
+  const s = await mount()
+
+  await s.step(() => s.props().codeMode.onChange(true))
+  expect(s.codeMode()?.props.checked).toBe(true)
+  await s.step(() => b.lastSave().answer(500, { error: { code: 'internal', message: '設定存不進去' } }))
+  expect(failures).toEqual(['設定存不進去'])
+  expect(s.codeMode()?.props.checked).toBe(false)
+  expect(s.props().codeMode.saving).toBe(false)
+
+  // and it can be tried again
+  await s.step(() => s.props().codeMode.onChange(true))
+  expect(b.saves().map((x) => x.body)).toEqual([{ codeMode: true }, { codeMode: true }])
+})
+
+it("shows another client's change to the script tool switch even after its own", async () => {
+  const b = backend()
+  const s = await mount()
+  await s.step(() => s.props().codeMode.onChange(true))
+  await s.step(() => b.lastSave().answer(204))
+  await s.step(() => usePrefs.setState({ codeMode: true }))
+  await s.step(() => usePrefs.setState({ codeMode: false }))
+  expect(s.codeMode()?.props.checked).toBe(false)
 })

@@ -137,13 +137,15 @@ export interface Prefs {
   compactSmall: number
   /** Experimental, this computer's own: employees get semantic_search after the app restarts with it on. */
   semanticSearch: boolean
+  /** Experimental, the island's: employees with read-only tools also get exec, a sandboxed script that chains them, from their next model call. */
+  codeMode: boolean
 }
 
 /** The compaction percentages as they come, and their range; the backend checks the same. */
 export const COMPACT_DEFAULTS = { compact1M: 40, compact256K: 90, compact128K: 95, compactSmall: 95 } satisfies Partial<Prefs>
 export const COMPACT_SHARE = { min: 10, max: 100 }
 
-export const DEFAULT_PREFS: Prefs = { muteInBackground: true, systemNotices: true, musicStyle: 'bossa', soundNotice: true, soundOpenTeam: true, soundOpenAirport: true, soundOpenTower: true, soundOpenStaffing: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, mapClick: 'sheets', autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, idleFollow: 15, idleFollowTarget: 'map', terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], ...COMPACT_DEFAULTS, semanticSearch: false }
+export const DEFAULT_PREFS: Prefs = { muteInBackground: true, systemNotices: true, musicStyle: 'bossa', soundNotice: true, soundOpenTeam: true, soundOpenAirport: true, soundOpenTower: true, soundOpenStaffing: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, mapClick: 'sheets', autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, idleFollow: 15, idleFollowTarget: 'map', terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], ...COMPACT_DEFAULTS, semanticSearch: false, codeMode: false }
 
 /** The range of `zoomSensitivity`; the backend checks the same. */
 export const ZOOM_SENSITIVITY = { min: 20, max: 300 }
@@ -171,7 +173,19 @@ export const usePrefs = create<Prefs & { set: (p: Partial<Prefs>) => void }>()((
  * Every other preference is about this screen, and stays this computer's wherever it looks.
  */
 export const ISLAND_PREFS = ['terminalCommand', 'chatTitleModel', 'chatTitleEffort', 'imageProvider', 'codexSkills', 'claudeSkills',
-  'hiddenBlueprints', 'hiddenWorkflows', 'compact1M', 'compact256K', 'compact128K', 'compactSmall'] as const satisfies ReadonlyArray<keyof Prefs>
+  'hiddenBlueprints', 'hiddenWorkflows', 'compact1M', 'compact256K', 'compact128K', 'compactSmall', 'codeMode'] as const satisfies ReadonlyArray<keyof Prefs>
+
+/**
+ * Saves some of the island's work settings, as `set` does, for a control that waits on the answer: true once saved,
+ * false when it failed and the reason has been shown. The screen follows when the island's world says so.
+ */
+export async function saveIslandPrefs(patch: Partial<Pick<Prefs, (typeof ISLAND_PREFS)[number]>>): Promise<boolean> {
+  if (MOCK) {
+    usePrefs.setState(patch)
+    return true
+  }
+  return (await attempt(() => request('PATCH', '/settings/preferences', patch).then(() => true))) === true
+}
 
 /** A change of preferences, as [the island's work settings, the interface's own]. */
 export function splitPrefs(p: Partial<Prefs>): [Partial<Prefs>, Partial<Prefs>] {

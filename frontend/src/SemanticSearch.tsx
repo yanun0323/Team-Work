@@ -1,12 +1,13 @@
-// The experimental semantic search on the settings page: one switch, and how far the model has got once the app
-// restarts with it on. It is this computer's own, so it stays the same on another island, and it is not shown at all
-// where the computer cannot run it.
+// The settings page's experimental features. The read-only script tool is the island's and shows everywhere. Semantic
+// search is one switch and how far the model has got once the app restarts with it on; it is this computer's own, so it
+// stays the same on another island, and it is not shown where the computer cannot run it.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Toggle } from './Controls'
 import { tr } from './core/i18n'
 import { useStore } from './core/store'
 import { useRemote } from './core/island'
+import { saveIslandPrefs, usePrefs } from './prefs'
 import { canRestart, pollDelay, readSemanticStatus, restartApp, saveSemanticSearch, type SemanticStatus } from './semanticStatus'
 
 type Store = ReturnType<typeof useStore.getState>
@@ -44,7 +45,16 @@ export function share(s: SemanticStatus): number | null {
 
 export type RestartStep = 'idle' | 'asking' | 'going'
 
+/** The read-only script tool's switch. */
+export interface CodeModeProps {
+  on: boolean
+  /** A save is under way; changes meanwhile are dropped. */
+  saving: boolean
+  onChange: (on: boolean) => void
+}
+
 export interface SemanticViewProps {
+  codeMode: CodeModeProps
   /** Null until the first answer. */
   status: SemanticStatus | null
   /** Why reading the status failed, if it did. */
@@ -63,23 +73,21 @@ export interface SemanticViewProps {
   onRestartBlur: () => void
 }
 
-/** The section as the props say; nothing while loading or where it is not supported. */
+/** The section as the props say; semantic search's part only once its status is known and where it is supported. */
 export function SemanticSearchView(p: SemanticViewProps) {
-  const s = p.status
-  if (!s && !p.loadError) return null
-  if (s && (!s.supported || s.state === 'unsupported')) return null
+  const unsupported = !!p.status && (!p.status.supported || p.status.state === 'unsupported')
+  const s = unsupported ? null : p.status
   const line = s ? statusLine(s, p.bridge) : ''
   const part = s ? share(s) : null
   const error = s?.state === 'error' && s.error ? tr('{message}，詳情見 {log}', { message: s.error.message, log: s.error.log || 'backend.log' }) : ''
-  const alert = [p.saveError, p.restartError, error, p.loadError].filter(Boolean)
+  const alert = [p.saveError, p.restartError, error, unsupported ? '' : p.loadError].filter(Boolean)
   return (
     <section className="fx-d-group" aria-labelledby="fx-prefs-labs">
       <h4 id="fx-prefs-labs">{tr('實驗性功能')}</h4>
-      {s && (
-        <div className="fx-fields">
-          <Toggle label={tr('語意搜尋')} checked={s.enabled} disabled={p.saving} onChange={p.onToggle} />
-        </div>
-      )}
+      <div className="fx-fields">
+        <Toggle label={tr('唯讀腳本工具')} checked={p.codeMode.on} onChange={p.codeMode.onChange} />
+        {s && <Toggle label={tr('語意搜尋')} checked={s.enabled} disabled={p.saving} onChange={p.onToggle} />}
+      </div>
       <div role="status" className="fx-labs-status">
         {line && <p>{line}</p>}
         {part !== null && <progress className="fx-labs-bar" value={part} max={1} aria-label={line} />}
@@ -95,18 +103,45 @@ export function SemanticSearchView(p: SemanticViewProps) {
         </div>
       )}
       <div role="alert">{alert.map((x) => <p key={x}>{x}</p>)}</div>
-      {!s && <div className="fx-settings-file-acts"><button type="button" className="fx-save" onClick={p.onRetry}>{tr('重試')}</button></div>}
+      {!p.status && p.loadError && <div className="fx-settings-file-acts"><button type="button" className="fx-save" onClick={p.onRetry}>{tr('重試')}</button></div>}
     </section>
   )
 }
 
 /** Reads this computer's status on opening, again and again while it moves, and stops on leaving. */
 export function SemanticSearchSection() {
-  return <SemanticSearchView {...useSemanticSearch()} />
+  return <SemanticSearchView {...useSemanticSearch()} codeMode={useCodeMode()} />
+}
+
+/**
+ * The read-only script tool's switch: it shows the value asked for until the island's world says otherwise or the
+ * save fails, and drops changes while a save is under way, so a quick second press does not send it again.
+ */
+export function useCodeMode(): CodeModeProps {
+  const stored = usePrefs((x) => x.codeMode)
+  const [wanted, setWanted] = useState<boolean | null>(null)
+  // any word from the world, this save's or another client's, replaces what was asked for
+  const [seen, setSeen] = useState(stored)
+  if (seen !== stored) {
+    setSeen(stored)
+    setWanted(null)
+  }
+  const [saving, setSaving] = useState(false)
+  const busy = useRef(false)
+  const onChange = async (on: boolean) => {
+    if (busy.current) return
+    busy.current = true
+    setSaving(true)
+    setWanted(on)
+    if (!(await saveIslandPrefs({ codeMode: on }))) setWanted(null)
+    busy.current = false
+    setSaving(false)
+  }
+  return { on: wanted ?? stored, saving, onChange: (on) => void onChange(on) }
 }
 
 /** The section's state and what its switch and buttons do. */
-export function useSemanticSearch(): SemanticViewProps {
+export function useSemanticSearch(): Omit<SemanticViewProps, 'codeMode'> {
   const [status, setStatus] = useState<SemanticStatus | null>(null)
   const [loadError, setLoadError] = useState('')
   const [saving, setSaving] = useState(false)

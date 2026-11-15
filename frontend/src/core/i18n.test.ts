@@ -50,6 +50,14 @@ describe('tr', () => {
     }
   })
 
+  it('names the read-only script tool switch in every language', () => {
+    const names = { zh: '唯讀腳本工具', 'zh-Hans': '只读脚本工具', ja: '読み取り専用スクリプトツール', ko: '읽기 전용 스크립트 도구', en: 'Read-only script tool' } as const
+    for (const [language, name] of Object.entries(names)) {
+      setAppLanguage(language as keyof typeof names)
+      expect(tr('唯讀腳本工具')).toBe(name)
+    }
+  })
+
   it('writes lists and colons as each language does', () => {
     for (const [language, list, colonMark] of [['zh', '甲、乙', '：'], ['zh-Hans', '甲、乙', '：'], ['ja', '甲、乙', '：'], ['en', '甲, 乙', ': '], ['ko', '甲, 乙', ': ']] as const) {
       setAppLanguage(language)
