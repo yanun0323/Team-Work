@@ -1134,7 +1134,7 @@ var (
 	forgetSpec = model.ToolSpec{Name: "forget", Description: "Remove a note by its id, this company's or your own, because it is wrong or out of date.",
 		Parameters: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`)}
 	searchMemorySpec = model.ToolSpec{Name: "search_memory", Description: "Search this company's notes and your own, including older ones your prompt leaves out, by meaning and by keyword. Each line says whether it is the company's or yours.",
-		Parameters: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Words or a sentence saying what you are looking for"}},"required":["query"]}`)}
+		Parameters: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Words or a sentence saying what you are looking for; at most 4096 UTF-8 bytes"}},"required":["query"]}`)}
 )
 
 // rememberArgs are remember's: the text, trimmed, and where it goes.
@@ -1158,6 +1158,9 @@ func rememberArgs(raw json.RawMessage) (text, scope string, err *model.ToolResul
 	return strings.TrimSpace(a.Text), a.Scope, nil
 }
 
+// memoryQueryBytes bounds keyword expansion as well as embedding, including when semantic search is off.
+const memoryQueryBytes = 4096
+
 // searchMemoryTool searches the notes of the company and employee where names, in a task step and in a chat alike.
 // Under the lock it copies only those notes, as the lines it hands out; the model ranks that copy with the lock let
 // go, and when it cannot, the search is by keyword alone.
@@ -1168,6 +1171,9 @@ func (e *Engine) searchMemoryTool(where func() (string, *string)) func(context.C
 		}
 		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Query) == "" {
 			return toolError("query is required")
+		}
+		if len(a.Query) > memoryQueryBytes {
+			return toolError("query is longer than %d bytes; shorten it", memoryQueryBytes)
 		}
 		e.mu.Lock()
 		teamID, replicaID := where()

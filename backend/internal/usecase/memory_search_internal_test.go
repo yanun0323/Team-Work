@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/semantic"
@@ -215,5 +216,64 @@ func TestSearchMemoryCapsFusedResults(t *testing.T) {
 	got := searchMemory(all, "zzz", vector, memoryLine)
 	if strings.Count(got, "\n- [")+1 != memorySearchLimit || !strings.Contains(got, "5 more match") || !strings.HasPrefix(got, "- [mem-0,") {
 		t.Fatalf("%s", got)
+	}
+}
+
+// Distinct Han pairs must not turn embedding fallback into an unbounded keyword scan.
+func TestSearchMemoryLongChineseQuery(t *testing.T) {
+	e := memoryWorld()
+	e.w.Teams["A"].Memory = notes(200, func(int) string { return strings.Repeat("一", 5500) })
+	var query strings.Builder
+	for a := rune(0x4e00); a < 0x4f00; a++ {
+		for b := rune(0x5000); b < 0x5100; b++ {
+			query.WriteRune(a)
+			query.WriteRune(b)
+		}
+	}
+	var sem *semantic.Service
+	e.rankNotes = sem.RankNotes
+	start := time.Now()
+	got := searchAs(e, "A", "ada", query.String())
+	t.Logf("%d query bytes, 200 notes: %s", query.Len(), time.Since(start))
+	if !got.IsError || got.Text != "query is longer than 4096 bytes; shorten it" {
+		t.Fatalf("oversized query was not rejected: error=%v, result bytes=%d", got.IsError, len(got.Text))
+	}
+}
+
+// The byte limit applies before ranking, independently of model readiness, without changing keyword fallback
+// at the boundary. In particular, it counts UTF-8 bytes rather than characters.
+func TestSearchMemoryQueryLimit(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, query string
+		tooLong     bool
+	}{
+		{"below", "npm " + strings.Repeat("x", 4091), false},
+		{"boundary", "npm " + strings.Repeat("x", 4092), false},
+		{"unicode boundary", "npm " + strings.Repeat("字", 1364), false},
+		{"above", "npm " + strings.Repeat("x", 4093), true},
+		{"unicode above", "npm " + strings.Repeat("字", 1365), true},
+		{"many words", strings.Repeat("npm ", 4096), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := memoryWorld()
+			e.w.Teams["A"].Memory = []model.MemoryEntry{{ID: "npm", Text: "Use npm", Source: "user", At: 86400}}
+			called := false
+			e.rankNotes = func(_ context.Context, query string, _ []semantic.Note) ([]string, bool) {
+				called = true
+				if query != tc.query {
+					t.Fatal("query changed before ranking")
+				}
+				return nil, false
+			}
+			got := searchAs(e, "A", "ada", tc.query)
+			if tc.tooLong {
+				if !got.IsError || got.Text != "query is longer than 4096 bytes; shorten it" || called {
+					t.Fatalf("oversized query: %+v, ranker called=%v", got, called)
+				}
+			} else if got.IsError || !slices.Equal(resultIDs(got.Text), []string{"npm"}) || !called {
+				t.Fatalf("keyword fallback at boundary: %+v, ranker called=%v", got, called)
+			}
+		})
 	}
 }
