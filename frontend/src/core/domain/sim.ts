@@ -1556,16 +1556,25 @@ export function moveReplica(w: World, id: string, to: string, heirId: string): R
   if (to !== STAFFING_ID && !w.teams[to]) throw new Error(`找不到公司`)
   if ((r.teamId === STAFFING_ID) === (to === STAFFING_ID)) throw new Error(`只能在公司和移民署之間移動員工`)
   checkFire(w, id, heirId)
-  const own = w.blueprints[r.blueprintId]?.owner === r.id ? structuredClone(w.blueprints[r.blueprintId]) : undefined
-  const moved: Replica = { ...structuredClone(r), id: uid(w, 'rep'), teamId: to, hiredAt: w.now }
+  const moved = rehire(w, r, to)
   fire(w, id, heirId)
+  w.replicas[moved.id] = moved
+  return moved
+}
+
+/**
+ * Someone new at `to` in r's place, with r's name, look, model, level and own memory; settings of r's own are copied
+ * to them. r is still there, for the caller to let go before adding who comes back.
+ */
+function rehire(w: World, r: Replica, to: string): Replica {
+  const own = w.blueprints[r.blueprintId]?.owner === r.id ? clone(w.blueprints[r.blueprintId]) : undefined
+  const moved: Replica = { ...clone(r), id: uid(w, 'rep'), teamId: to, hiredAt: w.now }
   if (own) {
     own.id = uid(w, 'bp')
     own.owner = moved.id
     w.blueprints[own.id] = own
     moved.blueprintId = own.id
   }
-  w.replicas[moved.id] = moved
   return moved
 }
 
@@ -1701,11 +1710,31 @@ export function createTeam(
 }
 
 /**
- * Close a company: it goes with everyone who works there, and all its tasks and their sub-tasks.
- * Blueprints and flows are shared and stay. The prototype has no real folders, so `removeFiles` deletes nothing here.
+ * Close a company, as the backend's DeleteTeam: its own employees in `keep` move to the staffing agency first, as
+ * someone new with their own memory and own settings but not their chats; everyone else of its own goes with it, as do
+ * all its tasks, chats and company memory. Shared blueprints and flows stay, a flow's steps losing who is gone. All or
+ * nothing: a refusal throws before anything changes. The prototype has no real folders, so `removeFiles` deletes
+ * nothing here.
  */
-export function deleteTeam(w: World, teamId: string, _opts: { removeFiles: boolean } = { removeFiles: false }) {
-  if (!w.teams[teamId]) return
+export function deleteTeam(w: World, teamId: string, keep: string[] = [], _opts: { removeFiles: boolean } = { removeFiles: false }) {
+  if (!w.teams[teamId]) throw new TaskRefusal(say2(w, '找不到公司', 'Company not found'), 'not_found')
+  const moving: Replica[] = []
+  for (const id of keep) {
+    const r = w.replicas[id]
+    if (!r) throw new TaskRefusal(say2(w, '找不到要移到移民署的員工', 'No such employee to move to the immigration office'), 'invalid_request')
+    if (r.teamId !== teamId) {
+      throw new TaskRefusal(say2(w, '{name} 不是這間公司的員工，不能隨公司移到移民署', '{name} is not one of this company\'s employees and cannot move to the immigration office with it', { name: r.name }), 'invalid_request')
+    }
+    if (moving.includes(r)) throw new TaskRefusal(say2(w, '{name} 選了兩次', '{name} is picked twice', { name: r.name }), 'invalid_request')
+    moving.push(r)
+  }
+  for (const r of moving) {
+    const moved = rehire(w, r, STAFFING_ID)
+    endChatsOf(w, r.id)
+    dropOwnBlueprint(w, r)
+    delete w.replicas[r.id]
+    w.replicas[moved.id] = moved
+  }
   const tasks = new Set(Object.values(w.tasks).filter((t) => t.teamId === teamId).map((t) => t.id))
   for (const s of Object.values(w.subTasks)) if (tasks.has(s.taskId)) delete w.subTasks[s.id]
   for (const id of tasks) delete w.tasks[id]
@@ -1714,6 +1743,7 @@ export function deleteTeam(w: World, teamId: string, _opts: { removeFiles: boole
     dropOwnBlueprint(w, r)
     delete w.replicas[r.id]
   }
+  for (const wf of Object.values(w.workflows)) for (const n of wf.nodes) n.replicaIds = n.replicaIds.filter((x) => w.replicas[x])
   for (const c of Object.values(w.chats)) if (c.teamId === teamId) delete w.chats[c.id]
   w.events = w.events.filter((e) => !('taskId' in e) || !tasks.has(e.taskId))
   delete w.teams[teamId]

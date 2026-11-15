@@ -704,12 +704,12 @@ input.fx-control[readonly] { color: var(--muted); background: none; }
 textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-d-actions { display: flex; align-items: center; gap: 14px; }
 /* a picked employee stays shaded, with a tick */
-.fx-hit[aria-pressed="true"] { box-shadow: inset 0 0 0 100vmax var(--shade); }
+.fx-hit[aria-pressed="true"], .fx-d-crew-pick .fx-hit[aria-checked="true"] { box-shadow: inset 0 0 0 100vmax var(--shade); }
 /* who can do what, on an employee's row: the same width on every row, so the rows line up */
 .fx-row:has(> .fx-staff-tools) { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .fx-staff-tools { display: grid; grid-template-columns: repeat(2, 5em); gap: 4px; }
 .fx-staff-tools span { padding: 0 4px; background: var(--clip); box-shadow: var(--lift); color: var(--ink); font-size: 11px; line-height: 1.6; text-align: center; white-space: nowrap; }
-.fx-d-groups { container-type: inline-size; }
+.fx-d-groups, .fx-d-crew-pick { container-type: inline-size; }
 /* a narrow sheet has no room beside the name: the tools go underneath */
 @container (max-width: 420px) {
   .fx-staff-tools { grid-column: 2 / -1; justify-self: start; }

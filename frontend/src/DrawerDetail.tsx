@@ -1139,14 +1139,14 @@ export function memoryAuthor(w: World, note: MemoryEntry) {
 }
 
 /**
- * One note, which the user can correct or remove. `onSave` may be waited on: the note stays open, saving, until it
- * answers, and stays open when it answers false.
+ * One note, which the user can correct or remove. `onSave` may be waited on: the note stays open, saving and not to be
+ * typed into, until it answers, and stays open when it answers false. `onDelete` may be waited on as DeleteTool's is.
  */
 function MemoryNote({ note, author, onSave, onDelete }: {
   note: MemoryEntry
   author?: string
   onSave: (text: string) => Promise<boolean> | void
-  onDelete: () => void
+  onDelete: () => Promise<unknown> | void
 }) {
   const w = useStore((s) => s.world)
   const [draft, setDraft] = useState<string | null>(null)
@@ -1167,9 +1167,10 @@ function MemoryNote({ note, author, onSave, onDelete }: {
     return (
       <li>
         <form className="fx-d-reply" onSubmit={save}>
-          <textarea className="fx-control" rows={3} value={draft} autoFocus aria-label={tr('記憶')} onChange={(e) => setDraft(e.target.value)} />
+          <textarea className="fx-control" rows={3} value={draft} autoFocus aria-label={tr('記憶')} readOnly={saving}
+            onChange={(e) => setDraft(e.target.value)} />
           <div className="fx-d-merge-acts">
-            <button type="button" className="fx-add" onClick={() => setDraft(null)}>{tr('取消')}</button>
+            <button type="button" className="fx-add" disabled={saving} onClick={() => setDraft(null)}>{tr('取消')}</button>
             <button type="submit" className="fx-save" disabled={!text || saving}>{saving ? tr('儲存中…') : tr('儲存')}</button>
           </div>
         </form>
@@ -1217,12 +1218,12 @@ export function TeamMemory({ teamId }: { teamId: string }) {
             {notes.map((m) => (
               <MemoryNote key={m.id} note={m} author={memoryAuthor(w, m)}
                 onSave={async (t) => (await attempt(() => editTeamMemory(act, teamId, m.id, t))) !== undefined}
-                onDelete={() => void attempt(() => deleteTeamMemory(act, teamId, m.id))} />
+                onDelete={() => attempt(() => deleteTeamMemory(act, teamId, m.id))} />
             ))}
           </ul>
         )}
         <form className="fx-d-reply" onSubmit={add}>
-          <textarea className="fx-control" rows={2} value={text} aria-label={tr('新增公司記憶')}
+          <textarea className="fx-control" rows={2} value={text} aria-label={tr('新增公司記憶')} readOnly={adding}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit() }} />
           <div className="fx-d-merge-acts">
@@ -2093,35 +2094,62 @@ function BlueprintDelete({ id, teamId, onDone, ...h }: Head & { id: string; team
 }
 
 /**
- * Close the company, after saying what goes with it. Its project folder stays unless the box is ticked.
+ * Close the company, after saying what goes with it. Its own employees ticked here move to the staffing agency with
+ * their own memory; the rest go with it, as do its company memory and chats. Its project folder stays unless the box
+ * is ticked. Waited on: the sheet stays open, with what went wrong, until it is done.
  */
 function Disband({ teamId, onDone, ...h }: Head & { teamId: string; onDone: () => void }) {
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
   const [removeFiles, setRemoveFiles] = useState(false)
+  const [keep, setKeep] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState('')
   const team = w.teams[teamId]
   if (!team) return <Gone {...h} />
-  const people = teamReplicas(w, teamId).length
+  const own = teamReplicas(w, teamId)
+  const order = crewOrder(w, own)
   const open = Object.values(w.tasks).filter((t) => t.teamId === teamId && t.stage !== 'done' && t.stage !== 'cancelled').length
+  const toggle = (id: string) => setKeep((k) => (k.includes(id) ? k.filter((x) => x !== id) : [...k, id]))
   const go = (e: React.FormEvent) => {
     e.preventDefault()
-    onDone()
-    act((x) => deleteTeam(x, teamId, { removeFiles }))
+    if (busy) return
+    setBusy(true)
+    setFailed('')
+    // in the order shown, and only those still here
+    deleteTeam(act, teamId, order.filter((id) => keep.includes(id)), { removeFiles })
+      .then(onDone, (err: Error) => { setBusy(false); setFailed(err.message) })
   }
   return (
-    <form className="fx-d-form" onSubmit={go}>
+    <form className="fx-d-form" onSubmit={go} aria-busy={busy}>
       <header className="fx-d-head">
         <Heading {...h}>{tr('解散 {name}', { name: team.name })}</Heading>
-        <p className="fx-d-meta"><span>{tr('{people} 位員工', { people })}</span><span>{tr('{open} 個未完成的任務', { open })}</span></p>
+        <p className="fx-d-meta"><span>{tr('{people} 位員工', { people: own.length })}</span><span>{tr('{open} 個未完成的任務', { open })}</span></p>
       </header>
+      {own.length > 0 && (
+        <Section name={tr('移到移民署')}>
+          <ul className="fx-list fx-d-crew-pick">
+            {order.map((id) => (
+              <li key={id}>
+                <button type="button" role="checkbox" aria-checked={keep.includes(id)} className="fx-row fx-hit" disabled={busy}
+                  onClick={() => toggle(id)}>
+                  <CrewRow r={w.replicas[id]} on={keep.includes(id)} />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="fx-d-muted">{tr('勾選的員工帶著個人記憶移到移民署，其餘員工隨公司刪除；公司記憶和對話一併刪除。')}</p>
+        </Section>
+      )}
       {MOCK && (
-        <button type="button" role="checkbox" aria-checked={removeFiles} className="fx-row fx-row-plain fx-hit fx-d-toggle"
+        <button type="button" role="checkbox" aria-checked={removeFiles} className="fx-row fx-row-plain fx-hit fx-d-toggle" disabled={busy}
           onClick={() => setRemoveFiles(!removeFiles)}>
           <span className="fx-row-main"><b>{tr('同時刪除本地檔案')}</b><span><code>{team.folder}</code></span></span>
           <span className="fx-box" aria-hidden="true">{removeFiles ? '✓' : ''}</span>
         </button>
       )}
-      <button type="submit" className="fx-save fx-danger">{tr('解散公司')}</button>
+      {failed && <p className="fx-room-warn" role="alert">{failed}</p>}
+      <button type="submit" className="fx-save fx-danger" disabled={busy}>{busy ? tr('解散中…') : tr('解散公司')}</button>
     </form>
   )
 }
@@ -2777,13 +2805,21 @@ export function PinTool({ chat, className = 'fx-tool fx-hit' }: { chat: Chat; cl
 }
 
 /**
- * A bin that asks first: the first press turns it into 確定刪除, the second deletes; looking away cancels.
+ * A bin that asks first: the first press turns it into 確定刪除, the second deletes; looking away cancels. An
+ * `onConfirm` that hands back a promise is waited on: until it settles the bin says 刪除中… and takes no more presses,
+ * then it is a bin again, so one that failed (and whose thing is still there) can be tried again.
  *
  * One that cannot delete now stays focusable rather than disabled, so the keyboard and a touch reach it too: it says
  * `why` under itself while pointed at or pressed, and a screen reader hears it with the button.
  */
-export function DeleteTool({ what, onConfirm, disabled, why }: { what: string; onConfirm: () => void; disabled?: boolean; why?: string }) {
+export function DeleteTool({ what, onConfirm, disabled, why }: {
+  what: string
+  onConfirm: () => Promise<unknown> | void
+  disabled?: boolean
+  why?: string
+}) {
   const [asking, setAsking] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [telling, setTelling] = useState(false)
   const whyId = useId()
   if (disabled) {
@@ -2797,9 +2833,21 @@ export function DeleteTool({ what, onConfirm, disabled, why }: { what: string; o
       </span>
     )
   }
+  const press = () => {
+    if (busy) return
+    if (!asking) return setAsking(true)
+    const p = onConfirm()
+    if (!(p instanceof Promise)) return
+    setBusy(true)
+    void p.finally(() => { setBusy(false); setAsking(false) })
+  }
+  if (busy) {
+    // stays a focusable button rather than disabled, so the focus is not lost while it waits
+    return <button type="button" className="fx-tool fx-tool-ask" aria-disabled="true" aria-busy="true">{tr('刪除中…')}</button>
+  }
   return (
     <button type="button" className={asking ? 'fx-tool fx-tool-ask fx-hit' : 'fx-tool fx-hit'}
-      onClick={() => (asking ? onConfirm() : setAsking(true))} onBlur={() => setAsking(false)}
+      onClick={press} onBlur={() => setAsking(false)}
       aria-label={asking ? tr('確定刪除這個{what}', { what }) : tr('刪除')} title={asking ? undefined : tr('刪除')}>
       {asking ? tr('確定刪除') : (
         <BinIcon />

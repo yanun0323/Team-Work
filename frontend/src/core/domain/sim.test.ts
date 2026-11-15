@@ -784,7 +784,7 @@ describe('closing a company', () => {
     createTask(w, { teamId: team.id, title: 'x', description: '', workflowId: firstFlow(w), overrides: { '*': calm } })
     run(w, 3)
     expect(Object.keys(w.subTasks).length).toBeGreaterThan(0)
-    deleteTeam(w, team.id, { removeFiles: false })
+    deleteTeam(w, team.id, [], { removeFiles: false })
     expect(w.teams[team.id]).toBeUndefined()
     expect(Object.values(w.replicas)).toEqual([keep])
     expect(Object.keys(w.workflows).length).toBeGreaterThan(0)

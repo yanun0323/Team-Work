@@ -423,7 +423,7 @@ export const HELP_EN: Record<string, HelpTopic> = {
           <dt>Sub-task timeout</dt><dd>How long one sub-task can run.</dd>
           <dt>Task cost limit</dt><dd>When a task's cost reaches this, it stops and asks you.</dd>
           <dt>Retries on failure</dt><dd>How many times a failed sub-task retries automatically before asking you.</dd>
-          <dt>Disband company</dt><dd>Removes its employees and tasks, ends open terminals, and turns unused land back into sea. Blueprints stay. You can also delete the local files (off by default).</dd>
+          <dt>Disband company</dt><dd>Employees you tick move to the Immigration Office with their own memory; the other employees, its tasks, company memory and chats are removed. It ends open terminals and turns unused land back into sea. Blueprints stay. You can also delete the local files (off by default).</dd>
         </dl>
       </>
     ),
