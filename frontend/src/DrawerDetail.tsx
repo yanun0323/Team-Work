@@ -50,7 +50,7 @@ import { addProvider, fixedContext, providerUsers, updateProvider, type Provider
 import { handedImageUrl, readHandedDiff, readHandedFile, request } from './core/backend'
 import { DiffNote, useDocView, useRoomForSplit, ViewSwitch } from './HandedDiff'
 import { tally, type DiffLine } from './diffView'
-import { attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, editMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fireNow, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, pauseTask, refreshModels, refreshStaleModels, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, setModelsHidden, updateReplica, updateTask } from './core/ops'
+import { addTeamMemory, attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, deleteTeamMemory, editMemory, editTeamMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fireNow, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, pauseTask, refreshModels, refreshStaleModels, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, setModelsHidden, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { NotesSheet } from './Notes'
 import { FileDetail, FileEdit } from './FileSheets'
@@ -1054,6 +1054,7 @@ function CrewDetail({ id, editing, firing, moving, copying, duplicating, bluepri
   onDuplicate: () => void
 }) {
   const w = useStore((s) => s.world)
+  const act = useStore((s) => s.act)
   // on another computer's island, its employees can be copied to this computer's staffing agency
   const remote = useRemote()
   const r = w.replicas[id]
@@ -1117,10 +1118,13 @@ function CrewDetail({ id, editing, firing, moving, copying, duplicating, bluepri
           <p className="fx-d-chips">{steps.map(({ task, n }) => <span key={task.id + n.id}>#{task.number} › {stepName(task.workflow, n.id)}</span>)}</p>
         )}
       </Section>
-      <Section name={tr('記憶 {length}', { length: r.memory.length })}>
+      <Section name={tr('個人記憶 {length}', { length: r.memory.length })}>
         {r.memory.length === 0 ? <p className="fx-d-muted">{tr('還沒有記憶')}</p> : (
           <ul className="fx-d-memory">
-            {r.memory.map((m) => <MemoryNote key={m.id} replicaId={r.id} note={m} />)}
+            {r.memory.map((m) => (
+              <MemoryNote key={m.id} note={m} onSave={(text) => act((x) => editMemory(x, r.id, m.id, text))}
+                onDelete={() => act((x) => deleteMemory(x, r.id, m.id))} />
+            ))}
           </ul>
         )}
       </Section>
@@ -1128,16 +1132,36 @@ function CrewDetail({ id, editing, firing, moving, copying, duplicating, bluepri
   )
 }
 
-/** One thing an employee remembers, which the user can correct or remove. */
-function MemoryNote({ replicaId, note }: { replicaId: string; note: MemoryEntry }) {
+/** Who wrote a company's note: the employee, the user, or someone no longer on the island. */
+export function memoryAuthor(w: World, note: MemoryEntry) {
+  if (!note.by) return tr('使用者')
+  return w.replicas[note.by]?.name ?? tr('已離職員工')
+}
+
+/**
+ * One note, which the user can correct or remove. `onSave` may be waited on: the note stays open, saving, until it
+ * answers, and stays open when it answers false.
+ */
+function MemoryNote({ note, author, onSave, onDelete }: {
+  note: MemoryEntry
+  author?: string
+  onSave: (text: string) => Promise<boolean> | void
+  onDelete: () => void
+}) {
   const w = useStore((s) => s.world)
-  const act = useStore((s) => s.act)
   const [draft, setDraft] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   if (draft !== null) {
     const text = draft.trim()
-    const save = (e: React.FormEvent) => {
+    const save = async (e: React.FormEvent) => {
       e.preventDefault()
-      if (text && text !== note.text) act((x) => editMemory(x, replicaId, note.id, text))
+      if (saving) return
+      if (text && text !== note.text) {
+        setSaving(true)
+        const ok = await onSave(text)
+        setSaving(false)
+        if (ok === false) return
+      }
       setDraft(null)
     }
     return (
@@ -1146,7 +1170,7 @@ function MemoryNote({ replicaId, note }: { replicaId: string; note: MemoryEntry 
           <textarea className="fx-control" rows={3} value={draft} autoFocus aria-label={tr('記憶')} onChange={(e) => setDraft(e.target.value)} />
           <div className="fx-d-merge-acts">
             <button type="button" className="fx-add" onClick={() => setDraft(null)}>{tr('取消')}</button>
-            <button type="submit" className="fx-save" disabled={!text}>{tr('儲存')}</button>
+            <button type="submit" className="fx-save" disabled={!text || saving}>{saving ? tr('儲存中…') : tr('儲存')}</button>
           </div>
         </form>
       </li>
@@ -1155,12 +1179,58 @@ function MemoryNote({ replicaId, note }: { replicaId: string; note: MemoryEntry 
   const task = note.taskId ? w.tasks[note.taskId] : undefined
   return (
     <li className="fx-d-note">
-      <span>{note.text}{task && <span className="fx-d-muted"> #{task.number}</span>}</span>
+      <span>
+        {note.text}
+        {(author || task) && <span className="fx-d-muted">{author && ` · ${author}`}{task && ` #${task.number}`}</span>}
+      </span>
       <div className="fx-d-note-tools">
         <EditTool onClick={() => setDraft(note.text)} />
-        <DeleteTool what={tr('記憶')} onConfirm={() => act((x) => deleteMemory(x, replicaId, note.id))} />
+        <DeleteTool what={tr('記憶')} onConfirm={onDelete} />
       </div>
     </li>
+  )
+}
+
+/** 公司記憶: the notes everyone working in the company writes and reads, which the user adds to, corrects or removes. */
+export function TeamMemory({ teamId }: { teamId: string }) {
+  const w = useStore((s) => s.world)
+  const act = useStore((s) => s.act)
+  const [text, setText] = useState('')
+  const [adding, setAdding] = useState(false)
+  const head = useId()
+  const notes = w.teams[teamId]?.memory ?? []
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const t = text.trim()
+    if (!t || adding) return
+    setAdding(true)
+    const note = await attempt(() => addTeamMemory(act, teamId, t))
+    setAdding(false)
+    if (note) setText('')
+  }
+  return (
+    <div className="fx-field fx-field-top" role="group" aria-labelledby={head}>
+      <span id={head}>{tr('公司記憶 {length}', { length: notes.length })}</span>
+      <div className="fx-team-memory">
+        {notes.length === 0 ? <p className="fx-d-muted">{tr('還沒有記憶')}</p> : (
+          <ul className="fx-d-memory">
+            {notes.map((m) => (
+              <MemoryNote key={m.id} note={m} author={memoryAuthor(w, m)}
+                onSave={async (t) => (await attempt(() => editTeamMemory(act, teamId, m.id, t))) !== undefined}
+                onDelete={() => void attempt(() => deleteTeamMemory(act, teamId, m.id))} />
+            ))}
+          </ul>
+        )}
+        <form className="fx-d-reply" onSubmit={add}>
+          <textarea className="fx-control" rows={2} value={text} aria-label={tr('新增公司記憶')}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit() }} />
+          <div className="fx-d-merge-acts">
+            <button type="submit" className="fx-save" disabled={!text.trim() || adding}>{adding ? tr('儲存中…') : tr('新增')}</button>
+          </div>
+        </form>
+      </div>
+    </div>
   )
 }
 

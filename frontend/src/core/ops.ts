@@ -374,7 +374,7 @@ export const fireNow = (act: (fn: (w: World) => void) => void, id: string, heir:
   ? simulate(act, (w) => { sim.fire(w, id, heir) })
   : request('DELETE', `/replicas/${encodeURIComponent(id)}?heir=${encodeURIComponent(heir)}`))
 
-/** Moves an employee between a company and the staffing agency; who arrives is someone new, with no memory. */
+/** Moves an employee between a company and the staffing agency; who arrives is someone new, keeping their own memory but not their chats. */
 export const moveReplica = (act: (fn: (w: World) => void) => void, id: string, to: string, heir: string): Promise<Replica> => (MOCK
   ? simulate(act, (w) => sim.moveReplica(w, id, to, heir))
   : request<Replica>('POST', `/replicas/${encodeURIComponent(id)}/move`, { to, heir }))
@@ -439,6 +439,23 @@ export function editMemory(w: World, id: string, memoryId: string, text: string)
 export function deleteMemory(w: World, id: string, memoryId: string) {
   saveMemory(w, id, (w.replicas[id]?.memory ?? []).filter((m) => m.id !== memoryId))
 }
+
+const teamMemory = (teamId: string, id?: string) =>
+  `/teams/${encodeURIComponent(teamId)}/memory${id ? `/${encodeURIComponent(id)}` : ''}`
+
+/** Writes a note into a company's memory, as the user's; waited on, so a form can stay open when it fails. */
+export const addTeamMemory = (act: (fn: (w: World) => void) => void, teamId: string, text: string): Promise<MemoryEntry> => (MOCK
+  ? simulate(act, (w) => sim.addTeamMemory(w, teamId, text))
+  : request<MemoryEntry>('POST', teamMemory(teamId), { text }))
+
+/** Corrects a company's note; it becomes the user's. */
+export const editTeamMemory = (act: (fn: (w: World) => void) => void, teamId: string, id: string, text: string): Promise<MemoryEntry> => (MOCK
+  ? simulate(act, (w) => sim.editTeamMemory(w, teamId, id, text))
+  : request<MemoryEntry>('PATCH', teamMemory(teamId, id), { text }))
+
+export const deleteTeamMemory = (act: (fn: (w: World) => void) => void, teamId: string, id: string): Promise<unknown> => (MOCK
+  ? simulate(act, (w) => { sim.deleteTeamMemory(w, teamId, id); return null })
+  : request('DELETE', teamMemory(teamId, id)))
 
 // ---------- blueprints ----------
 

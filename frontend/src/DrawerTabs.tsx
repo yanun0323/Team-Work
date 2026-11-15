@@ -12,7 +12,7 @@ import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { Select, Stepper, WaitBadge } from './Controls'
 import { editTeam, refreshPrompt } from './core/ops'
-import { itemKey, PinTool, type Item } from './DrawerDetail'
+import { itemKey, PinTool, TeamMemory, type Item } from './DrawerDetail'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { TaskCard } from './TaskCard'
@@ -216,6 +216,7 @@ function Settings({ teamId, ...p }: Opens) {
         <textarea className="fx-control" rows={6} value={team.prompt}
           onChange={(e) => act((x) => editTeam(x, teamId, { prompt: e.target.value }))} />
       </label>
+      <TeamMemory teamId={teamId} />
       <hr />
       {num('timeoutMin', tr('子任務逾時'), tr('分鐘'), 1, 1)}
       {num('costLimitUsd', tr('任務費用上限'), 'USD', 0.5, 0.5)}
