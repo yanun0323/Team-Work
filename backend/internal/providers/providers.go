@@ -253,15 +253,19 @@ func (c client) do(ctx context.Context, method, path string, body any, auth func
 	}
 	if res.StatusCode != http.StatusOK {
 		defer res.Body.Close()
+		var failure *model.Error
 		switch {
 		case contextOverflowed(res):
-			return nil, model.Errorf(model.CodeContextOverflow, "對話太長，超過模型能讀取的長度")
+			failure = model.Errorf(model.CodeContextOverflow, "對話太長，超過模型能讀取的長度")
 		case res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden:
-			return nil, model.Errorf(model.CodeInvalid, "API Key 無效或沒有權限")
+			failure = model.Errorf(model.CodeInvalid, "API Key 無效或沒有權限")
 		case res.StatusCode == http.StatusTooManyRequests || res.StatusCode >= 500:
-			return nil, model.Errorf(model.CodeUnavailable, "模型供應商暫時無法回應（HTTP %d）", res.StatusCode)
+			failure = model.Errorf(model.CodeUnavailable, "模型供應商暫時無法回應（HTTP %d）", res.StatusCode)
+		default:
+			failure = model.Errorf(model.CodeInvalid, "模型供應商拒絕了請求（HTTP %d），請檢查模型與設定", res.StatusCode)
 		}
-		return nil, model.Errorf(model.CodeInvalid, "模型供應商拒絕了請求（HTTP %d），請檢查模型與設定", res.StatusCode)
+		failure.Status = res.StatusCode
+		return nil, failure
 	}
 	res.Body = codex.WatchIdle(res.Body, streamIdle)
 	return res, nil

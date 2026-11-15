@@ -20,6 +20,8 @@ const (
 type Error struct {
 	Code    string
 	Message string
+	// Status is the HTTP status a model provider answered with, when that is what failed; 0 otherwise.
+	Status int
 }
 
 func (e *Error) Error() string { return e.Message }

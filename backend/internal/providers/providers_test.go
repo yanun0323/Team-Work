@@ -268,8 +268,8 @@ func TestFailuresKeepTheServersTextOut(t *testing.T) {
 		p, _, _ := serve(t, enum.ProviderOpenAI, c.status, `{"error":{"message":"bad key sk-key"}}`)
 		_, err := p.Complete(context.Background(), request, func(string) {})
 		var known *model.Error
-		if !errors.As(err, &known) || known.Code != c.code || strings.Contains(known.Message, "sk-key") {
-			t.Errorf("%d: %v", c.status, err)
+		if !errors.As(err, &known) || known.Code != c.code || known.Status != c.status || strings.Contains(known.Message, "sk-key") {
+			t.Errorf("%d: %v (status %d)", c.status, err, known.Status)
 		}
 	}
 }
