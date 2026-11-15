@@ -465,7 +465,7 @@ func TestChatEndsWithItsCompanyAndOutlivesItsEmployee(t *testing.T) {
 	if err := r.e.SayInChat(c.ID, "還在嗎", nil); err == nil {
 		t.Fatal("spoke to someone who left")
 	}
-	if err := r.e.DeleteTeam(r.team.ID); err != nil {
+	if err := r.e.DeleteTeam(r.team.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(r.world().Chats) != 0 {
@@ -1453,7 +1453,7 @@ func TestAirportChatRunsWithoutACompany(t *testing.T) {
 	if err != nil || !fork.AtAirport() || fork.Effort != chat.Effort {
 		t.Fatalf("%+v %v", fork, err)
 	}
-	if err := r.e.DeleteTeam(r.team.ID); err != nil {
+	if err := r.e.DeleteTeam(r.team.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	if r.world().Chats[c.ID] == nil {

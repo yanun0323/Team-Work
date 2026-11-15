@@ -126,7 +126,8 @@ func (e *Engine) memorySection(team *model.Team, r *model.Replica) string {
 		notesSection("Your memory", memoryNoteMine, r.Memory, memoryBudget, memoryLine)
 }
 
-// notesSection is one titled list of notes, newest first, up to budget; nothing when there are none.
+// notesSection is one titled list of notes, newest first, up to budget; nothing when there are none. Even the newest
+// note stays out when it alone is over the budget: search_memory still finds it.
 func notesSection(title, note string, notes []model.MemoryEntry, budget int, line func(model.MemoryEntry) string) string {
 	if len(notes) == 0 {
 		return ""
@@ -137,7 +138,7 @@ func notesSection(title, note string, notes []model.MemoryEntry, budget int, lin
 	for _, m := range notes {
 		l := line(m)
 		size := utf8.RuneCountInString(l)
-		if shown > 0 && used+size > budget {
+		if used+size > budget {
 			break
 		}
 		b.WriteString(l)

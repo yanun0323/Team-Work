@@ -136,7 +136,7 @@ func TestCompanyMemoryStaysInItsCompanyAndOwnMemoryTravels(t *testing.T) {
 	if got := r.world().Teams[b.ID].Memory; len(got) != 1 {
 		t.Fatalf("company B = %+v", got)
 	}
-	if err := r.e.DeleteTeam(b.ID); err != nil {
+	if err := r.e.DeleteTeam(b.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	w = r.world()

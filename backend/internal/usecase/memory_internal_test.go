@@ -65,11 +65,50 @@ func TestMemorySectionShowsAllThatFit(t *testing.T) {
 	}
 }
 
-func TestMemorySectionShowsOneNoteOverTheBudget(t *testing.T) {
+func TestMemorySectionKeepsEvenTheFirstNoteToItsBudget(t *testing.T) {
 	t.Parallel()
-	r := &model.Replica{Memory: notes(1, func(int) string { return strings.Repeat("x", memoryBudget*2) })}
-	if got := memoryWorld().memorySection(&model.Team{}, r); !strings.Contains(got, "[mem-0,") || strings.Contains(got, "not shown") {
-		t.Fatalf("a lone long note went missing")
+	for _, c := range []struct {
+		title  string
+		budget int
+		setup  func(e *Engine, n []model.MemoryEntry)
+	}{
+		{"# Company memory", companyMemoryBudget, func(e *Engine, n []model.MemoryEntry) { e.w.Teams["A"].Memory = n }},
+		{"# Your memory", memoryBudget, func(e *Engine, n []model.MemoryEntry) { e.w.Replicas["ada"].Memory = n }},
+	} {
+		e := memoryWorld()
+		long := "needle " + strings.Repeat("字", c.budget)
+		c.setup(e, []model.MemoryEntry{
+			{ID: "mem-long", Text: long, Source: "work", At: 86400, By: "ada"},
+			{ID: "mem-short", Text: "short", Source: "work", At: 86400, By: "ada"},
+		})
+		got := e.memorySection(e.w.Teams["A"], e.w.Replicas["ada"])
+		if !strings.Contains(got, c.title) || strings.Contains(got, "mem-long") || strings.Contains(got, "mem-short") {
+			t.Fatalf("%s: a note over the budget was shown, or one after it:\n%s", c.title, got)
+		}
+		if !strings.Contains(got, "2 older notes are not shown") {
+			t.Fatalf("%s: does not count what is left out:\n%s", c.title, got)
+		}
+		found := e.searchMemoryTool(func() (string, *string) { id := "ada"; return "A", &id })(t.Context(), "", []byte(`{"query":"needle"}`))
+		if found.IsError || !strings.Contains(found.Text, "mem-long") || !strings.Contains(found.Text, long) {
+			t.Fatalf("%s: search_memory does not find the whole note:\n%s", c.title, found.Text)
+		}
+		if n := e.w.Teams["A"].Memory; len(n) > 0 && n[0].Text != long {
+			t.Fatal("the kept note was cut")
+		}
+	}
+}
+
+func TestMemorySectionShowsANoteThatJustFits(t *testing.T) {
+	t.Parallel()
+	e := memoryWorld()
+	note := model.MemoryEntry{ID: "m", Source: "work", At: 86400}
+	note.Text = strings.Repeat("x", memoryBudget-len([]rune(memoryLine(note))))
+	if got := e.memorySection(&model.Team{}, &model.Replica{Memory: []model.MemoryEntry{note}}); !strings.Contains(got, "[m,") || strings.Contains(got, "not shown") {
+		t.Fatalf("a note of exactly the budget went missing:\n%s", got)
+	}
+	note.Text += "x"
+	if got := e.memorySection(&model.Team{}, &model.Replica{Memory: []model.MemoryEntry{note}}); strings.Contains(got, "[m,") || !strings.Contains(got, "1 older notes are not shown") {
+		t.Fatalf("a note one over the budget was shown:\n%s", got)
 	}
 }
 

@@ -212,7 +212,7 @@ func TestFlowsAreShared(t *testing.T) {
 		}
 	}
 	// the flow outlives a company, and companies on it move on when it goes
-	if err := r.e.DeleteTeam(other.ID); err != nil {
+	if err := r.e.DeleteTeam(other.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.world().Workflows[wf.ID]; got == nil || slices.Contains(got.Nodes[1].ReplicaIDs, bo.ID) {

@@ -293,12 +293,29 @@ func (e *Engine) UpdateTeam(id string, p TeamPatch) error {
 	})
 }
 
-// DeleteTeam closes a company: its people, flows and tasks go, as do the tasks' work trees and branches.
-// The folder itself stays.
-func (e *Engine) DeleteTeam(id string) error {
+// DeleteTeam closes a company: its people, flows and tasks go, as do the tasks' work trees and branches, its notes and
+// its chats. Its own employees named in keep move to the staffing agency first, as MoveReplica moves them, keeping
+// their own notes; anyone else in keep, or anyone twice, fails it before anything changes. The folder itself stays.
+func (e *Engine) DeleteTeam(id string, keep []string) error {
 	return e.doSettings(func() error {
 		if e.w.Teams[id] == nil {
 			return model.Errorf(model.CodeNotFound, "找不到公司")
+		}
+		moving := make([]*model.Replica, 0, len(keep))
+		for _, rid := range keep {
+			r := e.w.Replicas[rid]
+			switch {
+			case r == nil:
+				return model.Errorf(model.CodeInvalid, "找不到要移到移民署的員工")
+			case r.TeamID != id:
+				return model.Errorf(model.CodeInvalid, "%s 不是這間公司的員工，不能隨公司移到移民署", r.Name)
+			case slices.Contains(moving, r):
+				return model.Errorf(model.CodeInvalid, "%s 選了兩次", r.Name)
+			}
+			moving = append(moving, r)
+		}
+		for _, r := range moving {
+			e.moveTo(r, nil, model.StaffingID)
 		}
 		for _, t := range e.w.Tasks {
 			if t.TeamID == id {
@@ -1685,26 +1702,32 @@ func (e *Engine) MoveReplica(id, to, heirID string) (*model.Replica, error) {
 		if err != nil {
 			return err
 		}
-		var own *model.Blueprint
-		if b := e.w.Blueprints[r.BlueprintID]; b != nil && b.Owner == r.ID {
-			own = clone(b)
-		}
-		moved := &model.Replica{ID: e.uid("rep"), TeamID: to, BlueprintID: r.BlueprintID, Name: r.Name, Look: r.Look,
-			Model: r.Model, Effort: r.Effort, Memory: append([]model.MemoryEntry{}, r.Memory...), HiredAt: e.w.Now}
-		e.letGo(r, heir)
-		for k, v := range e.w.Copies {
-			if v == r.ID { // a copy sent again finds who it hired where they went
-				e.w.Copies[k] = moved.ID
-			}
-		}
-		if own != nil {
-			own.ID, own.Owner = e.uid("bp"), moved.ID
-			e.w.Blueprints[own.ID] = own
-			moved.BlueprintID = own.ID
-		}
-		e.w.Replicas[moved.ID] = moved
-		out = clone(moved)
+		out = clone(e.moveTo(r, heir, to))
 		return nil
 	})
 	return out, err
+}
+
+// moveTo lets r go, handing their work to heir, and hires them again at to under a new id, with their own notes and a
+// copy of the blueprint only they use; their chats stay behind. Call it holding the lock, with what was checked.
+func (e *Engine) moveTo(r, heir *model.Replica, to string) *model.Replica {
+	var own *model.Blueprint
+	if b := e.w.Blueprints[r.BlueprintID]; b != nil && b.Owner == r.ID {
+		own = clone(b)
+	}
+	moved := &model.Replica{ID: e.uid("rep"), TeamID: to, BlueprintID: r.BlueprintID, Name: r.Name, Look: r.Look,
+		Model: r.Model, Effort: r.Effort, Memory: append([]model.MemoryEntry{}, r.Memory...), HiredAt: e.w.Now}
+	e.letGo(r, heir)
+	for k, v := range e.w.Copies {
+		if v == r.ID { // a copy sent again finds who it hired where they went
+			e.w.Copies[k] = moved.ID
+		}
+	}
+	if own != nil {
+		own.ID, own.Owner = e.uid("bp"), moved.ID
+		e.w.Blueprints[own.ID] = own
+		moved.BlueprintID = own.ID
+	}
+	e.w.Replicas[moved.ID] = moved
+	return moved
 }

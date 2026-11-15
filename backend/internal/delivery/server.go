@@ -458,7 +458,7 @@ func (s *Server) deleteCompanyNote(c echo.Context) error {
 }
 
 func (s *Server) deleteTeam(c echo.Context) error {
-	return done(c, s.engine.DeleteTeam(c.Param("id")))
+	return done(c, s.engine.DeleteTeam(c.Param("id"), c.QueryParams()["keep"]))
 }
 
 func (s *Server) createWorkflow(c echo.Context) error {
