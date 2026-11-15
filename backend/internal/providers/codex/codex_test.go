@@ -357,6 +357,9 @@ func TestFailuresSayWhatToDoAndKeepServerTextOut(t *testing.T) {
 		{503, `secret text`, model.CodeUnavailable, "忙碌"},
 		{400, `{"error":{"message":"secret text"}}`, model.CodeInvalid, "拒絕"},
 		{200, `data: {"type":"response.failed","response":{"error":{"code":"bad","message":"secret text"}}}` + "\n", model.CodeInvalid, "無法回覆"},
+		// an error event holds its code inside, as OpenAI sends it
+		{200, `data: {"type":"error","error":{"type":"insufficient_quota","code":"credit_balance_exhausted","message":"secret text"}}` + "\n", model.CodeInvalid, "credit_balance_exhausted"},
+		{200, `data: {"type":"error","error":{"type":"server_error","message":"secret text"}}` + "\n", model.CodeInvalid, "server_error"},
 		{200, `data: {"type":"response.output_text.delta","delta":"he"}` + "\n", model.CodeUnavailable, "中斷"},
 	}
 	for _, tc := range cases {
