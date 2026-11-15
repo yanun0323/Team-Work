@@ -125,6 +125,63 @@ func TestChatMessageBringsTheSkillItNames(t *testing.T) {
 	}
 }
 
+// Trying a failed reply again sends the skill its message names once, however many times it is tried.
+func TestRetriedReplyKeepsOneCopyOfTheSkill(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, "skills", "tdd")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: tdd\n---\n先寫測試"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	failing := true
+	var mu sync.Mutex
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if failing {
+			return model.ModelReply{}, model.Errorf(model.CodeInvalid, "模型回報錯誤，請檢查模型與設定")
+		}
+		return say("好"), nil
+	})
+	bp := *r.world().Blueprints[r.owner.BlueprintID]
+	bp.Skills = []model.SkillPack{{Source: &model.BlueprintSource{Kind: "local", Path: root}}}
+	if err := r.e.SaveBlueprint(bp.ID, bp); err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "用 $tdd"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := func(w *model.World) bool {
+		msgs := w.Chats[c.ID].Messages
+		return w.Chats[c.ID].ReplyAt == nil && len(msgs) == 2 && msgs[1].Failed
+	}
+	r.wait("failed", failed)
+	if err := r.e.RetryChat(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("failed again", failed)
+	mu.Lock()
+	failing = false
+	mu.Unlock()
+	if err := r.e.RetryChat(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("reply", chatDone(c.ID))
+	for i, req := range r.fake.seen {
+		var said strings.Builder
+		for _, block := range req.Messages[0].Content {
+			said.WriteString(block.Text + "\n")
+		}
+		if n := strings.Count(said.String(), "先寫測試"); n != 1 {
+			t.Fatalf("try %d sends the skill %d times: %s", i+1, n, said.String())
+		}
+	}
+}
+
 func TestAttachedFileNamesNoSkill(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
