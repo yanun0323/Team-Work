@@ -1,7 +1,7 @@
 // What each tab of the company file needs before its work can run, and what to say about what is missing. Pure, no React.
 
 import { listOf, tr } from './core/i18n'
-import { teamReplicas } from './core/model'
+import { crewOf, teamReplicas } from './core/model'
 import type { ModelProvider, World } from './core/domain/types'
 
 /** What only the backend can see: the company's folder as it is now. */
@@ -58,7 +58,8 @@ export function prereqsOf(w: World, teamId: string, tab: PrereqTab, health: Proj
   const provider = providers(w)
   // with no provider at all, that is the thing to fix and not each employee's model
   const models = provider ? null : stranded(w, teamId)
-  const noCrew: Prereq | null = teamReplicas(w, teamId).length ? null : { id: 'crew', text: tr('沒有員工。請先新增員工'), blocks: true }
+  // the immigration office's employees can be picked to work here too
+  const noCrew: Prereq | null = crewOf(w, teamId).length ? null : { id: 'crew', text: tr('沒有員工。請先新增員工'), blocks: true }
   const list = {
     chats: [provider, noCrew, models, folder(health)],
     airportChats: [provider],
