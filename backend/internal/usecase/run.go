@@ -18,15 +18,18 @@ import (
 )
 
 const (
-	modelRetries = 3
-	maxNudges    = 2
+	// modelRetries and firstRetryDelay wait out a provider down for a while: 2, 4, 8, 16 and 32 seconds, about a
+	// minute in all.
+	modelRetries    = 5
+	firstRetryDelay = 2 * time.Second
+	maxNudges       = 2
 	// maxModelCalls bounds one run, so a model going round in circles ends up with the user.
 	maxModelCalls = 200
 	toolAskUser   = "ask_user"
 	nudgeText     = "You have not handed off. If done, call submit_handoff. If the user must decide, call ask_user. Otherwise keep working."
 )
 
-var retryDelay = time.Second
+var retryDelay = firstRetryDelay
 
 // turn is the model-and-tools loop: it calls the model and runs what it asks for until the model only
 // talks, a tool stops the run, or a callback does.

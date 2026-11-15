@@ -508,7 +508,7 @@ func TestMeetingFailedSpeechCountsEveryRetryAndKeepsUsage(t *testing.T) {
 	}
 	w := r.wait("speaker failed after counted retries", meetingIs(task.ID, func(m *model.Meeting) bool { return m.State == model.MeetingPaused && m.PauseReason == "speakerFailed" }))
 	s := w.SubTasks[sub.ID]
-	if s.Meeting.CallsTotal != 5 || s.Meeting.CallsInBatch != 5 || s.Tokens != 480 || math.Abs(s.CostUSD-0.00048) > 1e-10 {
+	if s.Meeting.CallsTotal != 7 || s.Meeting.CallsInBatch != 7 || s.Tokens != 720 || math.Abs(s.CostUSD-0.00072) > 1e-10 {
 		t.Fatalf("failed attempts not counted/charged: %+v, %+v", s.Meeting, s)
 	}
 	before := len(meetingRequests(r))
@@ -530,7 +530,7 @@ func TestMeetingFailedSpeechCountsEveryRetryAndKeepsUsage(t *testing.T) {
 	if got := speeches(r, task.ID); len(got) != 3 || got[2].Text != "recovered" {
 		t.Fatalf("%+v", got)
 	}
-	if m := meetingSub(w, task.ID).Meeting; m.CallsTotal != 7 || m.Batch != 1 {
+	if m := meetingSub(w, task.ID).Meeting; m.CallsTotal != 9 || m.Batch != 1 {
 		t.Fatalf("failure continuation reset quota: %+v", m)
 	}
 }

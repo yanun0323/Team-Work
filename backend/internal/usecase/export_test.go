@@ -9,6 +9,10 @@ func SetStopWait(d time.Duration) func() {
 	return func() { stopWait = old }
 }
 
+// SetRetryDelay shortens the wait before a passing model failure is tried again, for all the tests at once: call it
+// from TestMain, before any test runs.
+func SetRetryDelay(d time.Duration) { retryDelay = d }
+
 // SetReturnWait shortens how long a send-back waits for the runs built on it before the user is asked, for a test.
 func SetReturnWait(d time.Duration) func() {
 	old := returnWait

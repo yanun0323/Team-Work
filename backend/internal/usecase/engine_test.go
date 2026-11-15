@@ -39,6 +39,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("HOME", home)
+	// a fake model that keeps failing would otherwise hold a test for the minute a real provider is waited out
+	usecase.SetRetryDelay(5 * time.Millisecond)
 	code := m.Run()
 	os.RemoveAll(home)
 	os.Exit(code)
