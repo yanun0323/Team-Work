@@ -1383,9 +1383,12 @@ func TestChatRemembersAndForgets(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := r.wait("reply", chatDone(c.ID))
-	got := w.Replicas[r.owner.ID].Memory
-	if len(got) != 1 || got[0].Text != "測試要加 -race" || got[0].Source != "chat" || got[0].TaskID != "" {
-		t.Fatalf("memory = %+v", got)
+	if got := w.Replicas[r.owner.ID].Memory; len(got) != 0 {
+		t.Fatalf("own memory = %+v", got)
+	}
+	got := w.Teams[r.team.ID].Memory
+	if len(got) != 1 || got[0].Text != "測試要加 -race" || got[0].Source != "chat" || got[0].TaskID != "" || got[0].By != r.owner.ID {
+		t.Fatalf("company memory = %+v", got)
 	}
 	if !strings.Contains(r.fake.seen[0].System, "Use remember") {
 		t.Fatalf("system: %s", r.fake.seen[0].System)

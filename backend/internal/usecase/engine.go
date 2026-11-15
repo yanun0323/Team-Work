@@ -381,6 +381,11 @@ func (e *Engine) load(ctx context.Context) error {
 			e.prev[docKey(d.Kind, d.ID)] = nil
 		}
 	}
+	for _, t := range e.w.Teams {
+		if t.Memory == nil { // from before companies kept notes
+			t.Memory = []model.MemoryEntry{}
+		}
+	}
 	if len(docs) > 0 && rawSettings.Data == nil {
 		return model.Errorf(model.CodeInvalid, "設定檔遺失；請還原設定檔，不能從執行資料重建設定")
 	}

@@ -1024,11 +1024,12 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 			Parameters: json.RawMessage(askUserSchema)}, e.askUser(in)},
 		funcTool{rememberSpec, e.rememberTool(in)},
 		funcTool{forgetSpec, e.forgetTool(in)},
-		funcTool{searchMemorySpec, e.searchMemoryTool(func() *string {
-			if s := e.w.SubTasks[in.subID]; s != nil {
-				return s.ReplicaID
+		funcTool{searchMemorySpec, e.searchMemoryTool(func() (string, *string) {
+			s, t := e.w.SubTasks[in.subID], e.w.Tasks[in.taskID]
+			if s == nil || t == nil {
+				return "", nil
 			}
-			return nil
+			return t.TeamID, s.ReplicaID
 		})},
 	}
 	e.mu.Lock()
@@ -1091,18 +1092,44 @@ func askOptions(given []string, typed string) ([]string, *model.ToolResult) {
 const askPromptHow = "What the user reads before choosing. It must make sense on its own: say what you found, what you suggest and how the options differ, unless you have already written that out. " +
 	"Never point to something you have not written out, such as the reasons above or the plan."
 
-// rememberSpec and forgetSpec are the memory tools, in a task step and in a chat alike.
+// rememberSpec, forgetSpec and searchMemorySpec are the memory tools, in a task step and in a chat alike. Which
+// company's notes they reach is the task's or the chat's, never the model's to say.
 var (
-	rememberSpec = model.ToolSpec{Name: "remember", Description: "Keep something useful for later tasks in this company: project conventions, pitfalls, the user's preferences. Not task progress.",
-		Parameters: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`)}
-	forgetSpec = model.ToolSpec{Name: "forget", Description: "Remove a note from your memory by its id, because it is wrong or out of date.",
+	rememberSpec = model.ToolSpec{Name: "remember", Description: "Keep something useful for later work. Not task progress. " +
+		"scope \"company\" (the default) keeps it in this company's memory, which everyone working here reads: anything about this company or its project, " +
+		"such as paths, commands, conventions, pitfalls, rules, or the user's preferences here, goes there. " +
+		"scope \"mine\" keeps it in your own memory, which goes with you to every company: only how you work or reminders about your role that would hold just as well in another company.",
+		Parameters: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"scope":{"type":"string","enum":["company","mine"],"description":"company (default) or mine"}},"required":["text"]}`)}
+	forgetSpec = model.ToolSpec{Name: "forget", Description: "Remove a note by its id, this company's or your own, because it is wrong or out of date.",
 		Parameters: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`)}
-	searchMemorySpec = model.ToolSpec{Name: "search_memory", Description: "Search all your notes, including older ones your prompt leaves out, for any of the query's words.",
+	searchMemorySpec = model.ToolSpec{Name: "search_memory", Description: "Search this company's notes and your own, including older ones your prompt leaves out, for any of the query's words. Each line says whether it is the company's or yours.",
 		Parameters: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Words to look for, separated by spaces"}},"required":["query"]}`)}
 )
 
-// searchMemoryTool searches the notes of whoever who names, read under the lock; in a task step and in a chat alike.
-func (e *Engine) searchMemoryTool(who func() *string) func(context.Context, string, json.RawMessage) model.ToolResult {
+// rememberArgs are remember's: the text, trimmed, and where it goes.
+func rememberArgs(raw json.RawMessage) (text, scope string, err *model.ToolResult) {
+	var a struct {
+		Text  string `json:"text"`
+		Scope string `json:"scope"`
+	}
+	if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Text) == "" {
+		res := toolError("text is required")
+		return "", "", &res
+	}
+	switch a.Scope {
+	case "", scopeCompany:
+		a.Scope = scopeCompany
+	case scopeMine:
+	default:
+		res := toolError("scope must be company or mine")
+		return "", "", &res
+	}
+	return strings.TrimSpace(a.Text), a.Scope, nil
+}
+
+// searchMemoryTool searches the notes of the company and employee where names, read under the lock; in a task step and
+// in a chat alike.
+func (e *Engine) searchMemoryTool(where func() (string, *string)) func(context.Context, string, json.RawMessage) model.ToolResult {
 	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
 		var a struct {
 			Query string `json:"query"`
@@ -1112,11 +1139,24 @@ func (e *Engine) searchMemoryTool(who func() *string) func(context.Context, stri
 		}
 		e.mu.Lock()
 		defer e.mu.Unlock()
+		teamID, replicaID := where()
 		var notes []model.MemoryEntry
-		if id := who(); id != nil && e.w.Replicas[*id] != nil {
-			notes = e.w.Replicas[*id].Memory
+		company := map[string]bool{}
+		if t := e.w.Teams[teamID]; t != nil && teamID != "" {
+			notes = append(notes, t.Memory...)
+			for _, m := range t.Memory {
+				company[m.ID] = true
+			}
 		}
-		return model.ToolResult{Text: searchMemory(notes, a.Query)}
+		if replicaID != nil && e.w.Replicas[*replicaID] != nil {
+			notes = append(notes, e.w.Replicas[*replicaID].Memory...)
+		}
+		return model.ToolResult{Text: searchMemory(notes, a.Query, func(m model.MemoryEntry) string {
+			if company[m.ID] {
+				return "company " + e.companyLine(m)[2:]
+			}
+			return "yours " + memoryLine(m)[2:]
+		})}
 	}
 }
 
@@ -1171,7 +1211,7 @@ func (e *Engine) submitHandoff(in subRun) func(context.Context, string, json.Raw
 			}
 			s.Handoff = h
 			for _, text := range a.Learned {
-				e.keepNote(t, s, text)
+				e.keepNote(t, s, text, scopeCompany)
 			}
 			e.finish(t, s, commit)
 			if t.OwnerLed() {
@@ -1222,23 +1262,22 @@ func (e *Engine) askUser(in subRun) func(context.Context, string, json.RawMessag
 
 func (e *Engine) rememberTool(in subRun) func(context.Context, string, json.RawMessage) model.ToolResult {
 	return func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
-		var a struct {
-			Text string `json:"text"`
-		}
-		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Text) == "" {
-			return toolError("text is required")
+		text, scope, bad := rememberArgs(raw)
+		if bad != nil {
+			return *bad
 		}
 		e.apply(in, func(t *model.Task, s *model.SubTask) {
-			e.keepNote(t, s, a.Text)
+			e.keepNote(t, s, text, scope)
 		})
 		return model.ToolResult{Text: "remembered"}
 	}
 }
 
-// keepNote saves what an employee wrote down and logs it, skipping blanks and repeats.
-func (e *Engine) keepNote(t *model.Task, s *model.SubTask, text string) {
+// keepNote saves what an employee wrote down, in the task's company or in scope "mine" their own memory, and logs it,
+// skipping blanks and repeats.
+func (e *Engine) keepNote(t *model.Task, s *model.SubTask, text, scope string) {
 	text = strings.TrimSpace(text)
-	if text != "" && e.remember(s.ReplicaID, text, "work", t.ID) {
+	if text != "" && e.remember(t.TeamID, s.ReplicaID, scope, text, "work", t.ID) {
 		e.logLine(s, enum.LogSystem, i18n.T("寫入記憶：%s", text), "memory", map[string]any{"text": text})
 	}
 }
@@ -1252,8 +1291,8 @@ func (e *Engine) forgetTool(in subRun) func(context.Context, string, json.RawMes
 			return toolError("id is required")
 		}
 		found := false
-		e.apply(in, func(_ *model.Task, s *model.SubTask) {
-			text, ok := e.forget(s.ReplicaID, a.ID)
+		e.apply(in, func(t *model.Task, s *model.SubTask) {
+			text, ok := e.forget(t.TeamID, s.ReplicaID, a.ID)
 			if found = ok; ok {
 				e.logLine(s, enum.LogSystem, i18n.T("移除記憶：%s", text), "forget", map[string]any{"text": text})
 			}

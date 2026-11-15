@@ -214,7 +214,7 @@ func (e *Engine) ownerSpec(t *model.Task, r *model.Replica) (agentSpec, error) {
 		rules:  ownerRules + "\n" + languageRule(e.w.Language) + "\n" + dataRule + "\n",
 		shared: sharedRules(e.runGlobalPrompt(), team.Prompt),
 		role:   e.rolePart(bp),
-		memory: memorySection(r),
+		memory: e.memorySection(team, r),
 	}
 	return spec, nil
 }
@@ -584,7 +584,12 @@ func (e *Engine) ownerTurn(in *ownerRun) *turn {
 	key := ownerKey(in.taskID)
 	list := tools.For(in.spec.allowed, tools.Env{Read: []string{e.attachmentRoot(in.taskID)}, Search: e.search, Semantic: e.semantic, Task: in.taskID, Replica: in.ownerID})
 	list = append(list, e.ownerTools(in)...)
-	list = append(list, funcTool{searchMemorySpec, e.searchMemoryTool(func() *string { return ptr(in.ownerID) })})
+	list = append(list, funcTool{searchMemorySpec, e.searchMemoryTool(func() (string, *string) {
+		if t := e.w.Tasks[in.taskID]; t != nil {
+			return t.TeamID, ptr(in.ownerID)
+		}
+		return "", ptr(in.ownerID)
+	})})
 	specs := make([]model.ToolSpec, len(list))
 	byName := make(map[string]adapter.Tool, len(list))
 	for i, tool := range list {

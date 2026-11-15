@@ -70,7 +70,7 @@ func (e *Engine) CreateTeam(ctx context.Context, in NewTeam) (*model.Team, error
 		}
 		id := e.uid("team")
 		t := &model.Team{ID: id, Name: in.Name, Folder: in.Folder, TargetBranch: in.TargetBranch, Branches: branches, InitializedGit: initialized,
-			Plot: clone(plot), CreatedAt: e.w.Now, Settings: model.TeamSettings{TimeoutMin: 120, CostLimitUSD: 3, Retries: 1}}
+			Plot: clone(plot), CreatedAt: e.w.Now, Settings: model.TeamSettings{TimeoutMin: 120, CostLimitUSD: 3, Retries: 1}, Memory: []model.MemoryEntry{}}
 		e.readPrompt(t)
 		e.w.Teams[id] = t
 		out = clone(t)
@@ -1665,7 +1665,8 @@ func (e *Engine) letGo(r, heir *model.Replica) {
 
 // MoveReplica moves an employee between a company and the staffing agency, either way: they are let go where they
 // are, as Fire does, handing their work to heirID, and someone new is hired at to with the same name, look,
-// settings, model and thinking level, but no memory and none of their conversations. It all happens, or none of it.
+// settings, model, thinking level and their own notes, which are not any company's, but none of their conversations;
+// the company's notes stay where they are. It all happens, or none of it.
 // A second call for the same move finds them gone, so it never makes two.
 func (e *Engine) MoveReplica(id, to, heirID string) (*model.Replica, error) {
 	var out *model.Replica
@@ -1689,7 +1690,7 @@ func (e *Engine) MoveReplica(id, to, heirID string) (*model.Replica, error) {
 			own = clone(b)
 		}
 		moved := &model.Replica{ID: e.uid("rep"), TeamID: to, BlueprintID: r.BlueprintID, Name: r.Name, Look: r.Look,
-			Model: r.Model, Effort: r.Effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now}
+			Model: r.Model, Effort: r.Effort, Memory: append([]model.MemoryEntry{}, r.Memory...), HiredAt: e.w.Now}
 		e.letGo(r, heir)
 		for k, v := range e.w.Copies {
 			if v == r.ID { // a copy sent again finds who it hired where they went

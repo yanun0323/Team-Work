@@ -235,6 +235,8 @@ var en = map[string]string{
 	"無法使用這個資料夾的 git repo":           "Cannot use this folder's git repo",
 	"目標分支 %s 不存在":                   "Target branch %s does not exist",
 	"找不到公司":                         "Company not found",
+	"找不到這則記憶":                       "Note not found",
+	"記憶內容不能是空白":                     "Note text cannot be blank",
 	"專案資料夾裡沒有 %s":                   "There is no %s in the project folder",
 	"找不到技能 %s":                      "Skill not found: %s",
 	"檔案路徑不正確：%s":                    "Invalid file path: %s",

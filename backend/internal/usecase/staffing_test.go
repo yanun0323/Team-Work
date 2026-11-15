@@ -84,7 +84,7 @@ func TestStaffingEmployeesWorkInTheCompanyThatAsks(t *testing.T) {
 }
 
 // Moving into the agency lets the employee go as firing does and hires someone new there: same name, look, settings,
-// model and level, no memory. Sending it again makes no second one.
+// model, level and their own notes; the company's notes stay with it. Sending it again makes no second one.
 func TestMoveToStaffingIsAFreshHire(t *testing.T) {
 	t.Parallel()
 	r := newRig(t, nil)
@@ -97,6 +97,7 @@ func TestMoveToStaffingIsAFreshHire(t *testing.T) {
 	if err := r.e.UpdateReplica(bo.ID, usecase.ReplicaPatch{Memory: &mem}); err != nil {
 		t.Fatal(err)
 	}
+	r.e.RememberFor(r.team.ID, bo.ID, "公司的事")
 	before := r.world().Replicas[bo.ID]
 	moved, err := r.e.MoveReplica(bo.ID, model.StaffingID, r.owner.ID)
 	if err != nil {
@@ -107,8 +108,11 @@ func TestMoveToStaffingIsAFreshHire(t *testing.T) {
 	if w.Replicas[bo.ID] != nil || got == nil || got.ID == bo.ID || got.TeamID != model.StaffingID {
 		t.Fatalf("moved = %+v, old still there: %v", got, w.Replicas[bo.ID] != nil)
 	}
-	if got.Name != "Bo" || got.Look != before.Look || got.Model != "fake" || got.Effort != "high" || len(got.Memory) != 0 {
+	if got.Name != "Bo" || got.Look != before.Look || got.Model != "fake" || got.Effort != "high" || !slices.Equal(got.Memory, mem) {
 		t.Fatalf("moved = %+v", got)
+	}
+	if notes := w.Teams[r.team.ID].Memory; len(notes) != 1 || notes[0].Text != "公司的事" || notes[0].By != bo.ID {
+		t.Fatalf("the company's notes = %+v", notes)
 	}
 	bp := w.Blueprints[got.BlueprintID]
 	if bp == nil || bp.Owner != got.ID || bp.Prompt != "我的設定" || w.Blueprints[before.BlueprintID] != nil {
@@ -125,7 +129,7 @@ func TestMoveToStaffingIsAFreshHire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w := r.world(); w.Replicas[moved.ID] != nil || w.Replicas[back.ID].TeamID != r.team.ID || countNamed(w, "Bo") != 1 {
+	if w := r.world(); w.Replicas[moved.ID] != nil || w.Replicas[back.ID].TeamID != r.team.ID || countNamed(w, "Bo") != 1 || !slices.Equal(w.Replicas[back.ID].Memory, mem) || len(w.Teams[r.team.ID].Memory) != 1 {
 		t.Fatalf("back = %+v", w.Replicas[back.ID])
 	}
 }

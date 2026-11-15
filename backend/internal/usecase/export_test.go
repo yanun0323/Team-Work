@@ -16,10 +16,18 @@ func SetReturnWait(d time.Duration) func() {
 	return func() { returnWait = old }
 }
 
-// Remember gives an employee a note from outside any run, for a test.
+// Remember gives an employee a note of their own from outside any run, for a test.
 func (e *Engine) Remember(replicaID, text string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.remember(&replicaID, text, "test", "")
+	e.remember("", &replicaID, scopeMine, text, "test", "")
+	e.settle()
+}
+
+// RememberFor gives company teamID a note written by replicaID from outside any run, for a test.
+func (e *Engine) RememberFor(teamID, replicaID, text string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.remember(teamID, &replicaID, scopeCompany, text, "test", "")
 	e.settle()
 }
