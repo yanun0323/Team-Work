@@ -78,7 +78,7 @@ func (t Command) RunStream(ctx context.Context, cwd string, raw json.RawMessage,
 	}
 	if args.Background {
 		var changed func()
-		if t.Changed != nil && !readOnly(args.Command) {
+		if t.Changed != nil && !readOnlyIn(cwd, args.Command) {
 			changed = func() { t.Changed(cwd, "run_command") }
 		}
 		if t.Jobs == nil {
@@ -95,7 +95,7 @@ func (t Command) RunStream(ctx context.Context, cwd string, raw json.RawMessage,
 		return model.ToolResult{Text: fmt.Sprintf("Started background command %s.%s You will be told when it ends; run_command with job_id %q and action status, wait or kill checks it, waits for it or stops it.", r.ID, where, r.ID)}
 	}
 	// a command that surely only reads leaves the index alone; a search scans the folder first anyway
-	if t.Changed != nil && !readOnly(args.Command) {
+	if t.Changed != nil && !readOnlyIn(cwd, args.Command) {
 		defer t.Changed(cwd, "run_command")
 	}
 	runCtx := ctx

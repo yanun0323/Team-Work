@@ -61,8 +61,21 @@ var readOnlyGit = map[string]flags{
 // background jobs, && and ||, variables set before a command and anything unknown count as possibly writing; inside
 // single quotes anything goes, inside double quotes nothing the shell would expand.
 func readOnly(command string) bool {
-	var parts [][]string
+	_, ok := readOnlyParts(command)
+	return ok
+}
+
+// part is a command among those a shell command runs; piped says it is one side of a pipe, run in a shell of its own.
+type part struct {
+	words []string
+	piped bool
+}
+
+// readOnlyParts splits a shell command into the commands it runs, when its words alone show it surely reads only.
+func readOnlyParts(command string) ([]part, bool) {
+	var parts []part
 	var words []string
+	pipe := false // the part being read follows a |
 	var cur strings.Builder
 	in, quote := false, rune(0)
 	word := func() {
@@ -72,12 +85,13 @@ func readOnly(command string) bool {
 			in = false
 		}
 	}
-	part := func() bool {
+	part := func(piped bool) bool {
 		word()
 		if len(words) == 0 {
 			return false
 		}
-		parts, words = append(parts, words), nil
+		parts, words = append(parts, part{words: words, piped: pipe || piped}), nil
+		pipe = piped
 		return true
 	}
 	for _, r := range command {
@@ -92,7 +106,7 @@ func readOnly(command string) bool {
 			if r == '"' {
 				quote = 0
 			} else if strings.ContainsRune("$`\\!", r) {
-				return false
+				return nil, false
 			} else {
 				cur.WriteRune(r)
 			}
@@ -101,25 +115,25 @@ func readOnly(command string) bool {
 		case r == ' ' || r == '\t':
 			word()
 		case r == '|' || r == ';':
-			if !part() {
-				return false
+			if !part(r == '|') {
+				return nil, false
 			}
 		case strings.ContainsRune("><`$()&{}\\!*?[]#\n\r", r), r == '~' && !in: // a ~ starting a word is a home folder
-			return false
+			return nil, false
 		default:
 			cur.WriteRune(r)
 			in = true
 		}
 	}
-	if quote != 0 || !part() {
-		return false
+	if quote != 0 || !part(false) {
+		return nil, false
 	}
-	for _, words := range parts {
-		if !readOnlyWords(words[0], words[1:]) {
-			return false
+	for _, p := range parts {
+		if !readOnlyWords(p.words[0], p.words[1:]) {
+			return nil, false
 		}
 	}
-	return true
+	return parts, true
 }
 
 // readOnlyWords says whether a command with these arguments surely only reads.

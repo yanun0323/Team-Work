@@ -18,6 +18,14 @@ func SetStopWait(d time.Duration) func() {
 	return func() { stopWait = old }
 }
 
+// SetJobsCleaned has f hear each step run's background commands stopped, before the run is said to have ended; f
+// may hold it there. Set it before any run starts.
+func (e *Engine) SetJobsCleaned(f func(scope string)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.jobsCleaned = f
+}
+
 // SetRetryDelay shortens the wait before a passing model failure is tried again, for all the tests at once: call it
 // from TestMain, before any test runs.
 func SetRetryDelay(d time.Duration) { retryDelay = d }

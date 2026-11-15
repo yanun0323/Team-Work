@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -465,5 +466,148 @@ func TestChatDeletedAsItStartsACommandLeavesNothing(t *testing.T) {
 		pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
 		_ = syscall.Kill(-pid, syscall.SIGKILL)
 		t.Fatal("a deleted chat's command started")
+	}
+}
+
+// A step stopped with background commands running is stopped only once they are: while stopping them is not done,
+// the stop is not applied and the step neither shows stopped nor starts again.
+func TestStepIsStoppedOnlyOnceItsCommandsAre(t *testing.T) {
+	t.Parallel()
+	pids := t.TempDir()
+	r := newRig(t, nil)
+	held, release := make(chan string, 1), make(chan struct{})
+	var once sync.Once
+	r.e.SetJobsCleaned(func(scope string) {
+		if strings.HasPrefix(scope, "sub:") {
+			once.Do(func() { held <- scope; <-release })
+		}
+	})
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	})
+	r.setReply(func(req model.ModelRequest) (model.ModelReply, error) {
+		switch {
+		case isOwner(req):
+			return autoOwner(req), nil
+		case lastIsResult(req):
+			return say("等它跑完"), nil
+		}
+		return background("sh -c 'sleep 60 & echo $! > " + filepath.Join(pids, "grand.pid") + "; wait'"), nil
+	})
+	task := r.ownerTask(r.flow.ID)
+	grand := pidIn(t, filepath.Join(pids, "grand.pid"))
+	w := r.wait("the step to run", func(w *model.World) bool {
+		s := subAt(w, task.ID, "整理需求")
+		return s != nil && s.ExecutionState == model.ExecRunning
+	})
+	sub := subAt(w, task.ID, "整理需求")
+	op, err := r.e.ControlTask(task.ID, usecase.TaskControl{RequestID: "p", Action: "pause"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-held:
+	case <-time.After(patience):
+		t.Fatal("the run never stopped its commands")
+	}
+	waitDead(t, grand) // stopped before it is heard
+	time.Sleep(200 * time.Millisecond)
+	w = r.world()
+	s := w.SubTasks[sub.ID]
+	if s.ExecutionState != model.ExecStopping || s.RunGeneration != sub.RunGeneration {
+		t.Fatalf("said stopped, or started again, before its commands were stopped: %s gen %d", s.ExecutionState, s.RunGeneration)
+	}
+	for _, o := range w.Tasks[task.ID].Coordination.Operations {
+		if o.ID == op.ID && o.Status == model.OpApplied {
+			t.Fatal("the pause was applied before the step's commands were stopped")
+		}
+	}
+	close(release)
+	r.wait("stopped", func(w *model.World) bool {
+		return w.SubTasks[sub.ID].ExecutionState == model.ExecStopped && slices.ContainsFunc(w.Tasks[task.ID].Coordination.Operations,
+			func(o model.TaskOperation) bool { return o.ID == op.ID && o.Status == model.OpApplied })
+	})
+}
+
+// A command that ended while a chat waited on a question is kept with the chat at once. Skipping the question wakes
+// nobody, nor does a restart, and nothing is told twice: the employee reads how it ended once, with the user's next
+// words.
+func TestSkippingAQuestionLeavesAKeptEndForTheNextWords(t *testing.T) {
+	t.Parallel()
+	marker := "skipped-bg"
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		results := lastResultsOf(req)
+		switch {
+		case strings.Contains(sentText(req), jobsEnded):
+			return say("收到結果"), nil
+		case len(results) > 0 && results[0].Name == "run_command":
+			return call("ask_user", map[string]any{"reply": "要繼續嗎？", "options": []string{"繼續", "停"}}), nil
+		case lastIsResult(req):
+			return say("好"), nil
+		}
+		return background("while [ ! -f go ]; do sleep 0.05; done; echo " + marker), nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "跑一下"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("waiting", func(w *model.World) bool { return w.Chats[c.ID].Question != nil })
+	if err := os.WriteFile(filepath.Join(r.folder, "go"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// the command names the marker too: what is waited for is its end, shown and kept while the question waits
+	r.wait("kept", func(w *model.World) bool {
+		raw, _ := json.Marshal(r.e.Conversation(c.ID))
+		return w.Chats[c.ID].Question != nil && chatHasLine(w.Chats[c.ID], "tool", `run_command {"job_id"`) >= 0 &&
+			strings.Contains(string(raw), "[Background commands ended]")
+	})
+	before := len(r.fake.requests())
+	lines := func(w *model.World) int {
+		n := 0
+		for _, m := range w.Chats[c.ID].Messages {
+			if m.From == "tool" && strings.HasPrefix(m.Text, `run_command {"job_id"`) {
+				n++
+			}
+		}
+		return n
+	}
+	quiet := func(when string) {
+		t.Helper()
+		time.Sleep(300 * time.Millisecond)
+		w := r.world()
+		if n := len(r.fake.requests()); n != before || w.Chats[c.ID].ReplyAt != nil {
+			t.Fatalf("%s: woken (%d calls since): %s", when, n-before, sentText(r.fake.requests()[before]))
+		}
+		if n := lines(w); n != 1 {
+			t.Fatalf("%s: %d lines for one end", when, n)
+		}
+	}
+	if err := r.e.SkipChatQuestion(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	quiet("skipped")
+	r.e.Close()
+	r.store.Close()
+	newEngine(t, r)
+	quiet("restarted")
+	if err := r.e.SayInChat(c.ID, "然後呢", nil); err != nil {
+		t.Fatal(err)
+	}
+	w := r.wait("told", func(w *model.World) bool {
+		return chatDone(c.ID)(w) && chatHasLine(w.Chats[c.ID], "agent", "收到結果") >= 0
+	})
+	reqs := r.fake.requests()[before:]
+	if len(reqs) == 0 {
+		t.Fatal("no call after the user's words")
+	}
+	if n := strings.Count(sentText(reqs[0]), jobsEnded); n != 1 || !strings.Contains(sentText(reqs[0]), "Output:\n"+marker) {
+		t.Fatalf("the end came %d times: %s", n, sentText(reqs[0]))
+	}
+	if n := lines(w); n != 1 {
+		t.Fatalf("%d lines for one end", n)
 	}
 }

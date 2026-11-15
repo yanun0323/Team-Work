@@ -623,12 +623,20 @@ func (e *Engine) apply(in subRun, fn func(t *model.Task, s *model.SubTask)) bool
 
 func (e *Engine) runSub(ctx context.Context, in subRun) {
 	defer e.wg.Done()
-	// a step's background commands, with all they started, do not outlive its run: done, retried or stopped
-	defer e.jobs.End(in.jobs)
-	defer in.r.cancel()
 	defer func() {
+		// a step's background commands, with all they started, do not outlive its run: done, retried or stopped. They
+		// are stopped before the run is said to have ended, so nothing is said stopped, and nothing starts again,
+		// while they still run. No lock is held meanwhile: a command ending takes it.
+		in.r.cancel()
+		left := e.jobs.End(in.jobs)
+		if e.jobsCleaned != nil {
+			e.jobsCleaned(in.jobs)
+		}
 		e.mu.Lock()
 		defer e.mu.Unlock()
+		if len(left) > 0 {
+			e.jobsLeft(in, left)
+		}
 		owned := e.runs[in.subID] == in.r
 		if owned {
 			delete(e.runs, in.subID)
@@ -1361,10 +1369,25 @@ func (e *Engine) submitHandoff(in subRun) func(context.Context, string, json.Raw
 	}
 }
 
-// jobsRunning refuses to end a step while its background commands still run: what they write half done would be
-// committed with it.
+// jobsLeft is a run ending with background commands that could not be told to have stopped. Their groups were
+// stopped, but a stop that waits on them cannot be said done: it is uncertain, for the user to check. Call it
+// holding the lock.
+func (e *Engine) jobsLeft(in subRun, ids []string) {
+	e.log.Warn().Str("sub", in.subID).Strs("jobs", ids).Msg("background commands not known to have stopped")
+	s := e.w.SubTasks[in.subID]
+	if s == nil || e.closed || e.runs[in.subID] != nil && e.runs[in.subID] != in.r {
+		return
+	}
+	if t := e.w.Tasks[in.taskID]; t != nil && t.OwnerLed() && s.ExecutionState == model.ExecStopping && s.RunGeneration == in.gen {
+		e.markUncertain(t, s)
+		e.stopsSettled(t)
+	}
+}
+
+// jobsRunning refuses to end a step while background commands of any of its runs still run: what they write half
+// done would be committed with it.
 func (e *Engine) jobsRunning(in subRun) *model.ToolResult {
-	ids := e.jobs.Running(in.jobs)
+	ids := e.jobs.RunningUnder(subJobs + in.subID + "#")
 	if len(ids) == 0 {
 		return nil
 	}

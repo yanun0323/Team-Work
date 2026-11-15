@@ -50,6 +50,17 @@ type Jobs struct {
 	signal func(pgid int, sig syscall.Signal) error
 	// started, when set, runs in Start holding the lock, once the scope may start a command and before it does.
 	started func()
+	// busy says whether a process group has a live process other than except; groupBusy when nil. Tests make it fail.
+	busy func(pgid, except int) (bool, error)
+	// endWait is how long End and Close wait for the commands they stop; endWaitDefault when zero.
+	endWait time.Duration
+}
+
+func (j *Jobs) groupBusy(pgid, except int) (bool, error) {
+	if j.busy != nil {
+		return j.busy(pgid, except)
+	}
+	return groupBusy(pgid, except)
 }
 
 type job struct {
@@ -66,6 +77,8 @@ type job struct {
 	// taken says its end was reported by wait, kill or a notice, so it is not told again; shown that a chat already
 	// shows it ended.
 	taken, shown bool
+	// unsure says its process group could not be looked up, so all of it was stopped to be sure.
+	unsure bool
 }
 
 // JobReport is a background command as it is now.
@@ -79,6 +92,8 @@ type JobReport struct {
 	File   string
 	// Shown says a chat already shows that it ended.
 	Shown bool
+	// Unsure says what it started could not be looked up, so all of it was stopped.
+	Unsure bool
 }
 
 // Text is the report as the model reads it.
@@ -101,6 +116,9 @@ func (r JobReport) Text() string {
 		status = "could not run."
 	}
 	text := fmt.Sprintf("Background command %s (%s) %s", r.ID, command, status)
+	if r.Unsure {
+		text += " Its processes could not be looked up, so all it started was stopped."
+	}
 	switch {
 	case r.Output != "" && r.State == JobRunning:
 		text += "\nOutput so far:\n" + strings.TrimRight(r.Output, "\n")
@@ -126,8 +144,15 @@ func (r JobReport) Line() string {
 
 var errNoJob = errors.New("no such background command here; job ids come from run_command with background true")
 
-// groupPoll is how often a command whose shell is done is checked for what it started.
-const groupPoll = 100 * time.Millisecond
+// groupPoll is how often a command whose shell is done is checked for what it started; groupRetry the longest wait
+// between lookups of a group that cannot be looked up.
+const (
+	groupPoll  = 100 * time.Millisecond
+	groupRetry = time.Second
+)
+
+// endWaitDefault is how long End and Close wait for the commands they stop.
+const endWaitDefault = 2*killGrace + time.Second
 
 // Start runs command in the background in scope, from cwd, its output kept in outDir as it comes. timeout, when
 // above zero, stops it after that long. changed hears once it is over, when it may have written files. Nothing starts
@@ -232,16 +257,27 @@ func (j *Jobs) kill(pgid int) {
 	_ = syscall.Kill(-pgid, syscall.SIGKILL)
 }
 
-// watch waits for a command to be over: its shell, then everything left in its group but the keeper. Then it settles
-// how it ended, stops what may be left, and only then lets the keeper go.
+// watch waits for a command to be over: its shell, then everything left in its group but the keeper. When the group
+// cannot be looked up, nothing can say what is left of it: all of it is stopped while the group is still the
+// command's own, and it is looked up again until it can be, however long that takes; until then the command is not
+// over. Only once it is does watch let the output go, say the folder changed, settle how it ended and let the
+// keeper go.
 func (j *Jobs) watch(jb *job, cmd *exec.Cmd, keeper *exec.Cmd, release, outR *os.File, copied chan struct{}, changed func()) {
 	err := cmd.Wait()
-	for {
-		busy, err := groupBusy(jb.pgid, keeper.Process.Pid)
-		if err != nil || !busy {
+	for wait := groupPoll; ; time.Sleep(wait) {
+		busy, lookErr := j.groupBusy(jb.pgid, keeper.Process.Pid)
+		if lookErr == nil && !busy {
 			break
 		}
-		time.Sleep(groupPoll)
+		if lookErr == nil {
+			wait = groupPoll
+			continue
+		}
+		j.mu.Lock()
+		jb.unsure = true
+		j.mu.Unlock()
+		j.stop(jb, JobKilled)
+		wait = min(2*wait, groupRetry)
 	}
 	// only what left the group can still hold the output open; it is not waited for long
 	select {
@@ -254,13 +290,15 @@ func (j *Jobs) watch(jb *job, cmd *exec.Cmd, keeper *exec.Cmd, release, outR *os
 	if jb.timer != nil {
 		jb.timer.Stop()
 	}
+	// anything that joined the group since goes too: its id is still the command's own, as the keeper is not reaped
+	j.mu.Lock()
+	j.kill(jb.pgid)
+	j.mu.Unlock()
 	jb.out.close()
 	if changed != nil {
 		changed() // all it wrote is written
 	}
 	j.mu.Lock()
-	// anything still in the group goes with the keeper, whose group id it still is
-	j.kill(jb.pgid)
 	var exit *exec.ExitError
 	switch {
 	case jb.stoppedAs != "":
@@ -275,6 +313,9 @@ func (j *Jobs) watch(jb *job, cmd *exec.Cmd, keeper *exec.Cmd, release, outR *os
 	if ch := j.signals[jb.scope]; ch != nil {
 		close(ch)
 		delete(j.signals, jb.scope)
+	}
+	if j.closed || j.over[jb.scope] {
+		delete(j.byID, jb.id) // its scope ended while it was not over yet; nobody is told of it now
 	}
 	j.mu.Unlock()
 	// over: its group is never signalled again, so its id may go to another
@@ -310,7 +351,7 @@ func (j *Jobs) find(scope, id string) (*job, error) {
 
 // reportLocked is jb as it is now. take, when it is over, has its end reported here, so nobody is told it again.
 func (j *Jobs) reportLocked(jb *job, take bool) JobReport {
-	r := JobReport{ID: jb.id, Command: jb.command, State: jb.state, ExitCode: jb.code, Output: jb.out.text(), File: jb.out.name(), Shown: jb.shown}
+	r := JobReport{ID: jb.id, Command: jb.command, State: jb.state, ExitCode: jb.code, Output: jb.out.text(), File: jb.out.name(), Shown: jb.shown, Unsure: jb.unsure}
 	if take && jb.state != JobRunning {
 		jb.taken = true
 	}
@@ -371,7 +412,7 @@ func (j *Jobs) Kill(scope, id string) (JobReport, error) {
 	j.stop(jb, JobKilled)
 	select {
 	case <-jb.done:
-	case <-time.After(2*killGrace + time.Second):
+	case <-time.After(j.waitEnd()):
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -386,6 +427,23 @@ func (j *Jobs) Running(scope string) []string {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	return j.runningLocked(scope)
+}
+
+// RunningUnder is the ids of the commands still running in every scope whose name starts with prefix.
+func (j *Jobs) RunningUnder(prefix string) []string {
+	if j == nil {
+		return nil
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	var ids []string
+	for _, jb := range j.byID {
+		if strings.HasPrefix(jb.scope, prefix) && jb.state == JobRunning {
+			ids = append(ids, jb.id)
+		}
+	}
+	slices.SortFunc(ids, compareIDs)
+	return ids
 }
 
 func (j *Jobs) runningLocked(scope string) []string {
@@ -469,11 +527,13 @@ func (j *Jobs) Signal(scope string) <-chan struct{} {
 	return ch
 }
 
-// End stops every command of scope with all it started, waits a little for them to go, and forgets them. The scope
-// takes no command after it, so one starting at the same time is either stopped here or never starts.
-func (j *Jobs) End(scope string) {
+// End stops every command of scope with all it started, waits a little for them to go, and forgets those that are
+// over. The scope takes no command after it, so one starting at the same time is either stopped here or never
+// starts. It returns the ids of those not over yet, whose groups could not be looked up: they stay known as running,
+// and are forgotten once they are over.
+func (j *Jobs) End(scope string) []string {
 	if j == nil {
-		return
+		return nil
 	}
 	j.mu.Lock()
 	if j.over == nil {
@@ -489,10 +549,17 @@ func (j *Jobs) End(scope string) {
 	j.mu.Unlock()
 	j.endAll(mine)
 	j.mu.Lock()
+	defer j.mu.Unlock()
+	var left []string
 	for _, jb := range mine {
-		delete(j.byID, jb.id)
+		if jb.state == JobRunning {
+			left = append(left, jb.id)
+		} else {
+			delete(j.byID, jb.id)
+		}
 	}
-	j.mu.Unlock()
+	slices.SortFunc(left, compareIDs)
+	return left
 }
 
 // Close ends every scope; no command starts after it.
@@ -516,7 +583,7 @@ func (j *Jobs) endAll(list []*job) {
 	for _, jb := range list {
 		j.stop(jb, JobKilled)
 	}
-	deadline := time.After(2*killGrace + time.Second)
+	deadline := time.After(j.waitEnd())
 	for _, jb := range list {
 		select {
 		case <-jb.done:
@@ -524,4 +591,11 @@ func (j *Jobs) endAll(list []*job) {
 			return
 		}
 	}
+}
+
+func (j *Jobs) waitEnd() time.Duration {
+	if j.endWait > 0 {
+		return j.endWait
+	}
+	return endWaitDefault
 }

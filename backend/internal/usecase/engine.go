@@ -120,6 +120,9 @@ type Engine struct {
 	// jobs are run_command's background commands, of task steps' runs and of chats; jobScopes numbers the runs'.
 	jobs      *tools.Jobs
 	jobScopes int
+	// jobsCleaned, when set, hears that a step's run has stopped all its background commands, before the run is
+	// said to have ended. Tests hold it there.
+	jobsCleaned func(scope string)
 	// semantic is the experimental semantic search, nil when the backend has none.
 	semantic *semantic.Service
 	// rankNotes ranks memory notes by meaning, ok false for keyword search alone; semantic's, or a test's stand-in.
