@@ -157,7 +157,8 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 		search: &tools.Search{Endpoint: tools.ExaEndpoint, Log: o.Log, State: filepath.Join(o.DataDir, "cache", "search-cooldown.json")},
 	}
 	e.ctx, e.cancel = context.WithCancel(context.Background())
-	e.jobs = &tools.Jobs{Done: e.jobEnded}
+	// heard apart: deleting a chat ends its commands holding the lock, and waits for them
+	e.jobs = &tools.Jobs{Done: func(scope string) { go e.jobEnded(scope) }}
 	if err := e.load(ctx); err != nil {
 		e.cancel()
 		return nil, err

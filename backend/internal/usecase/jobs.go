@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 	"github.com/yanun0323/Team-Work/internal/usecase/tools"
 )
 
@@ -18,13 +19,22 @@ const (
 
 func chatJobScope(chatID string) string { return chatJobs + chatID }
 
+// jobsHeader starts the message that tells the model how its background commands ended.
+const jobsHeader = "[Background commands ended]"
+
 // jobsMessage tells the model how its background commands ended.
 func jobsMessage(ended []tools.JobReport) model.Message {
 	parts := make([]string, len(ended))
 	for i, r := range ended {
 		parts[i] = r.Text()
 	}
-	return userText("[Background commands ended]\n" + strings.Join(parts, "\n\n"))
+	return userText(jobsHeader + "\n" + strings.Join(parts, "\n\n"))
+}
+
+// isJobsMessage says whether m is a jobsMessage: kept after a call that waits on the user, it stays after the call's
+// result once that comes.
+func isJobsMessage(m model.Message) bool {
+	return m.Role == enum.RoleUser && len(m.Content) == 1 && m.Content[0].Type == enum.BlockText && strings.HasPrefix(m.Content[0].Text, jobsHeader+"\n")
 }
 
 // stepJobsHeard takes how a step's background commands ended, keeps it in the step's conversation and returns it to
@@ -106,10 +116,15 @@ func (e *Engine) jobEnded(scope string) {
 	e.settle()
 }
 
-// wakeForJobs has the one who spoke last in an idle chat tell the user how its background commands ended. While the
-// chat waits on the user's answer to a question or a change, the user sees the ends at once, and the model reads them
-// with the answer. Call it holding the lock.
-func (e *Engine) wakeForJobs(chatID string) {
+// wakeForJobs has the one who spoke last in an idle chat tell the user how its background commands ended. Call it
+// holding the lock.
+func (e *Engine) wakeForJobs(chatID string) { e.chatJobsEnded(chatID, true) }
+
+// chatJobsEnded keeps how an idle chat's background commands ended: a tool line each for the user, and in the
+// conversation for the model, at once, so a restart loses none of it. wake has the one who spoke last tell the user
+// now, unless the chat waits on the user's answer to a question or a change, or nobody is left to: they read it with
+// the answer, or the user's next words. Call it holding the lock.
+func (e *Engine) chatJobsEnded(chatID string, wake bool) {
 	c := e.w.Chats[chatID]
 	scope := chatJobScope(chatID)
 	if c == nil || e.runs[chatID] != nil || c.ReplyAt != nil || !e.jobs.HasEnded(scope) {
@@ -122,20 +137,21 @@ func (e *Engine) wakeForJobs(chatID string) {
 			speaker = c.ReplicaID
 		}
 	}
-	if c.Question != nil || c.Change != nil || e.chatLeft(c) {
-		e.showJobs(c, e.jobs.Show(scope), speaker)
-		return
-	}
 	if err := e.loadConversation(chatID); err != nil {
+		// shown now, told when the conversation can be read
 		e.log.Warn().Err(err).Str("chat", chatID).Msg("load conversation for background commands")
-		return
-	}
-	spec, err := e.chatSpec(c, speaker)
-	if err != nil {
 		e.showJobs(c, e.jobs.Show(scope), speaker)
 		return
 	}
-	if len(e.chatJobsHeard(c, speaker)) == 0 {
+	wake = wake && c.Question == nil && c.Change == nil && !e.chatLeft(c)
+	var spec agentSpec
+	if wake {
+		var err error
+		if spec, err = e.chatSpec(c, speaker); err != nil {
+			wake = false
+		}
+	}
+	if len(e.chatJobsHeard(c, speaker)) == 0 || !wake {
 		return
 	}
 	c.Next = nil

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -25,16 +27,29 @@ const (
 )
 
 // Jobs keeps the background commands run_command starts, each in a scope: a task step's run or a chat. A command runs
-// in a process group of its own, so stopping it stops everything it started; ending a scope stops all of its own.
+// in a process group of its own, and is over once nothing of that group is left, not when its shell is: stopping it
+// stops everything it started, and ending a scope stops all of its own. A scope that ended takes no more commands.
+//
+// The group is led by a keeper, a process of the command's own that waits doing nothing and is not reaped until the
+// command is over. While the keeper is not reaped its process id, which is the group's, can belong to nobody else, so
+// signalling the group cannot reach another's processes; once it is reaped the group is never signalled again.
 type Jobs struct {
-	// Done, when set, hears that a command of scope ended, once its result is final. It is called with no lock held.
+	// Done, when set, hears that a command of scope ended, once its result is final and before Wait and Kill return
+	// it. It is called with no lock held; End and Close may be waiting for it, so it must not wait on their callers.
 	Done func(scope string)
 
 	mu      sync.Mutex
 	seq     int
 	byID    map[string]*job
 	signals map[string]chan struct{}
-	closed  bool
+	// over are the scopes that ended; nothing starts in them again.
+	over   map[string]bool
+	closed bool
+
+	// signal sends sig to process group pgid; syscall.Kill when nil. Tests watch it.
+	signal func(pgid int, sig syscall.Signal) error
+	// started, when set, runs in Start holding the lock, once the scope may start a command and before it does.
+	started func()
 }
 
 type job struct {
@@ -45,10 +60,11 @@ type job struct {
 	timer              *time.Timer
 	// stoppedAs is why it was stopped, before it ended: timed out or killed.
 	stoppedAs string
-	// state and code are final once done is closed.
+	// state and code are final once done is closed; so is the group no longer being the command's own.
 	state string
 	code  int
-	// taken says its end was reported, by status, wait, kill or a notice; shown that a chat already shows it ended.
+	// taken says its end was reported by wait, kill or a notice, so it is not told again; shown that a chat already
+	// shows it ended.
 	taken, shown bool
 }
 
@@ -110,19 +126,40 @@ func (r JobReport) Line() string {
 
 var errNoJob = errors.New("no such background command here; job ids come from run_command with background true")
 
+// groupPoll is how often a command whose shell is done is checked for what it started.
+const groupPoll = 100 * time.Millisecond
+
 // Start runs command in the background in scope, from cwd, its output kept in outDir as it comes. timeout, when
-// above zero, stops it after that long. changed hears once it ended, when it may have written files.
-func (j *Jobs) Start(scope, cwd, command string, timeout time.Duration, outDir string, changed func()) (JobReport, error) {
+// above zero, stops it after that long. changed hears once it is over, when it may have written files. Nothing starts
+// once ctx ended, or the scope did.
+func (j *Jobs) Start(ctx context.Context, scope, cwd, command string, timeout time.Duration, outDir string, changed func()) (JobReport, error) {
 	if j == nil {
 		return JobReport{}, errors.New("background commands are not available here")
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	if j.closed {
+	switch {
+	case j.closed:
 		return JobReport{}, errors.New("the server is stopping")
+	case j.over[scope]:
+		return JobReport{}, errors.New("this run has ended; no background command can start in it")
+	case ctx.Err() != nil:
+		return JobReport{}, errors.New("stopped before the command started")
 	}
 	if running := j.runningLocked(scope); len(running) >= MaxJobs {
 		return JobReport{}, fmt.Errorf("%d background commands are already running here, the most at once (%s); wait for or kill one first", MaxJobs, strings.Join(running, ", "))
+	}
+	if j.started != nil {
+		j.started()
+	}
+	keeper, release, err := startKeeper()
+	if err != nil {
+		return JobReport{}, fmt.Errorf("could not run: %v", err)
+	}
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		j.reap(keeper, release)
+		return JobReport{}, fmt.Errorf("could not run: %v", err)
 	}
 	out := &tail{dir: outDir}
 	out.save() // all of it is kept from the start, so its file can be named at once
@@ -132,16 +169,24 @@ func (j *Jobs) Start(scope, cwd, command string, timeout time.Duration, outDir s
 	}
 	cmd := exec.Command(shell, "-c", command)
 	cmd.Dir = cwd
-	cmd.Stdout, cmd.Stderr = out, out
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// what it started may hold its output open after it ends; that is not waited for long
-	cmd.WaitDelay = killGrace
-	if err := cmd.Start(); err != nil {
+	// a file, not a writer: what the command starts writes to it directly, for as long as it runs
+	cmd.Stdout, cmd.Stderr = outW, outW
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: keeper.Process.Pid}
+	err = cmd.Start()
+	_ = outW.Close()
+	if err != nil {
+		_ = outR.Close()
 		out.close()
+		j.reap(keeper, release)
 		return JobReport{}, fmt.Errorf("could not run: %v", err)
 	}
+	copied := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(out, outR)
+		close(copied)
+	}()
 	j.seq++
-	jb := &job{id: fmt.Sprintf("job-%d", j.seq), scope: scope, command: command, pgid: cmd.Process.Pid, out: out, done: make(chan struct{}), state: JobRunning}
+	jb := &job{id: fmt.Sprintf("job-%d", j.seq), scope: scope, command: command, pgid: keeper.Process.Pid, out: out, done: make(chan struct{}), state: JobRunning}
 	if j.byID == nil {
 		j.byID = map[string]*job{}
 	}
@@ -149,54 +194,109 @@ func (j *Jobs) Start(scope, cwd, command string, timeout time.Duration, outDir s
 	if timeout > 0 {
 		jb.timer = time.AfterFunc(timeout, func() { j.stop(jb, JobTimedOut) })
 	}
-	go j.wait(jb, cmd, changed)
-	return j.reportLocked(jb), nil
+	go j.watch(jb, cmd, keeper, release, outR, copied, changed)
+	return j.reportLocked(jb, false), nil
 }
 
-func (j *Jobs) wait(jb *job, cmd *exec.Cmd, changed func()) {
+// startKeeper starts a process that leads a new process group and waits, doing nothing, until release is closed
+// (or this process ends) or it is killed. It is reaped by reap only.
+func startKeeper() (*exec.Cmd, *os.File, error) {
+	in, release, err := os.Pipe()
+	if err != nil {
+		return nil, nil, err
+	}
+	keeper := exec.Command("/bin/sh", "-c", "read -r _")
+	keeper.Stdin = in
+	keeper.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	err = keeper.Start()
+	_ = in.Close()
+	if err != nil {
+		_ = release.Close()
+		return nil, nil, err
+	}
+	return keeper, release, nil
+}
+
+// reap lets a keeper go and reaps it; its group's id is free for others from then on.
+func (j *Jobs) reap(keeper *exec.Cmd, release *os.File) {
+	_ = release.Close()
+	_ = keeper.Process.Kill()
+	_ = keeper.Wait()
+}
+
+func (j *Jobs) kill(pgid int) {
+	if j.signal != nil {
+		_ = j.signal(pgid, syscall.SIGKILL)
+		return
+	}
+	_ = syscall.Kill(-pgid, syscall.SIGKILL)
+}
+
+// watch waits for a command to be over: its shell, then everything left in its group but the keeper. Then it settles
+// how it ended, stops what may be left, and only then lets the keeper go.
+func (j *Jobs) watch(jb *job, cmd *exec.Cmd, keeper *exec.Cmd, release, outR *os.File, copied chan struct{}, changed func()) {
 	err := cmd.Wait()
+	for {
+		busy, err := groupBusy(jb.pgid, keeper.Process.Pid)
+		if err != nil || !busy {
+			break
+		}
+		time.Sleep(groupPoll)
+	}
+	// only what left the group can still hold the output open; it is not waited for long
+	select {
+	case <-copied:
+	case <-time.After(killGrace):
+		_ = outR.Close()
+		<-copied
+	}
+	_ = outR.Close()
 	if jb.timer != nil {
 		jb.timer.Stop()
 	}
 	jb.out.close()
+	if changed != nil {
+		changed() // all it wrote is written
+	}
 	j.mu.Lock()
+	// anything still in the group goes with the keeper, whose group id it still is
+	j.kill(jb.pgid)
 	var exit *exec.ExitError
 	switch {
 	case jb.stoppedAs != "":
 		jb.state = jb.stoppedAs
 	case cmd.ProcessState != nil && cmd.ProcessState.Exited():
-		// errors.Is(err, exec.ErrWaitDelay) too: it ended, only what it started kept its output open
 		jb.state, jb.code = JobExited, cmd.ProcessState.ExitCode()
 	case errors.As(err, &exit):
 		jb.state, jb.code = JobKilled, exit.ExitCode()
 	default:
 		jb.state = JobFailed
 	}
-	close(jb.done)
 	if ch := j.signals[jb.scope]; ch != nil {
 		close(ch)
 		delete(j.signals, jb.scope)
 	}
 	j.mu.Unlock()
-	if changed != nil {
-		changed()
-	}
+	// over: its group is never signalled again, so its id may go to another
+	j.reap(keeper, release)
 	if j.Done != nil {
 		j.Done(jb.scope)
 	}
+	close(jb.done)
 }
 
-// stop kills a running command's process group, as why says.
+// stop kills a command that is not over, with everything in its process group, as why says. The group is signalled
+// holding the lock, so the command cannot be over, and its keeper reaped, in between.
 func (j *Jobs) stop(jb *job, why string) {
 	j.mu.Lock()
-	running := jb.state == JobRunning
-	if running && jb.stoppedAs == "" {
+	defer j.mu.Unlock()
+	if jb.state != JobRunning {
+		return
+	}
+	if jb.stoppedAs == "" {
 		jb.stoppedAs = why
 	}
-	j.mu.Unlock()
-	if running {
-		_ = syscall.Kill(-jb.pgid, syscall.SIGKILL)
-	}
+	j.kill(jb.pgid)
 }
 
 func (j *Jobs) find(scope, id string) (*job, error) {
@@ -208,10 +308,10 @@ func (j *Jobs) find(scope, id string) (*job, error) {
 	return nil, errNoJob
 }
 
-// reportLocked is jb as it is now; an end it reports is taken, so it is not reported again.
-func (j *Jobs) reportLocked(jb *job) JobReport {
+// reportLocked is jb as it is now. take, when it is over, has its end reported here, so nobody is told it again.
+func (j *Jobs) reportLocked(jb *job, take bool) JobReport {
 	r := JobReport{ID: jb.id, Command: jb.command, State: jb.state, ExitCode: jb.code, Output: jb.out.text(), File: jb.out.name(), Shown: jb.shown}
-	if jb.state != JobRunning {
+	if take && jb.state != JobRunning {
 		jb.taken = true
 	}
 	return r
@@ -228,7 +328,8 @@ func (j *Jobs) Status(scope, id string) (JobReport, error) {
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.reportLocked(jb), nil
+	// a look only: how it ended is still told, unless it is waited for or killed
+	return j.reportLocked(jb, false), nil
 }
 
 // Wait waits for a command to end, for at most timeout when it is above zero, or until ctx ends: then it reports it
@@ -255,7 +356,7 @@ func (j *Jobs) Wait(ctx context.Context, scope, id string, timeout time.Duration
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.reportLocked(jb), nil
+	return j.reportLocked(jb, true), nil
 }
 
 // Kill stops a command and everything it started, and reports how it ended.
@@ -270,11 +371,11 @@ func (j *Jobs) Kill(scope, id string) (JobReport, error) {
 	j.stop(jb, JobKilled)
 	select {
 	case <-jb.done:
-	case <-time.After(2 * killGrace):
+	case <-time.After(2*killGrace + time.Second):
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.reportLocked(jb), nil
+	return j.reportLocked(jb, true), nil
 }
 
 // Running is the ids of the commands of scope still running.
@@ -343,8 +444,7 @@ func (j *Jobs) ended(scope string, take bool) []JobReport {
 		if jb.scope != scope || jb.state == JobRunning || jb.taken || !take && jb.shown {
 			continue
 		}
-		out = append(out, j.reportLocked(jb))
-		jb.taken = take
+		out = append(out, j.reportLocked(jb, take))
 		jb.shown = true
 	}
 	slices.SortFunc(out, func(a, b JobReport) int { return compareIDs(a.ID, b.ID) })
@@ -369,12 +469,17 @@ func (j *Jobs) Signal(scope string) <-chan struct{} {
 	return ch
 }
 
-// End stops every command of scope with all it started, waits a little for them to go, and forgets them.
+// End stops every command of scope with all it started, waits a little for them to go, and forgets them. The scope
+// takes no command after it, so one starting at the same time is either stopped here or never starts.
 func (j *Jobs) End(scope string) {
 	if j == nil {
 		return
 	}
 	j.mu.Lock()
+	if j.over == nil {
+		j.over = map[string]bool{}
+	}
+	j.over[scope] = true
 	var mine []*job
 	for _, jb := range j.byID {
 		if jb.scope == scope {
@@ -406,13 +511,12 @@ func (j *Jobs) Close() {
 	j.endAll(all)
 }
 
+// endAll stops the commands that are not over yet; those that are have nothing left to stop.
 func (j *Jobs) endAll(list []*job) {
 	for _, jb := range list {
 		j.stop(jb, JobKilled)
-		// what a finished command started may still run in its group
-		_ = syscall.Kill(-jb.pgid, syscall.SIGKILL)
 	}
-	deadline := time.After(2 * killGrace)
+	deadline := time.After(2*killGrace + time.Second)
 	for _, jb := range list {
 		select {
 		case <-jb.done:

@@ -1033,10 +1033,9 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 						e.log.Warn().Err(err).Str("chat", in.id).Msg("send queued message")
 					}
 				}
-				// a background command that ended while the reply was being written, after its last tools
-				if !stopped {
-					e.wakeForJobs(in.id)
-				}
+				// a background command that ended while the reply was being written, after its last tools; after the
+				// user stopped the reply it is kept for them to see, and read with their next words, waking nobody
+				e.chatJobsEnded(in.id, !stopped)
 			}
 			e.settle()
 		}
@@ -1162,7 +1161,11 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			})
 		},
 	}
-	e.codeMode(t, codeModeSource{Kind: "chat", ChatID: in.id, Replica: in.speaker})
+	e.codeMode(t, codeModeSource{Kind: "chat", ChatID: in.id, Replica: in.speaker, Ran: func(line string) {
+		e.applyChat(in, func(c *model.Chat) {
+			c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "tool", Text: line, By: in.speaker})
+		})
+	}})
 	in.overhead = requestTokens(t.req)
 	t.compact = func(ctx context.Context) ([]model.Message, bool) { return e.compactChat(ctx, in) }
 	t.compactAt = in.compactAt

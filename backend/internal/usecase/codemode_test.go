@@ -423,3 +423,43 @@ func TestExecThatUsesUpTheOwnersLimitStopsTheNextTool(t *testing.T) {
 		t.Fatalf("after: %+v", after)
 	}
 }
+
+// What exec shows before it runs is a guess from its code; once it ran, a line says what it really called and how many
+// times, names it made up as it went included.
+func TestExecSaysWhatItCalledOnceItRan(t *testing.T) {
+	t.Parallel()
+	const script = `const n = ["read", "file"].join("_");
+tools[n]({path: "x.txt"});
+parallel([{tool: n, args: {path: "x.txt"}}, {tool: n, args: {path: "x.txt"}}]);
+text("ok")`
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		switch {
+		case lastIsResult(req):
+			return say("好"), nil
+		case hasExec(req):
+			return call("exec", map[string]string{"code": script}), nil
+		}
+		return say("沒有 exec"), nil
+	})
+	if err := os.WriteFile(filepath.Join(r.folder, "x.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codeMode": json.RawMessage(`true`)}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "看看"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := r.wait("reply", func(w *model.World) bool { return chatDone(c.ID)(w) && chatHasLine(w.Chats[c.ID], "agent", "好") >= 0 })
+	var lines []string
+	for _, m := range w.Chats[c.ID].Messages {
+		if m.From == "tool" {
+			lines = append(lines, m.Text)
+		}
+	}
+	want := []string{"exec parallel: (" + strconv.Itoa(len([]rune(script))) + " chars)", "ran by exec: read_file ×3, in 1 parallel batch"}
+	if !slices.Equal(lines, want) {
+		t.Fatalf("%q", lines)
+	}
+}

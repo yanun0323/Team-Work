@@ -84,7 +84,7 @@ func (t Command) RunStream(ctx context.Context, cwd string, raw json.RawMessage,
 		if t.Jobs == nil {
 			return fail("background commands are not available here")
 		}
-		r, err := t.Jobs.Start(t.JobScope, cwd, args.Command, time.Duration(args.Timeout)*time.Second, t.OutputDir, changed)
+		r, err := t.Jobs.Start(ctx, t.JobScope, cwd, args.Command, time.Duration(args.Timeout)*time.Second, t.OutputDir, changed)
 		if err != nil {
 			return fail("%s", err)
 		}

@@ -860,7 +860,9 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 	if in.talk {
 		kind = "talk"
 	}
-	e.codeMode(tr, codeModeSource{Kind: kind, TaskID: in.taskID, Replica: replicaOf(in.r)})
+	e.codeMode(tr, codeModeSource{Kind: kind, TaskID: in.taskID, Replica: replicaOf(in.r), Ran: func(line string) {
+		e.apply(in, func(_ *model.Task, s *model.SubTask) { e.logLine(s, enum.LogTool, line, "", nil) })
+	}})
 	return tr
 }
 

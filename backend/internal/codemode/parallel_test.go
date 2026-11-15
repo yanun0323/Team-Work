@@ -133,3 +133,43 @@ func TestParallelStopsWithTheRun(t *testing.T) {
 		t.Fatal("calls still running")
 	}
 }
+
+// Calls counts the calls that ran, not those the limits held back: a batch the host refuses, or a script that hit its
+// call limit, adds none of its own; calls a stopped batch never started add nothing either.
+func TestCallsCountWhatRan(t *testing.T) {
+	var n atomic.Int32
+	x := codemode.Func{Name: "x", Returns: "unknown", Call: func(context.Context, json.RawMessage) (any, error) { n.Add(1); return nil, nil }}
+	asked := 0
+	h := codemode.Hooks{BeforeCall: func(string) error {
+		if asked++; asked > 32 {
+			return &codemode.Failure{Reason: "owner_limit", Message: "over"}
+		}
+		return nil
+	}}
+	res := codemode.Run(context.Background(), `
+for (let i = 0; i < 30; i++) tools.x();
+parallel([1,2,3,4].map(() => ({tool: "x"})))`, []codemode.Func{x}, codemode.DefaultLimits(), h)
+	if res.Err == nil || n.Load() != 30 || res.Calls["x"] != 30 {
+		t.Fatalf("ran %d, counted %v", n.Load(), res.Calls)
+	}
+
+	n.Store(0)
+	res = run(t, `
+for (let i = 0; i < 60; i++) tools.x();
+parallel([1,2,3,4,5].map(() => ({tool: "x"})))`, x)
+	if res.Err == nil || n.Load() != 60 || res.Calls["x"] != 60 {
+		t.Fatalf("ran %d, counted %v", n.Load(), res.Calls)
+	}
+
+	// a batch stopped with calls still queued counts only those that started
+	var running, most, started atomic.Int32
+	wait := slow("wait", time.Minute, &running, &most)
+	inner := wait.Call
+	wait.Call = func(ctx context.Context, args json.RawMessage) (any, error) { started.Add(1); return inner(ctx, args) }
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(150*time.Millisecond, cancel)
+	res = codemode.Run(ctx, `parallel(Array.from({length: 20}, () => ({tool: "wait"})))`, []codemode.Func{wait}, codemode.DefaultLimits(), codemode.Hooks{})
+	if res.Err == nil || res.Err.Reason != codemode.ReasonCancelled || res.Calls["wait"] != int(started.Load()) || started.Load() >= 20 {
+		t.Fatalf("started %d, counted %v", started.Load(), res.Calls)
+	}
+}

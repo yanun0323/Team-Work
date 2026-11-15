@@ -56,6 +56,8 @@ type codeModeSource struct {
 	TaskID, ChatID, Replica string
 	// BeforeCall, when set, comes before each tool the script calls; an error ends it.
 	BeforeCall func(name string) error
+	// Ran, when set, records what an exec really called, once it ran, as execRan words it.
+	Ran func(line string)
 }
 
 // codeMode offers exec on the turn while the experimental setting is on, over the read-only tools the turn has. It
@@ -106,6 +108,9 @@ func (e *Engine) execTool(fns []codemode.Func, src codeModeSource) adapter.Tool 
 		} else {
 			res = codemode.Result{Err: &codemode.Failure{Reason: codemode.ReasonInvalid, Message: "code is required and must be a string"}}
 		}
+		if src.Ran != nil {
+			src.Ran(execRan(res))
+		}
 		codemode.Log(e.log, res).Str("source", src.Kind).Str("task", src.TaskID).Str("chat", src.ChatID).Str("replica", src.Replica).Send()
 		if res.Err == nil {
 			if res.Output == "" {
@@ -140,7 +145,38 @@ var execNames = regexp.MustCompile(`tools\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*["'`
 
 var execParallel = regexp.MustCompile(`\bparallel\s*\(`)
 
-// execLine is how an exec call shows in a log: the tools its script names that exec may call, as tools.<name> or as
+// execRan is what an exec called once it ran: each tool that really ran and how many times, names its script made
+// up as it went included, the parallel batches, and why it failed when it did. execLine, shown before, only guesses.
+func execRan(res codemode.Result) string {
+	names := make([]string, 0, len(res.Calls))
+	for name := range res.Calls {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	parts := make([]string, len(names))
+	for i, name := range names {
+		parts[i] = fmt.Sprintf("%s ×%d", name, res.Calls[name])
+	}
+	line := "ran by exec: "
+	if len(parts) == 0 {
+		line += "no tools"
+	} else {
+		line += strings.Join(parts, ", ")
+	}
+	switch res.Batches {
+	case 0:
+	case 1:
+		line += ", in 1 parallel batch"
+	default:
+		line += fmt.Sprintf(", in %d parallel batches", res.Batches)
+	}
+	if res.Err != nil {
+		line += " (failed: " + res.Err.Reason + ")"
+	}
+	return line
+}
+
+// execLine is how an exec call shows in a log before it runs, a guess from its code: the tools its script names that exec may call, as tools.<name> or as
 // {tool: "<name>"} in a parallel batch, which it says it uses, and its size. Never the
 // code, which may hold anything; the secrets maskSecrets hides are only those in an argument of their own.
 func execLine(raw json.RawMessage) string {

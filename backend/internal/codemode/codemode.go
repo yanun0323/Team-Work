@@ -75,7 +75,8 @@ func (f *Failure) Error() string { return f.Reason + ": " + f.Message }
 type Result struct {
 	Output string
 	Err    *Failure
-	Calls  map[string]int
+	// Calls is how many times each function ran: not those a limit held back, nor a stopped batch's that never started.
+	Calls map[string]int
 	// Batches is how many times the script called parallel; its calls count in Calls too.
 	Batches  int
 	Duration time.Duration
@@ -125,14 +126,17 @@ type sandbox struct {
 	ctx context.Context
 	// parent is the caller's context: ending it cancels, ending ctx alone is the timeout.
 	parent context.Context
-	calls  map[string]int
-	total  int
+	// total is how many calls the script was allowed, which the limit counts; calls is those that ran, by name, which
+	// calls from a batch's goroutines add to holding mu, until over is set as the run ends.
+	calls map[string]int
+	over  bool
+	total int
 	// batches counts parallel calls; byName finds a function for them.
 	batches int
 	byName  map[string]Func
 	out     strings.Builder
 	lines   int
-	// mu guards failed, which the watcher may set while the script runs.
+	// mu guards failed, which the watcher may set while the script runs, and calls and over.
 	mu     sync.Mutex
 	failed *Failure
 
@@ -205,7 +209,30 @@ func (s *sandbox) run(parent context.Context, code string, fns []Func) Result {
 	failed := s.finish(value, runErr)
 	close(done)
 	<-watched // the watcher may still be interrupting; it is gone before Run returns
-	return Result{Output: s.out.String(), Err: failed, Calls: s.calls}
+	return Result{Output: s.out.String(), Err: failed, Calls: s.ranCalls()}
+}
+
+// starts counts a call about to run, and says whether it may: nothing starts once the run is stopped or over.
+func (s *sandbox) starts(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.over || s.failed != nil || s.ctx.Err() != nil {
+		return false
+	}
+	s.calls[name]++
+	return true
+}
+
+// ranCalls ends the counting and returns the calls that ran; a batch's call that was left behind starts no more.
+func (s *sandbox) ranCalls() map[string]int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.over = true
+	out := make(map[string]int, len(s.calls))
+	for k, v := range s.calls {
+		out[k] = v
+	}
+	return out
 }
 
 // finish settles how the run went once the script's body is over: what it threw, or what it returned added to the
@@ -323,7 +350,7 @@ func (s *sandbox) tool(fn Func) func(goja.FunctionCall) goja.Value {
 			}
 			args = json.RawMessage(raw)
 		}
-		if !s.admit(fn.Name, 1) {
+		if !s.admit(fn.Name, 1) || !s.starts(fn.Name) {
 			return goja.Undefined()
 		}
 		v, err := fn.Call(s.ctx, args)
@@ -345,8 +372,9 @@ func (s *sandbox) tool(fn Func) func(goja.FunctionCall) goja.Value {
 	}
 }
 
-// admit counts n calls to name, the next of a batch each, failing the script when that passes the call limit or the
-// host refuses one; false then, and none of them runs. It runs on the interpreter's goroutine only.
+// admit sets aside n calls to name, the next of a batch each, failing the script when that passes the call limit or
+// the host refuses one; false then, and none of them runs. What it sets aside is counted against the limits whether
+// it runs or not; Calls counts only what does. It runs on the interpreter's goroutine only.
 func (s *sandbox) admit(name string, n int) bool {
 	if s.total+n > s.lim.MaxCalls {
 		s.fail(&Failure{Reason: ReasonCallLimit, Message: fmt.Sprintf("the script called tools more than %d times", s.lim.MaxCalls)})
@@ -365,7 +393,6 @@ func (s *sandbox) admit(name string, n int) bool {
 		}
 	}
 	s.total += n
-	s.calls[name] += n
 	return true
 }
 
@@ -439,8 +466,8 @@ func (s *sandbox) parallel(call goja.FunctionCall) goja.Value {
 			go func() {
 				defer wg.Done()
 				defer func() { <-slots }()
-				if s.ctx.Err() != nil {
-					p.err = s.ctx.Err()
+				if !s.starts(p.fn.Name) {
+					p.err = errors.New("stopped")
 					return
 				}
 				p.value, p.err = p.fn.Call(s.ctx, p.args)

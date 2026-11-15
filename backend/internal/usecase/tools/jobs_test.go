@@ -188,7 +188,7 @@ func TestSignalWakesOnEnd(t *testing.T) {
 	jobs := &Jobs{}
 	defer jobs.Close()
 	sig := jobs.Signal("a")
-	if _, err := jobs.Start("a", t.TempDir(), "true", 0, "", nil); err != nil {
+	if _, err := jobs.Start(context.Background(), "a", t.TempDir(), "true", 0, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	select {

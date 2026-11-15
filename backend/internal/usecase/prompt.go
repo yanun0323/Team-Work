@@ -415,6 +415,19 @@ func answerChange(conv []model.Message, text string, isError bool) []model.Messa
 // closeCalls gives every tool call of the last reply a result. Results already recorded stay; of the rest, answer
 // decides, and what it passes on was interrupted. The results go together in one message, as the model requires.
 func closeCalls(conv []model.Message, plain string, answer func(model.Block) (string, bool, bool)) []model.Message {
+	// how background commands ended, kept while the calls waited, goes after their results
+	end := len(conv)
+	for end > 0 && isJobsMessage(conv[end-1]) {
+		end--
+	}
+	if end < len(conv) && end > 0 {
+		notes := slices.Clone(conv[end:])
+		return append(closeCallsOf(slices.Clip(conv[:end]), plain, answer), notes...)
+	}
+	return closeCallsOf(conv, plain, answer)
+}
+
+func closeCallsOf(conv []model.Message, plain string, answer func(model.Block) (string, bool, bool)) []model.Message {
 	if len(conv) == 0 {
 		return conv
 	}
