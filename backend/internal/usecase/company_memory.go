@@ -15,7 +15,7 @@ func (e *Engine) AddCompanyNote(teamID, text string) (*model.MemoryEntry, error)
 		if err != nil {
 			return err
 		}
-		note := model.MemoryEntry{ID: e.uid("mem"), Text: text, Source: "user", At: e.w.Now}
+		note := model.MemoryEntry{ID: e.uid("mem"), Text: text, Source: "user", At: e.w.Now, CreatedAt: e.w.Now}
 		t.Memory = append([]model.MemoryEntry{note}, t.Memory...)
 		out = &note
 		return nil
@@ -37,6 +37,9 @@ func (e *Engine) UpdateCompanyNote(teamID, id, text string) (*model.MemoryEntry,
 		}
 		t.Memory = slices.Clone(t.Memory)
 		note := &t.Memory[i]
+		if note.CreatedAt == 0 {
+			note.CreatedAt = note.At
+		}
 		note.Text, note.Source, note.By, note.At = text, "user", "", e.w.Now
 		out = new(*note)
 		return nil

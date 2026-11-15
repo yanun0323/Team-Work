@@ -105,11 +105,13 @@ type Blueprint struct {
 }
 
 type MemoryEntry struct {
-	ID     string  `json:"id"`
-	Text   string  `json:"text"`
-	Source string  `json:"source"` // work, chat, retro, review or user
-	At     float64 `json:"at"`
-	TaskID string  `json:"taskId,omitempty"`
+	ID        string  `json:"id"`
+	Text      string  `json:"text"`
+	Source    string  `json:"source"` // work, chat, retro, review or user
+	At        float64 `json:"at"`
+	CreatedAt float64 `json:"createdAt,omitempty"`
+	TaskID    string  `json:"taskId,omitempty"`
+	ChatID    string  `json:"chatId,omitempty"`
 	// By is who wrote a company's note: an employee's id, or empty when the user wrote or last changed it.
 	By string `json:"by,omitempty"`
 }

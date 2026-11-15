@@ -24,7 +24,7 @@ func SetReturnWait(d time.Duration) func() {
 func (e *Engine) Remember(replicaID, text string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.remember("", &replicaID, scopeMine, text, "test", "")
+	e.remember("", &replicaID, scopeMine, text, "test", "", "")
 	e.settle()
 }
 
@@ -32,6 +32,6 @@ func (e *Engine) Remember(replicaID, text string) {
 func (e *Engine) RememberFor(teamID, replicaID, text string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.remember(teamID, &replicaID, scopeCompany, text, "test", "")
+	e.remember(teamID, &replicaID, scopeCompany, text, "test", "", "")
 	e.settle()
 }

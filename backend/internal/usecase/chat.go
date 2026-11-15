@@ -980,7 +980,7 @@ func (e *Engine) chatMemoryTools(in chatRun) []adapter.Tool {
 			return *bad
 		}
 		e.applyChat(in, func(c *model.Chat) {
-			e.remember(c.TeamID, &in.speaker, scope, text, "chat", "")
+			e.remember(c.TeamID, &in.speaker, scope, text, "chat", "", c.ID)
 		})
 		return model.ToolResult{Text: "remembered"}
 	}

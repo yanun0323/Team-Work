@@ -58,7 +58,7 @@ func TestCompanyMemoryEndpoints(t *testing.T) {
 	}
 
 	code, a := send(t, "POST", api+"/teams/"+id+"/memory", `{"text":"  用 npm  "}`)
-	if code != http.StatusCreated || a["text"] != "用 npm" || a["source"] != "user" || a["by"] != nil || a["id"] == "" {
+	if code != http.StatusCreated || a["text"] != "用 npm" || a["source"] != "user" || a["by"] != nil || a["id"] == "" || a["createdAt"] != a["at"] {
 		t.Fatalf("%d %v", code, a)
 	}
 	_, b := send(t, "POST", api+"/teams/"+id+"/memory", `{"text":"主分支是 main"}`)
@@ -84,7 +84,7 @@ func TestCompanyMemoryEndpoints(t *testing.T) {
 	}
 
 	code, edited := send(t, "PATCH", api+"/teams/"+id+"/memory/"+a["id"].(string), `{"text":"用 pnpm"}`)
-	if code != http.StatusOK || edited["text"] != "用 pnpm" || edited["source"] != "user" || edited["by"] != nil || edited["id"] != a["id"] {
+	if code != http.StatusOK || edited["text"] != "用 pnpm" || edited["source"] != "user" || edited["by"] != nil || edited["id"] != a["id"] || edited["createdAt"] != a["createdAt"] || edited["at"].(float64) < edited["createdAt"].(float64) {
 		t.Fatalf("%d %v", code, edited)
 	}
 	if code, _ := send(t, "DELETE", api+"/teams/"+id+"/memory/"+b["id"].(string), ""); code != http.StatusNoContent {

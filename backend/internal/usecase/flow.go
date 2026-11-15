@@ -85,7 +85,7 @@ func (e *Engine) memoryOf(teamID string, replicaID *string, scope string) *[]mod
 
 // remember keeps text in the company teamID's memory, or in scope "mine" the employee's own, skipping a note that list
 // already holds. The company's note says who wrote it.
-func (e *Engine) remember(teamID string, replicaID *string, scope, text, source, taskID string) bool {
+func (e *Engine) remember(teamID string, replicaID *string, scope, text, source, taskID, chatID string) bool {
 	list := e.memoryOf(teamID, replicaID, scope)
 	if list == nil || (scope != scopeMine && replicaID == nil) {
 		return false
@@ -95,7 +95,7 @@ func (e *Engine) remember(teamID string, replicaID *string, scope, text, source,
 			return false
 		}
 	}
-	note := model.MemoryEntry{ID: e.uid("mem"), Text: text, Source: source, At: e.w.Now, TaskID: taskID}
+	note := model.MemoryEntry{ID: e.uid("mem"), Text: text, Source: source, At: e.w.Now, CreatedAt: e.w.Now, TaskID: taskID, ChatID: chatID}
 	if scope != scopeMine {
 		note.By = *replicaID
 	}

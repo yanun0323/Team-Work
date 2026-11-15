@@ -1280,7 +1280,7 @@ func (e *Engine) rememberTool(in subRun) func(context.Context, string, json.RawM
 // skipping blanks and repeats.
 func (e *Engine) keepNote(t *model.Task, s *model.SubTask, text, scope string) {
 	text = strings.TrimSpace(text)
-	if text != "" && e.remember(t.TeamID, s.ReplicaID, scope, text, "work", t.ID) {
+	if text != "" && e.remember(t.TeamID, s.ReplicaID, scope, text, "work", t.ID, "") {
 		e.logLine(s, enum.LogSystem, i18n.T("寫入記憶：%s", text), "memory", map[string]any{"text": text})
 	}
 }

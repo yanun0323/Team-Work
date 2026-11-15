@@ -142,27 +142,28 @@ func TestMemorySectionPutsTheCompanyFirstAndNamesWhoWrote(t *testing.T) {
 func TestRememberGoesToTheCompanyUnlessMine(t *testing.T) {
 	t.Parallel()
 	e := memoryWorld()
+	e.w.Now = 42
 	sam := "sam"
-	if !e.remember("A", &sam, scopeCompany, "用 npm", "work", "task-1") || e.remember("A", &sam, scopeCompany, "用 npm", "work", "") {
+	if !e.remember("A", &sam, scopeCompany, "用 npm", "work", "task-1", "") || e.remember("A", &sam, scopeCompany, "用 npm", "work", "", "") {
 		t.Fatal("a note was not kept once")
 	}
-	if !e.remember("B", &sam, scopeCompany, "用 npm", "work", "") {
+	if !e.remember("B", &sam, scopeCompany, "用 npm", "work", "", "") {
 		t.Fatal("another company's list is its own")
 	}
-	if !e.remember("A", &sam, scopeMine, "先讀再改", "chat", "") || e.remember("B", &sam, scopeMine, "先讀再改", "chat", "") {
+	if !e.remember("A", &sam, scopeMine, "先讀再改", "chat", "", "chat-1") || e.remember("B", &sam, scopeMine, "先讀再改", "chat", "", "chat-2") {
 		t.Fatal("an employee's own note was not kept once")
 	}
-	if !e.remember("A", &sam, scopeMine, "用 npm", "chat", "") {
+	if !e.remember("A", &sam, scopeMine, "用 npm", "chat", "", "chat-1") {
 		t.Fatal("the same words may be the company's and one's own")
 	}
 	a := e.w.Teams["A"].Memory
-	if len(a) != 1 || a[0].By != "sam" || a[0].TaskID != "task-1" || a[0].Source != "work" {
+	if len(a) != 1 || a[0].By != "sam" || a[0].TaskID != "task-1" || a[0].Source != "work" || a[0].CreatedAt != 42 || a[0].At != 42 {
 		t.Fatalf("company A: %+v", a)
 	}
-	if mine := e.w.Replicas["sam"].Memory; len(mine) != 2 || mine[0].By != "" {
+	if mine := e.w.Replicas["sam"].Memory; len(mine) != 2 || mine[0].By != "" || mine[0].ChatID != "chat-1" {
 		t.Fatalf("Sam's own: %+v", mine)
 	}
-	if e.remember(model.StaffingID, &sam, scopeCompany, "x", "work", "") || e.remember("A", nil, scopeCompany, "x", "work", "") {
+	if e.remember(model.StaffingID, &sam, scopeCompany, "x", "work", "", "") || e.remember("A", nil, scopeCompany, "x", "work", "", "") {
 		t.Fatal("a note went to no company, or was by no one")
 	}
 }
@@ -171,8 +172,8 @@ func TestForgetReachesOnlyThisCompanyAndOnesOwn(t *testing.T) {
 	t.Parallel()
 	e := memoryWorld()
 	ada, sam := "ada", "sam"
-	e.remember("A", &ada, scopeCompany, "A 的事", "work", "")
-	e.remember("", &ada, scopeMine, "Ada 自己的事", "work", "")
+	e.remember("A", &ada, scopeCompany, "A 的事", "work", "", "")
+	e.remember("", &ada, scopeMine, "Ada 自己的事", "work", "", "")
 	companyNote, adaNote := e.w.Teams["A"].Memory[0].ID, e.w.Replicas["ada"].Memory[0].ID
 	if _, ok := e.forget("B", &sam, companyNote); ok || len(e.w.Teams["A"].Memory) != 1 {
 		t.Fatal("company B forgot company A's note")
