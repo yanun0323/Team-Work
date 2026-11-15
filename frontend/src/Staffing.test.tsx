@@ -35,17 +35,28 @@ describe('the staffing agency in the simulator', () => {
     expect(lastStaff(w, a.id, flow.id).ownerId).toBe(hal.id)
   })
 
-  it('moves someone into the agency as a new employee with no memory, once', () => {
+  it('moves someone into the agency as a new employee keeping their own memory, once', () => {
     const w = world()
     const team = teamOf(w)
     const [bo, heir] = teamReplicas(w, team.id)
     bo.memory = [{ id: 'm', text: 'x', source: 'user', at: 0 }]
+    const company = structuredClone(team.memory)
     const moved = sim.moveReplica(w, bo.id, STAFFING_ID, heir.id)
     expect(w.replicas[bo.id]).toBeUndefined()
     expect(moved.id).not.toBe(bo.id)
-    expect(w.replicas[moved.id]).toMatchObject({ teamId: STAFFING_ID, name: bo.name, model: bo.model, effort: bo.effort, memory: [] })
+    expect(w.replicas[moved.id]).toMatchObject({ teamId: STAFFING_ID, name: bo.name, model: bo.model, effort: bo.effort, memory: bo.memory })
+    expect(w.teams[team.id].memory).toEqual(company)
     expect(() => sim.moveReplica(w, bo.id, STAFFING_ID, heir.id)).toThrow()
     expect(Object.values(w.replicas).filter((r) => r.name === bo.name)).toHaveLength(1)
+  })
+
+  it('keeps their own memory moving from the agency into a company, too', () => {
+    const w = world()
+    const team = teamOf(w)
+    const hal = shared(w)
+    sim.remember(w, hal.id, '先寫結論', 'work', undefined, true)
+    const moved = sim.moveReplica(w, hal.id, team.id, '')
+    expect(w.replicas[moved.id].memory.map((m) => m.text)).toEqual(['先寫結論'])
   })
 
   it('keeps a company one employee of its own, and lets the agency go empty', () => {
@@ -91,12 +102,12 @@ const sheet = (item: Item, teamId: string) => {
 }
 
 describe('the sheets', () => {
-  it('warns that a move clears memory, and waits for an heir', () => {
+  it('says a move keeps their own memory, and waits for an heir', () => {
     const w = useStore.getState().world
     const team = teamOf(w)
     const r = teamReplicas(w, team.id)[0]
     const html = sheet({ kind: 'move', id: r.id }, team.id)
-    expect(html).toContain('移動後是新的員工：記憶會清空，也不會帶走以前的對話')
+    expect(html).toContain('移動後是新的員工：保留個人記憶，但不會帶走以前的對話；公司記憶留在原公司')
     expect(html).toContain('交接給')
     expect(html).toMatch(/<button type="submit" class="fx-save" disabled="">移動<\/button>/)
   })

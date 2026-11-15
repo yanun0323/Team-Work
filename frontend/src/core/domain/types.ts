@@ -177,7 +177,11 @@ export interface MemoryEntry {
   text: string
   source: MemorySource
   at: number
+  createdAt?: number
   taskId?: string
+  chatId?: string
+  /** On a company's note, the employee who wrote it; none when the user wrote or last changed it. */
+  by?: string
 }
 
 /** A skill "$" can name. */
@@ -275,6 +279,8 @@ export interface Team {
   /** 公司規章: the project prompt every employee here works under, on top of their blueprint's own. */
   prompt: string
   settings: TeamSettings
+  /** 公司記憶: notes everyone who works here reads and writes, kept with the company. */
+  memory: MemoryEntry[]
   createdAt: number
 }
 

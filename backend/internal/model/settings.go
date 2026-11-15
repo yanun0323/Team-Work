@@ -115,13 +115,14 @@ func RuntimeDoc(d Doc) (Doc, error) {
 		}
 		// Folder is a binding to an existing repo, not an invitation to move active work.
 		v = struct {
-			Plot           *Plot    `json:"plot,omitempty"`
-			ID             string   `json:"id"`
-			Folder         string   `json:"folder"`
-			Branches       []string `json:"branches"`
-			InitializedGit bool     `json:"initializedGit"`
-			CreatedAt      float64  `json:"createdAt"`
-		}{t.Plot, t.ID, t.Folder, t.Branches, t.InitializedGit, t.CreatedAt}
+			Plot           *Plot         `json:"plot,omitempty"`
+			ID             string        `json:"id"`
+			Folder         string        `json:"folder"`
+			Branches       []string      `json:"branches"`
+			InitializedGit bool          `json:"initializedGit"`
+			CreatedAt      float64       `json:"createdAt"`
+			Memory         []MemoryEntry `json:"memory"`
+		}{t.Plot, t.ID, t.Folder, t.Branches, t.InitializedGit, t.CreatedAt, t.Memory}
 	case "replica":
 		var r Replica
 		if err := json.Unmarshal(d.Data, &r); err != nil {

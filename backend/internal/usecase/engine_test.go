@@ -40,6 +40,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("HOME", home)
+	// a fake model that keeps failing would otherwise hold a test for the minute a real provider is waited out
+	usecase.SetRetryDelay(5 * time.Millisecond)
 	code := m.Run()
 	os.RemoveAll(home)
 	os.Exit(code)
@@ -1549,8 +1551,8 @@ func TestHandoffKeepsWhatWasLearned(t *testing.T) {
 	})
 	task := r.task(r.flow.ID)
 	w := r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
-	got := w.Replicas[r.owner.ID].Memory
-	if len(got) != 1 || got[0].Text != "測試要加 -race" || got[0].Source != "work" || got[0].TaskID != task.ID {
+	got := w.Teams[r.team.ID].Memory
+	if len(got) != 1 || got[0].Text != "測試要加 -race" || got[0].Source != "work" || got[0].TaskID != task.ID || got[0].By != r.owner.ID {
 		t.Fatalf("memory = %+v", got)
 	}
 }
@@ -1577,7 +1579,7 @@ func TestSearchMemoryFindsAnEmployeesNotes(t *testing.T) {
 			result = b.Text
 		}
 	}
-	if !strings.Contains(result, "[pkg, 1970-01-02, work] 用 npm") || strings.Contains(result, "go 1.25") {
+	if !strings.Contains(result, "yours [pkg, 1970-01-02, work] 用 npm") || strings.Contains(result, "go 1.25") {
 		t.Fatalf("search result: %q", result)
 	}
 }

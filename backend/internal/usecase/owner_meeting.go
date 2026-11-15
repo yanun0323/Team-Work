@@ -186,7 +186,7 @@ func (e *Engine) meetingSpeaker(t *model.Task, r *model.Replica, chair bool) (sy
 		rules:  rules + languageRule(e.w.Language) + "\n" + dataRule + "\n" + unseenThinkingRule + "\n",
 		shared: sharedRules(e.runGlobalPrompt(), team.Prompt),
 		role:   e.rolePart(bp),
-		memory: memorySection(r),
+		memory: e.memorySection(team, r),
 	}
 	allowed = slices.DeleteFunc(slices.Clone(bp.Tools), func(x enum.Tool) bool { return x != enum.ToolReadFile && x != enum.ToolWebSearch })
 	p = model.MeetingParticipant{ReplicaID: r.ID, Name: r.Name, Look: r.Look, Model: spec.model, Effort: spec.effort}

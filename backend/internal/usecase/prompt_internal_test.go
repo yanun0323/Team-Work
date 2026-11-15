@@ -140,7 +140,7 @@ func TestNewMemoryLeavesThePromptBeforeItUnchanged(t *testing.T) {
 		for i, n := range notes {
 			r.Memory = append(r.Memory, model.MemoryEntry{ID: fmt.Sprint("m", i), Text: n, Source: "work", At: 86400})
 		}
-		return promptParts{rules: "fixed rules\n", shared: "\n# Company rules\nshared\n", role: "\n# Your role\nrole\n", memory: memorySection(r), step: "\n# This step: x\ndo it\n"}
+		return promptParts{rules: "fixed rules\n", shared: "\n# Company rules\nshared\n", role: "\n# Your role\nrole\n", memory: (&Engine{w: model.NewWorld()}).memorySection(&model.Team{}, r), step: "\n# This step: x\ndo it\n"}
 	}
 	skills := []skill{{name: "tdd", description: "tests first", path: "/s/tdd/SKILL.md"}}
 	before, after := parts("old note"), parts("old note", "new note")

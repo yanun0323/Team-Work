@@ -88,7 +88,9 @@ describe('the power tower panel', () => {
   })
 
   it('writes the times it shows on a 24-hour clock', () => {
-    const at = new Date(2026, 10, 15, 15, 9).getTime() / 1000
+    // tomorrow at 15:09, so the block is still in force whenever the test runs
+    const day = new Date()
+    const at = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1, 15, 9).getTime() / 1000
     const html = sheet({ id: 'b', name: 'Studio', status: 'online', allowInbound: true, pairedAt: 1, access: 'view', blockedUntil: at })
     expect(html).toContain('封鎖到 15:09')
     expect(html).not.toMatch(/AM|PM/)

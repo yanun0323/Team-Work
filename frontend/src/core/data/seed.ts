@@ -141,7 +141,7 @@ export function seedWorld(language: Locale = 'zh'): World {
   const juno = hire(w, shop.id, 'bp-developer', 'Juno', { ...BLUEPRINTS[1].look, hair: '#c99a4a' }, { model: 'gpt-5.5-codex' })
   const ivy = hire(w, shop.id, 'bp-writer', 'Ivy', { ...BLUEPRINTS[2].look, skin: '#8d5a3b', hair: '#1c1c1c' }, { model: 'claude-sonnet-5' })
   const rex = hire(w, shop.id, 'bp-reviewer', 'Rex', { ...BLUEPRINTS[3].look, hair: '#5a3a22' }, { model: 'gpt-5.5' })
-  remember(w, mira.id, L('使用者偏好先看一句話結論，再看細節。', 'The user likes a one-line conclusion first, then the details.'), 'review')
+  remember(w, mira.id, L('使用者偏好先看一句話結論，再看細節。', 'The user likes a one-line conclusion first, then the details.'), 'review', undefined, true)
   remember(w, mira.id, L('專案的 UI 元件都在 src/components，樣式用 CSS Modules。', 'UI components live in src/components and use CSS Modules.'), 'retro')
   remember(w, kai.id, L('src/legacy/ 不要改，之後會整個移除。', 'Leave src/legacy/ alone; it will be removed.'), 'user')
   remember(w, kai.id, L('測試指令是 npm test，快照過期要先確認再用 -u 更新。', 'Tests run with npm test; check an out-of-date snapshot before updating it with -u.'), 'work')

@@ -39,7 +39,8 @@ func (m meter) Complete(ctx context.Context, req model.ModelRequest, onText func
 
 // logCall notes how much of one call's input came from the provider's cache, so a step's hit rate can be worked
 // out from the log. Input counts every input token, cached ones included, for every provider. It never logs the
-// prompt, the conversation or an error's text, which can quote them.
+// prompt, the conversation or an error's text, which can quote them; a provider's HTTP status is logged instead, so
+// a rate limit can be told from an overload or a dropped connection.
 func (m meter) logCall(session string, u model.ModelUsage, err error) {
 	ev := m.e.log.Info().Str("session", session).Str("provider", m.kind).Str("model", m.model).
 		Int("input", u.Input).Int("output", u.Output).Bool("ok", err == nil)
@@ -55,6 +56,9 @@ func (m meter) logCall(session string, u model.ModelUsage, err error) {
 		switch {
 		case errors.As(err, &me):
 			code = me.Code
+			if me.Status != 0 {
+				ev = ev.Int("status", me.Status)
+			}
 		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 			code = "canceled"
 		}

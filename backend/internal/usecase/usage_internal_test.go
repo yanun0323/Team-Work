@@ -73,6 +73,7 @@ func TestMeterLogsEachCallsCacheUse(t *testing.T) {
 	m.logCall("sub-1", model.ModelUsage{Input: 50, CacheReadKnown: true}, nil)
 	m.logCall("sub-1", model.ModelUsage{}, model.Errorf(model.CodeUnavailable, "private prompt text"))
 	m.logCall("sub-1", model.ModelUsage{}, fmt.Errorf("wrapped: %w", context.Canceled))
+	m.logCall("sub-1", model.ModelUsage{}, &model.Error{Code: model.CodeUnavailable, Message: "private provider text", Status: 503})
 	var lines []map[string]any
 	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
 		var v map[string]any
@@ -81,7 +82,7 @@ func TestMeterLogsEachCallsCacheUse(t *testing.T) {
 		}
 		lines = append(lines, v)
 	}
-	if len(lines) != 4 {
+	if len(lines) != 5 {
 		t.Fatalf("%d lines", len(lines))
 	}
 	first := lines[0]
@@ -101,6 +102,10 @@ func TestMeterLogsEachCallsCacheUse(t *testing.T) {
 	}
 	if lines[2]["ok"] != false || lines[2]["error"] != model.CodeUnavailable || lines[3]["error"] != "canceled" {
 		t.Fatalf("failed calls %v %v", lines[2], lines[3])
+	}
+	// the provider's HTTP status tells a rate limit from an overload or a dropped connection, which has none
+	if _, ok := lines[2]["status"]; ok || lines[4]["error"] != model.CodeUnavailable || lines[4]["status"] != 503.0 {
+		t.Fatalf("status %v %v", lines[2], lines[4])
 	}
 	if strings.Contains(buf.String(), "private") {
 		t.Fatal("the log quoted an error's text")

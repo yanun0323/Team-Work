@@ -465,7 +465,7 @@ func TestChatEndsWithItsCompanyAndOutlivesItsEmployee(t *testing.T) {
 	if err := r.e.SayInChat(c.ID, "還在嗎", nil); err == nil {
 		t.Fatal("spoke to someone who left")
 	}
-	if err := r.e.DeleteTeam(r.team.ID); err != nil {
+	if err := r.e.DeleteTeam(r.team.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(r.world().Chats) != 0 {
@@ -1383,9 +1383,12 @@ func TestChatRemembersAndForgets(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := r.wait("reply", chatDone(c.ID))
-	got := w.Replicas[r.owner.ID].Memory
-	if len(got) != 1 || got[0].Text != "測試要加 -race" || got[0].Source != "chat" || got[0].TaskID != "" {
-		t.Fatalf("memory = %+v", got)
+	if got := w.Replicas[r.owner.ID].Memory; len(got) != 0 {
+		t.Fatalf("own memory = %+v", got)
+	}
+	got := w.Teams[r.team.ID].Memory
+	if len(got) != 1 || got[0].Text != "測試要加 -race" || got[0].Source != "chat" || got[0].TaskID != "" || got[0].ChatID != c.ID || got[0].By != r.owner.ID || got[0].CreatedAt == 0 {
+		t.Fatalf("company memory = %+v", got)
 	}
 	if !strings.Contains(r.fake.seen[0].System, "Use remember") {
 		t.Fatalf("system: %s", r.fake.seen[0].System)
@@ -1450,7 +1453,7 @@ func TestAirportChatRunsWithoutACompany(t *testing.T) {
 	if err != nil || !fork.AtAirport() || fork.Effort != chat.Effort {
 		t.Fatalf("%+v %v", fork, err)
 	}
-	if err := r.e.DeleteTeam(r.team.ID); err != nil {
+	if err := r.e.DeleteTeam(r.team.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	if r.world().Chats[c.ID] == nil {

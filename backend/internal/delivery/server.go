@@ -86,6 +86,9 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/teams/:id/prompt/refresh", s.refreshPrompt)
 	api.GET("/teams/:id/notes", s.notes)
 	api.PUT("/teams/:id/notes", s.setNotes)
+	api.POST("/teams/:id/memory", s.addCompanyNote)
+	api.PATCH("/teams/:id/memory/:mid", s.updateCompanyNote)
+	api.DELETE("/teams/:id/memory/:mid", s.deleteCompanyNote)
 	api.DELETE("/teams/:id", s.deleteTeam)
 	api.POST("/workflows", s.createWorkflow)
 
@@ -424,8 +427,38 @@ func (s *Server) setNotes(c echo.Context) error {
 	return done(c, s.engine.SetNotes(c.Param("id"), in.Text))
 }
 
+// noteText is the body of a company note the user writes.
+type noteText struct {
+	Text string `json:"text"`
+}
+
+func (s *Server) addCompanyNote(c echo.Context) error {
+	in, err := bind[noteText](c)
+	if err != nil {
+		return err
+	}
+	out, err := s.engine.AddCompanyNote(c.Param("id"), in.Text)
+	return created(c, out, err)
+}
+
+func (s *Server) updateCompanyNote(c echo.Context) error {
+	in, err := bind[noteText](c)
+	if err != nil {
+		return err
+	}
+	out, err := s.engine.UpdateCompanyNote(c.Param("id"), c.Param("mid"), in.Text)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, out)
+}
+
+func (s *Server) deleteCompanyNote(c echo.Context) error {
+	return done(c, s.engine.DeleteCompanyNote(c.Param("id"), c.Param("mid")))
+}
+
 func (s *Server) deleteTeam(c echo.Context) error {
-	return done(c, s.engine.DeleteTeam(c.Param("id")))
+	return done(c, s.engine.DeleteTeam(c.Param("id"), c.QueryParams()["keep"]))
 }
 
 func (s *Server) createWorkflow(c echo.Context) error {

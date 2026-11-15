@@ -105,11 +105,15 @@ type Blueprint struct {
 }
 
 type MemoryEntry struct {
-	ID     string  `json:"id"`
-	Text   string  `json:"text"`
-	Source string  `json:"source"` // work, chat, retro, review or user
-	At     float64 `json:"at"`
-	TaskID string  `json:"taskId,omitempty"`
+	ID        string  `json:"id"`
+	Text      string  `json:"text"`
+	Source    string  `json:"source"` // work, chat, retro, review or user
+	At        float64 `json:"at"`
+	CreatedAt float64 `json:"createdAt,omitempty"`
+	TaskID    string  `json:"taskId,omitempty"`
+	ChatID    string  `json:"chatId,omitempty"`
+	// By is who wrote a company's note: an employee's id, or empty when the user wrote or last changed it.
+	By string `json:"by,omitempty"`
 }
 
 // StaffingID is the team id of the island's staffing agency (移民署): employees kept there are shared, and any
@@ -190,6 +194,8 @@ type Team struct {
 	Prompt         string       `json:"prompt"`
 	Settings       TeamSettings `json:"settings"`
 	CreatedAt      float64      `json:"createdAt"`
+	// Memory is the company's notes, newest first: everyone working in it reads and writes them, and they stay here.
+	Memory []MemoryEntry `json:"memory"`
 }
 
 type NextStep struct {

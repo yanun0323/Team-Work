@@ -81,7 +81,11 @@ const taskPath = (id: string) => `/tasks/${encodeURIComponent(id)}`
 function simulate<T>(act: (fn: (w: World) => void) => void, fn: (w: World) => T): Promise<T> {
   let out: { ok: T } | { error: Error } | undefined
   act((w) => {
-    try { out = { ok: JSON.parse(JSON.stringify(fn(w))) as T } } catch (e) { out = { error: e as Error } }
+    try {
+      const r = fn(w)
+      // a copy, so what it hands back is not the world's; nothing (undefined) has no JSON to copy through
+      out = { ok: r === undefined ? r : JSON.parse(JSON.stringify(r)) as T }
+    } catch (e) { out = { error: e as Error } }
   })
   if (!out) return Promise.reject(new Error('simulate'))
   return 'error' in out ? Promise.reject(out.error) : Promise.resolve(out.ok)
@@ -358,7 +362,13 @@ export const readChatSkill = (w: World, chatId: string, name: string, signal?: A
   ? Promise.resolve().then(() => sim.chatSkill(w, chatId, name))
   : request<SkillText>('GET', `/chats/${chatId}/skill?name=${encodeURIComponent(name)}`, undefined, signal))
 
-export const deleteTeam = pick('deleteTeam', (_w: World, id: string) => fire_('DELETE', `/teams/${id}`))
+/**
+ * Closes a company, waited on so the sheet stays open with what went wrong. Those of its own employees in `keep` move to
+ * the staffing agency as someone new with their own memory; the rest go with it. None kept sends no `keep`.
+ */
+export const deleteTeam = (act: (fn: (w: World) => void) => void, id: string, keep: string[] = [], opts = { removeFiles: false }): Promise<void> => (MOCK
+  ? simulate(act, (w) => { sim.deleteTeam(w, id, keep, opts) })
+  : request<void>('DELETE', `/teams/${encodeURIComponent(id)}${keep.length ? `?${keep.map((k) => `keep=${encodeURIComponent(k)}`).join('&')}` : ''}`))
 
 // ---------- employees ----------
 
@@ -374,7 +384,7 @@ export const fireNow = (act: (fn: (w: World) => void) => void, id: string, heir:
   ? simulate(act, (w) => { sim.fire(w, id, heir) })
   : request('DELETE', `/replicas/${encodeURIComponent(id)}?heir=${encodeURIComponent(heir)}`))
 
-/** Moves an employee between a company and the staffing agency; who arrives is someone new, with no memory. */
+/** Moves an employee between a company and the staffing agency; who arrives is someone new, keeping their own memory but not their chats. */
 export const moveReplica = (act: (fn: (w: World) => void) => void, id: string, to: string, heir: string): Promise<Replica> => (MOCK
   ? simulate(act, (w) => sim.moveReplica(w, id, to, heir))
   : request<Replica>('POST', `/replicas/${encodeURIComponent(id)}/move`, { to, heir }))
@@ -439,6 +449,23 @@ export function editMemory(w: World, id: string, memoryId: string, text: string)
 export function deleteMemory(w: World, id: string, memoryId: string) {
   saveMemory(w, id, (w.replicas[id]?.memory ?? []).filter((m) => m.id !== memoryId))
 }
+
+const teamMemory = (teamId: string, id?: string) =>
+  `/teams/${encodeURIComponent(teamId)}/memory${id ? `/${encodeURIComponent(id)}` : ''}`
+
+/** Writes a note into a company's memory, as the user's; waited on, so a form can stay open when it fails. */
+export const addTeamMemory = (act: (fn: (w: World) => void) => void, teamId: string, text: string): Promise<MemoryEntry> => (MOCK
+  ? simulate(act, (w) => sim.addTeamMemory(w, teamId, text))
+  : request<MemoryEntry>('POST', teamMemory(teamId), { text }))
+
+/** Corrects a company's note; it becomes the user's. */
+export const editTeamMemory = (act: (fn: (w: World) => void) => void, teamId: string, id: string, text: string): Promise<MemoryEntry> => (MOCK
+  ? simulate(act, (w) => sim.editTeamMemory(w, teamId, id, text))
+  : request<MemoryEntry>('PATCH', teamMemory(teamId, id), { text }))
+
+export const deleteTeamMemory = (act: (fn: (w: World) => void) => void, teamId: string, id: string): Promise<unknown> => (MOCK
+  ? simulate(act, (w) => { sim.deleteTeamMemory(w, teamId, id); return null })
+  : request('DELETE', teamMemory(teamId, id)))
 
 // ---------- blueprints ----------
 

@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import { copyName, DeleteTool, Detail, type Item } from './DrawerDetail'
+import { TABS, TabBody } from './DrawerTabs'
 import { blueprintChoices } from './Pickers'
 import { useStore } from './core/store'
 import type { ModelProvider } from './core/domain/types'
@@ -317,4 +318,13 @@ it('names a copy with the first free number', () => {
   expect(copyName(w, r.name)).toBe(`${r.name}-1`)
   w.replicas.x = { ...r, id: 'x', name: `${r.name}-1` }
   expect(copyName(w, r.name)).toBe(`${r.name}-2`)
+})
+
+it('puts 記憶庫 in its own company tab and keeps company memory out of 設定', () => {
+  const w = useStore.getState().world
+  const team = Object.values(w.teams)[0]
+  expect(TABS.map((t) => t.id)).toContain('memory')
+  const settingsHtml = renderToStaticMarkup(<TabBody tab="settings" teamId={team.id} open={null} onOpen={() => {}} />)
+  expect(settingsHtml).not.toContain('新增公司記憶')
+  expect(settingsHtml).not.toContain('＋ 新記憶')
 })

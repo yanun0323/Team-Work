@@ -71,7 +71,7 @@ export function MoveSheet({ id, onDone, ...h }: Head & { id: string; onDone: () 
           ? <Select label={tr('移到')} value={to} options={companies.map((c) => c.id)} labelOf={(x) => w.teams[x]?.name ?? x} onChange={setTo} />
           : <p className="fx-d-muted">{tr('還沒有公司')}</p>
       )}
-      <p className="fx-room-warn" role="note">{tr('移動後是新的員工：記憶會清空，也不會帶走以前的對話')}</p>
+      <p className="fx-room-warn" role="note">{tr('移動後是新的員工：保留個人記憶，但不會帶走以前的對話；公司記憶留在原公司')}</p>
       <Handover id={id} heir={heir} onHeir={setHeir} />
       {failed && <p className="fx-room-warn" role="alert">{failed}</p>}
       <button type="submit" className="fx-save" disabled={!ready}>{busy ? tr('移動中…') : tr('移動')}</button>

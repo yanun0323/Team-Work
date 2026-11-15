@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { seedWorld } from './core/data/seed'
-import type { ModelProvider, World } from './core/domain/types'
+import { STAFFING_ID, type ModelProvider, type World } from './core/domain/types'
 import { blocked, prereqsOf, type PrereqTab, type ProjectHealth } from './prereqs'
 
 const healthy: ProjectHealth = { git: true, folder: true, repo: true, targetBranch: true }
@@ -34,6 +34,16 @@ describe('what a tab of the company file needs', () => {
     expect(ids(w, teamId, 'terminal')).toEqual([])
     expect(blocked(prereqsOf(w, teamId, 'crew', healthy))).toBe(true)
     expect(prereqsOf(w, teamId, 'chats', healthy)[0].text).toBe('沒有模型供應商。請先到機場新增模型供應商')
+  })
+
+  it('lets a company with no employees of its own work with the immigration office\'s', () => {
+    const { w, teamId } = world()
+    for (const r of Object.values(w.replicas)) r.model = Object.values(w.providers)[0].models[0]
+    const one = Object.values(w.replicas).find((r) => r.teamId === teamId)!
+    noCrew(w, teamId)
+    w.replicas[one.id] = { ...one, teamId: STAFFING_ID }
+    expect(ids(w, teamId, 'chats')).not.toContain('crew')
+    expect(ids(w, teamId, 'tasks')).not.toContain('crew')
   })
 
   it('counts a provider with no models, or signed out of, as none', () => {

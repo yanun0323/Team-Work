@@ -516,6 +516,7 @@ body { margin: 0; overflow: hidden; }
 .fx-row-plain { grid-template-columns: minmax(0, 1fr) auto; }
 .fx-row-main b { font-size: 14.5px; font-weight: 600; }
 .fx-row-main span { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.fx-row-main .fx-memory-row { font-size: 13.5px; font-weight: 400; line-height: 1.45; color: var(--ink); }
 
 /* anything that opens a detail sheet: a plain button, shaded on hover like a building on the map, and
    kept shaded while its sheet is open */
@@ -703,13 +704,14 @@ a.fx-tool { text-decoration: none; }
 input.fx-control[readonly] { color: var(--muted); background: none; }
 textarea.fx-control { height: auto; padding: 7px 10px; resize: vertical; }
 .fx-d-actions { display: flex; align-items: center; gap: 14px; }
+.fx-d-actions .fx-add { margin: 0; border: 0; cursor: pointer; }
 /* a picked employee stays shaded, with a tick */
-.fx-hit[aria-pressed="true"] { box-shadow: inset 0 0 0 100vmax var(--shade); }
+.fx-hit[aria-pressed="true"], .fx-d-crew-pick .fx-hit[aria-checked="true"] { box-shadow: inset 0 0 0 100vmax var(--shade); }
 /* who can do what, on an employee's row: the same width on every row, so the rows line up */
 .fx-row:has(> .fx-staff-tools) { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .fx-staff-tools { display: grid; grid-template-columns: repeat(2, 5em); gap: 4px; }
 .fx-staff-tools span { padding: 0 4px; background: var(--clip); box-shadow: var(--lift); color: var(--ink); font-size: 11px; line-height: 1.6; text-align: center; white-space: nowrap; }
-.fx-d-groups { container-type: inline-size; }
+.fx-d-groups, .fx-d-crew-pick { container-type: inline-size; }
 /* a narrow sheet has no room beside the name: the tools go underneath */
 @container (max-width: 420px) {
   .fx-staff-tools { grid-column: 2 / -1; justify-self: start; }
@@ -767,7 +769,7 @@ a.fx-save { text-decoration: none; }
 .fx-d-origin { min-width: 0; overflow-wrap: anywhere; }
 .fx-d-sec { display: grid; gap: 10px; }
 .fx-d-muted { color: var(--muted); font-size: 13px; }
-.fx-d-text { font-size: 14px; color: var(--ink-2); white-space: pre-wrap; }
+.fx-d-text { font-size: 14px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* quoted instructions: a typed slip pasted in */
 .fx-d-quote { padding: 10px 12px; background: var(--clip); box-shadow: var(--lift); transform: skewY(-0.4deg); }
 .fx-d-people, .fx-d-memory, .fx-d-log { margin: 0; padding: 0; list-style: none; }
@@ -869,6 +871,7 @@ a.fx-save { text-decoration: none; }
 .fx-d-owner { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 .fx-d-owner button { display: flex; align-items: center; gap: 6px; margin: -3px -2px; padding: 3px 6px; border: 0; background: none; font: inherit; color: var(--ink-2); cursor: pointer; }
 .fx-d-owner svg { display: block; flex: none; border-radius: 2px; }
+.fx-memory-from { max-width: 18em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-d-run svg, .fx-d-people svg { display: block; flex: none; border-radius: 2px; }
 .fx-d-noface { width: 18px; height: 18px; border-radius: 2px; background: var(--wash, rgb(0 0 0 / 0.06)); }
 .fx-d-bar { flex: 0 1 80px; height: 5px; background: rgb(31 29 43 / 0.1); }
@@ -1745,9 +1748,6 @@ button.fx-said-fact:hover { background: rgb(31 95 168 / 0.12); }
 .fx-room-to { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; font-size: 12.5px; color: var(--muted); }
 .fx-room-to-one { display: inline-flex; align-items: center; gap: 4px; color: var(--ink); }
 .fx-room-to-one svg { display: block; }
-/* under a box holding a draft: the way out for the keyboard, in a row of its own beneath the box and its buttons */
-.fx-box-hint { order: 1; flex: 0 0 100%; margin: -2px 0 0; padding-inline: 40px 48px; font: 500 11px/1.2 var(--font-mono); color: var(--muted); }
-.fx-mention-wrap .fx-box-hint { margin: 4px 0 0; padding: 0; }
 /* under a sent message; two classes, to win over the sheet's margin-less p */
 .fx-chat-said .fx-chat-to { margin-top: 4px; }
 /* a question's options with who asked, to answer them by typing instead: dashed, as a choice left open */

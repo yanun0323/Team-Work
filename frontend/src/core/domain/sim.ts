@@ -13,7 +13,7 @@ import { STAFFING_ID, worksIn } from './types'
 import type {
   Chat,
   Look, Meeting,
-  Attachment, Blueprint, GitSource, Locale, LogKind, MemorySource, ModelProvider, ProviderAuth, Replica, Review, Script, SubTask, TalkEnd, Task, Team, Workflow, World,
+  Attachment, Blueprint, GitSource, Locale, LogKind, MemoryEntry, MemorySource, ModelProvider, ProviderAuth, Replica, Review, Script, SubTask, TalkEnd, Task, Team, Workflow, World,
   FileInfo, SkillInfo, SkillText, TaskActivity, TaskCoordination, TaskOperation,
 } from './types'
 
@@ -76,11 +76,58 @@ function log(s: SubTask, now: number, kind: LogKind, text: string, key?: string,
   s.log.push({ at: now, kind, text, key, args })
 }
 
-export function remember(w: World, replicaId: string | null, text: string, source: MemorySource, taskId?: string) {
+/**
+ * Keeps a note as the backend's remember does: by default in the memory of the company the employee works in for this
+ * (the task's, or their own), or with `mine` in their own memory, which goes with them to every company. A text the
+ * list already has is not kept twice.
+ */
+export function remember(w: World, replicaId: string | null, text: string, source: MemorySource, taskId?: string, mine = false) {
   const r = replicaId ? w.replicas[replicaId] : undefined
-  if (!r || r.memory.some((m) => m.text === text)) return false
-  r.memory.unshift({ id: uid(w, 'mem'), text, source, at: w.now, taskId })
+  if (!r) return false
+  const team = mine ? undefined : w.teams[(taskId && w.tasks[taskId]?.teamId) || r.teamId]
+  const list = team ? team.memory : r.memory
+  if (list.some((m) => m.text === text)) return false
+  list.unshift({ id: uid(w, 'mem'), text, source, at: w.now, createdAt: w.now, taskId, ...(team ? { by: r.id } : {}) })
   return true
+}
+
+function teamNote(w: World, teamId: string, id: string) {
+  const team = w.teams[teamId]
+  if (!team) throw new Error(`找不到公司`)
+  const i = team.memory.findIndex((m) => m.id === id)
+  if (i < 0) throw new Error(`找不到這則記憶`)
+  return { team, i }
+}
+
+const noteText = (text: string) => {
+  const t = text.trim()
+  if (!t) throw new Error(`記憶不能是空白`)
+  return t
+}
+
+/** The user writes a note into a company's memory, as POST /teams/:id/memory. */
+export function addTeamMemory(w: World, teamId: string, text: string): MemoryEntry {
+  const team = w.teams[teamId]
+  if (!team) throw new Error(`找不到公司`)
+  const note: MemoryEntry = { id: uid(w, 'mem'), text: noteText(text), source: 'user', at: w.now, createdAt: w.now }
+  team.memory.unshift(note)
+  return note
+}
+
+/** The user corrects a company's note, as PATCH /teams/:id/memory/:mid: it becomes theirs. */
+export function editTeamMemory(w: World, teamId: string, id: string, text: string): MemoryEntry {
+  const t = noteText(text)
+  const { team, i } = teamNote(w, teamId, id)
+  const prev = team.memory[i]
+  const { by: _by, ...rest } = prev
+  team.memory[i] = { ...rest, text: t, source: 'user', createdAt: prev.createdAt ?? prev.at, at: w.now }
+  return team.memory[i]
+}
+
+/** The user removes a company's note, as DELETE /teams/:id/memory/:mid. */
+export function deleteTeamMemory(w: World, teamId: string, id: string) {
+  const { team, i } = teamNote(w, teamId, id)
+  team.memory.splice(i, 1)
 }
 
 /** Replicas currently working: on a sub-task, or merging a task. */
@@ -1501,8 +1548,8 @@ export function fire(w: World, id: string, heirId: string) {
 
 /**
  * Moves an employee between a company and the staffing agency, as the backend's MoveReplica: let go where they are,
- * as `fire` does, and hired anew at `to` with the same name, look, settings, model and level, but no memory. All or
- * nothing: a refusal throws before anything changes.
+ * as `fire` does, and hired anew at `to` with the same name, look, settings, model, level and own memory; their chats
+ * stay behind, as does the company's memory. All or nothing: a refusal throws before anything changes.
  */
 export function moveReplica(w: World, id: string, to: string, heirId: string): Replica {
   const r = w.replicas[id]
@@ -1510,16 +1557,25 @@ export function moveReplica(w: World, id: string, to: string, heirId: string): R
   if (to !== STAFFING_ID && !w.teams[to]) throw new Error(`找不到公司`)
   if ((r.teamId === STAFFING_ID) === (to === STAFFING_ID)) throw new Error(`只能在公司和移民署之間移動員工`)
   checkFire(w, id, heirId)
-  const own = w.blueprints[r.blueprintId]?.owner === r.id ? structuredClone(w.blueprints[r.blueprintId]) : undefined
-  const moved: Replica = { ...structuredClone(r), id: uid(w, 'rep'), teamId: to, memory: [], hiredAt: w.now }
+  const moved = rehire(w, r, to)
   fire(w, id, heirId)
+  w.replicas[moved.id] = moved
+  return moved
+}
+
+/**
+ * Someone new at `to` in r's place, with r's name, look, model, level and own memory; settings of r's own are copied
+ * to them. r is still there, for the caller to let go before adding who comes back.
+ */
+function rehire(w: World, r: Replica, to: string): Replica {
+  const own = w.blueprints[r.blueprintId]?.owner === r.id ? clone(w.blueprints[r.blueprintId]) : undefined
+  const moved: Replica = { ...clone(r), id: uid(w, 'rep'), teamId: to, hiredAt: w.now }
   if (own) {
     own.id = uid(w, 'bp')
     own.owner = moved.id
     w.blueprints[own.id] = own
     moved.blueprintId = own.id
   }
-  w.replicas[moved.id] = moved
   return moved
 }
 
@@ -1647,7 +1703,7 @@ export function createTeam(
 ): Team {
   const id = uid(w, 'team')
   const team: Team = {
-    id, ...input, prompt: '', createdAt: w.now,
+    id, ...input, prompt: '', memory: [], createdAt: w.now,
     settings: { timeoutMin: 120, costLimitUsd: 3, retries: 1 },
   }
   w.teams[id] = team
@@ -1655,11 +1711,31 @@ export function createTeam(
 }
 
 /**
- * Close a company: it goes with everyone who works there, and all its tasks and their sub-tasks.
- * Blueprints and flows are shared and stay. The prototype has no real folders, so `removeFiles` deletes nothing here.
+ * Close a company, as the backend's DeleteTeam: its own employees in `keep` move to the staffing agency first, as
+ * someone new with their own memory and own settings but not their chats; everyone else of its own goes with it, as do
+ * all its tasks, chats and company memory. Shared blueprints and flows stay, a flow's steps losing who is gone. All or
+ * nothing: a refusal throws before anything changes. The prototype has no real folders, so `removeFiles` deletes
+ * nothing here.
  */
-export function deleteTeam(w: World, teamId: string, _opts: { removeFiles: boolean } = { removeFiles: false }) {
-  if (!w.teams[teamId]) return
+export function deleteTeam(w: World, teamId: string, keep: string[] = [], _opts: { removeFiles: boolean } = { removeFiles: false }) {
+  if (!w.teams[teamId]) throw new TaskRefusal(say2(w, '找不到公司', 'Company not found'), 'not_found')
+  const moving: Replica[] = []
+  for (const id of keep) {
+    const r = w.replicas[id]
+    if (!r) throw new TaskRefusal(say2(w, '找不到要移到移民署的員工', 'No such employee to move to the immigration office'), 'invalid_request')
+    if (r.teamId !== teamId) {
+      throw new TaskRefusal(say2(w, '{name} 不是這間公司的員工，不能隨公司移到移民署', '{name} is not one of this company\'s employees and cannot move to the immigration office with it', { name: r.name }), 'invalid_request')
+    }
+    if (moving.includes(r)) throw new TaskRefusal(say2(w, '{name} 選了兩次', '{name} is picked twice', { name: r.name }), 'invalid_request')
+    moving.push(r)
+  }
+  for (const r of moving) {
+    const moved = rehire(w, r, STAFFING_ID)
+    endChatsOf(w, r.id)
+    dropOwnBlueprint(w, r)
+    delete w.replicas[r.id]
+    w.replicas[moved.id] = moved
+  }
   const tasks = new Set(Object.values(w.tasks).filter((t) => t.teamId === teamId).map((t) => t.id))
   for (const s of Object.values(w.subTasks)) if (tasks.has(s.taskId)) delete w.subTasks[s.id]
   for (const id of tasks) delete w.tasks[id]
@@ -1668,6 +1744,7 @@ export function deleteTeam(w: World, teamId: string, _opts: { removeFiles: boole
     dropOwnBlueprint(w, r)
     delete w.replicas[r.id]
   }
+  for (const wf of Object.values(w.workflows)) for (const n of wf.nodes) n.replicaIds = n.replicaIds.filter((x) => w.replicas[x])
   for (const c of Object.values(w.chats)) if (c.teamId === teamId) delete w.chats[c.id]
   w.events = w.events.filter((e) => !('taskId' in e) || !tasks.has(e.taskId))
   delete w.teams[teamId]

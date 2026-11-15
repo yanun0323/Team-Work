@@ -62,32 +62,68 @@ func (e *Engine) logLine(s *model.SubTask, kind enum.LogKind, text, key string, 
 	s.Log = append(s.Log, model.LogLine{At: e.w.Now, Kind: kind, Text: text, Key: key, Args: args})
 }
 
-func (e *Engine) remember(replicaID *string, text, source, taskID string) bool {
-	if replicaID == nil || e.w.Replicas[*replicaID] == nil {
+// Memory scopes: a company's notes, read and written by everyone working in it, or an employee's own, which go with
+// them from company to company.
+const (
+	scopeCompany = "company"
+	scopeMine    = "mine"
+)
+
+// memoryOf is the list a note in scope goes to: the company teamID's, or the employee's own. Nil when there is none.
+func (e *Engine) memoryOf(teamID string, replicaID *string, scope string) *[]model.MemoryEntry {
+	if scope == scopeMine {
+		if replicaID != nil && e.w.Replicas[*replicaID] != nil {
+			return &e.w.Replicas[*replicaID].Memory
+		}
+		return nil
+	}
+	if t := e.w.Teams[teamID]; t != nil {
+		return &t.Memory
+	}
+	return nil
+}
+
+// remember keeps text in the company teamID's memory, or in scope "mine" the employee's own, skipping a note that list
+// already holds. The company's note says who wrote it.
+func (e *Engine) remember(teamID string, replicaID *string, scope, text, source, taskID, chatID string) bool {
+	list := e.memoryOf(teamID, replicaID, scope)
+	if list == nil || (scope != scopeMine && replicaID == nil) {
 		return false
 	}
-	r := e.w.Replicas[*replicaID]
-	for _, m := range r.Memory {
+	for _, m := range *list {
 		if m.Text == text {
 			return false
 		}
 	}
-	r.Memory = append([]model.MemoryEntry{{ID: e.uid("mem"), Text: text, Source: source, At: e.w.Now, TaskID: taskID}}, r.Memory...)
+	note := model.MemoryEntry{ID: e.uid("mem"), Text: text, Source: source, At: e.w.Now, CreatedAt: e.w.Now, TaskID: taskID, ChatID: chatID}
+	if scope != scopeMine {
+		note.By = *replicaID
+	}
+	*list = append([]model.MemoryEntry{note}, *list...)
 	return true
 }
 
-// forget drops one note and says what it read, so the log keeps a way back.
-func (e *Engine) forget(replicaID *string, id string) (string, bool) {
-	if replicaID == nil || e.w.Replicas[*replicaID] == nil {
-		return "", false
+// forget drops one note, of the company teamID or the employee's own, and says what it read, so the log keeps a way
+// back. Another company's notes and other employees' own are not found.
+func (e *Engine) forget(teamID string, replicaID *string, id string) (string, bool) {
+	for _, scope := range []string{scopeCompany, scopeMine} {
+		if list := e.memoryOf(teamID, replicaID, scope); list != nil {
+			if text, ok := dropNote(list, id); ok {
+				return text, true
+			}
+		}
 	}
-	r := e.w.Replicas[*replicaID]
-	i := slices.IndexFunc(r.Memory, func(m model.MemoryEntry) bool { return m.ID == id })
+	return "", false
+}
+
+// dropNote removes the note id from list, without touching the array a snapshot may share.
+func dropNote(list *[]model.MemoryEntry, id string) (string, bool) {
+	i := slices.IndexFunc(*list, func(m model.MemoryEntry) bool { return m.ID == id })
 	if i < 0 {
 		return "", false
 	}
-	text := r.Memory[i].Text
-	r.Memory = slices.Delete(slices.Clone(r.Memory), i, i+1)
+	text := (*list)[i].Text
+	*list = slices.Delete(slices.Clone(*list), i, i+1)
 	return text, true
 }
 
@@ -95,8 +131,8 @@ func (e *Engine) forget(replicaID *string, id string) (string, bool) {
 const memorySearchLimit = 20
 
 // searchMemory finds the notes holding any of the query's words, ignoring case: those holding more words first, then
-// the newest.
-func searchMemory(notes []model.MemoryEntry, query string) string {
+// the newest. line writes each found note.
+func searchMemory(notes []model.MemoryEntry, query string, line func(model.MemoryEntry) string) string {
 	words := strings.Fields(strings.ToLower(query))
 	type hit struct {
 		note  model.MemoryEntry
@@ -120,7 +156,7 @@ func searchMemory(notes []model.MemoryEntry, query string) string {
 	slices.SortStableFunc(hits, func(a, b hit) int { return b.score - a.score })
 	var b strings.Builder
 	for _, h := range hits[:min(len(hits), memorySearchLimit)] {
-		b.WriteString(memoryLine(h.note))
+		b.WriteString(line(h.note))
 	}
 	if len(hits) > memorySearchLimit {
 		fmt.Fprintf(&b, "%d more match; narrow the search.\n", len(hits)-memorySearchLimit)

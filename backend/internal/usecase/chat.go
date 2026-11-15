@@ -700,7 +700,7 @@ func (e *Engine) chatSpec(c *model.Chat, speaker string) (agentSpec, error) {
 		rules:  chatRules + "\n" + languageRule(e.w.Language) + "\n" + chatPriorityRule + "\n" + chatHandoffRule(c) + meetingRule(c, speaker),
 		shared: sharedRules(e.runGlobalPrompt(), team.Prompt),
 		role:   e.rolePart(bp),
-		memory: memorySection(r),
+		memory: e.memorySection(team, r),
 	}
 	return spec, nil
 }
@@ -975,14 +975,12 @@ const chatAskSkipped = "The user did not pick an option; they wrote a new messag
 // chatMemoryTools let the employee keep and drop notes while chatting. The chat already shows each call.
 func (e *Engine) chatMemoryTools(in chatRun) []adapter.Tool {
 	remember := func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
-		var a struct {
-			Text string `json:"text"`
-		}
-		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Text) == "" {
-			return toolError("text is required")
+		text, scope, bad := rememberArgs(raw)
+		if bad != nil {
+			return *bad
 		}
 		e.applyChat(in, func(c *model.Chat) {
-			e.remember(&in.speaker, strings.TrimSpace(a.Text), "chat", "")
+			e.remember(c.TeamID, &in.speaker, scope, text, "chat", "", c.ID)
 		})
 		return model.ToolResult{Text: "remembered"}
 	}
@@ -995,14 +993,14 @@ func (e *Engine) chatMemoryTools(in chatRun) []adapter.Tool {
 		}
 		found := false
 		e.applyChat(in, func(c *model.Chat) {
-			_, found = e.forget(&in.speaker, a.ID)
+			_, found = e.forget(c.TeamID, &in.speaker, a.ID)
 		})
 		if !found {
 			return toolError("no note with id %s", a.ID)
 		}
 		return model.ToolResult{Text: "forgotten"}
 	}
-	search := e.searchMemoryTool(func() *string { return &in.speaker })
+	search := e.searchMemoryTool(func() (string, *string) { return in.team, &in.speaker })
 	return []adapter.Tool{funcTool{rememberSpec, remember}, funcTool{forgetSpec, forget}, funcTool{searchMemorySpec, search}}
 }
 

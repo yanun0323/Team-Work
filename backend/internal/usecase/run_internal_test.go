@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
@@ -36,5 +37,27 @@ func TestReasoningAloneIsNoReply(t *testing.T) {
 		if !c.empty && (err != nil || got.Text != "done" || len(tr.req.Messages) != 1 || len(tr.req.Messages[0].Content) != 2) {
 			t.Fatalf("%+v %v %+v", got, err, tr.req.Messages)
 		}
+	}
+}
+
+type failFake struct{ tries int }
+
+func (f *failFake) Complete(context.Context, model.ModelRequest, func(string)) (model.ModelReply, error) {
+	f.tries++
+	return model.ModelReply{}, &model.Error{Code: model.CodeUnavailable, Message: "busy", Status: 503}
+}
+func (f *failFake) Models(context.Context) ([]model.ModelSpec, error) { return nil, nil }
+
+// A provider down for a while, as Gemini was for about 20 seconds, is waited out for about a minute before the
+// reply is given up on.
+func TestPassingFailuresAreRetriedForAboutAMinute(t *testing.T) {
+	t.Parallel()
+	if waited := firstRetryDelay * (1<<modelRetries - 1); waited < time.Minute {
+		t.Fatalf("retries give up after %s", waited)
+	}
+	f := &failFake{}
+	tr := &turn{provider: f, onStart: func() {}, onText: func(string) {}}
+	if _, err := tr.complete(context.Background()); err == nil || f.tries != modelRetries+1 {
+		t.Fatalf("%d tries: %v", f.tries, err)
 	}
 }

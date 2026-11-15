@@ -27,6 +27,16 @@ export const fmtClock = (sec: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
+/** Date and time for notes saved with real Unix seconds, falling back to m:ss in the simulator. */
+export const fmtDateTime = (sec: number) => {
+  if (sec >= 1e9) {
+    return new Date(sec * 1000).toLocaleString(LOCALE_TAGS[appLanguage()], {
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+    })
+  }
+  return fmtClock(sec)
+}
+
 /** A stable hue per task number, used to tell tasks apart. */
 export const taskHue = (n: number) => (n * 67 + 200) % 360
 
@@ -452,7 +462,7 @@ export const inTerminal = (e: KeyboardEvent) => !!(e.target as Element | null)?.
 
 /**
  * Whether Esc belongs to what has focus rather than to the sheet or the drawer around it: an open list, a floating
- * menu such as the hand-off one, or a box holding a draft, which Esc leaves rather than closing the sheet under it.
+ * menu such as the hand-off one, or a box holding a draft, so Esc does not close the sheet under it.
  */
 export const keepsEscape = (target: EventTarget | null) =>
   !!(target as Element | null)?.closest?.('[aria-expanded="true"][aria-haspopup="listbox"], [popover], [data-esc="box"]')
