@@ -75,18 +75,21 @@ type evalRow struct {
 	Shells, NonCore5  int
 }
 
-// TestSearchEval runs the fixed benchmark on a snapshot of the project, never on a work tree being changed:
+// TestSearchEval runs the fixed benchmark on a snapshot of the project, never on a work tree being changed. Make the
+// snapshot from the repository's root, where git archive takes the whole project (in backend it takes backend
+// alone), then run the test from backend:
 //
-//	SNAP=$(mktemp -d)/snap; git archive d15b677 | tar -x -C "$SNAP"; git -C "$SNAP" init -q; git -C "$SNAP" add -A
+//	SNAP=$(mktemp -d)/snap; mkdir -p "$SNAP"; git archive d15b677 | tar -x -C "$SNAP"
+//	git -C "$SNAP" init -q; git -C "$SNAP" add -A
 //	git -C "$SNAP" -c user.name=eval -c user.email=eval@local commit -qm snap
-//	SEMANTIC_EVAL_ROOT=$SNAP go test -run TestSearchEval -v ./internal/semantic/
+//	cd backend && SEMANTIC_EVAL_ROOT=$SNAP go test -run TestSearchEval -v ./internal/semantic/
 //
 // It runs keyword search alone; SEMANTIC_EVAL_FAKE=1 adds the made-up model, which only shows the flow still works;
 // SEMANTIC_REAL_HELPER and SEMANTIC_REAL_HOME add the real model. The home is written to, so give it a copy of the
 // cache, never the app's own:
 //
 //	H=$(mktemp -d); mkdir -p $H/cache; cp -cR ~/.team-work/cache/semantic-search $H/cache/
-//	env -u TMPDIR SEMANTIC_EVAL_ROOT=$SNAP SEMANTIC_REAL_HELPER="/Applications/Team Work.app/Contents/Helpers/semantic-helper" \
+//	cd backend && env -u TMPDIR SEMANTIC_EVAL_ROOT=$SNAP SEMANTIC_REAL_HELPER="/Applications/Team Work.app/Contents/Helpers/semantic-helper" \
 //		SEMANTIC_REAL_HOME=$H go test -run TestSearchEval -v -timeout 3h ./internal/semantic/
 //
 // SEMANTIC_EVAL_OUT writes the rows as JSON.

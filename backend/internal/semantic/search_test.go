@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand"
 	"slices"
 	"strings"
@@ -156,6 +157,60 @@ func TestLongLineCountsOncePerSource(t *testing.T) {
 	}
 	if len(fused) != 2 {
 		t.Fatalf("%v", candidatePaths(fused))
+	}
+}
+
+// With vector results, docs, translations and tests score notCodeWeight of what code does; keyword search alone,
+// with no vectors or an empty list of them, leaves every file as it is.
+func TestFuseLowersFilesNotCodeOnlyWithVectors(t *testing.T) {
+	one := 1 / float64(rrfK+1)
+	for _, tc := range []struct {
+		path    string
+		notCode bool
+	}{
+		{"backend/internal/semantic/search.go", false},
+		{"frontend/src/Pickers.tsx", false},
+		{"frontend/src/core/model.ts", false},
+		{"frontend/README.md", true},
+		{"backend/internal/i18n/en.go", true},
+		{"frontend/src/core/locales/ja.ts", true},
+		{"frontend/src/core/i18n.ts", true},
+		{"frontend/src/HelpEn.tsx", true},
+		{"backend/internal/semantic/search_test.go", true},
+		{"frontend/src/People.test.ts", true},
+		{"frontend/src/Pickers.test.tsx", true},
+	} {
+		kw := []candidate{{path: tc.path, start: 1, end: 3, lines: "h"}}
+		for name, vec := range map[string][]candidate{"nil": nil, "empty": {}} {
+			got := fuse(kw, vec, 10)
+			if len(got) != 1 || math.Abs(got[0].score-one) > 1e-12 {
+				t.Errorf("%s, %s vectors: %+v, want score %v", tc.path, name, got, one)
+			}
+		}
+		vec := []candidate{{path: tc.path, start: 1, end: 3, lines: "h", vector: true, cos: 0.9}}
+		want := 2 * one
+		if tc.notCode {
+			want *= notCodeWeight
+		}
+		if got := fuse(kw, vec, 10); len(got) != 1 || math.Abs(got[0].score-want) > 1e-12 {
+			t.Errorf("%s with vectors: %+v, want score %v", tc.path, got, want)
+		}
+	}
+	if notCodeWeight >= 1 {
+		t.Fatalf("notCodeWeight %v lowers nothing", notCodeWeight)
+	}
+	// Ranked against code, a doc found by both lists still stays first, and one found by vectors alone falls behind
+	// code found by vectors alone just below it.
+	doc := candidate{path: "frontend/README.md", start: 1, end: 1, lines: "h"}
+	code := candidate{path: "backend/internal/semantic/search.go", start: 1, end: 1, lines: "h"}
+	vd, vc := doc, code
+	vd.vector, vc.vector = true, true
+	got := fuse(nil, []candidate{vd, vc}, 10)
+	if candidatePaths(got)[0] != code.path {
+		t.Fatalf("%v", candidatePaths(got))
+	}
+	if got := fuse([]candidate{doc, code}, nil, 10); candidatePaths(got)[0] != doc.path {
+		t.Fatalf("keyword alone: %v", candidatePaths(got))
 	}
 }
 
