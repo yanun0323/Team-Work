@@ -50,7 +50,7 @@ func readOnlyIn(cwd, command string) bool {
 				return false
 			}
 		case "rg":
-			if !rgConfigReadsOnly() {
+			if !rgConfigReadsOnly(dir) {
 				return false
 			}
 		}
@@ -173,12 +173,16 @@ func gitFalse(v string) bool {
 	return false
 }
 
-// rgConfigReadsOnly says whether the config file RIPGREP_CONFIG_PATH names, if any, has only options that read. Each
-// of its lines is one argument; those starting with # are comments.
-func rgConfigReadsOnly() bool {
+// rgConfigReadsOnly says whether the config file RIPGREP_CONFIG_PATH names, if any, has only options that read, as rg
+// run from dir reads it: a relative path is found from dir. Each of its lines is one argument; those starting with #
+// are comments.
+func rgConfigReadsOnly(dir string) bool {
 	p := os.Getenv("RIPGREP_CONFIG_PATH")
 	if p == "" {
 		return true
+	}
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(dir, p)
 	}
 	b, err := os.ReadFile(p)
 	if err != nil {

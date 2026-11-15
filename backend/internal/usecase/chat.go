@@ -570,8 +570,12 @@ func (e *Engine) DeleteChat(id string) error {
 
 func (e *Engine) dropChat(id string) {
 	e.stopRun(id)
-	e.jobs.End(chatJobScope(id))
-	e.removeOutputs(id)
+	if left := e.jobs.End(chatJobScope(id)); len(left) > 0 {
+		// still known as running, and stopped again until they can be told over; their output goes then (jobEnded)
+		e.log.Warn().Str("chat", id).Strs("jobs", left).Msg("background commands not known to have stopped with their chat")
+	} else {
+		e.removeOutputs(id)
+	}
 	delete(e.w.Chats, id)
 	delete(e.w.Conversations, id)
 	delete(e.dirty, id)

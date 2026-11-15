@@ -120,6 +120,9 @@ type Engine struct {
 	// jobs are run_command's background commands, of task steps' runs and of chats; jobScopes numbers the runs'.
 	jobs      *tools.Jobs
 	jobScopes int
+	// drains are the work steps' runs by their job scope, from their start until they ended with none of their
+	// background commands left: see treeBusy.
+	drains map[string]*drain
 	// jobsCleaned, when set, hears that a step's run has stopped all its background commands, before the run is
 	// said to have ended. Tests hold it there.
 	jobsCleaned func(scope string)
@@ -155,7 +158,7 @@ const (
 func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	e := &Engine{
 		w: model.NewWorld(), runs: map[string]*run{}, live: map[string]string{}, output: map[string]liveOutput{}, prev: map[string][]byte{}, dirty: map[string]bool{},
-		subs: map[chan Event]struct{}{}, logins: map[string]*loginRun{}, pendingKeys: map[string]string{}, terms: map[string]*TerminalLog{}, quotas: map[string]quotaEntry{}, modelsAt: map[string]float64{}, store: o.Store, git: o.Git, providers: o.Providers, dataDir: o.DataDir, log: o.Log, semantic: o.Semantic, rankNotes: o.Semantic.RankNotes,
+		subs: map[chan Event]struct{}{}, drains: map[string]*drain{}, logins: map[string]*loginRun{}, pendingKeys: map[string]string{}, terms: map[string]*TerminalLog{}, quotas: map[string]quotaEntry{}, modelsAt: map[string]float64{}, store: o.Store, git: o.Git, providers: o.Providers, dataDir: o.DataDir, log: o.Log, semantic: o.Semantic, rankNotes: o.Semantic.RankNotes,
 		clock:  func() float64 { return float64(time.Now().UnixMilli()) / 1000 },
 		search: &tools.Search{Endpoint: tools.ExaEndpoint, Log: o.Log, State: filepath.Join(o.DataDir, "cache", "search-cooldown.json")},
 	}
@@ -233,7 +236,10 @@ func (e *Engine) Close() {
 	e.mu.Unlock()
 	e.cancel()
 	e.wg.Wait()
-	e.jobs.Close() // a chat's go on after its reply, until now
+	// a chat's go on after its reply, until now; those that cannot be told over stay known, and are not said ended
+	if left := e.jobs.Close(); len(left) > 0 {
+		e.log.Warn().Strs("jobs", left).Msg("background commands not known to have stopped at close")
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for ch := range e.subs {

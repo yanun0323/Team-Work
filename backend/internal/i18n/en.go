@@ -484,6 +484,8 @@ var en = map[string]string{
 	"沒有這則紀錄 %s":                                "No entry %s",
 	"沒有這筆紀錄 %s":                                "No record %s",
 	"派工「%s」給 %s":                               "Dispatched \"%s\" to %s",
+	"背景指令 %s 尚未確認結束；確認前這個任務不會開始其他會改檔的工作": "Background commands %s are not confirmed to have ended; nothing else that changes files starts in this task until they are",
+	"背景指令已確認結束": "The background commands are confirmed to have ended",
 	"無法確認「%s」的執行是否已結束；停止不會還原已改的檔案或外部操作，請確認現況": "Cannot confirm whether the run of \"%s\" has ended. Stopping does not undo changed files or outside actions; check how things stand",
 	"由負責人主導且已開始的任務不能更換任務藍圖":                   "A started task its owner leads cannot change its flow",
 	"由負責人主導且已開始的任務只有使用者能修改":                   "Only the user can change a started task its owner leads",

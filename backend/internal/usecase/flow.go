@@ -522,6 +522,11 @@ func (e *Engine) dispatch() {
 	}
 	for _, s := range sortedSubs(ready) {
 		t := e.w.Tasks[s.TaskID]
+		// a work step starts again only once its run before has ended, and none stopped or ended before it may still
+		// write to the work tree (treeBusy); steps of a flow that run side by side still do
+		if n := nodeOf(&t.Workflow, s.NodeID); n != nil && n.Kind != enum.NodeTalk && (e.runs[s.ID] != nil || e.treeBusy(t.ID)) {
+			continue
+		}
 		id := ""
 		if s.ReplicaID != nil {
 			id = *s.ReplicaID

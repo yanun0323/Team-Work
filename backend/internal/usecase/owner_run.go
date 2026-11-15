@@ -61,9 +61,12 @@ func (e *Engine) launchSaved() bool {
 	return moved
 }
 
-// writerBusy says whether a work step of the task is running or stopping: they share one work tree, so they take
-// turns writing to it.
+// writerBusy says whether a work step of the task is running or stopping, or one that ran may still be writing (see
+// treeBusy): they share one work tree, so they take turns writing to it.
 func (e *Engine) writerBusy(t *model.Task) bool {
+	if e.treeBusy(t.ID) {
+		return true
+	}
 	for _, s := range e.subsOf(t.ID) {
 		n := nodeOf(&t.Workflow, s.NodeID)
 		if n != nil && n.Kind != enum.NodeTalk && (e.runs[s.ID] != nil || s.ExecutionState == model.ExecStopping) {

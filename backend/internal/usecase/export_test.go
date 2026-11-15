@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/yanun0323/Team-Work/internal/model"
@@ -25,6 +26,18 @@ func (e *Engine) SetJobsCleaned(f func(scope string)) {
 	defer e.mu.Unlock()
 	e.jobsCleaned = f
 }
+
+// FailJobLookups has no background command's process group be looked up while failing is set, and End and Close
+// wait endWait for what they stop, for a test. Call it before any command starts.
+func (e *Engine) FailJobLookups(failing *atomic.Bool, endWait time.Duration) {
+	e.jobs.FailLookups(failing, endWait)
+}
+
+// JobsRunning is the ids of the background commands still known to run, in every scope starting with prefix.
+func (e *Engine) JobsRunning(prefix string) []string { return e.jobs.RunningUnder(prefix) }
+
+// OutputRoot is where the command output of a run or chat is kept.
+func (e *Engine) OutputRoot(id string) string { return e.outputRoot(id) }
 
 // SetRetryDelay shortens the wait before a passing model failure is tried again, for all the tests at once: call it
 // from TestMain, before any test runs.

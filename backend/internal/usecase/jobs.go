@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yanun0323/Team-Work/internal/i18n"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
 	"github.com/yanun0323/Team-Work/internal/usecase/tools"
@@ -99,9 +100,66 @@ func (e *Engine) showJobs(c *model.Chat, ended []tools.JobReport, by string) {
 	}
 }
 
-// jobEnded hears that a background command ended. A step reads it in its own loop; a chat replying reads it after its
-// next tools or once its reply ends, and an idle one is woken for it.
+// drain is a work step's run, whose background commands write to its task's work tree, from its start until it has
+// ended and none of them is left running.
+type drain struct {
+	task, sub string
+	r         *run
+	// exited says its goroutine ended: it starts no command any more. left says it ended with commands not known
+	// to have stopped.
+	exited, left bool
+}
+
+// treeBusy says whether background commands of a work step's run of the task that was stopped, replaced or ended
+// are not known to be over: they may still write to the work tree its steps share. No writer starts in the tree, nor
+// merges it, until none is; whoever stopped the run, and however it ended. Call it holding the lock.
+func (e *Engine) treeBusy(taskID string) bool {
+	return len(e.treeJobs(taskID)) > 0
+}
+
+// treeJobs are the ids of the background commands treeBusy waits for. Call it holding the lock.
+func (e *Engine) treeJobs(taskID string) []string {
+	var ids []string
+	for scope, d := range e.drains {
+		if d.task == taskID && (d.exited || e.runs[d.sub] != d.r) {
+			ids = append(ids, e.jobs.Running(scope)...)
+		}
+	}
+	return ids
+}
+
+// drained lets a run's tree go once the run has ended and none of its background commands is left, saying so on its
+// step when some had been left. It says whether it did. Call it holding the lock.
+func (e *Engine) drained(scope string) bool {
+	d := e.drains[scope]
+	if d == nil || !d.exited || len(e.jobs.Running(scope)) > 0 {
+		return false
+	}
+	delete(e.drains, scope)
+	if s := e.w.SubTasks[d.sub]; d.left && s != nil {
+		e.logLine(s, enum.LogSystem, i18n.T("背景指令已確認結束"), "", nil)
+	}
+	return true
+}
+
+// jobEnded hears that a background command ended. A step reads it in its own loop, and a step's run that ended
+// before it lets its work tree go; a chat replying reads it after its next tools or once its reply ends, and an idle
+// one is woken for it.
 func (e *Engine) jobEnded(scope string) {
+	if strings.HasPrefix(scope, subJobs) {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		d := e.drains[scope]
+		if e.closed || d == nil {
+			return
+		}
+		// one of a run stopped, replaced or ended may be what kept its tree from the next writer
+		if e.drained(scope) || e.runs[d.sub] != d.r && len(e.jobs.Running(scope)) == 0 {
+			e.w.Now = e.clock()
+			e.settle()
+		}
+		return
+	}
 	chatID, ok := strings.CutPrefix(scope, chatJobs)
 	if !ok {
 		return
@@ -112,6 +170,13 @@ func (e *Engine) jobEnded(scope string) {
 		return
 	}
 	e.w.Now = e.clock()
+	if e.w.Chats[chatID] == nil {
+		// a chat deleted while they were not known to be over: what they wrote out goes once none is left
+		if len(e.jobs.Running(scope)) == 0 {
+			e.removeOutputs(chatID)
+		}
+		return
+	}
 	e.wakeForJobs(chatID)
 	e.settle()
 }

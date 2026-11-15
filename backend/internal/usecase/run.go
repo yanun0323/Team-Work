@@ -559,12 +559,21 @@ func (e *Engine) launch(t *model.Task, s *model.SubTask, spec agentSpec, replica
 	in := subRun{r: r, subID: s.ID, taskID: t.ID, spec: spec, conv: conv, talk: talk, speaker: speaker, session: session, gen: s.RunGeneration,
 		folder: e.w.Teams[t.TeamID].Folder, dir: e.worktreeOf(t), branch: t.Branch, target: e.w.Teams[t.TeamID].TargetBranch,
 		jobs: subJobs + s.ID + "#" + strconv.Itoa(e.jobScopes)}
+	if !talk {
+		e.drains[in.jobs] = &drain{task: t.ID, sub: s.ID, r: r}
+	}
 	e.wg.Add(1)
 	go e.runSub(ctx, in)
 }
 
 func (e *Engine) stopRun(id string) {
 	if r := e.runs[id]; r != nil {
+		// what it was still starting does not get in once it is let go; what runs is stopped as it ends (runSub)
+		for scope, d := range e.drains {
+			if d.r == r {
+				e.jobs.Seal(scope)
+			}
+		}
 		if meetingOf(e.w.SubTasks[id]) != nil {
 			// Keep the slot until cancellation finishes; a conclusion must not overlap it.
 			r.stopping = true
@@ -634,7 +643,13 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 		}
 		e.mu.Lock()
 		defer e.mu.Unlock()
-		if len(left) > 0 {
+		// its work tree goes to another writer only once none of its commands is left; any left, though stopped, are
+		// waited for whatever ended the run, and let it go once they are over (jobEnded)
+		if d := e.drains[in.jobs]; d != nil {
+			d.exited = true
+		}
+		released := e.drained(in.jobs)
+		if !released && len(left) > 0 {
 			e.jobsLeft(in, left)
 		}
 		owned := e.runs[in.subID] == in.r
@@ -658,7 +673,7 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 				unread = true
 			}
 		}
-		if s := e.w.SubTasks[in.subID]; owned || unread || s != nil && s.ExecutionState != before {
+		if s := e.w.SubTasks[in.subID]; owned || unread || released || s != nil && s.ExecutionState != before {
 			e.w.Now = e.clock()
 			e.settle()
 		}
@@ -1374,8 +1389,15 @@ func (e *Engine) submitHandoff(in subRun) func(context.Context, string, json.Raw
 // holding the lock.
 func (e *Engine) jobsLeft(in subRun, ids []string) {
 	e.log.Warn().Str("sub", in.subID).Strs("jobs", ids).Msg("background commands not known to have stopped")
+	if d := e.drains[in.jobs]; d != nil {
+		d.left = true
+	}
 	s := e.w.SubTasks[in.subID]
-	if s == nil || e.closed || e.runs[in.subID] != nil && e.runs[in.subID] != in.r {
+	if s == nil || e.closed {
+		return
+	}
+	e.logLine(s, enum.LogSystem, i18n.T("背景指令 %s 尚未確認結束；確認前這個任務不會開始其他會改檔的工作", strings.Join(ids, ", ")), "", nil)
+	if e.runs[in.subID] != nil && e.runs[in.subID] != in.r {
 		return
 	}
 	if t := e.w.Tasks[in.taskID]; t != nil && t.OwnerLed() && s.ExecutionState == model.ExecStopping && s.RunGeneration == in.gen {
@@ -1388,10 +1410,18 @@ func (e *Engine) jobsLeft(in subRun, ids []string) {
 // done would be committed with it.
 func (e *Engine) jobsRunning(in subRun) *model.ToolResult {
 	ids := e.jobs.RunningUnder(subJobs + in.subID + "#")
+	// and those of any other run of the task, stopped or ended, that still write to the work tree it would commit
+	e.mu.Lock()
+	for _, id := range e.treeJobs(in.taskID) {
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	e.mu.Unlock()
 	if len(ids) == 0 {
 		return nil
 	}
-	res := toolError("background commands are still running: %s. Wait for them (run_command with job_id and action wait) or stop them (action kill) first", strings.Join(ids, ", "))
+	res := toolError("background commands are still running: %s. Wait for them (run_command with job_id and action wait) or stop them (action kill) first; those of an earlier run of this task, which you cannot reach, are being stopped: try again shortly", strings.Join(ids, ", "))
 	return &res
 }
 

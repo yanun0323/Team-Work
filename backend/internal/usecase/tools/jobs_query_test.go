@@ -133,14 +133,54 @@ func TestAGroupThatCannotBeLookedUpStaysRunningUntilItCan(t *testing.T) {
 		t.Fatalf("forgotten while not known to be over: %v %v", got, under)
 	}
 	failing.Store(false)
-	for deadline := time.Now().Add(5 * time.Second); len(j.Running("a")) > 0; time.Sleep(20 * time.Millisecond) {
+	// over, then said done: the job leaves Running before Done is called, so the events are read once done is in
+	for deadline := time.Now().Add(5 * time.Second); len(j.Running("a")) > 0 || !slices.Contains(ev.get(), "done"); time.Sleep(20 * time.Millisecond) {
 		if time.Now().After(deadline) {
-			t.Fatal("never over once its group could be looked up")
+			t.Fatalf("never over once its group could be looked up: %v", ev.get())
 		}
 	}
 	got := ev.get()
-	if c, d := slices.Index(got, "changed"), slices.Index(got, "done"); c < 0 || d < c || strings.Count(strings.Join(got, ","), "changed") != 1 {
+	if c, d := slices.Index(got, "changed"), slices.Index(got, "done"); c < 0 || d < c || slices.Index(got, "kill") > c ||
+		strings.Count(strings.Join(got, ","), "changed") != 1 || strings.Count(strings.Join(got, ","), "done") != 1 {
 		t.Fatalf("%v", got)
+	}
+}
+
+// Closing while a group cannot be looked up says which commands are not known to be over, and keeps them known as
+// running rather than forgetting them; once the group can be looked up they are over, told once.
+func TestClosingKeepsWhatCannotBeLookedUp(t *testing.T) {
+	dir := t.TempDir()
+	var ev events
+	var failing atomic.Bool
+	j := &Jobs{}
+	j.FailLookups(&failing, 300*time.Millisecond)
+	id, grand, _ := queried(t, j, &ev, dir)
+	failing.Store(true)
+	if left := j.Close(); !slices.Equal(left, []string{id}) {
+		t.Fatalf("Close says %v is left", left)
+	}
+	waitGone(t, grand)
+	if got := ev.get(); slices.Contains(got, "changed") || slices.Contains(got, "done") {
+		t.Fatalf("over while its group could not be looked up: %v", got)
+	}
+	if got := j.RunningUnder(""); !slices.Equal(got, []string{id}) {
+		t.Fatalf("forgotten on close while not known to be over: %v", got)
+	}
+	if _, err := j.Start(context.Background(), "b", dir, "true", 0, t.TempDir(), nil); err == nil {
+		t.Fatal("started after Close")
+	}
+	failing.Store(false)
+	for deadline := time.Now().Add(5 * time.Second); len(j.RunningUnder("")) > 0 || !slices.Contains(ev.get(), "done"); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("never over once its group could be looked up: %v", ev.get())
+		}
+	}
+	got := strings.Join(ev.get(), ",")
+	if strings.Count(got, "changed") != 1 || strings.Count(got, "done") != 1 {
+		t.Fatalf("%v", got)
+	}
+	if _, err := j.Status("a", id); err == nil {
+		t.Fatal("still known once over after Close")
 	}
 }
 

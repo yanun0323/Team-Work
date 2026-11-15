@@ -22,7 +22,7 @@ const mergeSystem = "You are a company employee merging a task branch into the t
 // stepMerge starts a merge. Call it holding the lock.
 func (e *Engine) stepMerge(t *model.Task) {
 	m := t.Merge
-	if m == nil || m.StartedAt != nil {
+	if m == nil || m.StartedAt != nil || e.treeBusy(t.ID) { // what a step left running is over first
 		return
 	}
 	m.StartedAt = ptr(e.w.Now)

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -61,6 +62,29 @@ func (j *Jobs) groupBusy(pgid, except int) (bool, error) {
 		return j.busy(pgid, except)
 	}
 	return groupBusy(pgid, except)
+}
+
+// errLookupFailing is a lookup FailLookups makes fail.
+var errLookupFailing = errors.New("process groups cannot be looked up (test)")
+
+// FailLookups is for tests of what uses Jobs: while failing is set, no process group can be looked up; otherwise
+// they are looked up as ever. endWait, when above zero, shortens how long End and Close wait. Call it before any
+// command starts.
+func (j *Jobs) FailLookups(failing *atomic.Bool, endWait time.Duration) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if len(j.byID) > 0 {
+		panic("FailLookups after a command started")
+	}
+	j.busy = func(pgid, except int) (bool, error) {
+		if failing.Load() {
+			return false, errLookupFailing
+		}
+		return groupBusy(pgid, except)
+	}
+	if endWait > 0 {
+		j.endWait = endWait
+	}
 }
 
 type job struct {
@@ -562,10 +586,25 @@ func (j *Jobs) End(scope string) []string {
 	return left
 }
 
-// Close ends every scope; no command starts after it.
-func (j *Jobs) Close() {
+// Seal has scope take no more commands, at once and without waiting; what runs goes on until End stops it. A run
+// stopped before it can end its scope seals it, so nothing it was still starting gets in after it is let go.
+func (j *Jobs) Seal(scope string) {
 	if j == nil {
 		return
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.over == nil {
+		j.over = map[string]bool{}
+	}
+	j.over[scope] = true
+}
+
+// Close ends every scope, as End does each; no command starts after it. It returns the ids of those not over yet:
+// they stay known as running until they are.
+func (j *Jobs) Close() []string {
+	if j == nil {
+		return nil
 	}
 	j.mu.Lock()
 	j.closed = true
@@ -573,9 +612,20 @@ func (j *Jobs) Close() {
 	for _, jb := range j.byID {
 		all = append(all, jb)
 	}
-	j.byID = nil
 	j.mu.Unlock()
 	j.endAll(all)
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	var left []string
+	for _, jb := range all {
+		if jb.state == JobRunning {
+			left = append(left, jb.id)
+		} else {
+			delete(j.byID, jb.id)
+		}
+	}
+	slices.SortFunc(left, compareIDs)
+	return left
 }
 
 // endAll stops the commands that are not over yet; those that are have nothing left to stop.
