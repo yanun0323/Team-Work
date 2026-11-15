@@ -452,7 +452,7 @@ export const inTerminal = (e: KeyboardEvent) => !!(e.target as Element | null)?.
 
 /**
  * Whether Esc belongs to what has focus rather than to the sheet or the drawer around it: an open list, a floating
- * menu such as the hand-off one, or a box holding a draft, which Esc leaves rather than closing the sheet under it.
+ * menu such as the hand-off one, or a box holding a draft, so Esc does not close the sheet under it.
  */
 export const keepsEscape = (target: EventTarget | null) =>
   !!(target as Element | null)?.closest?.('[aria-expanded="true"][aria-haspopup="listbox"], [popover], [data-esc="box"]')

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { asksToLeave, boxKey, controlBefore, MentionBox, tabIndents } from './MentionBox'
+import { boxKey, MentionBox, tabIndents } from './MentionBox'
 
 const noop = () => {}
 const box = (props: Partial<Parameters<typeof MentionBox>[0]>) => renderToStaticMarkup(
@@ -12,9 +12,8 @@ const press = (key: string, holds: Partial<Record<'shiftKey' | 'altKey' | 'ctrlK
 const at = (list = false, send = true) => ({ list, send })
 
 describe('boxKey', () => {
-  it('leaves a draft for the controls around the box when Esc is pressed, keeping the draft and the sheet', () => {
-    expect(boxKey(press('Escape'), '寫到一半', at())).toBe('leave')
-    // a box with nothing in it lets Esc through, as before: the sheet closes
+  it('leaves Esc alone, but for an open list', () => {
+    expect(boxKey(press('Escape'), '寫到一半', at())).toBe('pass')
     expect(boxKey(press('Escape'), '', at())).toBe('pass')
     // an open list takes the first Esc, and the box the second
     expect(boxKey(press('Escape'), '@Iv', at(true))).toBe('close-list')
@@ -48,45 +47,13 @@ describe('boxKey', () => {
   })
 })
 
-describe('controlBefore', () => {
-  const made = (props: { sr?: boolean; shown?: boolean; tabIndex?: number } = {}) => ({
-    tabIndex: props.tabIndex ?? 0,
-    closest: (sel: string) => (sel === '.fx-sr' && props.sr ? {} : null),
-    getClientRects: () => (props.shown === false ? [] : [{}]),
-  })
-  const withDoc = <T extends object>(el: T, list: object[]) => Object.assign(el, { ownerDocument: { querySelectorAll: () => list } }) as unknown as HTMLElement
-
-  it('finds the control Tab would reach before the box, skipping what only a screen reader sees or cannot be reached', () => {
-    const sr = made({ sr: true })
-    const skipped = made({ tabIndex: -1 })
-    const gone = made({ shown: false })
-    const attach = made()
-    const field = made()
-    expect(controlBefore(withDoc(field, [sr, skipped, gone, attach, field, made()]))).toBe(attach)
-    // nothing of the keyboard's before it: null, so the box blurs instead of the focus going nowhere
-    expect(controlBefore(withDoc(field, [field, made()]))).toBeNull()
-    expect(controlBefore(null)).toBeNull()
-  })
-})
-
 describe('a box holding a draft', () => {
   it('keeps Esc away from the sheet under it, so the draft and the sheet both stay', () => {
     expect(box({ value: '寫到一半', onSend: noop })).toContain('data-esc="box"')
     // nothing to leave with nothing written, and a field that is not sent is none of Esc's business
     expect(box({ value: '', onSend: noop })).not.toContain('data-esc')
     expect(box({ value: 'a description' })).not.toContain('data-esc')
-    // the hint under the box comes with the focus, so nothing is said before there are words to keep
+    // no hint under the box: it came and went with the focus, moving the send button out from under the click
     expect(box({ value: '寫到一半', onSend: noop })).not.toContain('fx-box-hint')
-  })
-
-  it('says, while a draft is being written, that Esc is the way out', () => {
-    const told = (value: string, focused = true, list = false, send = true) => asksToLeave(value, { focused, list, send })
-    expect(told('寫到一半')).toBe(true)
-    // not before the box is written in, not with nothing written, not while a list takes Esc first, and not by a field
-    // that is not sent
-    expect(told('寫到一半', false)).toBe(false)
-    expect(told('')).toBe(false)
-    expect(told('寫到一半', true, true)).toBe(false)
-    expect(told('寫到一半', true, false, false)).toBe(false)
   })
 })
