@@ -87,7 +87,7 @@ export function remember(w: World, replicaId: string | null, text: string, sourc
   const team = mine ? undefined : w.teams[(taskId && w.tasks[taskId]?.teamId) || r.teamId]
   const list = team ? team.memory : r.memory
   if (list.some((m) => m.text === text)) return false
-  list.unshift({ id: uid(w, 'mem'), text, source, at: w.now, taskId, ...(team ? { by: r.id } : {}) })
+  list.unshift({ id: uid(w, 'mem'), text, source, at: w.now, createdAt: w.now, taskId, ...(team ? { by: r.id } : {}) })
   return true
 }
 
@@ -109,7 +109,7 @@ const noteText = (text: string) => {
 export function addTeamMemory(w: World, teamId: string, text: string): MemoryEntry {
   const team = w.teams[teamId]
   if (!team) throw new Error(`找不到公司`)
-  const note: MemoryEntry = { id: uid(w, 'mem'), text: noteText(text), source: 'user', at: w.now }
+  const note: MemoryEntry = { id: uid(w, 'mem'), text: noteText(text), source: 'user', at: w.now, createdAt: w.now }
   team.memory.unshift(note)
   return note
 }
@@ -118,8 +118,9 @@ export function addTeamMemory(w: World, teamId: string, text: string): MemoryEnt
 export function editTeamMemory(w: World, teamId: string, id: string, text: string): MemoryEntry {
   const t = noteText(text)
   const { team, i } = teamNote(w, teamId, id)
-  const { by: _by, ...rest } = team.memory[i]
-  team.memory[i] = { ...rest, text: t, source: 'user', at: w.now }
+  const prev = team.memory[i]
+  const { by: _by, ...rest } = prev
+  team.memory[i] = { ...rest, text: t, source: 'user', createdAt: prev.createdAt ?? prev.at, at: w.now }
   return team.memory[i]
 }
 

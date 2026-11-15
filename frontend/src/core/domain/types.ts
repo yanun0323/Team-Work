@@ -177,7 +177,9 @@ export interface MemoryEntry {
   text: string
   source: MemorySource
   at: number
+  createdAt?: number
   taskId?: string
+  chatId?: string
   /** On a company's note, the employee who wrote it; none when the user wrote or last changed it. */
   by?: string
 }

@@ -27,6 +27,16 @@ export const fmtClock = (sec: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
+/** Date and time for notes saved with real Unix seconds, falling back to m:ss in the simulator. */
+export const fmtDateTime = (sec: number) => {
+  if (sec >= 1e9) {
+    return new Date(sec * 1000).toLocaleString(LOCALE_TAGS[appLanguage()], {
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+    })
+  }
+  return fmtClock(sec)
+}
+
 /** A stable hue per task number, used to tell tasks apart. */
 export const taskHue = (n: number) => (n * 67 + 200) % 360
 

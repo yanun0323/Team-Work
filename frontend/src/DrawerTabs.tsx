@@ -12,18 +12,19 @@ import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { Select, Stepper, WaitBadge } from './Controls'
 import { editTeam, refreshPrompt } from './core/ops'
-import { itemKey, PinTool, TeamMemory, type Item } from './DrawerDetail'
+import { itemKey, memoryPreview, PinTool, type Item } from './DrawerDetail'
 import { blocked } from './prereqs'
 import { Prereqs, usePrereqs } from './PrereqStamps'
 import { TaskCard } from './TaskCard'
 import { Files } from './FileBrowser'
 
-export type Tab = 'chats' | 'tasks' | 'crew' | 'terminal' | 'files' | 'settings'
+export type Tab = 'chats' | 'tasks' | 'crew' | 'memory' | 'terminal' | 'files' | 'settings'
 
 export const TABS: { id: Tab; label: Key }[] = [
   { id: 'chats', label: '對話#tab' },
   { id: 'tasks', label: '任務#tab' },
   { id: 'crew', label: '員工#tab' },
+  { id: 'memory', label: '記憶庫' },
   { id: 'files', label: '檔案瀏覽' },
   { id: 'terminal', label: '終端機' },
   { id: 'settings', label: '設定' },
@@ -48,6 +49,7 @@ export function TabBody({ tab, ...p }: Opens & { tab: Exclude<Tab, 'terminal'> }
   if (tab === 'chats') return <Chats {...p} />
   if (tab === 'tasks') return <Tasks {...p} />
   if (tab === 'crew') return <Crew {...p} />
+  if (tab === 'memory') return <TeamMemories {...p} />
   return <Settings {...p} />
 }
 
@@ -183,6 +185,29 @@ function Crew(p: Opens) {
   )
 }
 
+/** The company's shared memory: a button to add one, then a list of previews opening in the detail panel. */
+export function TeamMemories(p: Opens) {
+  const w = useStore((s) => s.world)
+  const notes = w.teams[p.teamId]?.memory ?? []
+  return (
+    <div className="fx-d-groups fx-crew-groups">
+      <button className="fx-task fx-task-new fx-flow-new fx-hit" {...opener({ kind: 'newTeamMemory' }, p)}>{tr('＋ 新記憶')}</button>
+      {!notes.length && <Empty>{tr('還沒有記憶')}</Empty>}
+      {notes.length > 0 && (
+        <ul className="fx-list">
+          {notes.map((m) => (
+            <li key={m.id}>
+              <button className="fx-row fx-row-plain fx-hit" {...opener({ kind: 'teamMemory', id: m.id }, p)}>
+                <span className="fx-row-main"><span className="fx-memory-row">{memoryPreview(m.text)}</span></span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function Settings({ teamId, ...p }: Opens) {
   const team = useStore((s) => s.world.teams[teamId])
   const act = useStore((s) => s.act)
@@ -216,7 +241,6 @@ function Settings({ teamId, ...p }: Opens) {
         <textarea className="fx-control" rows={6} value={team.prompt}
           onChange={(e) => act((x) => editTeam(x, teamId, { prompt: e.target.value }))} />
       </label>
-      <TeamMemory teamId={teamId} />
       <hr />
       {num('timeoutMin', tr('子任務逾時'), tr('分鐘'), 1, 1)}
       {num('costLimitUsd', tr('任務費用上限'), 'USD', 0.5, 0.5)}

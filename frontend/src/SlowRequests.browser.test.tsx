@@ -9,7 +9,7 @@ import { seedWorld } from './core/data/seed'
 import { teamReplicas } from './core/model'
 import { setFailureHandler } from './core/ops'
 import { useStore } from './core/store'
-import { Detail, TeamMemory } from './DrawerDetail'
+import { Detail, NewTeamMemory, TeamMemoryDetail } from './DrawerDetail'
 
 /** Each request made to the backend, held until `answer`. */
 interface Held { method: string; path: string; body: unknown; answer: (status: number, body?: unknown) => void }
@@ -58,7 +58,9 @@ const settle = async (fn: () => void) => { await act(async () => { fn(); await n
 const refusal = (code: string, message: string) => ({ error: { code, message } })
 
 it('keeps a new note being added as sent: what is typed while it saves is not lost', async () => {
-  await draw(<TeamMemory teamId={team().id} />)
+  const t = team()
+  const title = { current: null }
+  await draw(<NewTeamMemory teamId={t.id} title={title} tid="t" onDone={() => { done++ }} />)
   const add = box!.querySelector<HTMLTextAreaElement>('textarea[aria-label="新增公司記憶"]')!
   await userEvent.type(add, 'A')
   await userEvent.keyboard('{Control>}{Enter}{/Control}')
@@ -68,16 +70,24 @@ it('keeps a new note being added as sent: what is typed while it saves is not lo
   expect(add.readOnly).toBe(true)
   await userEvent.keyboard('{Control>}{Enter}{/Control}')
   expect(held).toHaveLength(1)
-  await settle(() => held[0].answer(201, { id: 'mem-new', text: 'A', source: 'user', at: 0 }))
-  expect(add.value).toBe('')
+  await settle(() => held[0].answer(500, refusal('internal', '伺服器發生錯誤')))
+  expect(failures).toEqual(['伺服器發生錯誤'])
+  expect(done).toBe(0)
+  expect(add.value).toBe('A')
   expect(add.readOnly).toBe(false)
   await userEvent.type(add, 'B')
-  expect(add.value).toBe('B')
+  await userEvent.keyboard('{Control>}{Enter}{/Control}')
+  await settle(() => held[1].answer(201, { id: 'mem-new', text: 'AB', source: 'user', at: 0 }))
+  expect(done).toBe(1)
 })
 
 it('keeps a note being corrected as sent, and open to try again when it fails', async () => {
-  await draw(<TeamMemory teamId={team().id} />)
-  await userEvent.click(box!.querySelector<HTMLButtonElement>('.fx-d-note button[aria-label="編輯"]')!)
+  const t = team()
+  const note = t.memory[0]
+  const noop = () => {}
+  const title = { current: null }
+  await draw(<TeamMemoryDetail teamId={t.id} id={note.id} title={title} tid="t" onDone={noop} />)
+  await userEvent.click(box!.querySelector<HTMLButtonElement>('button[aria-label="編輯"]')!)
   const edit = box!.querySelector<HTMLTextAreaElement>('textarea[aria-label="記憶"]')!
   await userEvent.clear(edit)
   await userEvent.type(edit, 'A')
@@ -95,13 +105,13 @@ it('keeps a note being corrected as sent, and open to try again when it fails', 
   expect(held.map((h) => h.body)).toEqual([{ text: 'A' }, { text: 'AB' }])
 })
 
-it('sends a note\'s delete once while it waits, and lets a failed one be tried again', async () => {
-  await draw(<TeamMemory teamId={team().id} />)
-  const notes = () => box!.querySelectorAll('.fx-d-note').length
-  const count = notes()
-  const row = box!.querySelector('.fx-d-note')!
-  await userEvent.click(row.querySelector<HTMLButtonElement>('button[aria-label="刪除"]')!)
-  const sure = row.querySelector<HTMLButtonElement>('button[aria-label="確定刪除這個記憶"]')!
+it('sends a note\'s delete once while it waits, and closes only once deleted', async () => {
+  const t = team()
+  const note = t.memory[0]
+  const title = { current: null }
+  await draw(<TeamMemoryDetail teamId={t.id} id={note.id} title={title} tid="t" onDone={() => { done++ }} />)
+  await userEvent.click(box!.querySelector<HTMLButtonElement>('button[aria-label="刪除"]')!)
+  const sure = box!.querySelector<HTMLButtonElement>('button[aria-label="確定刪除這個記憶"]')!
   await userEvent.click(sure)
   expect(sure.textContent).toBe('刪除中…')
   expect(sure.getAttribute('aria-disabled')).toBe('true')
@@ -110,11 +120,12 @@ it('sends a note\'s delete once while it waits, and lets a failed one be tried a
   expect(held.map((h) => h.method)).toEqual(['DELETE'])
   await settle(() => held[0].answer(500, refusal('internal', '伺服器發生錯誤')))
   expect(failures).toEqual(['伺服器發生錯誤'])
-  // the note is still there, and a bin again
-  expect(notes()).toBe(count)
-  await userEvent.click(row.querySelector<HTMLButtonElement>('button[aria-label="刪除"]')!)
-  await userEvent.click(row.querySelector<HTMLButtonElement>('button[aria-label="確定刪除這個記憶"]')!)
+  expect(done).toBe(0)
+  await userEvent.click(box!.querySelector<HTMLButtonElement>('button[aria-label="刪除"]')!)
+  await userEvent.click(box!.querySelector<HTMLButtonElement>('button[aria-label="確定刪除這個記憶"]')!)
   expect(held.map((h) => h.method)).toEqual(['DELETE', 'DELETE'])
+  await settle(() => held[1].answer(204))
+  expect(done).toBe(1)
 })
 
 it('disbands once while it waits, says what went wrong, and lets it be tried again with the same picks', async () => {

@@ -12,7 +12,7 @@ import { blueprintUsers, flowEditable, gitSources, notStarted, ranSteps, statusO
 import { STAFFING_ID, TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ModelProvider, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type WorkflowNode, type World } from './core/domain/types'
 import { keptState, sourceName, sourceState, sourceText, toolName } from './source'
 import { composing } from './ime'
-import { crewOf, heirsOf, lastOfTeam, leavesAlone, flowList, hireList, unhidden, activity, fmtClock, fmtTokens, layers, inEdges, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
+import { crewOf, heirsOf, lastOfTeam, leavesAlone, flowList, hireList, unhidden, activity, fmtClock, fmtDateTime, fmtTokens, layers, inEdges, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
 import { useNow, useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -114,9 +114,11 @@ export type Item =
   /** One of a source's skills, by its path among the source's items. */
   | { kind: 'sourceSkill'; source: string; path: string }
   | { kind: 'newSource' }
+  | { kind: 'teamMemory'; id: string }
+  | { kind: 'newTeamMemory' }
 
 export const itemKey = (x: Item) =>
-  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newCrew' && x.copyOf ? `newCrew:${x.copyOf}` : x.kind === 'newChat' || x.kind === 'look' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' || x.kind === 'newSource' ? x.kind : x.kind === 'staff' || x.kind === 'flowStep' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' || x.kind === 'fileEdit' ? `${x.kind}:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'sourceSkill' ? `sourceSkill:${x.source}:${x.path}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
+  x.kind === 'newTask' ? `newTask:${x.copyOf ?? (x.seed ? 'chat' : '')}` : x.kind === 'newBlueprint' ? `newBlueprint:${x.copyOf ?? ''}` : x.kind === 'newCrew' && x.copyOf ? `newCrew:${x.copyOf}` : x.kind === 'newChat' || x.kind === 'look' || x.kind === 'newFlow' || x.kind === 'newCrew' || x.kind === 'newProvider' || x.kind === 'disband' || x.kind === 'notes' || x.kind === 'newSource' || x.kind === 'newTeamMemory' ? x.kind : x.kind === 'staff' || x.kind === 'flowStep' ? `${x.kind}:${x.node}` : x.kind === 'doc' ? `doc:${x.sub}:${x.path}` : x.kind === 'file' || x.kind === 'fileEdit' ? `${x.kind}:${x.path}` : x.kind === 'skill' ? `skill:${x.chat}:${x.name}` : x.kind === 'sourceSkill' ? `sourceSkill:${x.source}:${x.path}` : x.kind === 'image' ? `image:${x.key}` : `${x.kind}::${x.id}`
 
 const STATUS = { todo: '待辦', progressing: '進行中', review: '待回覆', complete: '完成' } as const
 const HANDOFF = { pickOne: '交給其中一個下一步', all: '交給所有下一步' } as const
@@ -276,6 +278,12 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           )}
           {item.kind === 'disband' && <Disband teamId={teamId} title={title} tid={id} onDone={onDone} />}
           {item.kind === 'notes' && <NotesSheet teamId={teamId} title={title} tid={id} />}
+          {item.kind === 'newTeamMemory' && <NewTeamMemory teamId={teamId} title={title} tid={id} onDone={onDone} />}
+          {item.kind === 'teamMemory' && (
+            <TeamMemoryDetail teamId={teamId} id={item.id} title={title} tid={id} onDone={onDone}
+              open={above} onCrew={(x) => onPush({ kind: 'crew', id: x })}
+              onTask={(x) => onPush({ kind: 'task', id: x })} onChat={(x) => onPush({ kind: 'chat', id: x })} />
+          )}
           {item.kind === 'flowStep' && <FlowStepSheet node={item.node} title={title} tid={id} onDone={onDone} />}
           {item.kind === 'staff' && <StepSheet node={item.node} teamId={teamId} title={title} tid={id} onDone={onDone} />}
         </div>
@@ -1132,12 +1140,6 @@ function CrewDetail({ id, editing, firing, moving, copying, duplicating, bluepri
   )
 }
 
-/** Who wrote a company's note: the employee, the user, or someone no longer on the island. */
-export function memoryAuthor(w: World, note: MemoryEntry) {
-  if (!note.by) return tr('使用者')
-  return w.replicas[note.by]?.name ?? tr('已離職員工')
-}
-
 /**
  * One note, which the user can correct or remove. `onSave` may be waited on: the note stays open, saving and not to be
  * typed into, until it answers, and stays open when it answers false. `onDelete` may be waited on as DeleteTool's is.
@@ -1192,46 +1194,135 @@ function MemoryNote({ note, author, onSave, onDelete }: {
   )
 }
 
-/** 公司記憶: the notes everyone working in the company writes and reads, which the user adds to, corrects or removes. */
-export function TeamMemory({ teamId }: { teamId: string }) {
-  const w = useStore((s) => s.world)
+const MEMORY_PREVIEW = 40
+
+/** The opening characters of a note on one line, for the company's memory list. */
+export function memoryPreview(text: string, limit = MEMORY_PREVIEW) {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  const chars = [...clean]
+  return chars.length > limit ? `${chars.slice(0, limit).join('')}…` : clean
+}
+
+/** Opens on a detail sheet to write a new note into the company's memory; closes once saved. */
+export function NewTeamMemory({ teamId, onDone, ...h }: Head & { teamId: string; onDone: () => void }) {
   const act = useStore((s) => s.act)
   const [text, setText] = useState('')
-  const [adding, setAdding] = useState(false)
-  const head = useId()
-  const notes = w.teams[teamId]?.memory ?? []
-  const add = async (e: React.FormEvent) => {
+  const [saving, setSaving] = useState(false)
+  const save = async (e: React.FormEvent) => {
     e.preventDefault()
     const t = text.trim()
-    if (!t || adding) return
-    setAdding(true)
+    if (!t || saving) return
+    setSaving(true)
     const note = await attempt(() => addTeamMemory(act, teamId, t))
-    setAdding(false)
-    if (note) setText('')
+    setSaving(false)
+    if (note) onDone()
   }
   return (
-    <div className="fx-field fx-field-top" role="group" aria-labelledby={head}>
-      <span id={head}>{tr('公司記憶 {length}', { length: notes.length })}</span>
-      <div className="fx-team-memory">
-        {notes.length === 0 ? <p className="fx-d-muted">{tr('還沒有記憶')}</p> : (
-          <ul className="fx-d-memory">
-            {notes.map((m) => (
-              <MemoryNote key={m.id} note={m} author={memoryAuthor(w, m)}
-                onSave={async (t) => (await attempt(() => editTeamMemory(act, teamId, m.id, t))) !== undefined}
-                onDelete={() => attempt(() => deleteTeamMemory(act, teamId, m.id))} />
-            ))}
-          </ul>
-        )}
-        <form className="fx-d-reply" onSubmit={add}>
-          <textarea className="fx-control" rows={2} value={text} aria-label={tr('新增公司記憶')} readOnly={adding}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit() }} />
-          <div className="fx-d-merge-acts">
-            <button type="submit" className="fx-save" disabled={!text.trim() || adding}>{adding ? tr('儲存中…') : tr('新增')}</button>
+    <>
+      <header className="fx-d-head"><Heading {...h}>{tr('新記憶')}</Heading></header>
+      <form className="fx-d-form" onSubmit={save}>
+        <textarea className="fx-control" rows={6} value={text} autoFocus aria-label={tr('新增公司記憶')} readOnly={saving}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit() }} />
+        <div className="fx-d-actions">
+          <button type="submit" className="fx-save" disabled={!text.trim() || saving}>{saving ? tr('儲存中…') : tr('儲存')}</button>
+        </div>
+      </form>
+    </>
+  )
+}
+
+/** One company memory note on a detail sheet: who wrote it, where it came from and when above the full text, which the user can correct or remove. */
+export function TeamMemoryDetail({ teamId, id, onDone, open, onCrew, onTask, onChat, ...h }: Head & {
+  teamId: string
+  id: string
+  onDone: () => void
+  /** The sheet open above this one, to mark the button that opened it. */
+  open?: Item
+  onCrew?: (replicaId: string) => void
+  onTask?: (taskId: string) => void
+  onChat?: (chatId: string) => void
+}) {
+  const w = useStore((s) => s.world)
+  const act = useStore((s) => s.act)
+  const note = w.teams[teamId]?.memory.find((m) => m.id === id)
+  const [draft, setDraft] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  if (!note) return <Gone {...h} />
+  const task = note.taskId ? w.tasks[note.taskId] : undefined
+  const chat = note.chatId ? w.chats[note.chatId] : undefined
+  const created = note.createdAt ?? note.at
+  const modified = note.createdAt !== undefined && note.at > note.createdAt
+  const editing = draft !== null
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (saving || draft === null) return
+    const text = draft.trim()
+    if (!text) return
+    if (text !== note.text) {
+      setSaving(true)
+      const saved = await attempt(() => editTeamMemory(act, teamId, note.id, text))
+      setSaving(false)
+      if (!saved) return
+    }
+    setDraft(null)
+  }
+  const remove = async () => {
+    const ok = await attempt(() => deleteTeamMemory(act, teamId, note.id).then(() => true))
+    if (ok) onDone()
+  }
+  const author = note.by ? w.replicas[note.by] : undefined
+  const isOpen = (kind: string, x: string) => open?.kind === kind && 'id' in open && open.id === x
+  return (
+    <>
+      <div className="fx-tools">
+        <EditTool pressed={editing} onClick={() => { if (!saving) setDraft(editing ? null : note.text) }} />
+        <DeleteTool what={tr('記憶')} onConfirm={remove} />
+      </div>
+      <header className="fx-d-head">
+        <Heading {...h}>{tr('公司記憶')}</Heading>
+        <p className="fx-d-meta fx-memory-meta">
+          {author ? (
+            <span className="fx-d-owner">
+              <button type="button" className="fx-hit" aria-expanded={isOpen('crew', author.id)} onClick={() => onCrew?.(author.id)}>
+                <PixelFace look={author.look} name={author.name} size={18} />{author.name}
+              </button>
+            </span>
+          ) : <span>{note.by ? tr('已離職員工') : tr('使用者建立')}</span>}
+          {task ? (
+            <span className="fx-d-owner">
+              <button type="button" className="fx-hit" aria-expanded={isOpen('task', task.id)} onClick={() => onTask?.(task.id)}>
+                <span className="fx-task-no">#{task.number}</span><span className="fx-memory-from">{task.title}</span>
+              </button>
+            </span>
+          ) : chat && (
+            <span className="fx-d-owner">
+              <button type="button" className="fx-hit" aria-expanded={isOpen('chat', chat.id)} onClick={() => onChat?.(chat.id)}>
+                <span className="fx-memory-from">{chat.title || chatPreview(chat)}</span>
+              </button>
+            </span>
+          )}
+          <span>{fmtDateTime(created)}</span>
+          {modified && <span>{tr('修改於 {time}', { time: fmtDateTime(note.at) })}</span>}
+        </p>
+      </header>
+      {editing ? (
+        <form className="fx-d-form" onSubmit={save}>
+          <textarea className="fx-control" rows={6} value={draft} autoFocus aria-label={tr('記憶')} readOnly={saving} data-esc="box"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && !saving) { e.stopPropagation(); setDraft(null) }
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit()
+            }} />
+          <div className="fx-d-actions">
+            <button type="submit" className="fx-save" disabled={!draft.trim() || saving}>{saving ? tr('儲存中…') : tr('儲存')}</button>
+            <button type="button" className="fx-add" disabled={saving} onClick={() => setDraft(null)}>{tr('取消')}</button>
           </div>
         </form>
-      </div>
-    </div>
+      ) : (
+        <p className="fx-d-text">{note.text}</p>
+      )}
+    </>
   )
 }
 

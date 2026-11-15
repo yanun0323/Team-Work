@@ -45,7 +45,7 @@ describe('company memory in the simulator', () => {
     expect(theirs.by).toBe(kai.id)
     w.now = 99
     const edited = sim.editTeamMemory(w, a.id, theirs.id, '  改過的  ')
-    expect(edited).toEqual({ id: theirs.id, text: '改過的', source: 'user', at: 99 })
+    expect(edited).toEqual({ id: theirs.id, text: '改過的', source: 'user', createdAt: theirs.createdAt, at: 99 })
     const added = sim.addTeamMemory(w, a.id, '新的')
     expect(added).toMatchObject({ text: '新的', source: 'user' })
     expect(added.by).toBeUndefined()
