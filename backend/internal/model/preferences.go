@@ -35,6 +35,8 @@ type Preferences struct {
 	Planes        bool   `json:"planes"`
 	Clouds        bool   `json:"clouds"`
 	KeepTerminals bool   `json:"keepTerminals"`
+	// Debug shows the debug strip in the map's corner (frame rate, draw calls, time of day), off by default; dev builds always show it.
+	Debug bool `json:"debug"`
 	// MapClick is what a click on the map does while a company or the airport is open: close it at once (home), or first
 	// put away its open detail sheets (sheets).
 	MapClick string `json:"mapClick"`

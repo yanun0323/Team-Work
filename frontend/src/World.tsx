@@ -50,7 +50,7 @@ import { crowdSize } from './walk'
 import { watchIdle } from './idleFollow'
 import { NO_OUTLINE_LAYER, PixelPass } from './PixelPass'
 import { toonInstanced } from './toon'
-import { usePrefs } from './prefs'
+import { showDebug, usePrefs } from './prefs'
 import { debugDaylight, glowing, light, lightAt, MIN_SUN_ELEVATION, phaseOf } from './daylight'
 import { DaylightDebug } from './DaylightDebug'
 import { CleanMacDebug } from './CleanMacDebug'
@@ -179,7 +179,8 @@ export function World() {
   useSound()
   useSystemNotices()
   useQuotaPolling()
-  const { crowd, planes, clouds, autoView, zoomSensitivity, idleFollowTarget } = usePrefs()
+  const { crowd, planes, clouds, autoView, zoomSensitivity, idleFollowTarget, debug: debugPref } = usePrefs()
+  const debug = showDebug(debugPref)
   // taking off for another island: the airport's own plane keeps off the runway
   const takingOff = useVoyage((s) => s.leaving)
   // the screen's controls and panels slide off the screen while a plane has the camera, and back on once it has
@@ -675,13 +676,13 @@ export function World() {
       <FigureBatch />
       <ShaderWarmup />
       <PixelPass pixel={2} />
-      {import.meta.env.DEV && <FrameCounter />}
+      {debug && <FrameCounter />}
     </Canvas>
     <LabelLayer labels={shownLabels} />
     <div className="fx-top-left" {...tucked(corners.left)}>
       <Brand />
     </div>
-    {import.meta.env.DEV && (
+    {debug && (
       <div className="fx-debug">
         <FpsDebug />
         {MOCK && <CleanMacDebug />}

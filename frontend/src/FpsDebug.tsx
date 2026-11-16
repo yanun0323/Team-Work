@@ -1,4 +1,4 @@
-// Dev builds only: how many frames a second the town is really drawing, and what each costs, in the debug strip.
+// In the debug strip (dev builds, or the 「Debug 介面」 setting): how many frames a second the town is really drawing, and what each costs.
 
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useState } from 'react'

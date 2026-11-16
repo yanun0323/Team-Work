@@ -1,4 +1,4 @@
-// Dev builds only: a strip in the bottom right corner to put the town at any time of day.
+// In the debug strip (dev builds, or the 「Debug 介面」 setting): puts the town at any time of day.
 
 import { useEffect, useState } from 'react'
 import { tr, type Key } from './core/i18n'

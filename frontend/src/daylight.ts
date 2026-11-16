@@ -33,7 +33,7 @@ const HOLD = 1 / 24
 /** The middle of each part of the day, for jumping straight to it. */
 export const SCENES = { dawn: (DAWN + DAY) / 2, noon: 0.5, dusk: (DUSK + NIGHT) / 2, midnight: 0 } as const
 
-/** A time of day picked in the debug bar (dev builds only); null follows the preference. */
+/** A time of day picked in the debug strip; null follows the preference. */
 export const debugDaylight: { phase: number | null } = { phase: null }
 
 /** The sun is never lower than this, in degrees: lower, its shadows run off the shadow box and hide the town. */

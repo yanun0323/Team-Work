@@ -573,6 +573,7 @@ export function PrefsPage() {
             onChange={(v) => prefs.set({ logOrder: v as LogOrder })} />
           {!MOCK && <Toggle label={tr('保留終端機')} checked={prefs.keepTerminals} onChange={(v) => prefs.set({ keepTerminals: v })} />}
           {import.meta.env.MODE === 'desktop' && check('systemNotices', tr('系統通知'))}
+          {!import.meta.env.DEV && check('debug', tr('Debug 介面'))}
         </div>
       </section>
       <section className="fx-d-group" aria-labelledby="fx-prefs-perf">

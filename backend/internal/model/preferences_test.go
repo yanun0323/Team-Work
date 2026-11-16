@@ -281,6 +281,25 @@ func TestSemanticSearchIsOffByDefaultAndForOldFiles(t *testing.T) {
 	}
 }
 
+func TestDebugIsOffByDefaultAndForOldFiles(t *testing.T) {
+	if DefaultPreferences().Debug {
+		t.Fatal("debug is on by default")
+	}
+	var p Preferences
+	if err := json.Unmarshal([]byte(`{"shadows":false}`), &p); err != nil || p.Debug {
+		t.Fatalf("%v %+v", err, p.Debug)
+	}
+	next, err := MergePreferences(p, map[string]json.RawMessage{"debug": json.RawMessage(`true`)})
+	if err != nil || !next.Debug {
+		t.Fatalf("%v %+v", err, next.Debug)
+	}
+	for _, bad := range []string{`null`, `"yes"`, `1`} {
+		if _, err := MergePreferences(p, map[string]json.RawMessage{"debug": json.RawMessage(bad)}); err == nil {
+			t.Fatalf("%s was accepted", bad)
+		}
+	}
+}
+
 func TestCodeModeIsOffForOldFiles(t *testing.T) {
 	var p Preferences
 	if err := json.Unmarshal([]byte(`{"musicStyle":"piano"}`), &p); err != nil || p.CodeMode || DefaultPreferences().CodeMode {
