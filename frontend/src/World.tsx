@@ -5,7 +5,8 @@ import { tr } from './core/i18n'
 import { LanguageMenu } from './LanguageMenu'
 import { MapControls } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject, type SetStateAction } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject, type SetStateAction } from 'react'
+import { version } from '../package.json'
 import { guardUnload, leaveTeam } from './fileDrafts'
 import { placeOf, useOpenRequest, useSystemNotices } from './notices'
 import * as THREE from 'three'
@@ -31,6 +32,7 @@ import { Drawer, putAwaySheets, useLeftSheets } from './Drawer'
 import { putAwaySampleSheet } from './HelpLooks'
 import { Settings } from './Settings'
 import { Help } from './Help'
+import { notesDue, useNotesAsks } from './releaseNotes'
 import { FADE_SECONDS } from './Fade'
 import { Island, useLand } from './Island'
 import { MapGrid } from './MapGrid'
@@ -64,6 +66,9 @@ import { startIntro, useVoyage } from './voyagePath'
 import { Voyage } from './Voyage'
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+
+// the notes of every version, loaded only when they open
+const ReleaseNotes = lazy(() => import('./ReleaseNotesSheet'))
 
 /** Keyboard panning speed in screen pixels per second (Shift doubles it). */
 const KEY_PAN_PX = 700
@@ -263,7 +268,16 @@ export function World() {
   useEffect(() => {
     if (panel !== 'settings') setByAirport(false)
   }, [panel])
-  const [helpOpen, setHelpOpen] = useState(false)
+  // the help, or on the same sheet what changed in each version: by itself on the first launch after an update (it
+  // waits off the screen through the landing), or when the airport's About asks
+  const [helpOpen, setHelpOpen] = useState<false | 'help' | 'notes'>(() => (!MOCK && notesDue(localStorage, version) ? 'notes' : false))
+  const notesAsks = useNotesAsks((s) => s.asks)
+  const notesOpener = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!notesAsks) return
+    notesOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setHelpOpen('notes')
+  }, [notesAsks])
   // the corners' buttons slide away while the help, a drawer or the new company's sheet is over the map; once they are
   // back, focus returns to the one that opened it: the help's, the user's face, or the new-company button
   const helpButton = useRef<HTMLButtonElement>(null)
@@ -365,7 +379,8 @@ export function World() {
       // a click on the map may put away the sheet over the help first, as with a drawer's detail sheets
       if (!key && putAwaySampleSheet()) return
       setHelpOpen(false)
-      refocus.current = helpButton
+      if (helpOpen === 'help') refocus.current = helpButton
+      else notesOpener.current?.focus({ preventScroll: true })
       return
     }
     if (moving) {
@@ -568,7 +583,7 @@ export function World() {
   // the names wait while a plane brings the camera in, then fade in on the island
   const voyaging = useVoyage((s) => s.active)
   const shownLabels = useFadingLabels(voyaging ? NO_LABELS : labels)
-  const help = useLingering(helpOpen ? 'help' : null)
+  const help = useLingering(helpOpen || null)
   // the drawer stays a moment after closing, to fade out
   const drawer = useLingering(selected)
   const settings = useLingering(panel)
@@ -670,7 +685,7 @@ export function World() {
       <MapControls makeDefault enableRotate={false} enableDamping dampingFactor={0.12} screenSpacePanning={false}
         minZoom={MIN_ZOOM} maxZoom={MAX_ZOOM} zoomSpeed={ZOOM_SPEED * zoomSensitivity / 100} />
       <CameraRig town={town} radius={town.radius} span={span} top={town.top} focus={focus} focusKey={!focus ? null : towerShown ? 'tower' : staffingShown ? 'staffing' : airportShown ? 'airport' : selected ?? (spot ? `spot:${spot}` : null)}
-        panOnly={autoView === 'pan'} blocked={(settingsOpen && !meFollow && (autoView === 'panZoom' || !(airportShown || towerShown || staffingShown))) || helpOpen} wide={(placing || editing) && !selected ? town.middle : null}
+        panOnly={autoView === 'pan'} blocked={(settingsOpen && !meFollow && (autoView === 'panZoom' || !(airportShown || towerShown || staffingShown))) || !!helpOpen} wide={(placing || editing) && !selected ? town.middle : null}
         following={!tracked ? false : meFollow && autoView === 'pan' ? 'pan' : 'zoom'} aside={meFollow} held={pressHeld} landing={landing} />
       <LabelProjector />
       <FigureBatch />
@@ -707,7 +722,7 @@ export function World() {
       </div>
       <div className="fx-slot" {...tucked(placing || editing)}><LanguageMenu /></div>
       <div className="fx-slot" {...tucked(placing || editing)}>
-        <button ref={helpButton} type="button" className="fx-settings-trigger fx-tag" aria-label={tr('說明')} onClick={() => setHelpOpen(true)}>
+        <button ref={helpButton} type="button" className="fx-settings-trigger fx-tag" aria-label={tr('說明')} onClick={() => setHelpOpen('help')}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10" />
             <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" />
@@ -720,7 +735,8 @@ export function World() {
       </div>
     </div>
     {sheet.value && <NewCompanySheet leaving={sheet.leaving} onGone={sheet.gone} onCreate={found} look={look} onReroll={() => setLook(randomLook())} />}
-    {help.value && <Help leaving={help.leaving} onGone={help.gone} />}
+    {help.value === 'help' && <Help leaving={help.leaving} onGone={help.gone} />}
+    {help.value === 'notes' && <Suspense fallback={null}><ReleaseNotes leaving={help.leaving} onGone={help.gone} /></Suspense>}
     {settings.value === 'settings' && <Settings leaving={settings.leaving} onGone={settings.gone} />}
     {settings.value === 'tower' && <TowerPanel leaving={settings.leaving} onGone={settings.gone} onProfile={() => setPanel('profile')} />}
     {settings.value === 'profile' && <Profile leaving={settings.leaving} onGone={settings.gone} />}

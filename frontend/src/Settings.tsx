@@ -34,6 +34,7 @@ import { Stats } from './Stats'
 import { SemanticSearchSection, workRunning } from './SemanticSearch'
 import { SourcesTab } from './Sources'
 import { VERSION } from './update'
+import { askReleaseNotes } from './releaseNotes'
 import type { Daylight } from './daylight'
 import type { Locale } from './core/domain/types'
 
@@ -620,7 +621,10 @@ function About() {
       </section>
       <section className="fx-d-group" aria-labelledby="fx-version">
         <h4 id="fx-version">{tr('版本')}</h4>
-        <p><code>{VERSION}</code></p>
+        <div className="fx-about-version">
+          <code>{VERSION}</code>
+          <button type="button" className="fx-save fx-save-quiet" onClick={askReleaseNotes}>{tr('更新內容#release')}</button>
+        </div>
       </section>
       <a className="fx-save" href={ISSUE_URL} target="_blank" rel="noreferrer">
         {tr('問題回報')}<span className="fx-sr">{tr('（另開分頁）')}</span>

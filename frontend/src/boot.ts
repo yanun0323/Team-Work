@@ -6,7 +6,7 @@
 
 import { tr } from './core/i18n'
 
-const SEEN_KEY = 'team-work-intro-seen'
+export const SEEN_KEY = 'team-work-intro-seen'
 /** How long the clouds take to part; --leave in public/boot/boot.css matches these. */
 const LEAVE_MS = { full: 1200, short: 450 }
 

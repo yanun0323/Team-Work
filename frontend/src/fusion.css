@@ -1368,6 +1368,7 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
 /* the license on a white note, scrolling inside it */
 .fx-license { max-height: 240px; overflow: auto; margin: 0; padding: 8px 10px; background: var(--clip); box-shadow: var(--lift); color: var(--ink-2); font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; }
 .fx-license:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.fx-about-version { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 
 /* where a blueprint and its skills come from: one entry per repo or folder, its state after the name */
 .fx-src-list { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
@@ -1507,6 +1508,9 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
 }
 .fx-help-page dt { font-weight: 700; }
 .fx-help-page dd { margin: 0; }
+/* a version's notes: its headings (what's new, fixes) stay below the version over them */
+.fx-notes-page .fx-md { font-size: 13.5px; line-height: 1.7; color: var(--ink); text-wrap: pretty; }
+.fx-notes-page .fx-md h2 { margin-bottom: 0; font-size: 15px; }
 /* the galleries of looks: a grid of sticky notes as the about page's links are, each with its picture; the one
    pressed opens large on a sheet over the help. Pictures are pixel art at twice the note's size: halved, or whole
    on the sheet, every texel stays sharp */

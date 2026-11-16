@@ -1,0 +1,1 @@
+- **Fix**: Typing `#` in an airport chat no longer breaks when nothing matches what you typed.

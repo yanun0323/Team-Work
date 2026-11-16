@@ -280,6 +280,8 @@ const en = {
   '還有 {length} 個藍圖或員工使用這個來源，無法刪除': '{length} blueprints or employees use this source, so it cannot be deleted',
   '自動套用更新': 'Apply updates automatically',
   '更新內容': 'What changes',
+  '更新內容#release': "What's new",
+  '還沒有更新內容': 'No release notes yet',
   '技能沒有增減': 'No skills added or removed',
   '套用更新': 'Apply update',
   '允許的工具': 'Allowed tools',

@@ -1,0 +1,1 @@
+- **Fix**: Claude helpers sometimes got stuck because the app turned down their actions over a small naming slip. The app now accepts those actions, so the work keeps going.

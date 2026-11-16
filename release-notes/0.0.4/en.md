@@ -1,0 +1,2 @@
+- **Uses less power in the background**: When the app isn't in front, the island redraws far less often, so your Mac stays cooler and your battery lasts longer.
+- **Better error details**: When Claude tries something it isn't allowed to do, the app now writes down more about why, to make problems easier to track down.

@@ -1,0 +1,1 @@
+- **Fix**: Odd stripes and speckles in the shadows on the island are gone, and they stay gone as your town grows.

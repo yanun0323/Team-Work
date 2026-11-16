@@ -1,0 +1,7 @@
+- **Update alerts**: The app now checks for a new version when it starts. If there is one, you'll see a small red dot on the airport.
+- **Busy buildings**: A company's building now moves a little while its people are working, so you can see who's busy at a glance. You can turn this off in settings.
+- **Skills from your project**: If your project folder has its own skills, everyone in that company can use them. They win over a blueprint's skill with the same name.
+- **Skill switches**: You can now choose whether to use the skills you've set up for Codex and Claude.
+- **Pick any file in airport chats**: Type `#` in an airport chat to browse your home folder and point to a file.
+- **Sign-in warning**: The app now tells you when a Claude or ChatGPT subscription has been signed out.
+- **Fix**: Updates now download the right version.
