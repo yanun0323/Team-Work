@@ -14,6 +14,10 @@
     <key>SUPublicEDKey</key><string>2KZT31UtCHLeQS6k5rM66HNBITk5BAlfNQYaHxZaBPg=</string>
     <key>SUEnableAutomaticChecks</key><true/>
     <key>SUScheduledCheckInterval</key><integer>3600</integer>
+    <!-- No silent download-and-install-on-quit: such an update waits for the app to quit, which may be days away, and
+         every check meanwhile offers it again instead of reading the feed, so users installed an old version and were
+         asked to update again at once. Each update is downloaded when the user agrees, from the newest appcast. -->
+    <key>SUAllowsAutomaticUpdates</key><false/>
     <key>LSMinimumSystemVersion</key><string>13.3</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
