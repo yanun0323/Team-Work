@@ -1,7 +1,9 @@
 package usecase_test
 
 import (
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -262,5 +264,99 @@ func TestPausingSendsAWaitingReturnBackAtOnce(t *testing.T) {
 	w := r.wait("sent back", func(w *model.World) bool { return redoOf(w, start.ID) != nil })
 	if redo := redoOf(w, start.ID); !w.Tasks[task.ID].Paused || redo.StartedAt != nil {
 		t.Fatalf("the redo started while paused: %+v", redo)
+	}
+}
+
+// A run waiting on the user's answer when what it builds on is sent back stops for good, answered or not: it would
+// never be dispatched again, so it must not keep the owner from dispatching its step anew on the redo.
+func TestARunWaitingOnTheUserStopsWhenWhatItBuildsOnIsSentBack(t *testing.T) {
+	t.Parallel()
+	var fresh atomic.Int32
+	r := newRig(t, leading(func(req model.ModelRequest) model.ModelReply {
+		if !lastIsResult(req) && fresh.Add(1) == 2 { // the first run of the second step
+			return call("ask_user", map[string]any{"prompt": "用哪個？", "options": []string{"A", "B"}})
+		}
+		return worker(req)
+	}))
+	task := r.ownerTask(r.flow.ID)
+	w := r.wait("question", func(w *model.World) bool { return len(w.Tasks[task.ID].Coordination.Questions) == 1 })
+	q := w.Tasks[task.ID].Coordination.Questions[0]
+	start, end := subAt(w, task.ID, "整理需求"), subAt(w, task.ID, "驗收")
+	if q.SubID != end.ID {
+		t.Fatalf("%+v", q)
+	}
+	plan, control := versions(w.Tasks[task.ID])
+	if _, err := r.e.ControlTask(task.ID, usecase.TaskControl{RequestID: "r1", Action: "return", SubID: start.ID, Reason: "需求漏了", PlanVersion: plan, ControlVersion: control}); err != nil {
+		t.Fatal(err)
+	}
+	w = r.wait("sent back", func(w *model.World) bool { return redoOf(w, start.ID) != nil && w.Tasks[task.ID].Paused })
+	plan, control = versions(w.Tasks[task.ID])
+	if _, err := r.e.ControlTask(task.ID, usecase.TaskControl{RequestID: "a1", Action: "answer", QuestionID: q.ID, OptionID: "opt1", PlanVersion: plan, ControlVersion: control}); err != nil {
+		t.Fatal(err)
+	}
+	if s := r.world().SubTasks[end.ID]; s.Validity != model.ValidNeedsRevalidation || s.ExecutionState != model.ExecStopped {
+		t.Fatalf("the run built on what was sent back was queued again: %+v", s)
+	}
+	if err := r.e.ResumeTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	w = r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	if s := w.SubTasks[end.ID]; s.Validity != model.ValidSuperseded {
+		t.Fatalf("the old run still counts: %+v", s)
+	}
+}
+
+// A delivered run whose upstream was sent back no longer counts once its step is dispatched anew: an owner who
+// dispatches again instead of reviewing it can still finish.
+func TestDispatchingAStepAnewReplacesItsRunLeftToBeCheckedAgain(t *testing.T) {
+	t.Parallel()
+	var hold atomic.Bool
+	hold.Store(true)
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if !isOwner(req) {
+			return worker(req), nil
+		}
+		// the owner leaves the delivery of 驗收 unreviewed: at first it waits, then it dispatches the step anew
+		msgs := slices.Clone(req.Messages)
+		at, block := 0, 0
+		if last := msgs[len(msgs)-1]; len(last.Content) > 0 && last.Content[0].Type == enum.BlockToolResult {
+			at, block = len(msgs)-1, len(last.Content)-1
+		}
+		content := slices.Clone(msgs[at].Content)
+		lines := strings.Split(content[block].Text, "\n")
+		for i, line := range lines {
+			if !strings.Contains(line, " step end ") || !strings.Contains(line, "review pending") {
+				continue
+			}
+			if hold.Load() {
+				return say("not yet"), nil
+			}
+			if strings.Contains(line, "needsRevalidation") {
+				lines[i] = strings.Replace(line, "review pending", "review left", 1)
+			}
+		}
+		content[block].Text = strings.Join(lines, "\n")
+		msgs[at].Content = content
+		req.Messages = msgs
+		return autoOwner(req), nil
+	})
+	task := r.ownerTask(r.flow.ID)
+	w := r.wait("delivered", func(w *model.World) bool {
+		s := subAt(w, task.ID, "驗收")
+		return s != nil && s.Status == enum.StatusComplete && s.OwnerReview == model.ReviewPending
+	})
+	start, end := subAt(w, task.ID, "整理需求"), subAt(w, task.ID, "驗收")
+	plan, control := versions(w.Tasks[task.ID])
+	if _, err := r.e.ControlTask(task.ID, usecase.TaskControl{RequestID: "r1", Action: "return", SubID: start.ID, Reason: "需求漏了", PlanVersion: plan, ControlVersion: control}); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("sent back", func(w *model.World) bool { return redoOf(w, start.ID) != nil && w.Tasks[task.ID].Paused })
+	hold.Store(false)
+	if err := r.e.ResumeTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	w = r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	if s := w.SubTasks[end.ID]; s.Validity != model.ValidSuperseded {
+		t.Fatalf("the old run still counts: %+v", s)
 	}
 }

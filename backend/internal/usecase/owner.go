@@ -847,7 +847,10 @@ func (e *Engine) rework(t *model.Task, s *model.SubTask, reason, by string) *mod
 	e.logLine(s, enum.LogHuman, i18n.T("退回：%s", reason), "", nil)
 	for _, id := range e.dependents(t, s) {
 		d := e.w.SubTasks[id]
-		e.halt(t, d)
+		if !e.halt(t, d) && d.Status != enum.StatusComplete {
+			// it is never dispatched again, a run waiting on an answer included: stopped, the owner can dispatch anew
+			d.ExecutionState = model.ExecStopped
+		}
 		if d.Validity != model.ValidSuperseded {
 			d.Validity = model.ValidNeedsRevalidation
 		}
@@ -978,7 +981,7 @@ func (e *Engine) controlAnswer(t *model.Task, in TaskControl) (model.TaskOperati
 			if err := e.resolveReview(s.ID, in.OptionID, note); err != nil {
 				return model.TaskOperation{}, err
 			}
-			if s.Status == enum.StatusTodo && current(s) {
+			if s.Status == enum.StatusTodo && current(s) && s.Validity != model.ValidNeedsRevalidation {
 				s.ExecutionState = model.ExecQueued
 			}
 		}

@@ -1084,10 +1084,11 @@ func (e *Engine) dispatchTool(in *ownerRun) func(context.Context, string, json.R
 			if err != nil {
 				return "", err
 			}
-			for _, o := range e.subsOf(t.ID) { // what was stopped or turned down of this step no longer counts
+			for _, o := range e.subsOf(t.ID) { // what was stopped, turned down or left to check again of this step no longer counts
 				stopped := o.Status != enum.StatusComplete && o.ExecutionState == model.ExecStopped
 				rejected := o.Status == enum.StatusComplete && o.OwnerReview == model.ReviewRejected
-				if o.NodeID == n.ID && current(o) && (stopped || rejected) {
+				stale := o.Validity == model.ValidNeedsRevalidation
+				if o.NodeID == n.ID && current(o) && (stopped || rejected || stale) {
 					o.Validity = model.ValidSuperseded
 				}
 			}
@@ -1346,7 +1347,9 @@ func (e *Engine) answerTool(in *ownerRun) func(context.Context, string, json.Raw
 				})
 				e.dirty[s.ID] = true
 				s.Status = enum.StatusTodo
-				s.ExecutionState = model.ExecQueued
+				if s.Validity != model.ValidNeedsRevalidation {
+					s.ExecutionState = model.ExecQueued
+				}
 			}
 			e.addActivity(t, model.TaskActivity{Kind: "message", From: "agent", Text: a.Answer, By: in.ownerID, Name: e.replicaName(in.ownerID), SubID: question.SubID, QuestionID: question.ID})
 			return "answered", nil
