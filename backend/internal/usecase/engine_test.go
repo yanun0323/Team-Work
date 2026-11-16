@@ -434,6 +434,90 @@ func TestTaskRunsToMergeOnRealGit(t *testing.T) {
 	}
 }
 
+// A project the app worked on shows the user's own identity, whoever the employees were called: git history a stranger
+// reads has no employee's name, no address of the app's, and nothing naming how the app organises its work.
+func TestAHandledProjectCarriesOnlyTheUser(t *testing.T) {
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if lastIsResult(req) {
+			return call("submit_handoff", handoff), nil
+		}
+		if stepOf(req) == "Clarify requirements" {
+			return call("write_file", map[string]string{"path": "feature.txt", "content": "new\n"}), nil
+		}
+		return call("submit_handoff", handoff), nil
+	})
+	task := r.task(r.flow.ID)
+	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+	if err := r.e.MergeTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("done", stage(task.ID, enum.StageDone))
+
+	// every commit, including the app's first one on a fresh repo, has the identity the folder has on its own
+	want := gitOut(t, r.folder, "log", "--reverse", "--format=%an <%ae>|%cn <%ce>")
+	first, _, _ := strings.Cut(want, "\n")
+	for _, line := range strings.Split(want, "\n") {
+		if line != first {
+			t.Fatalf("a commit is someone else's: %q\nwant %q", line, first)
+		}
+		if strings.Contains(line, "mho-company") || strings.Contains(line, "Ada") || strings.Contains(line, "Team Work") {
+			t.Fatalf("the app's own identity leaked into the history: %q", line)
+		}
+	}
+	// and no message of the app's names its branches or its steps
+	for _, line := range strings.Split(gitOut(t, r.folder, "log", "--format=%s%n%b"), "\n") {
+		if strings.Contains(line, "task/") || strings.Contains(line, "handoff") || strings.Contains(line, "Team Work") {
+			t.Fatalf("the history talks about the app: %q", line)
+		}
+	}
+}
+
+// A handoff git cannot commit for want of the user's identity tells the employee to leave that to the user: an
+// employee who set one up would put a name other than the user's into the project's history.
+func TestHandoffWithoutAnIdentityLeavesItToTheUser(t *testing.T) {
+	t.Parallel()
+	refused := make(chan string, 1)
+	set := make(chan struct{})
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if results := lastResultsOf(req); len(results) > 0 && results[0].IsError {
+			select {
+			case refused <- results[0].Text:
+			default:
+			}
+			<-set
+			return call("submit_handoff", handoff), nil
+		}
+		if lastIsResult(req) {
+			return call("submit_handoff", handoff), nil
+		}
+		if stepOf(req) == "Clarify requirements" {
+			return call("write_file", map[string]string{"path": "feature.txt", "content": "new\n"}), nil
+		}
+		return call("submit_handoff", handoff), nil
+	})
+	gitOut(t, r.folder, "config", "user.useConfigOnly", "true")
+	task := r.task(r.flow.ID)
+	var text string
+	select {
+	case text = <-refused:
+	case <-time.After(patience):
+		t.Fatal("the handoff was never refused")
+	}
+	for _, want := range []string{"user.name", "Do not set", "ask the user"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the employee is not told to leave it to the user (%q missing): %s", want, text)
+		}
+	}
+	if strings.Contains(text, "fix it") {
+		t.Errorf("the employee is told to fix it themselves: %s", text)
+	}
+	// once the user sets theirs, the same handoff goes through under it
+	gitOut(t, r.folder, "config", "user.name", "Yanun User")
+	gitOut(t, r.folder, "config", "user.email", "yanun@example.com")
+	close(set)
+	r.wait("await merge", stage(task.ID, enum.StageAwaitMerge))
+}
+
 func TestQuestionResumesWithTheAnswer(t *testing.T) {
 	t.Parallel()
 	asked := false

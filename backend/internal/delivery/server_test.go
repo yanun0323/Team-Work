@@ -661,15 +661,20 @@ func TestProjectSize(t *testing.T) {
 		}
 	}
 
-	expect("a new repo", 0)
+	// a repo the app made is not empty: it starts with the rule keeping the app's own folder out of git
+	rule, err := os.ReadFile(filepath.Join(folder, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expect("a new repo", float64(len(rule)))
 	write("a.txt", 1000)
 	write("sub/b.bin", 234)
-	expect("files not committed", 0)
+	expect("files not committed", float64(len(rule)))
 	gitIn("add", "-A")
 	gitIn("commit", "-q", "-m", "files")
-	expect("files committed", 1234)
+	expect("files committed", float64(len(rule))+1234)
 	sums := git.sums
-	expect("the same commit", 1234)
+	expect("the same commit", float64(len(rule))+1234)
 	if git.sums != sums {
 		t.Fatal("the same commit was added up again")
 	}
@@ -679,10 +684,10 @@ func TestProjectSize(t *testing.T) {
 	write("c.txt", 66)
 	gitIn("add", "-A")
 	gitIn("commit", "-q", "-m", "side")
-	expect("a commit on another branch", 1234)
+	expect("a commit on another branch", float64(len(rule))+1234)
 	gitIn("checkout", "-q", "master")
 	gitIn("merge", "-q", "side")
-	expect("merged into the target", 1300)
+	expect("merged into the target", float64(len(rule))+1300)
 
 	if err := os.RemoveAll(folder); err != nil {
 		t.Fatal(err)

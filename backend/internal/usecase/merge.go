@@ -140,7 +140,7 @@ func (e *Engine) doMerge(ctx context.Context, in mergeRun) error {
 		if err := e.resolveConflict(ctx, in); err != nil {
 			return resolveFailed{err}
 		}
-		if err := e.git.FinishMerge(ctx, in.dir, in.spec.name); err != nil {
+		if err := e.git.FinishMerge(ctx, in.dir); err != nil {
 			return err
 		}
 		e.applyMerge(in, func(t *model.Task) { e.mergeLog(t, i18n.T("衝突已解決")) })

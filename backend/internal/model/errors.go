@@ -14,6 +14,8 @@ const (
 	CodeContextOverflow = "context_overflow"
 	// CodeSignedOut means a subscription's sign-in is gone; it works again once signed in again.
 	CodeSignedOut = "signed_out"
+	// CodeNoGitIdentity means git has no name or email of the user's to commit with; only the user can set one.
+	CodeNoGitIdentity = "no_git_identity"
 )
 
 // Error is a failure with a stable code and a message that is safe to show.

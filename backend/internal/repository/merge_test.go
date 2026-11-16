@@ -111,5 +111,83 @@ func TestFinishMergeNamesEveryFileInConflict(t *testing.T) {
 	g, _, dir := mergeRig(t)
 	write(t, dir, "a.txt", "<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> main\n")
 	write(t, dir, "b.txt", "<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> main\n")
-	blockedBy(t, g.FinishMerge(context.Background(), dir, "Ada"), model.MergeUnresolved, "a.txt", "b.txt")
+	blockedBy(t, g.FinishMerge(context.Background(), dir), model.MergeUnresolved, "a.txt", "b.txt")
+}
+
+// The ignore rule the app added to a folder of the user's, and left uncommitted, does not stop a task that changed
+// .gitignore too from landing: the app puts its own lines aside, lands, and adds back what is still missing. Lines of
+// the user's own not committed still stop it, and are left as they were.
+func TestLandCarriesTheAppsIgnoreRule(t *testing.T) {
+	ctx := context.Background()
+	rig := func(t *testing.T) (*Git, string) {
+		folder := t.TempDir()
+		run(t, folder, "init", "-q", "-b", "main")
+		write(t, folder, ".gitignore", "build/\n")
+		run(t, folder, "add", "-A")
+		run(t, folder, "commit", "-q", "-m", "one")
+		g := NewGit(t.TempDir())
+		if _, _, err := g.Prepare(ctx, folder); err != nil { // adds the app's rule, uncommitted
+			t.Fatal(err)
+		}
+		dir := filepath.Join(t.TempDir(), "tree")
+		if err := g.Worktree(ctx, folder, dir, "task/1", "main"); err != nil {
+			t.Fatal(err)
+		}
+		write(t, dir, ".gitignore", "build/\ndist/\n")
+		run(t, dir, "add", "-A")
+		run(t, dir, "commit", "-q", "-m", "task")
+		return g, folder
+	}
+
+	t.Run("only the app's lines", func(t *testing.T) {
+		g, folder := rig(t)
+		if err := g.Land(ctx, folder, "task/1", "main"); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := os.ReadFile(filepath.Join(folder, ".gitignore"))
+		if want := "build/\ndist/\n.team-work/\n.team-work-save-*\n"; string(raw) != want {
+			t.Fatalf(".gitignore = %q, want %q", raw, want)
+		}
+		if got := run(t, folder, "show", "HEAD:.gitignore"); got != "build/\ndist/" {
+			t.Fatalf("the task's .gitignore did not land: %q", got)
+		}
+	})
+
+	t.Run("a line of the user's too", func(t *testing.T) {
+		g, folder := rig(t)
+		raw, _ := os.ReadFile(filepath.Join(folder, ".gitignore"))
+		mine := string(raw) + "tmp/\n"
+		write(t, folder, ".gitignore", mine)
+		blockedBy(t, g.Land(ctx, folder, "task/1", "main"), model.MergeUncommitted, ".gitignore")
+		if raw, _ := os.ReadFile(filepath.Join(folder, ".gitignore")); string(raw) != mine {
+			t.Fatalf("the user's .gitignore changed: %q", raw)
+		}
+	})
+}
+
+// Where the user had no .gitignore, the app's rule is a file of its own not tracked yet; a task adding .gitignore
+// lands over it all the same, and the rule ends up in what landed.
+func TestLandCarriesTheAppsIgnoreFileNotTrackedYet(t *testing.T) {
+	ctx := context.Background()
+	folder := t.TempDir()
+	run(t, folder, "init", "-q", "-b", "main")
+	run(t, folder, "commit", "-q", "--allow-empty", "-m", "one")
+	g := NewGit(t.TempDir())
+	if _, _, err := g.Prepare(ctx, folder); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "tree")
+	if err := g.Worktree(ctx, folder, dir, "task/1", "main"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, ".gitignore", "node_modules/\n")
+	run(t, dir, "add", "-A")
+	run(t, dir, "commit", "-q", "-m", "task")
+	if err := g.Land(ctx, folder, "task/1", "main"); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(folder, ".gitignore"))
+	if want := "node_modules/\n.team-work/\n.team-work-save-*\n"; string(raw) != want {
+		t.Fatalf(".gitignore = %q, want %q", raw, want)
+	}
 }

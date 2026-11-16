@@ -2,11 +2,14 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/yanun0323/Team-Work/internal/model"
 )
 
 func run(t *testing.T, dir string, args ...string) string {
@@ -196,4 +199,171 @@ func TestDiffKeepsEveryLine(t *testing.T) {
 	if _, err := g.Diff(ctx, folder, base, head, "gone.md"); err == nil {
 		t.Fatal("a missing file compared")
 	}
+}
+
+// What the app commits carries the user's own identity, never an employee's name: a project it handled shows no trace
+// of who worked a step.
+func TestCommitsCarryTheUsersIdentity(t *testing.T) {
+	home := t.TempDir() // an empty home: what git can guess, or what the test sets, and nothing else
+	t.Setenv("HOME", home)
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, ".gitconfig"))
+	folder := t.TempDir()
+	g := NewGit(t.TempDir())
+	ctx := context.Background()
+	if _, _, err := g.Prepare(ctx, folder); err != nil {
+		t.Fatal(err)
+	}
+	run(t, folder, "config", "user.name", "Yanun User")
+	run(t, folder, "config", "user.email", "yanun@example.com")
+	dir := filepath.Join(t.TempDir(), "tree")
+	if err := g.Worktree(ctx, folder, dir, "task/1", "master"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.Commit(ctx, dir, "feat: work"); err != nil {
+		t.Fatal(err)
+	}
+	for _, who := range []string{"%an", "%ae", "%cn", "%ce"} {
+		got := run(t, dir, "show", "--no-patch", "--format="+who, "HEAD")
+		if strings.Contains(got, "Ada") || strings.Contains(got, "mho-company") {
+			t.Errorf("%s = %q, want the user's own", who, got)
+		}
+	}
+	if name := run(t, dir, "show", "--no-patch", "--format=%an", "HEAD"); name != "Yanun User" {
+		t.Fatalf("author = %q, want the name the repo sets", name)
+	}
+}
+
+// A company made in a folder that is not a repo yet leaves the app's own files ignored from its first commit; in a
+// repo the user already had, the rule is added but left for the user to commit.
+func TestPrepareKeepsTheAppsFolderOutOfGit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, ".gitconfig"))
+	g := NewGit(t.TempDir())
+	ctx := context.Background()
+
+	fresh := t.TempDir()
+	if _, initialized, err := g.Prepare(ctx, fresh); err != nil || !initialized {
+		t.Fatalf("%v %v", initialized, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(fresh, ".gitignore"))
+	if err != nil || !strings.Contains(string(raw), ".team-work/") {
+		t.Fatalf(".gitignore = %q, %v", raw, err)
+	}
+	if out := run(t, fresh, "status", "--porcelain"); out != "" {
+		t.Fatalf("a new company's folder is dirty: %q", out)
+	}
+	if !strings.Contains(run(t, fresh, "ls-tree", "--name-only", "HEAD"), ".gitignore") {
+		t.Fatal("the rule is not in the first commit")
+	}
+	// asking again writes nothing new
+	if _, _, err := g.Prepare(ctx, fresh); err != nil {
+		t.Fatal(err)
+	}
+	raw2, _ := os.ReadFile(filepath.Join(fresh, ".gitignore"))
+	if strings.Count(string(raw2), ".team-work/") != 1 {
+		t.Fatalf("the rule was added twice: %q", raw2)
+	}
+	// and the folder really is ignored
+	if err := os.MkdirAll(filepath.Join(fresh, ".team-work"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fresh, ".team-work", "NOTES.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out := run(t, fresh, "status", "--porcelain", "--untracked-files=all"); out != "" {
+		t.Fatalf("the app's folder shows up: %q", out)
+	}
+
+	// a repo of the user's: the rule goes in uncommitted, and their own rules are kept
+	mine := t.TempDir()
+	run(t, mine, "init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(mine, ".gitignore"), []byte("build/"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, mine, "add", ".gitignore")
+	run(t, mine, "-c", "user.name=u", "-c", "user.email=u@u", "commit", "-qm", "rules")
+	if _, initialized, err := g.Prepare(ctx, mine); err != nil || initialized {
+		t.Fatalf("%v %v", initialized, err)
+	}
+	raw3, _ := os.ReadFile(filepath.Join(mine, ".gitignore"))
+	if !strings.HasPrefix(string(raw3), "build/") || !strings.Contains(string(raw3), ".team-work/") {
+		t.Fatalf("the user's rules changed: %q", raw3)
+	}
+	if out := run(t, mine, "status", "--porcelain"); !strings.Contains(out, ".gitignore") {
+		t.Fatalf("the rule was committed by the app: %q", out)
+	}
+	// a folder where the user committed the rule themselves is left alone entirely
+	run(t, mine, "add", ".gitignore")
+	run(t, mine, "-c", "user.name=u", "-c", "user.email=u@u", "commit", "-qm", "ignore the app")
+	if _, _, err := g.Prepare(ctx, mine); err != nil {
+		t.Fatal(err)
+	}
+	if out := run(t, mine, "status", "--porcelain"); out != "" {
+		t.Fatalf("Prepare touched a folder it had nothing to add: %q", out)
+	}
+}
+
+// A merge of the target branch names only that branch, worded as git words a merge of its own: no branch of the app's
+// own shows in the history.
+func TestMergeMessageNamesOnlyTheTarget(t *testing.T) {
+	g, folder, dir := mergeRig(t)
+	ctx := context.Background()
+	run(t, folder, "commit", "-q", "--allow-empty", "-m", "moved on")
+	if conflict, err := g.MergeTarget(ctx, dir, "main"); err != nil || conflict {
+		t.Fatalf("%v %v", conflict, err)
+	}
+	message := run(t, dir, "log", "--format=%s", "-1")
+	if message != "Merge branch 'main'" {
+		t.Fatalf("merge message = %q", message)
+	}
+}
+
+// Where git has no identity of the user's to commit with, every commit the app makes says so with its own code, so
+// the user is told to set one instead of an employee making one up.
+func TestCommitWithoutAnIdentityAsksForTheUsers(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	global := filepath.Join(home, ".gitconfig")
+	if err := os.WriteFile(global, []byte("[user]\n\tuseConfigOnly = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	g := NewGit(t.TempDir())
+	ctx := context.Background()
+	noIdentity := func(what string, err error) {
+		t.Helper()
+		var known *model.Error
+		if !errors.As(err, &known) || known.Code != model.CodeNoGitIdentity {
+			t.Fatalf("%s: %v, want %s", what, err, model.CodeNoGitIdentity)
+		}
+	}
+
+	_, _, err := g.Prepare(ctx, t.TempDir())
+	noIdentity("a new repo", err)
+
+	folder := t.TempDir()
+	run(t, folder, "init", "-q", "-b", "main")
+	run(t, folder, "commit", "-q", "--allow-empty", "-m", "start")
+	dir := filepath.Join(t.TempDir(), "tree")
+	if err := g.Worktree(ctx, folder, dir, "task/1", "main"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, "a.txt", "work\n")
+	_, err = g.Commit(ctx, dir, "feat: work")
+	noIdentity("a handoff", err)
+
+	other := filepath.Join(t.TempDir(), "tree")
+	if err := g.Worktree(ctx, folder, other, "task/2", "main"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, other, "b.txt", "mine\n")
+	run(t, other, "add", "-A")
+	run(t, other, "commit", "-q", "-m", "side")
+	run(t, folder, "commit", "-q", "--allow-empty", "-m", "moved on")
+	_, err = g.MergeTarget(ctx, other, "main")
+	noIdentity("a merge", err)
 }

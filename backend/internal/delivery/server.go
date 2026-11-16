@@ -292,7 +292,7 @@ func (s *Server) handleError(err error, c echo.Context) {
 		switch known.Code {
 		case model.CodeNotFound:
 			status = http.StatusNotFound
-		case model.CodeInvalid, model.CodeSignedOut:
+		case model.CodeInvalid, model.CodeSignedOut, model.CodeNoGitIdentity:
 			status = http.StatusBadRequest
 		case model.CodeConflict, "incompatible":
 			status = http.StatusConflict

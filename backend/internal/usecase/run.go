@@ -1192,7 +1192,20 @@ func (e *Engine) agentTools(in subRun) []adapter.Tool {
 }
 
 // commitMessageHow describes the message a step's work is committed with; it lands on the target branch as written.
-const commitMessageHow = "The git commit message for this step's work, written the way the project's commit messages are, whatever language the rest of the handoff is in."
+// What the app is called, and how its work is organised, stays out of the project's history: the user's own log.
+const commitMessageHow = "The git commit message for this step's work, written the way the project's commit messages are, whatever language the rest of the handoff is in. It says only what changed in the project: no employee's name, and nothing about how this app organises work (a handoff, a step, a dispatch, a blueprint, the app's own name)."
+
+// commitFailed is what an employee is told when their work could not be committed. Git lacking the user's identity is
+// the user's to set: an employee who set one up would put some other name into the project's history.
+func commitFailed(err error, retry string) model.ToolResult {
+	var known *model.Error
+	if errors.As(err, &known) && known.Code == model.CodeNoGitIdentity {
+		return toolError("commit failed: git has no name and email of the user's to commit with (%v). Do not set them yourself "+
+			"with git config or in any other way: ask the user with ask_user to set user.name and user.email for the project, "+
+			"then %s", err, retry)
+	}
+	return toolError("commit failed: %v; fix it and %s", err, retry)
+}
 
 // sendBackCommit is the message for a send-back's changes when the employee wrote none.
 const sendBackCommit = "chore: keep the work before sending it back"
@@ -1357,10 +1370,10 @@ func (e *Engine) submitHandoff(in subRun) func(context.Context, string, json.Raw
 		if badNext {
 			return toolError("%s is not a next step of this one", a.NextNode)
 		}
-		commit, err := e.git.Commit(ctx, cwd, in.spec.name, strings.TrimSpace(a.Commit))
+		commit, err := e.git.Commit(ctx, cwd, strings.TrimSpace(a.Commit))
 		if err != nil {
 			e.log.Warn().Err(err).Str("sub", in.subID).Msg("commit handoff")
-			return toolError("commit failed: %v; fix it and call submit_handoff again", err)
+			return commitFailed(err, "call submit_handoff again")
 		}
 		e.apply(in, func(t *model.Task, s *model.SubTask) {
 			h := &model.Handoff{Commit: commit,
@@ -1523,9 +1536,9 @@ func (e *Engine) sendBackTool(in subRun) func(context.Context, string, json.RawM
 		if message == "" {
 			message = sendBackCommit
 		}
-		commit, err := e.git.Commit(ctx, cwd, in.spec.name, message)
+		commit, err := e.git.Commit(ctx, cwd, message)
 		if err != nil {
-			return toolError("commit failed: %v", err)
+			return commitFailed(err, "call send_back again")
 		}
 		e.apply(in, func(t *model.Task, s *model.SubTask) {
 			s.SendBackReason = a.Reason

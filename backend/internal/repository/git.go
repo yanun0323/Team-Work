@@ -34,6 +34,23 @@ const (
 
 var conflictMarks = regexp.MustCompile(`(?m)^(<<<<<<<|>>>>>>>) `)
 
+// identityMissing is how git says it has no name or email of the user's to commit with.
+var identityMissing = regexp.MustCompile(`identity unknown|empty ident name|unable to auto-detect email|no (email|name) was given`)
+
+// orNoIdentity turns a commit that failed for want of the user's identity into an error saying so. The app never
+// fills one in: commits carry the user's own name, so only the user can give it.
+func orNoIdentity(err error) error {
+	if err != nil && identityMissing.MatchString(err.Error()) {
+		return model.Errorf(model.CodeNoGitIdentity, "git 還不知道你是誰，請在專案資料夾設定 user.name 與 user.email：commit 會用你自己的名義")
+	}
+	return err
+}
+
+// AppIgnores is what the app keeps inside a project folder, kept out of git there: a company's notes and a file saved
+// partway. On a repo the app made itself they go in with its first commit; on one the user already had, the app only
+// adds the rule and leaves it for the user to commit or drop.
+var AppIgnores = []string{".team-work/", ".team-work-save-*"}
+
 // Git runs the git command. Commands on one repo run one at a time, as git locks its own index and refs.
 type Git struct {
 	cacheDir string
@@ -84,10 +101,42 @@ func gitRaw(ctx context.Context, dir string, args ...string) (string, error) {
 	return out.String(), nil
 }
 
-func identity(author string) []string {
-	return []string{"-c", "user.name=" + author, "-c", "user.email=replica@mho-company.local"}
+// ignore adds AppIgnores to the repo's own .gitignore, each pattern only when git does not already leave it out. It
+// commits nothing: whether the rule belongs to the project is the user's.
+func (g *Git) ignore(ctx context.Context, folder string) error {
+	if _, err := git(ctx, folder, "rev-parse", "--git-dir"); err != nil { // no repo: nothing to write rules into
+		return nil
+	}
+	var missing []string
+	for _, p := range AppIgnores {
+		if _, err := git(ctx, folder, "check-ignore", "-q", "--no-index", p); err != nil {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	raw, err := os.ReadFile(filepath.Join(folder, ".gitignore"))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	text := string(raw)
+	for _, p := range missing {
+		if text != "" && !strings.HasSuffix(text, "\n") {
+			text += "\n"
+		}
+		text += p + "\n"
+	}
+	mode := os.FileMode(0o644)
+	if info, err := os.Stat(filepath.Join(folder, ".gitignore")); err == nil {
+		mode = info.Mode().Perm()
+	}
+	return os.WriteFile(filepath.Join(folder, ".gitignore"), []byte(text), mode)
 }
 
+// Prepare makes folder a repo when it is not one yet (with branch `master`), keeps what the app stores there out of
+// git, and lists its branches. On a repo it made itself the rule goes in with the first commit; on one the user
+// already had it is left uncommitted for them to decide.
 func (g *Git) Prepare(ctx context.Context, folder string) ([]string, bool, error) {
 	defer g.lock(folder)()
 	initialized := false
@@ -95,11 +144,18 @@ func (g *Git) Prepare(ctx context.Context, folder string) ([]string, bool, error
 		if _, err := git(ctx, folder, "init", "--initial-branch=master"); err != nil {
 			return nil, false, err
 		}
-		args := append(identity("Team Work"), "commit", "--allow-empty", "-m", "chore: start repository")
-		if _, err := git(ctx, folder, args...); err != nil {
+		if err := g.ignore(ctx, folder); err != nil {
 			return nil, false, err
 		}
+		if _, err := git(ctx, folder, "add", ".gitignore"); err != nil {
+			return nil, false, err
+		}
+		if _, err := git(ctx, folder, "commit", "--allow-empty", "-m", "chore: start repository"); err != nil {
+			return nil, false, orNoIdentity(err)
+		}
 		initialized = true
+	} else if err := g.ignore(ctx, folder); err != nil {
+		return nil, false, err
 	}
 	branches, err := listBranches(ctx, folder)
 	return branches, initialized, err
@@ -348,27 +404,29 @@ func (g *Git) ReadImage(ctx context.Context, folder, commit, path string) ([]byt
 	return nil, "", model.Errorf(model.CodeInvalid, "%s 不是圖片，請到專案資料夾打開", path)
 }
 
-func (g *Git) Commit(ctx context.Context, dir, author, message string) (string, error) {
+// Commit commits everything in the work tree as the user of this repo, and returns HEAD. Nothing to commit is no failure.
+func (g *Git) Commit(ctx context.Context, dir, message string) (string, error) {
 	defer g.lock(dir)()
 	if _, err := git(ctx, dir, "add", "-A"); err != nil {
 		return "", err
 	}
 	if _, err := git(ctx, dir, "diff", "--cached", "--quiet"); err != nil {
-		args := append(identity(author), "commit", "-m", message)
-		if _, err := git(ctx, dir, args...); err != nil {
-			return "", err
+		if _, err := git(ctx, dir, "commit", "-m", message); err != nil {
+			return "", orNoIdentity(err)
 		}
 	}
 	return git(ctx, dir, "rev-parse", "--short", "HEAD")
 }
 
+// MergeTarget brings target into the work tree. The message names only target, never a branch of the app's own, so
+// the history reads like the user merging their own branch.
 func (g *Git) MergeTarget(ctx context.Context, dir, target string) (bool, error) {
 	defer g.lock(dir)()
 	if _, err := git(ctx, dir, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
 		return true, nil // an earlier try left it open
 	}
-	args := append(identity("Team Work"), "merge", "--no-edit", target)
-	if _, err := git(ctx, dir, args...); err == nil {
+	// worded as git words a merge into the branch it is on, which names no branch but the one merged
+	if _, err := git(ctx, dir, "merge", "--no-edit", "-m", "Merge branch '"+target+"'", target); err == nil {
 		return false, nil
 	} else if unmerged, _ := git(ctx, dir, "diff", "--name-only", "--diff-filter=U"); unmerged == "" {
 		if !exists(ctx, dir, target) {
@@ -377,7 +435,7 @@ func (g *Git) MergeTarget(ctx context.Context, dir, target string) (bool, error)
 		if files := inTheWay(ctx, dir, "HEAD", target); len(files) > 0 {
 			return false, &model.MergeBlocked{Kind: model.MergeWorktreeDirty, Files: files, Err: err}
 		}
-		return false, err
+		return false, orNoIdentity(err)
 	}
 	return true, nil
 }
@@ -423,7 +481,7 @@ func inTheWay(ctx context.Context, dir, base, from string) []string {
 	return files
 }
 
-func (g *Git) FinishMerge(ctx context.Context, dir, author string) error {
+func (g *Git) FinishMerge(ctx context.Context, dir string) error {
 	defer g.lock(dir)()
 	// git cannot tell: a file stays "unmerged" until added, and adding it marks it resolved whatever is in it
 	if _, err := git(ctx, dir, "add", "-A"); err != nil {
@@ -446,9 +504,8 @@ func (g *Git) FinishMerge(ctx context.Context, dir, author string) error {
 	if _, err := git(ctx, dir, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err != nil {
 		return nil // whoever resolved it committed it too
 	}
-	args := append(identity(author), "commit", "--no-edit")
-	_, err = git(ctx, dir, args...)
-	return err
+	_, err = git(ctx, dir, "commit", "--no-edit")
+	return orNoIdentity(err)
 }
 
 func (g *Git) Land(ctx context.Context, folder, branch, target string) error {
@@ -469,7 +526,13 @@ func (g *Git) Land(ctx context.Context, folder, branch, target string) error {
 		return &model.MergeBlocked{Kind: model.MergeNoTarget, Err: err}
 	}
 	if current == target { // only then are the folder's files in play
-		if files := inTheWay(ctx, folder, target, branch); len(files) > 0 {
+		files := inTheWay(ctx, folder, target, branch)
+		if slices.Equal(files, []string{".gitignore"}) {
+			if landed, retryErr := g.landPastOwnIgnore(ctx, folder, branch); landed {
+				return retryErr
+			}
+		}
+		if len(files) > 0 {
 			return &model.MergeBlocked{Kind: model.MergeUncommitted, Files: files, Err: err}
 		}
 	}
@@ -477,6 +540,58 @@ func (g *Git) Land(ctx context.Context, folder, branch, target string) error {
 		return &model.MergeBlocked{Kind: model.MergeMoved, Err: err}
 	}
 	return err
+}
+
+// landPastOwnIgnore lands branch on the checked-out target when the one thing in the way is the ignore rule the app
+// itself added to .gitignore and left for the user to commit: it puts its own lines aside, lands, and adds back what
+// the landed .gitignore still lacks. landed is false, and the file as it was, when the change holds anything else or the
+// merge still fails. The caller holds the folder's lock.
+func (g *Git) landPastOwnIgnore(ctx context.Context, folder, branch string) (landed bool, err error) {
+	path := filepath.Join(folder, ".gitignore")
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false, nil
+	}
+	committed, err := gitRaw(ctx, folder, "show", "HEAD:.gitignore")
+	tracked := err == nil
+	if !tracked {
+		committed = ""
+	}
+	if !onlyAppIgnores(string(raw), committed) {
+		return false, nil
+	}
+	put := func() { _ = os.WriteFile(path, raw, info.Mode().Perm()) }
+	if tracked {
+		err = os.WriteFile(path, []byte(committed), info.Mode().Perm())
+	} else {
+		err = os.Remove(path)
+	}
+	if err != nil {
+		put()
+		return false, nil
+	}
+	if _, err := git(ctx, folder, "merge", "--ff-only", branch); err != nil {
+		put()
+		return false, nil
+	}
+	return true, g.ignore(ctx, folder)
+}
+
+// onlyAppIgnores is whether text is committed with nothing but lines of AppIgnores added at its end, as ignore adds them.
+func onlyAppIgnores(text, committed string) bool {
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	end := len(lines)
+	for end > 0 && slices.Contains(AppIgnores, lines[end-1]) {
+		end--
+	}
+	if end == len(lines) {
+		return false
+	}
+	return strings.Join(lines[:end], "\n") == strings.TrimRight(committed, "\n")
 }
 
 // Remove takes away a task's work tree, and its branch only when that work tree was made on it: a branch of the same

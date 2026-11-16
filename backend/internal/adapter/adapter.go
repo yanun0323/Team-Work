@@ -119,7 +119,8 @@ type Git interface {
 	Tool(ctx context.Context) GitStatus
 	// InstallTool opens the system's own installer of git and returns once it is open; ask the user first.
 	InstallTool(ctx context.Context) error
-	// Prepare makes folder a repo when it is not one yet (with branch `master`), and lists its branches.
+	// Prepare makes folder a repo when it is not one yet (with branch `master`), keeps what the app stores in the
+	// folder out of git, and lists its branches.
 	Prepare(ctx context.Context, folder string) (branches []string, initialized bool, err error)
 	// Branches lists a folder's branches without changing anything; repo is false when it is not a repo.
 	Branches(ctx context.Context, folder string) (branches []string, repo bool, err error)
@@ -139,12 +140,13 @@ type Git interface {
 	Worktree(ctx context.Context, folder, dir, branch, target string) error
 	// PrepareEnvironment prepares locked Node dependencies in the worktree, reporting progress before employees run.
 	PrepareEnvironment(ctx context.Context, folder, dir string, report func(string)) error
-	// Commit commits everything in the work tree and returns HEAD. Nothing to commit is no failure.
-	Commit(ctx context.Context, dir, author, message string) (string, error)
+	// Commit commits everything in the work tree under the user's own identity and returns HEAD. Nothing to commit is
+	// no failure.
+	Commit(ctx context.Context, dir, message string) (string, error)
 	// MergeTarget merges target into the work tree. conflict leaves the merge open for someone to resolve.
 	MergeTarget(ctx context.Context, dir, target string) (conflict bool, err error)
 	// FinishMerge commits a resolved merge; it fails while files are still unmerged.
-	FinishMerge(ctx context.Context, dir, author string) error
+	FinishMerge(ctx context.Context, dir string) error
 	// Land moves target up to branch, fast-forward only.
 	Land(ctx context.Context, folder, branch, target string) error
 	// Remove deletes the work tree and its branch.
