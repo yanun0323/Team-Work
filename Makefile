@@ -46,7 +46,7 @@ sign:
 notarize:
 	@./scripts/macos.sh notarize
 
-## appcast: write dist/release/appcast.xml for the notarized ZIP, signed with the Sparkle key (uploads nothing)
+## appcast: write dist/release/appcast.xml for the notarized ZIP, signed with the Sparkle key, with release-notes/<version>/*.md in it (uploads nothing)
 appcast:
 	@./scripts/macos.sh appcast
 

@@ -110,14 +110,32 @@ appcast)
     # The appcast for the notarized ZIP, signed with the Sparkle key in the login Keychain. Nothing is uploaded.
     fetch_sparkle
     [ -f "$zip" ] || { echo "No $zip; run make notarize first" >&2; exit 1; }
+    version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
+    # The update window shows this version's notes, in the five languages the app has; the app keeps them too.
+    notes="$PWD/release-notes/$version"
+    for lang in zh en zh-Hans ja ko; do
+        [ -s "$notes/$lang.md" ] || { echo "No release-notes/$version/$lang.md; write the notes in all five languages first" >&2; exit 1; }
+    done
     release="$PWD/dist/release"
     rm -rf "$release"
     mkdir -p "$release"
     cp "$zip" "$release/"
     # Each update points at its own tag, so the ZIP always matches the signature in the appcast.
-    version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
     "$sparkle/bin/generate_appcast" --download-url-prefix "$releases/download/v$version/" "$release"
-    echo "Upload to the GitHub release: $release/$(basename "$zip") and $release/appcast.xml"
+    # generate_appcast knows languages only by two letters, so it cannot tell the two Chinese apart: the notes go in
+    # here, one <description> per language. Sparkle picks the one closest to the system's languages.
+    python3 -I - "$release/appcast.xml" "$notes" <<'PY'
+import sys
+from pathlib import Path
+from xml.sax.saxutils import escape
+appcast, notes = Path(sys.argv[1]), Path(sys.argv[2])
+xml = appcast.read_text(encoding="utf-8")
+assert xml.count("</item>") == 1, "expected one update in the appcast"
+tags = {"zh": "zh-Hant", "en": "en", "zh-Hans": "zh-Hans", "ja": "ja", "ko": "ko"}
+parts = [f'<description sparkle:format="markdown" xml:lang="{tag}">{escape((notes / f"{lang}.md").read_text(encoding="utf-8").strip())}</description>\n        ' for lang, tag in tags.items()]
+appcast.write_text(xml.replace("</item>", "".join(parts) + "</item>"), encoding="utf-8")
+PY
+    echo "Upload to the GitHub release: $release/$(basename "$zip") and $release/appcast.xml, with release-notes/$version/en.md as its notes"
     ;;
 *) echo "Usage: $0 {build|semantic-helper|sign|notarize|appcast}" >&2; exit 2 ;;
 esac
