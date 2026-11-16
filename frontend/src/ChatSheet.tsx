@@ -17,7 +17,7 @@ import { ChatFaces } from './ChatFaces'
 import { ALL, answerMentions, mentionedPeople, withAll } from './mentions'
 import { Gone, Heading, DeleteTool, PinTool, type Head } from './DrawerDetail'
 import { composing } from './ime'
-import { crewOf, fmtClock, fmtTokens, useAtBottom, useStickToBottom } from './core/model'
+import { crewOf, fmtClock, fmtTokens, useAtBottom, useNearEdge, useStickToBottom } from './core/model'
 import type { Attachment, Chat, ChatHandoff, Look, Made, QueuedMessage } from './core/domain/types'
 import { attempt, chatTaskDraft, deleteChat, handOffChat, hasUncommitted, openFolder, readChat, refreshStaleModels, renameChat, resolveChatChange, retryChat, rewindChat, sayInChat, setChatChair, setChatMind, skipChatQuestion, startAirportChat, startChat, steerChat, stopChat, unqueueChat } from './core/ops'
 import { AIRPORT_STAFF_LOOK, canHandOff, MAX_CHAT_PEOPLE, roundActor } from './core/domain/sim'
@@ -246,6 +246,9 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     if (chat?.history) await pages.more()
     else setHistory({ id, length, first: Math.max(0, first - 100) })
   }
+  // scrolled near the top, the 100 before come in; not while a page is read, nor after one failed, which has its own retry
+  const hasEarlier = first > 0 || (!!chat?.history && pages.ready && pages.start > 0)
+  const earlierEdge = useNearEdge(() => void earlier(), hasEarlier && !pages.busy && !pages.error, `${id}:${first}:${pages.start}`)
   // What was just written stays as it was until it is read back as a message, so the list never gets shorter under
   // the reader and the words never blink out: the turn ends, and its live words go, before the page with them is in.
   const shown = (chat?.history ? pages.start : 0) + length
@@ -585,7 +588,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
       <ol ref={log} className="fx-room-log" aria-live="polite" aria-label={tr('和 {name} 的對話', { name: meeting ? listOf(people.map((x) => x.name)) : name })}>
         {pages.busy && <li data-scroll-skip role="status">{tr('載入中…')}</li>}
         {pages.error && <li data-scroll-skip role="alert">{tr('讀取歷史失敗，請重試')} <button type="button" onClick={pages.retry}>{tr('重試')}</button></li>}
-        {(first > 0 || (chat?.history && pages.ready && pages.start > 0)) && <li className="fx-room-earlier" data-scroll-skip><button type="button" className="fx-hit" disabled={pages.busy} onClick={() => void earlier()}>{tr('顯示更早訊息')}</button></li>}
+        {hasEarlier && <li ref={earlierEdge} className="fx-room-earlier" data-scroll-skip aria-hidden="true" />}
         {chat?.messages.slice(first).flatMap((m, offset) => {
           const i = first + offset
           return [...handoffLines(i), ...joinLines(i), ...turnAt(i), m.from === 'tool' && m.text === COMPACT_MARK

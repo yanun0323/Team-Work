@@ -1,13 +1,13 @@
 // What each tab of the company file shows. All of it reads the live world, so it moves with the simulation.
 
 import { listOf, tr, type Key } from './core/i18n'
-import { startTransition, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { nodeOf } from './core/domain/graph'
 import type { Status, TeamSettings } from './core/domain/types'
 import { BlueprintIcon } from './BlueprintIcon'
 import { byBlueprint, chatMindOf, chatPeople, chatPreview, chatOrder, chatSign, chatWho, mindOf } from './crew'
 import { ChatFaces } from './ChatFaces'
-import { activity, fmtTokens, laneTasks, teamReplicas } from './core/model'
+import { activity, fmtTokens, laneTasks, teamReplicas, useNearEdge } from './core/model'
 import { useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { Select, Stepper, WaitBadge } from './Controls'
@@ -63,8 +63,9 @@ function Empty({ children }: { children: string }) {
 }
 
 /**
- * How many chats a list draws as it opens. A company can have hundreds, more than a screen holds many times over; the
- * rest are drawn right after, in pieces that leave the frames free, so opening the company doesn't hold up the camera.
+ * How many chats a list draws as it opens, and draws more of each time the reader scrolls near its end. A company can
+ * have hundreds, more than a screen holds many times over; drawing them all as it opened held up the camera flying to
+ * it, in WebKit most of all.
  */
 export const FIRST_CHATS = 40
 
@@ -73,10 +74,12 @@ export function Chats(p: Opens) {
   const w = useStore((s) => s.world)
   const chats = Object.values(w.chats).filter((c) => c.teamId === p.teamId).sort(chatOrder)
   const needs = usePrereqs(p.teamId, p.teamId ? 'chats' : 'airportChats')
-  // the company whose whole list is drawn
-  const [whole, setWhole] = useState<string | null>(null)
-  useEffect(() => { startTransition(() => setWhole(p.teamId)) }, [p.teamId])
-  const shown = whole === p.teamId ? chats : chats.slice(0, FIRST_CHATS)
+  // how many are drawn, for the company whose list it is; another company's starts again from the first
+  const [drawn, setDrawn] = useState({ teamId: p.teamId, n: FIRST_CHATS })
+  const n = drawn.teamId === p.teamId ? drawn.n : FIRST_CHATS
+  const shown = chats.slice(0, n)
+  const rest = chats.length > n
+  const end = useNearEdge(() => setDrawn({ teamId: p.teamId, n: n + FIRST_CHATS }), rest, `${p.teamId}:${n}`)
   return (
     <div className="fx-d-groups fx-crew-groups">
       <Prereqs list={needs} />
@@ -114,6 +117,8 @@ export function Chats(p: Opens) {
               </button><PinTool chat={c} className="fx-chat-pin" /></li>
             )
           })}
+          {/* scrolled near, the next FIRST_CHATS are drawn */}
+          {rest && <li ref={end} aria-hidden="true" />}
         </ul>
       )}
     </div>

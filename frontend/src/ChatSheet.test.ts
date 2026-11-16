@@ -424,7 +424,7 @@ describe('a meeting on the list', () => {
 })
 
 describe('a long list of chats', () => {
-  it('draws only the first of them as it opens, in order, the rest coming after', () => {
+  it('draws only the first of them as it opens, in order, the rest as it is scrolled', () => {
     // rendered on the server, effects never run: what shows is what a list draws as it opens
     const w = useStore.getState().world
     const teamId = Object.keys(w.teams)[0]
@@ -438,7 +438,7 @@ describe('a long list of chats', () => {
     try {
       const html = renderToStaticMarkup(createElement(Chats, { teamId, open: null, onOpen: () => {} }))
       expect(html.match(/class="fx-chat-item/g)).toHaveLength(FIRST_CHATS)
-      // in the list's own order: the latest drawn, the oldest left for after
+      // in the list's own order: the latest drawn, the oldest left for scrolling to
       expect(html).toContain(`第 ${made.length - 1} 個`)
       expect(html).not.toContain('第 0 個')
     } finally {

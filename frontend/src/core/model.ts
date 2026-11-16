@@ -457,6 +457,38 @@ export function useAtBottom(ref: RefObject<HTMLElement | null>): boolean {
   return atBottom
 }
 
+/** How far, in pixels, a row at the end of a list may still be out of its window when the list goes on with more. */
+const NEAR_EDGE = 600
+
+/** The nearest box round `el` that scrolls; none, the window. */
+function scrollerOf(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const y = getComputedStyle(p).overflowY
+    if (y === 'auto' || y === 'scroll') return p
+  }
+  return null
+}
+
+/**
+ * A list that draws or reads more as the reader scrolls towards its end: put the ref it returns on a row at that end,
+ * and `reach` is called whenever that row comes within NEAR_EDGE of the window of the box that scrolls it. While
+ * `on` is false it waits, as while a page is read. It looks again whenever `again` changes, so a list still short of
+ * filling its window goes on growing.
+ */
+export function useNearEdge(reach: () => void, on: boolean, again: unknown): (el: HTMLElement | null) => void {
+  const [edge, setEdge] = useState<HTMLElement | null>(null)
+  const call = useRef(reach)
+  call.current = reach
+  useEffect(() => {
+    if (!on || !edge || typeof IntersectionObserver === 'undefined') return
+    const seen = new IntersectionObserver((rows) => { if (rows.some((r) => r.isIntersecting)) call.current() },
+      { root: scrollerOf(edge), rootMargin: `${NEAR_EDGE}px 0px` })
+    seen.observe(edge)
+    return () => seen.disconnect()
+  }, [edge, on, again])
+  return setEdge
+}
+
 /** Whether a key went to the terminal, where it belongs to the shell and not to the screen around it. */
 export const inTerminal = (e: KeyboardEvent) => !!(e.target as Element | null)?.closest?.('.fx-terminal')
 

@@ -152,17 +152,22 @@ it('keeps the words just written on screen until they come back as a message', a
   expect(words()).toBe(1)
 })
 
-it('keeps the first message in place as earlier ones come in above it', async () => {
+it('reads earlier messages by itself as the reader scrolls near the top, keeping the first one shown in place', async () => {
   await open(Array.from({ length: 150 }, (_, i) => said(i)))
+  // at the bottom, the top is far off: nothing more is read
+  await settle()
+  expect(row(0)).toBeFalsy()
+  expect(document.querySelector('.fx-room-earlier button')).toBeNull()
   log().dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }))
   log().scrollTop = 0
-  await settle()
+  // where the first one shown is the moment the reader gets there, before the page above comes in
   const first = row(50)
   const top = at(first)
-  await act(async () => document.querySelector<HTMLButtonElement>('.fx-room-earlier button')!.click())
   await settle(() => !!row(0))
   expect(row(0)).toBeTruthy()
   expect(Math.abs(at(first) - top)).toBeLessThan(1)
+  // all read: nothing is left to wait for at the top
+  expect(document.querySelector('.fx-room-earlier')).toBeNull()
 })
 
 it('follows a reply as it streams in and when it is done, while the reader is at the bottom', async () => {
