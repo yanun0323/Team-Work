@@ -30,8 +30,10 @@ float shore(vec2 p) {
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return ${(SEA_DSPAN - SEA_D0).toFixed(1)};
   return texture2D(uDist, uv).r * ${SEA_DSPAN.toFixed(1)} - ${SEA_D0.toFixed(1)};
 }
+// p is always a whole lattice point; wrap it so the hash keeps its float precision as uTime and the drift grow
+// (unwrapped, hours in, the wind ripples collapse into regular blocks)
 float h21(vec2 p) {
-  p = fract(p * vec2(234.34, 435.345));
+  p = fract(mod(p, 256.0) * vec2(234.34, 435.345));
   p += dot(p, p + 34.23);
   return fract(p.x * p.y);
 }
