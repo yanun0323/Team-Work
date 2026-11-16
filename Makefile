@@ -50,6 +50,10 @@ notarize:
 appcast:
 	@./scripts/macos.sh appcast
 
+## trace-check: look for traces of the app in a project it handled (FOLDER=<folder> NAMES="name,name")
+trace-check:
+	@./scripts/trace-check.sh
+
 ## test-backend: run the backend tests
 test-backend:
 	cd backend && go test -timeout 30m ./...
