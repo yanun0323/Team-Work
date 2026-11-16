@@ -622,8 +622,11 @@ func modelsOf(specs []model.ModelSpec) ([]string, map[string][]string) {
 	thinking := make(map[string][]string, len(specs))
 	for _, m := range specs {
 		models = append(models, m.ID)
-		if len(m.Thinking) > 0 {
-			thinking[m.ID] = m.Thinking
+		// a server may report default among its levels; the app puts it first itself, so a list never holds it twice
+		levels := slices.Clone(m.Thinking)
+		levels = slices.DeleteFunc(levels, func(l string) bool { return l == model.ThinkingDefault })
+		if len(levels) > 0 {
+			thinking[m.ID] = levels
 		}
 	}
 	slices.Sort(models)

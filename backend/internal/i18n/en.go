@@ -426,7 +426,7 @@ var en = map[string]string{
 	"訂閱登入不能指定 Base URL":                        "A subscription sign-in cannot set a Base URL",
 	"模型不能空白或重複":                                "Models cannot be blank or repeated",
 	"模型不在 models 清單":                           "The model is not in the models list",
-	"等級不能空白、重複或包含 default":                     "Levels cannot be blank, repeated or include default",
+	"等級不能空白或重複":                                "Levels cannot be blank or repeated",
 	"價格不能是負數":                                  "Prices cannot be negative",
 	"不能為 null 或修改 id":                          "Cannot be null or change the id",
 	"preset- 開頭的 id 保留給內建項目":                   "Ids starting with preset- are reserved for built-in items",

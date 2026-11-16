@@ -425,7 +425,7 @@ var zhHans = map[string]string{
 	"訂閱登入不能指定 Base URL":                        "订阅登录不能指定 Base URL",
 	"模型不能空白或重複":                                "模型不能空白或重复",
 	"模型不在 models 清單":                           "模型不在 models 清单",
-	"等級不能空白、重複或包含 default":                     "等级不能空白、重复或包含 default",
+	"等級不能空白或重複":                                "等级不能空白或重复",
 	"價格不能是負數":                                  "价格不能是负数",
 	"不能為 null 或修改 id":                          "不能为 null 或修改 id",
 	"preset- 開頭的 id 保留給內建項目":                   "preset- 开头的 id 保留给内置项目",

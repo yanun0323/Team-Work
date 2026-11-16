@@ -116,6 +116,16 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 		if p.ID != id {
 			return bad(field+".id", "不能修改 id")
 		}
+		// files written before discovery filtered default out still load: the app puts that level first itself
+		for m, levels := range p.Thinking {
+			kept := slices.DeleteFunc(slices.Clone(levels), func(l string) bool { return l == model.ThinkingDefault })
+			if len(kept) == 0 {
+				delete(p.Thinking, m)
+			} else {
+				p.Thinking[m] = kept
+			}
+		}
+		s.Providers[id] = p
 		if strings.TrimSpace(p.Name) == "" {
 			return bad(field+".name", "不能是空的")
 		}
@@ -144,8 +154,8 @@ func (e *Engine) parseSettings(raw []byte) (model.Settings, error) {
 			}
 			used := map[string]bool{}
 			for _, level := range levels {
-				if strings.TrimSpace(level) == "" || level == model.ThinkingDefault || used[level] {
-					return bad(field+".thinking."+m, "等級不能空白、重複或包含 default")
+				if strings.TrimSpace(level) == "" || used[level] {
+					return bad(field+".thinking."+m, "等級不能空白或重複")
 				}
 				used[level] = true
 			}
