@@ -137,6 +137,14 @@ describe('thinking levels', () => {
     expect(effortsOf(w, 'gemini-3-pro')).toEqual(['default', 'low', 'high'])
     expect(effortsOf(w, 'not-offered')).toEqual(['default'])
   })
+
+  it('keep default once when an older file reports it among the levels', () => {
+    const w = seedWorld()
+    const p = Object.values(w.providers).find((p) => p.kind === 'compatible')!
+    const model = p.models[0]
+    p.thinking = { [model]: ['default', 'low', 'default'] }
+    expect(effortsOf(w, model)).toEqual(['default', 'low'])
+  })
 })
 
 

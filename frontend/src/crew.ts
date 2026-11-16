@@ -69,7 +69,8 @@ const FALLBACK_LEVELS: Partial<Record<ProviderKind, string[]>> = {
 /** Reported levels take precedence; key-paid compatible, OpenAI and Google models without metadata get a fallback. */
 export function effortsOf(w: World, model: string): string[] {
   const p = Object.values(w.providers).find((x) => x.models.includes(model))
-  const levels = p?.thinking?.[model] ?? []
+  // an older file may still hold default among the reported levels; it would show up twice
+  const levels = (p?.thinking?.[model] ?? []).filter((l) => l !== DEFAULT_EFFORT)
   return [DEFAULT_EFFORT, ...(levels.length || !p || p.auth.kind !== 'apiKey'
     ? levels : FALLBACK_LEVELS[p.kind] ?? [])]
 }
