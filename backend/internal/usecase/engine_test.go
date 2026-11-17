@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"image"
 	"image/color"
 	"image/png"
@@ -13,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -34,18 +36,38 @@ import (
 // Tests call t.Parallel(), each on a rig of its own. A test that changes what the whole process shares stays
 // sequential: the environment (t.Setenv), files in this home folder, the language (SetLanguage, i18n.Set), the waits
 // export_test.go sets, or testing.AllocsPerRun.
+//
+// At most parallelTests of them run at once unless -parallel says otherwise: see parallelTests.
 func TestMain(m *testing.M) {
+	flag.Parse()
+	set := false
+	flag.Visit(func(f *flag.Flag) { set = set || f.Name == "test.parallel" })
+	if !set {
+		flag.Set("test.parallel", strconv.Itoa(parallelTests))
+	}
 	home, err := os.MkdirTemp("", "usecase-home-")
 	if err != nil {
 		panic(err)
 	}
 	os.Setenv("HOME", home)
+	repository.SkipSyncForTests()
+	blank = filepath.Join(home, "blank")
+	if err := makeBlank(blank); err != nil {
+		panic(err)
+	}
 	// a fake model that keeps failing would otherwise hold a test for the minute a real provider is waited out
 	usecase.SetRetryDelay(5 * time.Millisecond)
 	code := m.Run()
 	os.RemoveAll(home)
 	os.Exit(code)
 }
+
+// parallelTests is how many tests run at once by default, instead of one per CPU. The tests start git thousands of
+// times, and on macOS Go starts a process by forking this whole one: after each fork the kernel copies every page a
+// test then writes to. The more tests run at once, the more there is to copy, for every one of them, so with 18 CPUs
+// the kernel took 20 times the CPU the tests did. Measured on an 18-CPU Mac (2026-11): 18 at once took 117s and about
+// 1600 CPU seconds, 8 took 86s and 730, 4 took 50s and 220, 2 took 65s and 120.
+const parallelTests = 4
 
 // script is a fake model: each call takes the next reply, given what the model was just told.
 type script struct {
@@ -246,9 +268,57 @@ func (g offline) Cached(repo, commit string) bool {
 	return g.Git.Cached(repo, commit)
 }
 
+// blank is a data folder an engine started on once, with the official source checked: an engine starting on an empty
+// folder starts on a copy of it, which saves each test reading and saving the official source. Made by TestMain.
+var blank string
+
+func makeBlank(dir string) error {
+	store, err := repository.NewStore(dir)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	e, err := usecase.NewEngine(context.Background(), usecase.Options{
+		Store: store, Git: offline{repository.NewGit(dir)}, Providers: &script{}, DataDir: dir, Log: zerolog.Nop(),
+	})
+	if err != nil {
+		return err
+	}
+	defer e.Close()
+	return e.CheckSource(context.Background(), usecase.OfficialSourceID)
+}
+
+// copyDir copies the files in from into to, keeping their permissions.
+func copyDir(from, to string) error {
+	return filepath.WalkDir(from, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(from, path)
+		dst := filepath.Join(to, rel)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return os.MkdirAll(dst, info.Mode().Perm())
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dst, raw, info.Mode().Perm())
+	})
+}
+
 // newEngine starts an engine on r's data, the official source checked as the app does on start.
 func newEngine(t *testing.T, r *rig) {
 	t.Helper()
+	if empty, _ := os.ReadDir(r.data); len(empty) == 0 && blank != "" {
+		if err := copyDir(blank, r.data); err != nil {
+			t.Fatal(err)
+		}
+	}
 	store, err := repository.NewStore(r.data)
 	if err != nil {
 		t.Fatal(err)
@@ -337,18 +407,49 @@ func (r *rig) world() *model.World {
 // tests run in parallel, under -race too, and a busy machine makes a long meeting take many seconds.
 const patience = time.Minute
 
+// recheck is how often wait looks again with no change sent: some waits are for what the engine sends nothing about,
+// such as what the fake model was told.
+const recheck = 20 * time.Millisecond
+
+// wait looks at the world each time the engine sends a change, which costs far less than looking every few
+// milliseconds while many tests run at once.
 func (r *rig) wait(what string, ok func(*model.World) bool) *model.World {
 	r.t.Helper()
-	deadline := time.Now().Add(patience)
-	for time.Now().Before(deadline) {
+	var changes <-chan usecase.Event
+	if _, ch, cancel, err := r.e.Subscribe(); err == nil {
+		defer cancel()
+		changes = ch
+	}
+	deadline := time.NewTimer(patience)
+	defer deadline.Stop()
+	tick := time.NewTicker(recheck)
+	defer tick.Stop()
+	for {
 		if w := r.world(); ok(w) {
 			return w
 		}
-		time.Sleep(5 * time.Millisecond)
+		select {
+		case _, open := <-changes:
+			if !open { // dropped for falling behind: the ticks go on
+				changes = nil
+			}
+			for drained := false; !drained && changes != nil; { // a burst of changes is looked at once
+				select {
+				case _, open := <-changes:
+					if !open {
+						changes = nil
+					}
+				default:
+					drained = true
+				}
+			}
+		case <-tick.C:
+		case <-deadline.C:
+			raw, _ := r.e.Snapshot()
+			r.t.Fatalf("timed out waiting for %s\n%s", what, raw)
+			return nil
+		}
 	}
-	raw, _ := r.e.Snapshot()
-	r.t.Fatalf("timed out waiting for %s\n%s", what, raw)
-	return nil
 }
 
 // task makes a task and starts it, as the user does with the start button.

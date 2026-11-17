@@ -235,6 +235,49 @@ func TestFileNameIsTheIDOfBlueprintsAndWorkflows(t *testing.T) {
 	}
 }
 
+func TestSplitSettingsMakesAgainOnlyChangedFiles(t *testing.T) {
+	c := model.Settings{Version: 1, Preferences: model.DefaultPreferences(), Providers: map[string]model.ProviderConfig{},
+		Blueprints: map[string]*model.Blueprint{"bp-a": {ID: "bp-a", Name: "a"}, "bp-b": {ID: "bp-b", Name: "b"}},
+		Workflows:  map[string]*model.Workflow{}}
+	split := func(cache map[string]splitFile) (map[string][]byte, map[string]splitFile) {
+		raw, err := json.Marshal(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files, next, err := splitSettingsCached(raw, cache)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plain, err := splitSettings(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(files) != len(plain) {
+			t.Fatalf("%d files, want %d", len(files), len(plain))
+		}
+		for path, raw := range plain {
+			if !bytes.Equal(files[path], raw) {
+				t.Fatalf("%s is\n%s\nwant\n%s", path, files[path], raw)
+			}
+		}
+		return files, next
+	}
+	first, cache := split(nil)
+	c.Blueprints["bp-b"].Name = "b2"
+	delete(c.Blueprints, "bp-a")
+	c.Blueprints["bp-c"] = &model.Blueprint{ID: "bp-c", Name: "c"}
+	second, next := split(cache)
+	if &second["provider.json"][0] != &first["provider.json"][0] {
+		t.Fatal("an unchanged file was made again")
+	}
+	if _, ok := next["blueprints/bp-a.yaml"]; ok || second["blueprints/bp-a.yaml"] != nil {
+		t.Fatal("a removed blueprint stayed")
+	}
+	if !bytes.Contains(second["blueprints/bp-b.yaml"], []byte("b2")) || second["blueprints/bp-c.yaml"] == nil {
+		t.Fatalf("changed files were not made again: %q %q", second["blueprints/bp-b.yaml"], second["blueprints/bp-c.yaml"])
+	}
+}
+
 func TestSourcesAreKeptInOneFileByID(t *testing.T) {
 	c := model.Settings{Version: 1, Preferences: model.DefaultPreferences(), Providers: map[string]model.ProviderConfig{},
 		Blueprints: map[string]*model.Blueprint{}, Workflows: map[string]*model.Workflow{},

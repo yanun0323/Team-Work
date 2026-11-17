@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -37,7 +38,16 @@ type Store struct {
 	db      *gorm.DB
 	dataDir string
 	mu      sync.Mutex
+	// split is the last settings write's files, so the next makes again only those that changed. Guarded by mu.
+	split map[string]splitFile
 }
+
+// skipSync stops stores waiting for the disk after each write, so a crash may lose the last changes. Only tests turn
+// it on: their data is thrown away, and waiting for the disk is most of what they cost the machine.
+var skipSync atomic.Bool
+
+// SkipSyncForTests makes the stores opened after it, and every settings write, stop waiting for the disk. Tests only.
+func SkipSyncForTests() { skipSync.Store(true) }
 
 func NewStore(dataDir string) (*Store, error) {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
@@ -53,7 +63,11 @@ func NewStore(dataDir string) (*Store, error) {
 	if err := os.Chmod(path, 0o600); err != nil {
 		return nil, fmt.Errorf("protect database: %w", err)
 	}
-	db, err := gorm.Open(sqlite.Open(path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"), &gorm.Config{Logger: logger.Discard})
+	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	if skipSync.Load() {
+		dsn += "&_pragma=synchronous(OFF)"
+	}
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}

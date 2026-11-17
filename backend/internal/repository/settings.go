@@ -289,11 +289,21 @@ func assemble(files map[string][]byte) ([]byte, error) {
 }
 
 func splitSettings(raw []byte) (map[string][]byte, error) {
+	files, _, err := splitSettingsCached(raw, nil)
+	return files, err
+}
+
+// splitFile is a settings file with the JSON of the value it was made from.
+type splitFile struct{ in, out []byte }
+
+// splitSettingsCached is splitSettings making again only the files whose value differs from the one in cache, which
+// holds the last call's files; next is this call's, for the next.
+func splitSettingsCached(raw []byte, cache map[string]splitFile) (files map[string][]byte, next map[string]splitFile, err error) {
 	var c model.Settings
 	if err := json.Unmarshal(raw, &c); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	files := map[string][]byte{}
+	files, next = map[string][]byte{}, map[string]splitFile{}
 	put := func(path string, value any) error {
 		if !settingPath(path) {
 			return fileError(path, i18n.Errorf("id 只能包含英文字母、數字、底線與連字號"))
@@ -302,6 +312,11 @@ func splitSettings(raw []byte) (map[string][]byte, error) {
 		if err != nil {
 			return err
 		}
+		if old, ok := cache[path]; ok && bytes.Equal(old.in, raw) {
+			files[path], next[path] = old.out, old
+			return nil
+		}
+		in := raw
 		// The path names these ids, so the file does not repeat them.
 		var implied []string
 		switch p := strings.Split(path, "/"); {
@@ -335,54 +350,54 @@ func splitSettings(raw []byte) (map[string][]byte, error) {
 		if len(raw) > 16<<20 {
 			return fileError(path, i18n.Errorf("不能超過 16 MB"))
 		}
-		files[path] = raw
+		files[path], next[path] = raw, splitFile{in, raw}
 		return nil
 	}
 	if err := put("preferences.yaml", c.Preferences); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := put("provider.json", c.Providers); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(c.Sources) > 0 {
 		sources := map[string]map[string]any{}
 		for id, v := range c.Sources {
 			raw, err := json.Marshal(v)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			var named map[string]any
 			if err := json.Unmarshal(raw, &named); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			delete(named, "id") // the key names it
 			sources[id] = named
 		}
 		if err := put("sources.yaml", sources); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for id, v := range c.Teams {
 		if err := put("company/"+id+"/config.yaml", v); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for id, v := range c.Replicas {
 		if err := put("company/"+v.TeamID+"/employee/"+id+".json", v); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for id, v := range c.Blueprints {
 		if err := put("blueprints/"+id+".yaml", v); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for id, v := range c.Workflows {
 		if err := put("workflows/"+id+".yaml", v); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return files, nil
+	return files, next, nil
 }
 
 func (s *Store) CheckSettings(expected model.SettingsSnapshot) error {
@@ -420,14 +435,15 @@ func (s *Store) LoadSettings(ctx context.Context) (model.SettingsSnapshot, error
 }
 
 func (s *Store) settingsWrite(change model.SettingsChange) (*settingsJournal, error) {
-	after, err := splitSettings(change.After)
+	after, split, err := splitSettingsCached(change.After, s.split)
 	if err != nil {
 		return nil, err
 	}
+	s.split = split
 	before := change.Before.Files
 	// Leave untouched files byte-for-byte unchanged, including YAML comments.
 	for path, raw := range after {
-		if old := before[path]; old != nil {
+		if old := before[path]; old != nil && !bytes.Equal(old, raw) {
 			var a, b any
 			if decodeFile(path, old, &a) == nil && decodeFile(path, raw, &b) == nil && reflect.DeepEqual(a, b) {
 				after[path] = old
@@ -516,8 +532,10 @@ func (s *Store) replaceFile(rel string, before, after []byte) error {
 		if _, err := f.Write(after); err != nil {
 			return err
 		}
-		if err := f.Sync(); err != nil {
-			return err
+		if !skipSync.Load() {
+			if err := f.Sync(); err != nil {
+				return err
+			}
 		}
 		if err := f.Close(); err != nil {
 			return err
@@ -543,6 +561,9 @@ func (s *Store) replaceFile(rel string, before, after []byte) error {
 		if err := os.Remove(path); err != nil {
 			return err
 		}
+	}
+	if skipSync.Load() {
+		return nil
 	}
 	d, err := os.Open(dir)
 	if err != nil {
