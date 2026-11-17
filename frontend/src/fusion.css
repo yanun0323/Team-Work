@@ -906,6 +906,12 @@ a.fx-save { text-decoration: none; }
 .fx-d-people li { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .fx-d-people b { font-weight: 600; }
 .fx-d-people span { color: var(--muted); }
+/* employees under the model they run on, on a provider's sheet; the model name may be long */
+.fx-d-model-groups h4 code { min-width: 0; overflow-wrap: anywhere; }
+/* an employee's thinking level at the end of their row, and what it becomes */
+.fx-d-people .fx-d-effort { margin-inline-start: auto; font: 12px var(--font-mono); white-space: nowrap; }
+.fx-d-effort b { font-weight: 600; color: var(--ink); }
+.fx-row-model { font-family: var(--font-mono); font-size: 12.5px; overflow-wrap: anywhere; }
 .fx-d-facts { display: grid; grid-template-columns: 5em minmax(0, 1fr); gap: 6px 12px; margin: 0; font-size: 13.5px; }
 .fx-d-facts dt { color: var(--muted); }
 .fx-d-facts dd { margin: 0; }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { seedWorld } from './core/data/seed'
 import type { Chat, ModelProvider, World } from './core/domain/types'
-import { blueprintLabel, byBlueprint, chatMindOf, chatOrder, chatSortAt, chatWindow, contextWindowOf, lastChatReplica, namedNotes, noteColors, providerHue, providerWindow } from './crew'
+import { blueprintLabel, byBlueprint, chatMindOf, chatOrder, chatSortAt, chatWindow, contextWindowOf, lastChatReplica, namedNotes, noteColors, offeredGroups, providerHue, providerWindow, swapPlan, unlistedModels } from './crew'
 
 function chatOn(effort: string): { w: World; chat: Chat } {
   const w = seedWorld()
@@ -11,6 +11,38 @@ function chatOn(effort: string): { w: World; chat: Chat } {
   r.effort = effort
   return { w, chat: { id: 'c', teamId: r.teamId, replicaId: r.id, name: r.name, look: r.look, model: 'm', tokens: 0, messages: [], createdAt: 0 } }
 }
+
+describe('replacing a model across the island', () => {
+  function island(): World {
+    const w = seedWorld()
+    w.providers = {
+      p: { id: 'p', name: 'P', kind: 'openai', baseUrl: '', auth: { kind: 'apiKey', keyHint: 'x' }, models: ['new', 'off'], hidden: ['off'], thinking: { new: ['low', 'high'] } },
+    }
+    const [a, b, c, d] = Object.values(w.replicas)
+    Object.assign(a, { model: 'old', effort: 'high' })
+    Object.assign(b, { model: 'old', effort: 'xhigh' })
+    Object.assign(c, { model: 'old', effort: 'default' })
+    Object.assign(d, { model: 'new', effort: 'low' })
+    return w
+  }
+
+  it('moves everyone on the old model, keeping each level the new one takes and the default otherwise', () => {
+    const w = island()
+    const plan = swapPlan(w, 'old', 'new')
+    expect(plan.map((x) => [x.r.effort, x.effort])).toEqual([['high', 'high'], ['xhigh', 'default'], ['default', 'default']])
+  })
+
+  it('gives everyone the level picked for all', () => {
+    expect(swapPlan(island(), 'old', 'new', 'low').map((x) => x.effort)).toEqual(['low', 'low', 'low'])
+  })
+
+  it('finds a model no provider lists any more, and offers only models turned on to move to', () => {
+    const w = island()
+    expect(unlistedModels(w)).toContain('old')
+    expect(unlistedModels(w)).not.toContain('new')
+    expect(offeredGroups(w)).toEqual([{ label: 'P', models: ['new'] }])
+  })
+})
 
 describe('what a chat runs on', () => {
   it('is its model at its employee\'s level', () => {

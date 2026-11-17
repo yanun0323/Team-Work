@@ -22,6 +22,7 @@ import { FlowNotes, openCard } from './FlowNotes'
 import { keptState, sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, makesImages, PROVIDER_KINDS } from './providers'
+import { unlistedModels } from './crew'
 import { Chevron, Select, Toggle, useAutoGrow } from './Controls'
 import { hideBlueprint, hideWorkflow, refreshStaleModels, remoteWindowReason, setLanguage } from './core/ops'
 import { useRemote } from './core/island'
@@ -190,6 +191,15 @@ function Providers({ open, onOpen }: { open: string | null; onOpen: (x: Item) =>
             <span className="fx-row-main">
               <b>{p.name}</b>
               <span>{tr('{label} · {a} · {length} 個模型', { label: PROVIDER_KINDS[p.kind].label, a: authLabel(p), length: p.models.length })}</span>
+            </span>
+          </button></li>
+        ))}
+        {/* a model no provider lists any more, still run on: only here can its people be moved off it */}
+        {unlistedModels(w).map((m) => (
+          <li key={`model:${m}`}><button className="fx-row fx-hit" {...opener({ kind: 'swapModel', id: m })}>
+            <span className="fx-row-main">
+              <b className="fx-row-model">{m}</b>
+              <span>{tr('沒有供應商提供 · {length} 位員工使用', { length: Object.values(w.replicas).filter((r) => r.model === m).length })}</span>
             </span>
           </button></li>
         ))}

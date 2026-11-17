@@ -48,12 +48,34 @@ export const offeredOf = (p: ModelProvider) => p.models.filter((m) => !p.hidden?
  * group; a list shows it only as the value it already holds.
  */
 export function modelGroups(w: World): { label: string; models: string[] }[] {
-  const listed = new Set(Object.values(w.providers).flatMap((p) => p.models))
+  const groups = offeredGroups(w)
+  const others = unlistedModels(w)
+  return others.length ? [...groups, { label: tr('其他'), models: others }] : groups
+}
+
+/** The models turned on under the provider each comes from, a model two offer under the first: what can be picked anew. */
+export function offeredGroups(w: World): { label: string; models: string[] }[] {
   const seen = new Set<string>()
-  const fresh = (models: string[]) => models.filter((m) => !seen.has(m) && !!seen.add(m))
-  const groups = Object.values(w.providers).map((p) => ({ label: p.name, models: fresh(offeredOf(p)) }))
-  groups.push({ label: tr('其他'), models: fresh(Object.values(w.replicas).map((r) => r.model).filter((m) => !listed.has(m))) })
-  return groups.filter((g) => g.models.length > 0)
+  return Object.values(w.providers)
+    .map((p) => ({ label: p.name, models: offeredOf(p).filter((m) => !seen.has(m) && !!seen.add(m)) }))
+    .filter((g) => g.models.length > 0)
+}
+
+/** Models employees run on that no provider lists any more, in the order first met. */
+export function unlistedModels(w: World): string[] {
+  const listed = new Set(Object.values(w.providers).flatMap((p) => p.models))
+  return [...new Set(Object.values(w.replicas).map((r) => r.model).filter((m) => !listed.has(m)))]
+}
+
+/**
+ * Who moving everyone on model `from` to `to` changes, in any company or the staffing agency, and the level each ends
+ * on: `effort` for all when given, else their own while `to` takes it and the default when not. The backend keeps the
+ * same rule.
+ */
+export function swapPlan(w: World, from: string, to: string, effort?: string): { r: Replica; effort: string }[] {
+  const levels = to ? effortsOf(w, to) : []
+  return Object.values(w.replicas).filter((r) => r.model === from)
+    .map((r) => ({ r, effort: effort ?? (levels.includes(r.effort) ? r.effort : DEFAULT_EFFORT) }))
 }
 
 /** Leaves the level to the provider; every model takes it. */

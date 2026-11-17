@@ -29,7 +29,7 @@ import { useAutoGrow, Reroll, Select, Switcher, Toggle, WaitBadge } from './Cont
 import { changeAsk, ChangeLines } from './ChangeCard'
 import { FlowNotes, openCard } from './FlowNotes'
 import { copyDraft, customFlow, draftFlow, draftStaff, editCustom, editDraft, lastFlowId, lastStaff, ownerOnEveryStep, unstaffed, useDraft, type TaskDraft } from './draft'
-import { blueprintGone, blueprintLabel, chatPreview, CONTEXT_UNKNOWN, providerWindow, DEFAULT_EFFORT, effortsOf, isCustom, mindOf, modelGroups, modelsOf, randomLook } from './crew'
+import { blueprintGone, blueprintLabel, chatPreview, CONTEXT_UNKNOWN, providerWindow, DEFAULT_EFFORT, effortsOf, isCustom, mindOf, modelGroups, modelsOf, offeredGroups, randomLook, swapPlan } from './crew'
 import { docDiffOf, docOf, outputFile, type Doc } from './doc'
 import { MOCK } from './core/mode'
 import { githubAddress, parseGithub, shortRepo, wholeRef } from './github'
@@ -50,7 +50,7 @@ import { addProvider, fixedContext, providerUsers, updateProvider, type Provider
 import { handedImageUrl, readHandedDiff, readHandedFile, request } from './core/backend'
 import { DiffNote, useDocView, useRoomForSplit, ViewSwitch } from './HandedDiff'
 import { tally, type DiffLine } from './diffView'
-import { addTeamMemory, attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, deleteTeamMemory, editMemory, editTeamMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fireNow, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, pauseTask, refreshModels, refreshStaleModels, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, setModelsHidden, updateReplica, updateTask } from './core/ops'
+import { addTeamMemory, attempt, blueprintSkills, createTask, deleteBlueprint, deleteMemory, deleteTeamMemory, editMemory, editTeamMemory, deleteProvider, deleteTask, deleteTeam, deleteWorkflow, duplicateWorkflow, hideBlueprint, hideWorkflow, endTalk, fireNow, hire, pinChat, projectImageUrl, readChatSkill, readProjectFile, readSourceSkill, pauseTask, refreshModels, refreshStaleModels, replaceModel, resolveReview, resumeTask, returnTask, saveBlueprint, saveWorkflow, sayInTalk, setModelsHidden, updateReplica, updateTask } from './core/ops'
 import { SubscriptionLogin } from './SubscriptionLogin'
 import { NotesSheet } from './Notes'
 import { FileDetail, FileEdit } from './FileSheets'
@@ -107,6 +107,8 @@ export type Item =
   | { kind: 'provider'; id: string }
   | { kind: 'providerEdit'; id: string }
   | { kind: 'newProvider' }
+  /** Moving everyone on model `id` to another, across the island. */
+  | { kind: 'swapModel'; id: string }
   | { kind: 'blueprintEdit'; id: string }
   | { kind: 'disband' }
   /** The company's notes, from the note pinned to its file. */
@@ -234,8 +236,10 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           )}
           {item.kind === 'provider' && (
             <ProviderDetail id={item.id} title={title} tid={id} editing={above?.kind === 'providerEdit'}
-              onEdit={() => onPush({ kind: 'providerEdit', id: item.id })} onGoneProvider={onDone} />
+              onEdit={() => onPush({ kind: 'providerEdit', id: item.id })} onGoneProvider={onDone}
+              swapping={above?.kind === 'swapModel' ? above.id : null} onSwapModel={(m) => onPush({ kind: 'swapModel', id: m })} />
           )}
+          {item.kind === 'swapModel' && <SwapModel from={item.id} title={title} tid={id} onDone={onDone} />}
           {(item.kind === 'providerEdit' || item.kind === 'newProvider') && (
             <ProviderEdit id={item.kind === 'providerEdit' ? item.id : null} title={title} tid={id} onDone={onDone} />
           )}
@@ -1349,12 +1353,15 @@ function doingOf(w: World, r: Replica) {
 }
 
 /** A model provider: how it is reached, the models it offers, and who runs on them. */
-function ProviderDetail({ id, editing, onEdit, onGoneProvider, ...h }: Head & {
+function ProviderDetail({ id, editing, onEdit, onGoneProvider, swapping, onSwapModel, ...h }: Head & {
   id: string
   editing: boolean
   onEdit: () => void
   /** Called once the provider is deleted, to put its sheet away. */
   onGoneProvider: () => void
+  /** The model whose replacing is open on the sheet above. */
+  swapping: string | null
+  onSwapModel: (model: string) => void
 }) {
   const w = useStore((s) => s.world)
   const act = useStore((s) => s.act)
@@ -1399,12 +1406,95 @@ function ProviderDetail({ id, editing, onEdit, onGoneProvider, ...h }: Head & {
       </Section>
       <Section name={tr('使用中的員工')}>
         {crew.length === 0 ? <p className="fx-d-muted">{tr('沒有人')}</p> : (
-          <ul className="fx-d-people">
-            {crew.map((r) => <li key={r.id}><PixelFace look={r.look} name={r.name} size={26} /><b>{r.name}</b><span>{r.model}</span></li>)}
-          </ul>
+          <div className="fx-d-groups fx-d-model-groups">
+            {p.models.filter((m) => crew.some((r) => r.model === m)).map((m) => (
+              <div key={m} className="fx-d-group">
+                <h4><code>{m}</code>
+                  <button type="button" className="fx-d-sec-tool" aria-expanded={swapping === m} onClick={() => onSwapModel(m)}>{tr('換模型')}</button>
+                </h4>
+                <People list={crew.filter((r) => r.model === m)} />
+              </div>
+            ))}
+          </div>
         )}
       </Section>
     </>
+  )
+}
+
+/** Where an employee works: their company, or the staffing agency. */
+const placeName = (w: World, r: Replica) => (r.teamId === STAFFING_ID ? tr('移民署') : w.teams[r.teamId]?.name ?? '')
+
+/** Employees anywhere on the island, each with where they work and, given `end`, what ends on the right. */
+function People({ list, end }: { list: Replica[]; end?: (r: Replica) => React.ReactNode }) {
+  const w = useStore((s) => s.world)
+  return (
+    <ul className="fx-d-people">
+      {list.map((r) => (
+        <li key={r.id}>
+          <PixelFace look={r.look} name={r.name} size={26} /><b>{r.name}</b><span>{placeName(w, r)}</span>{end?.(r)}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** What the thinking level list shows for leaving each employee their own. */
+const KEEP_EFFORT = ''
+
+/**
+ * Move everyone on model `from`, in every company and the staffing agency, to another model in one go: all or none.
+ * Each keeps their thinking level unless one is picked for all, or the new model does not take theirs.
+ */
+function SwapModel({ from, onDone, ...h }: Head & { from: string; onDone: () => void }) {
+  const w = useStore((s) => s.world)
+  const act = useStore((s) => s.act)
+  const [to, setTo] = useState('')
+  const [effort, setEffort] = useState(KEEP_EFFORT)
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState('')
+  const groups = offeredGroups(w).map((g) => ({ ...g, models: g.models.filter((m) => m !== from) })).filter((g) => g.models.length > 0)
+  const models = groups.flatMap((g) => g.models)
+  const levels = to ? effortsOf(w, to) : [DEFAULT_EFFORT]
+  // a level the new model does not take goes back to each keeping their own
+  const level = effort === KEEP_EFFORT || levels.includes(effort) ? effort : KEEP_EFFORT
+  const plan = swapPlan(w, from, to, level === KEEP_EFFORT ? undefined : level)
+  const moved = new Map(plan.map((x) => [x.r.id, x.effort]))
+  const go = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!to || !plan.length || busy) return
+    setBusy(true)
+    setFailed('')
+    replaceModel(act, from, to, level === KEEP_EFFORT ? undefined : level)
+      .then(onDone, (err: Error) => { setBusy(false); setFailed(err.message) })
+  }
+  return (
+    <form className="fx-d-form" onSubmit={go} aria-busy={busy}>
+      <header className="fx-d-head"><Heading {...h}>{tr('替換 {model}', { model: from })}</Heading></header>
+      <div className="fx-fields">
+        <Select label={tr('新模型')} value={to} options={models} onChange={setTo} onOpen={refreshStaleModels}
+          groups={groups.map((g) => ({ label: g.label, count: g.models.length }))}
+          groupOf={(m) => groups.findIndex((g) => g.models.includes(m))} />
+        <Select label={tr('思考等級')} value={level} options={[KEEP_EFFORT, ...levels]} disabled={!to}
+          labelOf={(x) => (x === KEEP_EFFORT ? tr('保留各自的設定') : x)} onChange={setEffort} />
+      </div>
+      <Section name={tr('使用中的員工')}>
+        {plan.length === 0 ? <p className="fx-d-muted">{tr('沒有人')}</p> : (
+          <People list={plan.map((x) => x.r)} end={(r) => {
+            const next = to ? moved.get(r.id) : undefined
+            return (
+              <span className="fx-d-effort">
+                {next && next !== r.effort ? <><s>{r.effort}</s> → <b>{next}</b></> : r.effort}
+              </span>
+            )
+          }} />
+        )}
+      </Section>
+      {failed && <p className="fx-room-warn" role="alert">{failed}</p>}
+      <button type="submit" className="fx-save" disabled={busy || !to || !plan.length}>
+        {tr('替換 {length} 人', { length: plan.length })}
+      </button>
+    </form>
   )
 }
 

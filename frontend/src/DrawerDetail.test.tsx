@@ -161,6 +161,33 @@ it('offers to read a provider\'s models again only when it can answer', () => {
   }
 })
 
+it('lists a provider\'s users under the model each runs on, with a way to move them all off it', () => {
+  const w = useStore.getState().world
+  const [a, b] = Object.values(w.replicas)
+  const was = [a.model, b.model]
+  w.providers.g1 = { id: 'g1', name: 'G', kind: 'openai', baseUrl: '', auth: { kind: 'apiKey', keyHint: 'x' }, models: ['m-one', 'm-two', 'm-free'] }
+  Object.assign(a, { model: 'm-two' })
+  Object.assign(b, { model: 'm-one' })
+  Object.assign(useStore.getInitialState(), useStore.getState())
+  const noop = () => {}
+  const sheet = (item: Item) => renderToStaticMarkup(<Detail item={item} teamId="" depth={0} covered={false} leaving={false}
+    onGone={noop} onBack={noop} onDone={noop} onClear={noop} onPush={noop} onOpen={noop} />)
+  try {
+    const html = sheet({ kind: 'provider', id: 'g1' })
+    // in the provider's order, and only models someone runs on
+    expect(html.indexOf('<code>m-one</code>')).toBeLessThan(html.indexOf('<code>m-two</code>'))
+    expect(html).not.toContain('<code>m-free</code>')
+    expect(html.match(/換模型/g)).toHaveLength(2)
+    const swap = sheet({ kind: 'swapModel', id: 'm-one' })
+    expect(swap).toContain('替換 m-one')
+    expect(swap).toContain('替換 1 人')
+  } finally {
+    delete w.providers.g1
+    Object.assign(a, { model: was[0] })
+    Object.assign(b, { model: was[1] })
+  }
+})
+
 it('says where a task blueprint that cannot be edited comes from, and nothing for one of your own', () => {
   const w = useStore.getState().world
   const mine = Object.values(w.workflows).find((f) => !isLocked(f.id))!

@@ -553,6 +553,18 @@ export const startLogin = (id: string, method?: 'browser' | 'device') => request
 export const pasteLogin = (id: string, value: string) => request('POST', `/providers/${id}/login/paste`, { value })
 export const cancelLogin = (id: string) => request('DELETE', `/providers/${id}/login`)
 export const logout = (id: string) => request('POST', `/providers/${id}/logout`)
+/**
+ * Moves everyone on model `from` to `to`, all or none, in every company and the staffing agency, and says how many
+ * moved. Without `effort` each keeps their own level while `to` takes it.
+ */
+export const replaceModel = (act: (fn: (w: World) => void) => void, from: string, to: string, effort?: string): Promise<number> => (MOCK
+  // crew.ts reaches back here through the store, so it is read once the modules are all in
+  ? import('../crew').then(({ swapPlan }) => simulate(act, (w) => {
+    const plan = swapPlan(w, from, to, effort)
+    for (const { r, effort: level } of plan) Object.assign(w.replicas[r.id], { model: to, effort: level })
+    return plan.length
+  }))
+  : request<{ changed: number }>('POST', '/replicas/replace-model', { from, to, effort }).then((r) => r.changed))
 /** Asks a provider for its models now; settles once the answer is in the world. */
 export const refreshModels = (id: string): Promise<void> => (MOCK ? Promise.resolve() : request('POST', `/providers/${id}/models`).then(() => undefined))
 /** A list of models is being opened: providers not asked for a while are asked again, in the background. */
