@@ -563,6 +563,9 @@ body { margin: 0; overflow: hidden; }
 .fx-detail-cover.fx-wide-cover { z-index: 4; }
 .fx-drawer { transition: translate 320ms cubic-bezier(0.3, 0.7, 0.4, 1); }
 .fx-drawer:has(> .fx-wide-cover:is(:hover, :focus-visible)) { translate: 4px -4px; }
+/* while covered, the drawer or sheet is a layer of its own, so that pull moves a picture of it rather than painting it
+   again every frame (WebKit does, for a whole drawer); only then, as each layer holds a window-sized picture */
+.fx-drawer:has(> .fx-wide-cover), .fx-detail:has(> .fx-detail-cover) { will-change: translate; }
 /* the sheet's lower right corner turns that on and off */
 .fx-tool.fx-wide-tool { position: absolute; right: 4px; bottom: 4px; z-index: 1; min-width: 26px; height: 26px; border-radius: 13px; color: var(--muted); }
 .fx-tool.fx-wide-tool[aria-pressed="true"], .fx-tool.fx-wide-tool:hover { color: var(--ink); }
