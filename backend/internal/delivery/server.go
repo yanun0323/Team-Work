@@ -141,6 +141,7 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 	api.POST("/sources/:id/seen", s.seeSource)
 
 	api.POST("/replicas", s.hire)
+	api.POST("/replicas/replace-model", s.replaceReplicaModel)
 	api.PATCH("/replicas/:id", s.updateReplica)
 	api.DELETE("/replicas/:id", s.fire)
 	api.POST("/replicas/:id/move", s.moveReplica)
@@ -722,6 +723,22 @@ func (s *Server) hire(c echo.Context) error {
 		err = s.engine.PinOwnSources(c.Request().Context(), out.ID)
 	}
 	return created(c, out, err)
+}
+
+func (s *Server) replaceReplicaModel(c echo.Context) error {
+	in, err := bind[struct {
+		From   string  `json:"from"`
+		To     string  `json:"to"`
+		Effort *string `json:"effort"`
+	}](c)
+	if err != nil {
+		return err
+	}
+	count, err := s.engine.ReplaceReplicaModel(in.From, in.To, in.Effort)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, map[string]int{"changed": count})
 }
 
 func (s *Server) updateReplica(c echo.Context) error {

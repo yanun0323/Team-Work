@@ -1518,6 +1518,47 @@ func (e *Engine) UpdateReplica(id string, p ReplicaPatch) error {
 	return change(func() error { return e.updateReplica(id, p) })
 }
 
+// ReplaceReplicaModel moves all employees on from, even if it has been delisted. Only
+// the destination must be selectable. A run already underway keeps its own model spec.
+func (e *Engine) ReplaceReplicaModel(from, to string, effort *string) (int, error) {
+	changed := 0
+	err := e.doSettings(func() error {
+		if strings.TrimSpace(from) == "" || strings.TrimSpace(to) == "" || from == to {
+			return model.Errorf(model.CodeInvalid, "請選擇兩個不同的模型")
+		}
+		offered := false
+		for _, p := range e.w.Providers {
+			if slices.Contains(p.Offered(), to) {
+				offered = true
+				break
+			}
+		}
+		if !offered {
+			return model.Errorf(model.CodeInvalid, "這座島沒有模型 %s，請重新選擇模型", to)
+		}
+		if effort != nil && !e.takesEffort(to, *effort) {
+			return model.Errorf(model.CodeInvalid, "%s 沒有思考等級 %s", to, *effort)
+		}
+		for _, r := range e.w.Replicas {
+			if r.Model != from {
+				continue
+			}
+			r.Model = to
+			if effort != nil {
+				r.Effort = *effort
+			} else if !e.takesEffort(to, r.Effort) {
+				r.Effort = model.ThinkingDefault
+			}
+			changed++
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return changed, nil
+}
+
 // checkPatch refuses a change to employee id that could not be made, and says the thinking level they would have.
 // Call it holding the lock.
 func (e *Engine) checkPatch(id string, p ReplicaPatch) (effort string, err error) {

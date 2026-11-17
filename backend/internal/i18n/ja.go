@@ -2,6 +2,7 @@ package i18n
 
 // ja is the Japanese of every text the backend tells the user, by its Chinese.
 var ja = map[string]string{
+	"請選擇兩個不同的模型":                        "異なる2つのモデルを選んでください",
 	"對方回傳的員工資料不正確":                      "相手から届いた社員データが正しくありません",
 	"對方回傳的內容太大":                         "相手から届いた内容が大きすぎます",
 	"對方的 Team Work 太舊，請對方更新":            "相手の Team Work が古いため、相手に更新してもらってください",

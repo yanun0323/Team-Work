@@ -2,6 +2,7 @@ package i18n
 
 // zhHans is the Simplified Chinese of every text the backend tells the user, by its Chinese.
 var zhHans = map[string]string{
+	"請選擇兩個不同的模型":                        "请选择两个不同的模型",
 	"對方回傳的員工資料不正確":                      "对方返回的员工资料不正确",
 	"對方回傳的內容太大":                         "对方返回的内容太大",
 	"對方的 Team Work 太舊，請對方更新":            "对方的 Team Work 太旧，请对方更新",

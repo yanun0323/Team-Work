@@ -2,6 +2,7 @@ package i18n
 
 // en is the English of every text the backend tells the user, by its Chinese. Words follow CONTEXT.md.
 var en = map[string]string{
+	"請選擇兩個不同的模型":                        "Pick two different models",
 	"對方回傳的員工資料不正確":                      "The other computer sent employee data that could not be read",
 	"對方回傳的內容太大":                         "What the other computer sent is too large",
 	"對方的 Team Work 太舊，請對方更新":            "The other island's Team Work is too old; ask them to update",

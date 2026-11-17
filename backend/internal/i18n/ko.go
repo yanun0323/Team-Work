@@ -2,6 +2,7 @@ package i18n
 
 // ko is the Korean of every text the backend tells the user, by its Chinese.
 var ko = map[string]string{
+	"請選擇兩個不同的模型":                        "서로 다른 두 모델을 선택하세요",
 	"對方回傳的員工資料不正確":                      "상대가 보낸 직원 데이터가 올바르지 않습니다",
 	"對方回傳的內容太大":                         "상대가 보낸 내용이 너무 큽니다",
 	"對方的 Team Work 太舊，請對方更新":            "상대 섬의 Team Work가 너무 오래되었습니다. 상대에게 업데이트를 요청하세요",
