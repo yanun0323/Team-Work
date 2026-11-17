@@ -4,7 +4,10 @@ import { usePrefs } from './prefs'
 import { PrefsPage } from './Settings'
 import { useUnderWide, useWideClass, WideCover, WideTool } from './WideSheets'
 
-afterEach(() => usePrefs.setState({ wideSheets: false }))
+// renderToStaticMarkup reads the store's initial state, so keep it in step with what a test sets
+const set = (wideSheets: boolean) => { usePrefs.setState({ wideSheets }); Object.assign(usePrefs.getInitialState(), usePrefs.getState()) }
+
+afterEach(() => set(false))
 
 function Sheet() {
   return <aside className={`fx-detail${useWideClass()}`}><WideTool /></aside>
@@ -13,7 +16,7 @@ function Sheet() {
 it('keeps the sheets on the left half until the corner button or the setting widens them', () => {
   expect(renderToStaticMarkup(<Sheet />)).toContain('<aside class="fx-detail">')
   expect(renderToStaticMarkup(<Sheet />)).toContain('aria-pressed="false" aria-label="展開子介面"')
-  usePrefs.setState({ wideSheets: true })
+  set(true)
   expect(renderToStaticMarkup(<Sheet />)).toContain('<aside class="fx-detail fx-wide">')
   expect(renderToStaticMarkup(<Sheet />)).toContain('aria-pressed="true" aria-label="展開子介面"')
 })
@@ -27,7 +30,7 @@ function Drawer({ open }: { open: boolean }) {
 it('covers the drawer as a covered sheet, and makes what is on it inert, only while wide sheets are out', () => {
   const plain = '<aside><div class="fx-sheet"></div></aside>'
   expect(renderToStaticMarkup(<Drawer open />)).toBe(plain)
-  usePrefs.setState({ wideSheets: true })
+  set(true)
   expect(renderToStaticMarkup(<Drawer open={false} />)).toBe(plain)
   expect(renderToStaticMarkup(<Drawer open />)).toBe(
     '<aside><div class="fx-sheet" inert=""></div><button type="button" class="fx-detail-cover fx-wide-cover" aria-label="收起上面那張，回到這張"></button></aside>')
