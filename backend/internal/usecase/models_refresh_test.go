@@ -60,6 +60,38 @@ func TestRefreshStaleModels(t *testing.T) {
 	}
 }
 
+// The length a provider reports for each model is kept with its list and outlives a restart; one it stops reporting
+// is dropped.
+func TestReportedWindowsAreKept(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
+	ctx := context.Background()
+	var provider string
+	for id := range r.world().Providers {
+		provider = id
+	}
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "fake", ContextWindow: 32_768}, {ID: "fake-2"}}
+	r.fake.mu.Unlock()
+	if err := r.e.RefreshModels(ctx, provider); err != nil {
+		t.Fatal(err)
+	}
+	r.e.Close()
+	newEngine(t, r)
+	if got := r.world().Providers[provider].Windows; len(got) != 1 || got["fake"] != 32_768 {
+		t.Fatalf("after a restart: %v", got)
+	}
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "fake"}}
+	r.fake.mu.Unlock()
+	if err := r.e.RefreshModels(ctx, provider); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.world().Providers[provider].Windows; got != nil {
+		t.Fatalf("kept one no longer reported: %v", got)
+	}
+}
+
 // Reading the models again, as on start, marks a subscription whose sign-in is gone, so the Airport offers to sign
 // in again before an employee's reply fails on it; a passing failure leaves the sign-in be.
 func TestRefreshMarksASignedOutSubscription(t *testing.T) {

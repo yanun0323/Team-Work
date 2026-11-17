@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -303,6 +304,108 @@ func TestProvidersReportLevels(t *testing.T) {
 	got, err = p.Models(context.Background())
 	if err != nil || !slices.Equal(got[0].Thinking, []string{"low", "high", "max"}) {
 		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+// serveRoutes answers each path with its own body, and 404 for the rest; it keeps the paths and queries asked.
+func serveRoutes(t *testing.T, kind enum.ProviderKind, routes map[string]string) (adapter.Provider, *[]string) {
+	t.Helper()
+	asked := &[]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*asked = append(*asked, r.URL.RequestURI())
+		body, ok := routes[r.URL.Path]
+		if !ok || r.Header.Get("Authorization") != "Bearer sk-key" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	p, err := NewFactory(nil, nil).For(model.ModelProvider{Name: "x", Kind: kind, BaseURL: srv.URL + "/v1", Auth: model.ProviderAuth{Kind: "apiKey"}}, "sk-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p, asked
+}
+
+func windowsOf(t *testing.T, p adapter.Provider) map[string]int {
+	t.Helper()
+	specs, err := p.Models(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]int{}
+	for _, s := range specs {
+		out[s.ID] = s.ContextWindow
+	}
+	return out
+}
+
+// vLLM and SGLang list max_model_len, a vLLM LoRA adapter none of its own; OpenRouter lists context_length. A list
+// that says it all leaves the server unasked.
+func TestListedWindows(t *testing.T) {
+	p, asked := serveRoutes(t, enum.ProviderCompatible, map[string]string{"/v1/models": `{"data":[
+		{"id":"qwen","owned_by":"vllm","root":"/m/qwen","max_model_len":32768},
+		{"id":"qwen-lora","owned_by":"vllm","parent":"qwen","max_model_len":null},
+		{"id":"sg","owned_by":"sglang","max_model_len":65536.0},
+		{"id":"meta-llama/llama-3.3-70b-instruct","context_length":131072,"top_provider":{"context_length":131072}}]}`})
+	got := windowsOf(t, p)
+	want := map[string]int{"qwen": 32768, "qwen-lora": 32768, "sg": 65536, "meta-llama/llama-3.3-70b-instruct": 131072}
+	if !maps.Equal(got, want) || len(*asked) != 1 {
+		t.Fatalf("%v, asked %v", got, *asked)
+	}
+}
+
+// llama.cpp lists the length its model was trained to; the length it runs at is the n_ctx of /props, asked of the
+// server's root without loading a model. With no answer from /props the model has no length.
+func TestLlamaCppWindowsComeFromProps(t *testing.T) {
+	list := `{"object":"list","data":[{"id":"llama.gguf","object":"model","owned_by":"llamacpp","meta":{"n_ctx_train":131072}}]}`
+	p, asked := serveRoutes(t, enum.ProviderCompatible, map[string]string{"/v1/models": list, "/props": `{"default_generation_settings":{"n_ctx":8192},"total_slots":4}`})
+	if got := windowsOf(t, p); got["llama.gguf"] != 8192 {
+		t.Fatalf("%v", got)
+	}
+	if q := (*asked)[1]; q != "/props?autoload=false&model=llama.gguf" {
+		t.Fatalf("asked %s", q)
+	}
+	p, _ = serveRoutes(t, enum.ProviderCompatible, map[string]string{"/v1/models": list})
+	if got := windowsOf(t, p); got["llama.gguf"] != 0 {
+		t.Fatalf("took the trained length: %v", got)
+	}
+}
+
+// LM Studio's own API gives the length each loaded model runs at; one not loaded has only the length it was trained
+// to, which is not taken.
+func TestLMStudioWindowsComeFromLoadedModels(t *testing.T) {
+	p, _ := serveRoutes(t, enum.ProviderCompatible, map[string]string{
+		"/v1/models": `{"data":[{"id":"google/gemma","object":"model","owned_by":"organization_owner"},{"id":"google/gemma:2","object":"model"},{"id":"deepseek-r1","object":"model"}]}`,
+		"/api/v1/models": `{"models":[
+			{"type":"llm","key":"google/gemma","loaded_instances":[{"id":"google/gemma","config":{"context_length":4096}},{"id":"google/gemma:2","config":{"context_length":16384}}],"max_context_length":262144},
+			{"type":"llm","key":"deepseek-r1","loaded_instances":[],"max_context_length":131072}]}`,
+	})
+	want := map[string]int{"google/gemma": 4096, "google/gemma:2": 16384, "deepseek-r1": 0}
+	if got := windowsOf(t, p); !maps.Equal(got, want) {
+		t.Fatalf("%v", got)
+	}
+}
+
+// Ollama's list says no length, and nothing else it answers is taken for one, so its models go by the size set for
+// the provider.
+func TestOllamaReportsNoWindow(t *testing.T) {
+	p, _ := serveRoutes(t, enum.ProviderCompatible, map[string]string{
+		"/v1/models": `{"object":"list","data":[{"id":"gemma4:latest","object":"model","created":1755000000,"owned_by":"library"}]}`,
+		"/api/show":  `{"model_info":{"gemma4.context_length":131072}}`,
+		"/api/tags":  `{"models":[{"name":"gemma4:latest"}]}`,
+	})
+	if got := windowsOf(t, p); got["gemma4:latest"] != 0 {
+		t.Fatalf("%v", got)
+	}
+}
+
+// Only a compatible server is asked more than its list.
+func TestOnlyCompatibleServersAreAskedForWindows(t *testing.T) {
+	p, asked := serveRoutes(t, enum.ProviderGoogle, map[string]string{"/v1/models": `{"data":[{"id":"models/gemini"}]}`})
+	if got := windowsOf(t, p); got["gemini"] != 0 || len(*asked) != 1 {
+		t.Fatalf("%v, asked %v", got, *asked)
 	}
 }
 

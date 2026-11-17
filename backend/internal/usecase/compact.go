@@ -44,10 +44,11 @@ func summaryWords(room int) int {
 	return min(max(room/40, 500), 4_000)
 }
 
-// windowOf is how many tokens a model can read: its provider's size, or a guess when no provider offers it.
+// windowOf is how many tokens a model can read: what its provider reports or was set to, or a guess when no provider
+// offers it.
 func (e *Engine) windowOf(modelID string) int {
 	if p := e.providerFor(modelID); p != nil {
-		return model.ContextWindow(*p)
+		return model.ContextWindow(*p, modelID)
 	}
 	return model.ContextUnknown
 }

@@ -34,6 +34,26 @@ func TestCompactAtTakesTheLowerOfTheShareAndTheRoomKept(t *testing.T) {
 	}
 }
 
+// A chat is summed up by the length its provider reports for the model, ahead of the size set for the provider.
+func TestChatRoomGoesByTheReportedWindow(t *testing.T) {
+	t.Parallel()
+	w := model.NewWorld()
+	w.Preferences = model.DefaultPreferences()
+	w.Providers["p"] = &model.ModelProvider{ID: "p", Kind: enum.ProviderCompatible, Models: []string{"small", "big"},
+		ContextWindow: 200_000, Windows: map[string]int{"small": 32_000}}
+	e := Engine{w: w}
+	if got := e.windowOf("small"); got != 32_000 {
+		t.Fatalf("reported: %d", got)
+	}
+	if got := e.windowOf("big"); got != 200_000 {
+		t.Fatalf("set: %d", got)
+	}
+	room, at := e.chatRoom(&model.Chat{Model: "big", Guests: []model.ChatGuest{{Model: "small"}}})
+	if room != 32_000 || at != 24_000 {
+		t.Fatalf("room %d, at %d", room, at)
+	}
+}
+
 func TestCompactCutKeepsLessOnASmallModel(t *testing.T) {
 	t.Parallel()
 	var conv []model.Message

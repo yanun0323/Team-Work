@@ -603,6 +603,22 @@ type providerView struct {
 	Thinking map[string][]string         `json:"thinking,omitempty"`
 	Prices   map[string]model.ModelPrice `json:"prices,omitempty"`
 	Window   int                         `json:"contextWindow"`
+	// Windows are the lengths the provider reports for its models, in place of Window.
+	Windows map[string]int `json:"contextWindows,omitempty"`
+}
+
+// offeredWindows are the reported lengths of the models a provider offers; nil when it reports none.
+func offeredWindows(p *model.ModelProvider) map[string]int {
+	var out map[string]int
+	for _, m := range p.Offered() {
+		if n := p.Windows[m]; n > 0 {
+			if out == nil {
+				out = map[string]int{}
+			}
+			out[m] = n
+		}
+	}
+	return out
 }
 
 func (e *Engine) readProvider(id string) (providerView, bool) {
@@ -610,5 +626,5 @@ func (e *Engine) readProvider(id string) (providerView, bool) {
 	if p == nil {
 		return providerView{}, false
 	}
-	return providerView{p.ID, versionOf(p), p.Name, p.Kind, p.Auth.Kind, p.Auth.KeyHint, p.Auth.SignedIn, p.BaseURL, p.Offered(), p.Thinking, p.Prices, model.ContextWindow(*p)}, true
+	return providerView{p.ID, versionOf(p), p.Name, p.Kind, p.Auth.Kind, p.Auth.KeyHint, p.Auth.SignedIn, p.BaseURL, p.Offered(), p.Thinking, p.Prices, model.ContextWindow(*p, ""), offeredWindows(p)}, true
 }

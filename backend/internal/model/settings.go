@@ -51,6 +51,8 @@ type ProviderConfig struct {
 	ContextWindow int `json:"contextWindow,omitempty"`
 	// Hidden are the models turned off, offered in no list.
 	Hidden []string `json:"hidden,omitempty"`
+	// Windows is how many tokens the provider reports it runs each model at.
+	Windows map[string]int `json:"windows,omitempty"`
 }
 
 func WithoutLocked[T any](all map[string]T) map[string]T {
@@ -75,7 +77,7 @@ func SettingsOf(w *World) Settings {
 		s.Replicas[id] = ReplicaConfig{r.ID, r.TeamID, r.BlueprintID, r.Name, r.Look, r.Model, r.Effort}
 	}
 	for id, p := range w.Providers {
-		s.Providers[id] = ProviderConfig{p.ID, p.Name, p.Kind, p.Auth.Kind, p.BaseURL, p.Models, p.Thinking, p.Prices, p.ContextWindow, p.Hidden}
+		s.Providers[id] = ProviderConfig{p.ID, p.Name, p.Kind, p.Auth.Kind, p.BaseURL, p.Models, p.Thinking, p.Prices, p.ContextWindow, p.Hidden, p.Windows}
 	}
 	return s
 }
@@ -94,7 +96,7 @@ func (s Settings) Install(w *World) {
 	for id, c := range s.Providers {
 		p := w.Providers[id]
 		p.Name, p.Kind, p.Auth.Kind, p.BaseURL = c.Name, c.Kind, c.AuthKind, c.BaseURL
-		p.Models, p.Thinking, p.Prices, p.ContextWindow, p.Hidden = c.Models, c.Thinking, c.Prices, c.ContextWindow, c.Hidden
+		p.Models, p.Thinking, p.Prices, p.ContextWindow, p.Hidden, p.Windows = c.Models, c.Thinking, c.Prices, c.ContextWindow, c.Hidden, c.Windows
 	}
 	w.Blueprints, w.Workflows = s.Blueprints, s.Workflows
 	w.Sources = s.Sources

@@ -635,6 +635,8 @@ type ModelProvider struct {
 	// ContextWindow is how many tokens its models can read, as the user set it. Only kinds with no fixed size keep one;
 	// 0 when it was never set.
 	ContextWindow int `json:"contextWindow,omitempty"`
+	// Windows is how many tokens the provider reports it runs each model at; a model it says nothing of is not in it.
+	Windows map[string]int `json:"windows,omitempty"`
 }
 
 // Offered are the models a list may offer: those it lists, less the ones turned off.
@@ -659,9 +661,12 @@ const (
 	ContextMost  = 10_000_000
 )
 
-// ContextWindow is how many tokens a provider's models can read.
-func ContextWindow(p ModelProvider) int {
+// ContextWindow is how many tokens one of a provider's models can read: what the provider reports first, then its
+// kind's fixed size, then the size the user set. An empty model asks for the provider's own size.
+func ContextWindow(p ModelProvider, modelID string) int {
 	switch {
+	case p.Windows[modelID] > 0:
+		return p.Windows[modelID]
 	case p.Kind == enum.ProviderAnthropic:
 		return ContextAnthropic
 	case p.Kind == enum.ProviderOpenAI:
@@ -690,6 +695,9 @@ type ModelSpec struct {
 	ID string
 	// Thinking lists the levels the model accepts, weakest first; empty when the provider doesn't say.
 	Thinking []string
+	// ContextWindow is how many tokens the server runs the model at; 0 when it doesn't say. Never the length the
+	// model was trained to, which a server may run it well short of.
+	ContextWindow int
 }
 
 // Quota is what a provider reports of its allowance. A field it doesn't report stays nil.

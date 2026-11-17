@@ -211,9 +211,24 @@ func TestContextWindowOfEachKind(t *testing.T) {
 		{ModelProvider{Kind: "google", ContextWindow: 200_000}, 200_000},
 		{ModelProvider{Kind: "compatible"}, 128_000},
 	} {
-		if got := ContextWindow(c.p); got != c.want {
+		if got := ContextWindow(c.p, "m"); got != c.want {
 			t.Errorf("%s: %d", c.p.Kind, got)
 		}
+	}
+}
+
+// What the provider reports for a model comes before the size the user set, and models it says nothing of keep that.
+func TestReportedWindowComesFirst(t *testing.T) {
+	p := ModelProvider{Kind: "compatible", ContextWindow: 64_000, Windows: map[string]int{"a": 4_096}}
+	if got := ContextWindow(p, "a"); got != 4_096 {
+		t.Errorf("reported: %d", got)
+	}
+	if got := ContextWindow(p, "b"); got != 64_000 {
+		t.Errorf("unreported: %d", got)
+	}
+	p.ContextWindow = 0
+	if got := ContextWindow(p, "b"); got != ContextUnknown {
+		t.Errorf("neither: %d", got)
 	}
 }
 

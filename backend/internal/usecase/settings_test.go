@@ -188,6 +188,18 @@ func TestSettingsValidationIsAtomic(t *testing.T) {
 		}},
 		{"negative", "settings", func(s *model.Settings) { t := s.Teams[r.team.ID]; t.Settings.Retries = -1; s.Teams[t.ID] = t }},
 		{"null blueprint", "blueprints", func(s *model.Settings) { s.Blueprints[r.owner.BlueprintID] = nil }},
+		{"window of no model", "windows.gone", func(s *model.Settings) {
+			for id, p := range s.Providers {
+				p.Windows = map[string]int{"gone": 8_192}
+				s.Providers[id] = p
+			}
+		}},
+		{"window not positive", "windows.fake", func(s *model.Settings) {
+			for id, p := range s.Providers {
+				p.Windows = map[string]int{"fake": 0}
+				s.Providers[id] = p
+			}
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := model.SettingsOf(r.world())

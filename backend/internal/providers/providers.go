@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -202,7 +203,7 @@ func (f *Factory) For(p model.ModelProvider, key string) (adapter.Provider, erro
 		if c.base == "" {
 			return nil, model.Errorf(model.CodeInvalid, "「%s」沒有填 Base URL", p.Name)
 		}
-		return openAI{client: c}, nil
+		return openAI{client: c, askServer: true}, nil
 	}
 	return nil, model.Errorf(model.CodeInvalid, "不認識的供應商種類 %s", p.Kind)
 }
@@ -274,46 +275,90 @@ func (c client) do(ctx context.Context, method, path string, body any, auth func
 // thinkingOrder is the levels weakest first, as a provider that answers with a set leaves the order open.
 var thinkingOrder = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
 
+// listedModel is a model as `{"data":[...]}` lists it.
+type listedModel struct {
+	ID           string          `json:"id"`
+	Capabilities json.RawMessage `json:"capabilities"`
+	Effort       struct {
+		Levels []string `json:"supported_levels"`
+	} `json:"effort"`
+	ReasoningEfforts []string `json:"reasoning_efforts"`
+	// MaxModelLen is the length vLLM and SGLang serve the model at. A vLLM LoRA adapter has none and runs at the
+	// length of its Parent.
+	MaxModelLen *float64 `json:"max_model_len"`
+	Parent      string   `json:"parent"`
+	// ContextLength is the length OpenRouter serves the model at.
+	ContextLength float64 `json:"context_length"`
+	// OwnedBy and Meta tell llama.cpp's server apart; its meta holds n_ctx_train, the length the model was trained
+	// to, which is never taken as the length it runs at.
+	OwnedBy string          `json:"owned_by"`
+	Meta    json.RawMessage `json:"meta"`
+}
+
 // listModels reads `{"data":[{"id":...}]}`, which both API families answer. The levels come from where a provider
 // reports them: Anthropic's capabilities.effort, or the effort.supported_levels or reasoning_efforts of some
 // OpenAI-style servers. Capabilities may also be a list of names, which says nothing of the levels.
 func (c client) listModels(ctx context.Context, path string, auth func(*http.Request)) ([]model.ModelSpec, error) {
+	listed, err := c.listed(ctx, path, auth)
+	if err != nil {
+		return nil, err
+	}
+	return specsOf(listed), nil
+}
+
+func (c client) listed(ctx context.Context, path string, auth func(*http.Request)) ([]listedModel, error) {
 	res, err := c.do(ctx, http.MethodGet, path, nil, auth)
 	if err != nil {
 		return nil, err
 	}
 	defer res.Body.Close()
 	var body struct {
-		Data []struct {
-			ID           string          `json:"id"`
-			Capabilities json.RawMessage `json:"capabilities"`
-			Effort       struct {
-				Levels []string `json:"supported_levels"`
-			} `json:"effort"`
-			ReasoningEfforts []string `json:"reasoning_efforts"`
-		} `json:"data"`
+		Data []listedModel `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(res.Body, 4<<20)).Decode(&body); err != nil {
 		return nil, model.Errorf(model.CodeUnavailable, "模型清單格式不正確")
 	}
-	out := make([]model.ModelSpec, 0, len(body.Data))
-	for _, m := range body.Data {
-		if m.ID != "" {
-			levels := m.Effort.Levels
-			if len(levels) == 0 {
-				levels = m.ReasoningEfforts
+	return slices.DeleteFunc(body.Data, func(m listedModel) bool { return m.ID == "" }), nil
+}
+
+// specsOf are the listed models with their levels, and the length each runs at when the list says.
+func specsOf(listed []listedModel) []model.ModelSpec {
+	out := make([]model.ModelSpec, 0, len(listed))
+	windows := map[string]int{}
+	for _, m := range listed {
+		levels := m.Effort.Levels
+		if len(levels) == 0 {
+			levels = m.ReasoningEfforts
+		}
+		if len(levels) == 0 {
+			var caps struct {
+				Effort map[string]json.RawMessage `json:"effort"`
 			}
-			if len(levels) == 0 {
-				var caps struct {
-					Effort map[string]json.RawMessage `json:"effort"`
-				}
-				_ = json.Unmarshal(m.Capabilities, &caps) // a list of names has no levels
-				levels = supportedLevels(caps.Effort)
-			}
-			out = append(out, model.ModelSpec{ID: strings.TrimPrefix(m.ID, "models/"), Thinking: levels})
+			_ = json.Unmarshal(m.Capabilities, &caps) // a list of names has no levels
+			levels = supportedLevels(caps.Effort)
+		}
+		window := int(m.ContextLength)
+		if m.MaxModelLen != nil {
+			window = int(*m.MaxModelLen)
+		}
+		window = max(window, 0)
+		windows[m.ID] = window
+		out = append(out, model.ModelSpec{ID: strings.TrimPrefix(m.ID, "models/"), Thinking: levels, ContextWindow: window})
+	}
+	for i, m := range listed {
+		if out[i].ContextWindow == 0 && m.Parent != "" {
+			out[i].ContextWindow = windows[m.Parent]
 		}
 	}
-	return out, nil
+	return out
+}
+
+// llamaCpp says whether llama.cpp's server listed the model.
+func llamaCpp(m listedModel) bool {
+	var meta struct {
+		Trained *float64 `json:"n_ctx_train"`
+	}
+	return m.OwnedBy == "llamacpp" || json.Unmarshal(m.Meta, &meta) == nil && meta.Trained != nil
 }
 
 // supportedLevels reads `{"supported":true,"low":{"supported":true},...}`; a level that isn't there is not offered.

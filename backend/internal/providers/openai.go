@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/yanun0323/Team-Work/internal/model"
@@ -14,12 +16,106 @@ import (
 // through the Responses API instead, by openAIResponses.
 type openAI struct {
 	client
+	// askServer: a compatible server, asked what length it runs a model at when its list does not say.
+	askServer bool
 }
 
 func (o openAI) auth(req *http.Request) { req.Header.Set("Authorization", "Bearer "+o.key) }
 
 func (o openAI) Models(ctx context.Context) ([]model.ModelSpec, error) {
-	return o.listModels(ctx, "/models", o.auth)
+	listed, err := o.listed(ctx, "/models", o.auth)
+	if err != nil {
+		return nil, err
+	}
+	specs := specsOf(listed)
+	if !o.askServer || !slices.ContainsFunc(specs, func(s model.ModelSpec) bool { return s.ContextWindow == 0 }) {
+		return specs, nil
+	}
+	var windows map[string]int
+	if slices.ContainsFunc(listed, llamaCpp) {
+		windows = o.llamaCppWindows(ctx, specs)
+	} else {
+		windows = o.lmStudioWindows(ctx)
+	}
+	for i := range specs {
+		if specs[i].ContextWindow == 0 {
+			specs[i].ContextWindow = windows[specs[i].ID]
+		}
+	}
+	return specs, nil
+}
+
+// serverRoot is where a server's own endpoints are, outside the /v1 of its OpenAI-compatible API.
+func (o openAI) serverRoot() string {
+	u, err := url.Parse(o.base)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// llamaCppProbes is the most models llama.cpp's server is asked about, one request each.
+const llamaCppProbes = 32
+
+// llamaCppWindows reads the length llama.cpp's server gives each request, the n_ctx of its /props. A server in router
+// mode answers for a model it has loaded; autoload=false keeps the question from loading one.
+// https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md
+func (o openAI) llamaCppWindows(ctx context.Context, specs []model.ModelSpec) map[string]int {
+	root, out := o.serverRoot(), map[string]int{}
+	if root == "" {
+		return out
+	}
+	asked := 0
+	for _, s := range specs {
+		if s.ContextWindow > 0 || asked == llamaCppProbes || ctx.Err() != nil {
+			continue
+		}
+		asked++
+		var body struct {
+			Settings struct {
+				NCtx float64 `json:"n_ctx"`
+			} `json:"default_generation_settings"`
+		}
+		if o.getJSON(ctx, root, "/props?autoload=false&model="+url.QueryEscape(s.ID), &body) == nil && body.Settings.NCtx > 0 {
+			out[s.ID] = int(body.Settings.NCtx)
+		}
+	}
+	return out
+}
+
+// lmStudioWindows reads the length LM Studio loaded each model at, by its key and by the id of each copy loaded. A
+// model not loaded has only its max_context_length, the length it was trained to, which is not taken.
+// https://lmstudio.ai/docs/developer/rest/list
+func (o openAI) lmStudioWindows(ctx context.Context) map[string]int {
+	root, out := o.serverRoot(), map[string]int{}
+	if root == "" {
+		return out
+	}
+	var body struct {
+		Models []struct {
+			Key    string `json:"key"`
+			Loaded []struct {
+				ID     string `json:"id"`
+				Config struct {
+					ContextLength float64 `json:"context_length"`
+				} `json:"config"`
+			} `json:"loaded_instances"`
+		} `json:"models"`
+	}
+	if o.getJSON(ctx, root, "/api/v1/models", &body) != nil {
+		return out
+	}
+	for _, m := range body.Models {
+		for _, l := range m.Loaded {
+			if n := int(l.Config.ContextLength); n > 0 {
+				if out[m.Key] == 0 {
+					out[m.Key] = n
+				}
+				out[l.ID] = n
+			}
+		}
+	}
+	return out
 }
 
 type chatMessage struct {

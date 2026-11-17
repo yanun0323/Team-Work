@@ -734,7 +734,7 @@ const saveProviderSchema = `{"type":"object","properties":{"id":{"type":"string"
 	`"login":{"type":"string","enum":["apiKey","subscription"],"description":"Only when adding; apiKey when left out. Subscriptions are for anthropic and openai"},` +
 	`"api_key":{"type":"string","description":"Required when adding with apiKey; when changing, a new key, or leave out to keep the one there is"},` +
 	`"base_url":{"type":"string"},` +
-	`"context_window":{"type":"integer","description":"How many tokens its models can read, 8000 to 10000000; only for google and compatible, as anthropic and openai have their own. 0 unsets it"},` +
+	`"context_window":{"type":"integer","description":"How many tokens its models can read, 8000 to 10000000; only for google and compatible, as anthropic and openai have their own; a length the provider reports for a model comes first. 0 unsets it"},` +
 	`"prices":{"type":"object","description":"Model id to its price in USD per million tokens; replaces all prices","additionalProperties":{"type":"object","properties":{"input":{"type":"number"},"output":{"type":"number"},"cacheRead":{"type":"number"}}}}}}`
 
 func (e *Engine) saveProviderTool(m manager) func(context.Context, string, json.RawMessage) model.ToolResult {

@@ -613,15 +613,23 @@ func (e *Engine) discover(ctx context.Context, p model.ModelProvider, key string
 // the default. Call it on a provider in the world, holding the lock.
 func (e *Engine) setModels(p *model.ModelProvider, specs []model.ModelSpec) {
 	e.modelsAt[p.ID] = e.clock()
-	p.Models, p.Thinking = modelsOf(specs)
+	p.Models, p.Thinking, p.Windows = modelsOf(specs)
 	e.resetEfforts()
 }
 
-func modelsOf(specs []model.ModelSpec) ([]string, map[string][]string) {
+// modelsOf are the models a provider reported, the levels of each, and the length it runs each at when it said.
+func modelsOf(specs []model.ModelSpec) ([]string, map[string][]string, map[string]int) {
 	models := make([]string, 0, len(specs))
 	thinking := make(map[string][]string, len(specs))
+	var windows map[string]int
 	for _, m := range specs {
 		models = append(models, m.ID)
+		if m.ContextWindow > 0 {
+			if windows == nil {
+				windows = map[string]int{}
+			}
+			windows[m.ID] = m.ContextWindow
+		}
 		// a server may report default among its levels; the app puts it first itself, so a list never holds it twice
 		levels := slices.Clone(m.Thinking)
 		levels = slices.DeleteFunc(levels, func(l string) bool { return l == model.ThinkingDefault })
@@ -630,7 +638,7 @@ func modelsOf(specs []model.ModelSpec) ([]string, map[string][]string) {
 		}
 	}
 	slices.Sort(models)
-	return slices.Compact(models), thinking
+	return slices.Compact(models), thinking, windows
 }
 
 // resetEfforts skips a provider not asked yet: its employees keep their level until it has answered.
@@ -697,7 +705,7 @@ func (e *Engine) AddProvider(ctx context.Context, in NewProvider) (*model.ModelP
 		if err != nil {
 			return nil, err
 		}
-		p.Models, p.Thinking = modelsOf(specs)
+		p.Models, p.Thinking, p.Windows = modelsOf(specs)
 	}
 	var out *model.ModelProvider
 	err := e.doSettings(func() error {
@@ -797,7 +805,7 @@ func (e *Engine) prepareProvider(ctx context.Context, id string, in ProviderPatc
 		}
 		if l.Kind == "apiKey" || wasKey { // already on a subscription: stay signed in
 			next.Auth = authOf(*l)
-			next.Models, next.Thinking = []string{}, nil
+			next.Models, next.Thinking, next.Windows = []string{}, nil, nil
 		}
 		key = strings.TrimSpace(l.APIKey)
 	}
@@ -812,7 +820,7 @@ func (e *Engine) prepareProvider(ctx context.Context, id string, in ProviderPatc
 		if err != nil {
 			return providerEdit{}, err
 		}
-		next.Models, next.Thinking = modelsOf(specs)
+		next.Models, next.Thinking, next.Windows = modelsOf(specs)
 	}
 	return providerEdit{provider: next, key: key, wasKey: wasKey}, nil
 }
@@ -829,7 +837,7 @@ func (e *Engine) writeProvider(ctx context.Context, edit providerEdit) error {
 		if edit.wasKey { // the tokens of a subscription are not this function's to touch
 			e.deleteSecret(id)
 		} else {
-			next.Auth, next.Models, next.Thinking = now.Auth, now.Models, now.Thinking // a sign-in may have ended meanwhile
+			next.Auth, next.Models, next.Thinking, next.Windows = now.Auth, now.Models, now.Thinking, now.Windows // a sign-in may have ended meanwhile
 		}
 	} else {
 		e.setSecret(id, edit.key)
