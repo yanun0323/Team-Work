@@ -50,11 +50,11 @@ describe('tr', () => {
     }
   })
 
-  it('names the read-only script tool switch in every language', () => {
-    const names = { zh: '唯讀腳本工具', 'zh-Hans': '只读脚本工具', ja: '読み取り専用スクリプトツール', ko: '읽기 전용 스크립트 도구', en: 'Read-only script tool' } as const
+  it('names the script tool switch in every language', () => {
+    const names = { zh: '腳本工具', 'zh-Hans': '脚本工具', ja: 'スクリプトツール', ko: '스크립트 도구', en: 'Script tool' } as const
     for (const [language, name] of Object.entries(names)) {
       setAppLanguage(language as keyof typeof names)
-      expect(tr('唯讀腳本工具')).toBe(name)
+      expect(tr('腳本工具')).toBe(name)
     }
   })
 

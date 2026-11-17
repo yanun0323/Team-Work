@@ -19,7 +19,7 @@ it('keeps the script tool switch, and only it, while semantic search is loading 
   for (const st of [null, status({ supported: false, state: 'unsupported' }), status({ state: 'unsupported', reason: '這台電腦不支援' })]) {
     const html = view({ status: st })
     expect(html).toContain('實驗性功能')
-    expect(switches(html)).toEqual(['唯讀腳本工具'])
+    expect(switches(html)).toEqual(['腳本工具'])
     expect(html).not.toContain('這台電腦不支援')
     expect(html).not.toContain('<button')
   }
@@ -27,7 +27,7 @@ it('keeps the script tool switch, and only it, while semantic search is loading 
 
 it('keeps the script tool switch when semantic search cannot be read, beside the reason and a retry', () => {
   const html = view({ status: null, loadError: '讀不到狀態' })
-  expect(switches(html)).toEqual(['唯讀腳本工具'])
+  expect(switches(html)).toEqual(['腳本工具'])
   expect(html).toContain('role="alert"><p>讀不到狀態</p>')
   expect(html).toMatch(/<button[^>]*>重試<\/button>/)
 })
@@ -35,7 +35,7 @@ it('keeps the script tool switch when semantic search cannot be read, beside the
 it('shows the script tool switch as the island has it, on or off, with no line under it', () => {
   expect(view({ status: null })).not.toContain('checked')
   const on = view({ status: null, codeMode: { ...codeMode, on: true } })
-  expect(on).toMatch(/<label[^>]*>唯讀腳本工具<\/label><input[^>]*checked=""/)
+  expect(on).toMatch(/<label[^>]*>腳本工具<\/label><input[^>]*checked=""/)
   expect(on).not.toContain('<p')
   // a save under way leaves it usable from the keyboard: the change is dropped, not the focus
   expect(view({ status: null, codeMode: { ...codeMode, saving: true } })).not.toContain('disabled')
@@ -44,7 +44,7 @@ it('shows the script tool switch as the island has it, on or off, with no line u
 it('is a switch, off, under experimental features', () => {
   const html = view()
   expect(html).toContain('實驗性功能')
-  expect(switches(html)).toEqual(['唯讀腳本工具', '語意搜尋'])
+  expect(switches(html)).toEqual(['腳本工具', '語意搜尋'])
   expect(html).toMatch(/<input[^>]*type="checkbox"[^>]*>/)
   expect(html).not.toContain('checked')
   expect(html).not.toContain('<button')
@@ -113,12 +113,12 @@ it('when the status cannot be read, says so and offers to try again rather than 
   expect(html).toContain('實驗性功能')
   expect(html).toContain('<p>連不上後端</p>')
   expect(html).toMatch(/<button[^>]*>重試<\/button>/)
-  expect(switches(html)).toEqual(['唯讀腳本工具'])
+  expect(switches(html)).toEqual(['腳本工具'])
 })
 
 it('has only the script tool switch under experimental features on the settings page before the status arrives', () => {
   const html = renderToStaticMarkup(<PrefsPage />)
   expect(html).not.toContain('語意搜尋')
   expect(html).toContain('實驗性功能')
-  expect(html).toContain('唯讀腳本工具')
+  expect(html).toContain('腳本工具')
 })

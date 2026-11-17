@@ -1,4 +1,4 @@
-// The settings page's experimental features. The read-only script tool is the island's and shows everywhere. Semantic
+// The settings page's experimental features. The script tool is the island's and shows everywhere. Semantic
 // search is one switch and how far the model has got once the app restarts with it on; it is this computer's own, so it
 // stays the same on another island, and it is not shown where the computer cannot run it.
 
@@ -45,7 +45,7 @@ export function share(s: SemanticStatus): number | null {
 
 export type RestartStep = 'idle' | 'asking' | 'going'
 
-/** The read-only script tool's switch. */
+/** The script tool's switch. */
 export interface CodeModeProps {
   on: boolean
   /** A save is under way; changes meanwhile are dropped. */
@@ -85,7 +85,7 @@ export function SemanticSearchView(p: SemanticViewProps) {
     <section className="fx-d-group" aria-labelledby="fx-prefs-labs">
       <h4 id="fx-prefs-labs">{tr('實驗性功能')}</h4>
       <div className="fx-fields">
-        <Toggle label={tr('唯讀腳本工具')} checked={p.codeMode.on} onChange={p.codeMode.onChange} />
+        <Toggle label={tr('腳本工具')} checked={p.codeMode.on} onChange={p.codeMode.onChange} />
         {s && <Toggle label={tr('語意搜尋')} checked={s.enabled} disabled={p.saving} onChange={p.onToggle} />}
       </div>
       <div role="status" className="fx-labs-status">
@@ -114,7 +114,7 @@ export function SemanticSearchSection() {
 }
 
 /**
- * The read-only script tool's switch: it shows the value asked for until the island's world says otherwise or the
+ * The script tool's switch: it shows the value asked for until the island's world says otherwise or the
  * save fails, and drops changes while a save is under way, so a quick second press does not send it again.
  */
 export function useCodeMode(): CodeModeProps {

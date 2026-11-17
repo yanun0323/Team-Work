@@ -87,7 +87,7 @@ async function mount() {
   const all = () => elements(drawn)
   const text = () => all().flatMap((e) => [e.props.children, e.props.label]).filter((x) => typeof x === 'string').join('\n')
   const toggle = () => all().find((e) => e.type === Toggle && e.props.label === '語意搜尋')
-  const codeMode = () => all().find((e) => e.type === Toggle && e.props.label === '唯讀腳本工具')
+  const codeMode = () => all().find((e) => e.type === Toggle && e.props.label === '腳本工具')
   const button = (name: string) => all().find((e) => e.type === 'button' && e.props.children === name)
   const alerts = () => {
     const alert = all().find((e) => e.props.role === 'alert')!

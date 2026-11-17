@@ -945,7 +945,7 @@ const en = {
   '原因無法判斷': 'The reason could not be told',
   '實驗性功能': 'Experimental',
   '語意搜尋': 'Semantic search',
-  '唯讀腳本工具': 'Read-only script tool',
+  '腳本工具': 'Script tool',
   '重新啟動後生效': 'Takes effect after a restart',
   '重新啟動 Team Work 後生效': 'Takes effect after restarting Team Work',
   '下載模型中 {done} / {total} MB': 'Downloading the model {done} / {total} MB',
