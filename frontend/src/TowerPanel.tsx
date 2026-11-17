@@ -14,6 +14,7 @@ import type { Look } from './core/domain/types'
 import { useIsland } from './core/island'
 import { holdSheets, useCoversLeft } from './Drawer'
 import { BinIcon } from './DrawerDetail'
+import { useUnderWide, useWideClass, WideCover, WideTool } from './WideSheets'
 import {
   approvePairing, clearOutgoing, goTo, inboundOf, isBlocked, leftPeer, pairWith, readTowers, rejectPairing, setPeerInbound,
   startPairing, stopPairing, unblockPeer, unpairPeer,
@@ -83,7 +84,8 @@ export function TowerPanel({ leaving, onGone, onProfile }: {
   const opener = useRef<HTMLElement | null>(null)
   const putAway = useCallback(() => {
     setSheet((s) => (!s ? s : calm ? null : { ...s, leaving: true }))
-    opener.current?.focus({ preventScroll: true })
+    // once the page has redrawn: under wide sheets the drawer holding the opener is inert until then
+    requestAnimationFrame(() => opener.current?.focus({ preventScroll: true }))
   }, [])
   const open = (next: TowerSheet) => {
     if (sheet && !sheet.leaving && sheetKey(sheet) === sheetKey(next)) return putAway()
@@ -91,6 +93,7 @@ export function TowerPanel({ leaving, onGone, onProfile }: {
     setSheet({ ...next, leaving: false })
   }
   const shown = sheet && !sheet.leaving ? sheet : null
+  const under = useUnderWide(!!shown && !leaving)
   const peer = sheet?.kind === 'peer' ? towers?.peers.find((p) => p.id === sheet.id) : undefined
   // a friend island removed, here or by a refresh, takes its sheet with it
   useEffect(() => {
@@ -104,7 +107,7 @@ export function TowerPanel({ leaving, onGone, onProfile }: {
       onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
-      <div className="fx-sheet">
+      <div className="fx-sheet" inert={under || undefined}>
         <header className="fx-head fx-head-rule">
           <TowerTitle me={towers?.me ?? null} titleRef={title} onProfile={onProfile} />
         </header>
@@ -112,6 +115,7 @@ export function TowerPanel({ leaving, onGone, onProfile }: {
           <TowerBody towers={towers} error={error} refresh={refresh} here={here} open={shown} onOpen={open} />
         </div>
       </div>
+      {under && <WideCover onClick={putAway} />}
     </aside>
     {sheet && towers && (sheet.kind === 'add' || peer) && (
       <SheetFrame key={sheetKey(sheet)} leaving={leaving || sheet.leaving} onBack={putAway}
@@ -148,13 +152,15 @@ function SheetFrame({ leaving, onBack, onGone, children }: { leaving: boolean; o
       release()
     }
   }, [leaving, onBack])
+  const wide = useWideClass()
   return (
-    <aside className={`fx-detail${leaving ? ' leaving' : ''}`} role="dialog" aria-labelledby="fx-tower-sheet-title"
+    <aside className={`fx-detail${wide}${leaving ? ' leaving' : ''}`} role="dialog" aria-labelledby="fx-tower-sheet-title"
       aria-hidden={leaving || undefined} inert={leaving || undefined}
       onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <div className="fx-sheet">
         <div className="fx-detail-body" ref={body}>{children}</div>
+        <WideTool />
       </div>
     </aside>
   )

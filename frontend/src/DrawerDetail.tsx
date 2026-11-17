@@ -62,6 +62,7 @@ import { OwnerRunFacts, OwnerTaskDetail, ReturnStep } from './TaskPanel'
 import { MergeButton, MergeFailureView } from './MergeFailure'
 import { FACT_KIND, SaidContext } from './Said'
 import { CopyHomeSheet, MoveIcon, MoveSheet, PlaneIcon } from './StaffingSheets'
+import { useWideClass, WideTool } from './WideSheets'
 
 export type Item =
   | { kind: 'task'; id: string }
@@ -163,8 +164,9 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
   const id = `fx-detail-title-${depth}`
   // scrolled down: the sheet's tools get a strip of paper behind them, so what scrolls by does not run under them
   const [scrolled, setScrolled] = useState(false)
+  const wide = useWideClass()
   return (
-    <aside ref={sheet} id={depth === 0 ? 'fx-detail' : undefined} className={`fx-detail${leaving ? ' leaving' : ''}`}
+    <aside ref={sheet} id={depth === 0 ? 'fx-detail' : undefined} className={`fx-detail${wide}${leaving ? ' leaving' : ''}`}
       style={{ '--depth': depth, '--across': SHEET_ACROSS[depth] ?? 0 } as CSSProperties} aria-labelledby={id}
       aria-hidden={leaving || undefined} inert={leaving || undefined}
       onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
@@ -287,6 +289,7 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
           {item.kind === 'flowStep' && <FlowStepSheet node={item.node} title={title} tid={id} onDone={onDone} />}
           {item.kind === 'staff' && <StepSheet node={item.node} teamId={teamId} title={title} tid={id} onDone={onDone} />}
         </div>
+        <WideTool />
       </div>
       {covered && !leaving && <button type="button" className="fx-detail-cover" aria-label={tr('收起上面那張，回到這張')} onClick={onBack} />}
     </aside>

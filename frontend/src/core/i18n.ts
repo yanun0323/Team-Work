@@ -382,6 +382,7 @@ const en = {
   '其他': 'Other',
   '保留終端機': 'Keep terminals',
   'Debug 介面': 'Debug overlay',
+  '展開子介面': 'Full-width panels',
   '系統通知': 'System notifications',
   '縮放靈敏度': 'Zoom sensitivity',
   '進階': 'Advanced',

@@ -16,6 +16,7 @@ import { blueprintList, flowList, waitingTab } from './core/model'
 import { AIRPORT_BLUEPRINT, isLocked } from './core/data/presets'
 import { byOrigin } from './Pickers'
 import { HideTool, itemKey, type Item } from './DrawerDetail'
+import { useUnderWide, WideCover } from './WideSheets'
 import { FlowNotes, openCard } from './FlowNotes'
 import { keptState, sourceState, sourceText } from './source'
 import { SOCIAL_ICONS } from './socialIcons'
@@ -86,6 +87,7 @@ export function Settings({ leaving, onGone }: {
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
   const sheets = useSheets()
   useMapClickSheets(sheets, leaving)
+  const under = useUnderWide(sheets.top >= 0 && !leaving)
   useEffect(() => {
     title.current?.focus({ preventScroll: true })
     if (tab === 'terminal') setTerminalFocus((n) => n + 1)
@@ -123,7 +125,7 @@ export function Settings({ leaving, onGone }: {
       onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
-      <div className="fx-sheet">
+      <div className="fx-sheet" inert={under || undefined}>
         <header className="fx-head">
           <div className="fx-title fx-title-plain">
             <div className="fx-title-text">
@@ -168,6 +170,7 @@ export function Settings({ leaving, onGone }: {
           </section>
         )}
       </div>
+      {under && <WideCover onClick={() => sheets.back(-1)} />}
     </aside>
     <SheetStack sheets={sheets} teamId="" leaving={leaving} />
     </>
@@ -572,6 +575,7 @@ export function PrefsPage() {
         <div className="fx-fields">
           <Select label={tr('任務紀錄排序')} value={prefs.logOrder} options={Object.keys(LOG_ORDERS)} labelOf={(o) => tr(LOG_ORDERS[o as LogOrder])}
             onChange={(v) => prefs.set({ logOrder: v as LogOrder })} />
+          {check('wideSheets', tr('展開子介面'))}
           {!MOCK && <Toggle label={tr('保留終端機')} checked={prefs.keepTerminals} onChange={(v) => prefs.set({ keepTerminals: v })} />}
           {import.meta.env.MODE === 'desktop' && check('systemNotices', tr('系統通知'))}
           {!import.meta.env.DEV && check('debug', tr('Debug 介面'))}

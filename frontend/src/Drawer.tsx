@@ -9,6 +9,7 @@ import { tr } from './core/i18n'
 import { openFolder } from './core/ops'
 import { MOCK } from './core/mode'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useUnderWide, WideCover } from './WideSheets'
 import { create } from 'zustand'
 import { inTerminal, keepsEscape, waitingTab } from './core/model'
 import { Prereqs, usePrereqs } from './PrereqStamps'
@@ -155,6 +156,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   const sheets = useSheets()
   const { back } = sheets
   useMapClickSheets(sheets, leaving)
+  const under = useUnderWide(sheets.top >= 0 && !leaving)
   const bytes = useProjectBytes((b) => b[teamId] ?? 0)
   // a new company: move focus to its name, and put away the last company's sheet
   useEffect(() => {
@@ -199,8 +201,8 @@ export function Drawer({ teamId, look, leaving, onGone }: {
       onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
-      <NotesPin teamId={teamId} open={base?.item.kind === 'notes' && !base.leaving} onOpen={() => sheets.open({ kind: 'notes' })} />
-      <div className="fx-sheet">
+      <NotesPin teamId={teamId} open={base?.item.kind === 'notes' && !base.leaving} onOpen={() => sheets.open({ kind: 'notes' })} inert={under} />
+      <div className="fx-sheet" inert={under || undefined}>
         <header className="fx-head">
           <CompanyTitle team={team} look={look} canOpenFolder bytes={bytes}>
             <h1 id="fx-drawer-title" ref={title} tabIndex={-1}>{team.name}</h1>
@@ -236,6 +238,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
           </section>
         )}
       </div>
+      {under && <WideCover onClick={() => back(-1)} />}
     </aside>
     <SheetStack sheets={sheets} teamId={teamId} leaving={leaving} />
     </>

@@ -555,6 +555,18 @@ body { margin: 0; overflow: hidden; }
 /* too narrow for half: the whole width, above the company file */
 @media (max-width: 760px) { .fx-detail { --sheet: calc(100% - 36px - var(--room)); --right: calc(100% - 18px - var(--sheet)); } }
 .fx-detail .fx-tape-l { left: 40px; }
+/* 展開子介面 (WideSheets.tsx): every sheet over the company file, short of a strip of it on the right; the stack zigzags
+   across the room left over as the narrow window's does, each a step lower than the one under it */
+.fx-detail.fx-wide { --sheet: calc(100% - 36px - var(--room)); --right: calc(100% - 18px - var(--sheet)); }
+/* the drawer under them is covered as a sheet under another is: the strip that shows shades on hover, pulls a little up
+   and away from the sheets, and a click puts them all away. Over the notes pinned on the file (3) */
+.fx-detail-cover.fx-wide-cover { z-index: 4; }
+.fx-drawer { transition: translate 320ms cubic-bezier(0.3, 0.7, 0.4, 1); }
+.fx-drawer:has(> .fx-wide-cover:is(:hover, :focus-visible)) { translate: 4px -4px; }
+/* the sheet's lower right corner turns that on and off */
+.fx-tool.fx-wide-tool { position: absolute; right: 4px; bottom: 4px; z-index: 1; min-width: 26px; height: 26px; border-radius: 13px; color: var(--muted); }
+.fx-tool.fx-wide-tool[aria-pressed="true"], .fx-tool.fx-wide-tool:hover { color: var(--ink); }
+.fx-tool.fx-wide-tool[aria-pressed="true"]:not(:hover) { box-shadow: none; }
 /* a covered sheet is one big button: the strip that shows shades on hover, like anything else that opens */
 .fx-detail-cover {
   position: absolute; inset: 0; z-index: 2; border: 0; padding: 0; background: var(--dim); cursor: pointer;

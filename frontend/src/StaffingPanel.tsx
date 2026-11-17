@@ -9,6 +9,7 @@ import { STAFFING_ID } from './core/domain/types'
 import { itemKey } from './DrawerDetail'
 import { TabBody } from './DrawerTabs'
 import { SheetStack, useMapClickSheets, useSheets } from './Drawer'
+import { useUnderWide, WideCover } from './WideSheets'
 
 /** The rotunda's stamp: a dome on columns, front on. */
 export function StaffingIcon() {
@@ -36,6 +37,7 @@ export function StaffingPanel({ leaving, onGone }: {
   const loaded = useStore((s) => s.loaded)
   const sheets = useSheets()
   useMapClickSheets(sheets, leaving)
+  const under = useUnderWide(sheets.top >= 0 && !leaving)
   useEffect(() => title.current?.focus({ preventScroll: true }), [])
   const base = sheets.layers[0]
   return (
@@ -45,7 +47,7 @@ export function StaffingPanel({ leaving, onGone }: {
         onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
         <span className="fx-tape fx-tape-l" aria-hidden="true" />
         <span className="fx-tape fx-tape-r" aria-hidden="true" />
-        <div className="fx-sheet">
+        <div className="fx-sheet" inert={under || undefined}>
           <header className="fx-head fx-head-rule">
             <div className="fx-title">
               <StaffingIcon />
@@ -60,6 +62,7 @@ export function StaffingPanel({ leaving, onGone }: {
               : <p className="fx-empty" role="status">{tr('載入中…')}</p>}
           </section>
         </div>
+        {under && <WideCover onClick={() => sheets.back(-1)} />}
       </aside>
       <SheetStack sheets={sheets} teamId={STAFFING_ID} leaving={leaving} />
     </>

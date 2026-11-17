@@ -64,7 +64,7 @@ function PeekLine({ line }: { line: NoteLine }) {
 
 /** The sticky note stuck askew on the company file's upper right corner, one corner lifting a little, the first lines of
  * the notes on it; it opens them. */
-export function NotesPin({ teamId, open, onOpen }: { teamId: string; open: boolean; onOpen: () => void }) {
+export function NotesPin({ teamId, open, onOpen, inert }: { teamId: string; open: boolean; onOpen: () => void; inert?: boolean }) {
   const text = useNotesText((s) => s[teamId])
   // read for each company, and again on coming back to the app, as the file may have been edited elsewhere
   useEffect(() => {
@@ -78,7 +78,8 @@ export function NotesPin({ teamId, open, onOpen }: { teamId: string; open: boole
     }
   }, [teamId])
   return (
-    <button type="button" className="fx-notes-pin fx-hit" aria-label={tr('筆記')} title={tr('筆記')} aria-expanded={open} onClick={onOpen}>
+    <button type="button" className="fx-notes-pin fx-hit" aria-label={tr('筆記')} title={tr('筆記')} aria-expanded={open} onClick={onOpen}
+      inert={inert || undefined}>
       {/* the shadow of the lifted corner, under the paper */}
       <span className="fx-notes-lift" aria-hidden="true" />
       <span className="fx-notes-paper" aria-hidden="true">
