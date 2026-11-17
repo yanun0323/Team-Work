@@ -44,8 +44,6 @@ const (
 	refreshEarly = time.Minute
 	AuthURL      = "https://auth.openai.com"
 	APIURL       = "https://chatgpt.com/backend-api"
-	// catalogClientVersion: the backend filters models by it. Verified against Codex CLI 0.160.1 by mho.
-	catalogClientVersion = "0.160.1"
 )
 
 func overflowed() *model.Error {
@@ -67,6 +65,7 @@ type Client struct {
 	Secrets      adapter.Secrets
 	AuthURL      string
 	APIURL       string
+	ReleasesURL  string
 	CallbackAddr string
 	HTTP         *http.Client
 	OpenBrowser  func(string) error
@@ -136,7 +135,7 @@ func (c *Client) keepTurn(session, value string) {
 
 // New connects provider id to ChatGPT.
 func New(id string, secrets adapter.Secrets) *Client {
-	return &Client{ID: id, Secrets: secrets, AuthURL: AuthURL, APIURL: APIURL, CallbackAddr: CallbackAddr, OpenBrowser: openBrowser, Idle: DefaultIdle,
+	return &Client{ID: id, Secrets: secrets, AuthURL: AuthURL, APIURL: APIURL, ReleasesURL: ReleasesURL, CallbackAddr: CallbackAddr, OpenBrowser: openBrowser, Idle: DefaultIdle,
 		// no overall timeout: a reply streams for as long as the model writes
 		HTTP: &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, ResponseHeaderTimeout: 2 * time.Minute},
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
@@ -467,12 +466,13 @@ func (c *Client) headers(req *http.Request, creds Credentials) {
 
 // Models lists what the subscription offers.
 func (c *Client) Models(ctx context.Context) ([]model.ModelSpec, error) {
+	version := c.clientVersion(ctx)
 	for attempt := 0; attempt < 2; attempt++ {
 		creds, err := c.session(ctx, attempt > 0)
 		if err != nil {
 			return nil, err
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.APIURL+"/codex/models?client_version="+catalogClientVersion, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.APIURL+"/codex/models?client_version="+version, nil)
 		if err != nil {
 			return nil, err
 		}

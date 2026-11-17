@@ -64,6 +64,8 @@ type fake struct {
 	usage       string
 	turnStates  []string      // answered one per response, in order; empty sends none
 	stall       chan struct{} // when set, a response sends its first event and waits for this to close
+	release     string        // the tag /releases/latest redirects to; empty answers 503
+	versions    []string      // client_version of each model catalog request
 }
 
 func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +88,14 @@ func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		fmt.Fprint(w, `{"authorization_code":"devcode","code_verifier":"devver"}`)
+	case "/releases/latest":
+		if f.release == "" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		http.Redirect(w, r, "/releases/tag/"+f.release, http.StatusFound)
 	case "/codex/models":
+		f.versions = append(f.versions, r.URL.Query().Get("client_version"))
 		fmt.Fprint(w, `{"models":[{"slug":"gpt-a","visibility":"list","supported_reasoning_levels":[{"effort":"low"},{"effort":"xhigh"}]},{"slug":"hidden","visibility":"hide"}]}`)
 	case "/wham/usage":
 		fmt.Fprint(w, f.usage)
@@ -126,7 +135,7 @@ func setup(t *testing.T, f *fake) (*Client, *memSecrets) {
 	t.Cleanup(srv.Close)
 	secrets := &memSecrets{m: map[string]string{}}
 	c := New("mp-1", secrets)
-	c.AuthURL, c.APIURL = srv.URL, srv.URL
+	c.AuthURL, c.APIURL, c.ReleasesURL = srv.URL, srv.URL, srv.URL+"/releases/latest"
 	c.OpenBrowser = func(string) error { return nil }
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -400,6 +409,35 @@ func TestModelsAndLogout(t *testing.T) {
 	}
 	if _, err := c.Complete(context.Background(), request, func(string) {}); err == nil {
 		t.Fatal("worked after logging out")
+	}
+}
+
+func TestModelsAskWithTheLatestCodexRelease(t *testing.T) {
+	f := &fake{release: "rust-v0.170.0"}
+	c, secrets := setup(t, f)
+	signIn(t, c, secrets, time.Now().Add(time.Hour).UnixMilli())
+	ask := func() string {
+		t.Helper()
+		if _, err := c.Models(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		return f.versions[len(f.versions)-1]
+	}
+	if v := ask(); v != "0.170.0" || secrets.m[versionKey] != "0.170.0" {
+		t.Fatalf("asked with %q, kept %q", v, secrets.m[versionKey])
+	}
+	f.release = "" // GitHub unreachable: the version kept
+	if v := ask(); v != "0.170.0" {
+		t.Fatalf("asked with %q", v)
+	}
+	f.release = "rust-v0.171.0-alpha.1" // not a stable version: the version kept
+	if v := ask(); v != "0.170.0" || secrets.m[versionKey] != "0.170.0" {
+		t.Fatalf("asked with %q, kept %q", v, secrets.m[versionKey])
+	}
+	f.release = ""
+	delete(secrets.m, versionKey) // nothing kept either: the built-in version
+	if v := ask(); v != fallbackClientVersion {
+		t.Fatalf("asked with %q", v)
 	}
 }
 
