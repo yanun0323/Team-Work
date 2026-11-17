@@ -1548,9 +1548,19 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
 }
 .fx-help-page dt { font-weight: 700; }
 .fx-help-page dd { margin: 0; }
-/* a version's notes: its headings (what's new, fixes) stay below the version over them */
-.fx-notes-page .fx-md { font-size: 13.5px; line-height: 1.7; color: var(--ink); text-wrap: pretty; }
-.fx-notes-page .fx-md h2 { margin-bottom: 0; font-size: 15px; }
+/* a version's notes: each change a bold title over a softer paragraph, the two close together and the changes well
+   apart; what's new and fixes are quiet section heads over a rule, as the help's groups are */
+.fx-notes-page .fx-md { font-size: 13.5px; line-height: 1.6; color: var(--ink-2); text-wrap: pretty; }
+.fx-notes-page .fx-md strong { color: var(--ink); }
+.fx-notes-page .fx-md > p > strong:first-child:has(+ br) { display: block; margin-bottom: 3px; font-size: 14px; }
+.fx-notes-page .fx-md > p > strong:first-child + br { display: none; }
+.fx-notes-page .fx-md > :is(p, ul, ol) + p { margin-top: 18px; }
+.fx-notes-page .fx-md > p + :is(ul, ol) { margin-top: 4px; }
+.fx-notes-page .fx-md h2 {
+  margin: 0 0 14px; padding-bottom: 6px; border-bottom: 1px solid var(--rule);
+  color: var(--muted); font: 700 12px/1.3 var(--font-sans); letter-spacing: 0.04em;
+}
+.fx-notes-page .fx-md > h2:not(:first-child) { margin-top: 30px; }
 /* the galleries of looks: a grid of sticky notes as the about page's links are, each with its picture; the one
    pressed opens large on a sheet over the help. Pictures are pixel art at twice the note's size: halved, or whole
    on the sheet, every texel stays sharp */
