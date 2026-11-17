@@ -821,6 +821,8 @@ export interface ModelProvider {
   thinking?: Record<string, string[]>
   /** How many tokens its models can read, as the user set it; only Google and compatible ones keep one. */
   contextWindow?: number
+  /** How many tokens the provider reports it runs each model at, ahead of contextWindow; a model it says nothing of is not in it. */
+  windows?: Record<string, number>
 }
 
 export interface World {

@@ -78,8 +78,13 @@ export function effortsOf(w: World, model: string): string[] {
 /** What a provider's models can read when it has no size of its own and none was set. */
 export const CONTEXT_UNKNOWN = 128_000
 
-/** How many tokens a provider's models can read: Anthropic's and OpenAI's are fixed, the others' are set by the user. */
-export function providerWindow(p: Pick<ModelProvider, 'kind' | 'contextWindow'>): number {
+/**
+ * How many tokens a provider's models can read: what the provider reports for the model first, then Anthropic's and
+ * OpenAI's fixed sizes, then the size the user set. Without a model, the provider's own size.
+ */
+export function providerWindow(p: Pick<ModelProvider, 'kind' | 'contextWindow' | 'windows'>, model?: string): number {
+  const reported = model ? p.windows?.[model] : undefined
+  if (reported && reported > 0) return reported
   if (p.kind === 'anthropic') return 1_000_000
   if (p.kind === 'openai') return 272_000
   return p.contextWindow || CONTEXT_UNKNOWN
@@ -88,7 +93,7 @@ export function providerWindow(p: Pick<ModelProvider, 'kind' | 'contextWindow'>)
 /** How many tokens a model can read, from the provider the backend runs it on: the one with the shortest id. */
 export function contextWindowOf(w: World, model: string): number {
   const p = providerOf(w, model)
-  return p ? providerWindow(p) : CONTEXT_UNKNOWN
+  return p ? providerWindow(p, model) : CONTEXT_UNKNOWN
 }
 
 /** The provider the backend runs a model on: of those offering it, the one with the shortest id. */

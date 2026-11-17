@@ -200,6 +200,18 @@ describe('how much a chat can read', () => {
     expect(providerWindow({ kind: 'compatible' })).toBe(128_000)
   })
 
+  it('goes by what the provider reports for the model first', () => {
+    const p = { kind: 'compatible', contextWindow: 64_000, windows: { small: 4_096 } } as const
+    expect(providerWindow(p, 'small')).toBe(4_096)
+    expect(providerWindow(p, 'other')).toBe(64_000)
+    expect(providerWindow(p)).toBe(64_000)
+    const { w, chat } = chatOn('high')
+    w.providers.local = { id: 'local', name: 'L', kind: 'compatible', baseUrl: 'http://x', auth: { kind: 'apiKey', keyHint: 'x' }, models: ['small'], windows: { small: 4_096 } }
+    chat.guests = [{ replicaId: 'g', name: 'G', look: chat.look, model: 'small' }]
+    expect(contextWindowOf(w, 'small')).toBe(4_096)
+    expect(chatWindow(w, chat)).toBe(4_096)
+  })
+
   it('is the least anyone in a meeting can read', () => {
     const { w, chat } = chatOn('high')
     w.providers.big = { id: 'big', name: 'B', kind: 'anthropic', baseUrl: '', auth: { kind: 'apiKey', keyHint: 'x' }, models: ['claude'] }
