@@ -54,18 +54,24 @@ func (e *Engine) windowOf(modelID string) int {
 }
 
 // chatModels are the models of everyone in a chat, the one it is with first.
-func chatModels(c *model.Chat) []string {
-	out := []string{c.Model}
+func (e *Engine) chatModels(c *model.Chat) []string {
+	current := func(id, fallback string) string {
+		if r := e.w.Replicas[id]; r != nil {
+			return r.Model
+		}
+		return fallback
+	}
+	out := []string{current(c.ReplicaID, c.Model)}
 	for _, g := range c.Guests {
-		out = append(out, g.Model)
+		out = append(out, current(g.ReplicaID, g.Model))
 	}
 	return out
 }
 
 // chatRoom is the least any of a chat's people can read, and the least they may be sent before it is summed up. Each
 // works out their own threshold: the one who reads least is not always the first to reach it.
-func (e *Engine) chatRoom(c *model.Chat) (room, at int) {
-	for i, m := range chatModels(c) {
+func (e *Engine) chatRoom(models []string) (room, at int) {
+	for i, m := range models {
 		window := e.windowOf(m)
 		mine := compactAt(window, e.w.Preferences)
 		if i == 0 || window < room {
@@ -80,14 +86,10 @@ func (e *Engine) chatRoom(c *model.Chat) (room, at int) {
 
 // chairSpec is the model the chat is with, at the level its employee is on, which sums the chat up for everyone.
 func (e *Engine) chairSpec(c *model.Chat) (agentSpec, error) {
-	effort := c.Effort
-	if !c.AtAirport() {
-		effort = model.ThinkingDefault
-		if r := e.w.Replicas[c.ReplicaID]; r != nil && r.Model == c.Model {
-			effort = r.Effort
-		}
+	if r := e.w.Replicas[c.ReplicaID]; r != nil {
+		return e.modelSpec(r.Model, r.Effort)
 	}
-	return e.modelSpec(c.Model, effort)
+	return e.modelSpec(c.Model, c.Effort)
 }
 
 // chatView is what the model reads: the summary in place of what it covers, then the rest word for word.
@@ -298,21 +300,11 @@ func (e *Engine) remeasureWork(tr *turn, modelID string) func(context.Context, b
 // remeasureChat reads again how much the chat's people and its chair can read, once the servers that may have
 // changed it are asked.
 func (e *Engine) remeasureChat(ctx context.Context, in *chatRun, force bool) {
-	e.mu.Lock()
-	c := e.w.Chats[in.id]
-	if c == nil {
-		e.mu.Unlock()
-		return
-	}
-	models := append(chatModels(c), in.chair.model)
-	e.mu.Unlock()
-	e.freshenWindows(ctx, force, models...)
+	e.freshenWindows(ctx, force, in.models...)
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if c := e.w.Chats[in.id]; c != nil {
-		in.room, in.compactAt = e.chatRoom(c)
-		in.chairRoom = e.windowOf(in.chair.model)
-	}
+	in.room, in.compactAt = e.chatRoom(in.models)
+	in.chairRoom = e.windowOf(in.chair.model)
 }
 
 // compactWork sums up a task's step or owner conversation and returns what to send instead, and the tokens spent. Its

@@ -107,15 +107,15 @@ func roundActor(c *model.Chat) string {
 }
 
 // chatNames are the names of everyone who has replied in a chat or is in it.
-func chatNames(c *model.Chat) map[string]string {
+func (e *Engine) chatNames(c *model.Chat) map[string]string {
 	names := map[string]string{}
 	for _, h := range c.Handoffs {
 		names[h.ReplicaID] = h.Name
 	}
 	for _, g := range c.Guests {
-		names[g.ReplicaID] = g.Name
+		names[g.ReplicaID] = e.chatSpeaker(c, g.ReplicaID)
 	}
-	names[c.ReplicaID] = c.Name
+	names[c.ReplicaID] = e.chatSpeaker(c, c.ReplicaID)
 	return names
 }
 
@@ -235,11 +235,11 @@ func (e *Engine) SetChatChair(id, replicaID string) error {
 
 // meetingRule tells an employee in a meeting how the replies go round. It stays the same from round to round, so
 // their provider's cache of the request's start holds; what changes comes in roundNote.
-func meetingRule(c *model.Chat, speaker string) string {
+func meetingRule(c *model.Chat, name string) string {
 	if len(c.Guests) == 0 {
 		return ""
 	}
-	return "This chat is a meeting of the user and several employees; you are " + chatNames(c)[speaker] + ". " +
+	return "This chat is a meeting of the user and several employees; you are " + name + ". " +
 		"The employees the user @mentions reply one after another, and @All is everyone, the chair last; with no mention the chair replies alone. " +
 		"Each sees what was said before them. What another employee said comes to you as a user message starting with their name in brackets, like \"[Ada] ...\": " +
 		"it is theirs, not the user's. " + othersRule +
@@ -253,7 +253,7 @@ func (e *Engine) roundNote(c *model.Chat, speaker string) string {
 	if len(c.Guests) == 0 {
 		return ""
 	}
-	names := chatNames(c)
+	names := e.chatNames(c)
 	who := func(id string) string {
 		switch {
 		case id == speaker && id == c.ReplicaID:

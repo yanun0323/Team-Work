@@ -675,37 +675,32 @@ func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Att
 	e.dirty[c.ID] = true
 }
 
-// chatSpec is a task's spec without the task, for one in the chat: the model they joined on, their role, the
+// chatSpec is a task's spec without the task, for one in the chat: their current model, their role, the
 // company's rules, and in a meeting how its rounds go.
 func (e *Engine) chatSpec(c *model.Chat, speaker string) (agentSpec, error) {
 	if c.AtAirport() {
 		return e.airportChatSpec(c)
 	}
 	r := e.w.Replicas[speaker]
-	name, joined := c.Name, c.Model
+	name := c.Name
 	if speaker != c.ReplicaID {
 		at := slices.IndexFunc(c.Guests, func(g model.ChatGuest) bool { return g.ReplicaID == speaker })
 		if at < 0 {
 			return agentSpec{}, model.Errorf(model.CodeNotFound, "找不到公司或員工")
 		}
-		name, joined = c.Guests[at].Name, c.Guests[at].Model
+		name = c.Guests[at].Name
 	}
 	if r == nil {
 		return agentSpec{}, model.Errorf(model.CodeInvalid, "%s 已經離開公司", name)
 	}
-	// each stays on the model they joined on; if the employee has moved on, their thinking level no longer applies
-	picked := *r
-	if picked.Model != joined {
-		picked.Model, picked.Effort = joined, model.ThinkingDefault
-	}
-	spec, err := e.buildSpec(nil, nil, &picked)
+	spec, err := e.buildSpec(nil, nil, r)
 	if err != nil {
 		return agentSpec{}, err
 	}
 	team, bp := e.w.Teams[c.TeamID], e.w.Blueprints[r.BlueprintID]
 	e.readPrompt(team)
 	spec.prompt = promptParts{
-		rules:  chatRules + "\n" + languageRule(e.w.Language) + "\n" + chatPriorityRule + "\n" + chatHandoffRule(c) + meetingRule(c, speaker),
+		rules:  chatRules + "\n" + languageRule(e.w.Language) + "\n" + chatPriorityRule + "\n" + chatHandoffRule(c) + meetingRule(c, r.Name),
 		shared: sharedRules(e.runGlobalPrompt(), team.Prompt),
 		role:   e.rolePart(bp),
 		memory: e.memorySection(team, r),
@@ -840,6 +835,7 @@ type chatRun struct {
 	context int
 	compact *model.ChatCompact
 	// room is the least anyone in the chat can read, and compactAt the least anyone may be sent before it is summed up
+	models    []string
 	room      int
 	compactAt int
 	// chair sums the chat up for everyone, reading chairRoom tokens at most
@@ -893,14 +889,16 @@ func (e *Engine) launchChat(c *model.Chat, speaker string, spec agentSpec) {
 			}
 		}
 	}
-	room, at := e.chatRoom(c)
+	models := e.chatModels(c)
+	room, at := e.chatRoom(models)
 	chair, chairRoom := spec, e.windowOf(spec.model)
 	if s, err := e.chairSpec(c); err == nil { // the speaker sums it up when the chair's model is gone
 		chair, chairRoom = s, e.windowOf(s.model)
 	}
+	names := e.chatNames(c)
 	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, team: c.TeamID, said: said, peers: peers, context: c.Context, compact: clone(c.Compact), memory: !c.AtAirport(),
-		room: room, compactAt: at, chair: chair, chairRoom: chairRoom,
-		speaker: speaker, actor: speaker == roundActor(c), actorName: chatNames(c)[roundActor(c)], note: chatNote(e.w.Language, e.roundNote(c, speaker)), session: session, names: chatNames(c)})
+		models: models, room: room, compactAt: at, chair: chair, chairRoom: chairRoom,
+		speaker: speaker, actor: speaker == roundActor(c), actorName: names[roundActor(c)], note: chatNote(e.w.Language, e.roundNote(c, speaker)), session: session, names: names})
 }
 
 // applyChat changes a chat for a run, unless the run was stopped or replaced meanwhile.
@@ -1335,7 +1333,7 @@ func (e *Engine) ChatTaskDraft(ctx context.Context, id string) (ChatDraft, error
 	}
 	spec, err := e.chatSpec(c, actor)
 	folder := e.w.Teams[c.TeamID].Folder
-	names := chatNames(c)
+	names := e.chatNames(c)
 	draftRules := chatDraftRules + "\n" + languageRule(e.w.Language)
 	var transcript strings.Builder
 	for _, m := range c.Messages {

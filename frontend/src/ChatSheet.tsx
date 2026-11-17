@@ -314,7 +314,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   }, [image, albumChat, onImage])
   if (given && !chat) return <Gone {...h} />
   const left = !!chat && !airport && !replica
-  const name = airport ? tr('機場服務人員') : chat?.name ?? replica?.name ?? ''
+  const name = airport ? tr('機場服務人員') : replica?.name ?? chat?.name ?? ''
   const look = airport ? AIRPORT_STAFF_LOOK : replica?.look ?? chat?.look
   const people = airport ? [] : chat ? chatPeople(w, chat) : picks.flatMap((x) => (w.replicas[x] ? [{ id: x, name: w.replicas[x].name, look: w.replicas[x].look }] : []))
   const meeting = people.length > 1
@@ -357,9 +357,9 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
   const sendTo = meeting ? (() => { const m = mentionsIn(text); return m.length ? m : [chair] })().flatMap((id) => (w.replicas[id] ? [w.replicas[id]] : [])) : []
   const guests = chat ? people.slice(1).flatMap((x) => (w.replicas[x.id] ? [w.replicas[x.id]] : [])) : []
   // each employee writes on their provider's colour; the airport staff on the plain note
-  const colors = chat && !airport ? noteColors(w, chatModels(chat)) : {}
+  const colors = chat && !airport ? noteColors(w, chatModels(w, chat)) : {}
   // when colours come round again in a group, its notes say whose they are
-  const shownNames = chat && !airport ? namedNotes(w, chatModels(chat)) : new Set<string>()
+  const shownNames = chat && !airport ? namedNotes(w, chatModels(w, chat)) : new Set<string>()
   const noteOf = (id?: string) => {
     const color = colors[id || chat?.replicaId || '']
     return color ? { ['--note' as string]: color } : undefined

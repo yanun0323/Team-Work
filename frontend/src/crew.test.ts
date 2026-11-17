@@ -18,10 +18,11 @@ describe('what a chat runs on', () => {
     expect(chatMindOf(w, chat)).toBe('m · high')
   })
 
-  it('falls back to the default once the employee has moved to another model', () => {
+  it('uses the new model and thinking level in the same chat', () => {
     const { w, chat } = chatOn('high')
-    w.replicas[chat.replicaId].model = 'n'
-    expect(chatMindOf(w, chat)).toBe('m · default')
+    w.providers.p.thinking = { n: ['low'] }
+    Object.assign(w.replicas[chat.replicaId], { model: 'n', effort: 'low' })
+    expect(chatMindOf(w, chat)).toBe('n · low')
   })
 
   it('falls back to the default when the model no longer takes the level', () => {
@@ -215,7 +216,7 @@ describe('how much a chat can read', () => {
   it('is the least anyone in a meeting can read', () => {
     const { w, chat } = chatOn('high')
     w.providers.big = { id: 'big', name: 'B', kind: 'anthropic', baseUrl: '', auth: { kind: 'apiKey', keyHint: 'x' }, models: ['claude'] }
-    chat.model = 'claude'
+    w.replicas[chat.replicaId].model = 'claude'
     expect(chatWindow(w, chat)).toBe(1_000_000)
     chat.guests = [{ replicaId: 'g', name: 'G', look: chat.look, model: 'm' }]
     expect(chatWindow(w, chat)).toBe(272_000)

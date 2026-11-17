@@ -138,9 +138,9 @@ export function hueGroups(providers: World['providers'], list: { id: string; pro
   return [...groups.values()]
 }
 
-/** The least anyone in a chat can read, each on the model they joined with; the chat is summed up to fit it. */
+/** The least anyone in a chat can read, each on their current model; the chat is summed up to fit it. */
 export const chatWindow = (w: World, c: Chat) =>
-  Math.min(...[c.model, ...(c.guests ?? []).map((g) => g.model)].map((m) => contextWindowOf(w, m)))
+  Math.min(...chatModels(w, c).map(({ model }) => contextWindowOf(w, model)))
 
 export const SHIRTS = [
   '#3f7fbf', '#d9644a', '#4f9a6a', '#8a5bb8', '#e0b13a', '#2f3b52', '#c94f7c', '#5fa8a0', '#eae4d6',
@@ -192,10 +192,13 @@ export function chatOrder(a: Chat, b: Chat) {
 
 export function chatMindOf(w: World, c: Chat) {
   if (!c.teamId) return `${c.model} · ${c.effort ?? DEFAULT_EFFORT}`
-  const r = w.replicas[c.replicaId]
-  if (!r) return c.model
-  const effort = r.model === c.model && effortsOf(w, c.model).includes(r.effort) ? r.effort : DEFAULT_EFFORT
-  return `${c.model} · ${effort}`
+  return employeeMind(w, c.replicaId, c.model)
+}
+
+function employeeMind(w: World, id: string, fallback: string) {
+  const r = w.replicas[id]
+  if (!r) return fallback
+  return `${r.model} · ${effortsOf(w, r.model).includes(r.effort) ? r.effort : DEFAULT_EFFORT}`
 }
 
 /** What a chat shows in lists when no one has named it. */
@@ -217,15 +220,11 @@ export function chatPeople(w: World, c: Chat): { id: string; name: string; look:
   })]
 }
 
-/** What one employee in a chat runs on: the chair as chatMindOf says, a guest on the model they joined with, at their level when they still run on it. */
+/** What one employee in a chat runs on: their current model and level, or the saved model if they left. */
 export function personMindOf(w: World, c: Chat, id: string) {
   if (id === c.replicaId) return chatMindOf(w, c)
   const g = c.guests?.find((x) => x.replicaId === id)
-  if (!g) return ''
-  const r = w.replicas[id]
-  if (!r) return g.model
-  const effort = r.model === g.model && effortsOf(w, g.model).includes(r.effort) ? r.effort : DEFAULT_EFFORT
-  return `${g.model} · ${effort}`
+  return g ? employeeMind(w, id, g.model) : ''
 }
 
 /** What the latest airport chat ran on, for a new one to start from. */
@@ -268,5 +267,5 @@ export function namedNotes(w: World, people: { id: string; model?: string }[]): 
   return new Set(noteGroups(w, people).filter((g) => g.ids.length > NOTE_SHADES.length).flatMap((g) => g.ids))
 }
 
-/** Who is in a chat on which model: the chair on the chat's, a guest on the one they joined with, those who left too. */
-export const chatModels = (c: Chat) => [{ id: c.replicaId, model: c.model }, ...(c.guests ?? []).map((g) => ({ id: g.replicaId, model: g.model }))]
+/** Who is in a chat on which model: current settings where available, saved ones otherwise. */
+export const chatModels = (w: World, c: Chat) => [{ id: c.replicaId, model: w.replicas[c.replicaId]?.model ?? c.model }, ...(c.guests ?? []).map((g) => ({ id: g.replicaId, model: w.replicas[g.replicaId]?.model ?? g.model }))]

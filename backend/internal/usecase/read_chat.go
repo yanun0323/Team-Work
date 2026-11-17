@@ -81,7 +81,7 @@ func (e *Engine) chatText(c *model.Chat, offset, limit int) string {
 	}
 	people := []string{e.chatSpeaker(c, c.ReplicaID)}
 	for _, g := range c.Guests {
-		people = append(people, g.Name)
+		people = append(people, e.chatSpeaker(c, g.ReplicaID))
 	}
 	fmt.Fprintf(&b, ", with %s.\n", strings.Join(people, ", "))
 	if total == 0 {

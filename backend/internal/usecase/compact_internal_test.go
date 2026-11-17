@@ -48,7 +48,8 @@ func TestChatRoomGoesByTheReportedWindow(t *testing.T) {
 	if got := e.windowOf("big"); got != 200_000 {
 		t.Fatalf("set: %d", got)
 	}
-	room, at := e.chatRoom(&model.Chat{Model: "big", Guests: []model.ChatGuest{{Model: "small"}}})
+	w.Replicas["guest"] = &model.Replica{Model: "small"}
+	room, at := e.chatRoom(e.chatModels(&model.Chat{Model: "big", Guests: []model.ChatGuest{{ReplicaID: "guest", Model: "big"}}}))
 	if room != 32_000 || at != 24_000 {
 		t.Fatalf("room %d, at %d", room, at)
 	}

@@ -533,3 +533,51 @@ func TestMeetingNoteStaysWhereItWasSent(t *testing.T) {
 		}
 	}
 }
+
+func TestExistingChatUsesCurrentEmployeeOnNextReply(t *testing.T) {
+	for _, who := range []string{"single", "guest"} {
+		t.Run(who, func(t *testing.T) {
+			meeting := who == "guest"
+			finish := make(chan struct{})
+			r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+				<-finish
+				return say("reply from " + req.Model), nil
+			})
+			r.fake.models = []model.ModelSpec{{ID: "fake"}, {ID: "new", Thinking: []string{"high"}}}
+			for id := range r.world().Providers {
+				if err := r.e.RefreshModels(context.Background(), id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			speaker := r.owner.ID
+			var guests []string
+			if meeting {
+				g, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Guest", Model: "fake"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				speaker = g.ID
+				guests = []string{speaker}
+			}
+			c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Guests: guests, Mentions: guests, Text: "first question"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The first reply is still in flight while the employee changes.
+			err = r.e.UpdateReplica(speaker, usecase.ReplicaPatch{Name: ptrTo("Renamed"), Model: ptrTo("new"), Effort: ptrTo("high")})
+			close(finish)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.wait("first reply", chatDone(c.ID))
+			if err := r.e.SayInChatTo(c.ID, "continue", nil, nil, []string{speaker}); err != nil {
+				t.Fatal(err)
+			}
+			r.wait("continued", chatDone(c.ID))
+			req := r.fake.seen[len(r.fake.seen)-1]
+			if req.Model != "new" || req.Effort != "high" || !strings.Contains(wordsOf(req.Messages), "reply from fake") || (meeting && !strings.Contains(req.System, "you are Renamed")) {
+				t.Fatalf("continued on model %s, effort %q, with current name: %v", req.Model, req.Effort, strings.Contains(req.System, "you are Renamed"))
+			}
+		})
+	}
+}
