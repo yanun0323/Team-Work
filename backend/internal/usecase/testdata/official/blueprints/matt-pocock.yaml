@@ -1,9 +1,10 @@
+order: 3
 name:
-  en: Matt Pocock
-  zh: Matt Pocock
-  zh-Hans: Matt Pocock
-  ja: Matt Pocock
-  ko: Matt Pocock
+  en: General-purpose Engineer
+  zh: 通用工程師
+  zh-Hans: 通用工程师
+  ja: 汎用エンジニア
+  ko: 범용 엔지니어
 tools: [read_file, write_file, web_search, run_command]
 skills:
   - repo: https://github.com/mattpocock/skills

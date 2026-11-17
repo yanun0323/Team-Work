@@ -1,9 +1,10 @@
+order: 11
 name:
-  en: DevOps Engineer
-  zh: DevOps 工程師
-  zh-Hans: DevOps 工程师
-  ja: DevOps エンジニア
-  ko: DevOps 엔지니어
+  en: SRE Engineer
+  zh: SRE 工程師
+  zh-Hans: SRE 工程师
+  ja: SRE エンジニア
+  ko: SRE 엔지니어
 tools: [read_file, write_file, run_command]
 skills:
   - path: ~/.agents/
