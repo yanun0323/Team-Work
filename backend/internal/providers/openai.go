@@ -182,9 +182,13 @@ func chatMessages(req model.ModelRequest, origin string) []chatMessage {
 	return out
 }
 
+// maxContinues is the most times one reply cut at the server's output limit is asked to go on.
+const maxContinues = 3
+
 func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText func(string)) (model.ModelReply, error) {
+	messages := chatMessages(req, chatOrigin(o.base, req.Model))
 	body := map[string]any{
-		"model": req.Model, "messages": chatMessages(req, chatOrigin(o.base, req.Model)), "stream": true,
+		"model": req.Model, "messages": messages, "stream": true,
 		"stream_options": map[string]bool{"include_usage": true},
 	}
 	if len(req.Tools) > 0 {
@@ -198,11 +202,6 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 	if req.Effort != "" {
 		body["reasoning_effort"] = req.Effort
 	}
-	res, err := o.do(ctx, http.MethodPost, "/chat/completions", body, o.auth)
-	if err != nil {
-		return model.ModelReply{}, err
-	}
-	defer res.Body.Close()
 
 	origin := chatOrigin(o.base, req.Model)
 	var reply model.ModelReply
@@ -240,6 +239,90 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 		}
 		return at
 	}
+	for round := 0; ; round++ {
+		var usage model.ModelUsage
+		err := o.stream(ctx, body, func(u model.ModelUsage) { usage = u }, func(delta chatDelta) {
+			if delta.Content != "" {
+				text.WriteString(delta.Content)
+				onText(delta.Content)
+			}
+			for _, d := range delta.ToolCalls {
+				i := slot(d.Index, d.ID)
+				calls[i].Name += d.Function.Name
+				args[i].WriteString(d.Function.Arguments)
+				// it may come on any one of the call's pieces; a later piece without it leaves it be
+				if len(d.ExtraContent) > 0 && string(d.ExtraContent) != "null" {
+					calls[i].Raw, calls[i].Origin = d.ExtraContent, origin
+				}
+			}
+		}, &reply.Truncated)
+		if round == 0 {
+			reply.Usage = usage
+		} else {
+			// a continuation's input is the first request's plus what was written, so only its output is new
+			reply.Usage.Output += usage.Output
+		}
+		if err != nil {
+			if round == 0 || ctx.Err() != nil {
+				return failed(reply, err)
+			}
+			reply.Truncated = true // the continuation failed: the reply stays as it was cut
+			break
+		}
+		partial := strings.TrimRight(text.String(), " \t\r\n")
+		if !reply.Truncated || !o.askServer || len(calls) > 0 || partial == "" || round == maxContinues {
+			break
+		}
+		// Ask a self-hosted server to extend the cut reply rather than begin a new one: vLLM, SGLang and sushi read
+		// continue_final_message, and vLLM refuses it unless add_generation_prompt is off. Trailing whitespace is left
+		// out, as the model writes it again (sushi trims it from the prompt). Only self-hosted servers are asked: a
+		// hosted API would refuse the field or answer the partial as a new turn.
+		text.Reset()
+		text.WriteString(partial)
+		reply.Truncated = false
+		body["messages"] = append(slices.Clip(messages), chatMessage{Role: "assistant", Content: partial})
+		body["continue_final_message"], body["add_generation_prompt"] = true, false
+	}
+	if text.Len() > 0 {
+		reply.Content = append(reply.Content, model.Block{Type: enum.BlockText, Text: text.String()})
+	}
+	if reply.Truncated { // never run partial tool arguments
+		return reply, nil
+	}
+	var blocks []model.Block
+	for i, c := range calls {
+		c.Args = json.RawMessage(args[i].String())
+		blocks = append(blocks, *c)
+	}
+	if err := validCalls(blocks); err != nil {
+		return failed(reply, err)
+	}
+	reply.Content = append(reply.Content, blocks...)
+	return reply, nil
+}
+
+// chatDelta is one piece of a streamed reply.
+type chatDelta struct {
+	Content   string `json:"content"`
+	ToolCalls []struct {
+		Index    *int   `json:"index"`
+		ID       string `json:"id"`
+		Function struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"function"`
+		ExtraContent json.RawMessage `json:"extra_content"`
+	} `json:"tool_calls"`
+}
+
+// stream sends one request and reads its reply, handing each piece to onDelta, the usage to onUsage, and setting
+// *cut when the server stopped it at its output limit.
+func (o openAI) stream(ctx context.Context, body map[string]any, onUsage func(model.ModelUsage), onDelta func(chatDelta), cut *bool) error {
+	res, err := o.do(ctx, http.MethodPost, "/chat/completions", body, o.auth)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
 	finished := false
 	err = readSSE(res.Body, func(data []byte) (bool, error) {
 		if string(data) == "[DONE]" {
@@ -249,19 +332,8 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 		var chunk struct {
 			Error   json.RawMessage `json:"error"`
 			Choices []struct {
-				Delta struct {
-					Content   string `json:"content"`
-					ToolCalls []struct {
-						Index    *int   `json:"index"`
-						ID       string `json:"id"`
-						Function struct {
-							Name      string `json:"name"`
-							Arguments string `json:"arguments"`
-						} `json:"function"`
-						ExtraContent json.RawMessage `json:"extra_content"`
-					} `json:"tool_calls"`
-				} `json:"delta"`
-				FinishReason string `json:"finish_reason"`
+				Delta        chatDelta `json:"delta"`
+				FinishReason string    `json:"finish_reason"`
 			} `json:"choices"`
 			Usage *struct {
 				Prompt     int `json:"prompt_tokens"`
@@ -281,54 +353,28 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 			return false, model.Errorf(model.CodeInvalid, "模型回報錯誤，請檢查模型與設定")
 		}
 		if u := chunk.Usage; u != nil {
-			reply.Usage = model.ModelUsage{Input: u.Prompt, Output: u.Completion}
+			usage := model.ModelUsage{Input: u.Prompt, Output: u.Completion}
 			if u.Details.Cached != nil {
-				reply.Usage.CacheRead, reply.Usage.CacheReadKnown = *u.Details.Cached, true
+				usage.CacheRead, usage.CacheReadKnown = *u.Details.Cached, true
 			}
+			onUsage(usage)
 		}
 		for _, c := range chunk.Choices {
-			if c.Delta.Content != "" {
-				text.WriteString(c.Delta.Content)
-				onText(c.Delta.Content)
-			}
-			for _, d := range c.Delta.ToolCalls {
-				i := slot(d.Index, d.ID)
-				calls[i].Name += d.Function.Name
-				args[i].WriteString(d.Function.Arguments)
-				// it may come on any one of the call's pieces; a later piece without it leaves it be
-				if len(d.ExtraContent) > 0 && string(d.ExtraContent) != "null" {
-					calls[i].Raw, calls[i].Origin = d.ExtraContent, origin
-				}
-			}
+			onDelta(c.Delta)
 			if c.FinishReason == "length" {
-				reply.Truncated = true
+				*cut = true
 			}
 		}
 		return false, nil
 	})
 	if err != nil {
 		if ctx.Err() != nil {
-			return failed(reply, ctx.Err())
+			return ctx.Err()
 		}
-		return failed(reply, err)
+		return err
 	}
 	if !finished {
-		return failed(reply, model.Errorf(model.CodeUnavailable, "模型回覆沒有結束就中斷了"))
+		return model.Errorf(model.CodeUnavailable, "模型回覆沒有結束就中斷了")
 	}
-	if text.Len() > 0 {
-		reply.Content = append(reply.Content, model.Block{Type: enum.BlockText, Text: text.String()})
-	}
-	if reply.Truncated { // never run partial tool arguments
-		return reply, nil
-	}
-	var blocks []model.Block
-	for i, c := range calls {
-		c.Args = json.RawMessage(args[i].String())
-		blocks = append(blocks, *c)
-	}
-	if err := validCalls(blocks); err != nil {
-		return failed(reply, err)
-	}
-	reply.Content = append(reply.Content, blocks...)
-	return reply, nil
+	return nil
 }
