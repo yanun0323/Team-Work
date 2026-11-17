@@ -1281,9 +1281,10 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
 .fx-settings-trigger { display: grid; place-items: center; width: 44px; padding: 0; }
 .fx-settings-trigger:disabled { background-color: #d6d4cf; color: #76747c; cursor: not-allowed; filter: grayscale(1); }
 /* dev builds only: the frame rate, put the town at any time of day, and in the simulator play a clean Mac.
-   Lower left, raised to leave room for the island slip (.fx-island) and its way home while visiting another island */
+   Lower left, raised to leave room for the island slip (.fx-island) and its way home while visiting another island,
+   and for the walking keys (.fx-walk) */
 .fx-debug {
-  position: absolute; bottom: 96px; inset-inline-start: 22px; z-index: 4;
+  position: absolute; bottom: 112px; inset-inline-start: 22px; z-index: 4;
   display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
 }
 .fx-fps { padding: 4px 0; min-width: 7ch; text-align: start; }
@@ -1300,6 +1301,19 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
 .fx-daylight-debug :focus-visible { outline: 2px solid #1f1d2b; outline-offset: 2px; }
 /* what to pick on the map, across the middle of the top; narrow windows have no room beside the buttons */
 .fx-map-tip { position: absolute; top: 22px; inset-inline: 0; z-index: 4; display: flex; justify-content: center; pointer-events: none; }
+/* W, A, S and D in the lower left while the user walks their figure (WalkKeys.tsx); low enough to clear .fx-debug */
+.fx-walk { position: absolute; bottom: 22px; inset-inline-start: 22px; z-index: 4; }
+.fx-walk-keys { display: grid; justify-items: center; gap: 5px; }
+.fx-walk-keys > div { display: flex; gap: 5px; }
+.fx-walk-key {
+  display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 6px;
+  background: #f4efe2; color: #1f1d2b; font: 800 14px/1 var(--font-sans); cursor: pointer; touch-action: none; user-select: none;
+  box-shadow: 0 3px 0 rgb(31 29 43 / 0.35), 0 6px 10px -4px rgb(20 20 40 / 0.45);
+  transition: opacity 200ms ease-out, translate 60ms ease-out, box-shadow 60ms ease-out, background-color 60ms ease-out;
+}
+.fx-walk-key[data-lit] { translate: 0 2px; background: #1f1d2b; color: #f4efe2; box-shadow: 0 1px 0 rgb(31 29 43 / 0.35), 0 3px 6px -3px rgb(20 20 40 / 0.45); }
+.fx-walk-keys[data-idle] .fx-walk-key { opacity: 0.6; }
+.fx-walk-keys[data-typing] .fx-walk-key { opacity: 0.3; }
 @media (max-width: 760px) { .fx-map-tip { top: 78px; } }
 .fx-corner-note { margin: 0; padding: 12px 16px 11px; font-size: 14px; white-space: nowrap; pointer-events: none; }
 .fx-corner-text { padding: 0 16px; font-size: 14px; white-space: nowrap; }
@@ -2260,7 +2274,7 @@ button.fx-ticket-tag:hover { color: var(--ink); }
    they sit by, and come back from it once it lands. One that appears meanwhile waits off the screen and comes in
    with the rest. Off the screen they are out of reach of the pointer and the keyboard. `translate` leaves the
    panels' own transform animations (fx-paste) to them; the names on the map fade out on their own (World.tsx). */
-.fusion-stage > :is(.fx-top-left, .fx-island, .fx-debug) { --away: calc(-100% - 40px) 0; }
+.fusion-stage > :is(.fx-top-left, .fx-island, .fx-debug, .fx-walk) { --away: calc(-100% - 40px) 0; }
 .fusion-stage > .fx-detail { --away: calc(-100% - 55vw) 0; }
 .fusion-stage > :is(.fx-corner, .fx-drawer) { --away: calc(100% + 40px) 0; }
 .fusion-stage > .fx-help { --away: 0 100vh; }

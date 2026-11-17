@@ -12,6 +12,7 @@ import type { IdleFollowTarget } from './prefs'
 import type { Look } from './core/domain/types'
 import { anchors } from './core/voxel/labels'
 import { BODY_SHARE, coordinateTraffic, walkingRoute, beginAvoidance, openSpot, separate, spotTaken, UNHINDERED, walkAround, type Avoider } from './avoid'
+import { useWalk, walkVelocity } from './walkByHand'
 import { ARRIVAL_GAP, benchMate, indoors, islandPlaces, ISLAND_GAP, ISLAND_SPEED, newcomer, settleCount, stepCrowd, townsfolk, type Scene, type Townsfolk } from './crowd'
 import { Fade, FADE_SECONDS } from './Fade'
 import { batchFigure } from './FigureBatch'
@@ -1127,13 +1128,15 @@ function useKept<T>(size: number, make: (i: number) => T): T[] {
  * needs fewer, the last ones walk in there and are gone. `field` is the land's, for the beach. With reduced motion
  * they stand where they are, and come and go at once.
  */
-export function Strollers({ town, field, crowd = true, me = null }: {
+export function Strollers({ town, field, crowd = true, me = null, walked = false }: {
   town: Town
   field?: Field
   /** Whether the island's people are out; the user is, either way. */
   crowd?: boolean
   /** The user, out among them as the first of them: as they look, and the seed for what they haven't picked. */
   me?: { look: Look; seed: number } | null
+  /** Whether the user is walked by hand, with the keys held in `useWalk`, rather than going about on their own. */
+  walked?: boolean
 }) {
   const grid = useMemo(() => townGrid(town), [town])
   const seats = useMemo(() => benchSeats(town, grid), [town, grid])
@@ -1211,6 +1214,7 @@ export function Strollers({ town, field, crowd = true, me = null }: {
     clock.current += dt
     const scene: Scene = {
       grid, seats, cells, paved, places, swim, night: light.glow, followed: followed.stroller, me: me ? 0 : -1,
+      drive: walked && me ? walkVelocity(useWalk.getState()) : undefined,
     }
     // those no longer needed head for the staffing agency, and are let go once in
     const left = settleCount(people, n, calm)

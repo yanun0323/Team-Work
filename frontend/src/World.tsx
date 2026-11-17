@@ -19,6 +19,8 @@ import { StaffingAgency } from './StaffingAgency'
 import { StaffingPanel } from './StaffingPanel'
 import { TowerPanel } from './TowerPanel'
 import { Profile, ProfileButton } from './Profile'
+import { WalkKeys } from './WalkKeys'
+import { useWalkKeys } from './walkByHand'
 import { IslandBar } from './IslandBar'
 import { useIsland } from './core/island'
 import { presencePlace, reportPresence, useMe, useVisitors, visitorsAt, watchIsland, watchVisitors } from './core/towers'
@@ -308,6 +310,9 @@ export function World() {
   }, [meNow, remote])
   // with their profile open, the camera follows them as the settings' automatic view says: flying in, or just panning
   const meFollow = panel === 'profile' && !!me && autoView !== 'off'
+  // and meanwhile W, A, S and D walk them about; with reduced motion nobody on the island moves
+  const walkable = meFollow && !calm
+  useWalkKeys(walkable)
   const tracked = useMemo<FollowTarget | null>(() => (meFollow ? { kind: 'stroller', index: 0 } : following), [meFollow, following])
   useEffect(() => {
     followed.stroller = tracked?.kind === 'stroller' ? tracked.index : -1
@@ -667,7 +672,7 @@ export function World() {
       {(placing || editing) && <MapGrid town={town} moved={moving ?? undefined} />}
       <StreetProps town={town} />
       {/* each person fades in on their own (see Strollers): a Fade round them all would fight theirs over the same meshes */}
-      {(crowd || me) && <Strollers town={town} field={land.field} crowd={crowd} me={me} />}
+      {(crowd || me) && <Strollers town={town} field={land.field} crowd={crowd} me={me} walked={walkable} />}
       <Trees town={town} />
       {tracked !== null && <FollowCut town={town} onChange={setCutAway} />}
       {town.lots.map((lot) => (
@@ -707,6 +712,9 @@ export function World() {
         <DaylightDebug />
       </div>
     )}
+    <div className="fx-walk" {...tucked(!walkable)}>
+      <WalkKeys />
+    </div>
     <div className="fx-map-tip" {...tucked(!chrome || !tipNow)}>
       <p className="fx-corner-note fx-tag" role="status">{tip}</p>
     </div>
