@@ -9,6 +9,7 @@ import { airportSkills, canHandOff, chatSkill, chatTaskDraft, createAirportChat,
 import { chatMindOf, chatSign, chatWho } from './crew'
 import { prereqsOf } from './prereqs'
 import { teamAlerts, teamReplicas, waitingTab } from './core/model'
+import { chatAlbum, nextInAlbum } from './ChatSheet'
 
 // the mock world comes with a meeting; these count and list only the chats they make
 const bare = () => {
@@ -444,5 +445,30 @@ describe('a long list of chats', () => {
     } finally {
       for (const c of made) delete w.chats[c.id]
     }
+  })
+})
+
+describe('a chat\'s pictures, one after another', () => {
+  const pic = (name: string) => ({ name, url: `/api/v1/attachments/${name}` })
+  const messages = [
+    { at: 1, from: 'user' as const, text: 'look', images: [pic('a'), pic('b')] },
+    { at: 2, from: 'agent' as const, text: 'ok' },
+    { at: 3, from: 'tool' as const, text: 'shot.png', images: [pic('c')] },
+  ]
+
+  it('lines up every picture shown, in order, keyed as the chat opens them', () => {
+    expect(chatAlbum('chat-1', messages, 40).map((x) => [x.key, x.image.name])).toEqual([
+      ['chat:chat-1:40:0', 'a'], ['chat:chat-1:40:1', 'b'], ['chat:chat-1:42:0', 'c'],
+    ])
+  })
+
+  it('steps to the one before or after, and stops at either end', () => {
+    const album = chatAlbum('chat-1', messages, 0)
+    expect(nextInAlbum(album, 'chat:chat-1:0:1', 1)?.image.name).toBe('c')
+    expect(nextInAlbum(album, 'chat:chat-1:0:1', -1)?.image.name).toBe('a')
+    expect(nextInAlbum(album, 'chat:chat-1:0:0', -1)).toBeUndefined()
+    expect(nextInAlbum(album, 'chat:chat-1:2:0', 1)).toBeUndefined()
+    // a picture about to be sent is not one of the chat's
+    expect(nextInAlbum(album, 'chatDraft:0', 1)).toBeUndefined()
   })
 })

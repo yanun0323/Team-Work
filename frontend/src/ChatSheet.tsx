@@ -157,6 +157,19 @@ function ChatTitle({ chat }: { chat: Chat }) {
 }
 
 /** A line where a chat was handed to the next: from the chat it was copied from, which it opens unless deleted; one kept before that was recorded says who had it. */
+export type AlbumPicture = { key: string; image: Attachment }
+
+/** Every picture in a chat's messages, in order, keyed as the chat opens them; `start` is the first message's index. */
+export function chatAlbum(chatId: string, messages: { images?: Attachment[] }[], start: number): AlbumPicture[] {
+  return messages.flatMap((m, i) => (m.images ?? []).map((image, j) => ({ key: `chat:${chatId}:${start + i}:${j}`, image })))
+}
+
+/** The picture before (-1) or after (1) the open one; none at either end, or when the open one is not in the album. */
+export function nextInAlbum(album: AlbumPicture[], open: string, step: -1 | 1): AlbumPicture | undefined {
+  const at = album.findIndex((x) => x.key === open)
+  return at < 0 ? undefined : album[at + step]
+}
+
 export function HandoffLine({ handoff: h, to, gone, open, onOpen }: { handoff: ChatHandoff; to: string; gone: boolean; open: boolean; onOpen: (id: string) => void }) {
   if (!h.chatId) return <li className="fx-room-handoff">{tr('{from} 交給 {to}', { from: h.name, to })}</li>
   const text = tr('從 {chat} 交給 {to}', { chat: h.chatId, to })
@@ -274,6 +287,23 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
     return () => { live = false }
   }, [given, airport, teamId])
 
+  // with one of its pictures open, ← and → open the one before or after, among those read so far
+  const albumOf = useRef<AlbumPicture[]>([])
+  albumOf.current = chat ? chatAlbum(chat.id, chat.messages, chat.history ? pages.start : 0) : []
+  const albumChat = chat?.id
+  useEffect(() => {
+    if (!image?.startsWith('chat:') || !albumChat) return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented) return
+      if ((e.target as Element | null)?.closest?.('input, textarea, select, [contenteditable="true"], .fx-terminal')) return
+      const next = nextInAlbum(albumOf.current, image, e.key === 'ArrowLeft' ? -1 : 1)
+      if (!next) return
+      e.preventDefault()
+      onImage(next.key, next.image, albumChat)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [image, albumChat, onImage])
   if (given && !chat) return <Gone {...h} />
   const left = !!chat && !airport && !replica
   const name = airport ? tr('機場服務人員') : chat?.name ?? replica?.name ?? ''

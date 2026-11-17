@@ -249,12 +249,13 @@ export function Drawer({ teamId, look, leaving, onGone }: {
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
 /** A sheet in the stack, and what had focus when it was taped on (focus goes back there when it goes). */
-type Layer = { item: Item; leaving: boolean; from: HTMLElement | null }
+// key: the sheet's own, kept when `swap` changes what is on it, so it does not slide in again
+type Layer = { item: Item; leaving: boolean; from: HTMLElement | null; key?: string }
 
 /**
  * The stack of detail sheets. Opening from the company file starts a fresh stack, and opening its bottom
  * item again puts the stack away; `push` tapes a sheet on top, or swaps the top one once there are
- * `MAX_SHEETS`; `back(d)` puts away every sheet above depth
+ * `MAX_SHEETS`; `swap` changes what the top sheet shows, in place; `back(d)` puts away every sheet above depth
  * d (-1: all of them). A sheet put away stays for its fade-out (`leaving`) until `gone`; with reduced
  * motion there is none, so it goes at once.
  */
@@ -284,6 +285,14 @@ export function useSheets() {
       return [...live.slice(0, MAX_SHEETS - 1), { item: x, leaving: false, from: live[MAX_SHEETS - 1].from }]
     })
   }, [])
+  const swap = useCallback((x: Item) => {
+    setLayers((ls) => {
+      const live = ls.filter((l) => !l.leaving)
+      const top = live[live.length - 1]
+      if (!top) return [{ item: x, leaving: false, from: document.activeElement as HTMLElement | null }]
+      return [...live.slice(0, -1), { ...top, item: x, key: top.key ?? itemKey(top.item) }]
+    })
+  }, [])
   const back = useCallback((depth: number, restore = true) => {
     setLayers((ls) => {
       if (restore) refocus.current = ls[depth + 1]?.from ?? document.getElementById(`fx-detail-title-${depth}`)
@@ -305,7 +314,7 @@ export function useSheets() {
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [top, back])
-  return { layers, top, open, push, back, gone }
+  return { layers, top, open, push, swap, back, gone }
 }
 
 // what a click on the map calls first while the open company or airport has detail sheets
@@ -360,8 +369,8 @@ export function SheetStack({ sheets, teamId, leaving }: { sheets: Sheets; teamId
   // until the last one has gone, those going away included
   useCoversLeft(layers.length > 0)
   return layers.map((l, i) => (
-    <Detail key={`${i}:${itemKey(l.item)}`} item={l.item} teamId={teamId} depth={i}
+    <Detail key={`${i}:${l.key ?? itemKey(l.item)}`} item={l.item} teamId={teamId} depth={i}
       covered={i < top} above={i < top ? layers[i + 1]?.item : undefined} leaving={leaving || l.leaving}
-      onGone={() => sheets.gone(i)} onBack={() => back(i)} onDone={() => back(i - 1)} onClear={() => back(i - 2)} onPush={sheets.push} onOpen={sheets.open} />
+      onGone={() => sheets.gone(i)} onBack={() => back(i)} onDone={() => back(i - 1)} onClear={() => back(i - 2)} onPush={sheets.push} onSwap={sheets.swap} onOpen={sheets.open} />
   ))
 }

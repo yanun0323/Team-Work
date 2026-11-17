@@ -132,7 +132,7 @@ const LOG_LINES = 40
 /** How far across each sheet in the stack sits, from the left (0) to right beside the company file (1). */
 const SHEET_ACROSS = [0, 1, 1 / 3, 2 / 3]
 
-export function Detail({ item, teamId, depth, covered, above, leaving, onGone, onBack, onDone, onClear, onPush, onOpen }: {
+export function Detail({ item, teamId, depth, covered, above, leaving, onGone, onBack, onDone, onClear, onPush, onSwap, onOpen }: {
   item: Item
   /** The open company; empty when opened from the settings, which belong to no company. */
   teamId: string
@@ -152,6 +152,8 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
   onClear: () => void
   /** Tape another sheet on top. */
   onPush: (x: Item) => void
+  /** Change what the sheet on top shows, in place (the next picture). */
+  onSwap?: (x: Item) => void
   /** Put every sheet away and open this one alone, as from the list. */
   onOpen: (x: Item) => void
 }) {
@@ -270,7 +272,7 @@ export function Detail({ item, teamId, depth, covered, above, leaving, onGone, o
             <ChatSheet id={item.kind === 'chat' ? item.id : undefined} teamId={teamId} title={title} tid={id} creating={above?.kind === 'newTask'}
               crewOpen={above?.kind === 'crew'} onCrew={(x) => onPush({ kind: 'crew', id: x })}
               onFile={(path) => onPush({ kind: 'file', path })} onSkill={(chat, name) => onPush({ kind: 'skill', chat, name })}
-              image={above?.kind === 'image' ? above.key : null} onImage={(key, image, chat) => onPush({ kind: 'image', key, image, chat })}
+              image={above?.kind === 'image' ? above.key : null} onImage={(key, image, chat) => (above?.kind === 'image' && onSwap ? onSwap : onPush)({ kind: 'image', key, image, chat })}
               onTask={(seed) => onPush({ kind: 'newTask', seed })} onHandOff={(x) => onOpen({ kind: 'chat', id: x })}
               chat={above?.kind === 'chat' ? above.id : null} onOpenChat={(x) => onPush({ kind: 'chat', id: x })}
               task={above?.kind === 'task' ? above.id : null} onOpenTask={(x) => onPush({ kind: 'task', id: x })}
