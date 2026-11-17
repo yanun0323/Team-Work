@@ -152,7 +152,7 @@ const TOPICS: (HelpTopic & { id: string; group?: string })[] = [
         <p>员工蓝图是员工的模板：Prompt、技能和允许的工具，不含模型，模型由每位员工自己选。所有公司共用蓝图。不知道该用哪个就用官方的「通才」；想改官方或内置的蓝图，按右上角的复制，存成自己的再改。</p>
         <p className="fx-help-pit">「执行命令」没有沙盒，员工能碰到整台电脑，只给你信任的蓝图。</p>
         <dl>
-          <dt>官方蓝图</dt><dd>通才、前端工程师、后端工程师、代码审查员、测试工程师、设计师、产品规划、技术规划、研究员、写手、DevOps 工程师、Matt Pocock 和 Poteto，共十三个，来自官方来源，不能修改或删除。Matt Pocock 和 Poteto 照同名作者在 GitHub 公开的技能工作。官方蓝图跟着语言显示，实际给员工的是英文，再加上回复语言的规则；你自己的蓝图照你写的内容给。</dd>
+          <dt>官方蓝图</dt><dd>通才、功能规划、通用工程师、研究员、写手、媒体设计师、界面设计工程师、审查与测试、前端工程师、后端工程师、SRE 工程师和 Poteto，共十二个，来自官方来源，不能修改或删除。通用工程师照 Matt Pocock、Poteto 照同名作者在 GitHub 公开的技能工作。官方蓝图跟着语言显示，实际给员工的是英文，再加上回复语言的规则；你自己的蓝图照你写的内容给。</dd>
           <dt>内置蓝图</dt><dd>只有机场服务人员，它只在机场对话里工作，不能拿来添加员工。</dd>
           <dt>来源提供的蓝图</dt><dd>来源可以带来员工蓝图。列表依出处分组：我的、各个来源（标题是来源名称）、内置。来源提供的蓝图和内置的一样不能修改或删除，要改就复制一份，复制出来的放在「我的」。</dd>
           <dt>技能</dt><dd>列出「机场 → 来源」的每个来源和它的技能，点击技能就会亮起，代表使用。勾选来源名称会使用它全部的技能，之后添加的也会使用，点暗的技能会排除；没勾来源名称时只用亮着的技能。不同来源使用了同名的技能时会变成红底白字，点暗其中一个即可。</dd>
@@ -208,7 +208,7 @@ const TOPICS: (HelpTopic & { id: string; group?: string })[] = [
           <dt>员工蓝图和任务蓝图</dt><dd>放在来源最上层的 <code>blueprints/</code> 和 <code>workflows/</code>，一个 YAML 档一份，文档名只能用英文字母、数字、<code>-</code> 和 <code>_</code>。员工蓝图写 <code>name</code>、<code>prompt</code>、<code>comment</code>、<code>tools</code>（<code>read_file</code>、<code>write_file</code>、<code>web_search</code>、<code>run_command</code>）、<code>skills</code>，可加 <code>look</code>；<code>skills</code> 每一项写 <code>repo</code>（可加 <code>ref</code>、<code>path</code>）、本机文件夹的完整路径，或来源里的文件夹，再用 <code>include</code>、<code>exclude</code> 挑技能。任务蓝图的格式和 <code>~/.team-work/workflows/</code> 里的文件相同，不指定员工，没写位置会自动排好。读不了的文件列在来源页的「无法读取」。<code>~/.team-work/</code> 是 App 自己的文件夹，只读技能。</dd>
           <dt>多种语言</dt><dd>员工蓝图的 <code>name</code>、<code>prompt</code>、<code>comment</code>，以及任务蓝图和每个步骤的 <code>name</code>、<code>prompt</code>，可以只写一段，也可以用 <code>en</code>、<code>zh</code>、<code>zh-Hans</code>、<code>ja</code>、<code>ko</code> 各写一段。界面照你选的语言显示，没有就用英文，再没有就用第一个写的；给员工的有英文就用英文。</dd>
           <dt>官方来源</dt><dd><code>yanun0323/Team-Work-Source</code> 带来官方蓝图和任务蓝图，每个人都有、不能移除，默认自动应用更新。第一次使用要联网下载，之后没有网络也能用已下载的版本。员工用的蓝图不见时（来源去掉了、文件名改了，或从旧版升级），他会标上“蓝图已不存在”，排在员工列表最前面；他负责的步骤会停下来问你，编辑他、重新选一个蓝图就能继续。</dd>
-          <dt>自动列入</dt><dd><code>~/.agents/</code>、<code>~/.team-work/</code>、<code>~/.codex/</code>、<code>~/.claude/</code> 会自动列为本机来源；官方蓝图 Matt Pocock 和 Poteto 读的 <code>mattpocock/skills</code>、<code>cursor/plugins</code> 也会自动列入，和你添加的一样检查更新。</dd>
+          <dt>自动列入</dt><dd><code>~/.agents/</code>、<code>~/.team-work/</code>、<code>~/.codex/</code>、<code>~/.claude/</code> 会自动列为本机来源；官方蓝图通用工程师和 Poteto 读的 <code>mattpocock/skills</code>、<code>cursor/plugins</code> 也会自动列入，和你添加的一样检查更新。</dd>
           <dt>检查更新</dt><dd>每小时自动检查一次，想马上检查就按来源右上角的刷新按钮。有新版本时，列表上的来源前面会出现红色惊叹号，打开后列出添加和移除的技能、员工蓝图和任务蓝图，以及受影响的蓝图和员工。本机文件夹没有版本，改了文件后按右上角的「重新读取」。</dd>
           <dt>蓝图被移除时</dt><dd>新版本拿掉了员工正在用的蓝图时，应用后这些员工改用自定义设置，保留原本的内容；应用前会列在「改用自定义设置」底下。</dd>
           <dt>技能</dt><dd>来源页按文件夹列出它的技能，点一下技能会在旁边打开一张，显示它的说明、文件位置和完整内容。</dd>

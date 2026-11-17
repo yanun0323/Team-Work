@@ -42,7 +42,7 @@ func TestPresets(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"功能規劃", "介面設計工程師", "媒體設計師", "後端工程師", "前端工程師", "研究員", "審查與測試", "DevOps 工程師", "寫手", "通才", "Matt Pocock", "Poteto"} {
+	for _, want := range []string{"功能規劃", "介面設計工程師", "媒體設計師", "後端工程師", "前端工程師", "研究員", "審查與測試", "SRE 工程師", "寫手", "通才", "通用工程師", "Poteto"} {
 		if names[want] == "" {
 			t.Fatalf("no blueprint %s: %v", want, names)
 		}

@@ -12,7 +12,7 @@ describe('presets', () => {
 
   it('are the official source\'s and the airport staff\'s, in the mock world in the language picked', () => {
     const w = seedWorld()
-    expect(blueprints(w).map((b) => b.name).sort()).toEqual(['通才', '前端工程師', '後端工程師', '審查與測試', '介面設計工程師', '媒體設計師', '功能規劃', '研究員', '寫手', 'DevOps 工程師', 'Matt Pocock', 'Poteto'].sort())
+    expect(blueprints(w).map((b) => b.name).sort()).toEqual(['通才', '前端工程師', '後端工程師', '審查與測試', '介面設計工程師', '媒體設計師', '功能規劃', '研究員', '寫手', 'SRE 工程師', '通用工程師', 'Poteto'].sort())
     expect(w.blueprints['preset-airport'].name).toBe('機場服務人員')
     expect(w.sources[OFFICIAL_SOURCE]).toMatchObject({ kind: 'git', repo: 'https://github.com/yanun0323/Team-Work-Source', autoApply: true })
     expect(deleteSource(w, OFFICIAL_SOURCE)).toBe(false)
