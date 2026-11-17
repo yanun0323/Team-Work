@@ -56,6 +56,14 @@ export function CompactLine({ index }: { index?: number }) {
   return <li className="fx-room-handoff" data-message-index={index}>{tr('已整理較早的對話')}</li>
 }
 
+/** What the one replying has written so far, or dots before any; while the earlier chat is summed up, that instead. */
+export function WritingBubble({ compacting, live }: { compacting?: boolean; live?: ReactNode }) {
+  if (compacting) return <p className="fx-chat-bubble">{tr('正在整理較早的對話…')}</p>
+  // read out when it is done, not piece by piece
+  if (live) return <div className="fx-chat-bubble" aria-hidden="true">{live}</div>
+  return <p className="fx-chat-bubble"><span className="fx-chat-dots" aria-hidden="true"><span /><span /><span /></span></p>
+}
+
 /** A tool call in the log. A picture image_gen saved shows on its own, without the path it was saved to. */
 export function ToolLine({ text, images, index }: { text: string; images?: ReactNode[]; index?: number }) {
   return (
@@ -680,10 +688,7 @@ export function ChatSheet({ id: given, teamId, creating, crewOpen, onCrew, onFil
         {writing && (
           <li className="fx-chat-msg fx-chat-agent fx-chat-writing" style={noteOf(chat?.speaker)}>
             <span className="fx-sr">{tr('{name} 正在回覆', { name: speaking })}</span>
-            {live
-              // read out when it is done, not piece by piece
-              ? <div className="fx-chat-bubble" aria-hidden="true"><Markdown text={live} people={named} /></div>
-              : <p className="fx-chat-bubble"><span className="fx-chat-dots" aria-hidden="true"><span /><span /><span /></span></p>}
+            <WritingBubble compacting={chat?.compacting} live={live && <Markdown text={live} people={named} />} />
           </li>
         )}
       </ol>

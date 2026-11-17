@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { AskBox, ChatFoot, ChatId, CompactLine, ContextUse, HandoffLine, NoteName, ToolLine } from './ChatSheet'
+import { AskBox, ChatFoot, ChatId, CompactLine, ContextUse, HandoffLine, NoteName, ToolLine, WritingBubble } from './ChatSheet'
 import { useStore } from './core/store'
 import type { Chat } from './core/domain/types'
 
@@ -13,6 +13,13 @@ it('shows the chat id as a button that copies it', () => {
 
 it('draws where the earlier conversation was summed up as a divider, not a tool line', () => {
   expect(renderToStaticMarkup(<CompactLine />)).toBe('<li class="fx-room-handoff">已整理較早的對話</li>')
+})
+
+it('says the earlier chat is being summed up in place of the dots, and of what was written so far', () => {
+  expect(renderToStaticMarkup(<WritingBubble />)).toContain('fx-chat-dots')
+  expect(renderToStaticMarkup(<WritingBubble live="寫到一半" />)).toBe('<div class="fx-chat-bubble" aria-hidden="true">寫到一半</div>')
+  expect(renderToStaticMarkup(<WritingBubble compacting />)).toBe('<p class="fx-chat-bubble">正在整理較早的對話…</p>')
+  expect(renderToStaticMarkup(<WritingBubble compacting live="寫到一半" />)).toBe('<p class="fx-chat-bubble">正在整理較早的對話…</p>')
 })
 
 it('shows a picture image_gen saved without the path it was saved to', () => {

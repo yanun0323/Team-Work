@@ -403,6 +403,7 @@ const en = {
   '從 {chat} 交給 {to}': 'Handed off from {chat} to {to}',
   '{name} 加入對話': '{name} joined the chat',
   '已整理較早的對話': 'Earlier messages summed up',
+  '正在整理較早的對話…': 'Summing up earlier messages…',
   '終端機預設指令': 'Terminal startup command',
   '自動檢視': 'Auto view',
   '點選地圖': 'Clicking the map',

@@ -418,6 +418,8 @@ export interface Chat {
   context?: number
   /** The employee is writing a reply. */
   replyAt?: number
+  /** The reply waits for the earlier chat to be summed up. */
+  compacting?: boolean
   /** The employee waits for an answer to what they just asked; the next message is it. */
   question?: { options: string[] }
   /** The employee waits for the user to agree to this. Saying something else in the chat refuses it. */
