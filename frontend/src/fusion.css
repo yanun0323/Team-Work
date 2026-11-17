@@ -1103,7 +1103,7 @@ a.fx-save { text-decoration: none; }
   .fx-detail-cover { animation: none; }
   .fx-chevron { transition: none; }
   .fx-drawer.leaving, .fx-detail.leaving { animation: none; opacity: 0; }
-  .fx-chat-writing p span[aria-hidden], .fx-chat-replying i { animation: none; }
+  .fx-chat-writing p span[aria-hidden] { animation: none; }
 }
 
 /* the employee in 3D on the hire and edit sheets */
@@ -1958,11 +1958,16 @@ button.fx-ticket-tag:hover { color: var(--ink); }
 /* the chat's tokens sit at the top right, like a task card's */
 .fx-row-main b .fx-chat-tokens { margin-inline-start: auto; padding-inline-start: 8px; font: 500 11px/1.2 var(--font-mono); white-space: nowrap; }
 .fx-row-main .fx-chat-first { color: var(--ink); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.fx-chat-replying > span[aria-hidden] { display: flex; gap: 3px; }
-.fx-chat-replying i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: fx-chat-replying 1.2s ease-in-out infinite; }
-.fx-chat-replying i:nth-child(2) { animation-delay: 0.15s; }
-.fx-chat-replying i:nth-child(3) { animation-delay: 0.3s; }
-@keyframes fx-chat-replying { 0%, 60%, 100% { transform: none; opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
+/* three dots bobbing in turn, a picture that plays by itself (replying.png: each dot rises 4px and darkens from 40% in
+   the first 30% of a 1.2s loop, back by 60%, the next 0.15s behind). In WebKit the same as a CSS animation repainted the
+   whole drawer every frame while the drawer pasted itself in, which held up opening a company on a big window */
+.fx-chat-replying > span[aria-hidden] { display: flex; align-items: end; gap: 3px; width: 21px; height: 9px; background: url(./replying.png) 0 0 / 100% 100% no-repeat; }
+/* the dots at rest, drawn instead where motion is reduced */
+.fx-chat-replying i { display: none; width: 5px; height: 5px; border-radius: 50%; background: var(--muted); opacity: 0.4; }
+@media (prefers-reduced-motion: reduce) {
+  .fx-chat-replying > span[aria-hidden] { background: none; }
+  .fx-chat-replying i { display: block; }
+}
 /* a chat's pin at the row's end: always on a pinned chat, on the others while pointed at; on a touch screen, the chat's own pin */
 .fx-chat-item { position: relative; }
 .fx-chat-item .fx-chat-row { padding-inline-end: 40px; }
