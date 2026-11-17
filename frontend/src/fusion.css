@@ -2003,10 +2003,11 @@ button.fx-ticket-tag:hover { color: var(--ink); }
 .fx-row.fx-chat-row { grid-template-columns: 22px auto minmax(0, 1fr); gap: 10px; }
 .fx-row.fx-src-row { grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; }
 .fx-chat-sign { display: grid; place-items: center; }
-.fx-chat-row .fx-row-main b { display: flex; align-items: baseline; }
+/* min-width: 0, or a meeting's names, however cut, hold the line at their full length and push the tokens out */
+.fx-chat-row .fx-row-main b { display: flex; align-items: baseline; min-width: 0; }
 .fx-row-main b .fx-chat-model { margin-inline-start: 8px; font-size: 12px; font-weight: 500; }
 /* the chat's tokens sit at the top right, like a task card's */
-.fx-row-main b .fx-chat-tokens { margin-inline-start: auto; padding-inline-start: 8px; font: 500 11px/1.2 var(--font-mono); white-space: nowrap; }
+.fx-row-main b .fx-chat-tokens { flex: none; margin-inline-start: auto; padding-inline-start: 8px; font: 500 11px/1.2 var(--font-mono); white-space: nowrap; }
 .fx-row-main .fx-chat-first { color: var(--ink); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* three dots bobbing in turn, a picture that plays by itself (replying.png: each dot rises 4px and darkens from 40% in
    the first 30% of a 1.2s loop, back by 60%, the next 0.15s behind). In WebKit the same as a CSS animation repainted the
