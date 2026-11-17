@@ -243,15 +243,19 @@ func (e *Engine) compactChat(ctx context.Context, in chatRun) ([]model.Message, 
 	}
 	conv, prior := slices.Clone(e.w.Conversations[in.id]), clone(c.Compact)
 	rules := chatCompactRules + fmt.Sprintf(" Keep it under about %d words.", summaryWords(in.room)) + "\n" + languageRule(e.w.Language)
-	e.mu.Unlock()
 	from, before := 0, ""
 	if prior != nil {
 		from, before = prior.Upto, prior.Summary
 	}
 	cut := compactCut(conv, from, in.room)
 	if cut <= from {
+		e.mu.Unlock()
 		return nil, false
 	}
+	// the user sees why the reply waits: summing up a long chat takes a while and writes nothing they can read
+	c.Compacting = true
+	e.settle()
+	e.mu.Unlock()
 	text, spent, err := e.summarize(ctx, in.chair, in.folder, in.id, in.room, in.chairRoom, rules, before, compactEntries(conv[from:cut], in.names))
 	if err != nil && ctx.Err() == nil {
 		e.log.Warn().Err(err).Str("chat", in.id).Msg("compact chat")
@@ -259,6 +263,7 @@ func (e *Engine) compactChat(ctx context.Context, in chatRun) ([]model.Message, 
 	var view []model.Message
 	kept := e.applyChat(in, func(c *model.Chat) {
 		c.Tokens += spent
+		c.Compacting = false
 		if err != nil || text == "" {
 			return
 		}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -72,6 +73,21 @@ type turn struct {
 	callID string
 }
 
+// overflowed says whether a failed call may have been refused for being too long: the provider said so, or it
+// refused the request without saying why when what was sent had already reached the point it is summed up at, as
+// not every server words it so it can be told.
+func (t *turn) overflowed(err error) bool {
+	var failure *model.Error
+	if !errors.As(err, &failure) {
+		return false
+	}
+	if failure.Code == model.CodeContextOverflow {
+		return true
+	}
+	refused := failure.Code == model.CodeInvalid && slices.Contains([]int{http.StatusBadRequest, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity}, failure.Status)
+	return refused && requestTokens(t.req)+tokensOf(t.req.Messages) >= t.compactAt
+}
+
 // turnResult is how a turn ended: Stopped by a tool or callback, or with the model's Text and no tool calls.
 type turnResult struct {
 	Stopped bool
@@ -105,8 +121,7 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 	}
 	for call := 0; call < maxModelCalls; call++ {
 		reply, err := t.complete(ctx)
-		var failure *model.Error
-		if t.compact != nil && errors.As(err, &failure) && failure.Code == model.CodeContextOverflow {
+		if t.compact != nil && t.overflowed(err) {
 			if t.remeasure != nil { // the server may run another model now, which reads less
 				t.remeasure(ctx, true)
 			}
@@ -593,6 +608,9 @@ func (e *Engine) stopRun(id string) {
 			delete(e.runs, id)
 		}
 		r.cancel()
+		if c := e.w.Chats[id]; c != nil {
+			c.Compacting = false // a summary the stopped reply waited on no longer comes
+		}
 		if _, ok := e.live[id]; ok {
 			delete(e.live, id)
 			e.publish(Event{Type: "deltaReset", SubID: id})

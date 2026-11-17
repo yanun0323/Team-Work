@@ -392,6 +392,8 @@ type Chat struct {
 	Unread bool `json:"unread,omitempty"`
 	// Compact stands in for the start of the conversation when asking the model. The conversation itself stays whole.
 	Compact *ChatCompact `json:"compact,omitempty"`
+	// Compacting is set while the reply being written waits for the earlier conversation to be summed up.
+	Compacting bool `json:"compacting,omitempty"`
 	// Handoffs are where other employees handed the chat on, oldest first.
 	Handoffs []ChatHandoff `json:"handoffs,omitempty"`
 	// Guests are the others in a meeting, in the order they joined.

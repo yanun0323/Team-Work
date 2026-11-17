@@ -1408,6 +1408,144 @@ func TestChatCompactsWhenTheModelSaysItIsTooLong(t *testing.T) {
 	}
 }
 
+// A chat handed on to one whose model reads less is counted again as it is sent, instructions and tools too: counted
+// by its words alone it fit, and the first reply on the smaller model went out whole and was refused.
+func TestHandOffToAModelThatReadsLessSumsUpFirst(t *testing.T) {
+	t.Parallel()
+	var summedBy []string
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if summarizing(req) {
+			summedBy = append(summedBy, req.Model)
+			return say("摘要內容"), nil
+		}
+		return say("好"), nil
+	})
+	ctx := context.Background()
+	var provider string
+	for id := range r.world().Providers {
+		provider = id
+	}
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "big", ContextWindow: 1_000_000}, {ID: "small", ContextWindow: 32_000}}
+	r.fake.mu.Unlock()
+	if err := r.e.RefreshModels(ctx, provider); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Model: ptrTo("big")}); err != nil {
+		t.Fatal(err)
+	}
+	bea, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bea", Model: "small"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "第一句"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first", chatDone(c.ID))
+	r.fake.mu.Lock()
+	first := r.fake.seen[len(r.fake.seen)-1]
+	r.fake.mu.Unlock()
+	overhead := len(first.System)
+	for _, tool := range first.Tools {
+		overhead += len(tool.Name) + len(tool.Description) + len(tool.Parameters)
+	}
+	overhead /= 4
+	if overhead < 2_000 {
+		t.Fatalf("the instructions and tools take only %d tokens, too few to tell", overhead)
+	}
+	// 32K keeps a quarter free: summed up past 24,000. The words alone stay short of it, the request does not
+	long := (24_000 - overhead/2) * 4 / len("長")
+	if err := r.e.SayInChat(c.ID, strings.Repeat("長", long), nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("long", chatDone(c.ID))
+	msgs := r.world().Chats[c.ID].Messages
+	fork, err := r.e.HandOffChat(c.ID, len(msgs)-1, bea.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fork.Context >= 24_000 {
+		t.Fatalf("the words alone are past it already: %d", fork.Context)
+	}
+	if err := r.e.SayInChat(fork.ID, "繼續", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("Bea", chatDone(fork.ID))
+	r.fake.mu.Lock()
+	defer r.fake.mu.Unlock()
+	last := r.fake.seen[len(r.fake.seen)-1]
+	if last.Model != "small" || !strings.Contains(wordsOf(last.Messages), "摘要內容") || strings.Contains(wordsOf(last.Messages), "長長長") {
+		t.Fatalf("Bea was sent the whole chat: %s", last.Model)
+	}
+	if !slices.Equal(summedBy, []string{"small"}) {
+		t.Fatalf("summed up by %v", summedBy)
+	}
+}
+
+// While the earlier chat is summed up the user sees so, and not once it is done.
+func TestChatShowsItIsBeingSummedUp(t *testing.T) {
+	t.Parallel()
+	release := make(chan struct{})
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if summarizing(req) {
+			<-release
+			return say("摘要內容"), nil
+		}
+		reply := say("好")
+		reply.Usage = model.ModelUsage{Input: 200_000, Output: 10}
+		return reply, nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: strings.Repeat("長", 40_000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first reply", chatDone(c.ID))
+	if r.world().Chats[c.ID].Compacting {
+		t.Fatal("summing up before any was asked for")
+	}
+	if err := r.e.SayInChat(c.ID, "下一句", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("summing up", func(w *model.World) bool { return w.Chats[c.ID].Compacting && w.Chats[c.ID].ReplyAt != nil })
+	close(release)
+	got := r.wait("reply", chatDone(c.ID)).Chats[c.ID]
+	if got.Compacting || got.Compact == nil {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// Stopping a reply while the chat is summed up does not leave it shown as summing up.
+func TestStoppingWhileSummingUpClearsIt(t *testing.T) {
+	t.Parallel()
+	release := make(chan struct{})
+	defer close(release)
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if summarizing(req) {
+			<-release
+			return say("摘要內容"), nil
+		}
+		reply := say("好")
+		reply.Usage = model.ModelUsage{Input: 200_000, Output: 10}
+		return reply, nil
+	})
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: strings.Repeat("長", 40_000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first reply", chatDone(c.ID))
+	if err := r.e.SayInChat(c.ID, "下一句", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("summing up", func(w *model.World) bool { return w.Chats[c.ID].Compacting })
+	if err := r.e.StopChat(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.world().Chats[c.ID]; got.Compacting || got.ReplyAt != nil {
+		t.Fatalf("%+v", got)
+	}
+}
+
 func TestChatKeepsAToolResultWithItsCall(t *testing.T) {
 	t.Parallel()
 	var last model.ModelRequest

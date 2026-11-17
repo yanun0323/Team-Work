@@ -617,7 +617,7 @@ func (e *Engine) interruptChats() {
 		if c.ReplyAt == nil {
 			continue
 		}
-		c.ReplyAt = nil
+		c.ReplyAt, c.Compacting = nil, false
 		e.chatSays(c, i18n.T("（伺服器重新啟動，這次回覆中斷了）"))
 		c.Messages[len(c.Messages)-1].Failed = true
 		e.nextSpeaker(c)
@@ -1085,7 +1085,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 				return
 			}
 			if c := e.w.Chats[in.id]; c != nil {
-				c.ReplyAt = nil
+				c.ReplyAt, c.Compacting = nil, false
 				// in a meeting the next one replies even if this one failed; a stopped reply stops the round.
 				// A failed one leaves the queue for the user to send
 				if !stopped && e.nextSpeaker(c) {
@@ -1259,7 +1259,9 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		t.req.Messages = append(t.req.Messages, e.chatJobsHeard(c, in.speaker)...)
 	})
 	t.remeasure(ctx, false) // before the summing up below; the turn's own look then finds it fresh
-	if in.context >= in.compactAt {
+	// what was last read may be another model's count, or leave out the instructions and tools: a chat handed on to
+	// one who reads less is counted again here, as it is sent
+	if max(in.context, in.overhead+tokensOf(t.req.Messages)) >= in.compactAt {
 		if shorter, ok := t.compact(ctx); ok {
 			t.req.Messages = shorter
 		}

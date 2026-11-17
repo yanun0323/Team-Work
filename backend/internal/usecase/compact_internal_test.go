@@ -190,3 +190,36 @@ func TestRawWordsAreCountedOnce(t *testing.T) {
 		t.Fatalf("got %d, want %d", got, len(m.Content[0].Raw)/4)
 	}
 }
+
+// A server that refuses a long request without saying it is too long is taken at its word only once the request is
+// long enough to be summed up: a short one refused is something else, and a sign-in refused is never the length.
+func TestARefusalOfALongRequestCountsAsTooLong(t *testing.T) {
+	t.Parallel()
+	long := []model.Message{{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: strings.Repeat("x", 40_000)}}}}
+	short := []model.Message{{Role: enum.RoleUser, Content: []model.Block{{Type: enum.BlockText, Text: "hi"}}}}
+	refused := func(code string, status int) error {
+		e := model.Errorf(code, "x")
+		e.Status = status
+		return e
+	}
+	for _, c := range []struct {
+		name string
+		msgs []model.Message
+		err  error
+		want bool
+	}{
+		{"said so", short, model.Errorf(model.CodeContextOverflow, "x"), true},
+		{"refused long", long, refused(model.CodeInvalid, 400), true},
+		{"too large", long, refused(model.CodeInvalid, 413), true},
+		{"refused short", short, refused(model.CodeInvalid, 400), false},
+		{"signed out", long, refused(model.CodeInvalid, 401), false},
+		{"passing", long, refused(model.CodeUnavailable, 503), false},
+		{"no status", long, model.Errorf(model.CodeInvalid, "x"), false},
+		{"not a model error", long, context.Canceled, false},
+	} {
+		tr := &turn{req: model.ModelRequest{Messages: c.msgs}, compactAt: 5_000}
+		if got := tr.overflowed(c.err); got != c.want {
+			t.Errorf("%s: %v", c.name, got)
+		}
+	}
+}
