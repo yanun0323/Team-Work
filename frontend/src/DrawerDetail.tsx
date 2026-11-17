@@ -12,7 +12,7 @@ import { blueprintUsers, flowEditable, gitSources, notStarted, ranSteps, statusO
 import { STAFFING_ID, TOOLS, type Attachment, type Blueprint, type Chat, type BlueprintSource, type GitSource, type LocalSkills, type Look, type MemoryEntry, type ModelProvider, type ProviderKind, type Replica, type SkillPack, type Source, type SubTask, type Tool, type Workflow, type WorkflowNode, type World } from './core/domain/types'
 import { keptState, sourceName, sourceState, sourceText, toolName } from './source'
 import { composing } from './ime'
-import { crewOf, heirsOf, lastOfTeam, leavesAlone, flowList, hireList, unhidden, activity, fmtClock, fmtDateTime, fmtTokens, layers, inEdges, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
+import { crewOf, heirsOf, leavesAlone, strands, flowList, hireList, unhidden, activity, fmtClock, fmtDateTime, fmtTokens, layers, inEdges, logText, outEdges, taskLines, teamReplicas, useStickToBottom } from './core/model'
 import { useLiveText } from './core/live'
 import { useNow, useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -1072,7 +1072,8 @@ function CrewDetail({ id, editing, firing, moving, copying, duplicating, bluepri
   if (!r) return <Gone {...h} />
   const steps = staffedOn(w, r)
   const doing = doingOf(w, r)
-  const alone = lastOfTeam(w, r.id)
+  // the only one able to work at a company stays; moving into the agency, they still work there
+  const alone = strands(w, r.id)
   const shared = r.teamId === STAFFING_ID
   const moveLabel = shared ? tr('移到公司') : tr('移到移民署')
   return (
@@ -1090,8 +1091,8 @@ function CrewDetail({ id, editing, firing, moving, copying, duplicating, bluepri
             <CopyIcon />
           </button>
         )}
-        <button type="button" className="fx-tool fx-hit" onClick={onMove} aria-expanded={moving} disabled={alone || (shared && !Object.keys(w.teams).length)}
-          aria-label={moveLabel} title={alone ? tr('公司至少要有一位員工') : moveLabel}>
+        <button type="button" className="fx-tool fx-hit" onClick={onMove} aria-expanded={moving} disabled={shared && !Object.keys(w.teams).length}
+          aria-label={moveLabel} title={moveLabel}>
           <MoveIcon />
         </button>
         <button type="button" className="fx-tool fx-hit" onClick={onFire} aria-expanded={firing} disabled={alone}
@@ -1951,7 +1952,7 @@ export function copyName(w: World, name: string) {
 /**
  * Hire someone (`id` null) or change an employee, as a draft: nothing changes until it is saved. Their look
  * (the face here and the figure in the office) can be rolled again at random. With `copyOf`, a new hire starts as a
- * copy of that employee, where they work: settings, model and look, but none of their memory.
+ * copy of that employee, where they work: settings, model, look and their own memory.
  */
 function CrewEdit({ id, copyOf, teamId: here, onDone, ...h }: Head & { id: string | null; copyOf?: string; teamId: string; onDone: () => void }) {
   const w = useStore((s) => s.world)
@@ -2005,7 +2006,7 @@ function CrewEdit({ id, copyOf, teamId: here, onDone, ...h }: Head & { id: strin
       own = { source, prompt: form.prompt, comment: '', skills, tools: form.tools, ...(from && { from }) }
     }
     act((x) => {
-      if (!id) return void hire(x, teamId, own ? '' : bp, name.trim(), look, { model, effort: level }, own)
+      if (!id) return void hire(x, teamId, own ? '' : bp, name.trim(), look, { model, effort: level }, own, src?.id)
       updateReplica(x, id, { name: name.trim(), blueprintId: own ? x.replicas[id]?.blueprintId ?? bp : bp, model, effort: level, look }, own)
     })
     onDone()
@@ -2070,18 +2071,18 @@ function ownPacks(bp: Blueprint): SkillPack[] {
 
 /**
  * What an employee leaving hands over, and who takes it: someone able to work wherever it is. One of the staffing
- * agency's with nothing to hand over needs nobody.
+ * agency's with nothing to hand over needs nobody. `stays` is a company they are moving into, keeping their work there.
  */
-export function Handover({ id, heir, onHeir }: { id: string; heir: string | null; onHeir: (id: string) => void }) {
+export function Handover({ id, heir, onHeir, stays = '' }: { id: string; heir: string | null; onHeir: (id: string) => void; stays?: string }) {
   const w = useStore((s) => s.world)
   const r = w.replicas[id]
   if (!r) return null
-  const steps = staffedOn(w, r)
+  const steps = staffedOn(w, r).filter(({ task }) => task.teamId !== stays)
   const owned = Object.values(w.tasks)
-    .filter((t) => t.ownerId === id && t.stage !== 'done' && t.stage !== 'cancelled')
+    .filter((t) => t.ownerId === id && t.teamId !== stays && t.stage !== 'done' && t.stage !== 'cancelled')
     .sort((a, b) => a.number - b.number)
-  const heirs = heirsOf(w, id)
-  const alone = leavesAlone(w, id)
+  const heirs = heirsOf(w, id, stays)
+  const alone = leavesAlone(w, id, stays)
   return (
     <>
       <Section name={tr('要交接的工作')}>

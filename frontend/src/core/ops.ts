@@ -373,7 +373,7 @@ export const deleteTeam = (act: (fn: (w: World) => void) => void, id: string, ke
 // ---------- employees ----------
 
 export const hire = pick('hire', (_w: World, teamId: string, blueprintId: string, name: string, look: Look | undefined, mind: { model?: string; effort?: Effort } = {},
-  custom?: sim.OwnSettings) => fire_('POST', '/replicas', { teamId, blueprintId, name, look, ...mind, custom }))
+  custom?: sim.OwnSettings, copyOf?: string) => fire_('POST', '/replicas', { teamId, blueprintId, name, look, ...mind, custom, copyOf }))
 export const fire = pick('fire', (_w: World, id: string, heir: string) => fire_('DELETE', `/replicas/${id}?heir=${encodeURIComponent(heir)}`))
 
 // ---------- the staffing agency ----------
@@ -384,7 +384,10 @@ export const fireNow = (act: (fn: (w: World) => void) => void, id: string, heir:
   ? simulate(act, (w) => { sim.fire(w, id, heir) })
   : request('DELETE', `/replicas/${encodeURIComponent(id)}?heir=${encodeURIComponent(heir)}`))
 
-/** Moves an employee between a company and the staffing agency; who arrives is someone new, keeping their own memory but not their chats. */
+/**
+ * Moves an employee between a company and the staffing agency. Into the agency they stay who they are, with no heir
+ * (`heir` ''); out of it, who arrives is someone new, keeping their own memory but not their chats.
+ */
 export const moveReplica = (act: (fn: (w: World) => void) => void, id: string, to: string, heir: string): Promise<Replica> => (MOCK
   ? simulate(act, (w) => sim.moveReplica(w, id, to, heir))
   : request<Replica>('POST', `/replicas/${encodeURIComponent(id)}/move`, { to, heir }))

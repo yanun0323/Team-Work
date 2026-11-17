@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { idempotencyKey } from './core/backend'
 import { tr, listOf } from './core/i18n'
 import { useIsland } from './core/island'
-import { leavesAlone } from './core/model'
+import { leavesAlone, strands } from './core/model'
 import { copyReplica, moveReplica, previewCopy, type CopyPack, type CopyPreview, type SkillCopy } from './core/ops'
 import { useStore } from './core/store'
 import { STAFFING_ID, type Effort } from './core/domain/types'
@@ -35,9 +35,10 @@ export function PlaneIcon() {
 }
 
 /**
- * Moves an employee into the staffing agency, or out of it into a company. Whoever arrives is someone new: same name,
- * look, settings, model and thinking level, with no memory and none of the old conversations; the work they had goes
- * to an heir, as when they are let go.
+ * Moves an employee into the staffing agency, or out of it into a company. Into the agency they stay who they are, with
+ * their work and chats, since they can still work for the company. Out of it, whoever arrives is someone new: same
+ * name, look, settings, model, thinking level and own memory, but none of the old conversations; their work at that
+ * company stays theirs, and only what they have elsewhere goes to an heir, as when they are let go.
  */
 export function MoveSheet({ id, onDone, ...h }: Head & { id: string; onDone: () => void }) {
   const w = useStore((s) => s.world)
@@ -51,8 +52,11 @@ export function MoveSheet({ id, onDone, ...h }: Head & { id: string; onDone: () 
   if (!r) return <Gone {...h} />
   const shared = r.teamId === STAFFING_ID
   const dest = shared ? to : STAFFING_ID
-  const alone = leavesAlone(w, id)
-  const ready = !!dest && (alone || !!heir) && !busy
+  // into the agency they keep their work, so nothing is handed over
+  const alone = !shared || leavesAlone(w, id, dest)
+  // out of it, a company they leave may be left with nobody
+  const stranding = shared && !!dest && strands(w, id, dest)
+  const ready = !!dest && (alone || !!heir) && !stranding && !busy
   const go = (e: React.FormEvent) => {
     e.preventDefault()
     if (!ready) return
@@ -68,11 +72,16 @@ export function MoveSheet({ id, onDone, ...h }: Head & { id: string; onDone: () 
       </header>
       {shared && (
         companies.length
-          ? <Select label={tr('移到')} value={to} options={companies.map((c) => c.id)} labelOf={(x) => w.teams[x]?.name ?? x} onChange={setTo} />
+          ? <Select label={tr('移到')} value={to} options={companies.map((c) => c.id)} labelOf={(x) => w.teams[x]?.name ?? x} onChange={(x) => { setTo(x); setHeir(null) }} />
           : <p className="fx-d-muted">{tr('還沒有公司')}</p>
       )}
-      <p className="fx-room-warn" role="note">{tr('移動後是新的員工：保留個人記憶，但不會帶走以前的對話；公司記憶留在原公司')}</p>
-      <Handover id={id} heir={heir} onHeir={setHeir} />
+      {shared && (
+        <>
+          <p className="fx-room-warn" role="note">{tr('移動後是新的員工：保留個人記憶，但不會帶走以前的對話；公司記憶留在原公司')}</p>
+          {stranding && <p className="fx-room-warn" role="alert">{tr('公司至少要有一位員工')}</p>}
+          <Handover id={id} heir={heir} onHeir={setHeir} stays={dest} />
+        </>
+      )}
       {failed && <p className="fx-room-warn" role="alert">{failed}</p>}
       <button type="submit" className="fx-save" disabled={!ready}>{busy ? tr('移動中…') : tr('移動')}</button>
     </form>
@@ -91,7 +100,7 @@ export function packLine(p: CopyPack, mode: SkillCopy): { where: string; state: 
 
 /**
  * Copies an employee of the island shown, another computer's, into this computer's staffing agency: their name,
- * look, settings, model and thinking level, never their memory, tasks, chats, company or credentials. What they read
+ * look, settings, model, thinking level and own memory, never their tasks, chats, company, its memory or credentials. What they read
  * skills from comes along as where to get them again, or with the skills' files; what would not work here is said
  * before anything is copied. The employee there stays as they were.
  */
@@ -166,7 +175,7 @@ export function CopyForm({ preview, send }: {
   if (done) {
     return (
       <div role="status">
-        <p>{tr('{name} 已在你的移民署，記憶是空的', { name: done.name })}</p>
+        <p>{tr('{name} 已在你的移民署', { name: done.name })}</p>
         {done.missing.length > 0 && (
           <Section name={tr('要重新指定的技能來源')}>
             <ul className="fx-d-list">{done.missing.map((m) => <li key={m}><code>{m}</code></li>)}</ul>
@@ -177,7 +186,7 @@ export function CopyForm({ preview, send }: {
   }
   return (
     <form className="fx-d-form" onSubmit={go} aria-busy={busy}>
-      <p className="fx-d-muted">{tr('只複製姓名、外觀、工作設定、模型和思考等級；記憶、任務、對話和登入資料不會複製')}</p>
+      <p className="fx-d-muted">{tr('複製姓名、外觀、工作設定、模型、思考等級和個人記憶；任務、對話、公司記憶和登入資料不會複製')}</p>
       <Section name={tr('員工藍圖#kind')}>
         <p>{preview.blueprint.name}{preview.blueprint.presetId && !preview.presetOk && <span className="fx-d-muted"> · {tr('這台沒有這個內建藍圖，會改成自訂設定')}</span>}</p>
       </Section>

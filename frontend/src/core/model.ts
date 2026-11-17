@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObje
 import { depths, inEdges, nodeOf, outEdges, wouldCreateCycle } from './domain/graph'
 import { combine } from './domain/rollup'
 import { busyReplicas, statusOf, subsOf, TRAVEL } from './domain/sim'
-export { heirsOf, lastOfTeam, leavesAlone, pendingTeams } from './domain/sim'
+export { heirsOf, leavesAlone, pendingTeams, strands } from './domain/sim'
 import { STAFFING_ID, type LogLine, type Replica, type Status, type SubTask, type Task, type World, type Workflow, type WorkflowNode } from './domain/types'
 import { appLanguage, colon, LOCALE_TAGS, trRecorded } from './i18n'
 import { AIRPORT_BLUEPRINT, isPreset, presetRank } from './data/presets'

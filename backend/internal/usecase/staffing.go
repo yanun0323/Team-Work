@@ -19,8 +19,8 @@ import (
 // ---------- copying employees between islands ----------
 //
 // An employee is copied from a paired computer to this island's staffing agency: the other computer exports who they
-// are and how they work (ExportReplica), and this one hires someone new from that (CopyReplica). Their memory, tasks,
-// chats, company and credentials never leave, and the employee there stays as they were.
+// are and how they work (ExportReplica), and this one hires someone new from that (CopyReplica), with their own notes. Their tasks,
+// chats, company, the company's notes and credentials never leave, and the employee there stays as they were.
 
 // Skill copy modes: SkillsSource keeps where the skills come from (a Git source is read again here; a folder on the
 // other computer has to be picked again), SkillsFiles brings the files of the skills picked.
@@ -48,6 +48,9 @@ type ReplicaExport struct {
 	Packs     []ExportPack    `json:"packs"`
 	// Files are the skills' files, only when asked for.
 	Files []ExportSkill `json:"files,omitempty"`
+	// Memory is their own notes, without the tasks and chats they came from, which stay on the other island. An
+	// island from before notes were copied sends none.
+	Memory []model.MemoryEntry `json:"memory,omitempty"`
 }
 
 type ExportBlueprint struct {
@@ -120,7 +123,11 @@ func (e *Engine) ExportReplica(ctx context.Context, id string, files bool) (Repl
 	}
 	var out ReplicaExport
 	if r != nil {
-		out = ReplicaExport{Name: r.Name, Look: r.Look, Model: r.Model, Effort: r.Effort, Packs: []ExportPack{}}
+		out = ReplicaExport{Name: r.Name, Look: r.Look, Model: r.Model, Effort: r.Effort, Packs: []ExportPack{}, Memory: []model.MemoryEntry{}}
+		for _, m := range r.Memory {
+			m.TaskID, m.ChatID = "", ""
+			out.Memory = append(out.Memory, m)
+		}
 	}
 	e.mu.Unlock()
 	if r == nil {
@@ -258,7 +265,7 @@ func (e *Engine) PreviewCopy(x ReplicaExport) CopyPreview {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	out := CopyPreview{ReplicaExport: x, Models: []string{}, Thinking: map[string][]string{}}
-	out.Files = nil
+	out.Files, out.Memory = nil, nil
 	for _, p := range e.w.Providers {
 		for _, m := range p.Offered() {
 			if !slices.Contains(out.Models, m) {
@@ -407,6 +414,14 @@ func (e *Engine) CopyReplica(x ReplicaExport, o CopyOptions) (CopyResult, error)
 		}
 		r := &model.Replica{ID: e.uid("rep"), TeamID: model.StaffingID, Name: strings.TrimSpace(x.Name), Look: x.Look,
 			Model: modelID, Effort: effort, Memory: []model.MemoryEntry{}, HiredAt: e.w.Now}
+		for _, m := range x.Memory {
+			if strings.TrimSpace(m.Text) == "" {
+				continue
+			}
+			// ids are numbered on each island: the other's could be one already given here
+			m.ID, m.TaskID, m.ChatID, m.By = e.uid("mem"), "", "", ""
+			r.Memory = append(r.Memory, m)
+		}
 		missing := []string{}
 		if id := x.Blueprint.PresetID; id != "" && e.w.Blueprints[id] != nil {
 			r.BlueprintID = id

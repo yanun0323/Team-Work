@@ -41,8 +41,8 @@ const count = (n: string | number | undefined, one: string) => `${n} ${n === 1 ?
 const en = {
   '移民署': 'Immigration Office',
   '{model} 沒有思考等級 {effort}，請重新選擇': '{model} has no thinking level {effort}; pick another',
-  '{name} 已在你的移民署，記憶是空的': '{name} is now at your immigration office, with no memory',
-  '只複製姓名、外觀、工作設定、模型和思考等級；記憶、任務、對話和登入資料不會複製': 'Only the name, look, work settings, model and thinking level are copied; memory, tasks, chats and sign-ins stay behind',
+  '{name} 已在你的移民署': '{name} is now at your immigration office',
+  '複製姓名、外觀、工作設定、模型、思考等級和個人記憶；任務、對話、公司記憶和登入資料不會複製': 'The name, look, work settings, model, thinking level and personal memory are copied; tasks, chats, company memory and sign-ins stay behind',
   '只複製技能來源設定': 'Skill sources only',
   '連技能檔案一起複製': 'With skill files',
   '在這台重新取得：{skills}': 'Fetched again here: {skills}',
@@ -1011,6 +1011,7 @@ const RECORDED: Record<string, Record<Locale, string>> = {
   'log.queued': { zh: '已排入佇列', en: 'Queued', 'zh-Hans': '已加入队列', ja: 'キューに追加しました', ko: '대기열에 추가됨' },
   'log.start': { zh: '{name} 開始工作', en: '{name} started', 'zh-Hans': '{name} 开始工作', ja: '{name} が作業を開始', ko: '{name} 작업 시작' },
   'log.handover': { zh: '{from} 離職，交給 {to}', en: '{from} left; {to} takes over', 'zh-Hans': '{from} 离职，交给 {to}', ja: '{from} が退職し、{to} に引き継ぎ', ko: '{from} 퇴사, {to}에게 인계' },
+  'log.movedIn': { zh: '{name} 移到這間公司，這一步重新開始', en: '{name} moved to this company; this step starts again', 'zh-Hans': '{name} 移到这间公司，这一步重新开始', ja: '{name} がこの会社に移ったため、このステップをやり直します', ko: '{name} 님이 이 회사로 옮겨 이 단계를 다시 시작합니다' },
   'log.swapped': { zh: '{from} 換成 {to}', en: '{from} replaced by {to}', 'zh-Hans': '{from} 换成 {to}', ja: '{from} から {to} に交代', ko: '{from}에서 {to}(으)로 교체' },
   'log.done': { zh: '完成，commit {commit}', en: 'Done, commit {commit}', 'zh-Hans': '完成，commit {commit}', ja: '完了、commit {commit}', ko: '완료, commit {commit}' },
   'log.memory': { zh: '寫入記憶：{text}', en: 'Saved to memory: {text}', 'zh-Hans': '写入记忆：{text}', ja: 'メモリに保存：{text}', ko: '메모리에 저장: {text}' },

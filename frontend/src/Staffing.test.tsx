@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { seedWorld } from './core/data/seed'
 import * as sim from './core/domain/sim'
 import { STAFFING_ID, worksIn, type World } from './core/domain/types'
-import { crewOf, heirsOf, lastOfTeam, leavesAlone, teamReplicas } from './core/model'
+import { crewOf, heirsOf, leavesAlone, strands, teamReplicas } from './core/model'
 import { copyReplica } from './core/ops'
 import { useStore } from './core/store'
 import { Detail, type Item } from './DrawerDetail'
@@ -35,19 +35,33 @@ describe('the staffing agency in the simulator', () => {
     expect(lastStaff(w, a.id, flow.id).ownerId).toBe(hal.id)
   })
 
-  it('moves someone into the agency as a new employee keeping their own memory, once', () => {
+  it('moves someone into the agency as the same employee, with their memory and work and no heir, once', () => {
     const w = world()
     const team = teamOf(w)
-    const [bo, heir] = teamReplicas(w, team.id)
+    const [bo] = teamReplicas(w, team.id)
     bo.memory = [{ id: 'm', text: 'x', source: 'user', at: 0 }]
+    const memory = structuredClone(bo.memory)
     const company = structuredClone(team.memory)
-    const moved = sim.moveReplica(w, bo.id, STAFFING_ID, heir.id)
-    expect(w.replicas[bo.id]).toBeUndefined()
-    expect(moved.id).not.toBe(bo.id)
-    expect(w.replicas[moved.id]).toMatchObject({ teamId: STAFFING_ID, name: bo.name, model: bo.model, effort: bo.effort, memory: bo.memory })
+    const flow = Object.values(w.workflows)[0]
+    const t = sim.createTask(w, { teamId: team.id, title: 't', description: '', workflowId: flow.id, images: [], ownerId: bo.id })
+    const moved = sim.moveReplica(w, bo.id, STAFFING_ID, '')
+    expect(moved.id).toBe(bo.id)
+    expect(w.replicas[bo.id]).toMatchObject({ teamId: STAFFING_ID, memory })
+    expect(w.tasks[t.id].ownerId).toBe(bo.id)
     expect(w.teams[team.id].memory).toEqual(company)
-    expect(() => sim.moveReplica(w, bo.id, STAFFING_ID, heir.id)).toThrow()
+    expect(() => sim.moveReplica(w, bo.id, STAFFING_ID, '')).toThrow()
     expect(Object.values(w.replicas).filter((r) => r.name === bo.name)).toHaveLength(1)
+  })
+
+  it('copies someone with their memory, leaving theirs as it was', () => {
+    const w = world()
+    const team = teamOf(w)
+    const [bo] = teamReplicas(w, team.id)
+    bo.memory = [{ id: 'm', text: 'x', source: 'user', at: 0 }]
+    const copy = sim.hire(w, team.id, bo.blueprintId, 'Bo-1', undefined, {}, undefined, bo.id)
+    expect(copy.memory).toEqual(bo.memory)
+    copy.memory.pop()
+    expect(bo.memory).toHaveLength(1)
   })
 
   it('keeps their own memory moving from the agency into a company, too', () => {
@@ -59,20 +73,59 @@ describe('the staffing agency in the simulator', () => {
     expect(w.replicas[moved.id].memory.map((m) => m.text)).toEqual(['先寫結論'])
   })
 
-  it('keeps a company one employee of its own, and lets the agency go empty', () => {
+  it('keeps a company one employee able to work there, its own or the agency\'s, and lets the agency go empty', () => {
     const w = world()
-    const team = teamOf(w)
-    const hal = shared(w)
+    const [team, other] = Object.values(w.teams).sort((a, b) => a.createdAt - b.createdAt)
     const own = teamReplicas(w, team.id)
     for (const r of own.slice(1)) sim.fire(w, r.id, own[0].id)
-    expect(lastOfTeam(w, own[0].id)).toBe(true)
+    expect(strands(w, own[0].id)).toBe(true)
     const before = JSON.stringify(w)
-    expect(() => sim.fire(w, own[0].id, hal.id)).toThrow()
-    expect(() => sim.moveReplica(w, own[0].id, STAFFING_ID, hal.id)).toThrow()
+    expect(() => sim.fire(w, own[0].id, '')).toThrow()
     expect(JSON.stringify(w)).toBe(before)
+    // with someone at the agency, the company's last own may go
+    const hal = shared(w)
+    expect(strands(w, own[0].id)).toBe(false)
+    sim.fire(w, own[0].id, hal.id)
+    expect(teamReplicas(w, team.id)).toEqual([])
+    // then the agency's only one stays, and does not move to another company
+    expect(strands(w, hal.id)).toBe(true)
+    const after = JSON.stringify(w)
+    expect(() => sim.fire(w, hal.id, '')).toThrow()
+    expect(() => sim.moveReplica(w, hal.id, other.id, teamReplicas(w, other.id)[0].id)).toThrow()
+    expect(JSON.stringify(w)).toBe(after)
+    // with another at the agency, they may go
+    const ivy = shared(w, 'Ivy')
+    sim.fire(w, hal.id, ivy.id)
+    expect(w.replicas[hal.id]).toBeUndefined()
+  })
+
+  it('lets the agency go empty while every company has its own', () => {
+    const w = world()
+    const hal = shared(w)
     expect(leavesAlone(w, hal.id)).toBe(true)
     sim.fire(w, hal.id, '')
     expect(teamReplicas(w, STAFFING_ID)).toEqual([])
+  })
+
+  it('keeps their work at the company they move into, handing over only what is elsewhere', () => {
+    const w = world()
+    const [a, b] = Object.values(w.teams)
+    const hal = shared(w)
+    const flow = Object.values(w.workflows)[0]
+    const here = sim.createTask(w, { teamId: a.id, title: 't', description: '', workflowId: flow.id, images: [], ownerId: hal.id })
+    expect(leavesAlone(w, hal.id, a.id)).toBe(true)
+    const moved = sim.moveReplica(w, hal.id, a.id, '')
+    expect(w.tasks[here.id].ownerId).toBe(moved.id)
+    sim.moveReplica(w, moved.id, STAFFING_ID, '')
+    const there = sim.createTask(w, { teamId: b.id, title: 'u', description: '', workflowId: flow.id, images: [], ownerId: moved.id })
+    expect(leavesAlone(w, moved.id, a.id)).toBe(false)
+    const ofB = teamReplicas(w, b.id)[0]
+    // only someone able to work at b is needed, not at a too
+    expect(heirsOf(w, moved.id, a.id).map((r) => r.id)).toContain(ofB.id)
+    expect(() => sim.moveReplica(w, moved.id, a.id, '')).toThrow()
+    const again = sim.moveReplica(w, moved.id, a.id, ofB.id)
+    expect(w.tasks[here.id].ownerId).toBe(again.id)
+    expect(w.tasks[there.id].ownerId).toBe(ofB.id)
   })
 
   it('hands work over only to someone who can work where it is', () => {
@@ -102,14 +155,14 @@ const sheet = (item: Item, teamId: string) => {
 }
 
 describe('the sheets', () => {
-  it('says a move keeps their own memory, and waits for an heir', () => {
+  it('moves a company employee into the agency with nothing to hand over', () => {
     const w = useStore.getState().world
     const team = teamOf(w)
     const r = teamReplicas(w, team.id)[0]
     const html = sheet({ kind: 'move', id: r.id }, team.id)
-    expect(html).toContain('移動後是新的員工：保留個人記憶，但不會帶走以前的對話；公司記憶留在原公司')
-    expect(html).toContain('交接給')
-    expect(html).toMatch(/<button type="submit" class="fx-save" disabled="">移動<\/button>/)
+    expect(html).not.toContain('移動後是新的員工')
+    expect(html).not.toContain('交接給')
+    expect(html).toMatch(/<button type="submit" class="fx-save">移動<\/button>/)
   })
 
   it("lets an agency employee with no work go without an heir, and offers the move to a company", () => {
@@ -124,6 +177,7 @@ describe('the sheets', () => {
       expect(detail).toContain('aria-label="移到公司"')
       const move = sheet({ kind: 'move', id: hal.id }, STAFFING_ID)
       expect(move).toContain('移到')
+      expect(move).toContain('移動後是新的員工：保留個人記憶，但不會帶走以前的對話；公司記憶留在原公司')
       expect(move).toMatch(/<button type="submit" class="fx-save">移動<\/button>/)
     } finally {
       useStore.setState((s) => { delete s.world.replicas[hal.id] })

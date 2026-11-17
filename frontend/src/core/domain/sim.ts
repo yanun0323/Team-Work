@@ -1310,7 +1310,7 @@ export function updateReplica(w: World, id: string, p: Pick<Replica, 'name' | 'b
 
 export function hire(
   w: World, teamId: string, blueprintId: string, name: string, look?: Replica['look'],
-  mind: Partial<Pick<Replica, 'model' | 'effort'>> = {}, own?: OwnSettings,
+  mind: Partial<Pick<Replica, 'model' | 'effort'>> = {}, own?: OwnSettings, copyOf?: string,
 ): Replica {
   const id = uid(w, 'rep')
   const r: Replica = {
@@ -1322,7 +1322,8 @@ export function hire(
     look: look ?? { ...(w.blueprints[blueprintId]?.look ?? AIRPORT_STAFF_LOOK), skin: pick(w, SKINS), hair: pick(w, HAIRS), style: seedOfId(id) },
     model: mind.model ?? DEFAULT_MODEL,
     effort: mind.effort ?? 'default',
-    memory: [],
+    // a copy starts with the memory of whoever it copies
+    memory: copyOf ? clone(w.replicas[copyOf]?.memory ?? []) : [],
     hiredAt: w.now,
   }
   w.replicas[r.id] = r
@@ -1468,9 +1469,10 @@ export function updateTask(w: World, id: string, p: TaskEdit) {
  */
 /**
  * The companies where employee `id` has work to hand over before leaving: a step, the ownership or the merge of a task
- * not finished, or a run not done; as the backend's pendingTeams.
+ * not finished, or a run not done; as the backend's pendingTeams. `stays` is a company they are moving into, keeping
+ * their work there.
  */
-export function pendingTeams(w: World, id: string): string[] {
+export function pendingTeams(w: World, id: string, stays = ''): string[] {
   const out = new Set<string>()
   for (const t of Object.values(w.tasks)) {
     if (t.stage === 'done' || t.stage === 'cancelled') continue
@@ -1481,41 +1483,51 @@ export function pendingTeams(w: World, id: string): string[] {
     const t = w.tasks[s.taskId]
     if (t) out.add(t.teamId)
   }
+  out.delete(stays)
   return [...out].sort()
 }
 
-/** Who can take over from employee `id`: someone else able to work wherever their work is, as the backend checks. */
-export function heirsOf(w: World, id: string): Replica[] {
+/**
+ * Who can take over from employee `id`: someone else able to work wherever their work is, as the backend checks; with
+ * `stays`, the company they are moving into, keeping their work there.
+ */
+export function heirsOf(w: World, id: string, stays = ''): Replica[] {
   const r = w.replicas[id]
   if (!r) return []
-  const teams = r.teamId === STAFFING_ID ? pendingTeams(w, id) : [r.teamId]
+  const teams = r.teamId === STAFFING_ID ? pendingTeams(w, id, stays) : [r.teamId]
   const all = r.teamId === STAFFING_ID ? Object.values(w.replicas) : [...Object.values(w.replicas)].filter((x) => worksIn(x, r.teamId))
   return all.filter((x) => x.id !== id && teams.every((t) => worksIn(x, t)))
 }
 
-/** Whether employee `id` can leave with nobody taking over: one of the staffing agency's with no work to hand over. */
-export const leavesAlone = (w: World, id: string) => w.replicas[id]?.teamId === STAFFING_ID && pendingTeams(w, id).length === 0
+/**
+ * Whether employee `id` can leave with nobody taking over: one of the staffing agency's with no work to hand over, but
+ * at `stays`, the company they are moving into.
+ */
+export const leavesAlone = (w: World, id: string, stays = '') => w.replicas[id]?.teamId === STAFFING_ID && pendingTeams(w, id, stays).length === 0
 
-/** Whether employee `id` is the last of their company's own, who has to stay; the staffing agency may be left empty. */
-export const lastOfTeam = (w: World, id: string) => {
+/**
+ * Whether a company other than `stays` would have nobody able to work there once employee `id` is gone, as the backend's
+ * strands: a company keeps one of its own or of the staffing agency's.
+ */
+export const strands = (w: World, id: string, stays = '') => {
   const r = w.replicas[id]
-  return !!r && r.teamId !== STAFFING_ID && Object.values(w.replicas).filter((x) => x.teamId === r.teamId).length < 2
+  return !!r && Object.keys(w.teams).some((t) => t !== stays && worksIn(r, t) && !Object.values(w.replicas).some((x) => x.id !== id && worksIn(x, t)))
 }
 
 /** Refuses letting employee `id` go to `heirId` (or to nobody, when empty) by throwing; changes nothing. */
-function checkFire(w: World, id: string, heirId: string): Replica {
+function checkFire(w: World, id: string, heirId: string, stays = ''): Replica {
   const r = w.replicas[id]
   if (!r) throw new Error(`找不到員工`)
-  if (lastOfTeam(w, id)) throw new Error(`公司至少要有一位員工`)
+  if (strands(w, id, stays)) throw new Error(`公司至少要有一位員工`)
   if (!heirId) {
-    if (!leavesAlone(w, id)) throw new Error(`還有工作要交接，請選擇接手的員工`)
-  } else if (!heirsOf(w, id).some((x) => x.id === heirId)) throw new Error(`${w.replicas[heirId]?.name ?? ''} 不能接手這些工作`)
+    if (!leavesAlone(w, id, stays)) throw new Error(`還有工作要交接，請選擇接手的員工`)
+  } else if (!heirsOf(w, id, stays).some((x) => x.id === heirId)) throw new Error(`${w.replicas[heirId]?.name ?? ''} 不能接手這些工作`)
   return r
 }
 
 /**
- * Lets an employee go, handing what is theirs to `heirId`, as the backend's Fire: a company keeps one employee of its
- * own, and one of the staffing agency's with no work left may go with no heir (`heirId` empty). Refusals throw.
+ * Lets an employee go, handing what is theirs to `heirId`, as the backend's Fire: a company keeps one employee able to
+ * work there, its own or the staffing agency's, and one of the staffing agency's with no work left may go with no heir (`heirId` empty). Refusals throw.
  */
 export function fire(w: World, id: string, heirId: string) {
   const r = checkFire(w, id, heirId)
@@ -1549,18 +1561,49 @@ export function fire(w: World, id: string, heirId: string) {
 /**
  * Moves an employee between a company and the staffing agency, as the backend's MoveReplica: let go where they are,
  * as `fire` does, and hired anew at `to` with the same name, look, settings, model, level and own memory; their chats
- * stay behind, as does the company's memory. All or nothing: a refusal throws before anything changes.
+ * stay behind, as does the company's memory. Into the agency they stay who they are, with their work and chats, as
+ * they can still work for the company: `heirId` is not needed. Into a company, their work there stays theirs, and
+ * only what they have elsewhere goes to `heirId`. All or nothing: a refusal throws before anything changes.
  */
 export function moveReplica(w: World, id: string, to: string, heirId: string): Replica {
   const r = w.replicas[id]
   if (!r) throw new Error(`找不到員工`)
   if (to !== STAFFING_ID && !w.teams[to]) throw new Error(`找不到公司`)
   if ((r.teamId === STAFFING_ID) === (to === STAFFING_ID)) throw new Error(`只能在公司和移民署之間移動員工`)
-  checkFire(w, id, heirId)
+  if (to === STAFFING_ID) {
+    r.teamId = to
+    return r
+  }
+  checkFire(w, id, heirId, to)
   const moved = rehire(w, r, to)
-  fire(w, id, heirId)
+  keepWork(w, r, moved.id, to)
+  // there first, so the company they move into is not found with nobody
   w.replicas[moved.id] = moved
+  fire(w, id, heirId)
   return moved
+}
+
+/** Gives r's unfinished work at company `teamId` to `id`, who r is once moved there, as the backend's keepWork. */
+function keepWork(w: World, r: Replica, id: string, teamId: string) {
+  const swap = (ids: string[]) => [...new Set(ids.map((x) => (x === r.id ? id : x)))]
+  for (const task of Object.values(w.tasks)) {
+    if (task.teamId !== teamId || task.stage === 'done' || task.stage === 'cancelled') continue
+    for (const n of task.workflow.nodes) n.replicaIds = swap(n.replicaIds)
+    if (task.ownerId === r.id) task.ownerId = id
+    const m = task.merge
+    if (m?.replicaId === r.id) {
+      m.replicaId = id
+      if (m.startedAt !== undefined && task.stage === 'merging') m.startedAt = m.endsAt = undefined
+    }
+  }
+  for (const s of Object.values(w.subTasks)) {
+    if (w.tasks[s.taskId]?.teamId !== teamId || s.replicaId !== r.id || s.cancelled || s.status === 'complete') continue
+    s.replicaId = id
+    if (s.status === 'progressing') {
+      s.status = 'todo'
+      log(s, w.now, 'system', `${r.name} 移到這間公司，這一步重新開始`, 'movedIn', { name: r.name })
+    }
+  }
 }
 
 /**

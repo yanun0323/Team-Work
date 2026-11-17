@@ -83,11 +83,12 @@ func TestStaffingEmployeesWorkInTheCompanyThatAsks(t *testing.T) {
 	}
 }
 
-// Moving into the agency lets the employee go as firing does and hires someone new there: same name, look, settings,
-// model, level and their own notes; the company's notes stay with it. Sending it again makes no second one.
-func TestMoveToStaffingIsAFreshHire(t *testing.T) {
+// Moving into the agency keeps the employee who they were, with no heir: the same id, settings, notes, work and chats,
+// as they can still work for the company. Sending it again makes no second one. Moving back out hires someone new
+// there with their own notes; the company's notes stay with it.
+func TestMoveToStaffingKeepsTheSameEmployee(t *testing.T) {
 	t.Parallel()
-	r := newRig(t, nil)
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("好"), nil })
 	bo, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, Name: "Bo", Model: "fake", Effort: "high",
 		Custom: &model.Blueprint{Prompt: "我的設定", Tools: []enum.Tool{enum.ToolReadFile}}})
 	if err != nil {
@@ -98,28 +99,44 @@ func TestMoveToStaffingIsAFreshHire(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.e.RememberFor(r.team.ID, bo.ID, "公司的事")
+	task, err := r.e.CreateTask(usecase.NewTask{TeamID: r.team.ID, Title: "x", WorkflowID: r.flow.ID, OwnerID: &bo.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: bo.ID, Text: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	before := r.world().Replicas[bo.ID]
-	moved, err := r.e.MoveReplica(bo.ID, model.StaffingID, r.owner.ID)
+	moved, err := r.e.MoveReplica(bo.ID, model.StaffingID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	w := r.world()
 	got := w.Replicas[moved.ID]
-	if w.Replicas[bo.ID] != nil || got == nil || got.ID == bo.ID || got.TeamID != model.StaffingID {
-		t.Fatalf("moved = %+v, old still there: %v", got, w.Replicas[bo.ID] != nil)
+	if got == nil || got.ID != bo.ID || got.TeamID != model.StaffingID || got.BlueprintID != before.BlueprintID {
+		t.Fatalf("moved = %+v", got)
 	}
 	if got.Name != "Bo" || got.Look != before.Look || got.Model != "fake" || got.Effort != "high" || !slices.Equal(got.Memory, mem) {
 		t.Fatalf("moved = %+v", got)
 	}
+	if owner := w.Tasks[task.ID].OwnerID; owner == nil || *owner != bo.ID {
+		t.Fatalf("the task went to %v", owner)
+	}
+	if c := w.Chats[chat.ID]; c == nil || c.ReplicaID != bo.ID {
+		t.Fatalf("chat = %+v", c)
+	}
 	if notes := w.Teams[r.team.ID].Memory; len(notes) != 1 || notes[0].Text != "公司的事" || notes[0].By != bo.ID {
 		t.Fatalf("the company's notes = %+v", notes)
 	}
-	bp := w.Blueprints[got.BlueprintID]
-	if bp == nil || bp.Owner != got.ID || bp.Prompt != "我的設定" || w.Blueprints[before.BlueprintID] != nil {
-		t.Fatalf("own settings = %+v, old kept: %v", bp, w.Blueprints[before.BlueprintID] != nil)
+	if bp := w.Blueprints[got.BlueprintID]; bp == nil || bp.Owner != got.ID || bp.Prompt != "我的設定" {
+		t.Fatalf("own settings = %+v", bp)
 	}
-	if _, err := r.e.MoveReplica(bo.ID, model.StaffingID, r.owner.ID); err == nil {
+	if _, err := r.e.MoveReplica(bo.ID, model.StaffingID, ""); err == nil {
 		t.Fatal("moved twice")
+	}
+	if err := r.e.CancelTask(task.ID); err != nil {
+		t.Fatal(err)
 	}
 	if n := countNamed(r.world(), "Bo"); n != 1 {
 		t.Fatalf("%d Bo", n)
@@ -134,19 +151,17 @@ func TestMoveToStaffingIsAFreshHire(t *testing.T) {
 	}
 }
 
-// A company keeps one employee of its own whatever else is around, and a failed move changes nothing.
+// A company keeps at least one employee able to work there: its own, or one of the agency's. A failed move changes
+// nothing.
 func TestTheLastEmployeeStays(t *testing.T) {
 	t.Parallel()
 	r := newRig(t, nil)
+	if err := r.e.Fire(r.owner.ID, ""); err == nil {
+		t.Fatal("fired the only one able to work at the company")
+	}
 	hal, err := r.e.Hire(usecase.NewReplica{TeamID: model.StaffingID, BlueprintID: r.owner.BlueprintID, Name: "Hal", Model: "fake"})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if err := r.e.Fire(r.owner.ID, hal.ID); err == nil {
-		t.Fatal("fired the company's last employee")
-	}
-	if _, err := r.e.MoveReplica(r.owner.ID, model.StaffingID, hal.ID); err == nil {
-		t.Fatal("moved the company's last employee out")
 	}
 	if _, err := r.e.MoveReplica(hal.ID, "team-nope", ""); err == nil {
 		t.Fatal("moved into no company")
@@ -154,13 +169,128 @@ func TestTheLastEmployeeStays(t *testing.T) {
 	if _, err := r.e.MoveReplica(hal.ID, model.StaffingID, ""); err == nil {
 		t.Fatal("moved within the agency")
 	}
-	w := r.world()
-	if w.Replicas[r.owner.ID] == nil || w.Replicas[hal.ID] == nil || len(w.Replicas) != 2 {
+	if w := r.world(); w.Replicas[r.owner.ID] == nil || w.Replicas[hal.ID] == nil || len(w.Replicas) != 2 {
 		t.Fatalf("changed: %+v", w.Replicas)
 	}
-	// the agency may end up with nobody
-	if err := r.e.Fire(hal.ID, ""); err != nil {
+	// with someone in the agency, the company's last own employee may go
+	if err := r.e.Fire(r.owner.ID, hal.ID); err != nil {
 		t.Fatal(err)
+	}
+	// but the agency's last one is all the company has now
+	if err := r.e.Fire(hal.ID, ""); err == nil {
+		t.Fatal("left the company with nobody")
+	}
+	other := secondTeam(t, r)
+	if _, err := r.e.MoveReplica(hal.ID, other.ID, ""); err == nil {
+		t.Fatal("moved the company's only one to another company")
+	}
+	if w := r.world(); w.Replicas[hal.ID] == nil || w.Replicas[hal.ID].TeamID != model.StaffingID {
+		t.Fatalf("hal = %+v", w.Replicas[hal.ID])
+	}
+	// into the company they work for, they still work there
+	back, err := r.e.MoveReplica(hal.ID, r.team.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// and out again with no heir: as one of the agency's, they still work there, so the agency may be all it has
+	if _, err := r.e.MoveReplica(back.ID, model.StaffingID, ""); err != nil {
+		t.Fatal(err)
+	}
+	ivy, err := r.e.Hire(usecase.NewReplica{TeamID: model.StaffingID, BlueprintID: back.BlueprintID, Name: "Ivy", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// with someone else there, the agency's may go, and the agency may end up with nobody once a company has its own
+	if err := r.e.Fire(back.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.MoveReplica(ivy.ID, r.team.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := countNamed(r.world(), "Ivy"); n != 1 {
+		t.Fatalf("%d Ivy", n)
+	}
+}
+
+// Out of the agency into a company, their work there stays theirs: with none elsewhere no heir is needed, and with some
+// elsewhere only that is handed over.
+func TestMoveIntoACompanyKeepsTheWorkThere(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, nil)
+	other := secondTeam(t, r)
+	hal, err := r.e.Hire(usecase.NewReplica{TeamID: model.StaffingID, BlueprintID: r.owner.BlueprintID, Name: "Hal", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	here, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: r.team.ID, Title: "這裡", WorkflowID: r.flow.ID, OwnerID: &hal.ID,
+		Staff: map[string][]string{"start": {hal.ID}, "end": {r.owner.ID}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved, err := r.e.MoveReplica(hal.ID, r.team.ID, "")
+	if err != nil {
+		t.Fatalf("moved with all their work there: %v", err)
+	}
+	w := r.world()
+	task := w.Tasks[here.ID]
+	if task.OwnerID == nil || *task.OwnerID != moved.ID {
+		t.Fatalf("owner = %v, want %s", task.OwnerID, moved.ID)
+	}
+	for _, n := range task.Workflow.Nodes {
+		if slices.Contains(n.ReplicaIDs, hal.ID) || (n.ID == "start" && !slices.Contains(n.ReplicaIDs, moved.ID)) {
+			t.Fatalf("step %s = %v", n.ID, n.ReplicaIDs)
+		}
+	}
+	// back to the agency, then with work at another company too: only that needs an heir
+	if _, err := r.e.MoveReplica(moved.ID, model.StaffingID, ""); err != nil {
+		t.Fatal(err)
+	}
+	there, err := r.e.CreateTask(usecase.NewTask{Legacy: true, TeamID: other.ID, Title: "那裡", WorkflowID: r.flow.ID, OwnerID: &moved.ID,
+		Staff: map[string][]string{"start": {moved.ID}, "end": {moved.ID}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.MoveReplica(moved.ID, r.team.ID, ""); err == nil {
+		t.Fatal("left work at another company with nobody")
+	}
+	var cy string
+	for _, x := range r.world().Replicas {
+		if x.TeamID == other.ID {
+			cy = x.ID
+		}
+	}
+	// the heir need only work where the work is handed over
+	again, err := r.e.MoveReplica(moved.ID, r.team.ID, cy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = r.world()
+	if o := w.Tasks[here.ID].OwnerID; o == nil || *o != again.ID {
+		t.Fatalf("here owner = %v, want %s", o, again.ID)
+	}
+	if o := w.Tasks[there.ID].OwnerID; o == nil || *o != cy {
+		t.Fatalf("there owner = %v, want %s", o, cy)
+	}
+}
+
+// A copy made on this island starts with the notes of whoever it copies; the one copied keeps theirs.
+func TestHiredAsACopyKeepsTheirNotes(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, nil)
+	mem := []model.MemoryEntry{{ID: "m1", Text: "記得的事", Source: "user"}}
+	if err := r.e.UpdateReplica(r.owner.ID, usecase.ReplicaPatch{Memory: &mem}); err != nil {
+		t.Fatal(err)
+	}
+	copied, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "副本", Model: "fake", CopyOf: r.owner.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := r.world()
+	if !slices.Equal(w.Replicas[copied.ID].Memory, mem) || !slices.Equal(w.Replicas[r.owner.ID].Memory, mem) {
+		t.Fatalf("copy = %+v, copied = %+v", w.Replicas[copied.ID].Memory, w.Replicas[r.owner.ID].Memory)
+	}
+	if _, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "沒人", Model: "fake", CopyOf: "rep-nope"}); codeOf(err) != model.CodeNotFound {
+		t.Fatalf("a copy of nobody: %v", err)
 	}
 }
 
@@ -258,7 +388,8 @@ func sourceIsland(t *testing.T) (*island, *skillsRepo, string) {
 }
 
 // Copying only where the skills come from: the Git repo is kept here as a source, the folder on the other computer is
-// to be picked again, and nothing else of theirs comes.
+// to be picked again, and their own notes come along, numbered anew here and without the tasks and chats they came
+// from; nothing else of theirs comes.
 func TestCopyKeepsGitSourcesAndAsksForFolders(t *testing.T) {
 	t.Parallel()
 	there, repo, folder := sourceIsland(t)
@@ -280,8 +411,14 @@ func TestCopyKeepsGitSourcesAndAsksForFolders(t *testing.T) {
 	}
 	w := here.world()
 	got := w.Replicas[res.Replica.ID]
-	if got == nil || got.TeamID != model.StaffingID || got.Name != "Bo" || got.Look != there.bo.Look || got.Effort != "high" || len(got.Memory) != 0 {
+	if got == nil || got.TeamID != model.StaffingID || got.Name != "Bo" || got.Look != there.bo.Look || got.Effort != "high" {
 		t.Fatalf("copy = %+v", got)
+	}
+	if len(got.Memory) != 1 || got.Memory[0].Text != "秘密的事" || got.Memory[0].ID == "m1" || got.Memory[0].ID == "" {
+		t.Fatalf("notes = %+v", got.Memory)
+	}
+	if p := here.e.PreviewCopy(x); p.Memory != nil {
+		t.Fatalf("the preview carries the notes: %+v", p.Memory)
 	}
 	bp := w.Blueprints[got.BlueprintID]
 	if bp.Prompt != "複製我" || !slices.Equal(bp.Tools, []enum.Tool{enum.ToolReadFile, enum.ToolRunCommand}) || len(bp.Skills) != 1 {
