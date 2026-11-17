@@ -29,7 +29,7 @@ import { seedOf } from './figureStyle'
 import { Ambient, shadowHalf } from './Ambient'
 import { fitSunShadow, seenPoints, SHADOW_MAP, sunDepthBias, sunNormalBias } from './sunShadow'
 import { Building, BuildingPreview, CUT, FLOOR, ROOF_TOP } from './Building'
-import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, hidesPoint, islandView, ISO_DIR, SCREEN_RIGHT, MAX_ZOOM, MIN_ZOOM, shotAt, type FocusBox, type Shot } from './camera'
+import { CAMERA_DISTANCE, drawerWidth, focusTarget, focusView, hidesPoint, homeOnOpen, islandView, ISO_DIR, SCREEN_RIGHT, MAX_ZOOM, MIN_ZOOM, shotAt, type FocusBox, type Return, type Shot } from './camera'
 import { Drawer, putAwaySheets, useLeftSheets } from './Drawer'
 import { putAwaySampleSheet } from './HelpLooks'
 import { Settings } from './Settings'
@@ -1040,6 +1040,8 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
   // where the camera is flying to, and the view to go back to when the building closes
   const fly = useRef<{ from: Shot; to: Shot; time: number; seconds?: number } | null>(null)
   const home = useRef<Shot | null>(null)
+  // the flight back out once the building closes, kept past a press that stops it, which may be a click opening the next
+  const back = useRef<Return | null>(null)
   /** Starts a flight from wherever the camera is now. */
   const flyTo = (to: Shot) => {
     if (controls) fly.current = { from: { target: controls.target.clone(), zoom: camera.zoom }, to, time: 0 }
@@ -1061,8 +1063,8 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
     if (focus) {
       // remember the player's view only when coming from the map, not when switching companies
       // mid-flight (say, back from following someone), the view being flown to is the one to come back to
-      if (!home.current) home.current = fly.current ? { target: fly.current.to.target.clone(), zoom: fly.current.to.zoom }
-        : { target: controls.target.clone(), zoom: camera.zoom }
+      if (!home.current) home.current = homeOnOpen({ target: controls.target, zoom: camera.zoom }, fly.current?.to ?? null, back.current)
+      back.current = null
       const view = { width: size.width, height: size.height, coverRight: drawerWidth(size.width) }
       if (panOnly) {
         fly.current = null
@@ -1074,7 +1076,11 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
       }
     } else {
       pan.current = null
-      if (home.current) flyTo(zoomed.current ? home.current : { target: home.current.target, zoom: camera.zoom })
+      if (home.current) {
+        const to = zoomed.current ? home.current : { target: home.current.target, zoom: camera.zoom }
+        flyTo(to)
+        back.current = { to }
+      }
       home.current = null
       zoomed.current = false
     }
@@ -1127,6 +1133,7 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
       fly.current = null
       pan.current = null
       home.current = null
+      back.current = null
       zoomed.current = false
     }
   }, [focus, panOnly, blocked, following, controls, held, voyaging])
@@ -1146,10 +1153,17 @@ function CameraRig({ town, radius, span, top, focus, focusKey, panOnly, blocked,
   }, [controls, held])
   useEffect(() => {
     if (!controls) return
-    const cancel = () => void (fly.current = null)
+    const cancel = () => {
+      // a click fires this too: note where the flight back stopped, to tell a click from a drag later (homeOnOpen)
+      if (fly.current && back.current && fly.current.to === back.current.to) {
+        back.current.stoppedAt = controls.target.clone()
+        back.current.stoppedZoom = camera.zoom
+      }
+      fly.current = null
+    }
     controls.addEventListener('start', cancel)
     return () => controls.removeEventListener('start', cancel)
-  }, [controls])
+  }, [controls, camera])
   // the wheel zooms in towards the pointer, but out about the middle of the screen: decided for each wheel
   // step just before the controls see it (they listen on the canvas; this listens on its parent, capturing)
   useEffect(() => {

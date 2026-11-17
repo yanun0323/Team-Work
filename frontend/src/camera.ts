@@ -101,6 +101,25 @@ export interface Shot {
   zoom: number
 }
 
+/** The flight back out after a building closes; where it was stopped, if a press on the map stopped it. */
+export interface Return {
+  to: Shot
+  stoppedAt?: THREE.Vector3
+  stoppedZoom?: number
+}
+
+/**
+ * The view to come back to, decided as a building opens: the one being flown to, else the player's own. A press
+ * on the map stops the flight back even when it is only a click opening the next building; if the camera hasn't
+ * moved since, the view it was going back to still counts, so clicking fast doesn't leave the camera close in.
+ */
+export function homeOnOpen(now: Shot, flyingTo: Shot | null, back: Return | null): Shot {
+  if (flyingTo) return { target: flyingTo.target.clone(), zoom: flyingTo.zoom }
+  if (back?.stoppedAt && back.stoppedZoom !== undefined && back.stoppedAt.distanceTo(now.target) < 1e-4
+    && Math.abs(back.stoppedZoom - now.zoom) < now.zoom * 1e-4) return { target: back.to.target.clone(), zoom: back.to.zoom }
+  return { target: now.target.clone(), zoom: now.zoom }
+}
+
 /**
  * The view `u` of the way (0 to 1) from one shot to another, as a single zoom about the one point on the map
  * that stays put on screen. Everything on screen then slides in a straight line; moving the target and

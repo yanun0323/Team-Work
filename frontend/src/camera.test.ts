@@ -1,7 +1,7 @@
 import { CELL, layoutTown } from './layout'
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { boxOnScreen, drawerWidth, focusTarget, focusView, groundReach, hidesPoint, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot, seaCoverZoom, SEA_SIZE } from './camera'
+import { boxOnScreen, drawerWidth, focusTarget, focusView, groundReach, hidesPoint, homeOnOpen, islandView, ISO_DIR, MAX_ZOOM, MIN_ZOOM, SCREEN_RIGHT, SCREEN_UP, shotAt, type Shot, seaCoverZoom, SEA_SIZE } from './camera'
 
 /** Screen position (pixels from the canvas centre, y up) of a world point, for a camera looking at `target`. */
 const project = (p: THREE.Vector3, target: THREE.Vector3, zoom: number) => {
@@ -228,4 +228,30 @@ it('tells a building hides someone standing behind it from the camera, not someo
   expect(hidesPoint(tower, new THREE.Vector3(-7, 0.5, 9))).toBe(false)
   // a low shed far in front of someone further back doesn't reach up into the line of sight
   expect(hidesPoint({ x: 0, z: 0, w: 2, d: 2, height: 1 }, new THREE.Vector3(-20, 0.5, -20))).toBe(false)
+})
+
+describe('homeOnOpen', () => {
+  const shot = (x: number, zoom: number): Shot => ({ target: new THREE.Vector3(x, 0, 0), zoom })
+  const far = shot(0, 10)
+  const halfway = shot(30, 40)
+
+  it('keeps where the player is, or where the camera is flying to', () => {
+    expect(homeOnOpen(halfway, null, null)).toEqual(halfway)
+    expect(homeOnOpen(halfway, far, null)).toEqual(far)
+  })
+
+  it('keeps the view being flown back to when a click stopped the flight on its way', () => {
+    // open, close, and click the building again while the camera is still on its way back out
+    expect(homeOnOpen(halfway, null, { to: far, stoppedAt: halfway.target.clone(), stoppedZoom: halfway.zoom })).toEqual(far)
+  })
+
+  it('keeps where the player went after stopping the flight by dragging or zooming', () => {
+    expect(homeOnOpen(shot(50, 40), null, { to: far, stoppedAt: halfway.target.clone(), stoppedZoom: halfway.zoom })).toEqual(shot(50, 40))
+    expect(homeOnOpen(shot(30, 60), null, { to: far, stoppedAt: halfway.target.clone(), stoppedZoom: halfway.zoom })).toEqual(shot(30, 60))
+  })
+
+  it('keeps where the player is when the flight back ended some other way', () => {
+    // keys or following someone stop it without noting where
+    expect(homeOnOpen(halfway, null, { to: far })).toEqual(halfway)
+  })
 })
