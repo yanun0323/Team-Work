@@ -76,6 +76,8 @@ export function useWalkKeys(on: boolean) {
       if (e.ctrlKey || e.metaKey || e.altKey) return useWalk.setState({ keys: [] })
       const k = CODES[e.code]
       if (!k || typingIn(e.target)) return
+      // handled here: otherwise the Mac app's WKWebView hands the key back to AppKit, which beeps
+      e.preventDefault()
       useWalk.setState((w) => ({ keys: add(w.keys, k), fast: e.shiftKey }))
     }
     const up = (e: KeyboardEvent) => {

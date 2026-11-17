@@ -72,6 +72,23 @@ it('leaves the keys to typing, and to shortcuts', async () => {
   expect(lit()).toEqual([])
 })
 
+it('claims the walking keys, so the Mac app does not beep, but leaves typing and shortcuts alone', async () => {
+  await show()
+  // dispatchEvent answers false when a listener called preventDefault
+  const kept = (code: string, at: EventTarget = window, extra: KeyboardEventInit = {}) => {
+    let free = true
+    act(() => void (free = at.dispatchEvent(new KeyboardEvent('keydown', { code, key: code.slice(3).toLowerCase(), bubbles: true, cancelable: true, ...extra }))))
+    return !free
+  }
+  expect(kept('KeyW')).toBe(true)
+  expect(kept('KeyW', window, { repeat: true })).toBe(true)
+  expect(kept('KeyQ')).toBe(false)
+  expect(kept('KeyW', window, { metaKey: true })).toBe(false)
+  const input = document.querySelector('input') as HTMLInputElement
+  await act(() => input.focus())
+  expect(kept('KeyW', input)).toBe(false)
+})
+
 it('walks while a key on the screen is held with the pointer', async () => {
   await show()
   const s = [...document.querySelectorAll<HTMLButtonElement>('.fx-walk-key')].find((b) => b.textContent === 'S') as HTMLButtonElement
