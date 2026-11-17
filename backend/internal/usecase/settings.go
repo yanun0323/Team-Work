@@ -17,8 +17,13 @@ import (
 )
 
 func settingsBytes(w *model.World) []byte {
-	raw, _ := json.MarshalIndent(model.SettingsOf(w), "", "  ")
-	return append(raw, '\n')
+	raw, _ := encodeSettings(model.SettingsOf(w))
+	return raw
+}
+
+func encodeSettings(s model.Settings) ([]byte, error) {
+	raw, err := json.MarshalIndent(s, "", "  ")
+	return append(raw, '\n'), err
 }
 
 func settingsError(field string, err error) error {

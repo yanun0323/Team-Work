@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -77,8 +78,12 @@ type Engine struct {
 	runs      map[string]*run
 	live      map[string]string // what is being written now in chats and discussions, by their id
 	// output is the last lines of a command running now in a chat, by its id, with the run it belongs to
-	output        map[string]liveOutput
-	prev          map[string][]byte
+	output map[string]liveOutput
+	prev   map[string][]byte
+	// encoded keeps each document's JSON with a copy of what it encodes, so an unchanged entity is compared, not
+	// encoded again, on every save; settingsCache does the same for the settings.
+	encoded       map[string]encodedDoc
+	settingsCache encodedDoc
 	chatSummaries map[string]ChatSummary
 	pagedSubs     map[chan Event]bool
 	savedChats    map[string]*model.Chat // detached committed values; chat JSON is not cached in prev
@@ -433,12 +438,42 @@ func loadInto[T any](d model.Doc, into map[string]*T) error {
 	return nil
 }
 
-func encodeAll[T any](docs map[string][]byte, kind string, all map[string]*T) {
+// encodedDoc is a value's JSON with a copy of the value it was made from.
+type encodedDoc struct {
+	val any
+	raw []byte
+}
+
+// encodeCached is v's JSON, encoded again only when v no longer equals the copy kept with the last encoding under key.
+// Comparing reads what encoding would, but allocates nothing and escapes nothing.
+func encodeCached[T any](cache, next map[string]encodedDoc, key string, v T, encode func(T) ([]byte, error)) ([]byte, bool) {
+	if old, ok := cache[key]; ok && reflect.DeepEqual(old.val, v) {
+		next[key] = old
+		return old.raw, true
+	}
+	raw, err := encode(v)
+	if err != nil {
+		return nil, false
+	}
+	next[key] = encodedDoc{val: deepCopy(v), raw: raw}
+	return raw, true
+}
+
+func encodeAll[T any](docs map[string][]byte, cache, next map[string]encodedDoc, kind string, all map[string]*T) {
 	for id, v := range all {
-		if raw, err := jsonx.Marshal(v); err == nil {
-			docs[docKey(kind, id)] = raw
+		key := docKey(kind, id)
+		if raw, ok := encodeCached(cache, next, key, v, func(v *T) ([]byte, error) { return jsonx.Marshal(v) }); ok {
+			docs[key] = raw
 		}
 	}
+}
+
+// cachedSettings is settingsBytes(e.w), encoded again only when the settings changed.
+func (e *Engine) cachedSettings() []byte {
+	next := map[string]encodedDoc{}
+	raw, _ := encodeCached(map[string]encodedDoc{"": e.settingsCache}, next, "", model.SettingsOf(e.w), encodeSettings)
+	e.settingsCache = next[""]
+	return raw
 }
 
 // documents captures the public entities plus private runtime records for change detection.
@@ -452,14 +487,17 @@ func (e *Engine) documents() map[string][]byte {
 	now[docKey(kindMeta, "world")] = meta
 	prefs, _ := jsonx.Marshal(e.w.Preferences)
 	now[docKey("preferences", "world")] = prefs
-	encodeAll(now, "team", e.w.Teams)
-	encodeAll(now, "provider", e.w.Providers)
-	encodeAll(now, "blueprint", e.w.Blueprints)
-	encodeAll(now, "source", e.w.Sources)
-	encodeAll(now, "replica", e.w.Replicas)
-	encodeAll(now, "workflow", e.w.Workflows)
-	encodeAll(now, "task", e.w.Tasks)
-	encodeAll(now, "subTask", e.w.SubTasks)
+	// what is no longer in the world leaves the cache with it
+	next := make(map[string]encodedDoc, len(e.encoded))
+	encodeAll(now, e.encoded, next, "team", e.w.Teams)
+	encodeAll(now, e.encoded, next, "provider", e.w.Providers)
+	encodeAll(now, e.encoded, next, "blueprint", e.w.Blueprints)
+	encodeAll(now, e.encoded, next, "source", e.w.Sources)
+	encodeAll(now, e.encoded, next, "replica", e.w.Replicas)
+	encodeAll(now, e.encoded, next, "workflow", e.w.Workflows)
+	encodeAll(now, e.encoded, next, "task", e.w.Tasks)
+	encodeAll(now, e.encoded, next, "subTask", e.w.SubTasks)
+	e.encoded = next
 	e.chatDocuments(now)
 	e.logDocuments(now)
 	// conversations grow large, and only the ones marked have changed
@@ -485,7 +523,7 @@ func (e *Engine) sync() error {
 		return err
 	}
 	now := e.documents()
-	encoded := settingsBytes(e.w)
+	encoded := e.cachedSettings()
 	var changes []model.SettingsChange
 	var written model.SettingsSnapshot
 	if !bytes.Equal(encoded, e.settingsEncoded) {

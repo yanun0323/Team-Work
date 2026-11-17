@@ -103,8 +103,8 @@ func (e *Engine) rollbackWorld() *model.World {
 	w := e.w
 	// Other entities are still small; private model messages use copy-on-write.
 	rest := *w
-	rest.Chats = nil
-	out := clone(&rest)
+	rest.Chats, rest.Conversations, rest.Copies = nil, nil, nil
+	out := deepCopy(&rest)
 	out.Chats = make(map[string]*model.Chat, len(w.Chats))
 	for id, c := range w.Chats {
 		if saved, ok := e.savedChats[id]; ok && sameChat(saved, c) {
