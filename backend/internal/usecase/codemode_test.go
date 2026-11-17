@@ -53,21 +53,19 @@ func TestCodeModeSettingIsOffUntilTurnedOn(t *testing.T) {
 	}
 }
 
-var declaredTools = regexp.MustCompile(`(?m)^  ([a-z_]+)\(args`)
-
-// execTools are the tools an exec request declares, sorted; nil without exec.
-func execTools(req model.ModelRequest) []string {
+// scriptTools are the tools a request says scripts may call, sorted; nil without exec.
+func scriptTools(req model.ModelRequest) []string {
+	if !hasExec(req) {
+		return nil
+	}
+	out := []string{}
 	for _, s := range req.Tools {
-		if s.Name == "exec" {
-			out := []string{}
-			for _, m := range declaredTools.FindAllStringSubmatch(s.Description, -1) {
-				out = append(out, m[1])
-			}
-			slices.Sort(out)
-			return out
+		if strings.Contains(s.Description, "\n\nIn exec scripts: `await tools."+s.Name+"(args)`") {
+			out = append(out, s.Name)
 		}
 	}
-	return nil
+	slices.Sort(out)
+	return out
 }
 
 func hasExec(req model.ModelRequest) bool {
@@ -84,26 +82,34 @@ func execResultOf(req model.ModelRequest) model.Block {
 	return model.Block{}
 }
 
+// lastLine is the last line of an exec result: what its script wrote last.
+func lastLine(text string) string { return text[strings.LastIndex(text, "\n")+1:] }
+
+var tookIn = regexp.MustCompile(`in \d+\.\d\ds`)
+
+func plain(text string) string { return tookIn.ReplaceAllString(text, "in Ns") }
+
 // readingTools are what an employee with read_file reads tasks, blueprints and the like with.
 var readingTools = []string{"list_blueprints", "list_companies", "list_employees", "list_providers", "list_tasks", "list_workflows",
 	"read_blueprint", "read_chat", "read_company", "read_employee", "read_file", "read_provider", "read_task", "read_workflow"}
 
-// exec comes with the setting: to a read-only employee in a step, a discussion and a chat, over just what they may
-// read, in their own company; never to one with nothing to read. A script chains reads and only its summary is kept.
-func TestExecReachesReadOnlyEmployeesWithinTheirCompany(t *testing.T) {
+// exec comes with the setting: to an employee in a step, a discussion and a chat, over the tools they have, in their
+// own company; ask_user and submit_handoff stay theirs to call. A script chains reads and only its summary is kept;
+// each call it makes shows in the log on its own line.
+func TestExecReachesTheEmployeesToolsWithinTheirCompany(t *testing.T) {
 	t.Parallel()
 	var mu sync.Mutex
 	var otherTask string
 	results := map[string]model.Block{} // where exec ran: its result
 	const stepScript = `
-const all = tools.list_tasks();
+const all = await tools.list_tasks();
 const todo = all.filter(t => t.title.startsWith("待辦"));
 let matched = 0;
-for (const t of todo) if (tools.read_task({task_id: t.id}).text.includes("UNIQUE" + "_A")) matched++;
-let other; try { tools.read_task({task_id: OTHER}) } catch (e) { other = e.message }
-let wrote; try { tools.write_file({path: "pwned.txt", content: "x"}) } catch (e) { wrote = e.name }
+for (const t of todo) if ((await tools.read_task({task_id: t.id})).text.includes("UNIQUE" + "_A")) matched++;
+let other; try { await tools.read_task({task_id: OTHER}) } catch (e) { other = e.message }
+let wrote; try { await tools.write_file({path: "pwned.txt", content: "x"}) } catch (e) { wrote = e.name }
 text(JSON.stringify({todo: todo.length, matched, other, wrote, teamIds: all.filter(t => t.teamId).length}));`
-	const chatScript = `const key = "sk-SECRET_MARKER"; try { tools.nope() } catch (e) {} text(tools.read_file({path: "x.txt"}).content.trim())`
+	const chatScript = `const key = "sk-SECRET_MARKER"; try { await tools.nope() } catch (e) {} text((await tools.read_file({path: "x.txt"})).content.trim())`
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		step := stepOf(req)
 		if lastIsResult(req) {
@@ -206,7 +212,7 @@ text(JSON.stringify({todo: todo.length, matched, other, wrote, teamIds: all.filt
 	}
 	runAll()
 	for _, req := range r.fake.requests() {
-		if hasExec(req) {
+		if hasExec(req) || strings.Contains(string(mustJSON(req.Tools)), "In exec scripts") {
 			t.Fatalf("exec offered while off, in %q", stepOf(req))
 		}
 	}
@@ -216,33 +222,35 @@ text(JSON.stringify({todo: todo.length, matched, other, wrote, teamIds: all.filt
 	}
 	read, _, _, chatID := runAll()
 
+	notes := []string{"forget", "remember", "search_memory"}
 	seen := map[string]bool{}
 	for _, req := range r.fake.requests()[before:] {
 		step := stepOf(req)
-		got := execTools(req)
+		got := scriptTools(req)
+		var want []string
 		switch step {
 		case "空":
-			// no blueprint tool to read with: only the notes every step may search
-			if !slices.Equal(got, []string{"search_memory"}) {
-				t.Fatalf("exec beyond the notes: %v", got)
-			}
-		case "讀", "談", "":
-			// a step keeps notes, a discussion only reads, and a chat reads the company's terminal too
-			want := slices.Clone(readingTools)
-			switch step {
-			case "讀":
-				want = append(want, "search_memory")
-			case "":
-				want = append(want, "read_terminal", "search_memory")
-			}
-			slices.Sort(want)
-			if !slices.Equal(got, want) {
-				t.Fatalf("%q declares %v", step, got)
-			}
-			seen[step] = true
+			// no blueprint tool: only the notes every step keeps
+			want = slices.Clone(notes)
+		case "讀":
+			want = append(slices.Clone(readingTools), notes...)
+		case "談":
+			// a discussion only reads
+			want = slices.Clone(readingTools)
+		case "":
+			// a chat reads the company's terminal too
+			want = append(slices.Clone(readingTools), "read_terminal")
+			want = append(want, notes...)
+		default:
+			continue
 		}
+		slices.Sort(want)
+		if !slices.Equal(got, want) {
+			t.Fatalf("%q: scripts may call %v, want %v", step, got, want)
+		}
+		seen[step] = true
 	}
-	if len(seen) != 3 {
+	if len(seen) != 4 {
 		t.Fatalf("exec offered in %v", seen)
 	}
 
@@ -253,13 +261,14 @@ text(JSON.stringify({todo: todo.length, matched, other, wrote, teamIds: all.filt
 		Todo, Matched, TeamIDs int
 		Other, Wrote           string
 	}
-	if err := json.Unmarshal([]byte(stepRes.Text), &summary); err != nil || stepRes.IsError {
+	if err := json.Unmarshal([]byte(lastLine(stepRes.Text)), &summary); err != nil || stepRes.IsError {
 		t.Fatalf("%+v %v", stepRes, err)
 	}
+	// a read-only employee's script has no write_file: calling it is a TypeError, and nothing is written
 	if summary.Todo != 2 || summary.Matched != 2 || summary.TeamIDs != 0 || summary.Other != "no task "+theirs.ID || summary.Wrote != "TypeError" {
 		t.Fatalf("%+v", summary)
 	}
-	if chatRes.IsError || chatRes.Text != "hello" {
+	if chatRes.IsError || plain(chatRes.Text) != "Script completed in Ns\nhello" {
 		t.Fatalf("%+v", chatRes)
 	}
 
@@ -270,27 +279,90 @@ text(JSON.stringify({todo: todo.length, matched, other, wrote, teamIds: all.filt
 	if strings.Contains(string(conv), "UNIQUE_A") || strings.Contains(string(conv), "UNIQUE_B") || !strings.Contains(string(conv), `\"matched\":2`) {
 		t.Fatalf("%s", conv)
 	}
-	// and the logs name what it read, never its code
-	line := ""
+	// and the log has the exec call by its size, never its code, then each call its script made
+	var lines []string
 	for _, l := range sub.Log {
-		if l.Kind == enum.LogTool && strings.HasPrefix(l.Text, "exec") {
-			line = l.Text
+		if l.Kind == enum.LogTool && !strings.HasPrefix(l.Text, "submit_handoff") {
+			lines = append(lines, strings.SplitN(l.Text, " ", 2)[0])
 		}
 	}
-	if !regexp.MustCompile(`^exec list_tasks, read_task \(\d+ chars\)$`).MatchString(line) {
-		t.Fatalf("step log line %q", line)
+	if !slices.Equal(lines, []string{"exec", "list_tasks", "read_task", "read_task", "read_task"}) || !regexp.MustCompile(`^exec \(\d+ chars\)$`).MatchString(logLine(sub, "exec")) {
+		t.Fatalf("step log %q", lines)
 	}
-	line = ""
+	var chatLines []string
 	for _, m := range w.Chats[chatID].Messages {
-		if m.From == "tool" && strings.HasPrefix(m.Text, "exec") {
-			line = m.Text
+		if m.From == "tool" {
+			chatLines = append(chatLines, m.Text)
 		}
 	}
-	if line != "exec read_file ("+strconv.Itoa(len([]rune(chatScript)))+" chars)" {
-		t.Fatalf("chat line %q", line)
+	if !slices.Equal(chatLines, []string{"exec (" + strconv.Itoa(len([]rune(chatScript))) + " chars)", `read_file {"path":"x.txt"}`}) {
+		t.Fatalf("chat lines %q", chatLines)
 	}
 	if _, err := os.Stat(filepath.Join(r.folder, "pwned.txt")); err == nil {
 		t.Fatal("exec wrote a file")
+	}
+}
+
+func logLine(s *model.SubTask, prefix string) string {
+	for _, l := range s.Log {
+		if l.Kind == enum.LogTool && strings.HasPrefix(l.Text, prefix) {
+			return l.Text
+		}
+	}
+	return ""
+}
+
+func mustJSON(v any) []byte {
+	raw, _ := json.Marshal(v)
+	return raw
+}
+
+// An employee who may write and run commands does so from a script too: the files change on disk, the command runs
+// in the company's folder, and the chat shows every call in the order made.
+func TestExecWritesFilesAndRunsCommands(t *testing.T) {
+	t.Parallel()
+	const script = `await tools.write_file({path: "made.txt", content: "one\n"});
+const out = await tools.run_command({command: "echo two >> made.txt && cat made.txt"});
+await tools.edit_file({path: "made.txt", edits: [{old: "one", new: "uno"}]});
+return out`
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		switch {
+		case lastIsResult(req):
+			return say("好"), nil
+		case hasExec(req):
+			return call("exec", map[string]string{"code": script}), nil
+		}
+		return say("沒有 exec"), nil
+	})
+	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codeMode": json.RawMessage(`true`)}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "做吧"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := r.wait("reply", func(w *model.World) bool { return chatDone(c.ID)(w) && chatHasLine(w.Chats[c.ID], "agent", "好") >= 0 })
+	got, err := os.ReadFile(filepath.Join(r.folder, "made.txt"))
+	if err != nil || string(got) != "uno\ntwo\n" {
+		t.Fatalf("%q %v", got, err)
+	}
+	var names []string
+	for _, m := range w.Chats[c.ID].Messages {
+		if m.From == "tool" {
+			names = append(names, strings.SplitN(m.Text, " ", 2)[0])
+		}
+	}
+	if !slices.Equal(names, []string{"exec", "write_file", "run_command", "edit_file"}) {
+		t.Fatalf("%q", names)
+	}
+	var res model.Block
+	for _, req := range r.fake.requests() {
+		if lastIsResult(req) {
+			res = execResultOf(req)
+		}
+	}
+	if res.IsError || !strings.Contains(res.Text, "one\ntwo") {
+		t.Fatalf("%+v", res)
 	}
 }
 
@@ -305,14 +377,15 @@ func ownerBlock(name string, args any) model.Block {
 	return model.Block{Type: enum.BlockToolCall, ID: name + "-" + strconv.Itoa(int(ownerSeq.Add(1))), Name: name, Args: raw}
 }
 
-// Each tool an exec script calls counts towards the owner's limit: the one past it does not run, nor does anything
-// after exec in the same reply, and the owner stops for the user then, without another model call.
+// Each tool an exec script calls counts towards the owner's limit: the one past it does not run and ends the script,
+// which cannot catch it, nor does anything after exec in the same reply run, and the owner stops for the user then,
+// without another model call.
 func TestExecCountsTowardsTheOwnersToolLimit(t *testing.T) {
 	t.Parallel()
 	var phase, extra atomic.Int32
 	var rr *rig // set before the task starts
 	const script = `text("start");
-for (let i = 0; i < 3; i++) { try { text("read " + tools.read_task({}).number) } catch (e) { text("caught") } }
+for (let i = 0; i < 3; i++) { try { text("read " + (await tools.read_task({})).number) } catch (e) { text("caught") } }
 text("after")`
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
@@ -334,8 +407,9 @@ text("after")`
 			}
 			return toolCalls(blocks...), nil
 		case 2:
-			if !slices.Equal(execTools(req), []string{"read_file", "read_step", "read_task", "read_task_entry", "read_task_history", "search_memory"}) {
-				return say("wrong tools: " + strings.Join(execTools(req), ",")), nil
+			got := scriptTools(req)
+			if !slices.Contains(got, "read_task") || slices.Contains(got, "ask_user") || slices.Contains(got, "submit_complete") {
+				return say("wrong tools: " + strings.Join(got, ",")), nil
 			}
 			return toolCalls(ownerBlock("exec", map[string]string{"code": script}), ownerBlock("read_task", map[string]any{})), nil
 		}
@@ -362,14 +436,15 @@ text("after")`
 		t.Fatalf("%+v", last)
 	}
 	ran, after := last.Content[0], last.Content[1]
-	if !ran.IsError || !strings.HasPrefix(ran.Text, "exec failed (owner_limit): ") || !strings.HasSuffix(ran.Text, "Output before the failure:\nstart\nread 1") {
+	want := "Script failed in Ns\n==> text 1/2 <==\nstart\n==> text 2/2 <==\nread 1\nScript error (refused): owner tool limit reached; not run"
+	if !ran.IsError || plain(ran.Text) != want {
 		t.Fatalf("exec: %q", ran.Text)
 	}
 	if !after.IsError || after.Name != "read_task" || after.Text != "owner tool limit reached; not run" {
 		t.Fatalf("after: %+v", after)
 	}
 	logged := log.String()
-	if !strings.Contains(logged, `"message":"codemode_failed"`) || !strings.Contains(logged, `"reason":"owner_limit"`) || !strings.Contains(logged, `"tools":"read_task:1"`) ||
+	if !strings.Contains(logged, `"message":"codemode_failed"`) || !strings.Contains(logged, `"reason":"refused"`) || !strings.Contains(logged, `"tools":"read_task:2"`) ||
 		!strings.Contains(logged, `"source":"owner"`) || !strings.Contains(logged, `"task":"`+task.ID+`"`) || strings.Contains(logged, "read 1") || strings.Contains(logged, "text(") {
 		t.Fatalf("%s", logged)
 	}
@@ -383,7 +458,7 @@ text("after")`
 func TestExecThatUsesUpTheOwnersLimitStopsTheNextTool(t *testing.T) {
 	t.Parallel()
 	var phase atomic.Int32
-	const script = `for (let i = 0; i < 31; i++) tools.read_task({}); text("done")`
+	const script = `for (let i = 0; i < 31; i++) await tools.read_task({}); text("done")`
 	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
 		if !isOwner(req) {
 			return call("submit_handoff", handoff), nil
@@ -416,50 +491,10 @@ func TestExecThatUsesUpTheOwnersLimitStopsTheNextTool(t *testing.T) {
 		t.Fatalf("%+v\n%+v", calls, last)
 	}
 	ran, after := last.Content[0], last.Content[1]
-	if ran.IsError || ran.ID != calls.Content[0].ID || !strings.HasSuffix(ran.Text, "done") {
+	if ran.IsError || ran.ID != calls.Content[0].ID || lastLine(ran.Text) != "done" {
 		t.Fatalf("exec: %+v", ran)
 	}
 	if !after.IsError || after.ID != calls.Content[1].ID || after.Text != "owner tool limit reached; not run" {
 		t.Fatalf("after: %+v", after)
-	}
-}
-
-// What exec shows before it runs is a guess from its code; once it ran, a line says what it really called and how many
-// times, names it made up as it went included.
-func TestExecSaysWhatItCalledOnceItRan(t *testing.T) {
-	t.Parallel()
-	const script = `const n = ["read", "file"].join("_");
-tools[n]({path: "x.txt"});
-parallel([{tool: n, args: {path: "x.txt"}}, {tool: n, args: {path: "x.txt"}}]);
-text("ok")`
-	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
-		switch {
-		case lastIsResult(req):
-			return say("好"), nil
-		case hasExec(req):
-			return call("exec", map[string]string{"code": script}), nil
-		}
-		return say("沒有 exec"), nil
-	})
-	if err := os.WriteFile(filepath.Join(r.folder, "x.txt"), []byte("hello\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codeMode": json.RawMessage(`true`)}); err != nil {
-		t.Fatal(err)
-	}
-	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "看看"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := r.wait("reply", func(w *model.World) bool { return chatDone(c.ID)(w) && chatHasLine(w.Chats[c.ID], "agent", "好") >= 0 })
-	var lines []string
-	for _, m := range w.Chats[c.ID].Messages {
-		if m.From == "tool" {
-			lines = append(lines, m.Text)
-		}
-	}
-	want := []string{"exec parallel: (" + strconv.Itoa(len([]rune(script))) + " chars)", "ran by exec: read_file ×3, in 1 parallel batch"}
-	if !slices.Equal(lines, want) {
-		t.Fatalf("%q", lines)
 	}
 }

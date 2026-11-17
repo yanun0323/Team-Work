@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
-	"github.com/yanun0323/Team-Work/internal/codemode"
 	"github.com/yanun0323/Team-Work/internal/i18n"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
@@ -595,7 +594,7 @@ func (e *Engine) ownerFailed(t *model.Task, in *ownerRun, err error) {
 // they spend counts towards the task's budget.
 func (e *Engine) ownerTurn(in *ownerRun) *turn {
 	key := ownerKey(in.taskID)
-	list := tools.For(in.spec.allowed, tools.Env{Read: []string{e.attachmentRoot(in.taskID)}, Search: e.search, Semantic: e.semantic, Task: in.taskID, Replica: in.ownerID})
+	list := tools.For(in.spec.allowed, tools.Env{Read: []string{e.attachmentRoot(in.taskID)}, Output: e.outputRoot(in.taskID), Search: e.search, Semantic: e.semantic, Task: in.taskID, Replica: in.ownerID})
 	list = append(list, e.ownerTools(in)...)
 	list = append(list, e.searchMemoryTool(func() (string, *string) {
 		if t := e.w.Tasks[in.taskID]; t != nil {
@@ -677,16 +676,10 @@ func (e *Engine) ownerTurn(in *ownerRun) *turn {
 		return shorter, ok && kept
 	}
 	tr.compactAt = e.workCompactAt(in.spec.model)
-	// an exec script's tools count one by one, the one past the limit not run; then nothing else of the reply runs,
-	// and the decision stops for the user once its results are kept
-	e.codeMode(tr, codeModeSource{Kind: "owner", TaskID: in.taskID, Replica: in.ownerID, BeforeCall: func(string) error {
-		if in.calls >= maxOwnerTools {
-			in.overLimit = true
-			return &codemode.Failure{Reason: reasonOwnerLimit, Message: fmt.Sprintf("the owner may call %d tools in one decision; stopped for the user", maxOwnerTools)}
-		}
-		in.calls++
-		return nil
-	}})
+	// an exec script's tools count one by one, through the gate and onTool as any call; the one past the limit is not
+	// run and ends the script, nothing else of the reply runs, and the decision stops for the user once its results
+	// are kept
+	e.codeMode(tr, codeModeSource{Kind: "owner", TaskID: in.taskID, Replica: in.ownerID, Scope: key})
 	// a reply's own calls were counted when it came, so only an exec script's can leave the limit used up before the
 	// reply's next tool: refused, it is past the limit, and the decision stops for the user too
 	tr.gate = func(model.Block) (model.ToolResult, bool) {

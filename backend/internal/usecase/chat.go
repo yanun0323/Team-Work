@@ -1165,11 +1165,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			})
 		},
 	}
-	e.codeMode(t, codeModeSource{Kind: "chat", ChatID: in.id, Replica: in.speaker, Ran: func(line string) {
-		e.applyChat(in, func(c *model.Chat) {
-			c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "tool", Text: line, By: in.speaker})
-		})
-	}})
+	e.codeMode(t, codeModeSource{Kind: "chat", ChatID: in.id, Replica: in.speaker, Scope: in.id})
 	in.overhead = requestTokens(t.req)
 	t.compact = func(ctx context.Context) ([]model.Message, bool) { return e.compactChat(ctx, in) }
 	t.compactAt = in.compactAt

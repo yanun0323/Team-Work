@@ -135,6 +135,8 @@ type Engine struct {
 	semantic *semantic.Service
 	// rankNotes ranks memory notes by meaning, ok false for keyword search alone; semantic's, or a test's stand-in.
 	rankNotes func(ctx context.Context, query string, notes []semantic.Note) (ranked []string, ok bool)
+	// stores are what exec scripts kept with store(), by conversation; ready to use as it is.
+	stores scriptStores
 
 	ctx             context.Context
 	cancel          context.CancelFunc

@@ -65,6 +65,8 @@ type turn struct {
 	gate func(model.Block) (model.ToolResult, bool)
 	// halt, when set, comes after a round of tool results is recorded: true stops the turn there.
 	halt func() bool
+	// callID is the call of the tool running now, which exec names the calls of its script after.
+	callID string
 }
 
 // turnResult is how a turn ended: Stopped by a tool or callback, or with the model's Text and no tool calls.
@@ -133,6 +135,7 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 				}
 			}
 			t.onTool(b)
+			t.callID = b.ID
 			tool := t.tools[b.Name]
 			result := model.ToolResult{Text: "unknown tool " + b.Name, IsError: true}
 			if streamer, ok := tool.(tools.Streamer); ok && t.onOutput != nil {
@@ -883,9 +886,7 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 	if in.talk {
 		kind = "talk"
 	}
-	e.codeMode(tr, codeModeSource{Kind: kind, TaskID: in.taskID, Replica: replicaOf(in.r), Ran: func(line string) {
-		e.apply(in, func(_ *model.Task, s *model.SubTask) { e.logLine(s, enum.LogTool, line, "", nil) })
-	}})
+	e.codeMode(tr, codeModeSource{Kind: kind, TaskID: in.taskID, Replica: replicaOf(in.r), Scope: in.subID})
 	return tr
 }
 

@@ -882,7 +882,7 @@ func (e *Engine) meetingFailed(t *model.Task, s *model.SubTask, in *meetingRun, 
 
 // meetingTurn is a participant's model-and-tools loop: read-only tools, and the chair's own, fixed for the meeting.
 func (e *Engine) meetingTurn(in *meetingRun) *turn {
-	list := tools.For(in.allowed, tools.Env{Read: []string{e.attachmentRoot(in.taskID)}, Search: e.search, Semantic: e.semantic, Task: in.taskID, Replica: replicaOf(in.r)})
+	list := tools.For(in.allowed, tools.Env{Read: []string{e.attachmentRoot(in.taskID)}, Output: e.outputRoot(in.taskID), Search: e.search, Semantic: e.semantic, Task: in.taskID, Replica: replicaOf(in.r)})
 	if in.chair {
 		list = append(list,
 			ownerTool(toolMeetingAsk, "Call on employees in this meeting, the same as mentioning them with @name: text is what you say to them, and they answer in the order given. replica_ids takes their names as the note gives them, or their ids.",
@@ -983,7 +983,7 @@ func (e *Engine) meetingTurn(in *meetingRun) *turn {
 			return heard
 		},
 	}
-	e.codeMode(tr, codeModeSource{Kind: "meeting", TaskID: in.taskID, Replica: in.turn.Speaker})
+	e.codeMode(tr, codeModeSource{Kind: "meeting", TaskID: in.taskID, Replica: in.turn.Speaker, Scope: in.key})
 	return tr
 }
 

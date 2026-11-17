@@ -1,17 +1,22 @@
 package usecase
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"regexp"
+	"maps"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
 	"github.com/yanun0323/Team-Work/internal/codemode"
 	"github.com/yanun0323/Team-Work/internal/model"
+	"github.com/yanun0323/Team-Work/internal/model/enum"
 	"github.com/yanun0323/Team-Work/internal/usecase/tools"
 )
 
@@ -21,14 +26,23 @@ const (
 	toolReadTaskEntry   = "read_task_entry"
 	toolReadStep        = "read_step"
 
-	// reasonOwnerLimit is an exec the owner's tool limit ended.
-	reasonOwnerLimit = "owner_limit"
+	// reasonRefused is a script whose call the turn refused, such as one past the owner's tool limit.
+	reasonRefused = "refused"
+	// reasonEnded is a script whose call ended the turn, such as an owner's change on a task that moved on.
+	reasonEnded = "turn_ended"
 )
 
-// execTools are the tools exec may call, when the one running it has them: read-only ones, each giving plain data.
-// Nothing here writes, runs commands, asks anyone or waits for the user; web_search and web_fetch reach the web only
-// for those allowed to, through the same queue, cooldown and private-network checks as their direct calls.
-var execTools = map[string]bool{
+// neverInScripts are the tools a script may not call: those that ask the user or wait for their approval, and those
+// that end the step or the turn, as a script cannot stop halfway for them; nor exec, as scripts start no scripts.
+var neverInScripts = map[string]bool{
+	toolExec: true, toolAskUser: true, toolAskOwner: true, "submit_handoff": true, "send_back": true, "submit_complete": true,
+	toolMeetingAsk: true, toolEndMeeting: true,
+	toolSaveSetting: true, toolSaveBlueprint: true, toolSaveWorkflow: true, toolSaveProvider: true, toolSaveEmployees: true,
+}
+
+// sideBySide are the tools that change nothing: a script's calls to them run at the same time. Every other tool's
+// calls run one at a time, in the order the script made them.
+var sideBySide = map[string]bool{
 	"read_file": true, "semantic_search": true, "web_search": true, "web_fetch": true, "search_memory": true, "read_terminal": true,
 	toolListTasks: true, toolReadTask: true, toolListEmployees: true, toolReadEmployee: true,
 	toolListBlueprints: true, toolReadBlueprint: true, toolListWorkflows: true, toolReadWorkflow: true,
@@ -36,58 +50,60 @@ var execTools = map[string]bool{
 	toolReadStep: true, toolReadTaskHistory: true, toolReadTaskEntry: true,
 }
 
-// execDescriptions replace a tool's own words where exec reads it differently.
-var execDescriptions = map[string]string{
-	"read_file": "Read a text file from where read_file may read, at most 2000 lines or 50KB at a time; when truncated, continue with offset endLine+1. Images are not read here.",
-}
+// scriptNotes add to what a tool's description says of it in scripts.
+var scriptNotes = map[string]string{"read_file": " Images are not read there."}
 
-const execRules = "Run a short JavaScript script that calls your read-only tools below as tools.<name>(args), synchronously, each returning plain data, " +
-	"to chain and filter many reads in one call; parallel([{tool, args}, ...]) runs calls that do not depend on each other at the same time. Only what the script writes with text(value) (console.log alike; values other than strings as JSON) " +
-	"and the value it returns (as JSON) come back to you: what the tools return stays in the script. The code is a function body: use return; there is no await. " +
-	"A tool's own failure throws an Error you may catch. There are no files, network, timers or modules beyond these tools; ALL_TOOLS lists them. " +
-	"Each call may run 60 seconds, call tools 64 times and write 2000 lines or 50KB; passing a limit ends the script, which cannot catch it.\n\n"
+const execRules = "Run a JavaScript script that calls your other tools, to chain, filter and run many calls in one step. " +
+	"Only what the script writes with text() or console.log() and the value it returns come back to you: what the tools return stays in the script. " +
+	"The code is raw JavaScript, not JSON or a Markdown fence: the body of an async function, so await and return work at the top level. " +
+	"Call a tool as `await tools.<name>(args)` with one object of its arguments; a tool's description says when it can be called from scripts and what the call resolves to, and ALL_TOOLS lists them. " +
+	"Calls are real: what they did stays done when the script fails later. A call that fails rejects with an Error carrying its message; Promise.allSettled() keeps the others. " +
+	"Use Promise.all() for calls that do not depend on each other: those that change nothing run at the same time, those that change something one at a time, in the order made. " +
+	"text(value) adds an output item (a string as it is, anything else as JSON), and return adds the value the same way; console.log() adds a line to a console block after them. " +
+	"exit() ends the script at once, successfully. store(key, value) and load(key) keep small JSON values for your later scripts in this conversation, kept only when the script succeeds. " +
+	"There are no files, network, timers or modules beyond the tools; a script waiting on what nothing can settle fails at once. " +
+	"It may start with an options line, its first line only: // @options: {\"max_output_tokens\": 2000, \"timeout_ms\": 60000}. " +
+	"Output past max_output_tokens (10000 by default) keeps its start and end, with the whole of it in a file the result names. " +
+	"There is no deadline unless timeout_ms sets one, but JavaScript that runs a minute without waiting on a tool is stopped. The script has 256 MB of memory."
 
-var execParams = json.RawMessage(`{"type":"object","properties":{"code":{"type":"string","description":"JavaScript function body"}},"required":["code"]}`)
+var execParams = json.RawMessage(`{"type":"object","properties":{"code":{"type":"string","description":"JavaScript, the body of an async function"}},"required":["code"]}`)
 
-// codeModeSource is who runs an exec, for its log, and what the owner counts.
+// codeModeSource is who runs an exec, for its log, and where its scripts keep what they store.
 type codeModeSource struct {
 	// Kind is step, talk, owner, chat or meeting.
 	Kind                    string
 	TaskID, ChatID, Replica string
-	// BeforeCall, when set, comes before each tool the script calls; an error ends it.
-	BeforeCall func(name string) error
-	// Ran, when set, records what an exec really called, once it ran, as execRan words it.
-	Ran func(line string)
+	// Scope is the conversation store() keeps values for: a step's run, a chat, an owner's decisions, a meeting turn's.
+	Scope string
 }
 
-// codeMode offers exec on the turn while the experimental setting is on, over the read-only tools the turn has. It
-// checks the setting before every try at the model, so turning it on or off counts from the next call; a turn with
-// no tool exec may call never gets it. Call it with the turn's tools in place, not holding the lock.
+// codeMode offers exec on the turn while the experimental setting is on, and then says in each tool it may call how
+// to call it from scripts. It checks the setting before every try at the model, so turning it on or off counts from
+// the next call; a turn with no tool a script may call never gets it. Call it with the turn's tools in place, not
+// holding the lock.
 func (e *Engine) codeMode(tr *turn, src codeModeSource) {
 	base := slices.Clone(tr.req.Tools)
-	var fns []codemode.Func
-	for _, spec := range base {
-		st, ok := tr.tools[spec.Name].(tools.Structured)
-		if !ok || !execTools[spec.Name] || st.Returns() == "" {
+	noted := slices.Clone(base)
+	byName := maps.Clone(tr.tools)
+	var names []string
+	for i, spec := range base {
+		tool := byName[spec.Name]
+		if tool == nil || neverInScripts[spec.Name] {
 			continue
 		}
-		description := spec.Description
-		if d, ok := execDescriptions[spec.Name]; ok {
-			description = d
-		}
-		fns = append(fns, codemode.Func{Name: spec.Name, Description: description, Params: spec.Parameters, Returns: st.Returns(),
-			Call: func(ctx context.Context, args json.RawMessage) (any, error) { return st.Structured(ctx, tr.cwd, args) }})
+		names = append(names, spec.Name)
+		noted[i].Description += scriptNote(spec.Name, tool)
 	}
-	if len(fns) == 0 {
+	if len(names) == 0 {
 		return
 	}
-	exec := e.execTool(fns, src)
+	exec := e.execTool(tr, names, byName, src)
 	tr.prepare = func() {
 		e.mu.Lock()
 		on := e.w.Preferences.CodeMode
 		e.mu.Unlock()
 		if on {
-			tr.req.Tools = append(slices.Clone(base), exec.Spec())
+			tr.req.Tools = append(slices.Clone(noted), exec.Spec())
 			tr.tools[toolExec] = exec
 		} else {
 			tr.req.Tools = slices.Clone(base)
@@ -97,37 +113,98 @@ func (e *Engine) codeMode(tr *turn, src codeModeSource) {
 	tr.prepare()
 }
 
-func (e *Engine) execTool(fns []codemode.Func, src codeModeSource) adapter.Tool {
-	spec := model.ToolSpec{Name: toolExec, Description: execRules + codemode.Declarations(fns), Parameters: execParams}
-	return funcTool{spec, func(ctx context.Context, _ string, raw json.RawMessage) model.ToolResult {
-		var res codemode.Result
-		lim := codemode.DefaultLimits()
+// scriptNote is what a tool's description adds while scripts may call it: how, and what the call resolves to.
+func scriptNote(name string, tool adapter.Tool) string {
+	returns := "its text output, a string"
+	if st, ok := tool.(tools.Structured); ok && st.Returns() != "" {
+		returns = st.Returns()
+	}
+	return "\n\nIn exec scripts: `await tools." + name + "(args)` resolves to " + returns + "." + scriptNotes[name]
+}
+
+// execTool runs a script over the turn's tools. Each call the script makes goes as the model's own would: past the
+// turn's gate, shown in its log, run with the turn's folder, and named after the exec call it came from. A call that
+// ends the turn ends the script, and exec then ends the turn the same way.
+func (e *Engine) execTool(tr *turn, names []string, byName map[string]adapter.Tool, src codeModeSource) adapter.Tool {
+	spec := model.ToolSpec{Name: toolExec, Description: execRules, Parameters: execParams}
+	return funcTool{spec, func(ctx context.Context, cwd string, raw json.RawMessage) model.ToolResult {
 		code, ok := execCode(raw)
-		if ok {
-			res = codemode.Run(ctx, code, fns, lim, codemode.Hooks{BeforeCall: src.BeforeCall})
-		} else {
-			res = codemode.Result{Err: &codemode.Failure{Reason: codemode.ReasonInvalid, Message: "code is required and must be a string"}}
+		if !ok {
+			return toolError("code is required: the script, as a string")
 		}
-		if src.Ran != nil {
-			src.Ran(execRan(res))
+		parent := tr.callID
+		// book keeps the turn's own record of calls (its gate, its log) to one call at a time; a call that changes
+		// something holds it while it runs, so nothing else of the script is recorded meanwhile
+		var book sync.Mutex
+		var n atomic.Int64
+		var stopMu sync.Mutex
+		var stop *model.ToolResult
+		fns := make([]codemode.Func, 0, len(names))
+		for _, name := range names {
+			tool := byName[name]
+			serial := !sideBySide[name]
+			fns = append(fns, codemode.Func{Name: name, Description: tool.Spec().Description, Serial: serial,
+				Call: func(ctx context.Context, args json.RawMessage) (any, error) {
+					call := model.Block{Type: enum.BlockToolCall, ID: fmt.Sprintf("%s/%d", parent, n.Add(1)), Name: name, Args: args}
+					book.Lock()
+					if tr.gate != nil {
+						if refused, ok := tr.gate(call); !ok {
+							book.Unlock()
+							return nil, &codemode.Failure{Reason: reasonRefused, Message: refused.Text}
+						}
+					}
+					tr.onTool(call)
+					if serial {
+						defer book.Unlock()
+					} else {
+						book.Unlock()
+					}
+					if st, ok := tool.(tools.Structured); ok {
+						return st.Structured(ctx, cwd, args)
+					}
+					var res model.ToolResult
+					if streamer, ok := tool.(tools.Streamer); ok && tr.onOutput != nil {
+						res = streamer.RunStream(ctx, cwd, args, tr.onOutput)
+						tr.onOutput("")
+					} else {
+						res = tool.Run(ctx, cwd, args)
+					}
+					if res.Stop {
+						stopMu.Lock()
+						if stop == nil {
+							stop = &res
+						}
+						stopMu.Unlock()
+						return nil, &codemode.Failure{Reason: reasonEnded, Message: cmp.Or(res.Text, name+" ended this turn")}
+					}
+					if res.IsError {
+						return nil, errors.New(res.Text)
+					}
+					return res.Text, nil
+				}})
+		}
+		res := codemode.Run(ctx, code, fns, codemode.Options{SpillDir: e.spillDir(src), Store: e.stores.get(src.Scope)})
+		if res.Store != nil {
+			e.stores.put(src.Scope, res.Store)
 		}
 		codemode.Log(e.log, res).Str("source", src.Kind).Str("task", src.TaskID).Str("chat", src.ChatID).Str("replica", src.Replica).Send()
-		if res.Err == nil {
-			if res.Output == "" {
-				return model.ToolResult{Text: "(no output)"}
-			}
-			return model.ToolResult{Text: res.Output}
+		stopMu.Lock()
+		defer stopMu.Unlock()
+		if stop != nil {
+			return *stop
 		}
-		text := fmt.Sprintf("exec failed (%s): %s", res.Err.Reason, res.Err.Message)
-		if res.Err.Line > 0 {
-			text += fmt.Sprintf(" (line %d, column %d)", res.Err.Line, res.Err.Column)
-		}
-		if res.Output != "" {
-			text += "\nOutput before the failure:\n" + res.Output
-		}
-		// The output alone fits the limits; with the failure before it, its end gives way.
-		return model.ToolResult{Text: codemode.Fit(text, lim.MaxLines, lim.MaxBytes), IsError: true}
+		return model.ToolResult{Text: res.Text, IsError: res.Err != nil}
 	}}
+}
+
+// spillDir is where a script's output too long to hand back is kept: with the task's or chat's long command output,
+// which read_file reads and which goes with them.
+func (e *Engine) spillDir(src codeModeSource) string {
+	id := cmp.Or(src.TaskID, src.ChatID)
+	if e.dataDir == "" || id == "" {
+		return ""
+	}
+	return e.outputRoot(id)
 }
 
 // execCode is exec's code, and false when the arguments are not an object with code a string.
@@ -141,64 +218,48 @@ func execCode(raw json.RawMessage) (string, bool) {
 	return *a.Code, true
 }
 
-var execNames = regexp.MustCompile(`tools\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*["'` + "`" + `]([A-Za-z_$][\w$]*)["'` + "`" + `]\s*\])|\btool\s*:\s*["'` + "`" + `]([A-Za-z_$][\w$]*)["'` + "`" + `]`)
-
-var execParallel = regexp.MustCompile(`\bparallel\s*\(`)
-
-// execRan is what an exec called once it ran: each tool that really ran and how many times, names its script made
-// up as it went included, the parallel batches, and why it failed when it did. execLine, shown before, only guesses.
-func execRan(res codemode.Result) string {
-	names := make([]string, 0, len(res.Calls))
-	for name := range res.Calls {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	parts := make([]string, len(names))
-	for i, name := range names {
-		parts[i] = fmt.Sprintf("%s ×%d", name, res.Calls[name])
-	}
-	line := "ran by exec: "
-	if len(parts) == 0 {
-		line += "no tools"
-	} else {
-		line += strings.Join(parts, ", ")
-	}
-	switch res.Batches {
-	case 0:
-	case 1:
-		line += ", in 1 parallel batch"
-	default:
-		line += fmt.Sprintf(", in %d parallel batches", res.Batches)
-	}
-	if res.Err != nil {
-		line += " (failed: " + res.Err.Reason + ")"
-	}
-	return line
-}
-
-// execLine is how an exec call shows in a log before it runs, a guess from its code: the tools its script names that exec may call, as tools.<name> or as
-// {tool: "<name>"} in a parallel batch, which it says it uses, and its size. Never the
-// code, which may hold anything; the secrets maskSecrets hides are only those in an argument of their own.
+// execLine is how an exec call shows in a log: its size, never its code, which may hold anything. The calls its
+// script makes show on lines of their own.
 func execLine(raw json.RawMessage) string {
 	code, ok := execCode(raw)
 	if !ok {
 		return toolExec + " (invalid arguments)"
 	}
-	var names []string
-	for _, m := range execNames.FindAllStringSubmatch(code, -1) {
-		name := m[1] + m[2] + m[3]
-		if execTools[name] && !slices.Contains(names, name) {
-			names = append(names, name)
+	return fmt.Sprintf("%s (%d chars)", toolExec, utf8.RuneCountInString(code))
+}
+
+// maxStores bounds how many conversations' stores are kept; the oldest goes first.
+const maxStores = 256
+
+// scriptStores are what exec scripts kept with store(), by conversation, in memory: they last while the backend
+// runs.
+type scriptStores struct {
+	mu    sync.Mutex
+	by    map[string]map[string]json.RawMessage
+	order []string
+}
+
+func (s *scriptStores) get(scope string) map[string]json.RawMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.by[scope]
+}
+
+func (s *scriptStores) put(scope string, values map[string]json.RawMessage) {
+	if scope == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.by == nil {
+		s.by = map[string]map[string]json.RawMessage{}
+	}
+	if _, ok := s.by[scope]; !ok {
+		s.order = append(s.order, scope)
+		if len(s.order) > maxStores {
+			delete(s.by, s.order[0])
+			s.order = s.order[1:]
 		}
 	}
-	slices.Sort(names)
-	head := toolExec + " "
-	if execParallel.MatchString(code) {
-		head += "parallel: "
-	}
-	size := fmt.Sprintf("(%d chars)", utf8.RuneCountInString(code))
-	if len(names) == 0 {
-		return head + size
-	}
-	return head + strings.Join(names, ", ") + " " + size
+	s.by[scope] = values
 }

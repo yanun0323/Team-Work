@@ -16,8 +16,8 @@ import (
 
 var topKey = regexp.MustCompile(`(?m)^  ([A-Za-z_]+)(\??): `)
 
-// What every tool exec may call returns has the keys its declared type says, so a script reads the fields it is told
-// of; and its direct call shows the same.
+// What every tool that gives scripts data returns has the keys its declared type says, so a script reads the fields it
+// is told of; and its direct call shows the same.
 func TestStructuredToolsReturnWhatTheyDeclare(t *testing.T) {
 	e, _, task := logEngine(t)
 	e.w.Teams["team1"] = &model.Team{ID: "team1", Name: "A", Folder: t.TempDir(), TargetBranch: "main"}
@@ -45,14 +45,11 @@ func TestStructuredToolsReturnWhatTheyDeclare(t *testing.T) {
 	for _, tool := range list {
 		name := tool.Spec().Name
 		st, ok := tool.(tools.Structured)
-		if !execTools[name] {
-			if ok {
-				t.Fatalf("%s gives data but exec may not call it", name)
+		if !ok {
+			if sideBySide[name] {
+				t.Fatalf("%s runs side by side in scripts but gives no data", name)
 			}
 			continue
-		}
-		if !ok {
-			t.Fatalf("%s: exec may call it but it gives no data", name)
 		}
 		raw := json.RawMessage(cmp.Or(args[name], `{}`))
 		v, err := st.Structured(context.Background(), "", raw)
@@ -96,7 +93,7 @@ func TestStructuredToolsReturnWhatTheyDeclare(t *testing.T) {
 		checked[name] = true
 	}
 	want := []string{}
-	for name := range execTools {
+	for name := range sideBySide {
 		// these are checked where they are made, in the tools package
 		if !slices.Contains([]string{"read_file", "semantic_search", "web_search", "web_fetch"}, name) {
 			want = append(want, name)
