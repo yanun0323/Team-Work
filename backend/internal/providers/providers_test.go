@@ -525,6 +525,41 @@ func TestTooLongIsToldApartFromOtherRefusals(t *testing.T) {
 	}
 }
 
+// Servers word a conversation too long their own way; one not told apart failed the reply instead of summing up the
+// chat, as when a chat was handed on to a model on llama.cpp that reads less.
+func TestServersSayTooLongTheirOwnWay(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		status int
+		body   string
+		long   bool
+	}{
+		{"llama.cpp", http.StatusBadRequest, `{"error":{"code":400,"message":"the request exceeds the available context size, try increasing it","type":"exceed_context_size_error"}}`, true},
+		{"llama.cpp before 400", http.StatusInternalServerError, `{"error":{"code":500,"message":"the request exceeds the available context size, try increasing it"}}`, true},
+		{"LM Studio", http.StatusBadRequest, `{"error":"The number of tokens to keep from the initial prompt is greater than the context length."}`, true},
+		{"Gemini", http.StatusBadRequest, `{"error":{"code":400,"message":"The input token count (1200000) exceeds the maximum number of tokens allowed (1048576).","status":"INVALID_ARGUMENT"}}`, true},
+		{"Mistral", http.StatusBadRequest, `{"message":"Prompt contains 40000 tokens, too large for model with 32768 maximum context length"}`, true},
+		{"rate limit", http.StatusBadRequest, `{"error":{"message":"Rate limit reached: too many tokens per minute"}}`, false},
+		{"too many requests", http.StatusTooManyRequests, `{"error":{"message":"too many tokens"}}`, false},
+	} {
+		p, _, _ := serve(t, enum.ProviderCompatible, c.status, c.body)
+		_, err := p.Complete(context.Background(), model.ModelRequest{Model: "m"}, func(string) {})
+		var failure *model.Error
+		if !errors.As(err, &failure) || (failure.Code == model.CodeContextOverflow) != c.long {
+			t.Errorf("%s: %v", c.name, err)
+		}
+	}
+}
+
+func TestTooLongInTheStreamIsToldApart(t *testing.T) {
+	p, _, _ := serve(t, enum.ProviderCompatible, 200, "data: {\"error\":{\"message\":\"the request exceeds the available context size\"}}\n\n")
+	_, err := p.Complete(context.Background(), model.ModelRequest{Model: "m"}, func(string) {})
+	var failure *model.Error
+	if !errors.As(err, &failure) || failure.Code != model.CodeContextOverflow {
+		t.Fatalf("%v", err)
+	}
+}
+
 func TestOnlyOpenAIGetsAPromptCacheKey(t *testing.T) {
 	for _, c := range []struct {
 		kind    enum.ProviderKind

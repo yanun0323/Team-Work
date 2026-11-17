@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -415,15 +416,46 @@ func validCalls(calls []model.Block) error {
 
 // contextOverflowed reads a refusal for whether the conversation was too long. Providers only say so in words.
 func contextOverflowed(res *http.Response) bool {
-	if res.StatusCode != http.StatusBadRequest && res.StatusCode != http.StatusRequestEntityTooLarge {
+	switch res.StatusCode {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
 		return false
 	}
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
-	body := strings.ToLower(string(raw))
-	for _, sign := range []string{"context_length_exceeded", "maximum context length", "prompt is too long", "context window"} {
-		if strings.Contains(body, sign) {
-			return true
-		}
-	}
-	return false
+	return saysTooLong(string(raw))
+}
+
+// tooLong are how providers and servers say a conversation is longer than the model reads, after Pi's list
+// (pi-coding-agent 1.2.0): OpenAI, Anthropic, Gemini, Mistral, xAI, Groq, DeepSeek, OpenRouter, vLLM, llama.cpp,
+// LM Studio and others.
+var tooLong = regexp.MustCompile(`(?i)` + strings.Join([]string{
+	`prompt (?:is )?too long`,
+	`prompt exceeds max length`,
+	`request_too_large`,
+	`input is too long for requested model`,
+	`context window`,
+	`maximum context length`,
+	`input token count.*exceeds the maximum`,
+	`maximum prompt length is \d+`,
+	`reduce the length of the messages`,
+	`exceeds (?:the )?maximum allowed input length`,
+	`is longer than the model'?s context length`,
+	`exceeds the limit of \d+`,
+	`exceeds the available context size`,
+	`greater than the context length`,
+	`exceeded model token limit`,
+	`but the configured context size is`,
+	`model_context_window_exceeded`,
+	`exceeded (?:max )?context length`,
+	`range of input length should be`,
+	`context[_ ]length[_ ]exceeded`,
+	`too many tokens`,
+	`token limit exceeded`,
+}, "|"))
+
+// notTooLong are refusals that pass, which may name tokens too.
+var notTooLong = regexp.MustCompile(`(?i)rate limit|too many requests`)
+
+// saysTooLong says whether a provider's error says the conversation is longer than the model reads.
+func saysTooLong(text string) bool {
+	return tooLong.MatchString(text) && !notTooLong.MatchString(text)
 }

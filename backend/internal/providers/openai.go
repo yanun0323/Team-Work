@@ -275,6 +275,9 @@ func (o openAI) Complete(ctx context.Context, req model.ModelRequest, onText fun
 			return false, model.Errorf(model.CodeUnavailable, "模型回覆格式不正確")
 		}
 		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
+			if saysTooLong(string(chunk.Error)) { // some servers refuse a long conversation once the reply has begun
+				return false, model.Errorf(model.CodeContextOverflow, "對話太長，超過模型能讀取的長度")
+			}
 			return false, model.Errorf(model.CodeInvalid, "模型回報錯誤，請檢查模型與設定")
 		}
 		if u := chunk.Usage; u != nil {
