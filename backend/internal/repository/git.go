@@ -292,7 +292,8 @@ func (g *Git) Ignored(ctx context.Context, folder string, paths []string) map[st
 
 // Worktree makes dir a tree on a new branch from target, or leaves the tree already there. Once begun it is finished
 // even when ctx is cancelled: git killed partway leaves the branch made with no tree on it, and no one could make the
-// tree on that branch after. Whoever takes the step over waits on the lock and finds the tree whole.
+// tree on that branch after. Whoever takes the step over waits on the lock and finds the tree whole, ignored files
+// carried over from the project folder too.
 func (g *Git) Worktree(ctx context.Context, folder, dir, branch, target string) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), worktreeTimeout)
 	defer cancel()
@@ -303,8 +304,11 @@ func (g *Git) Worktree(ctx context.Context, folder, dir, branch, target string) 
 	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
 		return err
 	}
-	_, err := git(ctx, folder, "worktree", "add", "-b", branch, dir, target)
-	return err
+	if _, err := git(ctx, folder, "worktree", "add", "-b", branch, dir, target); err != nil {
+		return err
+	}
+	g.carryIgnored(ctx, folder, dir)
+	return nil
 }
 
 // ReadFile takes the file from git's history, not the work tree, so it still reads after a merge removed the tree.

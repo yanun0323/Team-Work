@@ -136,7 +136,8 @@ type Git interface {
 	// Ignored says which of paths (relative, "/" separators, a folder ending in "/") git's ignore rules leave out; none
 	// when folder is no repo.
 	Ignored(ctx context.Context, folder string, paths []string) map[string]bool
-	// Worktree makes, or finds, the task's work tree at dir on a new branch off target.
+	// Worktree makes, or finds, the task's work tree at dir on a new branch off target. A tree it makes starts with
+	// the files git ignores in folder, cloned where the disk allows.
 	Worktree(ctx context.Context, folder, dir, branch, target string) error
 	// PrepareEnvironment prepares locked Node dependencies in the worktree, reporting progress before employees run.
 	PrepareEnvironment(ctx context.Context, folder, dir string, report func(string)) error
