@@ -277,21 +277,31 @@ func hookToolInput(args json.RawMessage, cwd string) json.RawMessage {
 	return out
 }
 
-// fromHookInput is a hook's new arguments for a call: file_path, when hookToolInput added it, is the path.
+// fromHookInput is a call's arguments as a hook's updatedInput changes them: what it gives replaces what was there,
+// null clears it, and what it leaves out stays, as hooks written for Codex or Claude Code often give only the command.
+// file_path, when hookToolInput added it, is the path.
 func fromHookInput(args, updated json.RawMessage) json.RawMessage {
 	var was, m map[string]any
 	if json.Unmarshal(args, &was) != nil || json.Unmarshal(updated, &m) != nil || m == nil {
 		return updated
 	}
+	if was == nil {
+		was = map[string]any{}
+	}
 	_, hadPath := was["path"]
 	_, hadFilePath := was["file_path"]
-	fp, ok := m["file_path"].(string)
-	if !ok || !hadPath || hadFilePath {
-		return updated
+	if fp, ok := m["file_path"].(string); ok && hadPath && !hadFilePath {
+		delete(m, "file_path")
+		m["path"] = fp
 	}
-	delete(m, "file_path")
-	m["path"] = fp
-	out, err := json.Marshal(m)
+	for k, v := range m {
+		if v == nil {
+			delete(was, k)
+		} else {
+			was[k] = v
+		}
+	}
+	out, err := json.Marshal(was)
 	if err != nil {
 		return updated
 	}
