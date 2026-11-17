@@ -1,6 +1,7 @@
 package usecase_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -828,6 +829,29 @@ func TestToolImageReachesTheNextModelCall(t *testing.T) {
 	r.wait("reply", chatDone(c.ID))
 	if !done || image.MimeType != "image/png" || image.Data != base64.StdEncoding.EncodeToString(png) || image.IsError {
 		t.Fatalf("%+v", image)
+	}
+	// the user sees the picture the employee looked at, under the read_file line, kept as an upload
+	var shown *model.ChatMessage
+	for i, m := range r.world().Chats[c.ID].Messages {
+		if m.From == "tool" && len(m.Images) > 0 {
+			if shown != nil {
+				t.Fatalf("shown twice: %+v", r.world().Chats[c.ID].Messages)
+			}
+			shown = &r.world().Chats[c.ID].Messages[i]
+		}
+	}
+	if shown == nil || shown.Text != "shot.png" || shown.Images[0].Name != "shot.png" || shown.Images[0].MimeType != "image/png" ||
+		!strings.HasPrefix(shown.Images[0].URL, "/api/v1/attachments/") {
+		t.Fatalf("%+v", r.world().Chats[c.ID].Messages)
+	}
+	f, err := r.e.UploadFile(strings.TrimPrefix(shown.Images[0].URL, "/api/v1/attachments/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(f)
+	f.Close()
+	if err != nil || !bytes.Equal(raw, png) {
+		t.Fatal("the picture shown is not the one read")
 	}
 }
 

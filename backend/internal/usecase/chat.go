@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
@@ -930,6 +932,62 @@ func (e *Engine) chatKeepsImage(in chatRun) func(output string, data []byte) {
 	}
 }
 
+// readCalls keeps the path of each read_file call until its result comes, so a picture read can be shown with its name.
+// Calls in an exec script may come at the same time.
+type readCalls struct {
+	mu    sync.Mutex
+	paths map[string]string
+}
+
+func (r *readCalls) note(call model.Block) {
+	if call.Name != readFileName {
+		return
+	}
+	var a struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal(call.Args, &a) != nil || a.Path == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.paths == nil {
+		r.paths = map[string]string{}
+	}
+	r.paths[call.ID] = a.Path
+}
+
+func (r *readCalls) take(id string) (string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	path, ok := r.paths[id]
+	delete(r.paths, id)
+	return path, ok
+}
+
+const readFileName = "read_file"
+
+// chatShowsLook shows the user a picture an employee looked at with read_file, under its tool line, as image_gen's are:
+// the copy is an upload, so the chat still shows it after the file is changed or removed.
+func (e *Engine) chatShowsLook(in chatRun, path string, result model.Block) {
+	if result.IsError || result.Data == "" || !strings.HasPrefix(result.MimeType, "image/") {
+		return
+	}
+	data, err := base64.StdEncoding.DecodeString(result.Data)
+	if err != nil {
+		return
+	}
+	url, err := e.SaveUpload(bytes.NewReader(data))
+	if err != nil {
+		return // the employee still saw it; only the user's copy is missing
+	}
+	path = filepath.ToSlash(path)
+	e.applyChat(in, func(c *model.Chat) {
+		c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "tool", Text: path,
+			Images: []model.Attachment{{Name: filepath.Base(path), URL: url, MimeType: result.MimeType}}, By: in.speaker})
+	})
+}
+
 // chatAskUser saves a complete reply as an ordinary message with choices below it, then ends the turn.
 func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
 	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "When you need the user to choose before continuing, send a complete reply with options and end this turn; continue after they pick. " +
@@ -1127,6 +1185,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		specs[i] = tool.Spec()
 		byName[specs[i].Name] = tool
 	}
+	var looked readCalls
 	t := &turn{
 		provider: in.spec.provider,
 		req:      model.ModelRequest{Cwd: in.folder, Session: in.session, Model: in.spec.model, Effort: in.spec.effort, System: in.spec.prompt.compose(repoRole, skills), Messages: in.sees(chatView(in.conv, in.compact)), Tools: specs},
@@ -1152,11 +1211,17 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			if call.Name == toolAskUser {
 				return // it shows as the question itself
 			}
+			looked.note(call)
 			e.applyChat(in, func(c *model.Chat) {
 				c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "tool", Text: toolLine(call), By: in.speaker})
 			})
 		},
 		onResults: func(msg model.Message) {
+			for _, b := range msg.Content {
+				if path, ok := looked.take(b.ID); ok {
+					e.chatShowsLook(in, path, b)
+				}
+			}
 			msg.By = in.speaker
 			e.applyChat(in, func(c *model.Chat) {
 				c.Context += tokensAbout(msg)
