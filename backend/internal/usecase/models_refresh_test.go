@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,4 +130,93 @@ func TestRefreshMarksASignedOutSubscription(t *testing.T) {
 	r.fake.mu.Unlock()
 	r.e.RefreshStaleModels(0)
 	r.wait("signed out", func(w *model.World) bool { return !w.Providers[p.ID].Auth.SignedIn })
+}
+
+// reportWindow has the one provider of a rig report the length it runs fake at, and returns its id.
+func (r *rig) reportWindow(window int) string {
+	r.t.Helper()
+	var provider string
+	for id := range r.world().Providers {
+		provider = id
+	}
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "fake", ContextWindow: window}}
+	r.fake.mu.Unlock()
+	return provider
+}
+
+// A self-hosted server not asked for a while is asked again as a reply starts, as it may run another model under the
+// same name now: the chat is then summed up by the length it runs at now.
+func TestAReplyGoesByTheLengthTheServerRunsNow(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if summarizing(req) {
+			return say("摘要內容"), nil
+		}
+		reply := say("好")
+		reply.Usage.Input = 30_000
+		return reply, nil
+	})
+	provider := r.reportWindow(200_000)
+	if err := r.e.RefreshModels(context.Background(), provider); err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: strings.Repeat("長", 40_000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first reply", chatDone(c.ID))
+	if r.world().Chats[c.ID].Compact != nil {
+		t.Fatal("summed up with room to spare")
+	}
+
+	r.reportWindow(32_000)
+	r.e.ForgetModelsAsked()
+	if err := r.e.SayInChat(c.ID, "下一句", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("second reply", chatDone(c.ID))
+	got := r.world()
+	if n := got.Providers[provider].Windows["fake"]; n != 32_000 {
+		t.Fatalf("length not read again: %d", n)
+	}
+	if got.Chats[c.ID].Compact == nil {
+		t.Fatal("not summed up by the length the server runs at now")
+	}
+}
+
+// A refusal for a conversation too long has the server asked again at once, however recently it was asked.
+func TestATooLongRefusalReadsTheLengthAgain(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		if summarizing(req) {
+			return say("摘要內容"), nil
+		}
+		if len(req.Messages) == 3 && !strings.Contains(req.Messages[0].Content[0].Text, "摘要內容") {
+			return model.ModelReply{}, model.Errorf(model.CodeContextOverflow, "太長")
+		}
+		return say("好"), nil
+	})
+	provider := r.reportWindow(200_000)
+	if err := r.e.RefreshModels(context.Background(), provider); err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: strings.Repeat("長", 40_000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("first reply", chatDone(c.ID))
+
+	r.reportWindow(32_000) // asked a moment ago, so only the refusal asks again
+	if err := r.e.SayInChat(c.ID, "下一句", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("second reply", chatDone(c.ID))
+	got := r.world()
+	if n := got.Providers[provider].Windows["fake"]; n != 32_000 {
+		t.Fatalf("length not read again: %d", n)
+	}
+	if said := got.Chats[c.ID].Messages; said[len(said)-1].Text != "好" {
+		t.Fatalf("it failed anyway: %+v", said[len(said)-1])
+	}
 }

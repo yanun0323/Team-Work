@@ -39,6 +39,13 @@ func (e *Engine) JobsRunning(prefix string) []string { return e.jobs.RunningUnde
 // OutputRoot is where the command output of a run or chat is kept.
 func (e *Engine) OutputRoot(id string) string { return e.outputRoot(id) }
 
+// ForgetModelsAsked has every provider be taken as asked for its models long ago, for a test.
+func (e *Engine) ForgetModelsAsked() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	clear(e.modelsAt)
+}
+
 // SetRetryDelay shortens the wait before a passing model failure is tried again, for all the tests at once: call it
 // from TestMain, before any test runs.
 func SetRetryDelay(d time.Duration) { retryDelay = d }

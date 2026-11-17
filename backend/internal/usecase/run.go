@@ -54,6 +54,9 @@ type turn struct {
 	compact func(context.Context) ([]model.Message, bool)
 	// compactAt is about how many tokens the next call may send before compact runs.
 	compactAt int
+	// remeasure, when set, asks a self-hosted server again how much the model reads, and sets compactAt and what
+	// compact goes by to match: as the turn starts, and forced after a refusal for a conversation too long.
+	remeasure func(ctx context.Context, force bool)
 	// steer, when set, returns what the user said meanwhile that goes right after a round of tool results.
 	steer func() []model.Message
 	// noRetry is for a call the user authorized once, such as a meeting conclusion.
@@ -97,10 +100,16 @@ func (t *turn) complete(ctx context.Context) (model.ModelReply, error) {
 }
 
 func (t *turn) run(ctx context.Context) (turnResult, error) {
+	if t.remeasure != nil {
+		t.remeasure(ctx, false)
+	}
 	for call := 0; call < maxModelCalls; call++ {
 		reply, err := t.complete(ctx)
 		var failure *model.Error
 		if t.compact != nil && errors.As(err, &failure) && failure.Code == model.CodeContextOverflow {
+			if t.remeasure != nil { // the server may run another model now, which reads less
+				t.remeasure(ctx, true)
+			}
 			if shorter, ok := t.compact(ctx); ok {
 				t.req.Messages = shorter
 				reply, err = t.complete(ctx)
@@ -881,6 +890,7 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 	if !in.talk { // a discussion's words are its own; a meeting waits for the user when it grows too long
 		tr.compact = func(ctx context.Context) ([]model.Message, bool) { return e.compactStep(ctx, in, tr.req.Messages) }
 		tr.compactAt = e.workCompactAt(in.spec.model)
+		tr.remeasure = e.remeasureWork(tr, in.spec.model)
 	}
 	kind := "step"
 	if in.talk {

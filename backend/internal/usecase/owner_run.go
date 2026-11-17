@@ -676,6 +676,7 @@ func (e *Engine) ownerTurn(in *ownerRun) *turn {
 		return shorter, ok && kept
 	}
 	tr.compactAt = e.workCompactAt(in.spec.model)
+	tr.remeasure = e.remeasureWork(tr, in.spec.model)
 	// an exec script's tools count one by one, through the gate and onTool as any call; the one past the limit is not
 	// run and ends the script, nothing else of the reply runs, and the decision stops for the user once its results
 	// are kept

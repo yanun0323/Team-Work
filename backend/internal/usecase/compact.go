@@ -282,6 +282,34 @@ func (e *Engine) workCompactAt(modelID string) int {
 	return window - reserveOf(window)
 }
 
+// remeasureWork is a step's or an owner's remeasure: compactWork reads the length itself, so only compactAt is set.
+func (e *Engine) remeasureWork(tr *turn, modelID string) func(context.Context, bool) {
+	return func(ctx context.Context, force bool) {
+		e.freshenWindows(ctx, force, modelID)
+		tr.compactAt = e.workCompactAt(modelID)
+	}
+}
+
+// remeasureChat reads again how much the chat's people and its chair can read, once the servers that may have
+// changed it are asked.
+func (e *Engine) remeasureChat(ctx context.Context, in *chatRun, force bool) {
+	e.mu.Lock()
+	c := e.w.Chats[in.id]
+	if c == nil {
+		e.mu.Unlock()
+		return
+	}
+	models := append(chatModels(c), in.chair.model)
+	e.mu.Unlock()
+	e.freshenWindows(ctx, force, models...)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if c := e.w.Chats[in.id]; c != nil {
+		in.room, in.compactAt = e.chatRoom(c)
+		in.chairRoom = e.windowOf(in.chair.model)
+	}
+}
+
 // compactWork sums up a task's step or owner conversation and returns what to send instead, and the tokens spent. Its
 // first message, the instructions or briefing, stays word for word with the summary after it; the latest words stay
 // too. A summary there from before is summed up again with what came since. It is false when there is nothing worth

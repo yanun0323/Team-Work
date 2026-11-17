@@ -1234,6 +1234,10 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	in.overhead = requestTokens(t.req)
 	t.compact = func(ctx context.Context) ([]model.Message, bool) { return e.compactChat(ctx, in) }
 	t.compactAt = in.compactAt
+	t.remeasure = func(ctx context.Context, force bool) {
+		e.remeasureChat(ctx, &in, force)
+		t.compactAt = in.compactAt
+	}
 	t.steer = func() []model.Message {
 		var heard []model.Message
 		e.applyChat(in, func(c *model.Chat) {
@@ -1254,6 +1258,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	e.applyChat(in, func(c *model.Chat) {
 		t.req.Messages = append(t.req.Messages, e.chatJobsHeard(c, in.speaker)...)
 	})
+	t.remeasure(ctx, false) // before the summing up below; the turn's own look then finds it fresh
 	if in.context >= in.compactAt {
 		if shorter, ok := t.compact(ctx); ok {
 			t.req.Messages = shorter

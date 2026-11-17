@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -1102,6 +1103,14 @@ func (e *Engine) refreshModels(ctx context.Context, id string) error {
 		e.noteSignedOut(id, err)
 		return err
 	}
+	// a server asked as often as a reply starts mostly says the same: that writes nothing
+	e.mu.Lock()
+	now := e.w.Providers[id]
+	same := now == nil || sameModels(*now, models)
+	e.mu.Unlock()
+	if same {
+		return nil
+	}
 	return e.doSettings(func() error {
 		if now := e.w.Providers[id]; now != nil {
 			e.setModels(now, models)
@@ -1110,8 +1119,50 @@ func (e *Engine) refreshModels(ctx context.Context, id string) error {
 	})
 }
 
+// sameModels says whether a provider already holds what it reported.
+func sameModels(p model.ModelProvider, specs []model.ModelSpec) bool {
+	models, thinking, windows := modelsOf(specs)
+	return slices.Equal(p.Models, models) && maps.EqualFunc(p.Thinking, thinking, slices.Equal[[]string]) && maps.Equal(p.Windows, windows)
+}
+
 // ModelsFresh is how long a provider's models are taken as they are before a list to pick from asks again.
 const ModelsFresh = 8 * time.Hour
+
+const (
+	// windowFresh is how long what a self-hosted server said of its models is taken as it is when a reply starts:
+	// such a server may load another model under the same name at any time, which reads another length.
+	windowFresh = time.Minute
+	// windowAskTimeout is the longest a reply waits on a server asked again; past it, it goes on with what was known.
+	windowAskTimeout = 5 * time.Second
+)
+
+// freshenWindows asks again, and waits for, each self-hosted provider offering one of the models that was last asked
+// windowFresh ago or more, or however recently when force is set, as after a refusal for a conversation too long.
+// Other kinds keep their lengths for ModelsFresh: they do not change under a name. A failure keeps what was known.
+func (e *Engine) freshenWindows(ctx context.Context, force bool, models ...string) {
+	e.mu.Lock()
+	now := e.clock()
+	var ids []string
+	for _, m := range models {
+		p := e.providerFor(m)
+		if p == nil || p.Kind != enum.ProviderCompatible || slices.Contains(ids, p.ID) {
+			continue
+		}
+		if at, asked := e.modelsAt[p.ID]; asked && !force && now-at < windowFresh.Seconds() {
+			continue
+		}
+		ids = append(ids, p.ID)
+	}
+	e.mu.Unlock()
+	for _, id := range ids {
+		ask, cancel := context.WithTimeout(ctx, windowAskTimeout)
+		err := e.refreshModels(ask, id)
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			e.log.Warn().Err(err).Str("provider", id).Msg("read model lengths before a reply")
+		}
+	}
+}
 
 // RefreshStaleModels asks again, in the background, each provider that can answer and was last asked maxAge ago or
 // more; 0 asks them all, as on start. Nobody waits on it, so a failure is only logged and the list stays; a
