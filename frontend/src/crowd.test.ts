@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
-  ARRIVAL_GAP, benchMate, goesHome, HOME_SHARE, indoors, ISLAND_GAP, islandPlaces, ISLAND_TALK_GAP, newcomer, settleCount, stepCrowd, townsfolk, VISIT_SHARE, WAVE_SECONDS,
+  ARRIVAL_GAP, benchMate, goesHome, HOME_SHARE, indoors, ISLAND_GAP, ISLAND_SPEED, islandPlaces, ISLAND_TALK_GAP, newcomer, settleCount, stepCrowd, townsfolk, VISIT_SHARE, WAVE_SECONDS,
   type Scene, type Townsfolk,
 } from './crowd'
 import { layoutTown, rectCenter } from './layout'
 import { DOORSTEP, GROUNDS } from './staffingGrounds'
 import { stuckCheck } from './stuckCheck'
-import { benchSeats, cellPos, crowdSize, freeCells, isFree, resettle, townGrid, type P } from './walk'
+import { benchSeats, cellPos, crowdSize, freeCells, headingOf, isFree, resettle, townGrid, type P } from './walk'
+import { BODY_SHARE } from './avoid'
 
 /** The same run every time. */
 function seeded(seed = 1) {
@@ -339,4 +340,116 @@ it("interrupts a chat to clear a passerby's route, including its partner and wal
   expect(c.partner).toBe(-1)
   expect(b.doing).toBe('stroll')
   expect(c.doing).toBe('stroll')
+})
+
+describe('the user walked by hand', () => {
+  /** An open floor with a wall down column 8, the user standing at (2, 4). */
+  function yard() {
+    const grid = { cols: 16, rows: 9, step: 1, x0: 0, z0: 0, free: new Uint8Array(16 * 9).fill(1) }
+    for (let z = 0; z < 9; z++) grid.free[z * 16 + 8] = 0
+    const scene: Scene = { grid, seats: [], cells: freeCells(grid), paved: [], places: { doors: [], agency: -1, lamps: [], shore: [] }, swim: [], night: 0, followed: -1, me: 0 }
+    const person = (x: number, z: number) => townsfolk({ x, z, route: [], heading: 0, mode: 'standing', wait: 30, seat: null, toSeat: false })
+    return { scene, person, me: person(2, 4) }
+  }
+
+  it('goes the way steered, stops at a wall and slides along it', () => {
+    const { scene, me } = yard()
+    scene.drive = [ISLAND_SPEED, 0]
+    for (let k = 0; k < 10; k++) stepCrowd([me], scene, 0.1, seeded(1))
+    expect(me.x).toBeCloseTo(2 + ISLAND_SPEED, 5)
+    expect(me.z).toBe(4)
+    expect(me.heading).toBeCloseTo(headingOf(1, 0))
+    run([me], scene, 6, seeded(1))
+    expect(me.x).toBeGreaterThan(7)
+    expect(me.x).toBeLessThan(7.5)
+    // pushed diagonally into the wall: along it
+    scene.drive = [ISLAND_SPEED, ISLAND_SPEED]
+    run([me], scene, 1, seeded(1))
+    expect(me.x).toBeLessThan(7.5)
+    expect(me.z).toBeGreaterThan(5)
+  })
+
+  it('stops wandering at once, stands still with no key held, and wanders again once let go', () => {
+    const { scene, person, me } = yard()
+    const other = person(5, 7)
+    me.route = [[6, 1]]
+    me.mode = 'walking'
+    me.doing = 'daze'
+    scene.drive = [0, 0]
+    const people = [me, other]
+    stepCrowd(people, scene, 0.1, seeded(2))
+    expect(me.route).toEqual([])
+    expect(me.mode).toBe('standing')
+    expect(me.doing).toBe('stroll')
+    const at = [me.x, me.z]
+    run(people, scene, 20, seeded(2))
+    expect([me.x, me.z]).toEqual(at)
+    scene.drive = undefined
+    run(people, scene, 30, seeded(3))
+    expect(Math.hypot(me.x - at[0], me.z - at[1])).toBeGreaterThan(0.5)
+  })
+
+  it('breaks off a chat with the user, and nobody comes over to talk while they are steered', () => {
+    const { scene, person, me } = yard()
+    const other = person(3.2, 4)
+    me.doing = other.doing = 'chat'
+    me.partner = 1
+    other.partner = 0
+    other.lead = true
+    scene.drive = [0, 0]
+    const people = [me, other, person(4, 1), person(5, 7)]
+    run(people, scene, 120, seeded(4), () => {
+      expect(me.partner).toBe(-1)
+      for (const p of people) expect(p.partner).not.toBe(0)
+    })
+  })
+
+  it('has someone standing in the way step aside', () => {
+    const { scene, person, me } = yard()
+    const other = person(5, 4)
+    scene.drive = [ISLAND_SPEED, 0]
+    const people = [me, other]
+    run(people, scene, 5, seeded(5), () => expect(Math.hypot(me.x - other.x, me.z - other.z)).toBeGreaterThanOrEqual(ISLAND_GAP * BODY_SHARE - 1e-6))
+    expect(me.x).toBeGreaterThan(7)
+  })
+
+  it('gets up off a bench before going where steered', () => {
+    const { scene, people } = island()
+    const seat = scene.seats[0]
+    Object.assign(people[0], { x: seat.at[0], z: seat.at[1], heading: seat.heading, mode: 'sitting', seat, wait: 30 })
+    scene.me = 0
+    scene.drive = [0, 0]
+    run(people, scene, 2, seeded(6))
+    expect(people[0].mode).toBe('sitting')
+    const [fx, fz] = seat.front
+    // straight on from the bench, the way it faces
+    const d = Math.hypot(fx - seat.at[0], fz - seat.at[1])
+    scene.drive = [(fx - seat.at[0]) / d * ISLAND_SPEED, (fz - seat.at[1]) / d * ISLAND_SPEED]
+    run(people, scene, 3, seeded(6))
+    expect(people[0].seat).toBeNull()
+    expect(people[0].mode).toBe('standing')
+    expect(isFree(scene.grid, ...cellOf(scene, [people[0].x, people[0].z]))).toBe(true)
+  })
+
+  it('never walks anyone through anyone, nor the user off the ground, steered all over the island', () => {
+    const { scene, people } = island()
+    scene.me = 0
+    const turns: P[] = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]
+    const check = stuckCheck(ISLAND_GAP * 0.5, ISLAND_GAP)
+    const random = seeded(8)
+    let t = 0
+    let cell = cellOf(scene, [people[0].x, people[0].z])
+    run(people, scene, 600, random, () => {
+      t += 0.1
+      const [dx, dz] = turns[Math.floor(t / 4) % turns.length]
+      scene.drive = [dx * ISLAND_SPEED * 2, dz * ISLAND_SPEED * 2]
+      const now = cellOf(scene, [people[0].x, people[0].z])
+      if (now[0] !== cell[0] || now[1] !== cell[1]) expect(isFree(scene.grid, ...now)).toBe(true)
+      cell = now
+      check.step(people.map((p, i) => ({ x: p.x, z: p.z, walking: i > 0 && p.mode === 'walking' && !p.home, solid: !p.home })), 0.1)
+    })
+    expect(check.minimum).toBeGreaterThanOrEqual(ISLAND_GAP * BODY_SHARE - 1e-6)
+    expect(check.overlap).toBe(0)
+    expect(check.frozen).toBeLessThan(10)
+  })
 })

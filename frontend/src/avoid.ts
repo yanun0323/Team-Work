@@ -230,6 +230,23 @@ export function walkAround<T extends Avoider>(people: readonly T[], me: T, g: Gr
   return Math.hypot(mx, mz) * fraction
 }
 
+/**
+ * Moves `me` by up to (`dx`, `dz`), steered by hand rather than along a route: over ground they can stand on, sliding
+ * along a wall met at an angle, and stopping short of anyone. Returns how far they went.
+ */
+export function steer<T extends Avoider>(people: readonly T[], me: T, g: Grid, dx: number, dz: number, gap: number, solid: (q: T) => boolean): number {
+  for (const [mx, mz] of [[dx, dz], [dx, 0], [0, dz]]) {
+    if (!mx && !mz) continue
+    if (!floorClear(g, [me.x, me.z], [me.x + mx, me.z + mz])) continue
+    const fraction = safeFraction(people, me, mx, mz, gap * BODY_SHARE, solid)
+    if (fraction <= 0) continue
+    me.x += mx * fraction
+    me.z += mz * fraction
+    return Math.hypot(mx, mz) * fraction
+  }
+  return 0
+}
+
 /** Try a nearby pullout outside the winner's route, reached without crossing any occupied body. */
 function retreat<T extends Avoider>(people: readonly T[], loser: T, winner: T, g: Grid, gap: number, solid: (q: T) => boolean) {
   const diameter = gap * BODY_SHARE

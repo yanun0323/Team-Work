@@ -5,7 +5,7 @@
 // go in and are gone. Decisions and walking only, nothing drawn; pure data, no three.js. `People.tsx` poses the
 // figures from what is here.
 
-import { coordinateTraffic, walkingRoute, beginAvoidance, openSpot, separate, spotTaken, UNHINDERED, walkAround, type Avoider } from './avoid'
+import { coordinateTraffic, walkingRoute, beginAvoidance, openSpot, separate, spotTaken, steer, UNHINDERED, walkAround, type Avoider } from './avoid'
 import { CELL, hash, rectCenter, type Town } from './layout'
 import { DOORSTEP } from './staffingGrounds'
 import { cellPos, headingOf, isFree, type BenchSeat, type Grid, type P, type Stroller } from './walk'
@@ -31,6 +31,8 @@ export type Doing =
   | 'lamp'
   /** Going indoors for the night, or indoors (`home`). */
   | 'home'
+  /** Walked by hand (`Scene.drive`) while on a bench: stepping off it first. */
+  | 'rise'
 
 export interface Townsfolk extends Stroller, Avoider {
   /** The walk cycle, for the legs (`pose`). */
@@ -200,6 +202,11 @@ export interface Scene {
   followed: number
   /** The user, by index (-1 or left out when not on the island): they stay out and about too. */
   me?: number
+  /**
+   * The user (`me`) walked by hand: which way and how fast, in world units a second; [0, 0] stands them still. Left out,
+   * they go about as everyone else does.
+   */
+  drive?: P
 }
 
 /** Whether someone stays out, night or day: the one the camera follows, and the user. */
@@ -242,6 +249,8 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
   const spot = (b: BenchSeat) => `${b.at}`
   const held = new Set(people.flatMap((p) => (p.seat ? [spot(p.seat)] : [])))
   const out = (p: Townsfolk) => !p.home && p.doing !== 'home'
+  // the user, walked by hand: nobody else decides anything for them
+  const steered = s.drive && s.me !== undefined && s.me >= 0 ? people[s.me] ?? null : null
 
   /** Stops chatting or walking together; the other one carries on alone. */
   const stopAct = (i: number) => {
@@ -342,7 +351,7 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
       // someone standing about, not too far, to go and talk to
       const others = people.map((_, j) => j).filter((j) => {
         const o = people[j]
-        return j !== i && o.mode === 'standing' && out(o) && ['stroll', 'daze', 'view', 'door', 'lamp'].includes(o.doing) && !o.resume && dist(o, p) < CHAT_REACH
+        return j !== i && o !== steered && o.mode === 'standing' && out(o) && ['stroll', 'daze', 'view', 'door', 'lamp'].includes(o.doing) && !o.resume && dist(o, p) < CHAT_REACH
       })
       if (others.length) {
         const j = pick(others)
@@ -533,13 +542,51 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
     p.route = []
   }
 
+  // the user, steered somewhere: a way a few steps ahead, so anyone standing about in it is asked to step aside
+  const [vx, vz] = s.drive ?? [0, 0]
+  if (steered && !steered.home && steered.mode === 'standing' && (vx || vz)) {
+    const ahead = (ISLAND_GAP * 5) / Math.hypot(vx, vz)
+    steered.route = [[steered.x + vx * ahead, steered.z + vz * ahead]]
+  }
   coordinateTraffic(people, s.grid, ISLAND_GAP, solid,
-    (p) => p.mode === 'standing' && !p.home && !p.resume && !['home', 'sea'].includes(p.doing),
+    (p) => p !== steered && p.mode === 'standing' && !p.home && !p.resume && !['home', 'sea'].includes(p.doing),
     (p) => {
       stopAct(people.indexOf(p))
       p.mode = 'walking'
       p.cool = Math.max(p.cool, 5)
     })
+
+  /** The user, walked by hand: standing still, or going the way steered, after getting up off a bench. */
+  const byHand = (i: number) => {
+    const p = people[i]
+    p.yielding = null
+    p.blocked = false
+    p.resume = false
+    if (p.doing === 'rise' && p.route.length) {
+      p.moved = walkAround(people, p, s.grid, ISLAND_SPEED * dt, dt, ISLAND_GAP, solid)
+      if (p.blocked) p.route = []
+      p.blocked = false
+      return
+    }
+    if (p.mode === 'sitting') {
+      if (!(vx || vz) || !p.seat) return
+      p.route = [p.seat.front]
+      p.seat = null
+      p.mode = 'walking'
+      p.doing = 'rise'
+      return
+    }
+    if (p.doing !== 'stroll' || p.partner >= 0) stopAct(i)
+    p.route = []
+    p.mode = 'standing'
+    p.seat = null
+    p.toSeat = false
+    // a moment's pause, once let go, before going about again
+    p.wait = Math.max(p.wait, 1)
+    if (!(vx || vz)) return
+    p.heading = headingOf(vx, vz)
+    p.moved = steer(people, p, s.grid, vx * dt, vz * dt, ISLAND_GAP, solid)
+  }
 
   people.forEach((p, i) => {
     p.wait -= dt
@@ -573,6 +620,7 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
       }
       return
     }
+    if (p === steered) return byHand(i)
     // no longer needed: no lingering on a bench or standing about first
     if (p.leaving && out(p) && p.mode !== 'walking') p.wait = Math.min(p.wait, 0)
     if (p.mode === 'sitting') {
@@ -619,5 +667,5 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
     }
   })
   // anyone still too close is eased apart, taking a step for it
-  separate(people, s.grid, ISLAND_GAP, dt, solid, (q, d) => (q.moved += d), (q) => solid(q) && q.mode !== 'sitting')
+  separate(people, s.grid, ISLAND_GAP, dt, solid, (q, d) => (q.moved += d), (q) => solid(q) && q.mode !== 'sitting' && q !== steered)
 }
