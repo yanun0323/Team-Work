@@ -2,6 +2,7 @@
 // on the right. It opens on the version running, by itself after an update (releaseNotes.ts) or from the airport's About.
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { usePaste } from './paste'
 import { version } from '../package.json'
 import { useStore } from './core/store'
 import { tr } from './core/i18n'
@@ -13,6 +14,7 @@ export default function ReleaseNotes({ leaving, onGone }: {
   /** Called when the sheet has come off. */
   onGone: () => void
 }) {
+  const paste = usePaste(leaving, onGone)
   const locale = useStore((s) => s.world.language)
   const [picked, setPicked] = useState(() => (RELEASES.some((r) => r.version === version) ? version : RELEASES[0]?.version))
   const title = useRef<HTMLHeadingElement>(null)
@@ -33,8 +35,7 @@ export default function ReleaseNotes({ leaving, onGone }: {
 
   return (
     <aside className={leaving ? 'fx-drawer fx-help leaving' : 'fx-drawer fx-help'} role="dialog" aria-modal="true" aria-labelledby="fx-notes-title"
-      aria-hidden={leaving || undefined} inert={leaving || undefined}
-      onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
+      aria-hidden={leaving || undefined} inert={leaving || undefined} {...paste}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
       <div className="fx-sheet">

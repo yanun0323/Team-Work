@@ -6,6 +6,7 @@
 
 import { colon, tr } from './core/i18n'
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { usePaste } from './paste'
 import { MOCK } from './core/mode'
 import { fmtClock, fmtDateTime, keepsEscape } from './core/model'
 import { PixelFace } from './core/voxel/PixelFace'
@@ -73,6 +74,7 @@ export function TowerPanel({ leaving, onGone, onProfile }: {
   /** Opens the user's profile, where this computer's name is set. */
   onProfile?: () => void
 }) {
+  const paste = usePaste(leaving, onGone)
   const title = useRef<HTMLHeadingElement>(null)
   useEffect(() => title.current?.focus({ preventScroll: true }), [])
   const { towers, error, refresh } = useTowers()
@@ -103,8 +105,7 @@ export function TowerPanel({ leaving, onGone, onProfile }: {
   return (
     <>
     <aside id="fx-tower" className={leaving ? 'fx-drawer leaving' : 'fx-drawer'} aria-labelledby="fx-tower-title"
-      aria-hidden={leaving || undefined} inert={leaving || undefined}
-      onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
+      aria-hidden={leaving || undefined} inert={leaving || undefined} {...paste}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
       <div className="fx-sheet" inert={under || undefined}>

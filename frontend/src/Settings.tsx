@@ -6,6 +6,7 @@
 import { LANGUAGE_NAMES, LANGUAGES } from './LanguageMenu'
 import { tr } from './core/i18n'
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { usePaste } from './paste'
 import { useStore } from './core/store'
 import LICENSE from '../../LICENSE?raw'
 import { BlueprintIcon } from './BlueprintIcon'
@@ -75,6 +76,7 @@ export function Settings({ leaving, onGone }: {
   /** Called when the page has turned away. */
   onGone: () => void
 }) {
+  const paste = usePaste(leaving, onGone)
   const [tab, setTab] = useState<AirportTab>(() => {
     const { autoTab, defaultAirportTab } = usePrefs.getState()
     // the airport has no tasks, so only its chats can be waiting
@@ -121,8 +123,7 @@ export function Settings({ leaving, onGone }: {
   return (
     <>
     <aside id="fx-settings" className={leaving ? 'fx-drawer leaving' : 'fx-drawer'} aria-labelledby="fx-settings-title"
-      aria-hidden={leaving || undefined} inert={leaving || undefined}
-      onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
+      aria-hidden={leaving || undefined} inert={leaving || undefined} {...paste}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
       <div className="fx-sheet" inert={under || undefined}>

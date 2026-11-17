@@ -4,6 +4,7 @@
 // computer's own, whichever island the map shows.
 
 import { useEffect, useRef, useState } from 'react'
+import { usePaste } from './paste'
 import { tr } from './core/i18n'
 import { lookOf, readProfileStats, type ProfileStats } from './core/profile'
 import { loadMe, useMe } from './core/towers'
@@ -27,6 +28,7 @@ export function Profile({ leaving, onGone }: {
   /** Called when the page has turned away. */
   onGone: () => void
 }) {
+  const paste = usePaste(leaving, onGone)
   const title = useRef<HTMLHeadingElement>(null)
   const me = useMe((s) => s.me)
   const [error, setError] = useState('')
@@ -42,8 +44,7 @@ export function Profile({ leaving, onGone }: {
   return (
     <>
     <aside id="fx-profile" className={leaving ? 'fx-drawer leaving' : 'fx-drawer'} aria-labelledby="fx-profile-title"
-      aria-hidden={leaving || undefined} inert={leaving || undefined}
-      onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
+      aria-hidden={leaving || undefined} inert={leaving || undefined} {...paste}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
       <div className="fx-sheet">

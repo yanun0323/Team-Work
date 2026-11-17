@@ -8,6 +8,7 @@ import { FolderBrowser } from './FolderBrowser'
 import { tr } from './core/i18n'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { usePaste } from './paste'
 import * as THREE from 'three'
 import { createTeam } from './core/domain/sim'
 import { Select } from './Controls'
@@ -209,6 +210,7 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
   onGone: () => void
   onCreate: (input: Parameters<typeof createTeam>[1]) => void
 }) {
+  const paste = usePaste(leaving, onGone)
   const title = useRef<HTMLHeadingElement>(null)
   useEffect(() => title.current?.focus({ preventScroll: true }), [])
   const [name, setName] = useState('')
@@ -256,8 +258,7 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
   }
   return (
     <aside className={leaving ? 'fx-drawer leaving' : 'fx-drawer'} aria-labelledby="fx-new-company-title"
-      aria-hidden={leaving || undefined} inert={leaving || undefined}
-      onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
+      aria-hidden={leaving || undefined} inert={leaving || undefined} {...paste}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
       <div className="fx-sheet">

@@ -8,6 +8,7 @@
 // rule in one topic only.
 
 import { Children, isValidElement, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { usePaste } from './paste'
 import { appLanguage, tr } from './core/i18n'
 import { HELP_EN, type HelpTopic } from './HelpEn'
 import { HELP_JA } from './HelpJa'
@@ -537,6 +538,7 @@ export function Help({ leaving, onGone }: {
   /** Called when the sheet has come off. */
   onGone: () => void
 }) {
+  const paste = usePaste(leaving, onGone)
   const [topic, setTopic] = useState<string>(TOPICS[0].id)
   const title = useRef<HTMLHeadingElement>(null)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
@@ -584,8 +586,7 @@ export function Help({ leaving, onGone }: {
   return (
     <>
     <aside className={leaving ? 'fx-drawer fx-help leaving' : 'fx-drawer fx-help'} role="dialog" aria-modal="true" aria-labelledby="fx-help-title"
-      aria-hidden={leaving || undefined} inert={leaving || undefined}
-      onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
+      aria-hidden={leaving || undefined} inert={leaving || undefined} {...paste}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
       <div className="fx-sheet" inert={covered || undefined}>

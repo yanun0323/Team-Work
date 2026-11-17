@@ -9,6 +9,7 @@ import { tr } from './core/i18n'
 import { openFolder } from './core/ops'
 import { MOCK } from './core/mode'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { usePaste } from './paste'
 import { useUnderWide, WideCover } from './WideSheets'
 import { create } from 'zustand'
 import { inTerminal, keepsEscape, waitingTab } from './core/model'
@@ -138,6 +139,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   /** Called when the page has turned away. */
   onGone: () => void
 }) {
+  const paste = usePaste(leaving, onGone)
   // a company that was just closed stays on the page while it turns away
   const live = useStore((s) => s.world.teams[teamId])
   const last = useRef(live)
@@ -197,8 +199,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
     <>
     {/* while turning away it is already closed: hidden from assistive tech and from the pointer */}
     <aside className={leaving ? 'fx-drawer leaving' : 'fx-drawer'} aria-labelledby="fx-drawer-title"
-      aria-hidden={leaving || undefined} inert={leaving || undefined}
-      onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
+      aria-hidden={leaving || undefined} inert={leaving || undefined} {...paste}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
       <NotesPin teamId={teamId} open={base?.item.kind === 'notes' && !base.leaving} onOpen={() => sheets.open({ kind: 'notes' })} inert={under} />

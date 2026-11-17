@@ -3,6 +3,7 @@
 // out to one from each one's sheet. It has no folder, tasks or settings: it is the island's own, not a company.
 
 import { useEffect, useRef } from 'react'
+import { usePaste } from './paste'
 import { tr } from './core/i18n'
 import { useStore } from './core/store'
 import { STAFFING_ID } from './core/domain/types'
@@ -33,6 +34,7 @@ export function StaffingPanel({ leaving, onGone }: {
   /** Called when the page has turned away. */
   onGone: () => void
 }) {
+  const paste = usePaste(leaving, onGone)
   const title = useRef<HTMLHeadingElement>(null)
   const loaded = useStore((s) => s.loaded)
   const sheets = useSheets()
@@ -43,8 +45,7 @@ export function StaffingPanel({ leaving, onGone }: {
   return (
     <>
       <aside id="fx-staffing" className={leaving ? 'fx-drawer leaving' : 'fx-drawer'} aria-labelledby="fx-staffing-title"
-        aria-hidden={leaving || undefined} inert={leaving || undefined}
-        onAnimationEnd={(e) => { if (leaving && e.target === e.currentTarget) onGone() }}>
+        aria-hidden={leaving || undefined} inert={leaving || undefined} {...paste}>
         <span className="fx-tape fx-tape-l" aria-hidden="true" />
         <span className="fx-tape fx-tape-r" aria-hidden="true" />
         <div className="fx-sheet" inert={under || undefined}>

@@ -126,6 +126,17 @@ body { margin: 0; overflow: hidden; }
   from { opacity: 1; transform: none; }
   to { opacity: 0; transform: translateY(-26px) rotate(-2.4deg) scale(1.05); }
 }
+/* Where View Transitions are at hand (paste.ts), the same two play on a picture of the sheet rather than on the sheet: in
+   WebKit the sheet itself was painted again every frame. Only the sheets take part; the page under them, the island
+   too, goes on as it is and takes the pointer */
+:root { view-transition-name: none; }
+::view-transition { pointer-events: none; }
+.fx-drawer[data-paste], .fx-drawer.leaving[data-paste] { animation: none; }
+/* mounted, waiting for the picture to take its place: unseen, yet there for focus */
+.fx-drawer[data-paste="waiting"] { opacity: 0; }
+::view-transition-group(*.paste-in), ::view-transition-group(*.paste-out) { animation: none; }
+::view-transition-new(*.paste-in) { transform-origin: 50% 0; animation: fx-paste 560ms cubic-bezier(0.25, 1.4, 0.4, 1) backwards; }
+::view-transition-old(*.paste-out) { transform-origin: 50% 0; animation: fx-unpaste 380ms cubic-bezier(0.2, 0.6, 0.4, 1) forwards; }
 
 .fx-sheet {
   box-sizing: border-box; height: 100%;

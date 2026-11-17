@@ -51,6 +51,7 @@ import { ShaderWarmup } from './ShaderWarmup'
 import { crowdSize } from './walk'
 import { watchIdle } from './idleFollow'
 import { NO_OUTLINE_LAYER, PixelPass } from './PixelPass'
+import { canPaste, inPaste, pasteIn } from './paste'
 import { toonInstanced } from './toon'
 import { showDebug, usePrefs } from './prefs'
 import { debugDaylight, glowing, light, lightAt, MIN_SUN_ELEVATION, phaseOf } from './daylight'
@@ -291,7 +292,9 @@ export function World() {
   const setSelected = useCallback((next: SetStateAction<string | null>) => {
     const cur = selectedNow.current
     const want = typeof next === 'function' ? next(cur) : next
-    if (want !== cur) leaveTeam(cur, () => setSelectedNow(want))
+    // opening one from the map: the island's change and the drawer's both inside the transition that pastes the
+    // drawer on, which on a big window spares a frame drawn the slow way before it starts
+    if (want !== cur) leaveTeam(cur, () => (cur === null && want !== null && canPaste() ? pasteIn(() => setSelectedNow(want)) : setSelectedNow(want)))
   }, [])
   useEffect(guardUnload, [])
   // another island, or back home: whatever was open belonged to the island left
@@ -812,14 +815,21 @@ const FADE_MS = FADE_SECONDS * 1000
 
 /**
  * Keeps the last non-null value after it turns null, flagged as leaving, until `gone` is called (when its
- * fade-out ends). With reduced motion there is no fade, so it goes at once.
+ * fade-out ends). With reduced motion there is no fade, so it goes at once. Where sheets paste on through View
+ * Transitions, a value coming from nothing is held back until one has started and then given inside it (paste.ts
+ * `pasteIn`), so the sheet is first drawn only as the picture that pastes it on.
  */
 function useLingering(value: string | null): { value: string | null; leaving: boolean; gone: () => void } {
   const [kept, setKept] = useState(value)
-  if (value !== null && value !== kept) setKept(value)
+  const [paste] = useState(canPaste)
+  const opening = paste && value !== null && kept === null && !inPaste()
+  if (value !== null && value !== kept && !opening) setKept(value)
   if (value === null && kept !== null && calm) setKept(null)
+  useLayoutEffect(() => {
+    if (opening && value !== null) pasteIn(() => setKept(value))
+  }, [opening, value])
   const gone = useCallback(() => setKept(null), [])
-  return { value: value ?? kept, leaving: value === null && kept !== null, gone }
+  return { value: opening ? null : value ?? kept, leaving: value === null && kept !== null, gone }
 }
 
 /**
