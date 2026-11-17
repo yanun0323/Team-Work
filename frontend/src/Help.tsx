@@ -195,6 +195,8 @@ const TOPICS: Topic[] = [
           <dt>技能</dt><dd>列出「機場 → 來源」的每個來源和它的技能，點一下技能就會亮起，代表使用。勾選來源名稱會使用它全部的技能，之後新增的也會使用，點暗的技能會排除；沒勾來源名稱時只用亮著的技能。不同來源使用了同名的技能時會變成紅底白字，點暗其中一個即可。</dd>
           <dt>公司資料夾的技能</dt><dd>不論哪個藍圖，員工都會讀取公司資料夾裡 <code>.agents/</code>、<code>.team-work/</code>、<code>.codex/</code>、<code>.claude/</code> 的技能，和藍圖的技能同名時以公司的為準。</dd>
           <dt>工具</dt><dd>讀取檔案、寫入檔案、網路搜尋、執行指令四種。讀取檔案也能讓員工看 PNG、JPEG、GIF、WebP 圖片（單張最大 3.75MB）。</dd>
+          <dt>MCP 工具</dt><dd>藍圖有「執行指令」的員工能用 <code>~/.team-work/mcp.json</code> 列出的 MCP 伺服器，格式和 Claude Code、Cursor 的 <code>mcpServers</code> 相同，可以直接複製過來：本機伺服器寫 <code>command</code>、<code>args</code>、<code>env</code>，遠端的寫 <code>url</code>、<code>headers</code>，<code>{'${NAME}'}</code> 會換成環境變數。工具預設只能在腳本工具裡呼叫，有這種工具時腳本工具會自動打開；<code>"exposure": "direct"</code> 讓工具直接列出，<code>"hidden"</code> 則不提供。檔案改了從下一次工作開始生效，連不上的伺服器會寫在步驟紀錄或對話裡。遠端伺服器還不支援 OAuth 登入，要用 <code>headers</code> 帶金鑰。</dd>
+          <dt>Hook</dt><dd><code>~/.team-work/hooks.json</code> 照 Claude Code 的 hooks 格式，在員工工作時執行指令，所有公司共用，不讀專案資料夾裡的設定。支援 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、PostToolUseFailure、Stop 六種事件和 <code>"type": "command"</code>；matcher 也認得 Claude Code 的工具名稱，例如執行指令是 Bash、寫入檔案是 Write。結束碼 2 會擋下工具呼叫並把 stderr 告訴員工，其他非 0 的結束碼只會回報。</dd>
           <dt>管理能力</dt><dd>工具也決定員工能否管理任務、藍圖、任務藍圖和模型供應商：勾讀取檔案可以查看，勾寫入檔案或執行指令還可以新增和修改，只勾網路搜尋則都不行。官方和內建藍圖都能讀寫。</dd>
           <dt>隱藏</dt><dd>滑鼠移到列表上的藍圖，按右邊的眼睛就能隱藏，官方的也可以；藍圖頁右上也有同一個按鈕。隱藏的藍圖會變淡，聘用員工時選不到，員工也看不到；已經用它的員工照常工作，你仍然可以修改。</dd>
           <dt>員工新增或修改</dt><dd>員工新增的藍圖立刻可用；修改要你同意才會寫入，包括員工改自己用的藍圖。同意後正在進行的步驟不變，之後的步驟用新藍圖。內建、從 Git 來的和來源提供的藍圖不能修改。</dd>
