@@ -36,7 +36,7 @@ const (
 // that end the step or the turn, as a script cannot stop halfway for them; nor exec, as scripts start no scripts.
 var neverInScripts = map[string]bool{
 	toolExec: true, toolAskUser: true, toolAskOwner: true, "submit_handoff": true, "send_back": true, "submit_complete": true,
-	toolMeetingAsk: true, toolEndMeeting: true,
+	toolMeetingAsk: true, toolEndMeeting: true, toolChatPass: true,
 	toolSaveSetting: true, toolSaveBlueprint: true, toolSaveWorkflow: true, toolSaveProvider: true, toolSaveEmployees: true,
 }
 

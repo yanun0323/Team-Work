@@ -850,6 +850,8 @@ type chatRun struct {
 	actor   bool
 	// actorName is who may act this round, for a refusal to name
 	actorName string
+	// participants lists the meeting members and their IDs for the pass tool.
+	participants string
 	// note is what changes from round to round in a meeting, put at the end of the user's latest words
 	note    string
 	session string
@@ -882,7 +884,11 @@ func (e *Engine) launchChat(c *model.Chat, speaker string, spec agentSpec) {
 		session = c.ID + "-" + speaker
 	}
 	var peers []packRoot
+	var participants []string
 	for _, id := range append([]string{c.ReplicaID}, guestIDs(c)...) {
+		if p := e.w.Replicas[id]; len(c.Guests) > 0 && model.WorksIn(p, c.TeamID) {
+			participants = append(participants, fmt.Sprintf("%s (%s)", p.Name, id))
+		}
 		if p := e.w.Replicas[id]; id != speaker && model.WorksIn(p, c.TeamID) {
 			if bp := e.w.Blueprints[p.BlueprintID]; bp != nil {
 				peers = append(peers, e.packsOf(bp)...)
@@ -898,7 +904,7 @@ func (e *Engine) launchChat(c *model.Chat, speaker string, spec agentSpec) {
 	names := e.chatNames(c)
 	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, team: c.TeamID, said: said, peers: peers, context: c.Context, compact: clone(c.Compact), memory: !c.AtAirport(),
 		models: models, room: room, compactAt: at, chair: chair, chairRoom: chairRoom,
-		speaker: speaker, actor: speaker == roundActor(c), actorName: names[roundActor(c)], note: chatNote(e.w.Language, e.roundNote(c, speaker)), session: session, names: names})
+		participants: strings.Join(participants, ", "), speaker: speaker, actor: speaker == roundActor(c), actorName: names[roundActor(c)], note: chatNote(e.w.Language, e.roundNote(c, speaker)), session: session, names: names})
 }
 
 // applyChat changes a chat for a run, unless the run was stopped or replaced meanwhile.
@@ -986,6 +992,16 @@ func (e *Engine) chatShowsLook(in chatRun, path string, result model.Block) {
 	})
 }
 
+// chatToolSays makes a turn-ending tool's public words visible to both the user and colleagues,
+// who see text but not another speaker's tool arguments.
+func (e *Engine) chatToolSays(c *model.Chat, text string) {
+	e.chatSays(c, text)
+	conv := e.w.Conversations[c.ID]
+	last := &conv[len(conv)-1]
+	last.Content = append(slices.Clone(last.Content), model.Block{Type: enum.BlockText, Text: text})
+	e.dirty[c.ID] = true
+}
+
 // chatAskUser saves a complete reply as an ordinary message with choices below it, then ends the turn.
 func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
 	return funcTool{model.ToolSpec{Name: toolAskUser, Description: "When you need the user to choose before continuing, send a complete reply with options and end this turn; continue after they pick. " +
@@ -1009,13 +1025,7 @@ func (e *Engine) chatAskUser(in chatRun) adapter.Tool {
 				return *refused
 			}
 			if !e.applyChat(in, func(c *model.Chat) {
-				e.chatSays(c, a.Reply)
-				// Colleagues cannot see tool arguments. Keep the public reply as text in the same
-				// assistant message, leaving the tool call open for the user's choice.
-				conv := e.w.Conversations[c.ID]
-				last := &conv[len(conv)-1]
-				last.Content = append(slices.Clone(last.Content), model.Block{Type: enum.BlockText, Text: a.Reply})
-				e.dirty[c.ID] = true
+				e.chatToolSays(c, a.Reply)
 				c.Question = &model.ChatQuestion{Options: options}
 			}) {
 				return toolError("this reply is no longer active")
@@ -1070,6 +1080,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	defer e.wg.Done()
 	defer in.r.cancel()
 	finished, stopped := false, false
+	var pass chatPass
 	defer func() {
 		e.mu.Lock()
 		defer e.mu.Unlock()
@@ -1084,6 +1095,9 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			}
 			if c := e.w.Chats[in.id]; c != nil {
 				c.ReplyAt, c.Compacting = nil, false
+				if finished && pass.to != "" && len(c.Queue) == 0 {
+					c.Next = []string{pass.to}
+				}
 				// in a meeting the next one replies even if this one failed; a stopped reply stops the round.
 				// A failed one leaves the queue for the user to send
 				if !stopped && e.nextSpeaker(c) {
@@ -1159,6 +1173,9 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	list := tools.For(in.spec.allowed, tools.Env{Read: read, Output: e.outputRoot(in.id), Search: e.search, Semantic: e.semantic, Task: in.id, Replica: replicaOf(in.r),
 		Jobs: e.jobs, JobScope: chatJobScope(in.id)})
 	list = append(list, e.chatAskUser(in))
+	if in.participants != "" {
+		list = append(list, e.chatPassTool(in, &pass))
+	}
 	// a company's chats read its terminal, the airport's (team "") the airport's
 	if slices.Contains(in.spec.allowed, enum.ToolReadFile) || slices.Contains(in.spec.allowed, enum.ToolRunCommand) {
 		list = append(list, e.readTerminalTool(in.team))
@@ -1213,8 +1230,8 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			})
 		},
 		onTool: func(call model.Block) {
-			if call.Name == toolAskUser {
-				return // it shows as the question itself
+			if call.Name == toolAskUser || call.Name == toolChatPass {
+				return // the public message shows in place of the call
 			}
 			looked.note(call)
 			e.applyChat(in, func(c *model.Chat) {
@@ -1258,6 +1275,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		e.applyChat(in, func(c *model.Chat) {
 			before := len(e.w.Conversations[c.ID])
 			for len(c.Queue) > 0 && c.Queue[0].Steer {
+				pass.steered = true
 				q := c.Queue[0]
 				c.Queue = slices.Clone(c.Queue[1:])
 				e.chatHears(c, q.Text, q.Images, q.Files, q.Mentions)

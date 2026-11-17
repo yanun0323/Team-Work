@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/yanun0323/Team-Work/internal/adapter"
 	"github.com/yanun0323/Team-Work/internal/i18n"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
@@ -233,6 +234,60 @@ func (e *Engine) SetChatChair(id, replicaID string) error {
 	})
 }
 
+const toolChatPass = "pass_to_colleague"
+
+// A pass belongs to this reply only. Stopping the run discards it; queued user words take precedence.
+type chatPass struct {
+	to      string
+	steered bool
+}
+
+func (e *Engine) chatPassTool(in chatRun, pass *chatPass) adapter.Tool {
+	return funcTool{model.ToolSpec{Name: toolChatPass, Description: "End your reply and give one other participant the floor. Call alone. The chat shows @their name followed by message; do not repeat it. Participants: " + in.participants,
+		Parameters: json.RawMessage(`{"type":"object","properties":{"replica_id":{"type":"string","description":"One other participant's ID"},"message":{"type":"string","minLength":1,"description":"Your public reply with the concrete next step, without the addressee's name"}},"required":["replica_id","message"]}`)},
+		func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
+			var a struct {
+				ID      string `json:"replica_id"`
+				Message string `json:"message"`
+			}
+			if json.Unmarshal(raw, &a) != nil || strings.TrimSpace(a.Message) == "" {
+				return toolError("provide one participant ID and a concrete message")
+			}
+			result := model.ToolResult{Stop: true}
+			if !e.applyChat(in, func(c *model.Chat) {
+				switch {
+				case len(c.Next) > 0:
+					result = toolError("wait for the remaining speakers; finish with a normal reply")
+				case pass.steered:
+					result = toolError("the user has intervened; answer their message directly")
+				case len(c.Queue) > 0: // End this reply so the user's message goes next.
+				case a.ID == "" || a.ID == in.speaker || !chatHas(c, a.ID) || !model.WorksIn(e.w.Replicas[a.ID], c.TeamID):
+					result = toolError("choose one other current participant by ID")
+				default:
+					conv := e.w.Conversations[c.ID]
+					last := conv[len(conv)-1]
+					var calls []model.Block
+					for _, b := range last.Content {
+						if b.Type == enum.BlockToolCall {
+							calls = append(calls, b)
+						}
+					}
+					if len(calls) != 1 || calls[0].Name != toolChatPass {
+						result = toolError("call pass_to_colleague alone, after other tools finish")
+						return
+					}
+					e.chatToolSays(c, "@"+e.chatSpeaker(c, a.ID)+" "+strings.TrimSpace(a.Message))
+					// Unlike ask_user this call is complete; revisiting the speaker must not ask them to retry it.
+					e.w.Conversations[c.ID] = append(conv, model.Message{Role: enum.RoleUser, By: in.speaker, Content: []model.Block{{Type: enum.BlockToolResult, ID: calls[0].ID, Name: toolChatPass, Text: "Passed to the requested colleague."}}})
+					pass.to = a.ID
+				}
+			}) {
+				return toolError("this reply is no longer active")
+			}
+			return result
+		}}
+}
+
 // meetingRule tells an employee in a meeting how the replies go round. It stays the same from round to round, so
 // their provider's cache of the request's start holds; what changes comes in roundNote.
 func meetingRule(c *model.Chat, name string) string {
@@ -241,6 +296,7 @@ func meetingRule(c *model.Chat, name string) string {
 	}
 	return "This chat is a meeting of the user and several employees; you are " + name + ". " +
 		"The employees the user @mentions reply one after another, and @All is everyone, the chair last; with no mention the chair replies alone. " +
+		"Finish normally by default. Only the last scheduled speaker may use pass_to_colleague, and only for a concrete remaining step in the user's request that needs a colleague. A mention in ordinary text does not pass the floor. Never pass for thanks, status alone, or a user decision. A pass grants no additional authority. " +
 		"Each sees what was said before them. What another employee said comes to you as a user message starting with their name in brackets, like \"[Ada] ...\": " +
 		"it is theirs, not the user's. " + othersRule +
 		"Only one employee a round may create or change tasks, blueprints and flows, or ask the user; when someone else needs to do that, say so for them to do. " +
