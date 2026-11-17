@@ -77,8 +77,8 @@ type codeModeSource struct {
 	Scope string
 }
 
-// codeMode offers exec on the turn while the experimental setting is on, and then says in each tool it may call how
-// to call it from scripts. It checks the setting before every try at the model, so turning it on or off counts from
+// codeMode offers exec on the turn while the experimental setting is on, or always when it has tools only scripts
+// call, and then says in each tool it may call how to call it from scripts. It checks the setting before every try at the model, so turning it on or off counts from
 // the next call; a turn with no tool a script may call never gets it. Call it with the turn's tools in place, not
 // holding the lock.
 func (e *Engine) codeMode(tr *turn, src codeModeSource) {
@@ -94,13 +94,20 @@ func (e *Engine) codeMode(tr *turn, src codeModeSource) {
 		names = append(names, spec.Name)
 		noted[i].Description += scriptNote(spec.Name, tool)
 	}
+	// tools only scripts call turn the script tool on for the turn, whatever the setting
+	for _, tool := range tr.scriptOnly {
+		name := tool.Spec().Name
+		byName[name] = tool
+		names = append(names, name)
+	}
+	forced := len(tr.scriptOnly) > 0
 	if len(names) == 0 {
 		return
 	}
 	exec := e.execTool(tr, names, byName, src)
 	tr.prepare = func() {
 		e.mu.Lock()
-		on := e.w.Preferences.CodeMode
+		on := e.w.Preferences.CodeMode || forced
 		e.mu.Unlock()
 		if on {
 			tr.req.Tools = append(slices.Clone(noted), exec.Spec())
@@ -111,6 +118,12 @@ func (e *Engine) codeMode(tr *turn, src codeModeSource) {
 		}
 	}
 	tr.prepare()
+}
+
+// readOnly says whether a tool's own word is that it changes nothing, as an MCP server's may.
+func readOnly(tool adapter.Tool) bool {
+	ro, ok := tool.(interface{ ReadOnly() bool })
+	return ok && ro.ReadOnly()
 }
 
 // scriptNote is what a tool's description adds while scripts may call it: how, and what the call resolves to.
@@ -126,7 +139,7 @@ func scriptNote(name string, tool adapter.Tool) string {
 // turn's gate, shown in its log, run with the turn's folder, and named after the exec call it came from. A call that
 // ends the turn ends the script, and exec then ends the turn the same way.
 func (e *Engine) execTool(tr *turn, names []string, byName map[string]adapter.Tool, src codeModeSource) adapter.Tool {
-	spec := model.ToolSpec{Name: toolExec, Description: execRules, Parameters: execParams}
+	spec := model.ToolSpec{Name: toolExec, Description: execRules + tr.scriptAbout, Parameters: execParams}
 	return funcTool{spec, func(ctx context.Context, cwd string, raw json.RawMessage) model.ToolResult {
 		code, ok := execCode(raw)
 		if !ok {
@@ -139,20 +152,33 @@ func (e *Engine) execTool(tr *turn, names []string, byName map[string]adapter.To
 		var n atomic.Int64
 		var stopMu sync.Mutex
 		var stop *model.ToolResult
+		// what hooks say of the script's calls goes to the model with the script's output, as it does not see the
+		// calls' results
+		var hooked []string
+		heard := func(call model.Block, added []string) {
+			if len(added) == 0 {
+				return
+			}
+			stopMu.Lock()
+			defer stopMu.Unlock()
+			for _, a := range added {
+				hooked = append(hooked, "[hook] "+call.Name+": "+a)
+			}
+		}
 		fns := make([]codemode.Func, 0, len(names))
 		for _, name := range names {
 			tool := byName[name]
-			serial := !sideBySide[name]
+			serial := !sideBySide[name] && !readOnly(tool)
 			fns = append(fns, codemode.Func{Name: name, Description: tool.Spec().Description, Serial: serial,
 				Call: func(ctx context.Context, args json.RawMessage) (any, error) {
 					call := model.Block{Type: enum.BlockToolCall, ID: fmt.Sprintf("%s/%d", parent, n.Add(1)), Name: name, Args: args}
 					book.Lock()
-					if tr.gate != nil {
-						if refused, ok := tr.gate(call); !ok {
-							book.Unlock()
-							return nil, &codemode.Failure{Reason: reasonRefused, Message: refused.Text}
-						}
+					call, refused, added := tr.admit(ctx, call)
+					if refused != nil {
+						book.Unlock()
+						return nil, &codemode.Failure{Reason: reasonRefused, Message: refused.Text}
 					}
+					args = call.Args
 					tr.onTool(call)
 					if serial {
 						defer book.Unlock()
@@ -160,7 +186,15 @@ func (e *Engine) execTool(tr *turn, names []string, byName map[string]adapter.To
 						book.Unlock()
 					}
 					if st, ok := tool.(tools.Structured); ok {
-						return st.Structured(ctx, cwd, args)
+						v, err := st.Structured(ctx, cwd, args)
+						done := model.ToolResult{}
+						if err != nil {
+							done = model.ToolResult{Text: err.Error(), IsError: true}
+						} else if raw, merr := json.Marshal(v); merr == nil {
+							done.Text = string(raw)
+						}
+						heard(call, append(added, tr.hooks.after(ctx, call, done)...))
+						return v, err
 					}
 					var res model.ToolResult
 					if streamer, ok := tool.(tools.Streamer); ok && tr.onOutput != nil {
@@ -177,6 +211,7 @@ func (e *Engine) execTool(tr *turn, names []string, byName map[string]adapter.To
 						stopMu.Unlock()
 						return nil, &codemode.Failure{Reason: reasonEnded, Message: cmp.Or(res.Text, name+" ended this turn")}
 					}
+					heard(call, append(added, tr.hooks.after(ctx, call, res)...))
 					if res.IsError {
 						return nil, errors.New(res.Text)
 					}
@@ -193,7 +228,11 @@ func (e *Engine) execTool(tr *turn, names []string, byName map[string]adapter.To
 		if stop != nil {
 			return *stop
 		}
-		return model.ToolResult{Text: res.Text, IsError: res.Err != nil}
+		text := res.Text
+		if len(hooked) > 0 {
+			text += "\n\n" + strings.Join(hooked, "\n")
+		}
+		return model.ToolResult{Text: text, IsError: res.Err != nil}
 	}}
 }
 

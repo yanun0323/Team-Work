@@ -1170,6 +1170,13 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 		list = append(list, e.chatMemoryTools(in)...)
 	}
 	list = append(list, e.manageTools(e.managerOfChat(in), in.spec.allowed, true)...)
+	notice := func(text string) {
+		e.applyChat(in, func(c *model.Chat) {
+			c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "tool", Text: text, By: in.speaker})
+		})
+	}
+	servers := e.mcpTools(ctx, in.spec.allowed, notice)
+	list = append(list, servers.direct...)
 	// in a meeting everyone has the same tools every round, so their provider's cache of the request's start holds;
 	// the one who may not act this round is refused at the call instead
 	if !in.actor {
@@ -1230,7 +1237,17 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			})
 		},
 	}
-	e.codeMode(t, codeModeSource{Kind: "chat", ChatID: in.id, Replica: in.speaker, Scope: in.id})
+	t.scriptOnly, t.scriptAbout = servers.scripts, servers.about
+	src := codeModeSource{Kind: "chat", ChatID: in.id, Replica: in.speaker, Scope: in.id}
+	e.hookUp(t, src, notice)
+	e.codeMode(t, src)
+	if ok, err := e.chatHooksAllow(ctx, in, t); err != nil {
+		failed(safeText(err), err)
+		return
+	} else if !ok {
+		finished = true // nothing failed: the queue goes on
+		return
+	}
 	in.overhead = requestTokens(t.req)
 	t.compact = func(ctx context.Context) ([]model.Message, bool) { return e.compactChat(ctx, in) }
 	t.compactAt = in.compactAt

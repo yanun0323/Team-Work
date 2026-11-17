@@ -983,7 +983,9 @@ func (e *Engine) meetingTurn(in *meetingRun) *turn {
 			return heard
 		},
 	}
-	e.codeMode(tr, codeModeSource{Kind: "meeting", TaskID: in.taskID, Replica: in.turn.Speaker, Scope: in.key})
+	src := codeModeSource{Kind: "meeting", TaskID: in.taskID, Replica: in.turn.Speaker, Scope: in.key}
+	e.hookUp(tr, src, nil)
+	e.codeMode(tr, src)
 	return tr
 }
 

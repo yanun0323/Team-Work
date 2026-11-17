@@ -71,6 +71,23 @@ type turn struct {
 	halt func() bool
 	// callID is the call of the tool running now, which exec names the calls of its script after.
 	callID string
+	// hooks, when set, runs the user's hooks on the turn's tool calls and as it ends.
+	hooks *hookRun
+	// scriptOnly are tools only exec scripts call: a turn with any has exec whatever the script tool's setting.
+	// scriptAbout tells exec of them.
+	scriptOnly  []adapter.Tool
+	scriptAbout string
+}
+
+// admit runs a call past the turn's gate and its PreToolUse hooks: the call to run, its arguments perhaps rewritten,
+// or the result to give in its place; and what the hooks added for the model to read with the result.
+func (t *turn) admit(ctx context.Context, call model.Block) (model.Block, *model.ToolResult, []string) {
+	if t.gate != nil {
+		if refused, ok := t.gate(call); !ok {
+			return call, &refused, nil
+		}
+	}
+	return t.hooks.pre(ctx, call)
 }
 
 // overflowed says whether a failed call may have been refused for being too long: the provider said so, or it
@@ -120,6 +137,10 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 		t.remeasure(ctx, false)
 	}
 	for call := 0; call < maxModelCalls; call++ {
+		// a hook said to stop: what ran before it is already recorded
+		if reason := t.hooks.halted(); reason != "" {
+			return turnResult{}, haltError(reason)
+		}
 		reply, err := t.complete(ctx)
 		if t.compact != nil && t.overflowed(err) {
 			if t.remeasure != nil { // the server may run another model now, which reads less
@@ -152,21 +173,20 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 			if b.Type != enum.BlockToolCall || stopped {
 				continue
 			}
-			if t.gate != nil {
-				if refused, ok := t.gate(b); !ok {
-					results = append(results, model.Block{Type: enum.BlockToolResult, ID: b.ID, Name: b.Name, Text: refused.Text, IsError: true})
-					continue
-				}
+			call, refused, added := t.admit(ctx, b)
+			if refused != nil {
+				results = append(results, model.Block{Type: enum.BlockToolResult, ID: b.ID, Name: b.Name, Text: refused.Text, IsError: true})
+				continue
 			}
-			t.onTool(b)
+			t.onTool(call)
 			t.callID = b.ID
 			tool := t.tools[b.Name]
 			result := model.ToolResult{Text: "unknown tool " + b.Name, IsError: true}
 			if streamer, ok := tool.(tools.Streamer); ok && t.onOutput != nil {
-				result = streamer.RunStream(ctx, t.cwd, b.Args, t.onOutput)
+				result = streamer.RunStream(ctx, t.cwd, call.Args, t.onOutput)
 				t.onOutput("")
 			} else if tool != nil {
-				result = tool.Run(ctx, t.cwd, b.Args)
+				result = tool.Run(ctx, t.cwd, call.Args)
 			}
 			if ctx.Err() != nil {
 				return turnResult{}, ctx.Err()
@@ -175,6 +195,7 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 				stopped, after = true, result.After
 				continue
 			}
+			result = t.hooks.post(ctx, call, result, added)
 			results = append(results, model.Block{Type: enum.BlockToolResult, ID: b.ID, Name: b.Name, Text: result.Text, IsError: result.IsError, MimeType: result.MimeType, Data: result.Data})
 		}
 		if stopped {
@@ -190,6 +211,15 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 		if len(results) == 0 {
 			if reply.Truncated {
 				return turnResult{}, model.Errorf(model.CodeUnavailable, "模型的回覆太長被截斷")
+			}
+			if more := t.hooks.stop(ctx); more != "" {
+				msg := userText("A Stop hook of the user's asks you to go on: " + more)
+				t.req.Messages = append(t.req.Messages, msg)
+				t.onResults(msg)
+				continue
+			}
+			if reason := t.hooks.halted(); reason != "" {
+				return turnResult{}, haltError(reason)
 			}
 			return turnResult{Text: text.String()}, nil
 		}
@@ -775,8 +805,21 @@ func (e *Engine) runSub(ctx context.Context, in subRun) {
 		e.apply(in, func(_ *model.Task, s *model.SubTask) { e.logLine(s, enum.LogSystem, p, "", nil) })
 	}
 
-	t := e.subTurn(in, roots)
+	var servers mcpSet
+	if !in.talk { // a discussion changes nothing, and an MCP tool may
+		servers = e.mcpTools(ctx, in.spec.allowed, e.stepNotice(in))
+	}
+	t := e.subTurn(in, roots, servers)
 	t.req.System = in.spec.prompt.compose(e.repoPrompt(ctx, in), skills)
+	source := "resume"
+	if !slices.ContainsFunc(in.conv, func(m model.Message) bool { return m.Role == enum.RoleAssistant }) {
+		source = "startup"
+	}
+	t.req.System += hookContext(t.hooks.start(ctx, source))
+	if reason := t.hooks.halted(); reason != "" {
+		stop(haltError(reason))
+		return
+	}
 	calls := 0
 	t.onReply = e.onSubReply(in, t, &calls)
 
@@ -846,7 +889,14 @@ func (e *Engine) talkSays(t *model.Task, s *model.SubTask, by, text string) {
 	e.nextInTalk(t, s)
 }
 
-func (e *Engine) subTurn(in subRun, roots []string) *turn {
+// stepNotice shows a line in a step's log.
+func (e *Engine) stepNotice(in subRun) func(string) {
+	return func(text string) {
+		e.apply(in, func(_ *model.Task, s *model.SubTask) { e.logLine(s, enum.LogSystem, text, "", nil) })
+	}
+}
+
+func (e *Engine) subTurn(in subRun, roots []string, servers mcpSet) *turn {
 	allowed := in.spec.allowed
 	if in.talk { // a discussion changes nothing; it only reads
 		allowed = slices.DeleteFunc(slices.Clone(allowed), func(x enum.Tool) bool { return x == enum.ToolWriteFile || x == enum.ToolRunCommand })
@@ -856,6 +906,7 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 	if !in.talk {
 		list = append(list, imageTools(in.spec, read, nil)...)
 		list = append(list, e.agentTools(in)...)
+		list = append(list, servers.direct...)
 	}
 	list = append(list, e.manageTools(e.managerOfSub(in), in.spec.allowed, !in.talk)...)
 	specs := make([]model.ToolSpec, len(list))
@@ -914,7 +965,10 @@ func (e *Engine) subTurn(in subRun, roots []string) *turn {
 	if in.talk {
 		kind = "talk"
 	}
-	e.codeMode(tr, codeModeSource{Kind: kind, TaskID: in.taskID, Replica: replicaOf(in.r), Scope: in.subID})
+	tr.scriptOnly, tr.scriptAbout = servers.scripts, servers.about
+	src := codeModeSource{Kind: kind, TaskID: in.taskID, Replica: replicaOf(in.r), Scope: in.subID}
+	e.hookUp(tr, src, e.stepNotice(in))
+	e.codeMode(tr, src)
 	return tr
 }
 

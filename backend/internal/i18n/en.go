@@ -606,4 +606,8 @@ var en = map[string]string{
 	"會議內容超過模型能讀的長度，只能結束會議":     "The meeting is longer than the model can read; it can only be ended",
 	"伺服器重新啟動，進行中的發言已中斷":        "The server restarted, so the reply under way was cut off",
 	"會議不能接著開，要開新的會議":           "A meeting cannot be gone on with; call a new one",
+
+	"Hook 要求停止：%s": "A hook asked to stop: %s",
+	"Hook：Stop hook 已要求繼續 %d 次，這次讓工作停下": "Hook: Stop hooks asked to go on %d times; the work stops this time",
+	"（Hook 擋下了這則訊息：%s）":                 "(A hook blocked this message: %s)",
 }

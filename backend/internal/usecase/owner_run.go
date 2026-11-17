@@ -680,7 +680,9 @@ func (e *Engine) ownerTurn(in *ownerRun) *turn {
 	// an exec script's tools count one by one, through the gate and onTool as any call; the one past the limit is not
 	// run and ends the script, nothing else of the reply runs, and the decision stops for the user once its results
 	// are kept
-	e.codeMode(tr, codeModeSource{Kind: "owner", TaskID: in.taskID, Replica: in.ownerID, Scope: key})
+	src := codeModeSource{Kind: "owner", TaskID: in.taskID, Replica: in.ownerID, Scope: key}
+	e.hookUp(tr, src, nil)
+	e.codeMode(tr, src)
 	// a reply's own calls were counted when it came, so only an exec script's can leave the limit used up before the
 	// reply's next tool: refused, it is past the limit, and the decision stops for the user too
 	tr.gate = func(model.Block) (model.ToolResult, bool) {

@@ -18,7 +18,9 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/yanun0323/Team-Work/internal/adapter"
+	"github.com/yanun0323/Team-Work/internal/hooks"
 	"github.com/yanun0323/Team-Work/internal/i18n"
+	"github.com/yanun0323/Team-Work/internal/mcp"
 	"github.com/yanun0323/Team-Work/internal/model"
 	"github.com/yanun0323/Team-Work/internal/model/enum"
 	"github.com/yanun0323/Team-Work/internal/semantic"
@@ -133,6 +135,10 @@ type Engine struct {
 	jobsCleaned func(scope string)
 	// semantic is the experimental semantic search, nil when the backend has none.
 	semantic *semantic.Service
+	// mcp is the MCP servers of mcp.json, shared by every run; hooks runs the commands hooks.json sets on events of
+	// the work. Both files are in the data folder, and only there: a project's own are not read.
+	mcp   *mcp.Hub
+	hooks *hooks.Runner
 	// rankNotes ranks memory notes by meaning, ok false for keyword search alone; semantic's, or a test's stand-in.
 	rankNotes func(ctx context.Context, query string, notes []semantic.Note) (ranked []string, ok bool)
 	// stores are what exec scripts kept with store(), by conversation; ready to use as it is.
@@ -166,6 +172,7 @@ func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	e := &Engine{
 		w: model.NewWorld(), runs: map[string]*run{}, live: map[string]string{}, output: map[string]liveOutput{}, prev: map[string][]byte{}, dirty: map[string]bool{},
 		subs: map[chan Event]struct{}{}, drains: map[string]*drain{}, logins: map[string]*loginRun{}, pendingKeys: map[string]string{}, terms: map[string]*TerminalLog{}, quotas: map[string]quotaEntry{}, modelsAt: map[string]float64{}, store: o.Store, git: o.Git, providers: o.Providers, dataDir: o.DataDir, log: o.Log, semantic: o.Semantic, rankNotes: o.Semantic.RankNotes,
+		mcp: mcp.NewHub(filepath.Join(o.DataDir, "mcp.json"), o.Log), hooks: &hooks.Runner{Path: filepath.Join(o.DataDir, "hooks.json")},
 		clock:  func() float64 { return float64(time.Now().UnixMilli()) / 1000 },
 		search: &tools.Search{Endpoint: tools.ExaEndpoint, Log: o.Log, State: filepath.Join(o.DataDir, "cache", "search-cooldown.json")},
 	}
@@ -247,6 +254,7 @@ func (e *Engine) Close() {
 	if left := e.jobs.Close(); len(left) > 0 {
 		e.log.Warn().Strs("jobs", left).Msg("background commands not known to have stopped at close")
 	}
+	e.mcp.Close() // the local servers it started stop with the runs that used them
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for ch := range e.subs {
