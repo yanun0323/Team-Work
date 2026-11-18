@@ -207,7 +207,8 @@ func TestContextWindowOfEachKind(t *testing.T) {
 		want int
 	}{
 		{ModelProvider{Kind: "anthropic", ContextWindow: 50_000}, 1_000_000},
-		{ModelProvider{Kind: "openai"}, 272_000},
+		{ModelProvider{Kind: "openai", Auth: ProviderAuth{Kind: "apiKey"}}, 1_000_000},
+		{ModelProvider{Kind: "openai", Auth: ProviderAuth{Kind: "subscription"}}, 1_000_000},
 		{ModelProvider{Kind: "google", ContextWindow: 200_000}, 200_000},
 		{ModelProvider{Kind: "compatible"}, 128_000},
 	} {

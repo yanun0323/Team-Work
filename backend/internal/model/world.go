@@ -655,9 +655,9 @@ func (p ModelProvider) Offered() []string {
 }
 
 const (
-	// ContextAnthropic and ContextOpenAI are the fixed sizes of those kinds' models.
+	// Fixed context sizes when the provider does not report one for the model.
 	ContextAnthropic = 1_000_000
-	ContextOpenAI    = 272_000
+	ContextOpenAI    = 1_000_000
 	// ContextUnknown is assumed for a provider whose size was never set.
 	ContextUnknown = 128_000
 	// ContextLeast and ContextMost bound what the user may set.

@@ -44,11 +44,11 @@ it('shows under the box how much the next call sends, of what the model can read
   Object.assign(useStore.getInitialState(), useStore.getState())
   const chat: Chat = { id: 'c', teamId: 't', replicaId: 'r', name: 'R', look: Object.values(w.replicas)[0].look, model: 'ctx-model', tokens: 9, context: 123_456, messages: [], createdAt: 0 }
   try {
-    expect(renderToStaticMarkup(<ContextUse chat={chat} />)).toBe('<p class="fx-room-context">123,456 / 272,000</p>')
-    expect(renderToStaticMarkup(<ContextUse chat={{ ...chat, context: undefined }} />)).toContain('>0 / 272,000<')
+    expect(renderToStaticMarkup(<ContextUse chat={chat} />)).toBe('<p class="fx-room-context">123,456 / 1,000,000</p>')
+    expect(renderToStaticMarkup(<ContextUse chat={{ ...chat, context: undefined }} />)).toContain('>0 / 1,000,000<')
     // the chat's id sits before it, on the same line under the box
     const foot = renderToStaticMarkup(<ChatFoot chat={{ ...chat, id: 'chat-42' }} />)
-    expect(foot).toMatch(/^<div class="fx-room-foot fx-room-say-wide"><button[^>]*>chat-42<\/button><p class="fx-room-context">123,456 \/ 272,000<\/p><\/div>$/)
+    expect(foot).toMatch(/^<div class="fx-room-foot fx-room-say-wide"><button[^>]*>chat-42<\/button><p class="fx-room-context">123,456 \/ 1,000,000<\/p><\/div>$/)
   } finally {
     delete w.providers.ctx
   }

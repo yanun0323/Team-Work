@@ -107,8 +107,7 @@ export const CONTEXT_UNKNOWN = 128_000
 export function providerWindow(p: Pick<ModelProvider, 'kind' | 'contextWindow' | 'windows'>, model?: string): number {
   const reported = model ? p.windows?.[model] : undefined
   if (reported && reported > 0) return reported
-  if (p.kind === 'anthropic') return 1_000_000
-  if (p.kind === 'openai') return 272_000
+  if (p.kind === 'anthropic' || p.kind === 'openai') return 1_000_000
   return p.contextWindow || CONTEXT_UNKNOWN
 }
 

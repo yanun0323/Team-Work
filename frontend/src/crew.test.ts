@@ -228,7 +228,7 @@ describe('byBlueprint', () => {
 describe('how much a chat can read', () => {
   it('is fixed for Anthropic and OpenAI, and set or guessed for the rest', () => {
     expect(providerWindow({ kind: 'anthropic', contextWindow: 50_000 })).toBe(1_000_000)
-    expect(providerWindow({ kind: 'openai' })).toBe(272_000)
+    expect(providerWindow({ kind: 'openai' })).toBe(1_000_000)
     expect(providerWindow({ kind: 'google', contextWindow: 200_000 })).toBe(200_000)
     expect(providerWindow({ kind: 'compatible' })).toBe(128_000)
   })
@@ -247,6 +247,7 @@ describe('how much a chat can read', () => {
 
   it('is the least anyone in a meeting can read', () => {
     const { w, chat } = chatOn('high')
+    w.providers.p.windows = { m: 272_000 }
     w.providers.big = { id: 'big', name: 'B', kind: 'anthropic', baseUrl: '', auth: { kind: 'apiKey', keyHint: 'x' }, models: ['claude'] }
     w.replicas[chat.replicaId].model = 'claude'
     expect(chatWindow(w, chat)).toBe(1_000_000)
