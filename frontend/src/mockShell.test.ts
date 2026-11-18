@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { projectFile, projectTree } from './core/domain/sim'
 import { answer, mockShell } from './mockShell'
 
@@ -17,6 +17,8 @@ describe('the sample project under dev-mock', () => {
 })
 
 describe('the shell under dev-mock', () => {
+  afterEach(() => { vi.useRealTimers() })
+
   it('answers a few commands and not others', () => {
     expect(answer('  git   status ')).toContain('On branch main')
     expect(answer('ls')).toBe('docs  node_modules  src  my notes.txt  package.json  README.md')
@@ -24,27 +26,31 @@ describe('the shell under dev-mock', () => {
     expect(answer('rm -rf /')).toBeNull()
   })
 
-  it('echoes what is typed, runs it on Enter and prompts again', async () => {
+  it('echoes what is typed, runs it on Enter and prompts again', () => {
+    vi.useFakeTimers()
     const shell = mockShell()
     let out = ''
     shell.onmessage = (m) => { out += new TextDecoder().decode(m.data as ArrayBuffer) }
+    vi.runAllTimers()
+    expect(out).toContain('acme-shop % ')
     const type = (s: string) => shell.send(new TextEncoder().encode(s) as Uint8Array<ArrayBuffer>)
     type('pwx\x7fd\r')
     type('nope\r')
     shell.send('{"cols":80,"rows":24}')
-    await new Promise((r) => setTimeout(r, 10))
+    vi.runAllTimers()
     expect(out).toContain('pwx\b \bd\r\n~/code/acme-shop\r\n')
     expect(out).toContain('zsh: command not found: nope')
     expect(out.match(/acme-shop % /g)).toHaveLength(3)
   })
 
-  it('stands at home for the airport', async () => {
+  it('stands at home for the airport', () => {
+    vi.useFakeTimers()
     expect(answer('pwd', true)).toBe('~')
     expect(answer('git status', true)).toContain('not a git repository')
     const shell = mockShell(true)
     let out = ''
     shell.onmessage = (m) => { out += new TextDecoder().decode(m.data as ArrayBuffer) }
-    await new Promise((r) => setTimeout(r, 10))
+    vi.runAllTimers()
     expect(out).toContain('me@mac\x1b[0m ~ % ')
   })
 })
