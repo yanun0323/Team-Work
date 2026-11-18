@@ -1414,7 +1414,6 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
 /* the license on a white note, scrolling inside it */
 .fx-license { max-height: 240px; overflow: auto; margin: 0; padding: 8px 10px; background: var(--clip); box-shadow: var(--lift); color: var(--ink-2); font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; }
 .fx-license:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.fx-about-version { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 
 /* where a blueprint and its skills come from: one entry per repo or folder, its state after the name */
 .fx-src-list { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
@@ -1513,7 +1512,8 @@ button.fx-brand-version:focus-visible { outline: 2px solid #1f1d2b; outline-offs
   inset-block: max(18px, calc((100% - 680px) / 2)); inset-inline: max(18px, calc((100% - 980px) / 2));
   width: auto; z-index: 6;
 }
-.fx-help-head { padding-bottom: 16px; }
+.fx-help-tabpanel > .fx-d-groups { align-content: start; }
+.fx-help-tabpanel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .fx-help h1 { font-size: clamp(20px, 2.2vw, 26px); }
 .fx-help-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(130px, 180px) minmax(0, 1fr); }
 .fx-help-nav {

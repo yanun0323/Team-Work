@@ -5,7 +5,7 @@ import { tr } from './core/i18n'
 import { LanguageMenu } from './LanguageMenu'
 import { MapControls } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject, type SetStateAction } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject, type SetStateAction } from 'react'
 import { version } from '../package.json'
 import { guardUnload, leaveTeam } from './fileDrafts'
 import { placeOf, useOpenRequest, useSystemNotices } from './notices'
@@ -34,7 +34,7 @@ import { Drawer, putAwaySheets, useLeftSheets } from './Drawer'
 import { putAwaySampleSheet } from './HelpLooks'
 import { Settings } from './Settings'
 import { Help } from './Help'
-import { notesDue, useNotesAsks } from './releaseNotes'
+import { notesDue } from './releaseNotes'
 import { FADE_SECONDS } from './Fade'
 import { Island, useLand } from './Island'
 import { MapGrid } from './MapGrid'
@@ -71,7 +71,6 @@ import { Voyage } from './Voyage'
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
 // the notes of every version, loaded only when they open
-const ReleaseNotes = lazy(() => import('./ReleaseNotesSheet'))
 
 /** Keyboard panning speed in screen pixels per second (Shift doubles it). */
 const KEY_PAN_PX = 700
@@ -272,15 +271,8 @@ export function World() {
     if (panel !== 'settings') setByAirport(false)
   }, [panel])
   // the help, or on the same sheet what changed in each version: by itself on the first launch after an update (it
-  // waits off the screen through the landing), or when the airport's About asks
+  // waits off the screen through the landing)
   const [helpOpen, setHelpOpen] = useState<false | 'help' | 'notes'>(() => (!MOCK && notesDue(localStorage, version) ? 'notes' : false))
-  const notesAsks = useNotesAsks((s) => s.asks)
-  const notesOpener = useRef<HTMLElement | null>(null)
-  useEffect(() => {
-    if (!notesAsks) return
-    notesOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    setHelpOpen('notes')
-  }, [notesAsks])
   // the corners' buttons slide away while the help, a drawer or the new company's sheet is over the map; once they are
   // back, focus returns to the one that opened it: the help's, the user's face, or the new-company button
   const helpButton = useRef<HTMLButtonElement>(null)
@@ -387,8 +379,7 @@ export function World() {
       // a click on the map may put away the sheet over the help first, as with a drawer's detail sheets
       if (!key && putAwaySampleSheet()) return
       setHelpOpen(false)
-      if (helpOpen === 'help') refocus.current = helpButton
-      else notesOpener.current?.focus({ preventScroll: true })
+      refocus.current = helpButton
       return
     }
     if (moving) {
@@ -746,8 +737,7 @@ export function World() {
       </div>
     </div>
     {sheet.value && <NewCompanySheet leaving={sheet.leaving} onGone={sheet.gone} onCreate={found} look={look} onReroll={() => setLook(randomLook())} />}
-    {help.value === 'help' && <Help leaving={help.leaving} onGone={help.gone} />}
-    {help.value === 'notes' && <Suspense fallback={null}><ReleaseNotes leaving={help.leaving} onGone={help.gone} /></Suspense>}
+    {help.value && <Help initialTab={help.value} leaving={help.leaving} onGone={help.gone} />}
     {settings.value === 'settings' && <Settings leaving={settings.leaving} onGone={settings.gone} />}
     {settings.value === 'tower' && <TowerPanel leaving={settings.leaving} onGone={settings.gone} onProfile={() => setPanel('profile')} />}
     {settings.value === 'profile' && <Profile leaving={settings.leaving} onGone={settings.gone} />}
@@ -827,7 +817,7 @@ const FADE_MS = FADE_SECONDS * 1000
  * Transitions, a value coming from nothing is held back until one has started and then given inside it (paste.ts
  * `pasteIn`), so the sheet is first drawn only as the picture that pastes it on.
  */
-function useLingering(value: string | null): { value: string | null; leaving: boolean; gone: () => void } {
+function useLingering<T extends string>(value: T | null): { value: T | null; leaving: boolean; gone: () => void } {
   const [kept, setKept] = useState(value)
   const [paste] = useState(canPaste)
   const opening = paste && value !== null && kept === null && !inPaste()

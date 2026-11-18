@@ -18,7 +18,6 @@ export const AIRPORT_TABS = [
   { id: 'stats', label: '統計' },
   { id: 'terminal', label: '終端機' },
   { id: 'prefs', label: '設定' },
-  { id: 'about', label: '關於' },
 ] as const
 export type AirportTab = (typeof AIRPORT_TABS)[number]['id']
 

@@ -275,10 +275,10 @@ export const HELP_EN: Record<string, HelpTopic> = {
   },
   about: {
     label: 'About',
-    alt: "The airport's About tab: links, license and version number",
+    alt: "The About tab in Help: links, license and version number",
     body: (
       <>
-        <p>The About tab has links, the license, the version number and Report an issue. This topic also covers updating and quitting the app.</p>
+        <p>Open the question mark at the top right of the map. The About tab has links, the license, the version number and Report an issue. This topic also covers updating and quitting the app.</p>
         <dl>
           <dt>Report an issue</dt><dd>Opens a new GitHub issue with the version already filled in; paste images straight into the issue.</dd>
           <dt>Check for updates</dt><dd>The version shows under the time at the top left of the main screen. The Mac app checks at launch and then every hour; when a new version is out, a red ! appears right of the time. Press it to update, and downloading and installing go on in the window that opens. To check right away, press the version number, or use Check for Updates… in the menu. The web version has none of these buttons.</dd>

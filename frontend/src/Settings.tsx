@@ -1,6 +1,6 @@
 // The settings: a drawer over the right half of the map, like a company file, but for the whole app.
 // Its head names it the airport, the island's management centre; the tabs below hold the model providers, the employee blueprints
-// the app-wide preferences and the about page. Providers and blueprints, and adding one, open on the same stack of detail sheets over the upper left. There is no
+// and the app-wide preferences. Providers and blueprints, and adding one, open on the same stack of detail sheets over the upper left. There is no
 // close button: a click on the map puts everything away.
 
 import { LANGUAGE_NAMES, LANGUAGES } from './LanguageMenu'
@@ -8,7 +8,6 @@ import { tr } from './core/i18n'
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { usePaste } from './paste'
 import { useStore } from './core/store'
-import LICENSE from '../../LICENSE?raw'
 import { BlueprintIcon } from './BlueprintIcon'
 import { openOnce, SheetStack, useMapClickSheets, useSheets } from './Drawer'
 import { useOpenedFromNotice } from './notices'
@@ -20,7 +19,6 @@ import { HideTool, itemKey, type Item } from './DrawerDetail'
 import { useUnderWide, WideCover } from './WideSheets'
 import { FlowNotes, openCard } from './FlowNotes'
 import { keptState, sourceState, sourceText } from './source'
-import { SOCIAL_ICONS } from './socialIcons'
 import { authLabel, makesImages, PROVIDER_KINDS } from './providers'
 import { unlistedModels } from './crew'
 import { Chevron, Select, Toggle, useAutoGrow } from './Controls'
@@ -36,20 +34,10 @@ import { composing } from './ime'
 import { Stats } from './Stats'
 import { SemanticSearchSection, workRunning } from './SemanticSearch'
 import { SourcesTab } from './Sources'
-import { VERSION } from './update'
-import { askReleaseNotes } from './releaseNotes'
 import type { Daylight } from './daylight'
 import type { Locale } from './core/domain/types'
 
 const Terminal = lazy(() => import('./Terminal'))
-
-const LINKS = [
-  { label: 'GitHub', href: 'https://github.com/yanun0323/Team-Work' },
-  { label: 'Buy Me a Coffee', href: 'https://buymeacoffee.com/yanun' },
-]
-// a new issue on GitHub, its body ending with the version so reports say which build they came from
-const ISSUE_URL = `https://github.com/yanun0323/Team-Work/issues/new?body=${encodeURIComponent(`\n\n---\n${VERSION}`)}`
-
 
 /**
  * Ends the app. It always asks first, like deleting, and says so when work under way would stop. The app listens
@@ -159,7 +147,6 @@ export function Settings({ leaving, onGone }: {
           {tab === 'flows' && <Flows open={open} onOpen={sheets.open} />}
           {tab === 'prefs' && <PrefsPage />}
           {tab === 'stats' && <Stats />}
-          {tab === 'about' && <About />}
         </section>
         )}
         {terminalOpened && (
@@ -614,36 +601,6 @@ export function PrefsPage() {
       <SemanticSearchSection />
       {!MOCK && <ReloadSettings />}
       {!remote && <ResetSettings />}
-    </div>
-  )
-}
-
-function About() {
-  return (
-    <div className="fx-d-groups">
-      {/* each a sticky note stuck on the page */}
-      <ul className="fx-links">
-        {LINKS.map((x) => (
-          <li key={x.label}><a className="fx-link" href={x.href} target="_blank" rel="noreferrer">
-            <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d={SOCIAL_ICONS[x.label]} fill="currentColor" /></svg>
-            <span>{x.label}</span><span className="fx-sr">{tr('（另開分頁）')}</span>
-          </a></li>
-        ))}
-      </ul>
-      <section className="fx-d-group" aria-labelledby="fx-license">
-        <h4 id="fx-license">{tr('授權')}</h4>
-        <pre className="fx-license" tabIndex={0}>{LICENSE}</pre>
-      </section>
-      <section className="fx-d-group" aria-labelledby="fx-version">
-        <h4 id="fx-version">{tr('版本')}</h4>
-        <div className="fx-about-version">
-          <code>{VERSION}</code>
-          <button type="button" className="fx-save fx-save-quiet" onClick={askReleaseNotes}>{tr('更新內容#release')}</button>
-        </div>
-      </section>
-      <a className="fx-save" href={ISSUE_URL} target="_blank" rel="noreferrer">
-        {tr('問題回報')}<span className="fx-sr">{tr('（另開分頁）')}</span>
-      </a>
     </div>
   )
 }

@@ -16,10 +16,8 @@ it('is a drawer headed as the airport, its model providers listed under the firs
   expect(html).toContain('role="tablist"')
   expect(html).toContain('id="fx-settings-tab-providers" aria-controls="fx-settings-panel" aria-selected="true"')
   expect(html).toContain('id="fx-settings-tab-blueprints" aria-controls="fx-settings-panel" aria-selected="false"')
-  expect(html).toContain('id="fx-settings-tab-about" aria-controls="fx-settings-panel" aria-selected="false"')
-  // the preferences sit just left of 關於
+  expect(html).not.toContain('id="fx-settings-tab-about"')
   expect(html.indexOf('id="fx-settings-tab-prefs"')).toBeGreaterThan(html.indexOf('id="fx-settings-tab-blueprints"'))
-  expect(html.indexOf('id="fx-settings-tab-prefs"')).toBeLessThan(html.indexOf('id="fx-settings-tab-about"'))
   expect(html).toContain('＋ 新增模型供應商')
   const providers = Object.values(useStore.getState().world.providers)
   expect(providers.length).toBeGreaterThan(0)
@@ -82,7 +80,8 @@ it('opens a company on the chosen tab, or on 任務 where that tab does not exis
 })
 
 it('opens the airport on the chosen tab, or on 模型供應商 where that tab does not exist', () => {
-  expect(airportTabOr('about')).toBe('about')
+  expect(airportTabOr('prefs')).toBe('prefs')
+  expect(airportTabOr('about' as AirportTab)).toBe('providers')
   expect(airportTabOr('nope' as AirportTab)).toBe('providers')
 })
 

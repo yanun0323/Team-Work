@@ -7,7 +7,8 @@
 // reference, one <dl> drawn in a dashed box. Leave out what the screen already makes plain and what is only decoration, and write a
 // rule in one topic only.
 
-import { Children, isValidElement, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { lazy, Suspense, Children, isValidElement, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { About } from './About'
 import { usePaste } from './paste'
 import { appLanguage, tr } from './core/i18n'
 import { HELP_EN, type HelpTopic } from './HelpEn'
@@ -135,6 +136,21 @@ const TOPICS: Topic[] = [
           <dt>換公司</dt><dd>打開時其他公司的名牌還在，點了直接換過去。</dd>
           <dt>先開哪一頁</dt><dd>在「機場 → 設定」的「預設公司頁面」和「自動切換預設頁面」決定。</dd>
           <dt>大樓</dt><dd>員工越多，佔地越大（最大 10×10 格）；專案檔案越大，樓層越高（最多 10 層）；完成的任務越多，外觀裝飾越多：招牌、旗子、廣告看板、霓虹燈，最後是 LED 螢幕。</dd>
+        </dl>
+      </>
+    ),
+  },
+  {
+    id: 'about',
+    alt: '問號介面的關於頁籤：相關連結、授權條款和版本號',
+    label: '關於',
+    body: (
+      <>
+        <p>主畫面右上角問號裡的「關於」頁籤有相關連結、授權條款、版本號和問題回報。這裡也說明怎麼更新和結束 App。</p>
+        <dl>
+          <dt>問題回報</dt><dd>在 GitHub 開新的 issue，內容已附上版本號；圖片請直接貼到 issue 裡。</dd>
+          <dt>檢查更新</dt><dd>主畫面左上角時間下方是版本號。Mac App 開啟時和之後每小時自動檢查，有新版本時時間右邊會出現紅色驚嘆號，按下就開始更新，下載和安裝在跳出的視窗裡進行。想馬上檢查就按版本號，或用選單的「檢查更新…」。網頁版沒有這些按鈕。</dd>
+          <dt>退出</dt><dd>Mac App 的「機場」標題右邊有關機按鈕，按下或用選單的「結束 Team Work」（⌘Q）都會先確認一次；開著的終端機也會一起結束。</dd>
         </dl>
       </>
     ),
@@ -323,22 +339,6 @@ const TOPICS: Topic[] = [
           <dt>全域員工規則</dt><dd>在「系統」，所有公司的每位員工都會收到。存在 <code>~/.team-work/AGENTS.md</code>，在外面改的話下次開工或回覆就會生效。</dd>
           <dt>設定檔</dt><dd>介面偏好、公司、員工、自己的藍圖和任務藍圖，以及供應商都存成檔案，在 <code>~/.team-work</code> 下；內建和來源帶來的不在裡面。重新載入時整批檢查通過才生效，有錯就保留原本的設定。「開啟設定檔資料夾」在 Finder 打開這個位置。</dd>
           <dt>重設回預設值</dt><dd>在設定頁最下面，要按兩次。這一頁的設定都回到預設值，包括語言和終端機預設指令；全域員工規則會保留。</dd>
-        </dl>
-      </>
-    ),
-  },
-  {
-    id: 'about',
-    alt: '機場的關於頁籤：相關連結、授權條款和版本號',
-    label: '關於',
-    group: '機場',
-    body: (
-      <>
-        <p>「關於」頁籤有相關連結、授權條款、版本號和問題回報。這裡也說明怎麼更新和結束 App。</p>
-        <dl>
-          <dt>問題回報</dt><dd>在 GitHub 開新的 issue，內容已附上版本號；圖片請直接貼到 issue 裡。</dd>
-          <dt>檢查更新</dt><dd>主畫面左上角時間下方是版本號。Mac App 開啟時和之後每小時自動檢查，有新版本時時間右邊會出現紅色驚嘆號，按下就開始更新，下載和安裝在跳出的視窗裡進行。想馬上檢查就按版本號，或用選單的「檢查更新…」。網頁版沒有這些按鈕。</dd>
-          <dt>退出</dt><dd>Mac App 的「機場」標題右邊有關機按鈕，按下或用選單的「結束 Team Work」（⌘Q）都會先確認一次；開著的終端機也會一起結束。</dd>
         </dl>
       </>
     ),
@@ -535,16 +535,23 @@ function TopicBody({ body }: { body: ReactNode }) {
   )
 }
 
-export function Help({ leaving, onGone }: {
+const ReleaseNotes = lazy(() => import('./ReleaseNotesSheet'))
+const HELP_TABS = ['help', 'notes', 'about'] as const
+type HelpTab = (typeof HELP_TABS)[number]
+const TAB_LABELS = { help: '使用說明', notes: '更新內容#release', about: '關於' } as const
+
+export function Help({ initialTab = 'help', leaving, onGone }: {
+  initialTab?: HelpTab
   leaving: boolean
   /** Called when the sheet has come off. */
   onGone: () => void
 }) {
   const paste = usePaste(leaving, onGone)
   const [topic, setTopic] = useState<string>(TOPICS[0].id)
-  const title = useRef<HTMLHeadingElement>(null)
+  const [tab, setTab] = useState(initialTab)
+  const activeTab = useRef<HTMLButtonElement>(null)
   const tabs = useRef<Array<HTMLButtonElement | null>>([])
-  useEffect(() => title.current?.focus({ preventScroll: true }), [])
+  useEffect(() => activeTab.current?.focus({ preventScroll: true }), [])
   const gallery = isGallery(topic) ? topic : null
   const current = TOPICS.find((t) => t.id === topic) ?? TOPICS[0]
   const shown = inLanguage(current)
@@ -587,40 +594,56 @@ export function Help({ leaving, onGone }: {
 
   return (
     <>
-    <aside className={leaving ? 'fx-drawer fx-help leaving' : 'fx-drawer fx-help'} role="dialog" aria-modal="true" aria-labelledby="fx-help-title"
+    <aside className={leaving ? 'fx-drawer fx-help leaving' : 'fx-drawer fx-help'} role="dialog" aria-modal="true" aria-label={tr('說明')}
       aria-hidden={leaving || undefined} inert={leaving || undefined} {...paste}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
       <div className="fx-sheet" inert={covered || undefined}>
-        <header className="fx-head fx-head-rule fx-help-head">
-          <h1 id="fx-help-title" ref={title} tabIndex={-1}>{tr('使用說明')}</h1>
+        <header className="fx-head">
+          <div className="fx-tabs" role="tablist" aria-label={tr('說明')} onKeyDown={(e) => {
+            const i = HELP_TABS.indexOf(tab)
+            const index = { Home: 0, End: HELP_TABS.length - 1, ArrowLeft: i - 1, ArrowRight: i + 1 }[e.key]
+            if (index === undefined) return
+            const next = HELP_TABS[(index + HELP_TABS.length) % HELP_TABS.length]
+            e.preventDefault()
+            e.currentTarget.querySelector<HTMLButtonElement>(`#fx-help-tab-${next}`)?.focus()
+            setTab(next)
+          }}>
+            {HELP_TABS.map((id) => <button key={id} ref={tab === id ? activeTab : undefined} type="button" role="tab"
+              id={`fx-help-tab-${id}`} aria-selected={tab === id} aria-controls="fx-help-tabpanel" tabIndex={tab === id ? 0 : -1}
+              onClick={() => setTab(id)}>{tr(TAB_LABELS[id])}</button>)}
+          </div>
         </header>
-        <div className="fx-help-body">
-          <nav className="fx-help-nav" aria-label={tr('說明項目')} onKeyDown={onTabKey}>
-            {TOPICS.filter((t) => !t.group).map(topicLink)}
-            {GROUPS.map((g) => (
-              <section key={g} aria-labelledby={`fx-help-group-${g}`}>
-                <h2 id={`fx-help-group-${g}`}>{tr(g)}</h2>
-                {TOPICS.filter((t) => t.group === g).map(topicLink)}
-              </section>
-            ))}
-            <section aria-labelledby="fx-help-group-looks">
-              <h2 id="fx-help-group-looks">{tr('外觀')}</h2>
-              {GALLERIES.map((g) => link(g, tr(GALLERY_NAMES[g])))}
-            </section>
-          </nav>
-          {/* keyed, so each topic turns in like a fresh page */}
-          {gallery ? (
-            <section key={gallery} id="fx-help-panel" className="fx-page fx-help-page" aria-labelledby="fx-help-page-title">
-              <h2 id="fx-help-page-title">{tr(GALLERY_NAMES[gallery])}</h2>
-              <Looks gallery={gallery} open={sample && !sample.leaving && sample.gallery === gallery ? sample.id : null} onOpen={openSample} />
-            </section>
-          ) : (
-            <section key={current.id} id="fx-help-panel" className="fx-page fx-help-page" aria-labelledby="fx-help-page-title">
-              <h2 id="fx-help-page-title">{shown.title ?? shown.label}</h2>
-              {SHOTS[`./help/${SHOT_SET[appLanguage()]}/${current.id}.jpg`] && <img className="fx-help-shot" src={SHOTS[`./help/${SHOT_SET[appLanguage()]}/${current.id}.jpg`]} alt={shown.alt} />}
-              <TopicBody body={shown.body} />
-            </section>
+        <div id="fx-help-tabpanel" className="fx-help-tabpanel" role="tabpanel" aria-labelledby={`fx-help-tab-${tab}`}>
+          {tab === 'about' ? <About /> : tab === 'notes' ? <Suspense fallback={null}><ReleaseNotes /></Suspense> : (
+            <div className="fx-help-body">
+              <nav className="fx-help-nav" aria-label={tr('說明項目')} onKeyDown={onTabKey}>
+                {TOPICS.filter((t) => !t.group).map(topicLink)}
+                {GROUPS.map((g) => (
+                  <section key={g} aria-labelledby={`fx-help-group-${g}`}>
+                    <h2 id={`fx-help-group-${g}`}>{tr(g)}</h2>
+                    {TOPICS.filter((t) => t.group === g).map(topicLink)}
+                  </section>
+                ))}
+                <section aria-labelledby="fx-help-group-looks">
+                  <h2 id="fx-help-group-looks">{tr('外觀')}</h2>
+                  {GALLERIES.map((g) => link(g, tr(GALLERY_NAMES[g])))}
+                </section>
+              </nav>
+              {/* keyed, so each topic turns in like a fresh page */}
+              {gallery ? (
+                <section key={gallery} id="fx-help-panel" className="fx-page fx-help-page" aria-labelledby="fx-help-page-title">
+                  <h2 id="fx-help-page-title">{tr(GALLERY_NAMES[gallery])}</h2>
+                  <Looks gallery={gallery} open={sample && !sample.leaving && sample.gallery === gallery ? sample.id : null} onOpen={openSample} />
+                </section>
+              ) : (
+                <section key={current.id} id="fx-help-panel" className="fx-page fx-help-page" aria-labelledby="fx-help-page-title">
+                  <h2 id="fx-help-page-title">{shown.title ?? shown.label}</h2>
+                  {SHOTS[`./help/${SHOT_SET[appLanguage()]}/${current.id}.jpg`] && <img className="fx-help-shot" src={SHOTS[`./help/${SHOT_SET[appLanguage()]}/${current.id}.jpg`]} alt={shown.alt} />}
+                  <TopicBody body={shown.body} />
+                </section>
+              )}
+            </div>
           )}
         </div>
       </div>

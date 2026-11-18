@@ -1,12 +1,7 @@
 // When the release notes open by themselves: on the first launch of a new version, for someone who used an older one.
 // The notes themselves are in releaseNotesText.ts, loaded only when they are shown.
 
-import { create } from 'zustand'
 import { SEEN_KEY as INTRO_SEEN_KEY } from './boot'
-
-/** How many times something has asked for the notes; the map (World.tsx) opens them on each. */
-export const useNotesAsks = create<{ asks: number }>(() => ({ asks: 0 }))
-export const askReleaseNotes = () => useNotesAsks.setState((s) => ({ asks: s.asks + 1 }))
 
 /** The last version whose launch was looked at. */
 export const NOTES_SEEN_KEY = 'team-work-notes-seen'

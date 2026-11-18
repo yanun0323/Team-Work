@@ -19,7 +19,7 @@ const out = join(dirname(fileURLToPath(import.meta.url)), '..', 'frontend', 'src
 
 // the map's labels: the airport, Acme Store, Product Docs
 const label = (n) => `button.label >> nth=${n}`
-// a drawer's tabs, by place: the airport's are chats, providers, blueprints, flows, sources, usage, settings, about;
+// a drawer's tabs, by place: the airport's are chats, providers, blueprints, flows, sources, usage, terminal, settings;
 // a company's are chats, tasks, employees, files, terminal, settings
 const tab = (n) => `.fx-tabs button >> nth=${n}`
 const airport = (n) => [label(0), tab(n)]
@@ -38,7 +38,7 @@ const SCENES = {
   sources: [...airport(4), '.fx-row >> nth=1'],
   stats: airport(5),
   settings: airport(6),
-  about: airport(7),
+  about: ['button[aria-label="說明"], button[aria-label="Help"]', '#fx-help-tab-about'],
   chat: [...acme(0), '.fx-row >> nth=0', { wheel: [300, 300, -2000] }],
   // #2, its steps done and waiting to be merged
   task: [...acme(1), '.fx-lane >> nth=2 >> .fx-task >> nth=1'],
