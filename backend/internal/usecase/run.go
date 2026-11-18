@@ -1330,8 +1330,9 @@ var (
 		Parameters: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"scope":{"type":"string","enum":["company","mine"],"description":"company (default) or mine"}},"required":["text"]}`)}
 	forgetSpec = model.ToolSpec{Name: "forget", Description: "Remove a note by its id, this company's or your own, because it is wrong or out of date.",
 		Parameters: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`)}
-	searchMemorySpec = model.ToolSpec{Name: "search_memory", Description: "Search this company's notes and your own, including older ones your prompt leaves out, by meaning and by keyword. Each line says whether it is the company's or yours.",
-		Parameters: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Words or a sentence saying what you are looking for; at most 4096 UTF-8 bytes"}},"required":["query"]}`)}
+	searchMemorySpec = model.ToolSpec{Name: "search_memory", Description: "Search this company's notes and your own, including older ones your prompt leaves out, by meaning and by keyword. Each line says whether it is the company's or yours. " +
+		"Describe the subject and the specific issue. Keep exact commands, error messages, and numbers with their units when known. If the first few results are unrelated, try a more specific term.",
+		Parameters: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Words or a sentence saying what you are looking for; at most 4096 UTF-8 bytes"},"offset":{"type":"integer","minimum":0,"description":"Notes to skip (default 0). Use the returned offset with the same query for the next five results."}},"required":["query"]}`)}
 )
 
 // rememberArgs are remember's: the text, trimmed, and where it goes.
@@ -1364,10 +1365,15 @@ const memoryQueryBytes = 4096
 func (e *Engine) searchMemoryTool(where func() (string, *string)) dataTool {
 	return jsonTool(searchMemorySpec.Name, searchMemorySpec.Description, string(searchMemorySpec.Parameters), func(ctx context.Context, _ string, raw json.RawMessage) (textData, error) {
 		var a struct {
-			Query string `json:"query"`
+			Query  string `json:"query"`
+			Offset int    `json:"offset"`
 		}
-		if err := json.Unmarshal(raw, &a); err != nil || strings.TrimSpace(a.Query) == "" {
+		err := json.Unmarshal(raw, &a)
+		if strings.TrimSpace(a.Query) == "" {
 			return textData{}, errors.New("query is required")
+		}
+		if err != nil || a.Offset < 0 {
+			return textData{}, errors.New("offset must be a nonnegative integer")
 		}
 		if len(a.Query) > memoryQueryBytes {
 			return textData{}, fmt.Errorf("query is longer than %d bytes; shorten it", memoryQueryBytes)
@@ -1404,7 +1410,7 @@ func (e *Engine) searchMemoryTool(where func() (string, *string)) dataTool {
 				vector = ranked
 			}
 		}
-		return textData{Text: searchMemory(notes, a.Query, vector, func(m model.MemoryEntry) string { return lines[m.ID] })}, nil
+		return textData{Text: searchMemory(notes, a.Query, vector, a.Offset, func(m model.MemoryEntry) string { return lines[m.ID] })}, nil
 	}, textData.result)
 }
 

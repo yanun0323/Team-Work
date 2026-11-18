@@ -193,11 +193,11 @@ func TestSearchMemoryKeywordsInChinese(t *testing.T) {
 		{ID: "pair", Text: "設定頁可以開啟語意搜尋"},
 		{ID: "word", Text: "語意搜尋怎麼設定：到設定頁"},
 	}
-	got := resultIDs(searchMemory(all, "語意搜尋怎麼設定", nil, memoryLine))
+	got := resultIDs(searchMemory(all, "語意搜尋怎麼設定", nil, 0, memoryLine))
 	if !slices.Equal(got, []string{"word", "pair"}) {
 		t.Fatalf("%v", got)
 	}
-	if got := searchMemory(all, "打包發佈", nil, memoryLine); got != "No notes match." {
+	if got := searchMemory(all, "打包發佈", nil, 0, memoryLine); got != "No notes match." {
 		t.Fatalf("%q", got)
 	}
 	if words, pairs := memoryTerms("Go測試 測試 a"); !slices.Equal(words, []string{"go測試", "測試", "a"}) || len(pairs) != 0 {
@@ -206,6 +206,33 @@ func TestSearchMemoryKeywordsInChinese(t *testing.T) {
 }
 
 // Fused results are capped like keyword ones, saying how many more there are.
+func TestSearchMemoryPages(t *testing.T) {
+	e := memoryWorld()
+	e.w.Teams["A"].Memory = notes(11, func(int) string { return "match" })
+	who := "ada"
+	tool := e.searchMemoryTool(func() (string, *string) { return "A", &who })
+	for _, tc := range []struct {
+		args string
+		want []string
+		next string
+	}{
+		{`{"query":"match"}`, []string{"mem-0", "mem-1", "mem-2", "mem-3", "mem-4"}, "offset: 5"},
+		{`{"query":"match","offset":5}`, []string{"mem-5", "mem-6", "mem-7", "mem-8", "mem-9"}, "offset: 10"},
+		{`{"query":"match","offset":10}`, []string{"mem-10"}, ""},
+		{`{"query":"match","offset":9223372036854775807}`, nil, ""},
+	} {
+		got := tool.Run(context.Background(), "", []byte(tc.args))
+		if got.IsError || !slices.Equal(resultIDs(got.Text), tc.want) || strings.Contains(got.Text, "offset:") != (tc.next != "") || !strings.Contains(got.Text, tc.next) {
+			t.Fatalf("%s: %s", tc.args, got.Text)
+		}
+	}
+	for _, args := range []string{`{"query":"match","offset":-1}`, `{"query":"match","offset":1.5}`} {
+		if got := tool.Run(context.Background(), "", []byte(args)); !got.IsError {
+			t.Fatal(got.Text)
+		}
+	}
+}
+
 func TestSearchMemoryCapsFusedResults(t *testing.T) {
 	t.Parallel()
 	all := notes(memorySearchLimit+5, func(int) string { return "x" })
@@ -213,7 +240,7 @@ func TestSearchMemoryCapsFusedResults(t *testing.T) {
 	for _, m := range all {
 		vector = append(vector, m.ID)
 	}
-	got := searchMemory(all, "zzz", vector, memoryLine)
+	got := searchMemory(all, "zzz", vector, 0, memoryLine)
 	if strings.Count(got, "\n- [")+1 != memorySearchLimit || !strings.Contains(got, "5 more match") || !strings.HasPrefix(got, "- [mem-0,") {
 		t.Fatalf("%s", got)
 	}

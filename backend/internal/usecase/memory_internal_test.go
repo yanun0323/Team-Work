@@ -197,19 +197,19 @@ func TestSearchMemoryRanksByWordsThenRecency(t *testing.T) {
 		{ID: "c", Text: "Notarize with notarytool"},
 		{ID: "d", Text: "The FRONTEND uses NPM workspaces"},
 	}
-	got := searchMemory(all, "npm frontend", nil, memoryLine)
+	got := searchMemory(all, "npm frontend", nil, 0, memoryLine)
 	lines := strings.Split(strings.TrimSpace(got), "\n")
 	if len(lines) != 3 || !strings.Contains(lines[0], "[a,") || !strings.Contains(lines[1], "[d,") || !strings.Contains(lines[2], "[b,") {
 		t.Fatalf("%s", got)
 	}
-	if got := searchMemory(all, "docker", nil, memoryLine); got != "No notes match." {
+	if got := searchMemory(all, "docker", nil, 0, memoryLine); got != "No notes match." {
 		t.Fatalf("%q", got)
 	}
 }
 
 func TestSearchMemoryCapsItsResults(t *testing.T) {
 	t.Parallel()
-	got := searchMemory(notes(memorySearchLimit+5, func(int) string { return "same" }), "same", nil, memoryLine)
+	got := searchMemory(notes(memorySearchLimit+5, func(int) string { return "same" }), "same", nil, 0, memoryLine)
 	if strings.Count(got, "\n- [")+1 != memorySearchLimit || !strings.Contains(got, "5 more match") {
 		t.Fatalf("%s", got)
 	}

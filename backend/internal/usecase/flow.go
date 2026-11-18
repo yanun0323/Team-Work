@@ -130,13 +130,13 @@ func dropNote(list *[]model.MemoryEntry, id string) (string, bool) {
 }
 
 // memorySearchLimit is how many notes one search returns at most.
-const memorySearchLimit = 20
+const memorySearchLimit = 5
 
 // searchMemory finds the notes holding any of the query's words, ignoring case, and, when vector is not nil, the notes
 // it names, closest in meaning first: the two lists are fused by reciprocal rank, so a note found both ways comes
 // first and an exact word (a command, a file name) still finds its note. By keyword alone, notes holding more of the
 // words come first, then the order they are in. line writes each found note.
-func searchMemory(notes []model.MemoryEntry, query string, vector []string, line func(model.MemoryEntry) string) string {
+func searchMemory(notes []model.MemoryEntry, query string, vector []string, offset int, line func(model.MemoryEntry) string) string {
 	words, pairs := memoryTerms(query)
 	type hit struct {
 		note  model.MemoryEntry
@@ -190,12 +190,16 @@ func searchMemory(notes []model.MemoryEntry, query string, vector []string, line
 	if len(hits) == 0 {
 		return "No notes match."
 	}
+	if offset >= len(hits) {
+		return "No more matching notes."
+	}
+	end := offset + min(len(hits)-offset, memorySearchLimit)
 	var b strings.Builder
-	for _, h := range hits[:min(len(hits), memorySearchLimit)] {
+	for _, h := range hits[offset:end] {
 		b.WriteString(line(h.note))
 	}
-	if len(hits) > memorySearchLimit {
-		fmt.Fprintf(&b, "%d more match; narrow the search.\n", len(hits)-memorySearchLimit)
+	if end < len(hits) {
+		fmt.Fprintf(&b, "%d more match; for the next page use the same query with offset: %d.\n", len(hits)-end, end)
 	}
 	return b.String()
 }
