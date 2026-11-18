@@ -171,6 +171,18 @@ it('follows only map people by default, without falling back to employees', () =
 
 const STYLE: Style = { hair: HAIR_CUTS.find((h) => h !== 'bald')!, top: 'tee', bottom: 'pants', facial: FACIALS[0], accent: '#c0453a', shoes: 'leather', shoeColor: '#2a2a30' }
 
+it('drapes long hair outside the hood while seated and standing', () => {
+  const st: Style = { ...STYLE, hair: 'long', top: 'hoodie' }
+  const hood = standingBodyForTest(LOOK, st).find(([p]) => p[2] > 0)!
+  for (const [headY, shoulderY] of [[0.82, 0.69], [0.96, 0.82]]) {
+    const [p, s] = hood
+    const hoodY = shoulderY + p[1] - 0.82
+    const locks = headBoxesForTest(LOOK, st).filter(([q, d, c]) => c === LOOK.hair && q[2] > 0 &&
+      headY + q[1] - d[1] / 2 < hoodY + s[1] / 2 && d[0] >= s[0])
+    expect(locks.some(([q, d]) => q[2] + d[2] / 2 > p[2] + s[2] / 2 + EPS)).toBe(true)
+  }
+})
+
 it('draws people far away below one zoom and in full again only past a higher one', () => {
   expect(farAway(FAR_ZOOM - 0.1, false)).toBe(true)
   expect(farAway(FAR_ZOOM + 0.1, false)).toBe(false)

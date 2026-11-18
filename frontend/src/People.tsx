@@ -153,7 +153,11 @@ function head(y: number, look: Look, st: Style) {
     if (!covered) parts.push([[0, y + 0.17, -0.02], [0.32, 0.08, 0.32], h])
     parts.push([[0, y + 0.03, 0.13], [0.32, 0.24, 0.04], h], [[-0.16, y + 0.08, 0], [0.04, 0.12, 0.24], h], [[0.16, y + 0.08, 0], [0.04, 0.12, 0.24], h])
   }
-  if (st.hair === 'long') parts.push([[0, y - 0.1, 0.13], [0.34, 0.3, 0.06], h], [[-0.165, y - 0.04, 0.03], [0.04, 0.26, 0.2], h], [[0.165, y - 0.04, 0.03], [0.04, 0.26, 0.2], h])
+  if (st.hair === 'long') {
+    // Drape the back lock over a lowered hood without detaching it from the head.
+    const back = st.top === 'hoodie' && !isSwimwear(st.bottom) ? 0.15 : 0.13
+    parts.push([[0, y - 0.1, back], [0.34, 0.3, 0.06], h], [[-0.165, y - 0.04, 0.03], [0.04, 0.26, 0.2], h], [[0.165, y - 0.04, 0.03], [0.04, 0.26, 0.2], h])
+  }
   if (st.hair === 'fringe') parts.push([[0, y + 0.1, -0.165], [0.32, 0.07, 0.03], h])
   if (st.hair === 'bun' && !topped) parts.push([[0, y + 0.25, 0.07], [0.14, 0.12, 0.14], h])
   if (st.hair === 'spiky' && !topped) for (const x of [-0.09, 0, 0.09]) parts.push([[x, y + 0.24, -0.02 + x * 0.4], [0.08, 0.08, 0.08], h])
