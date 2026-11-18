@@ -49,6 +49,9 @@ func (e *Engine) checkInvite(c *model.Chat, ids []string) error {
 func (e *Engine) invite(c *model.Chat, ids []string, before int) {
 	for _, id := range ids {
 		if r := e.w.Replicas[id]; r != nil && !chatHas(c, id) {
+			if len(c.Guests) == 0 && before >= 0 {
+				c.SoloSpeaker = c.ReplicaID
+			}
 			c.Guests = append(c.Guests, model.ChatGuest{ReplicaID: r.ID, Name: r.Name, Look: r.Look, Model: r.Model})
 			if before >= 0 {
 				c.Joins = append(c.Joins, model.ChatJoin{Before: before, ReplicaID: r.ID, Name: r.Name})
@@ -243,7 +246,7 @@ type chatPass struct {
 }
 
 func (e *Engine) chatPassTool(in chatRun, pass *chatPass) adapter.Tool {
-	return funcTool{model.ToolSpec{Name: toolChatPass, Description: "End your reply and give one other participant the floor. Call alone. The chat shows @their name followed by message; do not repeat it. Participants: " + in.participants,
+	return funcTool{model.ToolSpec{Name: toolChatPass, Description: "End your reply and give one other participant the floor. Call alone. The chat shows @their name followed by message; do not repeat it. Use a participant ID from the latest meeting note.",
 		Parameters: json.RawMessage(`{"type":"object","properties":{"replica_id":{"type":"string","description":"One other participant's ID"},"message":{"type":"string","minLength":1,"description":"Your public reply with the concrete next step, without the addressee's name"}},"required":["replica_id","message"]}`)},
 		func(_ context.Context, _ string, raw json.RawMessage) model.ToolResult {
 			var a struct {
@@ -290,11 +293,8 @@ func (e *Engine) chatPassTool(in chatRun, pass *chatPass) adapter.Tool {
 
 // meetingRule tells an employee in a meeting how the replies go round. It stays the same from round to round, so
 // their provider's cache of the request's start holds; what changes comes in roundNote.
-func meetingRule(c *model.Chat, name string) string {
-	if len(c.Guests) == 0 {
-		return ""
-	}
-	return "This chat is a meeting of the user and several employees; you are " + name + ". " +
+func meetingRule(name string) string {
+	return "In this chat you are " + name + ". When a [Meeting] note is present, the following rules apply. " +
 		"The employees the user @mentions reply one after another, and @All is everyone, the chair last; with no mention the chair replies alone. " +
 		"Finish normally by default. Only the last scheduled speaker may use pass_to_colleague, and only for a concrete remaining step in the user's request that needs a colleague. A mention in ordinary text does not pass the floor. Never pass for thanks, status alone, or a user decision. A pass grants no additional authority. " +
 		"Each sees what was said before them. What another employee said comes to you as a user message starting with their name in brackets, like \"[Ada] ...\": " +
@@ -321,10 +321,15 @@ func (e *Engine) roundNote(c *model.Chat, speaker string) string {
 		}
 		return names[id]
 	}
-	var here []string
+	var here, roster []string
 	for _, id := range append([]string{c.ReplicaID}, guestIDs(c)...) {
-		if e.w.Replicas[id] != nil {
+		if r := e.w.Replicas[id]; model.WorksIn(r, c.TeamID) {
 			here = append(here, who(id))
+			info := id
+			if bp := e.w.Blueprints[r.BlueprintID]; bp != nil {
+				info += ", " + bp.Name
+			}
+			roster = append(roster, fmt.Sprintf("%s (%s)", r.Name, info))
 		}
 	}
 	// those who replied since the user spoke went before; c.Next are still to come
@@ -344,8 +349,8 @@ func (e *Engine) roundNote(c *model.Chat, speaker string) string {
 	if a := roundActor(c); a != speaker {
 		actor = names[a]
 	}
-	return fmt.Sprintf("[Meeting] In it: %s. This round replies, in order: %s. This round %s may act outside the chat.",
-		strings.Join(here, ", "), strings.Join(order, ", "), actor)
+	return fmt.Sprintf("Participants (ID, blueprint): %s.\n[Meeting] In it: %s. This round replies, in order: %s. This round %s may act outside the chat.",
+		strings.Join(roster, ", "), strings.Join(here, ", "), strings.Join(order, ", "), actor)
 }
 
 // chatNote is what goes at the end of the user's latest words in a chat: the language reminder, then the round's note in a meeting.
@@ -382,6 +387,36 @@ func pinNote(conv []model.Message, speaker, note string) int {
 		return i
 	}
 	return -1
+}
+
+// pinMeetingNote only adds context at the tail. A retry or continuation may have no new words
+// to pin it to; keep a private note-only message rather than changing an earlier request.
+func pinMeetingNote(conv []model.Message, speaker, note string) ([]model.Message, int) {
+	if note == "" || len(conv) == 0 {
+		return conv, -1
+	}
+	at := len(conv) - 1
+	last := conv[at]
+	if last.Notes[speaker] == note {
+		return conv, -1
+	}
+	if heard(last, speaker) && last.Notes[speaker] == "" {
+		return conv, pinNote(conv, speaker, note)
+	}
+	// No need to repeat an unchanged note when continuing after tools.
+	for i := at; i >= 0; i-- {
+		if old := conv[i].Notes[speaker]; old != "" {
+			if old == note {
+				return conv, -1
+			}
+			break
+		}
+	}
+	return append(conv, model.Message{Role: enum.RoleUser, Notes: map[string]string{speaker: note}}), len(conv)
+}
+
+func noteOnly(m model.Message) bool {
+	return m.Role == enum.RoleUser && len(m.Content) == 0 && len(m.Notes) > 0
 }
 
 // heard says whether a message is words the speaker hears from someone: the user's, or what another said in a meeting.
@@ -451,7 +486,7 @@ func chatSees(conv []model.Message, speaker string, names map[string]string) []m
 		for i := range out {
 			out[i] = noted(out[i])
 		}
-		return out
+		return slices.DeleteFunc(out, func(m model.Message) bool { return len(m.Content) == 0 })
 	}
 	calls := map[string]bool{}
 	var out []model.Message
@@ -495,7 +530,7 @@ func chatSees(conv []model.Message, speaker string, names map[string]string) []m
 					kept.Content = append(kept.Content, b)
 				}
 			}
-			if len(kept.Content) > 0 {
+			if len(kept.Content) > 0 || noteOnly(m) {
 				kept.Notes = m.Notes
 				kept = noted(kept)
 			}

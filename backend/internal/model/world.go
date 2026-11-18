@@ -396,6 +396,8 @@ type Chat struct {
 	Compacting bool `json:"compacting,omitempty"`
 	// Handoffs are where other employees handed the chat on, oldest first.
 	Handoffs []ChatHandoff `json:"handoffs,omitempty"`
+	// SoloSpeaker keeps the original solo speaker on the bare chat session after guests join, even if the chair changes.
+	SoloSpeaker string `json:"soloSpeaker,omitempty"`
 	// Guests are the others in a meeting, in the order they joined.
 	Guests []ChatGuest `json:"guests,omitempty"`
 	// Joins are where guests joined once the chat was under way, oldest first.

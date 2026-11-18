@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -579,5 +580,138 @@ func TestExistingChatUsesCurrentEmployeeOnNextReply(t *testing.T) {
 				t.Fatalf("continued on model %s, effort %q, with current name: %v", req.Model, req.Effort, strings.Contains(req.System, "you are Renamed"))
 			}
 		})
+	}
+}
+
+// Compare the requests at the provider boundary, not just the session key or tool names.
+func TestInvitingEmployeesPreservesRequestPrefix(t *testing.T) {
+	t.Parallel()
+	r, _, reopen := diskRig(t)
+	hire := func(name string) string {
+		b, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: name, Model: "fake"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b.ID
+	}
+	bea, cy := hire("Bea"), hire("Cy")
+	ada := r.owner.ID
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: ada, Text: strings.Repeat("舊對話。", 1024)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := func() model.ModelRequest {
+		r.wait("done", chatDone(c.ID))
+		seen := r.fake.requests()
+		return seen[len(seen)-1]
+	}
+	before := last()
+	check := func(prev, next model.ModelRequest) {
+		t.Helper()
+		if prev.Session != next.Session {
+			t.Errorf("session changed: %s -> %s", prev.Session, next.Session)
+		}
+		if prev.System != next.System {
+			t.Error("system prompt changed")
+		}
+		if !reflect.DeepEqual(prev.Tools, next.Tools) {
+			t.Error("tool definitions changed")
+		}
+		n := len(prev.Messages)
+		if len(next.Messages) <= n || !reflect.DeepEqual(prev.Messages, next.Messages[:n]) {
+			t.Fatal("previous request messages changed")
+		}
+		if next.Messages[n].By != ada || wordsOf(next.Messages[n:n+1]) != "assistant:text:好\n" {
+			t.Fatal("previous answer changed")
+		}
+	}
+	if err := r.e.SayInChatTo(c.ID, "加入 Bea", nil, nil, []string{bea, ada}); err != nil {
+		t.Fatal(err)
+	}
+	two := last()
+	check(before, two)
+	if !strings.Contains(wordsOf(two.Messages[len(before.Messages):]), "Bea ("+bea+", Dev)") {
+		t.Error("missing Bea's ID and blueprint in new context")
+	}
+	if err := r.e.InviteToChat(c.ID, cy); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.SetChatChair(c.ID, bea); err != nil {
+		t.Fatal(err)
+	}
+	reopen()
+	if err := r.e.SayInChatTo(c.ID, "接著說", nil, nil, []string{ada}); err != nil {
+		t.Fatal(err)
+	}
+	three := last()
+	check(two, three)
+	if !strings.Contains(wordsOf(three.Messages[len(two.Messages):]), "Cy ("+cy+", Dev)") {
+		t.Error("missing Cy in new context")
+	}
+}
+
+func TestInvitingBeforeRetryKeepsToolHistory(t *testing.T) {
+	t.Parallel()
+	n := 0
+	r := newRig(t, func(req model.ModelRequest) (model.ModelReply, error) {
+		n++
+		switch n {
+		case 1:
+			return call("no_such_tool", map[string]string{}), nil
+		case 2:
+			return model.ModelReply{}, model.Errorf(model.CodeInvalid, "失敗")
+		default:
+			return say("好"), nil
+		}
+	})
+	b, err := r.e.Hire(usecase.NewReplica{TeamID: r.team.ID, BlueprintID: r.owner.BlueprintID, Name: "Bea", Model: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: r.owner.ID, Text: "開始"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.wait("failure", chatDone(c.ID))
+	if err := r.e.InviteToChat(c.ID, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.RetryChat(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("retry", chatDone(c.ID))
+	req := r.fake.requests()
+	old, next := slices.Clone(req[1].Messages), req[2].Messages
+	// The live turn has no author tags on its own tool exchanges. On replay these internal tags
+	// identify their author; providers serialize the role and blocks, not the tag.
+	if len(old) != 3 {
+		t.Fatalf("expected user, call and result; got %d messages", len(old))
+	}
+	old[1].By, old[2].By = r.owner.ID, r.owner.ID
+	if len(next) <= len(old) || !reflect.DeepEqual(next[:len(old)], old) || !strings.Contains(wordsOf(next[len(old):]), b.ID) {
+		t.Fatalf("retry changed the request: old=%+v new=%+v", old, next)
+	}
+	if err := r.e.SayInChatTo(c.ID, "詢問 Bea", nil, nil, []string{b.ID}); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("Bea", chatDone(c.ID))
+	req = r.fake.requests()
+	if strings.Count(wordsOf(req[len(req)-1].Messages), "Participants (ID, blueprint)") != 1 {
+		t.Fatal("Bea saw another speaker's private roster")
+	}
+	// A private note is not a user message when rewinding the public conversation.
+	msgs := r.world().Chats[c.ID].Messages
+	at := slices.IndexFunc(msgs, func(m model.ChatMessage) bool { return m.Text == "詢問 Bea" })
+	if err := r.e.RewindChat(c.ID, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.SayInChat(c.ID, "重新問", nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("rewound", chatDone(c.ID))
+	req = r.fake.requests()
+	words := wordsOf(req[len(req)-1].Messages)
+	if !strings.Contains(words, "assistant:text:好") || strings.Contains(words, "詢問 Bea") {
+		t.Fatal("rewind lost the retried reply or retained the rewound message")
 	}
 }

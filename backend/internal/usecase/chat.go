@@ -445,7 +445,7 @@ func (e *Engine) HandOffChat(id string, index int, replicaID string, version ...
 // saidAt finds the user's nth message in a conversation, where tool results also come as the user's; -1 if it has none.
 func saidAt(conv []model.Message, nth int) int {
 	for i, m := range conv {
-		if m.Role != enum.RoleUser || (len(m.Content) > 0 && m.Content[0].Type == enum.BlockToolResult) {
+		if m.Role != enum.RoleUser || noteOnly(m) || (len(m.Content) > 0 && m.Content[0].Type == enum.BlockToolResult) {
 			continue
 		}
 		if nth == 0 {
@@ -700,7 +700,7 @@ func (e *Engine) chatSpec(c *model.Chat, speaker string) (agentSpec, error) {
 	team, bp := e.w.Teams[c.TeamID], e.w.Blueprints[r.BlueprintID]
 	e.readPrompt(team)
 	spec.prompt = promptParts{
-		rules:  chatRules + "\n" + languageRule(e.w.Language) + "\n" + chatPriorityRule + "\n" + chatHandoffRule(c) + meetingRule(c, r.Name),
+		rules:  chatRules + "\n" + languageRule(e.w.Language) + "\n" + chatPriorityRule + "\n" + chatHandoffRule(c) + meetingRule(r.Name),
 		shared: sharedRules(e.runGlobalPrompt(), team.Prompt),
 		role:   e.rolePart(bp),
 		memory: e.memorySection(team, r),
@@ -850,10 +850,9 @@ type chatRun struct {
 	actor   bool
 	// actorName is who may act this round, for a refusal to name
 	actorName string
-	// participants lists the meeting members and their IDs for the pass tool.
-	participants string
 	// note is what changes from round to round in a meeting, put at the end of the user's latest words
 	note    string
+	meeting bool
 	session string
 	names   map[string]string
 }
@@ -880,15 +879,11 @@ func (e *Engine) launchChat(c *model.Chat, speaker string, spec agentSpec) {
 	}
 	e.wg.Add(1)
 	session := c.ID
-	if len(c.Guests) > 0 { // each keeps their own, whoever chairs, so their provider's cache stays theirs
+	if len(c.Guests) > 0 && speaker != c.SoloSpeaker { // keep existing solo and meeting session keys
 		session = c.ID + "-" + speaker
 	}
 	var peers []packRoot
-	var participants []string
 	for _, id := range append([]string{c.ReplicaID}, guestIDs(c)...) {
-		if p := e.w.Replicas[id]; len(c.Guests) > 0 && model.WorksIn(p, c.TeamID) {
-			participants = append(participants, fmt.Sprintf("%s (%s)", p.Name, id))
-		}
 		if p := e.w.Replicas[id]; id != speaker && model.WorksIn(p, c.TeamID) {
 			if bp := e.w.Blueprints[p.BlueprintID]; bp != nil {
 				peers = append(peers, e.packsOf(bp)...)
@@ -904,7 +899,7 @@ func (e *Engine) launchChat(c *model.Chat, speaker string, spec agentSpec) {
 	names := e.chatNames(c)
 	go e.runChat(ctx, chatRun{r: r, id: c.ID, spec: spec, conv: slices.Clone(e.w.Conversations[c.ID]), folder: folder, team: c.TeamID, said: said, peers: peers, context: c.Context, compact: clone(c.Compact), memory: !c.AtAirport(),
 		models: models, room: room, compactAt: at, chair: chair, chairRoom: chairRoom,
-		participants: strings.Join(participants, ", "), speaker: speaker, actor: speaker == roundActor(c), actorName: names[roundActor(c)], note: chatNote(e.w.Language, e.roundNote(c, speaker)), session: session, names: names})
+		meeting: len(c.Guests) > 0, speaker: speaker, actor: speaker == roundActor(c), actorName: names[roundActor(c)], note: chatNote(e.w.Language, e.roundNote(c, speaker)), session: session, names: names})
 }
 
 // applyChat changes a chat for a run, unless the run was stopped or replaced meanwhile.
@@ -1157,13 +1152,22 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 			}
 		}
 	}
-	if i := pinNote(in.conv, in.speaker, in.note); i >= 0 {
+	var i int
+	if in.meeting {
+		in.conv, i = pinMeetingNote(in.conv, in.speaker, in.note)
+	} else {
+		i = pinNote(in.conv, in.speaker, in.note)
+	}
+	if i >= 0 {
 		noted := in.conv[i]
 		kept := e.applyChat(in, func(c *model.Chat) {
-			if conv := e.w.Conversations[c.ID]; i < len(conv) {
+			conv := e.w.Conversations[c.ID]
+			if i == len(conv) {
+				e.w.Conversations[c.ID] = append(conv, noted)
+			} else {
 				conv[i].Notes = noted.Notes
-				e.dirty[c.ID] = true
 			}
+			e.dirty[c.ID] = true
 		})
 		if !kept {
 			return
@@ -1173,7 +1177,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	list := tools.For(in.spec.allowed, tools.Env{Read: read, Output: e.outputRoot(in.id), Search: e.search, Semantic: e.semantic, Task: in.id, Replica: replicaOf(in.r),
 		Jobs: e.jobs, JobScope: chatJobScope(in.id)})
 	list = append(list, e.chatAskUser(in))
-	if in.participants != "" {
+	if in.team != "" {
 		list = append(list, e.chatPassTool(in, &pass))
 	}
 	// a company's chats read its terminal, the airport's (team "") the airport's
