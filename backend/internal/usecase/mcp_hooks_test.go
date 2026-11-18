@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -103,8 +104,8 @@ func TestMCPToolsReachWhoMayRunCommands(t *testing.T) {
 	}
 
 	// the owner's blueprint runs commands; the script tool's setting is off
-	if r.world().Preferences.CodeMode {
-		t.Fatal("the script tool is on from the start")
+	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codeMode": json.RawMessage(`false`)}); err != nil {
+		t.Fatal(err)
 	}
 	theirs := chat(r.owner.ID)
 	for _, req := range r.fake.requests() {

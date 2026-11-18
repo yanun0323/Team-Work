@@ -189,8 +189,11 @@ func TestMeetingIsHeldInTheConversationAndOnlyItsConclusionGoesBack(t *testing.T
 				t.Fatal("the owner's own conversation got the meeting's words")
 			}
 		case isMember(req):
+			if got := scriptTools(req); !slices.Equal(got, []string{"read_file"}) {
+				t.Fatalf("participant script tools: %v", got)
+			}
 			for _, name := range toolNames(req) {
-				if !slices.Contains([]string{"read_file", "web_search"}, name) {
+				if !slices.Contains([]string{"read_file", "web_search", "exec"}, name) {
 					t.Fatalf("a participant could use %s", name)
 				}
 			}

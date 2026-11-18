@@ -20,11 +20,11 @@ import (
 	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
-func TestCodeModeSettingIsOffUntilTurnedOn(t *testing.T) {
+func TestCodeModeSettingCanBeDisabledAndReenabled(t *testing.T) {
 	t.Parallel()
 	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
-	if r.world().Preferences.CodeMode {
-		t.Fatal("on by default")
+	if !r.world().Preferences.CodeMode {
+		t.Fatal("off by default")
 	}
 	for _, bad := range []string{`null`, `"yes"`, `1`} {
 		err := r.e.UpdatePreferences(map[string]json.RawMessage{"codeMode": json.RawMessage(bad)})
@@ -33,22 +33,22 @@ func TestCodeModeSettingIsOffUntilTurnedOn(t *testing.T) {
 			t.Fatalf("%s: %v", bad, err)
 		}
 	}
-	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codeMode": json.RawMessage(`true`)}); err != nil {
+	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codeMode": json.RawMessage(`false`)}); err != nil {
 		t.Fatal(err)
 	}
-	if !r.world().Preferences.CodeMode {
-		t.Fatal("not turned on")
+	if r.world().Preferences.CodeMode {
+		t.Fatal("not turned off")
 	}
 	raw, err := os.ReadFile(filepath.Join(r.data, "preferences.yaml"))
-	if err != nil || !strings.Contains(string(raw), "codeMode: true") {
+	if err != nil || !strings.Contains(string(raw), "codeMode: false") {
 		t.Fatalf("%s %v", raw, err)
 	}
 	r.e.Close()
 	newEngine(t, r)
-	if !r.world().Preferences.CodeMode {
+	if r.world().Preferences.CodeMode {
 		t.Fatal("lost on restart")
 	}
-	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codeMode": json.RawMessage(`false`)}); err != nil || r.world().Preferences.CodeMode {
+	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codeMode": json.RawMessage(`true`)}); err != nil || !r.world().Preferences.CodeMode {
 		t.Fatal(err)
 	}
 }
@@ -209,6 +209,9 @@ text(JSON.stringify({todo: todo.length, matched, other, wrote, teamIds: all.filt
 			return talked && chatDone(c.ID)(w) && w.Tasks[read.ID].Stage == enum.StageAwaitMerge && w.Tasks[muted.ID].Stage == enum.StageAwaitMerge
 		})
 		return read, talk, muted, c.ID
+	}
+	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codeMode": json.RawMessage(`false`)}); err != nil {
+		t.Fatal(err)
 	}
 	runAll()
 	for _, req := range r.fake.requests() {
@@ -421,6 +424,9 @@ text("after")`
 	r.e.Close()
 	newEngine(t, r)
 	rr = r
+	if err := r.e.UpdatePreferences(map[string]json.RawMessage{"codeMode": json.RawMessage(`false`)}); err != nil {
+		t.Fatal(err)
+	}
 	task := r.ownerTask(r.flow.ID)
 	r.wait("the owner to stop", func(w *model.World) bool {
 		c := w.Tasks[task.ID].Coordination

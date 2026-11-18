@@ -134,6 +134,7 @@ func TestExecFollowsTheSettingAtEachModelCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := codeModeEngine()
+	e.setCodeMode(false)
 	script := toolCall("x1", toolExec, map[string]string{"code": `const f = await tools.read_file({path: "a.txt"}); text(f.totalLines + " " + typeof tools.write_file)`})
 	fake := &stepsFake{steps: []func(model.ModelRequest) (model.ModelReply, error){
 		func(model.ModelRequest) (model.ModelReply, error) {
@@ -327,6 +328,7 @@ func TestExecStoreLastsWithinItsConversation(t *testing.T) {
 // A meeting the owner holds reads only; its participants get exec over what they read, the chair too.
 func TestMeetingTurnsGetExec(t *testing.T) {
 	e := codeModeEngine()
+	e.setCodeMode(false)
 	for _, chair := range []bool{false, true} {
 		in := &meetingRun{taskID: "t1", subID: "s1", key: "k", allowed: []enum.Tool{enum.ToolReadFile}, chair: chair, r: &run{}}
 		if tr := e.meetingTurn(in); offers(tr.req, toolExec) {

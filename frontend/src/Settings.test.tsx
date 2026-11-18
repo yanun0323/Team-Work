@@ -25,13 +25,13 @@ it('is a drawer headed as the airport, its model providers listed under the firs
 })
 
 it('starts with every preference on and the newest log line first', () => {
-  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, systemNotices: true, musicStyle: 'bossa', soundNotice: true, soundOpenTeam: true, soundOpenAirport: true, soundOpenTower: true, soundOpenStaffing: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, debug: false, wideSheets: false, mapClick: 'sheets', autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, idleFollow: 15, idleFollowTarget: 'map', terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], compact1M: 40, compact256K: 90, compact128K: 95, compactSmall: 95, semanticSearch: false, codeMode: false })
+  expect(DEFAULT_PREFS).toEqual({ muteInBackground: true, systemNotices: true, musicStyle: 'bossa', soundNotice: true, soundOpenTeam: true, soundOpenAirport: true, soundOpenTower: true, soundOpenStaffing: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, debug: false, wideSheets: false, mapClick: 'sheets', autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, idleFollow: 15, idleFollowTarget: 'map', terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], compact1M: 40, compact256K: 90, compact128K: 95, compactSmall: 95, semanticSearch: false, codeMode: true })
   expect(ordered([1, 2, 3], 'newestFirst')).toEqual([3, 2, 1])
   expect(ordered([1, 2, 3], 'newestLast')).toEqual([1, 2, 3])
 })
 
-it("keeps the read-only script tool off until asked, and as the island's own setting", () => {
-  expect(DEFAULT_PREFS.codeMode).toBe(false)
+it("enables the script tool by default as the island's own setting", () => {
+  expect(DEFAULT_PREFS.codeMode).toBe(true)
   expect(ISLAND_PREFS).toContain('codeMode')
   // on another island it goes to that island, not this computer
   expect(splitPrefs({ codeMode: true, musicMuted: true })).toEqual([{ codeMode: true }, { musicMuted: true }])
