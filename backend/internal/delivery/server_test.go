@@ -38,7 +38,7 @@ func (noModels) Login(context.Context, model.ModelProvider, string) (*adapter.Lo
 		Paste: func(string) error { return nil }}, nil
 }
 func (noModels) Logout(context.Context, model.ModelProvider) error { return nil }
-func (noModels) Images(model.ModelProvider) (adapter.ImageMaker, error) {
+func (noModels) Images(model.ModelProvider, string, string) (adapter.ImageMaker, error) {
 	return nil, model.Errorf(model.CodeInvalid, "no images")
 }
 

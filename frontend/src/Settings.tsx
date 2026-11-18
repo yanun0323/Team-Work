@@ -19,7 +19,7 @@ import { HideTool, itemKey, type Item } from './DrawerDetail'
 import { useUnderWide, WideCover } from './WideSheets'
 import { FlowNotes, openCard } from './FlowNotes'
 import { keptState, sourceState, sourceText } from './source'
-import { authLabel, makesImages, PROVIDER_KINDS } from './providers'
+import { authLabel, isImageSubscription, PROVIDER_KINDS } from './providers'
 import { unlistedModels } from './crew'
 import { Chevron, Select, Toggle, useAutoGrow } from './Controls'
 import { hideBlueprint, hideWorkflow, refreshStaleModels, remoteWindowReason, setLanguage } from './core/ops'
@@ -442,16 +442,22 @@ export function ChatTitleFields({ model, effort, onChange: set }: { model: strin
   )
 }
 
-/** The ChatGPT subscription every employee draws pictures with, or none. */
+/** A provider and its image model, selected together even if several providers list the same name. */
 export function ImageProviderField() {
   const providers = useStore((s) => s.world.providers)
-  const value = usePrefs((s) => s.imageProvider)
+  const provider = usePrefs((s) => s.imageProvider)
+  const model = usePrefs((s) => s.imageModel)
   const set = usePrefs((s) => s.set)
-  const ids = Object.values(providers).filter(makesImages).map((p) => p.id)
-  return (
-    <Select label={tr('圖片生成')} value={ids.includes(value) ? value : ''} options={['', ...ids]}
-      labelOf={(id) => (id ? providers[id].name : tr('沒有'))} onChange={(imageProvider) => set({ imageProvider })} />
-  )
+  const choices = Object.values(providers).flatMap(p => (isImageSubscription(p) ? [''] : p.kind === 'compatible' ? p.imageModels ?? [] : []).map(m => ({
+    key: JSON.stringify([p.id, m]), label: `${p.name} · ${m || 'gpt-image-2'}`, imageProvider: p.id, imageModel: m,
+  })))
+  const find = (key: string) => choices.find(c => c.key === key)
+  const selected = JSON.stringify([provider, model])
+  return <Select label={tr('圖片生成')} value={find(selected) ? selected : ''} options={['', ...choices.map(c => c.key)]}
+    onOpen={refreshStaleModels} labelOf={key => find(key)?.label ?? tr('沒有')} onChange={key => {
+      const choice = find(key)
+      set({ imageProvider: choice?.imageProvider ?? '', imageModel: choice?.imageModel ?? '' })
+    }} />
 }
 
 const COMPACT_GROUPS = [['compact1M', '1M+'], ['compact256K', '256K+'], ['compact128K', '128K+'], ['compactSmall', '< 128K']] as const
@@ -532,7 +538,7 @@ export function PrefsPage() {
   // on another island the interface stays this computer's: only its language, and the island's own work settings, change here
   const remote = useRemote()
   const own = (children: ReactNode) => (remote ? <fieldset className="fx-prefs-fence" disabled>{children}</fieldset> : children)
-  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'idleFollow' | 'idleFollowTarget' | 'terminalCommand' | 'autoView' | 'mapClick' | 'busyAnimation' | 'autoTab' | 'daylight' | 'hiddenBlueprints' | 'hiddenWorkflows' | keyof typeof COMPACT_DEFAULTS>, label: string) => (
+  const check = (key: Exclude<keyof Prefs, 'logOrder' | 'defaultTab' | 'defaultAirportTab' | 'chatTitleModel' | 'chatTitleEffort' | 'imageProvider' | 'imageModel' | 'musicVolume' | 'effectsVolume' | 'musicStyle' | 'zoomSensitivity' | 'idleFollow' | 'idleFollowTarget' | 'terminalCommand' | 'autoView' | 'mapClick' | 'busyAnimation' | 'autoTab' | 'daylight' | 'hiddenBlueprints' | 'hiddenWorkflows' | keyof typeof COMPACT_DEFAULTS>, label: string) => (
     <Toggle label={label} checked={prefs[key]} onChange={(v) => prefs.set({ [key]: v })} />
   )
   return (

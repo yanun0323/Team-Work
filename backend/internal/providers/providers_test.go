@@ -732,3 +732,55 @@ func TestKeyedProvidersShareTheirConnections(t *testing.T) {
 		t.Fatal("each provider opened its own connections")
 	}
 }
+
+func TestCompatibleImageModelsAndGeneration(t *testing.T) {
+	const png64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6vV0AAAAASUVORK5CYII="
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer key" {
+			t.Error("wrong credentials")
+		}
+		switch r.URL.Path {
+		case "/v1/models":
+			io.WriteString(w, `{"data":[{"id":"sushi","capabilities":["chat","vision"],"context_length":262144},{"id":"image-sushi","capabilities":["image_generation"]},{"id":"both","capabilities":["chat","image_generation"],"context_length":8192}]}`)
+		case "/v1/images/generations":
+			var b map[string]string
+			if r.Method != "POST" || r.Header.Get("Accept") != "application/json" || json.NewDecoder(r.Body).Decode(&b) != nil || b["model"] != "image-sushi" {
+				t.Error("wrong image request")
+			}
+			if b["prompt"] == "invalid" {
+				io.WriteString(w, `{"data":[{"url":"https://example.invalid"}]}`)
+				return
+			}
+			io.WriteString(w, `{"data":[{"b64_json":"`+png64+`"}]}`)
+		default:
+			t.Errorf("unexpected probe %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	f := NewFactory(nil, nil)
+	p := model.ModelProvider{Kind: enum.ProviderCompatible, Auth: model.ProviderAuth{Kind: "apiKey"}, BaseURL: srv.URL + "/v1"}
+	ctx := context.Background()
+	api, err := f.For(p, "key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	specs, err := api.Models(ctx)
+	if err != nil || len(specs) != 3 || specs[0].ImageGeneration || !specs[1].ImageOnly || !specs[1].ImageGeneration || specs[2].ImageOnly || !specs[2].ImageGeneration {
+		t.Fatalf("models: %+v, %v", specs, err)
+	}
+	p.ImageModels = []string{"image-sushi", "both"}
+	if _, err = f.Images(p, "key", "sushi"); err == nil {
+		t.Fatal("accepted chat model")
+	}
+	m, err := f.Images(p, "key", "image-sushi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, err := m.MakeImage(ctx, "flower", nil, false, nil); err != nil || len(data) == 0 {
+		t.Fatalf("image: %v", err)
+	}
+	if _, err = m.MakeImage(ctx, "invalid", nil, false, nil); err == nil {
+		t.Fatal("accepted missing image")
+	}
+}

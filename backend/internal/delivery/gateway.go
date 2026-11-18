@@ -300,7 +300,7 @@ func viewable(p, method string) bool {
 }
 func remoteWorkPreference(key string) bool {
 	switch key {
-	case "terminalCommand", "chatTitleModel", "chatTitleEffort", "imageProvider", "codexSkills", "claudeSkills", "hiddenBlueprints", "hiddenWorkflows", "compact1M", "compact256K", "compact128K", "compactSmall":
+	case "terminalCommand", "chatTitleModel", "chatTitleEffort", "imageProvider", "imageModel", "codexSkills", "claudeSkills", "hiddenBlueprints", "hiddenWorkflows", "compact1M", "compact256K", "compact128K", "compactSmall":
 		return true
 	}
 	return false

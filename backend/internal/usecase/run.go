@@ -267,7 +267,8 @@ type agentSpec struct {
 	// subscription: paid by plan, not by token, so the cost limit has nothing to count
 	subscription bool
 	// images draws pictures for image_gen; nil when no ChatGPT subscription is set to
-	images adapter.ImageMaker
+	images              adapter.ImageMaker
+	imageGenerationOnly bool
 	// read lists folders readable besides the working directory, skills and attachments
 	read []string
 }
@@ -305,7 +306,7 @@ func (e *Engine) modelSpec(modelID, wanted string) (agentSpec, error) {
 	if wanted != model.ThinkingDefault && e.takesEffort(modelID, wanted) {
 		effort = wanted
 	}
-	spec := agentSpec{provider: provider, model: modelID, effort: effort, subscription: p.Auth.Kind != "apiKey", images: e.imageMaker()}
+	spec := agentSpec{provider: provider, model: modelID, effort: effort, subscription: p.Auth.Kind != "apiKey", images: e.imageMaker(), imageGenerationOnly: e.w.Preferences.ImageModel != ""}
 	if price, ok := p.Prices[modelID]; ok {
 		spec.price = &price
 	}
@@ -323,7 +324,7 @@ func (e *Engine) imageMaker() adapter.ImageMaker {
 	if p == nil {
 		return nil
 	}
-	maker, err := e.providers.Images(*p)
+	maker, err := e.providers.Images(*p, e.secrets[p.ID], e.w.Preferences.ImageModel)
 	if err != nil {
 		return nil
 	}
@@ -335,7 +336,7 @@ func imageTools(spec agentSpec, read []string, keep func(output string, data []b
 	if spec.images == nil {
 		return nil
 	}
-	return []adapter.Tool{tools.Image{Maker: spec.images, Extra: read, Keep: keep}}
+	return []adapter.Tool{tools.Image{Maker: spec.images, GenerationOnly: spec.imageGenerationOnly, Extra: read, Keep: keep}}
 }
 
 func (e *Engine) buildSpec(t *model.Task, node *model.WorkflowNode, r *model.Replica) (agentSpec, error) {

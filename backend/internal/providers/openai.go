@@ -28,7 +28,16 @@ func (o openAI) Models(ctx context.Context) ([]model.ModelSpec, error) {
 		return nil, err
 	}
 	specs := specsOf(listed)
-	if !o.askServer || !slices.ContainsFunc(specs, func(s model.ModelSpec) bool { return s.ContextWindow == 0 }) {
+	if o.askServer {
+		for i, m := range listed {
+			var caps []string
+			if json.Unmarshal(m.Capabilities, &caps) == nil && slices.Contains(caps, "image_generation") {
+				specs[i].ImageGeneration = true
+				specs[i].ImageOnly = !slices.Contains(caps, "chat")
+			}
+		}
+	}
+	if !o.askServer || !slices.ContainsFunc(specs, func(s model.ModelSpec) bool { return !s.ImageOnly && s.ContextWindow == 0 }) {
 		return specs, nil
 	}
 	var windows map[string]int
@@ -67,7 +76,7 @@ func (o openAI) llamaCppWindows(ctx context.Context, specs []model.ModelSpec) ma
 	}
 	asked := 0
 	for _, s := range specs {
-		if s.ContextWindow > 0 || asked == llamaCppProbes || ctx.Err() != nil {
+		if s.ImageOnly || s.ContextWindow > 0 || asked == llamaCppProbes || ctx.Err() != nil {
 			continue
 		}
 		asked++

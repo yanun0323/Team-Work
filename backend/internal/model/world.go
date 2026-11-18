@@ -624,12 +624,13 @@ type LoginPrompt struct {
 
 // ModelProvider never holds the API key itself; that is a secret kept apart, by provider id.
 type ModelProvider struct {
-	ID      string            `json:"id"`
-	Name    string            `json:"name"`
-	Kind    enum.ProviderKind `json:"kind"`
-	Auth    ProviderAuth      `json:"auth"`
-	BaseURL string            `json:"baseUrl"`
-	Models  []string          `json:"models"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Kind        enum.ProviderKind `json:"kind"`
+	Auth        ProviderAuth      `json:"auth"`
+	BaseURL     string            `json:"baseUrl"`
+	Models      []string          `json:"models"`
+	ImageModels []string          `json:"imageModels,omitempty"`
 	// Hidden are models the user turned off: whoever is on one still runs on it, but no list offers it. Kept when the
 	// provider lists its models again, so one it drops and brings back stays off.
 	Hidden []string `json:"hidden,omitempty"`
@@ -686,17 +687,24 @@ func FixedContext(kind enum.ProviderKind) bool {
 	return kind == enum.ProviderAnthropic || kind == enum.ProviderOpenAI
 }
 
-// MakesImages says whether a provider can be the one that draws pictures: only a ChatGPT subscription can.
-func MakesImages(p ModelProvider) bool {
+// IsImageSubscription identifies the built-in subscription image service.
+func IsImageSubscription(p ModelProvider) bool {
 	return p.Kind == enum.ProviderOpenAI && p.Auth.Kind == "subscription"
 }
 
 // ThinkingDefault leaves how hard a model thinks to its provider. Every model takes it.
 const ThinkingDefault = "default"
 
+// SupportsImage accepts an empty model for the built-in subscription image service.
+func (p ModelProvider) SupportsImage(id string) bool {
+	return (IsImageSubscription(p) && id == "") || (id != "" && p.Kind == enum.ProviderCompatible && p.Auth.Kind == "apiKey" && slices.Contains(p.ImageModels, id))
+}
+
 // ModelSpec is a model as its provider describes it.
 type ModelSpec struct {
-	ID string
+	ImageGeneration bool
+	ImageOnly       bool
+	ID              string
 	// Thinking lists the levels the model accepts, weakest first; empty when the provider doesn't say.
 	Thinking []string
 	// ContextWindow is how many tokens the server runs the model at; 0 when it doesn't say. Never the length the

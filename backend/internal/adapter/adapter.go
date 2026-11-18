@@ -59,7 +59,7 @@ type Providers interface {
 	// Logout forgets what signing in saved.
 	Logout(ctx context.Context, p model.ModelProvider) error
 	// Images draws pictures with a signed-in ChatGPT subscription.
-	Images(p model.ModelProvider) (ImageMaker, error)
+	Images(p model.ModelProvider, key, imageModel string) (ImageMaker, error)
 }
 
 // ImageMaker draws a PNG from a prompt, or edits the sources (data URLs) when there are any. With gif it draws a

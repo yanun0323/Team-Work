@@ -342,9 +342,14 @@ func (e *Engine) UpdatePreferences(patch map[string]json.RawMessage) error {
 		if err != nil {
 			return settingsError("preferences.yaml", err)
 		}
-		if _, set := patch["imageProvider"]; set && next.ImageProvider != "" {
-			if p := e.w.Providers[next.ImageProvider]; p == nil || !model.MakesImages(*p) {
-				return model.Errorf(model.CodeInvalid, "只有 ChatGPT 訂閱可以生成圖片")
+		if _, set := patch["imageProvider"]; set && patch["imageModel"] == nil {
+			next.ImageModel = ""
+		}
+		if patch["imageProvider"] != nil || patch["imageModel"] != nil {
+			if next.ImageProvider != "" || next.ImageModel != "" {
+				if p := e.w.Providers[next.ImageProvider]; p == nil || !p.SupportsImage(next.ImageModel) {
+					return model.Errorf(model.CodeInvalid, "請選擇 ChatGPT 訂閱或供應商列出的生圖模型")
+				}
 			}
 		}
 		e.w.Preferences = next

@@ -61,8 +61,9 @@ type Preferences struct {
 	// ChatTitleModel names each new chat from its first message; empty turns naming off.
 	ChatTitleModel  string `json:"chatTitleModel"`
 	ChatTitleEffort string `json:"chatTitleEffort"`
-	// ImageProvider is the ChatGPT subscription every employee draws pictures with; empty gives nobody image_gen.
+	// ImageProvider is the image provider every employee draws pictures with; empty gives nobody image_gen.
 	ImageProvider string `json:"imageProvider"`
+	ImageModel    string `json:"imageModel"`
 	// CodexSkills and ClaudeSkills let the built-in blueprints read skills from ~/.codex/ and ~/.claude/.
 	CodexSkills  bool `json:"codexSkills"`
 	ClaudeSkills bool `json:"claudeSkills"`

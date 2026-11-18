@@ -614,16 +614,26 @@ func (e *Engine) discover(ctx context.Context, p model.ModelProvider, key string
 // the default. Call it on a provider in the world, holding the lock.
 func (e *Engine) setModels(p *model.ModelProvider, specs []model.ModelSpec) {
 	e.modelsAt[p.ID] = e.clock()
-	p.Models, p.Thinking, p.Windows = modelsOf(specs)
+	p.Models, p.Thinking, p.Windows, p.ImageModels = modelsOf(specs)
+	if e.w.Preferences.ImageProvider == p.ID && !p.SupportsImage(e.w.Preferences.ImageModel) {
+		e.w.Preferences.ImageProvider, e.w.Preferences.ImageModel = "", ""
+	}
 	e.resetEfforts()
 }
 
 // modelsOf are the models a provider reported, the levels of each, and the length it runs each at when it said.
-func modelsOf(specs []model.ModelSpec) ([]string, map[string][]string, map[string]int) {
+func modelsOf(specs []model.ModelSpec) ([]string, map[string][]string, map[string]int, []string) {
+	var images []string
 	models := make([]string, 0, len(specs))
 	thinking := make(map[string][]string, len(specs))
 	var windows map[string]int
 	for _, m := range specs {
+		if m.ImageGeneration {
+			images = append(images, m.ID)
+		}
+		if m.ImageOnly {
+			continue
+		}
 		models = append(models, m.ID)
 		if m.ContextWindow > 0 {
 			if windows == nil {
@@ -639,7 +649,8 @@ func modelsOf(specs []model.ModelSpec) ([]string, map[string][]string, map[strin
 		}
 	}
 	slices.Sort(models)
-	return slices.Compact(models), thinking, windows
+	slices.Sort(images)
+	return slices.Compact(models), thinking, windows, slices.Compact(images)
 }
 
 // resetEfforts skips a provider not asked yet: its employees keep their level until it has answered.
@@ -706,7 +717,7 @@ func (e *Engine) AddProvider(ctx context.Context, in NewProvider) (*model.ModelP
 		if err != nil {
 			return nil, err
 		}
-		p.Models, p.Thinking, p.Windows = modelsOf(specs)
+		p.Models, p.Thinking, p.Windows, p.ImageModels = modelsOf(specs)
 	}
 	var out *model.ModelProvider
 	err := e.doSettings(func() error {
@@ -716,8 +727,8 @@ func (e *Engine) AddProvider(ctx context.Context, in NewProvider) (*model.ModelP
 			e.modelsAt[p.ID] = e.clock()
 		}
 		e.w.Providers[p.ID] = &p
-		if in.ImageDefault && model.MakesImages(p) {
-			e.w.Preferences.ImageProvider = p.ID
+		if in.ImageDefault && model.IsImageSubscription(p) {
+			e.w.Preferences.ImageProvider, e.w.Preferences.ImageModel = p.ID, ""
 		}
 		out = clone(&p)
 		return nil
@@ -749,10 +760,10 @@ func (e *Engine) UpdateProvider(ctx context.Context, id string, in ProviderPatch
 		if next.provider.Auth.Kind == "apiKey" {
 			e.modelsAt[id] = e.clock()
 		}
-		if in.ImageDefault != nil && *in.ImageDefault && model.MakesImages(next.provider) {
-			e.w.Preferences.ImageProvider = id
+		if in.ImageDefault != nil && *in.ImageDefault && model.IsImageSubscription(next.provider) {
+			e.w.Preferences.ImageProvider, e.w.Preferences.ImageModel = id, ""
 		} else if in.ImageDefault != nil && !*in.ImageDefault && e.w.Preferences.ImageProvider == id {
-			e.w.Preferences.ImageProvider = ""
+			e.w.Preferences.ImageProvider, e.w.Preferences.ImageModel = "", ""
 		}
 		return nil
 	})
@@ -806,7 +817,7 @@ func (e *Engine) prepareProvider(ctx context.Context, id string, in ProviderPatc
 		}
 		if l.Kind == "apiKey" || wasKey { // already on a subscription: stay signed in
 			next.Auth = authOf(*l)
-			next.Models, next.Thinking, next.Windows = []string{}, nil, nil
+			next.Models, next.Thinking, next.Windows, next.ImageModels = []string{}, nil, nil, nil
 		}
 		key = strings.TrimSpace(l.APIKey)
 	}
@@ -821,7 +832,7 @@ func (e *Engine) prepareProvider(ctx context.Context, id string, in ProviderPatc
 		if err != nil {
 			return providerEdit{}, err
 		}
-		next.Models, next.Thinking, next.Windows = modelsOf(specs)
+		next.Models, next.Thinking, next.Windows, next.ImageModels = modelsOf(specs)
 	}
 	return providerEdit{provider: next, key: key, wasKey: wasKey}, nil
 }
@@ -844,8 +855,8 @@ func (e *Engine) writeProvider(ctx context.Context, edit providerEdit) error {
 		e.setSecret(id, edit.key)
 	}
 	e.w.Providers[id] = &next
-	if e.w.Preferences.ImageProvider == id && !model.MakesImages(next) {
-		e.w.Preferences.ImageProvider = ""
+	if e.w.Preferences.ImageProvider == id && !next.SupportsImage(e.w.Preferences.ImageModel) {
+		e.w.Preferences.ImageProvider, e.w.Preferences.ImageModel = "", ""
 	}
 	return nil
 }
@@ -904,7 +915,7 @@ func (e *Engine) DeleteProvider(ctx context.Context, id string) error {
 		e.deleteSecret(id)
 		delete(e.w.Providers, id)
 		if e.w.Preferences.ImageProvider == id {
-			e.w.Preferences.ImageProvider = ""
+			e.w.Preferences.ImageProvider, e.w.Preferences.ImageModel = "", ""
 		}
 		return nil
 	})
@@ -1121,8 +1132,8 @@ func (e *Engine) refreshModels(ctx context.Context, id string) error {
 
 // sameModels says whether a provider already holds what it reported.
 func sameModels(p model.ModelProvider, specs []model.ModelSpec) bool {
-	models, thinking, windows := modelsOf(specs)
-	return slices.Equal(p.Models, models) && maps.EqualFunc(p.Thinking, thinking, slices.Equal[[]string]) && maps.Equal(p.Windows, windows)
+	models, thinking, windows, images := modelsOf(specs)
+	return slices.Equal(p.ImageModels, images) && slices.Equal(p.Models, models) && maps.EqualFunc(p.Thinking, thinking, slices.Equal[[]string]) && maps.Equal(p.Windows, windows)
 }
 
 // ModelsFresh is how long a provider's models are taken as they are before a list to pick from asks again.

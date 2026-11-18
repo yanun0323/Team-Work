@@ -125,8 +125,9 @@ export interface Prefs {
   /** Names each new chat from its first message with this model; empty turns it off. */
   chatTitleModel: string
   chatTitleEffort: string
-  /** The ChatGPT subscription every employee draws pictures with; empty gives nobody image_gen. */
+  /** The provider every employee draws pictures with; empty gives nobody image_gen. */
   imageProvider: string
+  imageModel: string
   /** The built-in blueprints read skills from ~/.codex/ and ~/.claude/. */
   codexSkills: boolean
   claudeSkills: boolean
@@ -148,7 +149,7 @@ export interface Prefs {
 export const COMPACT_DEFAULTS = { compact1M: 40, compact256K: 90, compact128K: 95, compactSmall: 95 } satisfies Partial<Prefs>
 export const COMPACT_SHARE = { min: 10, max: 100 }
 
-export const DEFAULT_PREFS: Prefs = { muteInBackground: true, systemNotices: true, musicStyle: 'bossa', soundNotice: true, soundOpenTeam: true, soundOpenAirport: true, soundOpenTower: true, soundOpenStaffing: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, debug: false, wideSheets: false, mapClick: 'sheets', autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, idleFollow: 15, idleFollowTarget: 'map', terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], ...COMPACT_DEFAULTS, semanticSearch: false, codeMode: true }
+export const DEFAULT_PREFS: Prefs = { muteInBackground: true, systemNotices: true, musicStyle: 'bossa', soundNotice: true, soundOpenTeam: true, soundOpenAirport: true, soundOpenTower: true, soundOpenStaffing: true, soundWaves: true, musicVolume: 50, effectsVolume: 100, musicMuted: false, effectsMuted: false, soundTakeoff: true, soundLanding: true, soundFlyover: true, soundUI: true, logOrder: 'newestFirst', detail: true, shadows: true, crowd: true, planes: true, clouds: true, daylight: 'minecraft', keepTerminals: false, debug: false, wideSheets: false, mapClick: 'sheets', autoView: 'panZoom', busyAnimation: 'money', zoomSensitivity: 100, idleFollow: 15, idleFollowTarget: 'map', terminalCommand: '', defaultTab: 'tasks', defaultAirportTab: 'providers', autoTab: 'chats', chatTitleModel: '', chatTitleEffort: '', imageProvider: '', imageModel: '', codexSkills: true, claudeSkills: true, hiddenBlueprints: [], hiddenWorkflows: [], ...COMPACT_DEFAULTS, semanticSearch: false, codeMode: true }
 
 /** The debug strip shows in dev builds, and elsewhere once the `debug` preference turns it on. */
 export const showDebug = (on: boolean) => import.meta.env.DEV || on
@@ -178,7 +179,7 @@ export const usePrefs = create<Prefs & { set: (p: Partial<Prefs>) => void }>()((
  * Preferences about how an island works, which on another island are that computer's: they change what runs there.
  * Every other preference is about this screen, and stays this computer's wherever it looks.
  */
-export const ISLAND_PREFS = ['terminalCommand', 'chatTitleModel', 'chatTitleEffort', 'imageProvider', 'codexSkills', 'claudeSkills',
+export const ISLAND_PREFS = ['terminalCommand', 'chatTitleModel', 'chatTitleEffort', 'imageProvider', 'imageModel', 'codexSkills', 'claudeSkills',
   'hiddenBlueprints', 'hiddenWorkflows', 'compact1M', 'compact256K', 'compact128K', 'compactSmall', 'codeMode'] as const satisfies ReadonlyArray<keyof Prefs>
 
 /**

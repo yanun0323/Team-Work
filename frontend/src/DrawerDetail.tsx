@@ -42,7 +42,7 @@ import { ChatFaces } from './ChatFaces'
 import { ALL, mentionedPeople, withAll } from './mentions'
 import { SkillPicker } from './SkillPicker'
 import { NewSource, SourceDetail } from './Sources'
-import { authLabel, makesImages, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
+import { authLabel, isImageSubscription, mockThinking, PROVIDER_KINDS, providerUrl, SUBSCRIPTIONS } from './providers'
 import { MAX_CHAT_PEOPLE, talking, talkPeople } from './core/domain/sim'
 import { AIRPORT_BLUEPRINT, fixedSteps, isLocked } from './core/data/presets'
 import { sourceOfId } from './core/domain/sources'
@@ -1373,7 +1373,7 @@ function ProviderDetail({ id, editing, onEdit, onGoneProvider, swapping, onSwapM
     onGoneProvider()
     act((x) => void deleteProvider(x, id))
     // the backend lets go of a deleted provider itself; the mock keeps preferences apart from the world
-    if (MOCK && usePrefs.getState().imageProvider === id) usePrefs.getState().set({ imageProvider: '' })
+    if (MOCK && usePrefs.getState().imageProvider === id) usePrefs.getState().set({ imageProvider: '', imageModel: '' })
   }
   return (
     <>
@@ -1607,7 +1607,7 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
   }
   const custom = kind === 'compatible'
   const claude = !old && kind === 'anthropic' && auth === 'subscription'
-  const draws = makesImages({ kind, auth: { kind: auth } })
+  const draws = isImageSubscription({ kind, auth: { kind: auth } })
   // a key is asked for unless one is kept already, or the provider needs none
   const needKey = !custom && !(old?.auth.kind === 'apiKey')
   const save = (e: React.FormEvent) => {
@@ -1643,8 +1643,8 @@ function ProviderEdit({ id, onDone, ...h }: Head & { id: string | null; onDone: 
     })
     // the mock keeps preferences apart from the world, so it follows the backend here
     const prefs = usePrefs.getState()
-    if (draws && imageDefault) prefs.set({ imageProvider: saved })
-    else if (prefs.imageProvider === saved) prefs.set({ imageProvider: '' })
+    if (draws && imageDefault) prefs.set({ imageProvider: saved, imageModel: '' })
+    else if (draws && prefs.imageProvider === saved) prefs.set({ imageProvider: '', imageModel: '' })
     onDone()
   }
   return (

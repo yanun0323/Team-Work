@@ -34,14 +34,18 @@ const (
 // Image draws a picture, or edits pictures, with the ChatGPT subscription chosen in the preferences. Adapted from
 // mho's codex image tool: it writes a new PNG, or a GIF when asked for one, and never overwrites a file.
 type Image struct {
-	Maker adapter.ImageMaker
+	Maker          adapter.ImageMaker
+	GenerationOnly bool
 	// Extra lists folders source images may come from besides the working directory.
 	Extra []string
 	// Keep, when set, gets each saved picture, so it can be shown where the tool ran.
 	Keep func(output string, data []byte)
 }
 
-func (Image) Spec() model.ToolSpec {
+func (t Image) Spec() model.ToolSpec {
+	if t.GenerationOnly {
+		return model.ToolSpec{Name: "image_gen", Description: "Generate a PNG from a text prompt using the configured image model. Returns a new file and preview; never overwrites files.", Parameters: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1},"output_path":{"type":"string","minLength":1,"description":"New .png path in the working directory."}},"required":["prompt"],"additionalProperties":false}`)}
+	}
 	return model.ToolSpec{Name: "image_gen",
 		Description: "Generate an image, or edit 1–5 local images when images is provided. Uses the ChatGPT subscription's allowance and can take a few minutes. Returns a new PNG path, or a GIF path when gif is set, and a still preview; never overwrites files. Relative paths use the working directory.\n" +
 			"GIF guidelines:\n" +

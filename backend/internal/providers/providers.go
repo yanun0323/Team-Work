@@ -163,10 +163,17 @@ func (f *Factory) Logout(ctx context.Context, p model.ModelProvider) error {
 }
 
 // Images draws with a ChatGPT subscription, whatever model the employee runs on.
-func (f *Factory) Images(p model.ModelProvider) (adapter.ImageMaker, error) {
-	if !model.MakesImages(p) {
-		return nil, model.Errorf(model.CodeInvalid, "只有 ChatGPT 訂閱可以生成圖片")
+func (f *Factory) Images(p model.ModelProvider, key, imageModel string) (adapter.ImageMaker, error) {
+	if !p.SupportsImage(imageModel) {
+		return nil, model.Errorf(model.CodeInvalid, "未設定有效的生圖模型")
 	}
+	if imageModel != "" {
+		if key == "" || p.BaseURL == "" {
+			return nil, model.Errorf(model.CodeInvalid, "未設定生圖供應商的 API Key 或 Base URL")
+		}
+		return compatibleImage{openAI{client: client{base: strings.TrimRight(p.BaseURL, "/"), key: key, http: keyedHTTP}}, imageModel}, nil
+	}
+
 	if !p.Auth.SignedIn {
 		return nil, model.Errorf(model.CodeInvalid, "「%s」還沒登入", p.Name)
 	}
@@ -244,7 +251,11 @@ func (c client) do(ctx context.Context, method, path string, body any, auth func
 	auth(req)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "text/event-stream")
+		if path == "/images/generations" {
+			req.Header.Set("Accept", "application/json")
+		} else {
+			req.Header.Set("Accept", "text/event-stream")
+		}
 	}
 	res, err := c.http.Do(req)
 	if err != nil {

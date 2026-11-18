@@ -817,6 +817,7 @@ export interface ModelProvider {
   baseUrl: string
   /** What the provider offers, as it lists them; not typed in. */
   models: string[]
+  imageModels?: string[]
   /** Models the user turned off: whoever is on one still runs on it, but no list offers it. */
   hidden?: string[]
   /** The thinking levels each model reports, weakest first; a model not in it reports none. */

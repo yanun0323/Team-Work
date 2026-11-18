@@ -141,8 +141,8 @@ func (s *script) askedWith(key string) []string {
 	}
 	return out
 }
-func (s *script) Images(p model.ModelProvider) (adapter.ImageMaker, error) {
-	if !model.MakesImages(p) || !p.Auth.SignedIn {
+func (s *script) Images(p model.ModelProvider, key, imageModel string) (adapter.ImageMaker, error) {
+	if !model.IsImageSubscription(p) || !p.Auth.SignedIn {
 		return nil, model.Errorf(model.CodeInvalid, "no images")
 	}
 	return s, nil

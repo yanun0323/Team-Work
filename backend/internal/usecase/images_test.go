@@ -208,3 +208,44 @@ func TestHandedImageReadsTheCommit(t *testing.T) {
 		}
 	}
 }
+
+func TestCompatibleImageSelectionSurvivesRestartAndTracksCapabilities(t *testing.T) {
+	r := newRig(t, func(model.ModelRequest) (model.ModelReply, error) { return say("ok"), nil })
+	ctx := context.Background()
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "sushi"}, {ID: "image-sushi", ImageGeneration: true, ImageOnly: true}, {ID: "both", ImageGeneration: true}}
+	r.fake.mu.Unlock()
+	p, err := r.e.AddProvider(ctx, usecase.NewProvider{Kind: enum.ProviderCompatible, Name: "Images", BaseURL: "http://local/v1", Login: usecase.ProviderLogin{Kind: "apiKey", APIKey: "key"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(p.Models, []string{"both", "sushi"}) || !slices.Equal(p.ImageModels, []string{"both", "image-sushi"}) {
+		t.Fatalf("lists: %+v", p)
+	}
+	pick := func(m string) error {
+		provider, _ := json.Marshal(p.ID)
+		id, _ := json.Marshal(m)
+		return r.e.UpdatePreferences(map[string]json.RawMessage{"imageProvider": provider, "imageModel": id})
+	}
+	if err := pick("sushi"); err == nil {
+		t.Fatal("accepted a chat-only model")
+	}
+	if err := pick("image-sushi"); err != nil {
+		t.Fatal(err)
+	}
+	r.e.Close()
+	newEngine(t, r)
+	w := r.world()
+	if w.Preferences.ImageProvider != p.ID || w.Preferences.ImageModel != "image-sushi" || !w.Providers[p.ID].SupportsImage("image-sushi") {
+		t.Fatal("lost image selection after restart")
+	}
+	r.fake.mu.Lock()
+	r.fake.models = []model.ModelSpec{{ID: "sushi"}, {ID: "both", ImageGeneration: true}}
+	r.fake.mu.Unlock()
+	if err := r.e.RefreshModels(ctx, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if prefs := r.world().Preferences; prefs.ImageProvider != "" || prefs.ImageModel != "" {
+		t.Fatal("kept missing model")
+	}
+}
