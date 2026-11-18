@@ -3,6 +3,7 @@
 // against the fingerprint it was read with, so a change made elsewhere meanwhile is never written over. What is being
 // edited lives in fileDrafts, so it outlasts the edit sheet being put away.
 
+import { ImagePreview } from './ImagePreview'
 import { useRemote } from './core/island'
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { tr } from './core/i18n'
@@ -137,11 +138,11 @@ export function FileBody({ teamId, path, state, text, onImageError }: {
     <div className="fx-doc-note">
       {state.status === 'loading' && <p className="fx-d-text">{tr('讀取中…')}</p>}
       {state.status === 'error' && <p className="fx-d-text" role="alert">{state.message}</p>}
-      {state.status === 'image' && <img className="fx-d-image" src={projectImageUrl(teamId, path)} alt={path} onError={onImageError} />}
+      {state.status === 'image' && <ImagePreview key={`${teamId}:${path}`} src={projectImageUrl(teamId, path)} alt={path} onError={onImageError} />}
       {state.status === 'ready' && text !== undefined && (isMarkdown(path)
         ? <Markdown text={text} project={{ dir: parentOf(path), imageUrl: (p) => projectImageUrl(teamId, p) }} />
         : isSvg(path)
-          ? <img className="fx-d-image" src={svgUrl(text)} alt={path} />
+          ? <ImagePreview key={`${teamId}:${path}`} src={svgUrl(text)} alt={path} />
           : <CodeFile path={path} text={text} />)}
     </div>
   )

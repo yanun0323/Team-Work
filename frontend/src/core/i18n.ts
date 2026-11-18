@@ -384,6 +384,8 @@ const en = {
   'Debug 介面': 'Debug overlay',
   '展開子介面': 'Full-width panels',
   '系統通知': 'System notifications',
+  '符合高度': 'Fit height',
+  '符合寬度': 'Fit width',
   '縮放靈敏度': 'Zoom sensitivity',
   '進階': 'Advanced',
   '系統': 'System',

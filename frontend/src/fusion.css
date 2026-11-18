@@ -722,7 +722,15 @@ a.fx-tool { text-decoration: none; }
   position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 20px; height: 20px; padding: 0;
   border: 0; border-radius: 50%; background: var(--ink); color: #fff; font: 700 13px/1 var(--font-sans); cursor: pointer;
 }
-.fx-d-image { display: block; max-width: 100%; height: auto; margin-inline: auto; background: #fff; padding: 6px; box-shadow: 0 1px 2px rgb(31 29 43 / 0.25); }
+.fx-detail-body:has(.fx-image-preview) { grid-template-rows: auto minmax(0, 1fr); }
+.fx-doc-note:has(> .fx-image-preview) { display: contents; }
+.fx-image-preview { min-height: 0; overflow: auto; }
+.fx-image-preview button { display: block; padding: 0; border: 0; background: white; margin-inline: auto; cursor: pointer; }
+.fx-image-preview button[data-fit="height"] { height: 100%; width: max-content; }
+.fx-image-preview button[data-fit="width"] { width: 100%; }
+.fx-d-image { display: block; }
+[data-fit="height"] > .fx-d-image { height: 100%; width: auto; }
+[data-fit="width"] > .fx-d-image { width: 100%; height: auto; }
 .fx-d-form { display: grid; align-content: start; gap: 22px; }
 .fx-field.fx-field-top { align-items: start; }
 .fx-field-top > span { padding-top: 7px; }

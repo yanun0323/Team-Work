@@ -1,3 +1,4 @@
+import { ImagePreview } from './ImagePreview'
 import { attachable, FileAttachment, isImage, MAX_ATTACHMENTS, readAttachments, splitAttachments } from './attachments'
 // The detail sheets: anything in the company file or the settings that can be opened (a task and its sub-tasks,
 // a flow and its steps, an employee, a blueprint, importing a blueprint) is shown on a sheet taped over the upper left of the map. Sheets stack: editing an employee
@@ -2801,7 +2802,7 @@ function HandedImage({ sub, path }: { sub: string; path: string }) {
   const [failed, setFailed] = useState(false)
   useEffect(() => setFailed(false), [sub, path])
   if (failed) return <p className="fx-d-text" role="alert">{tr('{name} 讀不到，請到專案資料夾打開', { name: path.split('/').pop() ?? path })}</p>
-  return <img className="fx-d-image" src={handedImageUrl(sub, path)} alt={path} onError={() => setFailed(true)} />
+  return <ImagePreview key={`${sub}:${path}`} src={handedImageUrl(sub, path)} alt={path} onError={() => setFailed(true)} />
 }
 
 function HandedText({ sub, path }: { sub: string; path: string }) {
@@ -2850,7 +2851,7 @@ function ProjectFileDetail({ teamId, path, ...h }: Head & { teamId: string; path
         {!MOCK && /\.(png|jpe?g|gif|webp)$/i.test(path)
           ? (failed
             ? <p className="fx-d-text" role="alert">{teamId ? tr('{name} 讀不到，請到專案資料夾打開', { name }) : tr('{name} 讀不到，請到 Finder 打開', { name })}</p>
-            : <img className="fx-d-image" src={projectImageUrl(teamId, path)} alt={path} onError={() => setFailed(true)} />)
+            : <ImagePreview key={`${teamId}:${path}`} src={projectImageUrl(teamId, path)} alt={path} onError={() => setFailed(true)} />)
           : <ReadText path={path} read={(signal) => readProjectFile(teamId, path, signal)} at={`${teamId}:${path}`}
               imageUrl={(p) => projectImageUrl(teamId, p)} />}
       </div>
@@ -2921,7 +2922,7 @@ function ImageDetail({ item, ...h }: Head & { item: Extract<Item, { kind: 'image
         {task && <p className="fx-d-meta"><span><span className="fx-task-no">#{task.number}</span>{task.title}</span></p>}
         {chat && <p className="fx-d-meta"><span>{chat.title || chatPreview(chat)}</span></p>}
       </header>
-      <img className="fx-d-image" src={shownUrl(im.url)} alt={im.name} />
+      <ImagePreview key={im.url} src={shownUrl(im.url)} alt={im.name} />
     </>
   )
 }
