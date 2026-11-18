@@ -649,7 +649,7 @@ func (e *Engine) SourceSkill(ctx context.Context, id, path string) (SkillText, e
 		}
 		shown := sk.path
 		if src.Kind != "local" {
-			shown = path + "/SKILL.md"
+			shown = filepath.ToSlash(filepath.Join(path, "SKILL.md"))
 		}
 		return SkillText{Name: sk.name, Description: sk.description, Path: shown, Text: string(raw)}, nil
 	}

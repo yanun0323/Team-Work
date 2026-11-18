@@ -175,6 +175,44 @@ func TestSourceSkillReadsTheSkillAtItsPath(t *testing.T) {
 	}
 }
 
+func TestRootSkillIsListedReadableAndLoadedAlone(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	const body = "---\nname: apple-design\n---\nReview the interface."
+	if err := os.WriteFile(filepath.Join(repo, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, repo, "skills/example")
+	w := model.NewWorld()
+	src := &model.Source{ID: "src", Kind: "git", Repo: "https://github.com/a/b", Commit: "c1"}
+	w.Sources[src.ID] = src
+	e := &Engine{w: w, git: fetchedVersions{dirs: map[string]string{"c1": repo}}}
+	items, err := e.SourceItems(t.Context(), src.ID)
+	if err != nil || len(items) != 1 || items[0].Name != "apple-design" {
+		t.Fatalf("items = %+v, err = %v", items, err)
+	}
+	got, err := e.SourceSkill(t.Context(), src.ID, items[0].Path)
+	if err != nil || got.Text != body || got.Path != "SKILL.md" {
+		t.Fatalf("skill = %+v, err = %v", got, err)
+	}
+	found, _, problems := e.loadSkills(t.Context(), []packRoot{{source: model.BlueprintSource{Kind: src.Kind, Repo: src.Repo, Commit: src.Commit}}})
+	if len(problems) != 0 || len(found) != 1 || found[0].name != items[0].Name || found[0].path != filepath.Join(repo, "SKILL.md") {
+		t.Fatalf("loaded = %+v, problems = %v", found, problems)
+	}
+}
+
+func TestRootSkillCannotLinkOutsideGitSource(t *testing.T) {
+	t.Parallel()
+	repo, outside := t.TempDir(), t.TempDir()
+	writeSkill(t, outside, "private")
+	if err := os.Symlink(filepath.Join(outside, "private", "SKILL.md"), filepath.Join(repo, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	if got := itemsAt(model.Source{Kind: "git"}, repo); len(got) != 0 {
+		t.Fatalf("listed outside skill: %+v", got)
+	}
+}
+
 // newestVersion answers every repo with one version, held in a folder.
 type newestVersion struct {
 	fetchedVersions

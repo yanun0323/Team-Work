@@ -506,7 +506,7 @@ func frontmatter(raw string) string {
 // skillDepth bounds how far below its base a skill folder may sit, so a large folder cannot make the search endless.
 const skillDepth = 4
 
-// skillsIn lists the skills under root/skills, or under root when that has none. A skill is a folder with a
+// skillsIn takes root itself if it is a skill, otherwise the skills under root/skills or, failing that, root. A skill has a
 // SKILL.md, at any depth up to skillDepth, as packs may sort skills into categories (skills/engineering/tdd).
 // The search stops at a skill's folder, follows links, and skips hidden folders and node_modules. A non-empty inside
 // is a folder links must not lead out of, as with a repo fetched from Git: what leads out of it is left out.
@@ -515,9 +515,15 @@ func skillsIn(root, inside string, include, exclude []string) []skill {
 	if inside != "" && !insideDir(inside, root) {
 		return nil
 	}
-	matches := skillFiles(filepath.Join(root, "skills"), inside, skillDepth)
-	if len(matches) == 0 {
-		matches = skillFiles(root, inside, skillDepth)
+	var matches []string
+	file := filepath.Join(root, "SKILL.md")
+	if info, err := os.Stat(file); err == nil && info.Mode().IsRegular() && (inside == "" || insideDir(inside, file)) {
+		matches = []string{file}
+	} else {
+		matches = skillFiles(filepath.Join(root, "skills"), inside, skillDepth)
+		if len(matches) == 0 {
+			matches = skillFiles(root, inside, skillDepth)
+		}
 	}
 	for _, path := range matches {
 		raw, err := os.ReadFile(path)
