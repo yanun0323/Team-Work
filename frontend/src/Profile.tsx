@@ -10,6 +10,7 @@ import { lookOf, readProfileStats, type ProfileStats } from './core/profile'
 import { loadMe, useMe } from './core/towers'
 import { PixelFace } from './core/voxel/PixelFace'
 import { SheetStack, useMapClickSheets, useSheets } from './Drawer'
+import { useUnderWide, WideCover } from './WideSheets'
 import { fmtCount, fmtUsd } from './Stats'
 
 /** The user's face, for the button at the top right: opens their profile. */
@@ -34,6 +35,7 @@ export function Profile({ leaving, onGone }: {
   const [error, setError] = useState('')
   const sheets = useSheets()
   useMapClickSheets(sheets, leaving)
+  const under = useUnderWide(sheets.top >= 0 && !leaving)
   useEffect(() => title.current?.focus({ preventScroll: true }), [])
   useEffect(() => {
     if (me) return
@@ -47,7 +49,7 @@ export function Profile({ leaving, onGone }: {
       aria-hidden={leaving || undefined} inert={leaving || undefined} {...paste}>
       <span className="fx-tape fx-tape-l" aria-hidden="true" />
       <span className="fx-tape fx-tape-r" aria-hidden="true" />
-      <div className="fx-sheet">
+      <div className="fx-sheet" inert={under || undefined}>
         <header className="fx-head fx-head-rule">
           <div className="fx-title fx-profile-title">
             {me && <PixelFace look={lookOf(me)} name={me.name} size={44} />}
@@ -67,6 +69,7 @@ export function Profile({ leaving, onGone }: {
             : <Milestones />}
         </section>
       </div>
+      {under && <WideCover onClick={() => sheets.back(-1)} />}
     </aside>
     <SheetStack sheets={sheets} teamId="" leaving={leaving} />
     </>

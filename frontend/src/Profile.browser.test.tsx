@@ -62,3 +62,25 @@ it('puts the look editor away on Esc, leaving the profile open', async () => {
   expect(sheet()).toBeNull()
   expect(box!.querySelector('#fx-profile')).not.toBeNull()
 })
+
+it('covers the profile only while the wide editor is open and returns to it from the exposed strip', async () => {
+  const cover = () => box!.querySelector<HTMLButtonElement>('#fx-profile > .fx-wide-cover')
+  const page = box!.querySelector<HTMLElement>('#fx-profile > .fx-sheet')!
+  await userEvent.click(edit())
+  expect(cover()).toBeNull()
+  await userEvent.click(sheet()!.querySelector<HTMLButtonElement>('.fx-wide-tool')!)
+  try {
+    expect(cover()).not.toBeNull()
+    expect(page.inert).toBe(true)
+    const rect = cover()!.getBoundingClientRect()
+    const x = rect.right - 8, y = rect.top + rect.height / 2
+    expect(document.elementFromPoint(x, y)).toBe(cover())
+    await userEvent.click(cover()!, { position: { x: rect.width - 8, y: rect.height / 2 } })
+    expect(sheet()).toBeNull()
+    expect(cover()).toBeNull()
+    expect(page.inert).toBe(false)
+  } finally {
+    if (!sheet()) await userEvent.click(edit())
+    await userEvent.click(sheet()!.querySelector<HTMLButtonElement>('.fx-wide-tool')!)
+  }
+})
