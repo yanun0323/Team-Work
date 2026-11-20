@@ -111,14 +111,28 @@ type turnResult struct {
 	Text    string
 }
 
+// saysNothing: a reply with no text and no call. Reasoning alone says nothing: it is kept only to send back to the model.
+func saysNothing(reply model.ModelReply) bool {
+	return !slices.ContainsFunc(reply.Content, func(b model.Block) bool { return b.Type != enum.BlockReasoning })
+}
+
 func (t *turn) complete(ctx context.Context) (model.ModelReply, error) {
 	delay := retryDelay
+	askedAgain := false
 	for attempt := 0; ; attempt++ {
 		if t.prepare != nil {
 			t.prepare()
 		}
 		t.onStart()
 		reply, err := t.provider.Complete(ctx, t.req, t.onText)
+		// Some models now and then end their turn while still thinking (Qwen3.8-Flash-Next sends <|im_end|> inside its
+		// thought), which leaves nothing to show. Asked again with the same conversation, without the empty reply, they
+		// nearly always go on; kept in it, the model tends to stop at the same place again.
+		if err == nil && saysNothing(reply) && !askedAgain && !t.noRetry && ctx.Err() == nil {
+			askedAgain = true
+			attempt--
+			continue
+		}
 		var failure *model.Error
 		if err == nil || t.noRetry || ctx.Err() != nil || !errors.As(err, &failure) || failure.Code != model.CodeUnavailable || attempt == modelRetries {
 			return reply, err
@@ -154,8 +168,7 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 		if err != nil {
 			return turnResult{}, err
 		}
-		// reasoning alone says nothing: it is kept only to send back to the model
-		if !slices.ContainsFunc(reply.Content, func(b model.Block) bool { return b.Type != enum.BlockReasoning }) {
+		if saysNothing(reply) {
 			return turnResult{}, model.Errorf(model.CodeUnavailable, "模型沒有回覆內容")
 		}
 		t.req.Messages = append(t.req.Messages, model.Message{Role: enum.RoleAssistant, Content: reply.Content})
