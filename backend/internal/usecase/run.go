@@ -55,6 +55,13 @@ type turn struct {
 	compact func(context.Context) ([]model.Message, bool)
 	// compactAt is about how many tokens the next call may send before compact runs.
 	compactAt int
+	// exact, when set, asks the turn's provider how many tokens a request would really send, for the rounds
+	// where the rough count comes near compactAt: the number, whether it counts the whole request, and whether
+	// the provider said at all.
+	exact func(context.Context, model.ModelRequest) (int, bool, bool)
+	// measured, when set, hears each exact count the turn gets, to keep what the conversation is held at in the
+	// world the same number the next call is judged by.
+	measured func(int)
 	// remeasure, when set, asks a self-hosted server again how much the model reads, and sets compactAt and what
 	// compact goes by to match: as the turn starts, and forced after a refusal for a conversation too long.
 	remeasure func(ctx context.Context, force bool)
@@ -245,7 +252,7 @@ func (t *turn) run(ctx context.Context) (turnResult, error) {
 		if t.steer != nil {
 			t.req.Messages = append(t.req.Messages, t.steer()...)
 		}
-		if t.compact != nil && reply.Usage.Input+reply.Usage.Output+tokensAbout(msg) >= t.compactAt {
+		if t.compact != nil && t.needsCompacting(ctx, reply.Usage.Input+reply.Usage.Output+tokensAbout(msg)) {
 			if shorter, ok := t.compact(ctx); ok {
 				t.req.Messages = shorter
 			}
@@ -973,6 +980,7 @@ func (e *Engine) subTurn(in subRun, roots []string, servers mcpSet) *turn {
 	if !in.talk { // a discussion's words are its own; a meeting waits for the user when it grows too long
 		tr.compact = func(ctx context.Context) ([]model.Message, bool) { return e.compactStep(ctx, in, tr.req.Messages) }
 		tr.compactAt = e.workCompactAt(in.spec.model)
+		tr.exact = e.exactFor(in.spec.provider, in.spec.model)
 		tr.remeasure = e.remeasureWork(tr, in.spec.model)
 	}
 	kind := "step"

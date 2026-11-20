@@ -110,6 +110,10 @@ type Engine struct {
 	// modelsAt is when each provider was last asked for its models, in clock seconds; it starts empty, so the first
 	// look after a start asks them all
 	modelsAt map[string]float64
+	// countOff is until when each provider is left unasked for a token count, in clock seconds, after its counting
+	// call failed; under its own lock, as any turn may read it
+	countMu  sync.Mutex
+	countOff map[string]float64
 	// sourced is what each source brings besides skills at its version in use, by the source's id; kept here, as
 	// the world's blueprints and flows from sources are put back from it whenever the settings are installed again
 	sourced map[string]sourcedSet
@@ -171,7 +175,7 @@ const (
 func NewEngine(ctx context.Context, o Options) (*Engine, error) {
 	e := &Engine{
 		w: model.NewWorld(), runs: map[string]*run{}, live: map[string]string{}, output: map[string]liveOutput{}, prev: map[string][]byte{}, dirty: map[string]bool{},
-		subs: map[chan Event]struct{}{}, drains: map[string]*drain{}, logins: map[string]*loginRun{}, pendingKeys: map[string]string{}, terms: map[string]*TerminalLog{}, quotas: map[string]quotaEntry{}, modelsAt: map[string]float64{}, store: o.Store, git: o.Git, providers: o.Providers, dataDir: o.DataDir, log: o.Log, semantic: o.Semantic, rankNotes: o.Semantic.RankNotes,
+		subs: map[chan Event]struct{}{}, drains: map[string]*drain{}, logins: map[string]*loginRun{}, pendingKeys: map[string]string{}, terms: map[string]*TerminalLog{}, quotas: map[string]quotaEntry{}, modelsAt: map[string]float64{}, countOff: map[string]float64{}, store: o.Store, git: o.Git, providers: o.Providers, dataDir: o.DataDir, log: o.Log, semantic: o.Semantic, rankNotes: o.Semantic.RankNotes,
 		mcp: mcp.NewHub(filepath.Join(o.DataDir, "mcp.json"), o.Log), hooks: &hooks.Runner{Path: filepath.Join(o.DataDir, "hooks.json")},
 		clock:  func() float64 { return float64(time.Now().UnixMilli()) / 1000 },
 		search: &tools.Search{Endpoint: tools.ExaEndpoint, Log: o.Log, State: filepath.Join(o.DataDir, "cache", "search-cooldown.json")},

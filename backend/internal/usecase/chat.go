@@ -1270,6 +1270,10 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	in.overhead = requestTokens(t.req)
 	t.compact = func(ctx context.Context) ([]model.Message, bool) { return e.compactChat(ctx, in) }
 	t.compactAt = in.compactAt
+	t.exact = e.exactFor(in.spec.provider, in.spec.model)
+	t.measured = func(n int) {
+		e.applyChat(in, func(c *model.Chat) { c.Context = n })
+	}
 	t.remeasure = func(ctx context.Context, force bool) {
 		e.remeasureChat(ctx, &in, force)
 		t.compactAt = in.compactAt
@@ -1298,7 +1302,7 @@ func (e *Engine) runChat(ctx context.Context, in chatRun) {
 	t.remeasure(ctx, false) // before the summing up below; the turn's own look then finds it fresh
 	// what was last read may be another model's count, or leave out the instructions and tools: a chat handed on to
 	// one who reads less is counted again here, as it is sent
-	if max(in.context, in.overhead+tokensOf(t.req.Messages)) >= in.compactAt {
+	if rough := max(in.context, in.overhead+tokensOf(t.req.Messages)); t.needsCompacting(ctx, rough) {
 		if shorter, ok := t.compact(ctx); ok {
 			t.req.Messages = shorter
 		}
