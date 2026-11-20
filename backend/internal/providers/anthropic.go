@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 
@@ -67,15 +68,24 @@ func anthropicCached(msgs []map[string]any) []map[string]any {
 	return msgs
 }
 
-func (a anthropic) Complete(ctx context.Context, req model.ModelRequest, onText func(string)) (model.ModelReply, error) {
+// anthropicBody is what a Messages call sends: the conversation, and the system and tools marked for the cache.
+// The API caches only up to a marked block: one after the tools and system, which rarely change, and one at
+// the end of the messages, so the next call of the turn or chat reads all before it from the cache. run is false
+// for a request that is only counted, where the cache marks and the output limit say nothing.
+func anthropicBody(req model.ModelRequest, run bool) map[string]any {
 	body := map[string]any{
-		"model": req.Model, "max_tokens": anthropicMaxTokens, "stream": true,
-		"messages": anthropicCached(anthropicMessages(req.Messages)),
+		"model": req.Model, "messages": anthropicMessages(req.Messages),
 	}
-	// the API caches only up to a marked block: one after the tools and system, which rarely change, and one at
-	// the end of the messages, so the next call of the turn or chat reads all before it from the cache
+	if run {
+		body["max_tokens"], body["stream"] = anthropicMaxTokens, true
+		body["messages"] = anthropicCached(body["messages"].([]map[string]any))
+	}
 	if req.System != "" {
-		body["system"] = []map[string]any{{"type": "text", "text": req.System, "cache_control": anthropicCache}}
+		sys := []map[string]any{{"type": "text", "text": req.System}}
+		if run {
+			sys[0]["cache_control"] = anthropicCache
+		}
+		body["system"] = sys
 	}
 	if len(req.Tools) > 0 {
 		tools := make([]map[string]any, len(req.Tools))
@@ -84,9 +94,35 @@ func (a anthropic) Complete(ctx context.Context, req model.ModelRequest, onText 
 		}
 		body["tools"] = tools
 	}
-	if req.Effort != "" {
+	if run && req.Effort != "" {
 		body["output_config"] = map[string]string{"effort": req.Effort}
 	}
+	return body
+}
+
+// CountTokens asks what the whole request would send, without running it: the endpoint counts the system, the
+// tools and the messages, images included.
+// https://platform.claude.com/docs/en/api/messages-count-tokens
+func (a anthropic) CountTokens(ctx context.Context, req model.ModelRequest) (int, bool, error) {
+	res, err := a.do(ctx, http.MethodPost, "/v1/messages/count_tokens", anthropicBody(req, false), a.auth)
+	if err != nil {
+		return 0, true, err
+	}
+	defer res.Body.Close()
+	var body struct {
+		Input int `json:"input_tokens"`
+	}
+	if json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&body) != nil {
+		return 0, true, model.Errorf(model.CodeUnavailable, "計數回覆格式不正確")
+	}
+	if body.Input <= 0 {
+		return 0, true, model.Errorf(model.CodeUnavailable, "計數回覆沒有可用的數")
+	}
+	return body.Input, true, nil
+}
+
+func (a anthropic) Complete(ctx context.Context, req model.ModelRequest, onText func(string)) (model.ModelReply, error) {
+	body := anthropicBody(req, true)
 	res, err := a.do(ctx, http.MethodPost, "/v1/messages", body, a.auth)
 	if err != nil {
 		return model.ModelReply{}, err

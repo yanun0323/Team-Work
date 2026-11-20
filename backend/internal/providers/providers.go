@@ -251,7 +251,7 @@ func (c client) do(ctx context.Context, method, path string, body any, auth func
 	auth(req)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
-		if path == "/images/generations" {
+		if answersJSON(path) {
 			req.Header.Set("Accept", "application/json")
 		} else {
 			req.Header.Set("Accept", "text/event-stream")
@@ -282,6 +282,16 @@ func (c client) do(ctx context.Context, method, path string, body any, auth func
 	}
 	res.Body = codex.WatchIdle(res.Body, streamIdle)
 	return res, nil
+}
+
+// answersJSON says whether a path answers with one JSON document rather than a stream: drawing a picture, and
+// the endpoints that count what a request would send without running it.
+func answersJSON(path string) bool {
+	switch path {
+	case "/images/generations", "/v1/messages/count_tokens", "/responses/input_tokens", "/tokenize":
+		return true
+	}
+	return false
 }
 
 // thinkingOrder is the levels weakest first, as a provider that answers with a set leaves the order open.

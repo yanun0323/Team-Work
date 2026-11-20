@@ -46,6 +46,14 @@ type Provider interface {
 	Models(ctx context.Context) ([]model.ModelSpec, error)
 }
 
+// TokenCounter is a Provider that can say what a request would send without running it. Only the services with a
+// counting endpoint of their own answer. whole says whether the number covers the request as it goes out, system,
+// tools, template and pictures among it; a count of less than that can hold a conversation up, but must not let
+// one down. A call that cannot give a usable number answers with an error.
+type TokenCounter interface {
+	CountTokens(ctx context.Context, req model.ModelRequest) (n int, whole bool, err error)
+}
+
 // QuotaReader is a Provider that can tell how much of its allowance is left.
 type QuotaReader interface {
 	Quota(ctx context.Context) (model.Quota, error)
