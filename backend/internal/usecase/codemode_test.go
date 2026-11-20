@@ -60,8 +60,14 @@ func scriptTools(req model.ModelRequest) []string {
 	}
 	out := []string{}
 	for _, s := range req.Tools {
-		if strings.Contains(s.Description, "\n\nIn exec scripts: `await tools."+s.Name+"(args)`") {
-			out = append(out, s.Name)
+		if s.Name != "exec" {
+			continue
+		}
+		for _, line := range strings.Split(s.Description, "\n") {
+			if rest, ok := strings.CutPrefix(line, "Tools scripts may call, resolving to "); ok {
+				_, names, _ := strings.Cut(strings.TrimSuffix(rest, "."), ": ")
+				out = append(out, strings.Split(names, ", ")...)
+			}
 		}
 	}
 	slices.Sort(out)

@@ -73,14 +73,21 @@ var tookIn = regexp.MustCompile(`in \d+\.\d\ds`)
 // plain is an exec result without the time it took.
 func plain(text string) string { return tookIn.ReplaceAllString(text, "in Ns") }
 
-// scriptable are the tools a request says scripts may call, in its order.
+// scriptable are the tools a request's exec says scripts may call, sorted.
 func scriptable(req model.ModelRequest) []string {
 	var out []string
 	for _, s := range req.Tools {
-		if strings.Contains(s.Description, "\n\nIn exec scripts: `await tools."+s.Name+"(args)`") {
-			out = append(out, s.Name)
+		if s.Name != toolExec {
+			continue
+		}
+		for _, line := range strings.Split(s.Description, "\n") {
+			if rest, ok := strings.CutPrefix(line, "Tools scripts may call, resolving to "); ok {
+				_, names, _ := strings.Cut(strings.TrimSuffix(rest, "."), ": ")
+				out = append(out, strings.Split(names, ", ")...)
+			}
 		}
 	}
+	slices.Sort(out)
 	return out
 }
 
@@ -126,8 +133,8 @@ func runExec(t *testing.T, tr *turn, code string) model.ToolResult {
 }
 
 // The setting counts from the next model call: within one turn, on is offered and runs, off is neither offered nor
-// run, and every try at the model (a retry, a call after compacting) reads it again; the tools say how to call them
-// from scripts only while it is on.
+// run, and every try at the model (a retry, a call after compacting) reads it again; the tools read the same either
+// way.
 func TestExecFollowsTheSettingAtEachModelCall(t *testing.T) {
 	cwd := t.TempDir()
 	if err := os.WriteFile(filepath.Join(cwd, "a.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
@@ -196,13 +203,14 @@ func TestExecFollowsTheSettingAtEachModelCall(t *testing.T) {
 	if !offers(seen[0], "read_file") || !offers(seen[5], "write_file") || len(seen[1].Tools) != 3 || len(seen[2].Tools) != 2 {
 		t.Fatalf("%d %d", len(seen[1].Tools), len(seen[2].Tools))
 	}
-	if strings.Contains(seen[2].Tools[0].Description, "In exec scripts") {
-		t.Fatal("a tool still says how to call it from scripts while off")
+	if seen[2].Tools[0].Description != seen[1].Tools[0].Description {
+		t.Fatal("a tool reads differently while off")
 	}
 }
 
-// Every tool but those that wait for the user or end the turn says how to call it from scripts and what it resolves
-// to; the same tools always read the same; a turn with nothing a script may call gets no exec.
+// Exec names once every tool but those that wait for the user or end the turn, and which resolve to data; ALL_TOOLS
+// says what each resolves to, and the tools' own descriptions stay as they are, so they cost nothing more while on;
+// the same tools always read the same; a turn with nothing a script may call gets no exec.
 func TestExecNotesTheToolsScriptsMayCall(t *testing.T) {
 	e := codeModeEngine()
 	e.setCodeMode(true)
@@ -212,10 +220,21 @@ func TestExecNotesTheToolsScriptsMayCall(t *testing.T) {
 	for _, s := range tr.req.Tools {
 		byName[s.Name] = s
 	}
-	if !strings.HasSuffix(byName["read_file"].Description, "\n\nIn exec scripts: `await tools.read_file(args)` resolves to "+tools.Read{}.Returns()+". Images are not read there.") ||
-		!strings.HasSuffix(byName["write_file"].Description, "\n\nIn exec scripts: `await tools.write_file(args)` resolves to its text output, a string.") ||
-		byName[toolAskUser].Description != "Ask." || byName[toolExec].Description != execRules {
+	if byName["read_file"].Description != (tools.Read{}).Spec().Description || byName["write_file"].Description != (tools.Write{}).Spec().Description ||
+		byName[toolAskUser].Description != "Ask." ||
+		byName[toolExec].Description != execRules+"\n\nTools scripts may call, resolving to text: write_file.\n\nTools scripts may call, resolving to data: read_file."+
+			"\n\nRead images with read_file directly, not in a script: scripts read text files only." {
 		t.Fatalf("%+v", byName)
+	}
+	if got := scriptAbout("read_file", tools.Read{}); got != (tools.Read{}).Spec().Description+"\n\nIn exec scripts: `await tools.read_file(args)` resolves to "+(tools.Read{}).Returns()+". Images are not read there." {
+		t.Fatal(got)
+	}
+	if got := scriptAbout("write_file", tools.Write{}); got != (tools.Write{}).Spec().Description+"\n\nIn exec scripts: `await tools.write_file(args)` resolves to its text output, a string." {
+		t.Fatal(got)
+	}
+	if res := runExec(t, tr, `return ALL_TOOLS.map(t => t.description)`); res.IsError ||
+		!strings.Contains(res.Text, "resolves to {") || !strings.Contains(res.Text, "resolves to its text output") {
+		t.Fatalf("ALL_TOOLS does not say what calls resolve to: %+v", res)
 	}
 	again, _ := testTurn(e, &stepsFake{}, t.TempDir(), codeModeSource{}, tools.Read{}, tools.Write{}, ask)
 	if !slices.EqualFunc(again.req.Tools, tr.req.Tools, func(a, b model.ToolSpec) bool { return a.Description == b.Description }) {
@@ -489,7 +508,7 @@ func TestExecWebTools(t *testing.T) {
 	code := `const r = await Promise.allSettled([tools.web_search({query: "a"}), tools.web_fetch({url: "http://127.0.0.1/x"}), tools.web_search({query: ""})]);
 return r.map(x => x.status === "fulfilled" ? x.value.text : "error")`
 	tr, _ := testTurn(e, &stepsFake{}, t.TempDir(), codeModeSource{Kind: "chat", ChatID: "c1"}, &tools.Search{Endpoint: srv.URL}, tools.Fetch{})
-	if got := scriptable(tr.req); !slices.Equal(got, []string{"web_search", "web_fetch"}) {
+	if got := scriptable(tr.req); !slices.Equal(got, []string{"web_fetch", "web_search"}) {
 		t.Fatalf("%v", got)
 	}
 	res := runExec(t, tr, code)

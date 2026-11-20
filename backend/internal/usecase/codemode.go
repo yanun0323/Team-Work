@@ -50,13 +50,13 @@ var sideBySide = map[string]bool{
 	toolReadStep: true, toolReadTaskHistory: true, toolReadTaskEntry: true,
 }
 
-// scriptNotes add to what a tool's description says of it in scripts.
+// scriptNotes add to what ALL_TOOLS says of a tool.
 var scriptNotes = map[string]string{"read_file": " Images are not read there."}
 
 const execRules = "Run a JavaScript script that calls your other tools, to chain, filter and run many calls in one step. " +
 	"Only what the script writes with text() or console.log() and the value it returns come back to you: what the tools return stays in the script. " +
 	"The code is raw JavaScript, not JSON or a Markdown fence: the body of an async function, so await and return work at the top level. " +
-	"Call a tool as `await tools.<name>(args)` with one object of its arguments; a tool's description says when it can be called from scripts and what the call resolves to, and ALL_TOOLS lists them. " +
+	"Call a tool as `await tools.<name>(args)` with one object of its arguments; the tools it may call are listed below, and ALL_TOOLS gives each one's description and, for those resolving to data, its type. " +
 	"Calls are real: what they did stays done when the script fails later. A call that fails rejects with an Error carrying its message; Promise.allSettled() keeps the others. " +
 	"Use Promise.all() for calls that do not depend on each other: those that change nothing run at the same time, those that change something one at a time, in the order made. " +
 	"text(value) adds an output item (a string as it is, anything else as JSON), and return adds the value the same way; console.log() adds a line to a console block after them. " +
@@ -78,21 +78,19 @@ type codeModeSource struct {
 }
 
 // codeMode offers exec on the turn while the experimental setting is on, or always when it has tools only scripts
-// call, and then says in each tool it may call how to call it from scripts. It checks the setting before every try at the model, so turning it on or off counts from
-// the next call; a turn with no tool a script may call never gets it. Call it with the turn's tools in place, not
-// holding the lock.
+// call. Exec's description names the tools scripts may call once; what each resolves to is in ALL_TOOLS, so the
+// tools' own descriptions stay as they are. It checks the setting before every try at the model, so turning it on or
+// off counts from the next call; a turn with no tool a script may call never gets it. Call it with the turn's tools in
+// place, not holding the lock.
 func (e *Engine) codeMode(tr *turn, src codeModeSource) {
 	base := slices.Clone(tr.req.Tools)
-	noted := slices.Clone(base)
 	byName := maps.Clone(tr.tools)
 	var names []string
-	for i, spec := range base {
-		tool := byName[spec.Name]
-		if tool == nil || neverInScripts[spec.Name] {
+	for _, spec := range base {
+		if byName[spec.Name] == nil || neverInScripts[spec.Name] {
 			continue
 		}
 		names = append(names, spec.Name)
-		noted[i].Description += scriptNote(spec.Name, tool)
 	}
 	// tools only scripts call turn the script tool on for the turn, whatever the setting
 	for _, tool := range tr.scriptOnly {
@@ -110,7 +108,7 @@ func (e *Engine) codeMode(tr *turn, src codeModeSource) {
 		on := e.w.Preferences.CodeMode || forced
 		e.mu.Unlock()
 		if on {
-			tr.req.Tools = append(slices.Clone(noted), exec.Spec())
+			tr.req.Tools = append(slices.Clone(base), exec.Spec())
 			tr.tools[toolExec] = exec
 		} else {
 			tr.req.Tools = slices.Clone(base)
@@ -126,20 +124,59 @@ func readOnly(tool adapter.Tool) bool {
 	return ok && ro.ReadOnly()
 }
 
-// scriptNote is what a tool's description adds while scripts may call it: how, and what the call resolves to.
-func scriptNote(name string, tool adapter.Tool) string {
-	returns := "its text output, a string"
-	if st, ok := tool.(tools.Structured); ok && st.Returns() != "" {
-		returns = st.Returns()
+// returnsData is the TypeScript type a script's call to the tool resolves to, and "" for its text output.
+func returnsData(tool adapter.Tool) string {
+	if st, ok := tool.(tools.Structured); ok {
+		return st.Returns()
 	}
-	return "\n\nIn exec scripts: `await tools." + name + "(args)` resolves to " + returns + "." + scriptNotes[name]
+	return ""
+}
+
+// scriptAbout is what ALL_TOOLS says of a tool: its description, and what a script's call to it resolves to.
+func scriptAbout(name string, tool adapter.Tool) string {
+	returns := "its text output, a string"
+	if r := returnsData(tool); r != "" {
+		returns = r
+	}
+	return tool.Spec().Description + "\n\nIn exec scripts: `await tools." + name + "(args)` resolves to " + returns + "." + scriptNotes[name]
+}
+
+// scriptList is what exec's description says of the tools scripts may call: their names once, and which resolve to
+// data. Tools only scripts call are left to the paragraph that names their servers.
+func scriptList(names []string, byName map[string]adapter.Tool, scriptOnly []adapter.Tool) string {
+	only := map[string]bool{}
+	for _, t := range scriptOnly {
+		only[t.Spec().Name] = true
+	}
+	var text, data []string
+	for _, name := range names {
+		switch {
+		case only[name]:
+		case returnsData(byName[name]) != "":
+			data = append(data, name)
+		default:
+			text = append(text, name)
+		}
+	}
+	out := ""
+	if len(text) > 0 {
+		out += "\n\nTools scripts may call, resolving to text: " + strings.Join(text, ", ") + "."
+	}
+	if len(data) > 0 {
+		out += "\n\nTools scripts may call, resolving to data: " + strings.Join(data, ", ") + "."
+	}
+	// what decides which way to call a tool goes here, not only in ALL_TOOLS, which is read once a script is under way
+	if slices.Contains(names, "read_file") {
+		out += "\n\nRead images with read_file directly, not in a script: scripts read text files only."
+	}
+	return out
 }
 
 // execTool runs a script over the turn's tools. Each call the script makes goes as the model's own would: past the
 // turn's gate, shown in its log, run with the turn's folder, and named after the exec call it came from. A call that
 // ends the turn ends the script, and exec then ends the turn the same way.
 func (e *Engine) execTool(tr *turn, names []string, byName map[string]adapter.Tool, src codeModeSource) adapter.Tool {
-	spec := model.ToolSpec{Name: toolExec, Description: execRules + tr.scriptAbout, Parameters: execParams}
+	spec := model.ToolSpec{Name: toolExec, Description: execRules + scriptList(names, byName, tr.scriptOnly) + tr.scriptAbout, Parameters: execParams}
 	return funcTool{spec, func(ctx context.Context, cwd string, raw json.RawMessage) model.ToolResult {
 		code, ok := execCode(raw)
 		if !ok {
@@ -169,7 +206,7 @@ func (e *Engine) execTool(tr *turn, names []string, byName map[string]adapter.To
 		for _, name := range names {
 			tool := byName[name]
 			serial := !sideBySide[name] && !readOnly(tool)
-			fns = append(fns, codemode.Func{Name: name, Description: tool.Spec().Description, Serial: serial,
+			fns = append(fns, codemode.Func{Name: name, Description: scriptAbout(name, tool), Serial: serial,
 				Call: func(ctx context.Context, args json.RawMessage) (any, error) {
 					call := model.Block{Type: enum.BlockToolCall, ID: fmt.Sprintf("%s/%d", parent, n.Add(1)), Name: name, Args: args}
 					book.Lock()
