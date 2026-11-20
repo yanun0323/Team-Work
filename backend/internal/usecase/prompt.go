@@ -594,17 +594,38 @@ func skillFiles(dir, inside string, depth int) []string {
 	return out
 }
 
+// skillsPrompt lists the skills the model may pick. Skills next to each other in one folder name it once, above
+// them, and each its own file under it: the folders of a source's cache are long, and an airport lists many.
 func skillsPrompt(skills []skill) string {
+	shown := slices.DeleteFunc(slices.Clone(skills), func(s skill) bool { return s.userOnly })
 	var b strings.Builder
-	for _, s := range skills {
-		if !s.userOnly {
-			fmt.Fprintf(&b, "- %s: %s (%s)\n", s.name, s.description, s.path)
+	grouped := false
+	for i := 0; i < len(shown); {
+		root := filepath.Dir(filepath.Dir(shown[i].path))
+		j := i + 1
+		for j < len(shown) && filepath.Dir(filepath.Dir(shown[j].path)) == root {
+			j++
 		}
+		if j-i < 2 || root == "." || root == string(filepath.Separator) {
+			fmt.Fprintf(&b, "- %s: %s (%s)\n", shown[i].name, shown[i].description, shown[i].path)
+			i++
+			continue
+		}
+		grouped = true
+		fmt.Fprintf(&b, "Files under %s%c:\n", root, filepath.Separator)
+		for _, s := range shown[i:j] {
+			fmt.Fprintf(&b, "- %s: %s (%s)\n", s.name, s.description, strings.TrimPrefix(s.path, root+string(filepath.Separator)))
+		}
+		i = j
 	}
 	if b.Len() == 0 {
 		return ""
 	}
-	return "\n# Skills\nEach skill is a set of instructions. When the task fits one, read its file with read_file, then follow it.\n" + b.String()
+	head := "\n# Skills\nEach skill is a set of instructions. When the task fits one, read its file with read_file, then follow it.\n"
+	if grouped {
+		head += "A path under a \"Files under\" line is in that folder: join the two to read it, as it is not in the working directory.\n"
+	}
+	return head + b.String()
 }
 
 func expandHome(path string) string {

@@ -91,6 +91,30 @@ func TestSkillsMarkedUserOnlyStayOutOfThePromptButAnswerToTheirName(t *testing.T
 	}
 }
 
+// Skills next to each other in one folder name it once; one alone keeps its whole path, and user-only skills split
+// no group.
+func TestSkillsPromptNamesASharedFolderOnce(t *testing.T) {
+	t.Parallel()
+	cache := filepath.Join("/", "cache", "repos", "abc", "skills")
+	skills := []skill{
+		{name: "commit", description: "提交", path: filepath.Join("/", "home", "commit", "SKILL.md")},
+		{name: "tdd", description: "先寫測試", path: filepath.Join(cache, "tdd", "SKILL.md")},
+		{name: "release", path: filepath.Join("/", "other", "release", "SKILL.md"), userOnly: true},
+		{name: "go", description: "Go 守則", path: filepath.Join(cache, "go-rules", "SKILL.md")},
+	}
+	got := skillsPrompt(skills)
+	want := "- commit: 提交 (" + skills[0].path + ")\n" +
+		"Files under " + cache + string(filepath.Separator) + ":\n" +
+		"- tdd: 先寫測試 (" + filepath.Join("tdd", "SKILL.md") + ")\n" +
+		"- go: Go 守則 (" + filepath.Join("go-rules", "SKILL.md") + ")\n"
+	if !strings.HasSuffix(got, "\n"+want) || !strings.Contains(got, "join the two to read it") {
+		t.Fatalf("got:\n%s\nwant to end with:\n%s", got, want)
+	}
+	if alone := skillsPrompt(skills[:1]); strings.Contains(alone, "Files under") {
+		t.Fatalf("a list with no group tells how to join paths:\n%s", alone)
+	}
+}
+
 // fetchedRepo is a Git whose every repo is already fetched to dir.
 type fetchedRepo struct {
 	adapter.Git
