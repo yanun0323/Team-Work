@@ -12,45 +12,37 @@
 
 # Team Work
 
-Team Work is a macOS app that runs a team of AI agents on your own projects. Each project is a company in a building on a pixel-art island. Its employees are AI agents who follow a workflow step by step, each step in its own Git branch, and you review and merge the result.
+Team Work is a Mac app that lets a team of AI employees work on your own projects. Each project is a company on a small pixel-art island. You hire employees, hand them a task, and they work through it step by step. Every task runs on its own Git branch, so nothing reaches your code until you look it over and merge it.
 
 ![The island: each building is a company, with the airport in the middle and subscription allowances at the top left](./docs/images/island.jpg)
 
 ## Highlights
 
-- **Skills that update from GitHub**: paste a GitHub repo and its skills are ready to use, with no files to copy by hand. When the repo has a new version, apply it with one click, or turn on auto-apply. Matt Pocock's skills and poteto's pstack are ready to use.
-- **One project, one company**: each company has its own settings, employees and tasks, so projects never get in each other's way.
-- **Employees with a specialty**: give each employee their own skills, prompt, tools and model, so every role is good at its one job.
-- **Several employees in one chat**: bring employees on different models and with different specialties into the same chat to work out, change and create requirements together.
-- **AI can run the app for you**: ask an employee in a chat to create or change tasks, employee blueprints, workflows and model providers. Changes to blueprints and providers wait for your OK. Employees can also read the app's terminal.
-- **A terminal inside the app**: so you can use Codex or Claude Code without leaving it.
-- **Your GPT and Claude subscriptions**: sign in with ChatGPT or Claude, and see how much of your allowance is left.
-- **Saves tokens**: employees see only a list of skills and read one in full when they need it, long chats summarize their older parts on their own, steps pass work on through short handoffs, and repeated prompts are cached where the provider supports it.
-
-## Coming Soon
-
-Load and update what others share on GitHub:
-
-- [x] Skills
-- [ ] Employee blueprints
-- [ ] Workflows
+- **One project, one company**: each company has its own employees, tasks, rules and memory, so projects never get mixed up.
+- **Employees with a specialty**: each employee works from a blueprint, which holds the instructions, skills and tools for one job, and uses the model you pick. 12 blueprints are ready to use.
+- **Several employees in one chat**: bring employees on different models into one chat to talk an idea through. The last one to reply can hand the next step to a colleague.
+- **Use your subscriptions**: sign in with ChatGPT or Claude instead of paying per use, and see how much is left at a glance.
+- **Skills, blueprints and workflows from GitHub**: paste a GitHub repo and use what is in it, with no files to copy. When the repo changes, update with one click or let it update by itself. Matt Pocock's skills and poteto's pstack are ready to use.
+- **Employees can run the app for you**: ask in a chat and an employee sets up tasks, blueprints, workflows and model providers. Changes to existing settings wait for your OK.
+- **Uses fewer tokens**: employees read a skill only when they need it, long chats are summed up, steps pass work on with short notes, and repeated prompts are cached when the provider allows it.
 
 ## Features
 
-- **Cell Tower**: pair your own computers through built-in [Tailcat](https://github.com/tailscale/tailcat/) and visit another computer’s island. Pairing needs approval; each computer separately controls who may operate it. Work and settings stay on the other computer, and tasks continue if your controlling app disconnects. **Team Work must stay open on the computer being controlled.** No Tailscale account or separate installation is needed; the default free relay has traffic limits.
-- **Immigration Office**: a fixed building by the airport holding employees the whole island shares. Every company can pick them to work, with that company's folder, rules and permissions. Employees move between a company and the office (keeping their own memory; company memory stays with the company), and can be copied from a paired computer's island into this one's office.
-- **Memory**: company memory holds a company's conventions and pitfalls, shared by everyone working there and editable on its Memory tab; each employee's own memory holds ways of working that go with them to any company.
-- **Companies**: one company per project folder and target branch. The building grows as the company finishes tasks and hires employees.
-- **Employees**: made from blueprints (prompt, skills and allowed tools). Each employee picks their own model and thinking level. An employee can also have custom settings instead of a blueprint, written from scratch or copied from a blueprint and adjusted. There are 12 built-in blueprints, such as Backend Engineer, Review & QA and Media Designer, plus the General-purpose Engineer and Poteto, who work by Matt Pocock's and poteto's skills published on GitHub.
-- **Workflows**: the steps a task goes through, from Clarify requirements to Acceptance review. Steps can hand work to an employee or open a discussion with you. Four workflows are ready to use: General task, Feature development, Bug fix and Code review. They and the ready-made employee blueprints live in the official source, [Team-Work-Source](https://github.com/yanun0323/Team-Work-Source), which the app downloads the first time you use it and keeps up to date.
-- **Tasks**: each task works in its own Git worktree on a `task/<number>` branch. When an employee has a question, the task waits for your reply. When the work passes review, you merge it into the target branch or send it back. Meetings the task's owner calls, and a workflow's discussion steps, are held in the task conversation with the owner chairing 1 to 6 employees: those in them pass the floor with `@`; step in any time, `@` an employee to answer or to join, and end them to get the owner's conclusion.
-  - Before work steps, locked npm/pnpm/Yarn projects automatically prepare dependencies in the task worktree. Matching, self-contained npm installations are copied (APFS cloning when available); otherwise the package manager installs with a frozen lockfile, including its normal install scripts. Later steps reuse the prepared environment and refresh it when package settings change. Node and the selected package manager must already be installed. Progress appears in the task log; preparation failures stop before work or verification and offer retry. No `.worktreeinclude` is needed.
-  - A new task worktree also starts with what Git ignores in the project folder, such as `.env`, build outputs and caches. Where the disk can clone files (APFS, or Btrfs/XFS on Linux) this takes almost no extra space; otherwise only single files are copied, not folders. Folders holding another Git repository, Python virtual environments and the app's own `.team-work` folder are left out. Copied settings such as `.env` still point at the same databases and services. Generated dependencies must be ignored by Git in the task branch.
-- **Chats**: talk with an employee in the project folder. Type `$` to pick a skill and `#` to mention a file. Pick several employees, or `@` mention them, to hold a meeting.
-- **Model providers**: Anthropic, OpenAI, Google Gemini and any OpenAI-compatible API. You can also sign in with a Claude or ChatGPT subscription.
-- **Skills**: blueprints load skills from local folders or GitHub repos.
-- **Terminal**: each company has a zsh terminal in its project folder, and the airport has one in your home folder.
-- **Files**: browse a company's project folder, edit text files and preview images.
+- **Companies**: one project folder and one target branch (where finished work is merged) make a company. Its building grows as it finishes tasks and hires people.
+- **Employees**: pick a blueprint, a model and how hard it thinks. You can also skip the blueprint and write their settings yourself. The 12 official blueprints are Generalist, Feature Planner, General-purpose Engineer, Researcher, Writer, Media Designer, UI Design Engineer, Review & QA, Frontend Engineer, Backend Engineer, SRE Engineer and Poteto. General-purpose Engineer works by Matt Pocock's skills and Poteto by poteto's. To move everyone off a model at once, pick it in Settings and choose the new one.
+- **Workflows**: the steps a task goes through, from sorting out what is needed to the final check. A step is either work for one employee or a talk with you. Four are ready to use: General task, Feature development, Bug fix and Code review. They and the official blueprints come from [Team-Work-Source](https://github.com/yanun0323/Team-Work-Source), downloaded on first use and kept up to date.
+- **Tasks**: each task works in its own copy of the project on a `task/<number>` branch. When an employee has a question, the task waits for you. When the work is done, you merge it or send it back. Commits use your own Git name and email. The task's owner can call a meeting with 1 to 6 employees right in the task chat; you can jump in at any time and `@` someone to bring them in.
+  - A new task is ready to run: its copy also gets the files Git ignores, such as `.env` and local settings, and Node projects with a lockfile (npm, pnpm or Yarn) get their packages installed before work starts. Node and the package manager must already be installed. A copied `.env` still points at the same databases and services.
+- **Chats**: talk with employees in the project folder. Type `$` to pick a skill, `#` to mention a file, and `@` to bring in another employee. Pictures an employee opens show up in the chat.
+- **Memory**: company memory keeps a project's habits and pitfalls, shared by everyone who works there, and you can edit it on the company's Memory tab. Each employee also has their own memory of how they like to work, which goes with them to any company.
+- **Immigration Office**: a building by the airport for employees the whole island shares. Any company can use them, with that company's folder and rules.
+- **Cell Tower**: pair with your other Macs and visit each other's islands. For each friend island, choose Closed, View only or Can operate. The work runs on the other Mac, which must keep Team Work open. It uses the built-in [Tailcat](https://github.com/tailscale/tailcat/), so you need no Tailscale account or extra install; the free default relay has traffic limits.
+- **Model providers**: Anthropic, OpenAI, Google Gemini and any OpenAI-compatible service (such as DeepSeek or a local Ollama), with an API key, or a Claude or ChatGPT subscription. A Claude subscription runs through Claude Code, which the app offers to install.
+- **MCP and hooks**: list MCP servers in `~/.team-work/mcp.json` to give employees more tools, and run your own commands while they work with `~/.team-work/hooks.json`. Both use Claude Code's format, so you can copy entries over.
+- **Image generation**: under Settings → System → Image generation, pick a ChatGPT subscription or an image model from an OpenAI-compatible provider, and employees can make pictures.
+- **Semantic search (experimental)**: employees find code by what it does, not only by the words in it. It runs on your Mac, needs macOS 27 on Apple silicon, and is off until you turn it on in Settings.
+- **Terminal and files**: each company has a terminal in its project folder, and the airport has one in your home folder, so you can use Codex or Claude Code without leaving the app. You can also browse the project, edit text files and preview images.
+- **You on the island**: make your own character, see your stats, and walk around with W, A, S and D. Closing the window keeps the app running in the menu bar.
 - **Languages**: Traditional Chinese, Simplified Chinese, English, Japanese and Korean.
 
 ## Installation
@@ -58,36 +50,36 @@ Load and update what others share on GitHub:
 1. Download `Team-Work-macOS.zip` from [Releases](https://github.com/yanun0323/Team-Work/releases).
 2. Unzip it and move `Team Work.app` to Applications.
 
-The app needs macOS 13.3 or later and runs on Apple Silicon and Intel. The app needs Git: on a Mac without it, the app stops until you install Apple's Command Line Tools, which include it, and offers to start the install. A project folder that is not a Git repo yet becomes one when you start its company.
+You need macOS 13.3 or later, on Apple silicon or Intel. The app also needs Git: if your Mac does not have it, the app offers to install Apple's Command Line Tools, which include it. A project folder that is not a Git repo yet becomes one when you create its company. The app updates itself.
 
 ## Getting Started
 
-1. In Airport → Model providers, add at least one provider so employees have models to use.
+1. In Airport → Model providers, add at least one provider so employees have a model to use.
 2. Press ＋ New company, pick a spot on the map, then fill in the project folder, name and target branch.
 3. On the company's Employees tab, add employees: pick a blueprint and a model.
-4. On the Tasks tab, create a task: describe the work, pick a workflow, and choose employees for each step.
+4. On the Tasks tab, create a task: describe the work, pick a workflow and choose who does each step.
 5. Open the task and watch Progress. A step with a red exclamation mark is waiting for you.
 
 The question mark at the top right opens the full guide.
 
 ## Data and Security
 
-- Data is stored in `~/.team-work`. Set `TEAM_WORK_HOME` to an absolute path to use another folder.
-- API keys and sign-in tokens are kept in `data.db` with file permission `0600`. They are not encrypted.
-- Running commands has no sandbox. Allow the run commands tool only in blueprints you trust.
+- Everything is kept in `~/.team-work`. To use another folder, set `TEAM_WORK_HOME` to an absolute path.
+- API keys and sign-ins are kept in `data.db`, readable only by your user account (`0600`). They are not encrypted.
+- Employees who may run commands can reach your whole computer; there is no sandbox. Give that tool only to blueprints you trust.
 
 ## Build from Source
 
-You need Go (see `backend/go.mod` for the version), Node.js with npm, and the Xcode command line tools.
+You need Go (version in `backend/go.mod`), Node.js with npm, and Xcode's command line tools.
 
 ```sh
 make dev           # backend and frontend together at http://localhost:5173
-make dev-mock      # frontend only, with simulated data
+make dev-mock      # frontend only, with made-up data
 make test-backend  # backend tests
 make build         # build dist/Team Work.app (unsigned)
 ```
 
-Run `make help` to list every command. The [backend](backend/README.md) and [frontend](frontend/README.md) notes are in Traditional Chinese.
+Run `make help` to see every command. The [backend](backend/README.md) and [frontend](frontend/README.md) notes are in Traditional Chinese.
 
 ## License
 
