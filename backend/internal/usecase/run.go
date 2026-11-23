@@ -352,7 +352,7 @@ func (e *Engine) imageMaker() adapter.ImageMaker {
 }
 
 // imageTools is image_gen, when pictures can be drawn. keep, when set, gets each saved picture.
-func imageTools(spec agentSpec, read []string, keep func(output string, data []byte)) []adapter.Tool {
+func imageTools(spec agentSpec, read []string, keep func(output string, data, preview []byte)) []adapter.Tool {
 	if spec.images == nil {
 		return nil
 	}

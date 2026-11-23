@@ -44,15 +44,18 @@ func TestImageRequestsAsTheCodexCLISendsThem(t *testing.T) {
 	signIn(t, c, secrets, time.Now().Add(time.Hour).UnixMilli())
 	ctx := context.Background()
 
-	if _, err := c.MakeImage(ctx, "a cat", nil, false, nil); err != nil {
+	if _, err := c.MakeImage(ctx, "a cat", nil, false, nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if path != "/codex/images/generations" || body["output_format"] != nil || body["frame_count"] != nil || body["model"] != imageModel {
+	if path != "/codex/images/generations" || body["output_format"] != nil || body["frame_count"] != nil || body["model"] != imageModel || body["size"] != "auto" {
 		t.Fatalf("%s %v", path, body)
+	}
+	if _, err := c.MakeImage(ctx, "a wide cat", nil, false, nil, "3840x2160"); err != nil || body["size"] != "3840x2160" {
+		t.Fatalf("%v %v", err, body)
 	}
 
 	reply = anim.Bytes()
-	data, err := c.MakeImage(ctx, "a dancing cat", []string{"data:image/png;base64,AA=="}, false, &adapter.Gif{Frames: 2, FrameMS: 200})
+	data, err := c.MakeImage(ctx, "a dancing cat", []string{"data:image/png;base64,AA=="}, false, &adapter.Gif{Frames: 2, FrameMS: 200}, "")
 	if err != nil || !bytes.Equal(data, anim.Bytes()) {
 		t.Fatalf("%v", err)
 	}
@@ -61,7 +64,7 @@ func TestImageRequestsAsTheCodexCLISendsThem(t *testing.T) {
 	}
 
 	// empty options leave frame count and duration to the service
-	if _, err := c.MakeImage(ctx, "x", nil, false, &adapter.Gif{}); err != nil {
+	if _, err := c.MakeImage(ctx, "x", nil, false, &adapter.Gif{}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, has := body["frame_count"]; has || body["output_format"] != "gif" {
@@ -82,13 +85,13 @@ func TestGIFsNotOpenToTheSubscriptionSaySo(t *testing.T) {
 	c.APIURL = srv.URL
 	signIn(t, c, secrets, time.Now().Add(time.Hour).UnixMilli())
 
-	_, err := c.MakeImage(context.Background(), "x", nil, false, &adapter.Gif{})
+	_, err := c.MakeImage(context.Background(), "x", nil, false, &adapter.Gif{}, "")
 	if err == nil || !strings.Contains(err.Error(), "GIF") || strings.Contains(err.Error(), "400") {
 		t.Fatalf("%v", err)
 	}
 	// other refusals stay as they were
 	reply = `{"detail":"bad prompt"}`
-	if _, err := c.MakeImage(context.Background(), "x", nil, false, &adapter.Gif{}); err == nil || !strings.Contains(err.Error(), "400") {
+	if _, err := c.MakeImage(context.Background(), "x", nil, false, &adapter.Gif{}, ""); err == nil || !strings.Contains(err.Error(), "400") {
 		t.Fatalf("%v", err)
 	}
 }

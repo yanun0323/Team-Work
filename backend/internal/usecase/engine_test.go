@@ -149,7 +149,7 @@ func (s *script) Images(p model.ModelProvider, key, imageModel string) (adapter.
 }
 
 // MakeImage draws one white pixel.
-func (s *script) MakeImage(context.Context, string, []string, bool, *adapter.Gif) ([]byte, error) {
+func (s *script) MakeImage(context.Context, string, []string, bool, *adapter.Gif, string) ([]byte, error) {
 	var out bytes.Buffer
 	pic := image.NewNRGBA(image.Rect(0, 0, 1, 1))
 	pic.Set(0, 0, color.White)

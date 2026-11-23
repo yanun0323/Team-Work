@@ -171,7 +171,7 @@ func (f *Factory) Images(p model.ModelProvider, key, imageModel string) (adapter
 		if key == "" || p.BaseURL == "" {
 			return nil, model.Errorf(model.CodeInvalid, "未設定生圖供應商的 API Key 或 Base URL")
 		}
-		return compatibleImage{openAI{client: client{base: strings.TrimRight(p.BaseURL, "/"), key: key, http: keyedHTTP}}, imageModel}, nil
+		return compatibleImage{openAI{client: client{base: strings.TrimRight(p.BaseURL, "/"), key: key, http: imageHTTP}}, imageModel}, nil
 	}
 
 	if !p.Auth.SignedIn {

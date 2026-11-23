@@ -16,8 +16,9 @@ import (
 
 // Adapted from mho's codex image tool, which matches the Codex CLI's native Images requests.
 const (
-	imageModel             = "gpt-image-2"
-	maxGeneratedImageBytes = 32 << 20
+	imageModel = "gpt-image-2"
+	// a 4096x4096 picture can be a large PNG
+	maxGeneratedImageBytes = 96 << 20
 )
 
 type imageReference struct {
@@ -38,8 +39,11 @@ type imageRequest struct {
 
 // MakeImage draws a PNG from prompt, or edits the sources (data URLs) when there are any; with gif, a looping GIF.
 // It is never retried once the service has it, as each try spends the allowance.
-func (c *Client) MakeImage(ctx context.Context, prompt string, sources []string, transparent bool, gif *adapter.Gif) ([]byte, error) {
+func (c *Client) MakeImage(ctx context.Context, prompt string, sources []string, transparent bool, gif *adapter.Gif, size string) ([]byte, error) {
 	body := imageRequest{Prompt: prompt, Model: imageModel, Background: "opaque", Quality: "auto", Size: "auto"}
+	if size != "" {
+		body.Size = size
+	}
 	if gif != nil {
 		body.Format, body.Gif = "gif", gif
 	}

@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,8 +24,8 @@ import (
 )
 
 const (
-	// imageTimeout bounds one picture; drawing takes from seconds to a few minutes.
-	imageTimeout       = 5 * time.Minute
+	// imageTimeout bounds one picture; drawing takes from seconds to several minutes for a large one on a local server.
+	imageTimeout       = 15 * time.Minute
 	maxSourceBytes     = 5 << 20
 	maxSources         = 5
 	previewSide        = 1024
@@ -38,13 +39,18 @@ type Image struct {
 	GenerationOnly bool
 	// Extra lists folders source images may come from besides the working directory.
 	Extra []string
-	// Keep, when set, gets each saved picture, so it can be shown where the tool ran.
-	Keep func(output string, data []byte)
+	// Keep, when set, gets each saved picture and its small PNG preview, so it can be shown where the tool ran.
+	Keep func(output string, data, preview []byte)
 }
+
+const (
+	sizeLocal = `"size":{"type":"string","pattern":"^[1-9][0-9]*x[1-9][0-9]*$","description":"WIDTHxHEIGHT, such as 1024x1536. Omit for the model's default; how large it may be depends on the image server."}`
+	sizeGPT   = `"size":{"type":"string","pattern":"^[1-9][0-9]*x[1-9][0-9]*$","description":"WIDTHxHEIGHT, such as 1536x1024: both multiples of 16, at most 3:1, up to 3840x2160 (above 2560x1440 is experimental). Omit to let the model choose."}`
+)
 
 func (t Image) Spec() model.ToolSpec {
 	if t.GenerationOnly {
-		return model.ToolSpec{Name: "image_gen", Description: "Generate a PNG from a text prompt using the configured image model. Returns a new file and preview; never overwrites files.", Parameters: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1},"output_path":{"type":"string","minLength":1,"description":"New .png path in the working directory."}},"required":["prompt"],"additionalProperties":false}`)}
+		return model.ToolSpec{Name: "image_gen", Description: "Generate a PNG from a text prompt using the configured image model. Returns a new file and preview; never overwrites files.", Parameters: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1},` + sizeLocal + `,"output_path":{"type":"string","minLength":1,"description":"New .png path in the working directory."}},"required":["prompt"],"additionalProperties":false}`)}
 	}
 	return model.ToolSpec{Name: "image_gen",
 		Description: "Generate an image, or edit 1–5 local images when images is provided. Uses the ChatGPT subscription's allowance and can take a few minutes. Returns a new PNG path, or a GIF path when gif is set, and a still preview; never overwrites files. Relative paths use the working directory.\n" +
@@ -52,7 +58,7 @@ func (t Image) Spec() model.ToolSpec {
 			"- Use gif only for simple looping animations with 2–16 frames. For more complex animations or more frames, use other tools instead.\n" +
 			"- Use {} for the defaults (9 frames, 200 ms per frame), or set frame_count and frame_duration_ms.\n" +
 			"- To edit a GIF, first inspect its frames, then make a spritesheet with equal-sized cells in a regular grid. Pass that spritesheet in images and set gif. Do not pass the GIF itself as an edit input.",
-		Parameters: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1},"images":{"type":"array","minItems":1,"maxItems":5,"items":{"type":"string","minLength":1},"description":"Source PNG, JPEG or GIF paths, each up to 5 MiB and 20 million pixels. Omit to generate."},"transparent_background":{"type":"boolean"},"gif":{"type":"object","properties":{"frame_count":{"type":"integer","minimum":2,"maximum":16},"frame_duration_ms":{"type":"integer","minimum":20,"maximum":2000}},"additionalProperties":false,"description":"Set to make a looping animated GIF instead of a PNG."},"output_path":{"type":"string","minLength":1,"description":"New .png path, or .gif with gif, in the working directory. Defaults to a unique file under generated-images/."}},"required":["prompt"],"additionalProperties":false}`)}
+		Parameters: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1},"images":{"type":"array","minItems":1,"maxItems":5,"items":{"type":"string","minLength":1},"description":"Source PNG, JPEG or GIF paths, each up to 5 MiB and 20 million pixels. Omit to generate."},"transparent_background":{"type":"boolean"},"gif":{"type":"object","properties":{"frame_count":{"type":"integer","minimum":2,"maximum":16},"frame_duration_ms":{"type":"integer","minimum":20,"maximum":2000}},"additionalProperties":false,"description":"Set to make a looping animated GIF instead of a PNG."},` + sizeGPT + `,"output_path":{"type":"string","minLength":1,"description":"New .png path, or .gif with gif, in the working directory. Defaults to a unique file under generated-images/."}},"required":["prompt"],"additionalProperties":false}`)}
 }
 
 func (t Image) Run(ctx context.Context, cwd string, raw json.RawMessage) model.ToolResult {
@@ -61,6 +67,7 @@ func (t Image) Run(ctx context.Context, cwd string, raw json.RawMessage) model.T
 		Images      []string     `json:"images"`
 		Transparent bool         `json:"transparent_background"`
 		Gif         *adapter.Gif `json:"gif"`
+		Size        string       `json:"size"`
 		Output      string       `json:"output_path"`
 	}
 	if err := decode(raw, &args); err != nil {
@@ -74,6 +81,9 @@ func (t Image) Run(ctx context.Context, cwd string, raw json.RawMessage) model.T
 	}
 	if g := args.Gif; g != nil && (g.Frames != 0 && (g.Frames < 2 || g.Frames > 16) || g.FrameMS != 0 && (g.FrameMS < 20 || g.FrameMS > 2000)) {
 		return fail("gif takes 2–16 frames of 20–2000 ms each")
+	}
+	if args.Size != "" && !fitsSize(args.Size) {
+		return fail("size must be WIDTHxHEIGHT, such as 1536x1024, with at most 20 million pixels")
 	}
 	ext := ".png"
 	if args.Gif != nil {
@@ -120,10 +130,10 @@ func (t Image) Run(ctx context.Context, cwd string, raw json.RawMessage) model.T
 	}()
 	ctx, cancel := context.WithTimeout(ctx, imageTimeout)
 	defer cancel()
-	data, err := t.Maker.MakeImage(ctx, args.Prompt, sources, args.Transparent, args.Gif)
+	data, err := t.Maker.MakeImage(ctx, args.Prompt, sources, args.Transparent, args.Gif, args.Size)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return fail("the image took longer than 5 minutes; it was not retried")
+			return fail("the image took longer than 15 minutes; it was not retried")
 		}
 		var known *model.Error
 		if errors.As(err, &known) {
@@ -155,7 +165,7 @@ func (t Image) Run(ctx context.Context, cwd string, raw json.RawMessage) model.T
 	}
 	saved = true
 	if t.Keep != nil {
-		t.Keep(output, data)
+		t.Keep(output, data, preview)
 	}
 	saidAs := fmt.Sprintf("Saved image: %s (%d x %d). Use this path for later edits. The attachment is a preview.", output, cfg.Width, cfg.Height)
 	if frames > 0 {
@@ -230,4 +240,12 @@ func imagePreview(data []byte, cfg image.Config, still image.Image) ([]byte, err
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+// fitsSize says whether size is "WIDTHxHEIGHT" in whole pixels, no more than a saved picture may hold.
+func fitsSize(size string) bool {
+	w, h, ok := strings.Cut(size, "x")
+	width, err1 := strconv.Atoi(w)
+	height, err2 := strconv.Atoi(h)
+	return ok && err1 == nil && err2 == nil && w[0] != '+' && h[0] != '+' && width > 0 && height > 0 && int64(width)*int64(height) <= maxPixels
 }

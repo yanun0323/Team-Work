@@ -22,12 +22,13 @@ type drawer struct {
 	sources []string
 	side    int
 	gif     *adapter.Gif
+	size    string
 	// still answers a GIF request with a PNG, as a service without animations would
 	still bool
 }
 
-func (d *drawer) MakeImage(_ context.Context, prompt string, sources []string, _ bool, g *adapter.Gif) ([]byte, error) {
-	d.prompt, d.sources, d.gif = prompt, sources, g
+func (d *drawer) MakeImage(_ context.Context, prompt string, sources []string, _ bool, g *adapter.Gif, size string) ([]byte, error) {
+	d.prompt, d.sources, d.gif, d.size = prompt, sources, g, size
 	var out bytes.Buffer
 	if g == nil || d.still {
 		_ = png.Encode(&out, image.NewNRGBA(image.Rect(0, 0, d.side, d.side)))
@@ -138,5 +139,34 @@ func TestImageSavesANewPNG(t *testing.T) {
 	}
 	if files, _ := filepath.Glob(filepath.Join(dir, generatedImagesDir, "*.png")); len(files) != 1 {
 		t.Fatalf("generated %v", files)
+	}
+}
+
+func TestImageAsksForASize(t *testing.T) {
+	dir := t.TempDir()
+	d := &drawer{side: 1500}
+	var kept, preview []byte
+	tool := Image{Maker: d, GenerationOnly: true, Keep: func(_ string, data, small []byte) { kept, preview = data, small }}
+	if res := tool.Run(context.Background(), dir, json.RawMessage(`{"prompt":"a cat"}`)); res.IsError || d.size != "" {
+		t.Fatalf("%s %q", res.Text, d.size)
+	}
+	if res := tool.Run(context.Background(), dir, json.RawMessage(`{"prompt":"a cat","size":"4096x4096"}`)); res.IsError || d.size != "4096x4096" {
+		t.Fatalf("%s %q", res.Text, d.size)
+	}
+	// Keep gets the whole picture and the preview the model saw
+	if cfg, _ := png.DecodeConfig(bytes.NewReader(kept)); cfg.Width != 1500 {
+		t.Fatalf("kept %d wide", cfg.Width)
+	}
+	if cfg, _ := png.DecodeConfig(bytes.NewReader(preview)); cfg.Width != previewSide {
+		t.Fatalf("preview %d wide", cfg.Width)
+	}
+	for _, bad := range []string{"4096", "x512", "512x", "0x512", "-512x512", "+512x512", "512x512x2", "5000x5000", "big"} {
+		d.size = "untouched"
+		if res := tool.Run(context.Background(), dir, json.RawMessage(`{"prompt":"x","size":"`+bad+`"}`)); !res.IsError || d.size != "untouched" {
+			t.Fatalf("took size %s", bad)
+		}
+	}
+	if !strings.Contains(string(tool.Spec().Parameters), `"size"`) || !strings.Contains(string(Image{Maker: d}.Spec().Parameters), `"size"`) {
+		t.Fatal("size is not offered")
 	}
 }

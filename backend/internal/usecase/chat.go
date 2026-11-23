@@ -918,8 +918,11 @@ func (e *Engine) applyChat(in chatRun, fn func(c *model.Chat)) bool {
 
 // chatKeepsImage shows each picture image_gen saves under its tool line. The copy is an upload, so the chat still
 // shows it after the file in the folder is changed or removed.
-func (e *Engine) chatKeepsImage(in chatRun) func(output string, data []byte) {
-	return func(output string, data []byte) {
+func (e *Engine) chatKeepsImage(in chatRun) func(output string, data, preview []byte) {
+	return func(output string, data, preview []byte) {
+		if len(data) > maxUploadBytes {
+			data = preview // a picture too large to attach is shown by its preview
+		}
 		url, err := e.SaveUpload(bytes.NewReader(data))
 		if err != nil {
 			return // the file is saved; only the thumbnail is missing

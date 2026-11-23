@@ -735,6 +735,7 @@ func TestKeyedProvidersShareTheirConnections(t *testing.T) {
 
 func TestCompatibleImageModelsAndGeneration(t *testing.T) {
 	const png64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6vV0AAAAASUVORK5CYII="
+	size, sized := "", false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer key" {
 			t.Error("wrong credentials")
@@ -747,6 +748,7 @@ func TestCompatibleImageModelsAndGeneration(t *testing.T) {
 			if r.Method != "POST" || r.Header.Get("Accept") != "application/json" || json.NewDecoder(r.Body).Decode(&b) != nil || b["model"] != "image-sushi" {
 				t.Error("wrong image request")
 			}
+			size, sized = b["size"]
 			if b["prompt"] == "invalid" {
 				io.WriteString(w, `{"data":[{"url":"https://example.invalid"}]}`)
 				return
@@ -777,10 +779,18 @@ func TestCompatibleImageModelsAndGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if data, err := m.MakeImage(ctx, "flower", nil, false, nil); err != nil || len(data) == 0 {
-		t.Fatalf("image: %v", err)
+	if data, err := m.MakeImage(ctx, "flower", nil, false, nil, ""); err != nil || len(data) == 0 || sized {
+		t.Fatalf("image: %v, size %q", err, size)
 	}
-	if _, err = m.MakeImage(ctx, "invalid", nil, false, nil); err == nil {
+	// the size goes to the server as asked; without one the server's default stands
+	if _, err := m.MakeImage(ctx, "flower", nil, false, nil, "2048x1152"); err != nil || size != "2048x1152" {
+		t.Fatalf("image: %v, size %q", err, size)
+	}
+	// a server such as sd-server answers only once the whole picture is drawn
+	if m.(compatibleImage).http.Transport.(*http.Transport).ResponseHeaderTimeout != 0 {
+		t.Fatal("a large picture would time out waiting for its answer")
+	}
+	if _, err = m.MakeImage(ctx, "invalid", nil, false, nil, ""); err == nil {
 		t.Fatal("accepted missing image")
 	}
 }

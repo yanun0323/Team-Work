@@ -71,9 +71,9 @@ type Providers interface {
 }
 
 // ImageMaker draws a PNG from a prompt, or edits the sources (data URLs) when there are any. With gif it draws a
-// looping GIF instead.
+// looping GIF instead. size is "WIDTHxHEIGHT", or empty to leave it to the service.
 type ImageMaker interface {
-	MakeImage(ctx context.Context, prompt string, sources []string, transparent bool, gif *Gif) ([]byte, error)
+	MakeImage(ctx context.Context, prompt string, sources []string, transparent bool, gif *Gif, size string) ([]byte, error)
 }
 
 // Gif asks for an animated GIF. A zero field leaves it to the service: 9 frames of 200 ms.
