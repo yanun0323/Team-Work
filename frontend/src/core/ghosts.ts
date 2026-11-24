@@ -12,6 +12,7 @@ import type { Ghost, World } from './domain/types'
 import { useIsland } from './island'
 import { teamAlerts } from './model'
 import { MOCK } from './mode'
+import { forgetSeen, seenChats, useSeen } from './seen'
 import { homeWorld, useStore } from './store'
 import { usePeers, type Peer, type PeerStatus } from './towers'
 
@@ -107,6 +108,11 @@ export function openGhost(g: Ghost) {
   useIsland.setState({ island: { id: g.peerId, name, ghost: { id: g.id, teamId: g.teamId } }, notice: '' })
 }
 
+/** Takes the unread marks off a followed computer's chats read here since (`chats`, a copy of its own). */
+function unmark(peer: string, chats: World['chats']) {
+  for (const id of seenChats(peer, chats)) chats[id] = { ...chats[id], unread: false }
+}
+
 /** How often each ghost company's project size is asked for again: it sets how tall its building stands. */
 const SIZE_MS = 60_000
 
@@ -122,12 +128,15 @@ export function watchGhosts(retry = 5000) {
   const take = (peer: string, ev: ServerEvent) => {
     const cur = useFeeds.getState()[peer] ?? { world: null, open: false }
     let world = cur.world
-    if (ev.type === 'snapshot') world = { ...emptyWorld(), ...ev.world }
-    else if (ev.type === 'patch' && world) {
+    if (ev.type === 'snapshot') {
+      world = { ...emptyWorld(), ...ev.world }
+      forgetSeen(peer, world.chats)
+    } else if (ev.type === 'patch' && world) {
       // a new world and new books each time, so what reads them sees the change
       world = { ...world, teams: { ...world.teams }, replicas: { ...world.replicas }, tasks: { ...world.tasks }, subTasks: { ...world.subTasks }, chats: { ...world.chats } }
       applyPatches(world, ev)
     } else return
+    unmark(peer, world.chats)
     useFeeds.setState({ [peer]: { world, open: true } })
     catchUp(peer, world)
   }
@@ -142,6 +151,15 @@ export function watchGhosts(retry = 5000) {
       if (sent.get(g.id) === want) continue
       sent.set(g.id, want)
       void localRequest('PATCH', `/ghosts/${encodeURIComponent(g.id)}`, { name: t.name, plot: { at: g.plot.at, style, seed } }).catch(() => sent.delete(g.id))
+    }
+  }
+  // what was just read here stops counting at once
+  const reread = () => {
+    for (const [peer, feed] of Object.entries(useFeeds.getState())) {
+      if (!feed.world || !seenChats(peer, feed.world.chats).length) continue
+      const chats = { ...feed.world.chats }
+      unmark(peer, chats)
+      useFeeds.setState({ [peer]: { ...feed, world: { ...feed.world, chats } } })
     }
   }
   const sync = () => {
@@ -174,11 +192,13 @@ export function watchGhosts(retry = 5000) {
   const offIsland = useIsland.subscribe((s, before) => { if (s.island !== before.island) sync() })
   // a computer just reached has its sizes asked for at once
   const offFeeds = useFeeds.subscribe((s, before) => { if (Object.keys(s).some((id) => s[id].open && !before[id]?.open)) sizes() })
+  const offSeen = useSeen.subscribe(reread)
   const timer = window.setInterval(sizes, SIZE_MS)
   return () => {
     offStore()
     offIsland()
     offFeeds()
+    offSeen()
     window.clearInterval(timer)
     for (const stop of links.values()) stop()
     links.clear()

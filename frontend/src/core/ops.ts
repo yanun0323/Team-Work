@@ -10,6 +10,7 @@ import * as sim from './domain/sim'
 import type { Attachment, Blueprint, Chat, Source, SourceChanges, SourceItem, SourcePreview, Effort, FileInfo, Locale, Look, MemoryEntry, Replica, SkillInfo, SkillText, TalkEnd, Task, TaskActivity, TaskOperation, Team, Workflow, World } from './domain/types'
 import { MOCK } from './mode'
 import { usePrefs } from '../prefs'
+import { markSeen } from './seen'
 
 /** Reports a request that failed; the store shows it. Set once at start. */
 let onFailure: (message: string) => void = () => {}
@@ -161,8 +162,18 @@ export const retryChat = pick('retryChat', (_w: World, id: string) => fire_('POS
 export const stopChat = pick('stopChat', (_w: World, id: string) => fire_('POST', `/chats/${id}/stop`))
 export const steerChat = pick('steerChat', (_w: World, id: string, queued: string) => fire_('POST', `/chats/${id}/queue/${queued}/steer`))
 export const unqueueChat = pick('unqueueChat', (_w: World, id: string, queued: string) => fire_('DELETE', `/chats/${id}/queue/${queued}`))
-// a visitor only looks: unread marks are left for the island's own user (the island ignores them from visitors too)
-export const readChat = pick('readChat', (_w: World, id: string) => { if (!remoteIsland()) fire_('POST', `/chats/${id}/read`) })
+// A visitor only looks: unread marks are left for the island's own user (the island ignores them from visitors too).
+// A ghost company's chat is the user's own reading, though: it is kept read on this computer, and said so to the
+// company's computer, which clears its own mark only for a computer it lets operate there.
+export const readChat = pick('readChat', (w: World, id: string) => {
+  const island = remoteIsland()
+  if (!island) return fire_('POST', `/chats/${id}/read`)
+  const chat = w.chats[id]
+  if (!island.ghost || !chat) return
+  markSeen(island.id, chat)
+  chat.unread = false
+  fire_('POST', `/chats/${id}/read?mine=1`)
+})
 export const skipChatQuestion = pick('skipChatQuestion', (_w: World, id: string) => fire_('POST', `/chats/${id}/question/skip`))
 export const deleteChat = pick('deleteChat', (_w: World, id: string) => fire_('DELETE', `/chats/${id}`))
 

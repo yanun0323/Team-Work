@@ -11,6 +11,7 @@ import type { World, WorldEvent } from './domain/types'
 import { MOCK } from './mode'
 import { editing, setFailureHandler } from './ops'
 import { remoteIsland, useIsland } from './island'
+import { seenChats } from './seen'
 
 /** Screens every design has. Each design lays them out its own way. */
 export type View = 'teams' | 'home' | 'workflow' | 'roster' | 'blueprints' | 'settings'
@@ -98,7 +99,8 @@ export const useStore = create<State>()(
     arriving: false,
     receive: (ev) => {
       // another island's preferences only say how that island works; the interface stays this computer's
-      const remote = !!remoteIsland()
+      const island = remoteIsland()
+      const remote = !!island
       const install = (p: Partial<Prefs> | undefined, whole: boolean) =>
         usePrefs.setState(remote ? splitPrefs(p ?? {})[0] : whole ? { ...DEFAULT_PREFS, ...p } : p ?? {})
       // Install preferences before the loaded world can mount drawers or the scene.
@@ -171,6 +173,10 @@ export const useStore = create<State>()(
             s.toasts.push({ id: ++toastSeq, event: ev.kind === 'review' ? { kind: 'review', taskId: ev.taskId, subId: ev.subId ?? '' } : { kind: ev.kind, taskId: ev.taskId } })
             s.toasts = s.toasts.slice(-4)
             break
+        }
+        // an open ghost company's chats read here stay read, whatever its computer still says
+        if (island?.ghost && (ev.type === 'snapshot' || ev.type === 'patch')) {
+          for (const id of seenChats(island.id, s.world.chats)) s.world.chats[id].unread = false
         }
       })
     },

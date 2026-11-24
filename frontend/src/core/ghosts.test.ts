@@ -8,6 +8,8 @@ import { ghostState, ghostWaiting, openGhost, seedFeed, useFeeds, watchGhosts } 
 import { apiBase, islandScope, mapBase, mapScope, useIsland } from './island'
 import { homeWorld, useStore } from './store'
 import { closeGhost, usePeers, watchIsland, type Peer } from './towers'
+import { readChat } from './ops'
+import { useSeen } from './seen'
 import { canPlace, layoutTown } from '../layout'
 
 const peer = (p: Partial<Peer> = {}): Peer => ({ id: 'b', name: 'Studio', status: 'online', allowInbound: false, pairedAt: 1, access: 'view', ...p })
@@ -22,6 +24,7 @@ beforeEach(() => {
   useStore.setState({ world: { ...emptyWorld(), teams: { t1: team('t1', 'Mine') }, ghosts: { [ghost.id]: ghost } }, home: null, loaded: true, arriving: false, offline: false, failure: '' })
   usePeers.setState({ peers: [peer()] })
   useFeeds.setState({}, true)
+  useSeen.setState({}, true)
 })
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -119,6 +122,54 @@ it('counts what waits for the user in the ghost companies, for the Dock badge', 
   expect(ghostWaiting(useStore.getState().world, {})).toBe(0)
 })
 
+describe('reading a ghost company\'s chat', () => {
+  const unread = (count: number) => ({ id: 'c1', teamId: 'team-9', unread: true, messages: [], history: { count } }) as never
+  const posts = (f: ReturnType<typeof vi.fn>) => (f.mock.calls as unknown as Array<[string, RequestInit]>).filter(([, init]) => init.method === 'POST').map(([url]) => url)
+
+  it('keeps it read here, says so to its computer as this user\'s own, and counts it again once something new comes', async () => {
+    const f = vi.fn(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', f)
+    vi.stubGlobal('WebSocket', class { close() {} })
+    vi.stubGlobal('location', { protocol: 'http:', host: 'app' })
+    vi.stubGlobal('window', { setInterval: () => 0, clearInterval: () => {}, setTimeout: () => 0, clearTimeout: () => {} })
+    const w = there()
+    w.chats.c1 = unread(2)
+    seedFeed('b', w)
+    expect(ghostWaiting(homeWorld(useStore.getState()), useFeeds.getState())).toBe(1)
+    openGhost(ghost)
+    const stop = watchGhosts()
+
+    useStore.getState().act((x) => readChat(x, 'c1'))
+    await turn()
+    expect(useStore.getState().world.chats.c1.unread).toBe(false)
+    // the name tag and the Dock badge, from the follow, stop counting it at once
+    expect(useFeeds.getState().b.world?.chats.c1.unread).toBe(false)
+    expect(ghostWaiting(homeWorld(useStore.getState()), useFeeds.getState())).toBe(0)
+    // the computer there clears its own mark only if it lets this one operate
+    expect(posts(f)).toEqual(['/api/v1/remote/b/chats/c1/read?mine=1'])
+
+    // its computer still says unread: read here, it stays read
+    useStore.getState().receive({ type: 'patch', upserts: [{ kind: 'chat', id: 'c1', data: unread(2) }] })
+    expect(useStore.getState().world.chats.c1.unread).toBe(false)
+    // a new message counts again
+    useStore.getState().receive({ type: 'patch', upserts: [{ kind: 'chat', id: 'c1', data: unread(3) }] })
+    expect(useStore.getState().world.chats.c1.unread).toBe(true)
+    stop()
+  })
+
+  it('leaves a visited island\'s marks alone', () => {
+    const f = vi.fn(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', f)
+    vi.stubGlobal('window', { setInterval: () => 0, clearInterval: () => {}, setTimeout: () => 0, clearTimeout: () => {} })
+    useIsland.setState({ island: { id: 'b', name: 'Studio' } })
+    useStore.setState((s) => { s.world.chats.c1 = unread(1) })
+    useStore.getState().act((x) => readChat(x, 'c1'))
+    expect(posts(f)).toEqual([])
+    expect(useSeen.getState()).toEqual({})
+    expect(useStore.getState().world.chats.c1.unread).toBe(true)
+  })
+})
+
 describe('following the computers with ghost companies', () => {
   class FakeSocket {
     static all: FakeSocket[] = []
@@ -159,6 +210,12 @@ describe('following the computers with ghost companies', () => {
     socket.send({ type: 'patch', upserts: [{ kind: 'chat', id: 'c1', data: { id: 'c1', teamId: 'team-9' } }] })
     await turn()
     expect(calls().filter(([, method]) => method === 'PATCH')).toHaveLength(1)
+
+    // a chat read here earlier stays read; once its computer has it read too, nothing is kept of it
+    useSeen.setState({ 'b\u0000c2': 1, 'b\u0000c3': 4 }, true)
+    socket.send({ type: 'snapshot', world: { ...renamed, chats: { c2: { id: 'c2', teamId: 'team-9', unread: true, messages: [{}] }, c3: { id: 'c3', teamId: 'team-9', messages: [] } } } })
+    expect(useFeeds.getState().b.world?.chats.c2.unread).toBe(false)
+    expect(useSeen.getState()).toEqual({ 'b\u0000c2': 1 })
 
     useStore.setState((s) => { s.world.ghosts = {} })
     expect(socket.closed).toBe(true)
