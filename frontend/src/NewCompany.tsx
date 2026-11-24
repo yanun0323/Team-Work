@@ -292,13 +292,15 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll, onG
             <h1 id="fx-new-company-title" ref={title} tabIndex={-1}>{tr('新公司')}</h1>
           </div>
         </header>
+        {/* one page for both forms: the source row stays put, and keeps its focus, as they swap under it */}
+        <div className="fx-page fx-d-form">
         {friends && (
-          <div className="fx-page fx-d-form fx-new-kind">
+          <div className="fx-fields">
             <Switcher label={tr('來源')} value={kind} options={KINDS} labelOf={(k) => tr(k === 'own' ? '我的專案' : '好友的公司')} onChange={setKind} />
           </div>
         )}
         {friendly ? <FriendCompany onPick={(p) => ghost.current?.(p)} onCreate={(p) => onCreateGhost?.(p)} /> : (
-        <form className="fx-page fx-d-form" onSubmit={save}>
+        <form className="fx-d-form" onSubmit={save}>
           <div className="fx-fields">
             <div className="fx-field">
               <span>{tr('外觀')}</span>
@@ -343,6 +345,7 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll, onG
           <button type="submit" className="fx-save">{tr('建立')}</button>
         </form>
         )}
+        </div>
       </div>
     </aside>
   )
@@ -390,7 +393,7 @@ function FriendCompany({ onPick, onCreate }: { onPick: (pick: GhostPick | null) 
     : !teams.length ? tr('{name} 的公司都已經在島上了', { name: peer.name })
     : ''
   return (
-    <form className="fx-page fx-d-form" onSubmit={(e) => { e.preventDefault(); if (pick) onCreate(pick) }}>
+    <form className="fx-d-form" onSubmit={(e) => { e.preventDefault(); if (pick) onCreate(pick) }}>
       <div className="fx-fields">
         {online.length > 0 && (
           <Select label={tr('好友')} value={peer?.id ?? ''} options={online.map((p) => p.id)} labelOf={(id) => online.find((p) => p.id === id)?.name ?? id}
@@ -408,7 +411,13 @@ function FriendCompany({ onPick, onCreate }: { onPick: (pick: GhostPick | null) 
             </div>
           </div>
         )}
-        {status && <p className="fx-empty" role="status">{status}</p>}
+        {/* in the row of what can't be picked yet: the friend island, or its company */}
+        {status && (
+          <div className="fx-field">
+            <span>{tr(peer ? '公司' : '好友')}</span>
+            <span className="fx-unit" role="status">{status}</span>
+          </div>
+        )}
       </div>
       <button type="submit" className="fx-save" disabled={!pick}>{tr('建立')}</button>
     </form>
