@@ -14,6 +14,10 @@ import { inTerminal, keepsEscape, officePeople, teamAlerts, teamWork } from './c
 import { homeWorld, useStore } from './core/store'
 import { closeGhost as leaveGhost, usePeers } from './core/towers'
 import { createGhost, ghostsOf, ghostState, moveGhost, openGhost, opens, seedFeed, useFeeds, watchGhosts, type Feed } from './core/ghosts'
+import { landmarksOf, staffingSpotOf } from './core/landmarks'
+import { landmarkName } from './LandmarkRoads'
+import { SiteMotion } from './SiteMotion'
+import { siteBoxes } from './siteBoxes'
 import { GhostDrawer } from './Ghost'
 import { PeerFace } from './TowerPanel'
 import { LabelLayer, LabelProjector, type LabelSpec } from './core/voxel/labels'
@@ -43,11 +47,11 @@ import { FADE_SECONDS } from './Fade'
 import { Island, useLand } from './Island'
 import { MapGrid } from './MapGrid'
 import { useProjectBytes, useProjectSizePolling, useSizesKnown } from './projectSize'
-import { canMove, placeProblem, CELL, cellCenter, POWER_TOWER, STAFFING, floorsOf, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, HALL_LIFT, TERMINAL, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
-import { NewCompanySheet, Placer, type GhostPick } from './NewCompany'
+import { canMove, dockFace, placeProblem, siteId, STAFFING_ID, STAFFING_LOT, CELL, cellCenter, POWER_TOWER, STAFFING, floorsOf, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, HALL_LIFT, TERMINAL, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
+import { NewCompanySheet, Placer, PlotOutline, type GhostPick } from './NewCompany'
 import { request } from './core/backend'
 import { createTeam } from './core/domain/sim'
-import type { Ghost, Look, Team, World as WorldData } from './core/domain/types'
+import type { Ghost, LandmarkKind, Look, Team, World as WorldData } from './core/domain/types'
 import { MOCK } from './core/mode'
 import { attempt } from './core/ops'
 import { Ocean } from './Ocean'
@@ -65,7 +69,8 @@ import { DaylightDebug } from './DaylightDebug'
 import { CleanMacDebug } from './CleanMacDebug'
 import { FpsDebug, FrameCounter } from './FpsDebug'
 import { IndoorLights } from './IndoorLight'
-import { LANTERN, propBoxes, type Box } from './streetProps'
+import { footpathBoxes, LANTERN, pathLampBoxes, propBoxes, signalBoxes, type Box } from './streetProps'
+import { TrafficLights } from './TrafficLights'
 import { playSound, useSound } from './sound'
 import { Brand, useQuotaPolling } from './Brand'
 import { introFor, nextIntro, revealBoot, type Intro } from './boot'
@@ -73,6 +78,9 @@ import { startIntro, useVoyage } from './voyagePath'
 import { Voyage } from './Voyage'
 
 const calm = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** How tall what stands on each landmark gets, in world units, for the camera to take it all in when shown. */
+const SITE_HEIGHT: Record<LandmarkKind, number> = { park: 6, hill: 6, pond: 3, dock: 4, clock: 21 }
 
 // the notes of every version, loaded only when they open
 
@@ -104,14 +112,15 @@ const doneOf = (w: ReturnType<typeof useStore.getState>['world'], teamId: string
 
 /**
  * Only what decides the town's shape: companies and ghost companies in order, their names, and the employees and
- * finished tasks that size and dress their buildings. A ghost company's come from its computer's follow (`ghostShape`).
+ * finished tasks that size and dress their buildings; and the landmarks grown. A ghost company's come from its
+ * computer's follow (`ghostShape`).
  */
 function townKey(s: ReturnType<typeof useStore.getState>) {
   const w = homeWorld(s)
   return [
     ...Object.values(w.teams).map((t) => [t.createdAt, `${t.id}\t${t.name}\t${Object.values(w.replicas).filter((r) => r.teamId === t.id).length}\t${doneOf(w, t.id)}\t${JSON.stringify(t.plot)}`] as const),
     ...ghostsOf(w).map((g) => [g.createdAt, `${g.id}\t${g.name}\t${g.peerId}\t${g.teamId}\t${JSON.stringify(g.plot)}`] as const),
-  ].sort((a, b) => a[0] - b[0]).map((x) => x[1]).join('\n')
+  ].sort((a, b) => a[0] - b[0]).map((x) => x[1]).join('\n') + `\n${JSON.stringify(landmarksOf(w))}\n${staffingSpotOf(w)}`
 }
 
 /** The head count, finished tasks and name of each ghost company's company, as its computer's follow has them. */
@@ -280,7 +289,7 @@ export function World() {
       }),
     ].sort((a, b) => a.createdAt - b.createdAt).map((x) => x.lot)
     // closed companies leave their land behind
-    return layoutTown(lots)
+    return layoutTown(lots, true, landmarksOf(w), staffingSpotOf(w))
   }, [key, floorsKey, ghostKey])
   const land = useLand(town)
 
@@ -337,6 +346,14 @@ export function World() {
   useEffect(() => {
     if (panel !== 'settings') setByAirport(false)
   }, [panel])
+  // a landmark picked on the profile's roads: the camera goes there rather than following the user, until it is
+  // picked again or the profile closes
+  const [sight, setSight] = useState<LandmarkKind | null>(null)
+  useEffect(() => {
+    if (panel !== 'profile') setSight(null)
+  }, [panel])
+  const shownSite = panel === 'profile' && autoView !== 'off' ? town.sites.find((s) => s.kind === sight) ?? null : null
+  const siteShown = !!shownSite
   // the help, or on the same sheet what changed in each version: by itself on the first launch after an update (it
   // waits off the screen through the landing)
   const [helpOpen, setHelpOpen] = useState<false | 'help' | 'notes'>(() => (!MOCK && notesDue(localStorage, version) ? 'notes' : false))
@@ -368,7 +385,7 @@ export function World() {
     return { look, seed: look.style ?? seedOf(meNow.id) }
   }, [meNow, remote])
   // with their profile open, the camera follows them as the settings' automatic view says: flying in, or just panning
-  const meFollow = panel === 'profile' && !!me && autoView !== 'off'
+  const meFollow = panel === 'profile' && !!me && autoView !== 'off' && !siteShown
   // and meanwhile W, A, S and D walk them about; with reduced motion nobody on the island moves
   const walkable = meFollow && !calm
   useWalkKeys(walkable)
@@ -519,7 +536,10 @@ export function World() {
   // an employee followed: their office stays cut away the whole time, and their name shows over them
   const followedCrew = following?.kind === 'crew' ? staff.find((r) => r.id === following.id) : undefined
   // a company closed while it was being moved is let go
-  const stands = (id: string) => { const w = homeWorld(useStore.getState()); return !!w.teams[id] || !!w.ghosts?.[id] }
+  const stands = (id: string) => {
+    const w = homeWorld(useStore.getState())
+    return !!w.teams[id] || !!w.ghosts?.[id] || id === STAFFING_ID || landmarksOf(w).some((l) => siteId(l.kind) === id)
+  }
   useEffect(() => {
     if (moving && !stands(moving)) setMoving(null)
   }, [moving, key])
@@ -539,7 +559,19 @@ export function World() {
   // nothing changes
   const moveTo = (at: Spot) => {
     const lot = town.lots.find((l) => l.id === moving)
+    const site = town.sites.find((s) => siteId(s.kind) === moving)
     setMoving(null)
+    // the staffing agency and the landmarks keep where they stand on the backend, apart from the companies
+    if (moving === STAFFING_ID && !sameSpot(town.staffingAt, at)) {
+      if (MOCK) useStore.setState((s) => { s.world.places = { ...s.world.places, staffing: { id: STAFFING_ID, at } } })
+      else void attempt(() => request('PATCH', '/places/staffing', { at }))
+    }
+    if (site && !sameSpot(site.at, at)) {
+      // the pier turns to face open sea wherever it goes; the backend turns it there itself
+      const face = site.kind === 'dock' ? dockFace(town, at) ?? undefined : undefined
+      if (MOCK) useStore.setState((s) => { const l = s.world.landmarks?.[site.kind]; if (l) { l.at = at; if (face !== undefined) l.face = face } })
+      else void attempt(() => request('PATCH', `/landmarks/${site.kind}`, { at }))
+    }
     if (!lot || sameSpot(lot.at, at)) return
     const plot = { at, style: lot.style, seed: lot.seed }
     if (lot.ghost) void attempt(() => moveGhost(lot.id, plot))
@@ -591,6 +623,11 @@ export function World() {
   const staffingShown = panel === 'staffing'
   const focus = useMemo<FocusBox | null>(() => {
     if (autoView === 'off') return null
+    if (shownSite) {
+      const [x, z] = rectCenter(town, shownSite.plot)
+      // the whole of its ground, and the tallest of what stands on it: the clock tower, a bandstand's roof
+      return { x, z, w: shownSite.plot.w * CELL, d: shownSite.plot.d * CELL, height: SITE_HEIGHT[shownSite.kind] }
+    }
     if (towerShown) {
       const [x, z] = rectCenter(town, town.airport)
       // the tower with some of the airfield round it, so it is clear where on the island it stands
@@ -615,7 +652,7 @@ export function World() {
     const [x, z] = rectCenter(town, open.building)
     // the cut-away ground floor, with room above for the name tags
     return { x, z, w: open.building.w * CELL, d: open.building.d * CELL, height: CUT + 1.2 }
-  }, [open, spot, town, airportShown, towerShown, staffingShown, autoView])
+  }, [open, spot, town, airportShown, towerShown, staffingShown, shownSite, autoView])
 
   // one `id<TAB>name` line per employee of the open company
   // the empty id is the airport's chats
@@ -665,7 +702,7 @@ export function World() {
     const [sx, sz] = rectCenter(town, town.staffing)
     const staffing: LabelSpec = {
       id: 'fusion-staffing', at: [sx, STAFFING.h + 1.6, sz],
-      tone: hovered === STAFFING_HOVER && !open && !settingsOpen && !placing && !editing ? 'fusion lifted' : 'fusion',
+      tone: (hovered === STAFFING_HOVER && !open && !settingsOpen && !placing) || moving === STAFFING_ID ? 'fusion lifted' : 'fusion',
       text: <span className="fx-tag">{tr('移民署')}</span>,
       onClick: selectStaffing,
     }
@@ -687,8 +724,18 @@ export function World() {
         onClick: () => (helpOpen ? close() : editing ? pickMoving(l.id) : placing ? close() : settingsOpen ? close() : setSelected(l.id)),
       }
     })
+    // while editing the map, the landmarks are named too, to be picked and moved
+    const sites = !editing ? [] : town.sites.map((s): LabelSpec => {
+      const [x, z] = rectCenter(town, s.plot)
+      return {
+        id: `fusion-${siteId(s.kind)}`, at: [x, SITE_HEIGHT[s.kind] + 0.8, z],
+        tone: hovered === siteId(s.kind) || moving === siteId(s.kind) ? 'fusion lifted' : 'fusion',
+        text: <span className="fx-tag">{landmarkName(s.kind, s.stage)}</span>,
+        onClick: () => (helpOpen ? close() : pickMoving(siteId(s.kind))),
+      }
+    })
     // the open company's own name is in the drawer, and its roof is cut away
-    return [...(panel === 'settings' ? [] : [airport]), ...(panel === 'tower' ? [] : [tower]), ...(panel === 'staffing' ? [] : [staffing]), ...tags.filter((t) => t.id !== `fusion-${open?.id}`), ...crew]
+    return [...(panel === 'settings' ? [] : [airport]), ...(panel === 'tower' ? [] : [tower]), ...(panel === 'staffing' ? [] : [staffing]), ...tags.filter((t) => t.id !== `fusion-${open?.id}`), ...sites, ...crew]
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [town, open, crewNames, followedCrew, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language, alerts, visitors, ghostTags])
 
@@ -735,7 +782,7 @@ export function World() {
   }, [chrome])
   // the hint while placing a company or editing the map; it keeps its words as it slides away
   const tipNow = placing && missed ? missText(missed.problem) : placing ? tr('在格線範圍內挑選地點，海上也可以')
-    : editing ? (moving ? tr('選取公司新地點') : tr('選取想要移動的公司')) : ''
+    : editing ? (moving ? (town.lots.some((l) => l.id === moving) ? tr('選取公司新地點') : tr('選取新地點')) : tr('選取想要移動的公司或設施')) : ''
   const [tip, setTip] = useState(tipNow)
   if (tipNow && tipNow !== tip) setTip(tipNow)
 
@@ -757,10 +804,11 @@ export function World() {
     else if (!editing) setPanel('tower')
   }
 
-  // the staffing agency opens its file; it can't be moved either
+  // the staffing agency opens its file; while editing the map, it is picked to be moved
   function selectStaffing() {
     if (helpOpen || settingsOpen || placing || selected) close()
-    else if (!editing) setPanel('staffing')
+    else if (editing) pickMoving(STAFFING_ID)
+    else setPanel('staffing')
   }
 
   // the airport opens the settings; it can't be moved, so while editing the map it does nothing
@@ -798,6 +846,8 @@ export function World() {
       <Pavement town={town} />
       {(placing || editing) && <MapGrid town={town} moved={moving ?? undefined} />}
       <StreetProps town={town} />
+      <TrafficLights town={town} />
+      <SiteMotion town={town} />
       {/* each person fades in on their own (see Strollers): a Fade round them all would fight theirs over the same meshes */}
       {(crowd || me) && <Strollers town={town} field={land.field} crowd={crowd} me={me} walked={walkable} />}
       <Trees town={town} />
@@ -810,17 +860,18 @@ export function World() {
         hover={hovered === AIRPORT_ID && !selected && !settingsOpen && !placing && !editing && !helpOpen} />
       <PowerTower town={town} still={editing} onSelect={selectTower} onHover={(on) => hover(TOWER_ID, on)}
         hover={hovered === TOWER_ID && !selected && !settingsOpen && !placing && !editing && !helpOpen} />
-      <StaffingAgency town={town} still={editing} onSelect={selectStaffing} onHover={(on) => hover(STAFFING_HOVER, on)}
-        hover={hovered === STAFFING_HOVER && !selected && !settingsOpen && !placing && !editing && !helpOpen} />
+      <StaffingAgency town={town} onSelect={selectStaffing} onHover={(on) => hover(STAFFING_HOVER, on)}
+        hover={(hovered === STAFFING_HOVER && !selected && !settingsOpen && !placing && !helpOpen) || moving === STAFFING_ID} />
+      {editing && <SitePicks town={town} hovered={hovered} moving={moving} onHover={hover} onPick={(id) => (helpOpen ? close() : pickMoving(id))} />}
       {placing && <Placer town={town} picked={spot} onPick={pickSpot} onMiss={missSpot} />}
       {spot && <BuildingPreview look={ghostPick?.look ?? look} at={spot} ghost={!!ghostPick} />}
-      {moving && <Placer key={moving} town={town} picked={null} onPick={moveTo} moved={moving} can={(s) => canMove(town, moving, s)} />}
+      {moving && <Placer key={moving} town={town} picked={null} onPick={moveTo} moved={moving} can={(s) => canMove(town, moving, s)} size={moving === STAFFING_ID ? STAFFING_LOT.w : PLOT_CELLS} />}
       <Ambient town={town} calm={calm} clouds={clouds} planes={planes} />
       {!calm && <Voyage town={town} landing={landing} clouds={clouds} />}
       <MapControls makeDefault enableRotate={false} enableDamping dampingFactor={0.12} screenSpacePanning={false}
         minZoom={MIN_ZOOM} maxZoom={MAX_ZOOM} zoomSpeed={ZOOM_SPEED * zoomSensitivity / 100} />
-      <CameraRig town={town} radius={town.radius} span={span} top={town.top} focus={focus} focusKey={!focus ? null : towerShown ? 'tower' : staffingShown ? 'staffing' : airportShown ? 'airport' : selected ?? (spot ? `spot:${spot}` : null)}
-        panOnly={autoView === 'pan'} blocked={(settingsOpen && !meFollow && (autoView === 'panZoom' || !(airportShown || towerShown || staffingShown))) || !!helpOpen} wide={(placing || editing) && !selected ? town.middle : null}
+      <CameraRig town={town} radius={town.radius} span={span} top={town.top} focus={focus} focusKey={!focus ? null : shownSite ? `site:${shownSite.kind}` : towerShown ? 'tower' : staffingShown ? 'staffing' : airportShown ? 'airport' : selected ?? (spot ? `spot:${spot}` : null)}
+        panOnly={autoView === 'pan'} blocked={(settingsOpen && !meFollow && (autoView === 'panZoom' || !(airportShown || towerShown || staffingShown || siteShown))) || !!helpOpen} wide={(placing || editing) && !selected ? town.middle : null}
         following={!tracked ? false : meFollow && autoView === 'pan' ? 'pan' : 'zoom'} aside={meFollow} held={pressHeld} landing={landing} />
       <LabelProjector />
       <FigureBatch />
@@ -877,7 +928,8 @@ export function World() {
     {help.value && <Help initialTab={help.value} leaving={help.leaving} onGone={help.gone} />}
     {settings.value === 'settings' && <Settings leaving={settings.leaving} onGone={settings.gone} />}
     {settings.value === 'tower' && <TowerPanel leaving={settings.leaving} onGone={settings.gone} onProfile={() => setPanel('profile')} />}
-    {settings.value === 'profile' && <Profile leaving={settings.leaving} onGone={settings.gone} />}
+    {settings.value === 'profile' && <Profile leaving={settings.leaving} onGone={settings.gone}
+      sight={{ shown: shownSite?.kind ?? null, onShow: !remote && autoView !== 'off' && town.sites.length ? setSight : undefined }} />}
     {settings.value === 'staffing' && <StaffingPanel leaving={settings.leaving} onGone={settings.gone} />}
     <IslandBar />
     {drawer.value && drawerGhost && drawerLot && (ghostOpen === drawerGhost.id
@@ -943,6 +995,38 @@ const AIRPORT_ID = 'airport'
 const TOWER_ID = 'tower'
 /** The staffing agency's id among hovered things; no company's id looks like it. */
 const STAFFING_HOVER = 'staffing-agency'
+
+/**
+ * While editing the map, each landmark's ground takes a click to pick it to be moved, outlined while under the
+ * pointer or picked. Nothing is drawn but the outline.
+ */
+function SitePicks({ town, hovered, moving, onHover, onPick }: {
+  town: Town
+  hovered: string | null
+  moving: string | null
+  onHover: (id: string, on: boolean) => void
+  onPick: (id: string) => void
+}) {
+  return <>
+    {town.sites.map((s) => {
+      const id = siteId(s.kind)
+      const [x, z] = rectCenter(town, s.plot)
+      const on = hovered === id || moving === id
+      return (
+        <group key={id}>
+          <mesh position={[x, SITE_HEIGHT[s.kind] / 2, z]} layers={NO_OUTLINE_LAYER}
+            onClick={(e) => { e.stopPropagation(); if (e.delta <= 5) onPick(id) }}
+            onPointerOver={(e) => { e.stopPropagation(); onHover(id, true); document.body.style.cursor = 'pointer' }}
+            onPointerOut={() => { onHover(id, false); document.body.style.cursor = '' }}>
+            <boxGeometry args={[s.plot.w * CELL, SITE_HEIGHT[s.kind], s.plot.d * CELL]} />
+            <meshBasicMaterial colorWrite={false} depthWrite={false} />
+          </mesh>
+          {on && <PlotOutline x={x} z={z} size={s.plot.w * CELL} on={moving === id} bad={false} />}
+        </group>
+      )
+    })}
+  </>
+}
 const AIRPORT_TAG: [number, number, number] = [(TERMINAL.x0 + TERMINAL.x1) / 2, TERMINAL.h + 2.5, (TERMINAL.z0 + TERMINAL.z1) / 2]
 
 /** Wheel zoom speed; three.js's default of 1 jumps too far per notch. */
@@ -1453,7 +1537,7 @@ function Batch({ boxes, glow }: { boxes: Box[]; glow?: string }) {
   return <instancedMesh key={boxes.length} ref={ref} args={[UNIT, material, boxes.length]} castShadow receiveShadow />
 }
 
-/** Paved plot cells, a touch above the grass, in a checker of their own. */
+/** Paved plot cells, a touch above the grass, in a checker of their own; and the footpaths between them. */
 /** A ghost company's paving: the projected blue of its building, edged in dashes, every other cell round the rim. */
 const GHOST_PAVE = ['#c3d2e6', '#ccd9eb'] as const
 const GHOST_DASH = '#7d9cc8'
@@ -1469,15 +1553,23 @@ function Pavement({ town }: { town: Town }) {
         : rim && (x + z) % 2 === 0 ? GHOST_DASH : GHOST_PAVE[(x + z) % 2]
       out.push({ p: [cx, 0.04, cz], s: [CELL, 0.08, CELL], c })
     }
+    out.push(...footpathBoxes(town))
     return out
   }, [town])
   return <Batch boxes={boxes} />
 }
 
-/** Lamp posts, planters and benches on the paved rings round the buildings; less detail drops the lamps and the flowers. */
+/**
+ * Lamp posts, planters and benches on the paved rings round the buildings, and the lamps and traffic lights along the
+ * footpaths (the traffic lights' lamps are `TrafficLights`), and everything in the park but its trees; less detail
+ * drops the lamps, the lights and the flowers.
+ */
 function StreetProps({ town }: { town: Town }) {
   const detail = usePrefs((s) => s.detail)
-  const boxes = useMemo(() => town.lots.flatMap((l) => propBoxes(town, l, detail)), [town, detail])
+  const boxes = useMemo(() => [
+    ...town.lots.flatMap((l) => propBoxes(town, l, detail)), ...pathLampBoxes(town, detail), ...signalBoxes(town, detail),
+    ...town.sites.flatMap((s) => siteBoxes(town, s, detail)),
+  ], [town, detail])
   // the lamps' lanterns shine after dark
   const [lit, rest] = useMemo(() => [boxes.filter((b) => b.glow), boxes.filter((b) => !b.glow)], [boxes])
   return <>

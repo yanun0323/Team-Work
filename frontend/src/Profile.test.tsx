@@ -58,7 +58,7 @@ describe("the user's look", () => {
 })
 
 describe("the user's milestones", () => {
-  const stats = (s: Partial<ProfileStats> = {}): ProfileStats => ({ since: 0, tasksDone: 0, chats: 0, messages: 0, partners: [], usage, ...s })
+  const stats = (s: Partial<ProfileStats> = {}): ProfileStats => ({ since: 0, tasksDone: 0, chats: 0, messages: 0, partners: [], usage, landmarks: [], ...s })
 
   it('says there are none on a new island', () => {
     expect(renderToStaticMarkup(<MilestoneList stats={stats()} />)).toContain('還沒有使用紀錄')
@@ -83,13 +83,35 @@ describe("the user's milestones", () => {
     expect(html).toMatch(/<b>Ivy<\/b><span>一起 7 次<\/span><\/li><li[^>]*>.*<b>Bo<\/b><span>一起 3 次<\/span>/)
   })
 
+  it("shows the landmarks' roads: each stage reached by name and picture, the rest as question marks", () => {
+    const road = { kind: 'park' as const, stage: 1, value: 12, steps: [10, 50, 200] }
+    const html = renderToStaticMarkup(<MilestoneList stats={stats({ since: 1, tasksDone: 12, landmarks: [road] })} />)
+    expect(html).toContain('島上建設')
+    expect(html).toContain('小型公園')
+    expect(html).not.toContain('中型公園')
+    expect(html.match(/<svg/g)).toHaveLength(1)
+    expect(html.match(/>\?</g)).toHaveLength(2)
+    // what each stage asks for, for a screen reader; the note shown on pointing says the same
+    expect(html).toContain('完成 10 個任務：已解鎖')
+    expect(html).toContain('完成 50 個任務：12 / 50')
+    // with nowhere to show it, a stop reached is not a button that does something
+    expect(html).not.toContain('aria-pressed')
+    const shown = renderToStaticMarkup(<MilestoneList stats={stats({ since: 1, landmarks: [road] })} sight={{ shown: 'park', onShow: () => {} }} />)
+    expect(shown).toContain('aria-pressed="true"')
+    // a new island shows what is to come
+    expect(renderToStaticMarkup(<MilestoneList stats={stats({ landmarks: [{ ...road, stage: 0, value: 0 }] })} />).match(/>\?</g)).toHaveLength(3)
+  })
+
   it("are summed from the simulator's world", () => {
     const w = useStore.getState().world
     const s = mockProfileStats(w)
     expect(s.chats).toBe(Object.keys(w.chats).length)
     expect(s.tasksDone).toBe(Object.values(w.tasks).filter((t) => t.stage === 'done').length)
-    expect(s.partners.length).toBeLessThanOrEqual(10)
+    expect(s.partners.length).toBeLessThanOrEqual(5)
     for (const p of s.partners) expect(w.replicas[p.id]?.name).toBe(p.name)
     expect(s.partners.map((p) => p.count)).toEqual(s.partners.map((p) => p.count).sort((a, b) => b - a))
+    expect(s.landmarks.map((r) => r.kind)).toEqual(['park', 'hill', 'pond', 'dock', 'clock'])
+    expect(s.landmarks[0]).toEqual({ kind: 'park', stage: w.landmarks?.park?.stage ?? 0, value: s.tasksDone, steps: [10, 50, 200] })
+    expect(s.landmarks.find((r) => r.kind === 'pond')?.value).toBe(s.chats)
   })
 })

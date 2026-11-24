@@ -12,22 +12,23 @@ import type { IdleFollowTarget } from './prefs'
 import type { Look } from './core/domain/types'
 import { anchors } from './core/voxel/labels'
 import { BODY_SHARE, coordinateTraffic, walkingRoute, beginAvoidance, openSpot, separate, spotTaken, UNHINDERED, walkAround, type Avoider } from './avoid'
-import { useWalk, walkVelocity } from './walkByHand'
+import { takeOver, useWalk, walkVelocity } from './walkByHand'
 import { ARRIVAL_GAP, benchMate, indoors, islandPlaces, ISLAND_GAP, ISLAND_SPEED, newcomer, settleCount, stepCrowd, townsfolk, type Scene, type Townsfolk } from './crowd'
 import { Fade, FADE_SECONDS } from './Fade'
 import { batchFigure } from './FigureBatch'
 import { LIVE } from './Merged'
 import { light } from './daylight'
 import { isSwimwear, seedOf, styleFor, styleOf, type Style } from './figureStyle'
-import { BEACH, BEACH_TOP } from './Island'
+import { BEACH, BEACH_TOP, SEA_LEVEL } from './Island'
 import { sample, type Field } from './land'
 import { hash, type Town } from './layout'
 import { OFFICE_SCALE, type OfficePlan } from './office'
 import { MAX_FRAME } from './PixelPass'
-import { toon } from './toon'
+import { FOOTPATH_TOP } from './streetProps'
+import { toon, toonInstanced } from './toon'
 import { UNIT } from './core/voxel/kit'
 import {
-  benchSeats, cellPos, crowdSize, freeCells, headingOf, inSteps, isFree, officeGrid, resettle, townGrid,
+  benchSeats, cellPos, crowdSize, freeCells, headingOf, inSteps, isFree, officeGrid, resettle, townGrid, townHeights,
   type BenchSeat, type P, type Walker,
 } from './walk'
 
@@ -567,6 +568,66 @@ export function placeFar(mesh: THREE.InstancedMesh, rigs: Rig[], parts: FarPart[
 }
 
 /** The figures in `parts` as boxes, for `placeFar`: colours are set here, places there. */
+/** The share of people sitting on the end of the pier who fish there. */
+const FISHING_SHARE = 0.6
+/** A fishing rod: how long, how steeply it is held up from the hands, and its colour; the line's. */
+const ROD_LENGTH = 2.2
+const ROD_RISE = 0.6
+const ROD = '#6b4a2e'
+const LINE = '#e8eef4'
+
+/** Whether the one at `i` fishes, sitting on the end of the pier. */
+const fishing = (p: Townsfolk, i: number) => p.mode === 'sitting' && !p.home && p.seat?.top !== undefined && hash(i, 41) < FISHING_SHARE
+
+/** Every fishing rod and its line, two to a person, all in one draw; nobody's shown but those fishing (`placeRods`). */
+function Rods({ count, bind }: { count: number; bind: (m: THREE.InstancedMesh | null) => void }) {
+  const material = useMemo(() => toonInstanced(), [])
+  useEffect(() => () => material.dispose(), [material])
+  const ref = (m: THREE.InstancedMesh | null) => {
+    bind(m)
+    if (!m) return
+    const c = new THREE.Color()
+    for (let i = 0; i < count; i++) {
+      m.setColorAt(i * 2, c.set(ROD))
+      m.setColorAt(i * 2 + 1, c.set(LINE))
+      m.setMatrixAt(i * 2, HIDDEN)
+      m.setMatrixAt(i * 2 + 1, HIDDEN)
+    }
+    if (m.instanceColor) m.instanceColor.needsUpdate = true
+  }
+  // they go wherever people sit, so never left out as off screen
+  return <instancedMesh key={count} ref={ref} args={[UNIT, material, count * 2]} frustumCulled={false} castShadow userData={LIVE} />
+}
+
+const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0)
+const rodScratch = { m: new THREE.Matrix4(), q: new THREE.Quaternion(), v: new THREE.Vector3(), s: new THREE.Vector3(), d: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0) }
+
+/**
+ * The rod of the one at `i`, held out over the water from where they sit, its tip bobbing a little, and its line
+ * hanging from the tip down to the sea; hidden unless `on`.
+ */
+function placeRod(mesh: THREE.InstancedMesh, i: number, on: boolean, root: THREE.Object3D | null, heading: number, t: number) {
+  if (!on || !root) {
+    mesh.setMatrixAt(i * 2, HIDDEN)
+    mesh.setMatrixAt(i * 2 + 1, HIDDEN)
+    return
+  }
+  const { m, q, v, s, d, up } = rodScratch
+  const rise = ROD_RISE + Math.sin(t * 1.3 + i) * 0.05
+  // forward, as they face, and up at the rod's slant
+  const fx = -Math.sin(heading), fz = -Math.cos(heading)
+  d.set(fx * Math.cos(rise), Math.sin(rise), fz * Math.cos(rise))
+  const base = v.set(root.position.x + fx * 0.3 * OFFICE_SCALE, root.position.y + 0.42 * OFFICE_SCALE, root.position.z + fz * 0.3 * OFFICE_SCALE)
+  const [bx, by, bz] = [base.x, base.y, base.z]
+  q.setFromUnitVectors(up, d)
+  m.compose(v.set(bx + d.x * ROD_LENGTH / 2, by + d.y * ROD_LENGTH / 2, bz + d.z * ROD_LENGTH / 2), q, s.set(0.06, ROD_LENGTH, 0.06))
+  mesh.setMatrixAt(i * 2, m)
+  const [tx, ty, tz] = [bx + d.x * ROD_LENGTH, by + d.y * ROD_LENGTH, bz + d.z * ROD_LENGTH]
+  const drop = Math.max(0.1, ty - SEA_LEVEL)
+  m.compose(v.set(tx, ty - drop / 2, tz), q.identity(), s.set(0.05, drop, 0.05))
+  mesh.setMatrixAt(i * 2 + 1, m)
+}
+
 function FarCrowd({ parts, bind }: { parts: FarPart[][]; bind: (m: THREE.InstancedMesh | null) => void }) {
   const ref = useRef<THREE.InstancedMesh>(null)
   const count = parts.length * FAR_PARTS
@@ -690,9 +751,11 @@ function tick(sim: OfficeSim, crewNow: CrewMember[], dt: number) {
   // everyone here now, to keep out of each other's way
   const about = crewNow.flatMap((c) => states.get(c.id) ?? [])
   const visible = () => true
+  // only someone with a desk goes and works at it; anyone without one (a visitor, or past the room's desks) stays about
+  const atWork = (j: number) => crewNow[j].busy && !!plan.seats[j]
   beginAvoidance(about)
   coordinateTraffic(about, grid, OFFICE_GAP, visible,
-    (w) => w.mode === 'standing' && !w.home && !crewNow.some((c) => c.busy && states.get(c.id) === w),
+    (w) => w.mode === 'standing' && !w.home && !crewNow.some((c, j) => atWork(j) && states.get(c.id) === w),
     (w) => {
       const partner = w.partner ? states.get(w.partner) : undefined
       if (partner) { partner.partner = null; partner.act = 'wander'; partner.wait = Math.min(partner.wait, 1) }
@@ -706,16 +769,19 @@ function tick(sim: OfficeSim, crewNow: CrewMember[], dt: number) {
   /** Nobody else (but `besides`) is standing at `at`, or on their way there. */
   const open = (me: Worker, at: P, besides?: Worker) => !spotTaken(about, me, at, OFFICE_GAP * 1.5, (q) => q !== besides)
   crewNow.forEach((c, i) => {
-    const seat = plan.seats[i]
-    if (!seat) return
+    const seat: P | undefined = plan.seats[i]
+    const busy = atWork(i)
     // the walkway cell just behind the chair, where people stand up into and sit down from
-    const aisle: P = [seat[0], seat[1] + 0.7]
+    const aisle: P | null = seat ? [seat[0], seat[1] + 0.7] : null
     let w = states.get(c.id)
     if (!w) {
-      // everyone starts at their desk; idle people get up at different times
-      w = { x: seat[0], z: seat[1], route: [], heading: 0, phase: 0, moved: 0, mode: 'seated', wait: rand(0.6, 5), home: false, retry: 0, act: 'wander', partner: null, lead: false, spot: -1, t: 0, ...UNHINDERED }
+      // everyone starts at their desk, or without one somewhere on the open floor; idle people get up at different times
+      const [x, z] = seat ?? [plan.entrance.x, plan.entrance.z]
+      w = { x, z, route: [], heading: 0, phase: 0, moved: 0, mode: seat ? 'seated' : 'standing', wait: rand(0.6, 5), home: false, retry: 0, act: 'wander', partner: null, lead: false, spot: -1, t: 0, ...UNHINDERED }
       states.set(c.id, w)
       about.push(w)
+      const floor = seat ? null : openFloor(w)
+      if (floor) [w.x, w.z] = floor
     }
     const me = w
     /** Off the sofa, or away from a tucked-away coffee machine, first: by the way in backwards. */
@@ -739,6 +805,7 @@ function tick(sim: OfficeSim, crewNow: CrewMember[], dt: number) {
       me.spot = -1
     }
     const goHome = () => {
+      if (!seat || !aisle) return
       me.yielding = null
       const out = leaving()
       stopAct()
@@ -757,12 +824,12 @@ function tick(sim: OfficeSim, crewNow: CrewMember[], dt: number) {
     }
     /** Picks what to do next, standing somewhere (or on the sofa) with nothing to do. */
     const next = () => {
-      if (Math.random() < 0.2) return goHome()
+      if (seat && Math.random() < 0.2) return goHome()
       const r = Math.random()
       // someone else idle and standing about, to go and talk to
-      const others = crewNow.filter((o) => {
+      const others = crewNow.filter((o, j) => {
         const s = states.get(o.id)
-        return o.id !== c.id && !o.busy && s && s.mode === 'standing' && s.act === 'wander'
+        return o.id !== c.id && !atWork(j) && s && s.mode === 'standing' && s.act === 'wander'
       })
       const sofa = amenities.sofa.map((_, k) => k).filter((k) => !held('sofa').has(k))
       const coffee = amenities.coffee.map((_, k) => k).filter((k) => !held('coffee').has(k))
@@ -840,10 +907,10 @@ function tick(sim: OfficeSim, crewNow: CrewMember[], dt: number) {
       me.wait -= dt
       me.retry = Math.max(0, me.retry - dt)
       me.t += dt
-      if (me.mode === 'seated') {
-        const floor = !c.busy && me.wait <= 0 ? openFloor(me) : null
+      if (me.mode === 'seated' && aisle) {
+        const floor = !busy && me.wait <= 0 ? openFloor(me) : null
         // nowhere free on the floor: stay sat a while longer
-        if (!c.busy && me.wait <= 0 && !floor) me.wait = rand(2, 5)
+        if (!busy && me.wait <= 0 && !floor) me.wait = rand(2, 5)
         if (floor) {
           // stand up and head somewhere
           me.route = [aisle]
@@ -852,7 +919,7 @@ function tick(sim: OfficeSim, crewNow: CrewMember[], dt: number) {
           me.act = 'wander'
           me.route.push(...walkingRoute(grid, aisle, floor, about, me, OFFICE_GAP, visible, i, true))
         }
-      } else if (c.busy && !me.home && me.retry <= 0) {
+      } else if (busy && !me.home && me.retry <= 0) {
         // work came in: go straight back
         goHome()
       } else if (me.mode === 'walking') {
@@ -868,7 +935,7 @@ function tick(sim: OfficeSim, crewNow: CrewMember[], dt: number) {
           if (me.home) {
             me.mode = 'seated'
             me.heading = 0
-            me.wait = c.busy ? 0 : rand(4, 10)
+            me.wait = busy ? 0 : rand(4, 10)
           } else if (me.act === 'sofa') {
             me.mode = 'lounging'
             me.heading = amenities.sofa[me.spot].heading
@@ -1066,6 +1133,8 @@ export const lookOf = (i: number): Look => ({
 
 /** Height of a bench seat's top, in world units; matches the bench drawn in World. */
 const BENCH_TOP = 0.56
+/** Height of a picnic blanket's top, in world units; matches the blanket drawn in parkBoxes. Sitting on it, the shins go into the ground. */
+const BLANKET_TOP = 0.05
 /** Height of an office chair's seat over the floor, in office units; the seated figure is built for it. */
 const CHAIR_TOP = 0.23
 /** A seated figure on a bench: its feet sit this far up, so its shins reach down this much further. */
@@ -1106,6 +1175,8 @@ const BUBBLE_STANDING = 2
 const BUBBLE_SEATED = 1.7
 /** How far past the grass edge, in world units, someone has stepped all the way down onto the sand. */
 const STEP_DOWN = 0.35
+/** How fast someone's feet follow the ground up or down a step, per second. */
+const LIFT_SPEED = 10
 
 /** How fast a gesture comes and goes, per second: an arm goes up, or comes down again, in about a quarter of a second. */
 const GESTURE = 12
@@ -1126,8 +1197,10 @@ function useKept<T>(size: number, make: (i: number) => T): T[] {
 /**
  * People out on the island, two to five per building. They walk about the paving and the grass and sit on the
  * benches, talking with whoever sits beside them; stop to chat, and sometimes walk on together; wave at someone
- * passing; look out to sea, or paddle on the beach in their swimwear; and look up at a
- * company's front door. After dark some go indoors and the rest stand about under the lamps; by day they come out
+ * passing; look out to sea, or paddle on the beach in their swimwear; look up at a
+ * company's front door; picnic in the park, or walk round it, alone or together; climb the hill and look out, toss a
+ * coin in the fountain, stand on the bridge, sit at the end of the pier with their legs over
+ * the water, or look up at the clock tower. After dark some go indoors and the rest stand about under the lamps; by day they come out
  * again. When the island needs more people, newcomers come out of the staffing agency one after another; when it
  * needs fewer, the last ones walk in there and are gone. `field` is the land's, for the beach. With reduced motion
  * they stand where they are, and come and go at once.
@@ -1145,7 +1218,11 @@ export function Strollers({ town, field, crowd = true, me = null, walked = false
   const grid = useMemo(() => townGrid(town), [town])
   const seats = useMemo(() => benchSeats(town, grid), [town, grid])
   const cells = useMemo(() => freeCells(grid), [grid])
-  const paved = useMemo(() => cells.filter(([x, z]) => town.ground[z * town.cols + x] === 'pave'), [cells, town])
+  // the paving, and the landmarks' paths
+  const paved = useMemo(() => {
+    const walks = new Set(town.sites.flatMap((s) => s.walks).map(([x, z]) => z * town.cols + x))
+    return cells.filter(([x, z]) => town.ground[z * town.cols + x] === 'pave' || walks.has(z * town.cols + x))
+  }, [cells, town])
   const places = useMemo(() => islandPlaces(town, grid, field && ((x, z) => {
     // well onto the sand, short of the water
     const d = sample(field, field.sdf, x, z)
@@ -1169,9 +1246,15 @@ export function Strollers({ town, field, crowd = true, me = null, walked = false
   const swim = useMemo(() => styles.map((st) => isSwimwear(st.bottom)), [styles])
   const farMesh = useRef<THREE.InstancedMesh | null>(null)
   const far = useRef(false)
+  // the fishing rods, only where there is a pier's end to fish from
+  const rods = useRef<THREE.InstancedMesh | null>(null)
+  const fishable = useMemo(() => town.sites.some((s) => s.ledges.length), [town])
   const bubbles = useKept(size, () => ({ talk: null as THREE.Group | null, think: null as THREE.Group | null }))
   // how far each one's gesture has got, on top of the walk: left arm raised and swung out, right arm raised, leaning back
   const bends = useKept(size, () => ({ left: 0, out: 0, right: 0, lean: 0 }))
+  // how high the ground each one walks on is: up a hill's steps, over a bridge, out on a pier; eased between cells
+  const heights = useMemo(() => townHeights(town), [town])
+  const lifts = useKept(size, () => ({ y: -1 }))
 
   // one list for good: people carry on as others come and go
   const folk = useRef<Townsfolk[]>([])
@@ -1213,12 +1296,18 @@ export function Strollers({ town, field, crowd = true, me = null, walked = false
   // the figure each one was last drawn as: one put back on coming out faces their way at once, rather than turning
   const drawn = useRef<Array<THREE.Group | null>>([])
 
+  // when the user last pressed a key to walk: they go about on their own until they do, and again a while after
+  const hand = useRef({ last: -Infinity })
+  useEffect(() => {
+    if (!walked) hand.current.last = -Infinity
+  }, [walked])
+
   useFrame(({ camera }, rawDt) => {
     const dt = Math.min(rawDt, MAX_FRAME)
     clock.current += dt
     const scene: Scene = {
       grid, seats, cells, paved, places, swim, night: light.glow, followed: followed.stroller, me: me ? 0 : -1,
-      drive: walked && me ? walkVelocity(useWalk.getState()) : undefined,
+      drive: walked && me ? takeOver(hand.current, clock.current, walkVelocity(useWalk.getState())) : undefined,
     }
     // those no longer needed head for the staffing agency, and are let go once in
     const left = settleCount(people, n, calm)
@@ -1239,15 +1328,21 @@ export function Strollers({ town, field, crowd = true, me = null, walked = false
         const turn = p.seat.heading + Math.atan2(Math.sin(toward), Math.cos(toward)) * 0.35 - p.heading
         p.heading += Math.atan2(Math.sin(turn), Math.cos(turn)) * (calm ? 1 : 1 - Math.exp(-BENCH_TURN_SPEED * dt))
       }
-      // feet on the paving, or on the grass just below it, or down on the sand past the grass edge
+      // feet on the paving or a footpath, or on the grass just below them, or down on the sand past the grass edge
       const [cx, cz] = [Math.round((p.x - grid.x0) / grid.step), Math.round((p.z - grid.z0) / grid.step)]
       const under = cx >= 0 && cz >= 0 && cx < town.cols && cz < town.rows ? town.ground[cz * town.cols + cx] : null
-      let ground = under === 'pave' ? 0.08 : 0
-      if (field && (under === 'shore' || under === null)) {
+      let ground = under === 'pave' ? 0.08 : under === 'path' ? FOOTPATH_TOP : 0
+      const inside = cx >= 0 && cz >= 0 && cx < town.cols && cz < town.rows
+      const raised = inside ? heights[cz * town.cols + cx] : 0
+      const lift = lifts[i]
+      lift.y = lift.y < 0 || calm ? raised : lift.y + (raised - lift.y) * (1 - Math.exp(-LIFT_SPEED * dt))
+      ground += lift.y
+      // out on a pier over the sea, the boards are underfoot, not the beach below
+      if (field && !raised && (under === 'shore' || under === null)) {
         const past = THREE.MathUtils.clamp(sample(field, field.sdf, p.x, p.z) / STEP_DOWN, 0, 1)
         ground += (BEACH_TOP - ground) * past * past * (3 - 2 * past)
       }
-      pose(rig, p, sitting, moved[i] / OFFICE_SCALE, sitting ? BENCH_TOP - CHAIR_TOP * OFFICE_SCALE : ground, dt)
+      pose(rig, p, sitting, moved[i] / OFFICE_SCALE, sitting ? (p.seat?.top ?? (p.seat?.low ? BLANKET_TOP : BENCH_TOP)) + lift.y - CHAIR_TOP * OFFICE_SCALE : ground, dt)
       if (rig.root && rig.root !== drawn.current[i]) {
         rig.root.rotation.y = p.heading
         drawn.current[i] = rig.root
@@ -1279,9 +1374,20 @@ export function Strollers({ town, field, crowd = true, me = null, walked = false
           rig.legs.forEach((l, j) => l && (l.rotation.x = Math.sin(p.t * 7) * 0.3 * rig.stride * (j ? 1 : -1)))
           if (rig.root) rig.root.position.y += Math.abs(k) * 0.06
         }
+        // at a landmark: tossing a coin into the fountain now and then, looking up at the
+        // clock, both hands up to the telescope, or leaning in to read the stone tablet; looking out is as out to sea
+        const sight = p.doing === 'look' ? places.sights[p.spot]?.kind : undefined
+        if (sight === 'coin' && p.t % 3 < 0.5) want.right = 2.2
+        if (sight === 'up') want.lean = 0.18
+        if (sight === 'scope') want.left = want.right = 1.5
+        if (sight === 'read') want.lean = -0.1
         // staring, looking out to sea or standing under a lamp: turning slowly one way, then the other
-        if (p.doing === 'daze' || p.doing === 'view' || p.doing === 'lamp') p.heading += Math.sin(p.t * 0.6) * (p.doing === 'daze' ? 0.25 : 0.15) * dt
+        if (p.doing === 'daze' || p.doing === 'view' || p.doing === 'lamp' || sight === 'view') p.heading += Math.sin(p.t * 0.6) * (p.doing === 'daze' ? 0.25 : 0.15) * dt
       }
+      // fishing off the end of the pier: both hands out on the rod
+      const fishes = fishable && fishing(p, i)
+      if (fishes) want.left = want.right = 1.1
+      if (rods.current) placeRod(rods.current, i, fishes, rig.root, p.heading, clock.current)
       const bend = bends[i]
       const ease = calm ? 1 : 1 - Math.exp(-GESTURE * dt)
       for (const k of ['left', 'out', 'right', 'lean'] as const) bend[k] += (want[k] - bend[k]) * ease
@@ -1315,6 +1421,7 @@ export function Strollers({ town, field, crowd = true, me = null, walked = false
     }
     far.current = farAway(camera.zoom, far.current)
     if (farMesh.current) placeFar(farMesh.current, rigs, farLooks, far.current)
+    if (rods.current) rods.current.instanceMatrix.needsUpdate = true
   })
 
   const big = (g: THREE.Group | null) => g?.scale.setScalar(OFFICE_SCALE)
@@ -1333,6 +1440,7 @@ export function Strollers({ town, field, crowd = true, me = null, walked = false
         </group>
       ))}
       <FarCrowd parts={farLooks} bind={(m) => void (farMesh.current = m)} />
+      {fishable && <Rods count={size} bind={(m) => void (rods.current = m)} />}
     </>
   )
 }

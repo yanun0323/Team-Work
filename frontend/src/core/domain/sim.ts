@@ -9,6 +9,7 @@ import { between, chance, hex, pick, uid } from './rng'
 import { taskStatus } from './rollup'
 import { currentRun, isOwnerTask, ownerStatus, resumeBlock } from './owner'
 import { adoptSources, covers, itemsOf } from './sources'
+import { mockGrowLandmarks } from '../landmarks'
 import { STAFFING_ID, worksIn } from './types'
 import type {
   Chat,
@@ -298,6 +299,7 @@ function stepMerge(w: World, task: Task) {
   m.log.push({ at: w.now, kind: 'system', text: say2(w, '已合併回 {target}，移除 work tree', 'Merged into {target}; work tree removed', { target }) })
   task.stage = 'done'
   task.doneAt = w.now
+  mockGrowLandmarks(w)
 }
 
 function advance(w: World, task: Task, sub: SubTask, dt: number) {
@@ -537,6 +539,8 @@ function hearInChat(w: World, chat: Chat, text: string, images: Attachment[] = [
   chat.replyAt = w.now + REPLY_TIME
   chat.speaker = first
   chat.next = rest
+  // perhaps another chat: the pond goes by those
+  mockGrowLandmarks(w)
 }
 
 /** The user's answer on a chat's card. The simulator keeps no blueprints' versions: it only moves the chat on. */
@@ -1750,6 +1754,8 @@ export function createTeam(
     settings: { timeoutMin: 120, costLimitUsd: 3, retries: 1 },
   }
   w.teams[id] = team
+  // the pier goes by the companies
+  mockGrowLandmarks(w)
   return team
 }
 

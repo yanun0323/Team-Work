@@ -1,23 +1,25 @@
 // Editing guide: only cells covered by at least one legal whole-company placement.
 import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
-import { CELL, PLOT_CELLS, placementArea, type Town } from './layout'
+import { CELL, placementArea, type Town } from './layout'
 import { NO_OUTLINE_LAYER } from './PixelPass'
 
-type GridTown = Pick<Town, 'cols' | 'rows' | 'ground' | 'lots'>
+type GridTown = Pick<Town, 'cols' | 'rows' | 'ground' | 'lots'> & Partial<Pick<Town, 'sites' | 'staffingAt'>>
 
 /** Whether a cell, in placement-area cells, is under at least one legal plot. */
 function coverOf(town: GridTown, moved?: string) {
-  const { x0, z0, cols, rows, valid } = placementArea(town, moved)
+  const { x0, z0, cols, rows, valid, inset, size } = placementArea(town, moved)
   // Union of legal footprints, using rectangle differences instead of painting each plot 256 times.
   const stride = cols + 1
   const cover = new Int32Array(stride * (rows + 1))
   for (let z = 0; z < rows; z++) for (let x = 0; x < cols; x++) {
     if (!valid[z * cols + x]) continue
-    cover[z * stride + x]++
-    cover[z * stride + x + PLOT_CELLS]--
-    cover[(z + PLOT_CELLS) * stride + x]--
-    cover[(z + PLOT_CELLS) * stride + x + PLOT_CELLS]++
+    // what stands on the plot there: all of it, or the staffing agency's paving in its middle
+    const [fx, fz] = [x + inset, z + inset]
+    cover[fz * stride + fx]++
+    cover[fz * stride + fx + size]--
+    cover[(fz + size) * stride + fx]--
+    cover[(fz + size) * stride + fx + size]++
   }
   for (let z = 0; z < rows; z++) for (let x = 0; x < cols; x++) {
     const k = z * stride + x

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { seedWorld } from './data/seed'
 import { createTask, statusOf } from './domain/sim'
 import { STAFFING_ID, type Chat, type Status, type SubTask, type Task } from './domain/types'
-import { busyIn, keepsEscape, laneTasks, officePeople, teamReplicas, VISIT } from './model'
+import { busyIn, keepsEscape, laneTasks, MAX_VISITORS, officePeople, teamReplicas, VISIT } from './model'
 
 describe('laneTasks', () => {
   it('lists open lanes oldest first and 完成 latest first', () => {
@@ -100,6 +100,17 @@ describe('officePeople', () => {
     task(w, teamId, { ownerId: a.id })
     task(w, teamId, { ownerId: b.id, stage: 'done', doneAt: w.now - VISIT - 1 })
     expect(officePeople(w, teamId).map((r) => r.id)).toEqual([...own, a.id])
+  })
+
+  it(`shows at most ${MAX_VISITORS}, the latest to come, in the office's own order`, () => {
+    const { w, teamId, a, own } = quiet()
+    // hired in this order; the last two came longest ago, and of the rest the last hired came latest
+    const hours = [3, 2, 1, 5, 4]
+    const ids = hours.map((_, k) => `v${k}`)
+    ids.forEach((id, k) => (w.replicas[id] = { ...a, id, name: id, hiredAt: a.hiredAt + k + 1 }))
+    ids.forEach((id, k) => chat(w, teamId, id, w.now - 3600 * hours[k]))
+    expect(MAX_VISITORS).toBe(3)
+    expect(officePeople(w, teamId).map((r) => r.id)).toEqual([...own, 'v0', 'v1', 'v2'])
   })
 
   it('counts them busy only for work in this company', () => {

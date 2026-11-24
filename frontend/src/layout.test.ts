@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { officeCapacity } from './office'
-import { AIRPORT, RUNWAY_CELLS, RUNWAY_LINE, BUILDING_CELLS, BUILDING_SIZES, CELL, canMove, canPlace, DECOR_TASKS, decorOf, FLOOR_BYTES, floorsOf, footprintOf, landGained, MAX_FLOORS, RING_CELLS, layoutTown, PLOT_CELLS, REACH_CELLS, rectCenter, seedOfId, type Spot, spotCenter, TREE_CELLS, type Rect, type Town } from './layout'
+import { AIRPORT, RUNWAY_CELLS, RUNWAY_LINE, BUILDING_CELLS, BUILDING_SIZES, CELL, canMove, canPlace, dockFace, dockLane, facesFrom, placeProblem, siteId, DECOR_TASKS, decorOf, FLOOR_BYTES, floorsOf, footprintOf, landGained, MAX_FLOORS, RING_CELLS, layoutTown, PLOT_CELLS, REACH_CELLS, rectCenter, seedOfId, type Spot, spotCenter, TREE_CELLS, type Rect, type Town } from './layout'
 import { findPath, nearestFree, townGrid } from './walk'
 
 const teams = (n: number, members = 3) => Array.from({ length: n }, (_, i) => ({ id: `t${i}`, name: `T${i}`, members }))
@@ -265,6 +265,53 @@ function expectOneIsland(t: Town) {
   expect(reached.size).toBe(land.length)
   for (const l of t.lots) for (const k of cells(l.plot)) expect(groundAt(t, k)).toBe('pave')
 }
+
+describe('the pier on the coast', () => {
+  const companies = [
+    { id: 'a', name: 'A', members: 3, at: [-8, -8] as Spot },
+    { id: 'b', name: 'B', members: 3, at: [10, -8] as Spot },
+    { id: 'c', name: 'C', members: 3, at: [-8, 10] as Spot },
+  ]
+  const withDock = (at: Spot, face: number) => layoutTown(companies, false, [{ kind: 'dock', stage: 1, at, face }])
+
+  it('faces its harbour away from the middle of the island first', () => {
+    expect(facesFrom([40, -8])[0]).toBe(1)
+    expect(facesFrom([-56, -8])[0]).toBe(3)
+    expect(facesFrom([-8, 40])[0]).toBe(2)
+    expect(facesFrom([-8, -60])[0]).toBe(0)
+  })
+
+  it('goes only where its harbour opens on open sea, turned to face it', () => {
+    const town = layoutTown(companies, false)
+    // east of the companies: its harbour out to the east
+    expect(dockFace(town, [30, -8])).toBe(1)
+    // between them, every way is land
+    expect(dockFace(town, [10, 10])).toBeNull()
+  })
+
+  it('keeps every company out of the way from its harbour to open sea', () => {
+    const town = withDock([30, -8], 1)
+    const lane = dockLane([30, -8], 1)
+    expect(lane.x).toBeGreaterThanOrEqual(30 + 7)
+    expect(lane.w).toBeGreaterThan(1000)
+    // a plot's length past the harbour, out at sea
+    expect(canPlace(town, [56, -8])).toBe(false)
+    expect(placeProblem(town, [56, -8])).toBe('taken')
+    // beside it, inland, as before
+    expect(canPlace(town, [30, 14])).toBe(true)
+    expect(canMove(town, siteId('dock'), [30, 14])).toBe(true)
+  })
+
+  it('has land on its landward side, and its harbour is the sea', () => {
+    const town = withDock([30, -8], 1)
+    const site = town.sites[0]
+    for (const [x, z] of site.sea) expect(town.ground[z * town.cols + x]).toBeNull()
+    for (const [x, z] of site.walks) expect(town.ground[z * town.cols + x]).not.toBeNull()
+    // the whole island stays one piece, the harbour a bay open on the sea
+    const sea = site.sea.map(([x, z]) => `${x},${z}`)
+    expect(sea.some((k) => groundAt(town, k) === null)).toBe(true)
+  })
+})
 
 describe('the land a plot would add', () => {
   const inputs = [{ id: 'a', name: 'A', members: 3, at: [0, 0] as Spot }]

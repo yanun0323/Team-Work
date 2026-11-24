@@ -4,6 +4,7 @@
 import { mockStats, type UsageTotals } from '../Stats'
 import { WARDROBE, seedOf } from '../figureStyle'
 import { localRequest } from './backend'
+import { mockLandmarkRoads, type LandmarkRoad } from './landmarks'
 import type { Look, World } from './domain/types'
 import { MOCK } from './mode'
 import { useStore } from './store'
@@ -17,9 +18,11 @@ export interface ProfileStats {
   chats: number
   /** What the user said in chats. */
   messages: number
-  /** The employees worked with most, most first, at most ten: chats with them and steps they finished. */
+  /** The employees worked with most, most first, at most five: chats with them and steps they finished. */
   partners: ProfilePartner[]
   usage: UsageTotals
+  /** How far along its road each of the island's landmarks is; absent from an older backend. */
+  landmarks: LandmarkRoad[]
 }
 
 /** The milestones as the simulator's world has them. */
@@ -31,7 +34,7 @@ export function mockProfileStats(w: World): ProfileStats {
   for (const c of chats) bump(c.replicaId)
   const partners = [...together].map(([id, count]): ProfilePartner => ({ id, name: w.replicas[id].name, look: w.replicas[id].look, count }))
     .sort((a, b) => b.count - a.count || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-    .slice(0, 10)
+    .slice(0, 5)
   const starts = [...Object.values(w.tasks).map((t) => t.createdAt), ...chats.flatMap((c) => c.messages.map((m) => m.at))].filter((t) => t > 0)
   return {
     // the simulator keeps its own clock: as long ago as that, from now
@@ -41,12 +44,13 @@ export function mockProfileStats(w: World): ProfileStats {
     messages: chats.reduce((n, c) => n + c.messages.filter((m) => m.from === 'user').length, 0),
     partners,
     usage: mockStats(w, 'all', 0).total,
+    landmarks: mockLandmarkRoads(w),
   }
 }
 
 export const readProfileStats = (signal?: AbortSignal): Promise<ProfileStats> => (MOCK
   ? Promise.resolve(mockProfileStats(useStore.getState().world))
-  : localRequest<ProfileStats>('GET', '/profile/stats', undefined, signal).then((s) => ({ ...s, partners: s.partners ?? [] })))
+  : localRequest<ProfileStats>('GET', '/profile/stats', undefined, signal).then((s) => ({ ...s, partners: s.partners ?? [], landmarks: s.landmarks ?? [] })))
 
 /** The person at a computer as they look now: as they picked, or as they look before picking. */
 export const lookOf = (me: { id: string; look?: Look }) => me.look ?? defaultLook(me.id)

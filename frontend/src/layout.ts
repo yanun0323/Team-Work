@@ -1,6 +1,9 @@
 // The Fusion town on a cell grid. Every model takes whole cells. Pure data, no three.js.
 
+import { lampsAlong, layFootpaths, ringRoads, roadJunctions, type Cell, type Junction } from './footpaths'
 import { officeCapacity } from './office'
+import type { LandmarkKind } from './core/domain/types'
+import { backOf, doorOf, HARBOUR, QUAY_ROW, sitePlan, turnPlan, turnRect, type SitePlan } from './sites'
 
 export interface TeamInput {
   id: string
@@ -99,8 +102,32 @@ export interface Tree {
   height: number
 }
 
-/** `shore` is grass kept clear of models, so the rounded coastline never cuts into one; `airport` is the airfield. */
-export type Ground = 'grass' | 'shore' | 'pave' | 'airport'
+/**
+ * `shore` is grass kept clear of models, so the rounded coastline never cuts into one; `path` is a footpath over the
+ * grass, from a company's door to the staffing agency's; `park` is a landmark's lawn, all of its ground; `airport` is
+ * the airfield.
+ */
+export type Ground = 'grass' | 'shore' | 'pave' | 'path' | 'park' | 'airport'
+
+/** A public place the island has grown by itself (`Landmark` in core/domain/types.ts): which, how far grown, and where. */
+export interface LandmarkInput {
+  kind: LandmarkKind
+  stage: number
+  at: Spot
+  /** Quarter turns, for the pier: its harbour, at the back of its ground, turned to face open sea (`turnCell`). */
+  face?: number
+}
+
+/** A landmark, laid out on its ground: everything standing on it in this town's cells (`sitePlan`), its trees too. */
+export interface Site extends SitePlan {
+  kind: LandmarkKind
+  stage: number
+  at: Spot
+  /** Its ground, as large as a company's plot, in this town's cells. */
+  plot: Rect
+  /** Quarter turns from its plan, the way its back faces (`turnCell`); 0 for all but the pier. */
+  face: number
+}
 
 export interface Town {
   cols: number
@@ -110,9 +137,18 @@ export interface Town {
   lots: Lot[]
   /** The airport's cells, in this town's cells. */
   airport: Rect
-  /** The staffing agency's paved ground (`STAFFING_LOT`), in this town's cells. */
+  /** Where the staffing agency stands, as the corner of a plot round it in town cells like a spot (`STAFFING_SPOT`). */
+  staffingAt: Spot
+  /** The staffing agency's paved ground (`staffingLot`), in this town's cells. */
   staffing: Rect
+  /** The trees on the grass, and the landmarks'. */
   trees: Tree[]
+  /** The landmarks the island has grown, in the order of `LANDMARK_KINDS`. */
+  sites: Site[]
+  /** Lamp posts along the footpaths, one cell each, in this town's cells. */
+  pathLamps: Array<[number, number]>
+  /** Where footpaths meet: crosswalks, stop lines and traffic lights, the poles one cell each, in this town's cells. */
+  junctions: Junction[]
   /** Half the larger side, in world units. */
   radius: number
   /** Mean side length, in world units. */
@@ -181,17 +217,27 @@ export const TOWER = { x: -14, z: -15, h: 14 }
  */
 export const POWER_TOWER = { x: -35, z: -15.2, w: 9, d: 9, h: 40 }
 /**
- * The staffing agency's ground (移民署), in town cells like `AIRPORT`: fixed just past the airport's east end, on
- * the terminal's side, clear of the runway's line so planes coming in or climbing out pass it by. Like the airport it
- * has land of its own, nothing can be built on it, and it is never moved. Keep in step with backend/internal/usecase/plots.go.
+ * The staffing agency's ground (移民署), in town cells like `AIRPORT`, where it stands until the user moves it: just
+ * past the airport's east end, on the terminal's side, clear of the runway's line so planes coming in or climbing out
+ * pass it by. Like the airport it has land of its own and nothing can be built on it. It is moved by the corner of a
+ * company-sized plot round it (`STAFFING_SPOT`, `staffingLot`). Keep in step with backend/internal/usecase/plots.go.
  */
 export const STAFFING_LOT: Rect = { x: 22, z: -30, w: 10, d: 10 }
+/** The corner of the company-sized plot round `STAFFING_LOT`, where the staffing agency stands until moved. */
+export const STAFFING_SPOT: Spot = [STAFFING_LOT.x - (PLOT_CELLS - STAFFING_LOT.w) / 2, STAFFING_LOT.z - (PLOT_CELLS - STAFFING_LOT.d) / 2]
+/** The staffing agency's paving, with the plot round it at `spot`. */
+export const staffingLot = ([x, z]: Spot): Rect => ({ ...STAFFING_LOT, x: x + STAFFING_SPOT_INSET, z: z + STAFFING_SPOT_INSET })
+const STAFFING_SPOT_INSET = (PLOT_CELLS - STAFFING_LOT.w) / 2
+/** What is moved, when it is the staffing agency rather than a company. */
+export const STAFFING_ID = 'staffing'
+/** What is moved, when it is a landmark rather than a company: as the backend calls its ground. */
+export const siteId = (kind: LandmarkKind) => `landmark:${kind}`
 /** The staffing agency's rotunda, in world units, in the middle of `STAFFING_LOT`. */
 export const STAFFING = { w: 10, d: 10, h: 10.5 }
 /** Cells either side of the runway kept clear of trees all the way along its line, so planes coming in or climbing out clear them. */
 const APPROACH_CELLS = RUNWAY_CELLS / 2 + 3
-/** Ground no company stands on, with `GAP_CELLS` of grass kept round it. */
-const RESERVED = [AIRPORT, STAFFING_LOT]
+/** Ground no company stands on, with `GAP_CELLS` of grass kept round it: the airport and the staffing agency's paving. */
+const reservedFor = (staffingAt: Spot) => [AIRPORT, staffingLot(staffingAt)]
 /** Fixed noise seed for the coast and trees; cells hash by their town position, so growing keeps them. */
 const SEED = 7331
 
@@ -285,7 +331,7 @@ export const spotUnder = (wx: number, wz: number): Spot => [Math.round(wx / CELL
 
 const grow = (r: Rect, n: number): Rect => ({ x: r.x - n, z: r.z - n, w: r.w + n * 2, d: r.d + n * 2 })
 
-type PlacementTown = Pick<Town, 'cols' | 'rows' | 'ground' | 'lots'>
+type PlacementTown = Pick<Town, 'cols' | 'rows' | 'ground' | 'lots'> & Partial<Pick<Town, 'sites' | 'staffingAt'>>
 export interface PlacementArea {
   x0: number
   z0: number
@@ -293,6 +339,11 @@ export interface PlacementArea {
   rows: number
   /** Legal plot corners, in world cells. */
   valid: Uint8Array
+  /** Moving the pier: the way it would face at each legal corner (quarter turns), its harbour out to open sea. */
+  faces?: Int8Array
+  /** What stands on a plot there, as cells in from its corner and cells a side: the whole plot, or the staffing agency's paving. */
+  inset: number
+  size: number
 }
 const placementCache = new WeakMap<PlacementTown, Map<string, PlacementArea>>()
 
@@ -311,7 +362,11 @@ function cellSums(cols: number, rows: number, cell: (x: number, z: number) => nu
   }
 }
 
-/** One source for the grid, placement cursor and move validation. Moving keeps the current land. */
+/**
+ * One source for the grid, placement cursor and move validation. Moving keeps the current land. `moved` is what is
+ * moved: a company by its id, a landmark (`siteId`) or the staffing agency (`STAFFING_ID`); nothing, for a new
+ * company. The staffing agency's paving keeps `GAP_CELLS` of grass from every plot, as theirs does from it.
+ */
 export function placementArea(town: PlacementTown, moved?: string): PlacementArea {
   let cached = placementCache.get(town)
   if (!cached) { cached = new Map(); placementCache.set(town, cached) }
@@ -322,19 +377,47 @@ export function placementArea(town: PlacementTown, moved?: string): PlacementAre
   const cols = town.cols + n * 2, rows = town.rows + n * 2
   const x0 = -town.cols / 2 - n, z0 = -town.rows / 2 - n
   const land = cellSums(town.cols, town.rows, (x, z) => town.ground[z * town.cols + x] ? 1 : 0)
+  const staffing = moved === STAFFING_ID
+  const reserved = staffing ? [AIRPORT] : reservedFor(town.staffingAt ?? STAFFING_SPOT)
+  // the plots standing, and the grass the staffing agency keeps from them when it is what moves
+  const plots = [...town.lots.filter((l) => l.id !== moved).map((l) => l.at), ...(town.sites ?? []).filter((s) => siteId(s.kind) !== moved).map((s) => s.at)]
+  const keep = staffing ? GAP_CELLS : 0
+  // the way out to sea off the pier's harbour, kept clear of anyone's land
+  const lanes = (town.sites ?? []).filter((s) => s.kind === 'dock' && siteId(s.kind) !== moved).map((s) => dockLane(s.at, s.face))
   const blocked = cellSums(cols, rows, (x, z) => {
     const wx = x + x0, wz = z + z0
     // The expansion is a square-cell dilation of the actual coastline, not its bounding box.
     if (!land(x - 2 * n, z - 2 * n, x + 1, z + 1)) return 1
-    if (RESERVED.some((r) => wx >= r.x - GAP_CELLS && wx < r.x + r.w + GAP_CELLS &&
+    if (reserved.some((r) => wx >= r.x - GAP_CELLS && wx < r.x + r.w + GAP_CELLS &&
         wz >= r.z - GAP_CELLS && wz < r.z + r.d + GAP_CELLS)) return 1
-    return town.lots.some((l) => l.id !== moved && wx >= l.at[0] && wx < l.at[0] + PLOT_CELLS && wz >= l.at[1] && wz < l.at[1] + PLOT_CELLS) ? 1 : 0
+    if (lanes.some((r) => wx >= r.x - PAD_CELLS && wx < r.x + r.w + PAD_CELLS && wz >= r.z - PAD_CELLS && wz < r.z + r.d + PAD_CELLS)) return 1
+    const on = ([sx, sz]: Spot) => wx >= sx - keep && wx < sx + PLOT_CELLS + keep && wz >= sz - keep && wz < sz + PLOT_CELLS + keep
+    return plots.some(on) ? 1 : 0
+  })
+  const [inset, size] = staffing ? [STAFFING_SPOT_INSET, STAFFING_LOT.w] : [0, PLOT_CELLS]
+  // the pier, when it is what moves, needs open sea off its harbour: nobody's land anywhere along that way
+  const pier = moved === siteId('dock')
+  const crowded = pier && cellSums(cols, rows, (x, z) => {
+    const wx = x + x0, wz = z + z0
+    const near = (r: Rect) => wx >= r.x - PAD_CELLS && wx < r.x + r.w + PAD_CELLS && wz >= r.z - PAD_CELLS && wz < r.z + r.d + PAD_CELLS
+    return reserved.some(near) || plots.some((s) => near(plotOf(s))) ? 1 : 0
   })
   const valid = new Uint8Array(cols * rows)
+  const faces = pier ? new Int8Array(cols * rows).fill(-1) : undefined
   for (let z = 0; z <= rows - PLOT_CELLS; z++) for (let x = 0; x <= cols - PLOT_CELLS; x++) {
-    if (Math.abs(x + x0) <= 512 && Math.abs(z + z0) <= 512 && !blocked(x, z, x + PLOT_CELLS, z + PLOT_CELLS)) valid[z * cols + x] = 1
+    if (Math.abs(x + x0) > 512 || Math.abs(z + z0) > 512 || blocked(x + inset, z + inset, x + inset + size, z + inset + size)) continue
+    if (crowded && faces) {
+      const at: Spot = [x + x0, z + z0]
+      const face = facesFrom(at).find((q) => {
+        const r = dockLane(at, q)
+        return !crowded(r.x - x0, r.z - z0, r.x + r.w - x0, r.z + r.d - z0)
+      })
+      if (face === undefined) continue
+      faces[z * cols + x] = face
+    }
+    valid[z * cols + x] = 1
   }
-  const area = { x0, z0, cols, rows, valid }
+  const area = { x0, z0, cols, rows, valid, inset, size, ...(faces ? { faces } : {}) }
   cached.set(key, area)
   return area
 }
@@ -350,12 +433,52 @@ export function canMove(town: PlacementTown, id: string, at: Spot): boolean {
   return canPlace(town, at, id)
 }
 
+/** How far out the way to open sea off the pier's harbour reaches: as far as anything could ever stand. */
+const LANE_REACH = 4096
+
+/**
+ * The pier's harbour with its plot's corner at `at`, turned `face` times, and on from it out to open sea: nobody's land
+ * may come within `PAD_CELLS` of it, so the harbour is always the open sea. Keep in step with dockLane in
+ * backend/internal/usecase/landmarks.go.
+ */
+export function dockLane(at: Spot, face: number): Rect {
+  const h = turnRect(face, HARBOUR)
+  const r = { x: at[0] + h.x, z: at[1] + h.z, w: h.w, d: h.d }
+  const [bx, bz] = backOf(face)
+  if (bx < 0) return { ...r, x: r.x - LANE_REACH, w: r.w + LANE_REACH }
+  if (bx > 0) return { ...r, w: r.w + LANE_REACH }
+  if (bz < 0) return { ...r, z: r.z - LANE_REACH, d: r.d + LANE_REACH }
+  return { ...r, d: r.d + LANE_REACH }
+}
+
+/**
+ * The ways the pier may face with its plot's corner at `at`, the likeliest first: its harbour away from the middle of
+ * the island. Keep in step with facesFrom in backend/internal/usecase/landmarks.go.
+ */
+export function facesFrom([x, z]: Spot): number[] {
+  const [cx, cz] = [x + PLOT_CELLS / 2, z + PLOT_CELLS / 2]
+  return [0, 1, 2, 3].sort((a, b) => {
+    const [ax, az] = backOf(a), [bx, bz] = backOf(b)
+    return bx * cx + bz * cz - (ax * cx + az * cz) || a - b
+  })
+}
+
+/** The way the pier would face with its plot's corner at `at`, its harbour out to open sea; null where it can't go. */
+export function dockFace(town: PlacementTown, at: Spot): number | null {
+  if (!canPlace(town, at, siteId('dock'))) return null
+  const area = placementArea(town, siteId('dock'))
+  const face = area.faces?.[(at[1] - area.z0) * area.cols + at[0] - area.x0] ?? -1
+  return face >= 0 ? face : null
+}
+
 /** Why a plot can't go here: on another company, the airport or the staffing agency, or too far from the land. Null when it can. */
 export function placeProblem(town: PlacementTown, at: Spot, moved?: string): 'taken' | 'far' | null {
   if (canPlace(town, at, moved)) return null
   const plot = { x: at[0], z: at[1], w: PLOT_CELLS, d: PLOT_CELLS }
-  if (onReserved(plot)) return 'taken'
-  if (town.lots.some((l) => l.id !== moved && overlaps(plot, { x: l.at[0], z: l.at[1], w: PLOT_CELLS, d: PLOT_CELLS }))) return 'taken'
+  if (onReserved(plot, reservedFor(town.staffingAt ?? STAFFING_SPOT))) return 'taken'
+  if (town.lots.some((l) => l.id !== moved && overlaps(plot, plotOf(l.at)))) return 'taken'
+  if ((town.sites ?? []).some((s) => overlaps(plot, plotOf(s.at)))) return 'taken'
+  if ((town.sites ?? []).some((s) => s.kind === 'dock' && siteId(s.kind) !== moved && overlaps(plot, dockLane(s.at, s.face), PAD_CELLS))) return 'taken'
   return 'far'
 }
 
@@ -368,19 +491,20 @@ const overlaps = (a: Rect, b: Rect, gap = 0) =>
 const SIDES: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]]
 
 const plotOf = ([x, z]: Spot): Rect => ({ x, z, w: PLOT_CELLS, d: PLOT_CELLS })
-const onReserved = (plot: Rect) => RESERVED.some((r) => overlaps(plot, r, GAP_CELLS))
+const onReserved = (plot: Rect, reserved: Rect[]) => reserved.some((r) => overlaps(plot, r, GAP_CELLS))
 
 /**
  * Where each picked spot is shown: as picked, unless its plot is on the airport or the staffing agency (saved before
- * that ground was kept), in which case it goes to the nearest spot clear of them and of the other plots. Only the
- * screen moves it; the saved spot stays until the player moves the company. Keep in step with shownPlots in
- * backend/internal/usecase/plots.go.
+ * that ground was kept), in which case it goes to the nearest spot clear of them, of the other plots and of the
+ * landmarks' ground (`kept`, never moved). Only the screen moves it; the saved spot stays until the player moves the
+ * company. Keep in step with shownPlots in backend/internal/usecase/plots.go.
  */
-export function shownSpots(spots: Array<Spot | undefined>): Array<Spot | undefined> {
-  const taken = spots.filter((s): s is Spot => !!s && !onReserved(plotOf(s))).map(plotOf)
+export function shownSpots(spots: Array<Spot | undefined>, kept: Spot[] = [], staffingAt: Spot = STAFFING_SPOT): Array<Spot | undefined> {
+  const reserved = reservedFor(staffingAt)
+  const taken = [...kept, ...spots.filter((s): s is Spot => !!s && !onReserved(plotOf(s), reserved))].map(plotOf)
   return spots.map((s) => {
-    if (!s || !onReserved(plotOf(s))) return s
-    const free = (at: Spot) => !onReserved(plotOf(at)) && !taken.some((o) => overlaps(plotOf(at), o, GAP_CELLS))
+    if (!s || !onReserved(plotOf(s), reserved)) return s
+    const free = (at: Spot) => !onReserved(plotOf(at), reserved) && !taken.some((o) => overlaps(plotOf(at), o, GAP_CELLS))
     // ring by ring outward, the nearest by straight distance; on a tie the first found, row by row
     let best: Spot | null = null
     let bestD = Infinity
@@ -397,13 +521,20 @@ export function shownSpots(spots: Array<Spot | undefined>): Array<Spot | undefin
 
 /**
  * The island is only what the companies standing now (and the airport) need: land a company left, by
- * moving or closing, goes back to the sea.
+ * moving or closing, goes back to the sea. Without `footpaths` the grass is left bare, which is quicker. The
+ * `landmarks` the island has grown stand on ground of their own, kept as a plot is; the staffing agency stands in the
+ * middle of the plot at `staffingAt`.
  */
-export function layoutTown(teams: TeamInput[]): Town {
+export function layoutTown(teams: TeamInput[], footpaths = true, landmarks: LandmarkInput[] = [], staffingAt: Spot = STAFFING_SPOT): Town {
+  const reserved = reservedFor(staffingAt)
+  // the landmarks' ground: nobody else's
+  const kept = landmarks.map((l) => l.at)
   // teams without a spot get one on a square grid of plots, filled from the middle outward so the town
   // grows evenly and stays centred on the origin; places taken by spots the player picked are skipped
-  const picked = shownSpots(teams.map((t) => t.at))
-  const pinned = [...picked.filter((s): s is Spot => !!s).map(plotOf), ...RESERVED]
+  const picked = shownSpots(teams.map((t) => t.at), kept, staffingAt)
+  // and the way out to sea off the pier's harbour, its land's width beside it
+  const lanes = landmarks.filter((l) => l.kind === 'dock').map((l) => grow(dockLane(l.at, l.face ?? 0), PAD_CELLS - GAP_CELLS))
+  const pinned = [...picked.filter((s): s is Spot => !!s).map(plotOf), ...kept.map(plotOf), ...reserved, ...lanes]
   const loose = teams.filter((t) => !t.at).length
   let handed: Spot[] = []
   for (let n = Math.max(1, Math.ceil(Math.sqrt(loose))); handed.length < loose; n++) {
@@ -424,10 +555,10 @@ export function layoutTown(teams: TeamInput[]): Town {
   const spots = picked.map((s) => s ?? handed[next++])
 
   // a grid symmetric about the origin, with land round every plot and a ring of sea beyond it
-  const fixed = RESERVED.map((r): [number, number, number, number] => [r.x, r.z, r.x + r.w, r.z + r.d])
+  const fixed = reserved.map((r): [number, number, number, number] => [r.x, r.z, r.x + r.w, r.z + r.d])
   const reach = (k: 0 | 1) => Math.max(
     PLOT_CELLS / 2 + PAD_CELLS,
-    ...spots.flatMap((s) => [-(s[k] - PAD_CELLS), s[k] + PLOT_CELLS + PAD_CELLS]),
+    ...[...spots, ...kept].flatMap((s) => [-(s[k] - PAD_CELLS), s[k] + PLOT_CELLS + PAD_CELLS]),
     ...fixed.flatMap((r) => [-(r[k] - PAD_CELLS), r[k + 2] + PAD_CELLS]),
   ) + 1
   const cols = reach(0) * 2
@@ -458,11 +589,15 @@ export function layoutTown(teams: TeamInput[]): Town {
     for (let z = r.z; z < r.z + r.d; z++) for (let x = r.x; x < r.x + r.w; x++) if (inside(x, z)) ground[z * cols + x] = 'grass'
   }
   const airport: Rect = { ...AIRPORT, x: AIRPORT.x + cols / 2, z: AIRPORT.z + rows / 2 }
-  const staffing: Rect = { ...STAFFING_LOT, x: STAFFING_LOT.x + cols / 2, z: STAFFING_LOT.z + rows / 2 }
+  const staffingAtLot = staffingLot(staffingAt)
+  const staffing: Rect = { ...staffingAtLot, x: staffingAtLot.x + cols / 2, z: staffingAtLot.z + rows / 2 }
   // land round every plot, the airport and the staffing agency
   paint(grow(airport, PAD_CELLS))
   paint(grow(staffing, PAD_CELLS))
   for (const l of lots) paint(grow(l.plot, PAD_CELLS))
+  const sites = landmarks.map((l) => laySite(plotAt({ cols, rows }, l.at), l))
+  // a landmark on the coast (the pier) has land only on its landward side: its harbour is the sea
+  for (const s of sites) paint(s.sea.length ? coastOf(s) : grow(s.plot, PAD_CELLS))
   joinLand(ground, cols, rows)
   // edge rings by distance to the sea, before any cut
   const ring = seaDistance(ground, cols, rows)
@@ -488,6 +623,8 @@ export function layoutTown(teams: TeamInput[]): Town {
   fillLakes(ground, cols, rows)
 
   for (const r of [...lots.map((l) => l.plot), staffing]) for (let z = r.z; z < r.z + r.d; z++) for (let x = r.x; x < r.x + r.w; x++) ground[z * cols + x] = 'pave'
+  for (const { plot: r } of sites) for (let z = r.z; z < r.z + r.d; z++) for (let x = r.x; x < r.x + r.w; x++) ground[z * cols + x] = 'park'
+  for (const s of sites) for (const [x, z] of s.sea) ground[z * cols + x] = null
   for (let z = airport.z; z < airport.z + airport.d; z++) for (let x = airport.x; x < airport.x + airport.w; x++) ground[z * cols + x] = 'airport'
   // land touching the sea stays clear
   for (let z = 0; z < rows; z++) for (let x = 0; x < cols; x++) {
@@ -495,12 +632,32 @@ export function layoutTown(teams: TeamInput[]): Town {
     if (SIDES.some(([dx, dz]) => at(x + dx, z + dz) === null)) ground[z * cols + x] = 'shore'
   }
 
-  // trees on free grass, never right next to a plot, so plots keep a clear lawn around them
-  const nearPlot = (x: number, z: number) => [...lots.map((l) => l.plot), airport, staffing].some((r) => x >= r.x - 1 && x <= r.x + r.w && z >= r.z - 1 && z <= r.z + r.d)
-  const trees: Tree[] = []
-  const used = new Set<number>()
+  // a road round every company's plot, and footpaths from the staffing agency's door to each company's, the middle two
+  // cells out from the front (+z) of its ground, on that road
+  if (footpaths) ringRoads(ground, cols, rows, lots.map((l) => l.plot))
+  const front = (r: Rect): [number, number] => [r.x + r.w / 2 - 1, r.z + r.d]
+  // and to each landmark's way in, at the middle of its front as a plot's
+  if (footpaths) layFootpaths(ground, cols, rows, front(staffing), [...lots.map((l) => front(l.plot)), ...sites.map((s) => doorOn(s))])
+
+  const nearPlot = (x: number, z: number) => [...lots.map((l) => l.plot), airport, staffing, ...sites.map((s) => s.plot)].some((r) => x >= r.x - 1 && x <= r.x + r.w && z >= r.z - 1 && z <= r.z + r.d)
   const line = airport.z + RUNWAY_LINE
   const onApproach = (z: number) => Math.abs(z + 0.5 - line) < APPROACH_CELLS
+  // traffic lights where the paths meet, one pole to a cell, none where planes come in low nor among the staffing
+  // agency's own street furniture
+  const junctions = footpaths ? roadJunctions(ground, cols, rows) : []
+  const poles: Cell[] = []
+  const onStaffing = ([x, z]: Cell) => x >= staffing.x && x < staffing.x + staffing.w && z >= staffing.z && z < staffing.z + staffing.d
+  for (const j of junctions) for (const a of j.arms) {
+    if (a.pole && (onApproach(a.pole[1]) || onStaffing(a.pole) || poles.some(([x, z]) => x === a.pole?.[0] && z === a.pole?.[1]))) a.pole = null
+    if (a.pole) poles.push(a.pole)
+  }
+  // lamps along the paths, clear of the plots (lit by their own), of the traffic lights and of planes coming in low
+  const nearPole = (x: number, z: number) => poles.some(([px, pz]) => Math.max(Math.abs(px - x), Math.abs(pz - z)) <= 2)
+  const pathLamps = lampsAlong(ground, cols, rows, (x, z) => nearPlot(x, z) || onApproach(z) || nearPole(x, z))
+
+  // trees on free grass, never right next to a plot, so plots keep a clear lawn around them, nor on a lamp or a pole
+  const trees: Tree[] = []
+  const used = new Set<number>([...pathLamps, ...poles].map(([x, z]) => z * cols + x))
   const free = (x: number, z: number) => at(x, z) === 'grass' && !nearPlot(x, z) && !onApproach(z) && !used.has(z * cols + x)
   for (let z = 0; z < rows; z++) for (let x = 0; x < cols; x++) {
     const cells: Array<[number, number]> = []
@@ -512,23 +669,69 @@ export function layoutTown(teams: TeamInput[]): Town {
     trees.push({ x, z, variant: Math.floor(hash(tx, tz, 3) * 3), height: tall < 0.55 ? 2 : tall < 0.85 ? 3 : 4 })
   }
 
+  // and the landmarks' own, planted where they have room for them
+  for (const s of sites) trees.push(...s.trees)
+
   const top = Math.max(0, ...lots.map((l) => l.floors * FLOOR_CELLS * CELL))
-  const ends = (k: 0 | 1) => [Math.min(...fixed.map((r) => r[k]), ...spots.map((s) => s[k])), Math.max(...fixed.map((r) => r[k + 2]), ...spots.map((s) => s[k] + PLOT_CELLS))]
+  const ends = (k: 0 | 1) => [Math.min(...fixed.map((r) => r[k]), ...[...spots, ...kept].map((s) => s[k])), Math.max(...fixed.map((r) => r[k + 2]), ...[...spots, ...kept].map((s) => s[k] + PLOT_CELLS))]
   const [x0, x1] = ends(0)
   const [z0, z1] = ends(1)
   return {
-    cols, rows, ground, lots, airport, staffing, trees, middle: [((x0 + x1) / 2) * CELL, ((z0 + z1) / 2) * CELL],
+    cols, rows, ground, lots, airport, staffingAt, staffing, trees, sites, pathLamps, junctions, middle: [((x0 + x1) / 2) * CELL, ((z0 + z1) / 2) * CELL],
     radius: (Math.max(cols, rows) / 2) * CELL, span: ((cols + rows) / 2) * CELL, top,
   }
 }
 
+/** The land a landmark on the coast has, in this town's cells: its landward side, with land beside and before it. */
+function coastOf(s: Site): Rect {
+  const r = turnRect(s.face, { x: -PAD_CELLS, z: QUAY_ROW, w: PLOT_CELLS + PAD_CELLS * 2, d: PLOT_CELLS - QUAY_ROW + PAD_CELLS })
+  return { ...r, x: r.x + s.plot.x, z: r.z + s.plot.z }
+}
+
+/** The two-by-two square just past a landmark's way in, in this town's cells: where the footpath joins it. */
+function doorOn(s: Site): [number, number] {
+  const [x, z] = doorOf(s.face)
+  return [s.plot.x + x, s.plot.z + z]
+}
+
+/** A landmark at its stage on `plot`, in this town's cells, turned as it faces. */
+export function laySite(plot: Rect, { kind, stage, at, face = 0 }: LandmarkInput): Site {
+  // only the pier turns, to face open sea
+  const turn = kind === 'dock' ? ((face % 4) + 4) % 4 : 0
+  const plan = turnPlan(turn, sitePlan(kind, stage))
+  const move = <T extends { x: number; z: number }>(r: T): T => ({ ...r, x: r.x + plot.x, z: r.z + plot.z })
+  const cell = ([x, z]: [number, number]): [number, number] => [x + plot.x, z + plot.z]
+  return {
+    kind, stage, at, plot, face: turn,
+    sea: plan.sea.map(cell),
+    walks: plan.walks.map(cell),
+    props: plan.props.map(move),
+    beds: plan.beds.map(move),
+    blankets: plan.blankets.map(move),
+    trees: plan.trees.map(move),
+    blocks: plan.blocks.map(move),
+    water: plan.water.map(cell),
+    raised: plan.raised.map(([x, z, h]) => [x + plot.x, z + plot.z, h]),
+    sights: plan.sights.map(move),
+    ledges: plan.ledges.map(move),
+    loop: plan.loop && plan.loop.map(cell),
+  }
+}
+
 /**
- * The cells that would turn from sea to land with a plot on `at`, in town cells like a spot. `moved` is the
- * company going there, if it already stands somewhere.
+ * The cells that would turn from sea to land with a plot on `at`, in town cells like a spot. `moved` is what goes
+ * there, if it already stands somewhere: a company, a landmark (`siteId`) or the staffing agency (`STAFFING_ID`).
  */
-export function landGained(town: Pick<Town, 'cols' | 'rows' | 'ground' | 'lots'>, at: Spot, moved?: string): Spot[] {
+export function landGained(town: PlacementTown, at: Spot, moved?: string): Spot[] {
+  const company = moved !== STAFFING_ID && !(town.sites ?? []).some((s) => siteId(s.kind) === moved)
   const stays = town.lots.filter((l) => l.id !== moved).map((l) => ({ id: l.id, name: l.name, members: 0, at: l.at }))
-  const next = layoutTown([...stays, { id: moved ?? '', name: '', members: 0, at }])
+  const next = layoutTown(
+    company ? [...stays, { id: moved ?? '', name: '', members: 0, at }] : stays, false,
+    (town.sites ?? []).map((s) => siteId(s.kind) === moved
+      ? { kind: s.kind, stage: s.stage, at, face: s.kind === 'dock' ? dockFace(town, at) ?? s.face : s.face }
+      : { kind: s.kind, stage: s.stage, at: s.at, face: s.face }),
+    moved === STAFFING_ID ? at : town.staffingAt ?? STAFFING_SPOT,
+  )
   const isLand = (x: number, z: number) => {
     const cx = x + town.cols / 2, cz = z + town.rows / 2
     return cx >= 0 && cz >= 0 && cx < town.cols && cz < town.rows && !!town.ground[cz * town.cols + cx]

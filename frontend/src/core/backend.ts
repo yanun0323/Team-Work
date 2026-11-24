@@ -28,7 +28,7 @@ export type ServerEvent =
   | { type: 'notice'; kind: 'review' | 'awaitMerge' | 'mergeFailed'; taskId: string; subId?: string }
 
 const BOOKS: Record<string, keyof World> = {
-  team: 'teams', provider: 'providers', blueprint: 'blueprints', source: 'sources', replica: 'replicas', workflow: 'workflows', task: 'tasks', subTask: 'subTasks', chat: 'chats', ghost: 'ghosts',
+  team: 'teams', provider: 'providers', blueprint: 'blueprints', source: 'sources', replica: 'replicas', workflow: 'workflows', task: 'tasks', subTask: 'subTasks', chat: 'chats', ghost: 'ghosts', landmark: 'landmarks', place: 'places',
 }
 
 /** Writes a batch of changes into the world. `skip` leaves out what the user is in the middle of editing. */
@@ -36,6 +36,8 @@ export function applyPatches(w: World, ev: { upserts?: Patch[]; deletes?: Patch[
   for (const p of ev.upserts ?? []) {
     if (p.kind === 'preferences') { w.preferences = p.data as Prefs; continue }
     if (p.kind === 'ghost') w.ghosts ??= {}
+    if (p.kind === 'landmark') w.landmarks ??= {}
+    if (p.kind === 'place') w.places ??= {}
     const book = w[BOOKS[p.kind]] as Record<string, unknown> | undefined
     if (book && !skip(p.kind, p.id)) book[p.id] = p.data
     else if (p.kind === 'team' && w.teams[p.id]) {

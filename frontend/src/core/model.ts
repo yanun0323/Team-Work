@@ -65,41 +65,50 @@ export const teamReplicas = (w: World, teamId: string) =>
 export const crewOf = (w: World, teamId: string) =>
   teamId && teamId !== STAFFING_ID ? [...teamReplicas(w, teamId), ...teamReplicas(w, STAFFING_ID)] : teamReplicas(w, teamId)
 
-/** How long, in seconds, an Immigration Office employee keeps a desk in a company's office after they last chatted or worked there. */
+/** How long, in seconds, an Immigration Office employee keeps showing up in a company's office after they last chatted or worked there. */
 export const VISIT = 7 * 24 * 3600
 
-/** Immigration Office employees who chatted or worked in this company within `VISIT` of the world's clock. */
-function visitorIds(w: World, teamId: string): Set<string> {
+/** The most Immigration Office employees an office shows at once: they have no desks, and a small room fills up. */
+export const MAX_VISITORS = 3
+
+/** Immigration Office employees who chatted or worked in this company within `VISIT` of the world's clock, with when they last did. */
+function visitorTimes(w: World, teamId: string): Map<string, number> {
   const since = w.now - VISIT
-  const ids = new Set<string>()
+  const times = new Map<string, number>()
+  const saw = (id: string, at: number) => void (at >= since && times.set(id, Math.max(at, times.get(id) ?? -Infinity)))
   for (const c of Object.values(w.chats)) {
     if (c.teamId !== teamId) continue
     const last = Math.max(c.createdAt, c.history?.sortAt ?? 0, c.messages?.[c.messages.length - 1]?.at ?? 0, c.replyAt ?? 0)
-    if (last < since) continue
-    ids.add(c.replicaId)
-    c.guests?.forEach((g) => ids.add(g.replicaId))
-    c.handoffs?.forEach((h) => ids.add(h.replicaId))
+    saw(c.replicaId, last)
+    c.guests?.forEach((g) => saw(g.replicaId, last))
+    c.handoffs?.forEach((h) => saw(h.replicaId, last))
   }
   for (const s of Object.values(w.subTasks)) {
     if (!s.replicaId || s.cancelled || w.tasks[s.taskId]?.teamId !== teamId) continue
-    if (s.status === 'progressing' || (s.endedAt ?? s.startedAt ?? -Infinity) >= since) ids.add(s.replicaId)
+    saw(s.replicaId, s.status === 'progressing' ? w.now : s.endedAt ?? s.startedAt ?? -Infinity)
   }
   for (const t of Object.values(w.tasks)) {
     if (t.teamId !== teamId || t.stage === 'cancelled') continue
     // owning a task is work too, while it runs or lately done
     const last = t.doneAt ?? (t.paused ? t.pausedAt ?? t.createdAt : w.now)
-    if (t.ownerId && last >= since) ids.add(t.ownerId)
-    if (t.merge?.replicaId && (t.merge.startedAt ?? -Infinity) >= since) ids.add(t.merge.replicaId)
+    if (t.ownerId) saw(t.ownerId, last)
+    if (t.merge?.replicaId) saw(t.merge.replicaId, t.merge.startedAt ?? -Infinity)
   }
-  return ids
+  return times
 }
 
-/** Who a company's office shows: its own employees, then those from the Immigration Office who chatted or worked there lately. */
+/**
+ * Who a company's office shows: its own employees, then up to `MAX_VISITORS` from the Immigration Office who chatted or
+ * worked there lately: the latest ones, in the Immigration Office's own order so they don't swap about.
+ */
 export function officePeople(w: World, teamId: string): Replica[] {
   const own = teamReplicas(w, teamId)
   if (!teamId || teamId === STAFFING_ID) return own
-  const ids = visitorIds(w, teamId)
-  return ids.size ? [...own, ...teamReplicas(w, STAFFING_ID).filter((r) => ids.has(r.id))] : own
+  const times = visitorTimes(w, teamId)
+  if (!times.size) return own
+  const visitors = teamReplicas(w, STAFFING_ID).filter((r) => times.has(r.id))
+  const latest = new Set([...visitors].sort((a, b) => (times.get(b.id) as number) - (times.get(a.id) as number)).slice(0, MAX_VISITORS))
+  return [...own, ...visitors.filter((r) => latest.has(r))]
 }
 
 /** Whether someone is at work in this company now: an Immigration Office employee may be busy in another one instead. */

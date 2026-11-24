@@ -18,7 +18,7 @@
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as THREE from 'three'
-import { busyIn, officePeople, teamBusy } from './core/model'
+import { busyIn, officePeople, teamBusy, teamReplicas } from './core/model'
 import { homeWorld, useStore } from './core/store'
 import { emptyWorld } from './core/backend'
 import type { World } from './core/domain/types'
@@ -876,8 +876,8 @@ function CutAway({ lot, ghost }: { lot: Lot; ghost?: boolean }) {
   const hx = w / 2 - WALL / 2
   const hz = d / 2 - WALL / 2
   // the room is rolled again whenever the head count changes, and only then, so the walking grid isn't
-  // rebuilt every update
-  const people = officePeople(world, teamId).length
+  // rebuilt every update; desks are for the company's own employees, so visitors coming and going leave it be
+  const people = teamReplicas(world, teamId).length
   const seed = Math.floor(hash(lot.seed, people, 77) * 2 ** 31)
   const plan = useMemo(() => officePlan(people, w, CELL, seed), [people, w, seed])
   const decor = useMemo(() => decorOf(seed), [seed])

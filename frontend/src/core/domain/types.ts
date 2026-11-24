@@ -300,6 +300,37 @@ export interface Ghost {
   createdAt: number
 }
 
+/**
+ * The public places the island grows by itself as milestones are reached: a park, a hill with a lookout, a fountain then
+ * a lake, a pier with boats on the coast, and a clock tower.
+ */
+export type LandmarkKind = 'park' | 'hill' | 'pond' | 'dock' | 'clock'
+
+/** Every kind of landmark, in the order the island grows and lists them (landmarkSteps in the backend). */
+export const LANDMARK_KINDS: readonly LandmarkKind[] = ['park', 'hill', 'pond', 'dock', 'clock']
+
+/**
+ * A public place the island grew by itself. It appeared on ground as large as a company's plot, the most it will ever
+ * need, and grows there; it never moves, and never shrinks back.
+ */
+export interface Landmark {
+  kind: LandmarkKind
+  /** How far it has grown, from 1. */
+  stage: number
+  /** The corner cell of its ground, in town cells like a plot's. */
+  at: Spot
+  /** The pier's: quarter turns that face its harbour out to open sea (`turnCell` in sites.ts); absent for the others. */
+  face?: number
+  createdAt: number
+}
+
+/** Where one of the island's own buildings stands once the user has moved it: so far the staffing agency's. */
+export interface Place {
+  id: string
+  /** The corner cell of a company-sized plot round it, in town cells like a plot's. */
+  at: Spot
+}
+
 export interface AgentHandoff {
   goal: string
   done: string[]
@@ -861,6 +892,10 @@ export interface World {
   chats: Record<string, Chat>
   /** Paired computers' companies shown on this island; absent from an older backend. */
   ghosts?: Record<string, Ghost>
+  /** The public places the island has grown, by kind; absent from an older backend. */
+  landmarks?: Record<string, Landmark>
+  /** Where the island's own buildings stand once moved, by id (`'staffing'`); absent from an older backend, or before. */
+  places?: Record<string, Place>
   nextDriftAt: number
   rng: number
   events: WorldEvent[]

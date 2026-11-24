@@ -1,12 +1,13 @@
 // What the people out on the island get up to: strolling, sitting on benches, stopping to chat and walking on
 // together, waving in passing, looking out to sea or paddling on the beach, looking up at
-// a company's front door, and going indoors after dark. Now and then someone calls in at the staffing agency for a
+// a company's front door, picnicking and walking round the park, and going indoors after dark. Now and then someone calls in at the staffing agency for a
 // while, and when the island needs more people or fewer, newcomers come out of its door and those no longer needed
 // go in and are gone. Decisions and walking only, nothing drawn; pure data, no three.js. `People.tsx` poses the
 // figures from what is here.
 
 import { coordinateTraffic, walkingRoute, beginAvoidance, openSpot, separate, spotTaken, steer, UNHINDERED, walkAround, type Avoider } from './avoid'
 import { CELL, hash, rectCenter, type Town } from './layout'
+import type { SightKind } from './sites'
 import { DOORSTEP } from './staffingGrounds'
 import { cellPos, headingOf, isFree, type BenchSeat, type Grid, type P, type Stroller } from './walk'
 
@@ -29,6 +30,8 @@ export type Doing =
   | 'door'
   /** Under a lamp after dark. */
   | 'lamp'
+  /** At one of a landmark's sights (`Places.sights`, by `spot`): looking out, up at the clock. */
+  | 'look'
   /** Going indoors for the night, or indoors (`home`). */
   | 'home'
   /** Walked by hand (`Scene.drive`) while on a bench: stepping off it first. */
@@ -50,7 +53,7 @@ export interface Townsfolk extends Stroller, Avoider {
   cool: number
   /** Indoors: not drawn. */
   home: boolean
-  /** The door gone in by, or the shore spot gone to, by index; -1 for none. */
+  /** The door gone in by, or the shore spot or landmark's sight gone to, by index; -1 for none. */
   door: number
   spot: number
   /** Distance walked in the last step, for the stride. */
@@ -74,6 +77,10 @@ export interface Places {
   lamps: P[]
   /** On the grass a cell back from a straight bit of coast (`at`), facing the sea, and down on the beach in front of it (`beach`). */
   shore: Array<{ at: P; heading: number; beach: P | null }>
+  /** The landmarks' loops, each as its corners in order round it; none without a landmark that has one. */
+  loops: P[][]
+  /** Where people stop at a landmark (`at`), facing `heading`, and what they do there. */
+  sights: Array<{ at: P; heading: number; kind: SightKind }>
 }
 
 /** Walking speed on the island, in world units per second: an office unit a second, scaled up. */
@@ -98,6 +105,18 @@ const PADDLE = 0.5
 export const VISIT_SHARE = 0.04
 /** How long a call at the staffing agency lasts, in seconds. */
 const VISIT_SECONDS: P = [6, 15]
+/**
+ * How long people stay put, in seconds, ten to twenty minutes: sitting on a bench, on the end of the pier or on the
+ * ground; looking out to sea or at the view, paddling, staring into space, standing under a lamp. What is over in a
+ * moment (a wave, a chat, a coin into the fountain, a look up at the clock) stays short.
+ */
+export const STAY_SECONDS: P = [600, 1200]
+/** The share of those looking out, to sea or from a landmark, who sit down on the ground to watch. */
+export const SIT_SHARE = 0.5
+/** How long people stay at each kind of a landmark's sight, in seconds, standing: looking out as long as anywhere. */
+const SIGHT_SECONDS: Record<SightKind, P> = { view: STAY_SECONDS, up: [8, 14], coin: [6, 10], scope: [8, 14], read: [8, 14] }
+/** A stay longer than this is broken off when its time to go indoors comes (`goesHome`). */
+const BREAK_OFF_SECONDS = 5
 /** Seconds between newcomers coming out of the staffing agency, one after another. */
 export const ARRIVAL_GAP = 1.5
 
@@ -138,7 +157,7 @@ export function islandPlaces(town: Town, g: Grid, sandOk: (x: number, z: number)
     }
   }
   const lamps: P[] = []
-  for (const l of town.lots) for (const pr of l.props) {
+  for (const pr of [...town.lots.flatMap((l) => l.props), ...town.sites.flatMap((s) => s.props)]) {
     if (pr.kind !== 'lamp') continue
     const near = SIDES.map(([dx, dz]) => [pr.x + dx, pr.z + dz] as P).find(([x, z]) => isFree(g, x, z))
     if (!near) continue
@@ -159,7 +178,11 @@ export function islandPlaces(town: Town, g: Grid, sandOk: (x: number, z: number)
     const beach: P = [sx + dx * (g.step / 2 + PADDLE), sz + dz * (g.step / 2 + PADDLE)]
     shore.push({ at: cellPos(g, x - dx, z - dz), heading: headingOf(dx, dz), beach: sandOk(...beach) ? beach : null })
   }
-  return { doors, agency, lamps, shore }
+  const loops = town.sites.flatMap((s) => (s.loop ? [s.loop.map(([x, z]) => cellPos(g, x, z))] : []))
+  const sights = town.sites.flatMap((s) => s.sights)
+    .filter((v) => isFree(g, v.x, v.z))
+    .map((v) => ({ at: cellPos(g, v.x, v.z), heading: headingOf(...v.face), kind: v.kind }))
+  return { doors, agency, lamps, shore, loops, sights }
 }
 
 /** Someone new to the island, just inside the staffing agency's door and coming out in `wait` seconds; null without one. */
@@ -228,9 +251,12 @@ export function indoors(p: Townsfolk, fade: number) {
 /** Whether someone goes indoors at this darkness: the same people every night, more of them the darker it is. */
 export const goesHome = (i: number, night: number) => hash(i, 21) < HOME_SHARE * night
 
-/** Two seats on the same bench: side by side, facing the same way. */
-const besideSeat = (a: BenchSeat, b: BenchSeat) =>
-  a !== b && Math.abs(a.heading - b.heading) < 1e-3 && Math.hypot(a.at[0] - b.at[0], a.at[1] - b.at[1]) < CELL * 1.05
+/** Two seats on the same bench, side by side facing the same way; or on the same picnic blanket, facing each other. */
+function besideSeat(a: BenchSeat, b: BenchSeat) {
+  if (a === b || !!a.low !== !!b.low) return false
+  const apart = Math.hypot(a.at[0] - b.at[0], a.at[1] - b.at[1])
+  return a.low ? apart < CELL * 1.5 && Math.cos(a.heading - b.heading) < -0.999 : apart < CELL * 1.05 && Math.abs(a.heading - b.heading) < 1e-3
+}
 
 /** Who sits next to `i` on the same bench, by index; -1 for nobody. */
 export function benchMate(people: Townsfolk[], i: number): number {
@@ -293,6 +319,18 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
   /** Nobody else (but `besides`) is standing there, or on their way there. */
   const open = (p: Townsfolk, at: P | null, besides?: Townsfolk) =>
     !!at && !spotTaken(people, p, at, ISLAND_GAP * 1.5, (q) => q !== besides && solid(q))
+  /**
+   * Once round the park's loop, from its corner nearest `from` back to it, after the way there; empty without a park
+   * or a way to it.
+   */
+  const lapFrom = (p: Townsfolk, i: number, from: P): P[] => {
+    const near = (q: P) => Math.hypot(q[0] - from[0], q[1] - from[1])
+    const loop = s.places.loops.reduce<P[] | null>((best, l) => (!best || Math.min(...l.map(near)) < Math.min(...best.map(near)) ? l : best), null)
+    if (!loop) return []
+    const k = loop.indexOf(loop.reduce((a, b) => (near(b) < near(a) ? b : a)))
+    const way = walkingRoute(s.grid, from, loop[k], people, p, ISLAND_GAP, solid, i, true)
+    return way.length ? [...way, ...loop.slice(k + 1), ...loop.slice(0, k), loop[k]] : []
+  }
   /** Somewhere on the paving (mostly) or the grass that nobody has; null when the few tried are all taken. */
   const somewhere = (p: Townsfolk) => openSpot(() => cellPos(s.grid, ...(random() < 0.7 && s.paved.length ? pick(s.paved) : pick(s.cells))), people, p, ISLAND_GAP * 1.5, solid)
 
@@ -306,9 +344,11 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
     const wayTo = (from: P, to: P | null, stroll = true) => to ? walkingRoute(s.grid, from, to, people, p, ISLAND_GAP, solid, i, stroll) : []
     const was = p.doing
     const partner = people[p.partner]
-    // done talking: sometimes the one who came over suggests a walk, and the other comes along
+    // done talking: sometimes the one who came over suggests a walk, and the other comes along; with a park, half the
+    // time once round it
     if (was === 'chat' && !p.leaving && p.lead && partner && partner.partner === i && partner.doing === 'chat' && random() < 0.45) {
-      const way = wayTo(from, somewhere(p))
+      const lap = s.places.loops.length && random() < 0.5 ? lapFrom(p, i, from) : []
+      const way = lap.length ? lap : wayTo(from, somewhere(p))
       if (way.length) {
         p.route = way
         p.mode = 'walking'
@@ -351,7 +391,7 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
       // someone standing about, not too far, to go and talk to
       const others = people.map((_, j) => j).filter((j) => {
         const o = people[j]
-        return j !== i && o !== steered && o.mode === 'standing' && out(o) && ['stroll', 'daze', 'view', 'door', 'lamp'].includes(o.doing) && !o.resume && dist(o, p) < CHAT_REACH
+        return j !== i && o !== steered && o.mode === 'standing' && out(o) && ['stroll', 'daze', 'view', 'door', 'lamp', 'look'].includes(o.doing) && !o.resume && dist(o, p) < CHAT_REACH
       })
       if (others.length) {
         const j = pick(others)
@@ -406,6 +446,17 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
         return
       }
     }
+    // once round the park
+    if (r < 0.69 && s.places.loops.length && go(lapFrom(p, i, from), 'stroll')) return
+    // to one of the landmarks, to look out from the hill or the bridge, or up at the clock
+    if (r < 0.74 && s.places.sights.length) {
+      const k = Math.floor(random() * s.places.sights.length)
+      const at = s.places.sights[k].at
+      if (open(p, at) && go(wayTo(from, at), 'look', at)) {
+        p.spot = k
+        return
+      }
+    }
     if (r < 0.75 && go(wayTo(from, somewhere(p)), 'daze')) return
     // by day, now and then, calling in at the staffing agency for a while
     if (r < 0.75 + VISIT_SHARE && s.night < 0.5 && agency && !staysOut(s, i) && go(wayTo(from, agency.at, false), 'home', agency.at, agency.inside)) {
@@ -423,6 +474,14 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
     p.wait = rand(1, 3)
   }
 
+  /** Sitting down on the ground where they stand, facing `heading`, for a good while: on the grass, the hilltop, the pier. */
+  const sitHere = (p: Townsfolk, heading: number) => {
+    p.mode = 'sitting'
+    p.heading = heading
+    p.seat = { at: [p.x, p.z], front: [p.x, p.z], heading, low: true }
+    p.wait = rand(...STAY_SECONDS)
+  }
+
   /** At the end of the way. */
   const arrive = (i: number) => {
     const p = people[i]
@@ -431,7 +490,8 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
     if (p.toSeat && p.seat) {
       p.mode = 'sitting'
       p.heading = p.seat.heading
-      p.wait = rand(8, 20)
+      // on a bench, or on the end of the pier with legs over the water (some of them fishing), for a long while
+      p.wait = rand(...STAY_SECONDS)
       p.toSeat = false
       return
     }
@@ -445,22 +505,33 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
       case 'door':
         // face the building and look up at it
         p.heading = 0
-        p.wait = rand(3, 5)
+        p.wait = rand(4, 8)
         return
       case 'view':
       case 'sea':
         p.heading = s.places.shore[p.spot]?.heading ?? p.heading
-        p.wait = p.doing === 'sea' ? rand(6, 12) : rand(5, 10)
+        if (p.doing === 'sea') p.wait = rand(...STAY_SECONDS)
+        // looking out to sea: about half sit down on the grass to watch it a good while
+        else if (random() < SIT_SHARE) sitHere(p, p.heading)
+        else p.wait = rand(...STAY_SECONDS)
         return
+      case 'look': {
+        const sight = s.places.sights[p.spot]
+        p.heading = sight?.heading ?? p.heading
+        // looking out from the hilltop or the end of the pier: about half sit down to watch
+        if (sight?.kind === 'view' && random() < SIT_SHARE) sitHere(p, p.heading)
+        else p.wait = rand(...(sight ? SIGHT_SECONDS[sight.kind] : SIGHT_SECONDS.view))
+        return
+      }
       case 'lamp':
       case 'daze':
         p.heading = rand(-Math.PI, Math.PI)
-        p.wait = rand(5, 10)
+        p.wait = rand(...STAY_SECONDS)
         return
       case 'chat':
         if (withMe && o.doing === 'chat') {
           face(p, o)
-          p.wait = rand(5, 9)
+          p.wait = rand(8, 14)
           o.wait = p.wait + 30
           o.t = 0
         } else {
@@ -477,7 +548,7 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
           face(p, o)
           p.doing = o.doing = 'chat'
           o.lead = true
-          o.wait = rand(4, 7)
+          o.wait = rand(6, 10)
           p.wait = o.wait + 30
           o.t = 0
         } else {
@@ -487,7 +558,7 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
         return
       default:
         p.doing = 'stroll'
-        p.wait = rand(1, 4)
+        p.wait = rand(2, 6)
     }
   }
 
@@ -623,6 +694,8 @@ export function stepCrowd(people: Townsfolk[], s: Scene, dt: number, random: () 
     if (p === steered) return byHand(i)
     // no longer needed: no lingering on a bench or standing about first
     if (p.leaving && out(p) && p.mode !== 'walking') p.wait = Math.min(p.wait, 0)
+    // time to go indoors: a long stay is broken off, in a moment, rather than sat out
+    if (p.mode !== 'walking' && p.wait > BREAK_OFF_SECONDS && goesHome(i, s.night) && !staysOut(s, i)) p.wait = rand(0.5, 3)
     if (p.mode === 'sitting') {
       if (p.wait > 0) return
       // get up, step off the bench and carry on; not stopping half out of it to wave

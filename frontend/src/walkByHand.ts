@@ -1,6 +1,7 @@
 // The user's own figure on their island, walked with W, A, S and D while their profile is open (World.tsx): which of
 // those keys are held, on the keyboard or on the keys drawn in the corner (WalkKeys.tsx). `Strollers` reads it every
-// frame, as `walkVelocity`.
+// frame, as `walkVelocity`; the figure goes about on its own until a key is pressed, and again once none has been for a
+// while (`takeOver`).
 
 import { useEffect } from 'react'
 import { create } from 'zustand'
@@ -9,6 +10,11 @@ import { ISLAND_SPEED } from './crowd'
 import type { P } from './walk'
 
 export type WalkKey = 'w' | 'a' | 's' | 'd'
+
+/** How fast the user walks by hand, in world units a second: a little faster than people go about on their own. */
+export const HAND_SPEED = ISLAND_SPEED * 1.4
+/** Seconds with no key pressed before the user goes about on their own again. */
+export const LET_GO_SECONDS = 8
 
 const CODES: Partial<Record<string, WalkKey>> = { KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd' }
 /** Each key's way on the screen: [right, up]. */
@@ -50,10 +56,20 @@ export function walkVelocity(w: Walk): P {
   }
   const length = Math.hypot(right, up)
   if (!length) return [0, 0]
-  const speed = (ISLAND_SPEED * (w.fast ? 2 : 1)) / length
+  const speed = (HAND_SPEED * (w.fast ? 2 : 1)) / length
   // the screen's right and up flattened onto the ground: up the screen is away from the camera
   const [rx, rz] = [SCREEN_RIGHT.x, SCREEN_RIGHT.z]
   return [(rx * right + rz * up) * speed, (rz * right - rx * up) * speed]
+}
+
+/**
+ * Who walks the user, at `now` in seconds with `v` steered (`walkVelocity`): undefined while they go about on their own,
+ * as they do until a key is pressed and again once none has been for `LET_GO_SECONDS`; otherwise `v`, standing still
+ * between keys. `hold` keeps when a key was last pressed.
+ */
+export function takeOver(hold: { last: number }, now: number, v: P): P | undefined {
+  if (v[0] || v[1]) hold.last = now
+  return now - hold.last < LET_GO_SECONDS ? v : undefined
 }
 
 const typingIn = (el: EventTarget | null) => el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))

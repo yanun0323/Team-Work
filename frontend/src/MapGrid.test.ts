@@ -56,7 +56,9 @@ it('uses the current island while moving, but allows the selected company’s ow
 it('matches the land and placement fixtures also checked by the backend', async () => {
   const { default: fixtures } = await import('../../backend/internal/usecase/testdata/plot_placement.json')
   for (const f of fixtures) {
-    const town = layoutTown(f.plots.map((at, i) => ({ id: String(i), name: '', members: 0, at: at as [number, number] })))
+    // the pier stands on the coast, its harbour the sea
+    const dock = 'dock' in f ? f.dock as { at: [number, number]; face: number } : null
+    const town = layoutTown(f.plots.map((at, i) => ({ id: String(i), name: '', members: 0, at: at as [number, number] })), true, dock ? [{ kind: 'dock', stage: 1, ...dock }] : [])
     let hash = 2166136261
     for (const cell of town.ground) hash = Math.imul(hash ^ (cell ? 1 : 0), 16777619) >>> 0
     expect([town.cols, town.rows, hash]).toEqual([f.cols, f.rows, f.landHash])

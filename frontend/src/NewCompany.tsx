@@ -39,7 +39,7 @@ const GROUND = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
  * A plot outline that follows the pointer over the map, snapped to the cells; a click puts it there. Where it
  * can't go (too close to another plot, or too far out at sea) it turns red. Once `picked`, it stays there.
  */
-export function Placer({ town, picked, onPick, onMiss, moved, can = (s) => canPlace(town, s) }: {
+export function Placer({ town, picked, onPick, onMiss, moved, can = (s) => canPlace(town, s), size = PLOT_CELLS }: {
   town: Town
   picked: Spot | null
   onPick: (s: Spot) => void
@@ -49,6 +49,8 @@ export function Placer({ town, picked, onPick, onMiss, moved, can = (s) => canPl
   moved?: string
   /** Whether a plot may go there; a new company's rules unless given (moving one has its own). */
   can?: (s: Spot) => boolean
+  /** How many cells a side the outline is, in the middle of the plot: less than the plot for the staffing agency's paving. */
+  size?: number
 }) {
   const camera = useThree((s) => s.camera)
   const gl = useThree((s) => s.gl)
@@ -118,7 +120,7 @@ export function Placer({ town, picked, onPick, onMiss, moved, can = (s) => canPl
   return (
     <>
       {ok && <LandPreview town={town} at={shown} moved={moved} />}
-      <PlotOutline x={x} z={z} size={PLOT_CELLS * CELL} on={!!picked} bad={!ok} />
+      <PlotOutline x={x} z={z} size={size * CELL} on={!!picked} bad={!ok} />
     </>
   )
 }
@@ -161,7 +163,7 @@ const DASH = 1.6
 
 const BAD = '#e5484d'
 
-function PlotOutline({ x, z, size, on, bad }: { x: number; z: number; size: number; on: boolean; bad: boolean }) {
+export function PlotOutline({ x, z, size, on, bad }: { x: number; z: number; size: number; on: boolean; bad: boolean }) {
   const fill = useRef<THREE.MeshBasicMaterial>(null)
   const dashes = useMemo(() => {
     const out: Array<{ p: [number, number, number]; s: [number, number, number] }> = []

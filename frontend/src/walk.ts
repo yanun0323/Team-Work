@@ -16,7 +16,12 @@ export interface Grid {
   x0: number
   z0: number
   step: number
+  /** What a step over each cell costs, 1 at the cheapest; without it every cell costs 1. Index like `free`. */
+  cost?: Float32Array
 }
+
+/** On the island a step over grass costs this many steps over a footpath or paving, so people keep to the paths. */
+export const GRASS_COST = 2
 
 export const isFree = (g: Grid, x: number, z: number) => x >= 0 && z >= 0 && x < g.cols && z < g.rows && g.free[z * g.cols + x] === 1
 export const cellPos = (g: Grid, x: number, z: number): P => [g.x0 + x * g.step, g.z0 + z * g.step]
@@ -47,8 +52,8 @@ const DIRS: Array<[number, number, number]> = [
 ]
 
 /**
- * Least-cost path between two free cells, as cell centres from start to goal. Optional nonnegative
- * per-cell penalties represent traffic; without them this is shortest distance. Never cuts blocked corners.
+ * Least-cost path between two free cells, as cell centres from start to goal, by the grid's cell costs. Optional
+ * nonnegative per-cell penalties represent traffic, on top of them. Never cuts blocked corners.
  */
 export function findPath(g: Grid, from: P, to: P, penalties?: Float64Array): P[] | null {
   if (!isFree(g, ...from) || !isFree(g, ...to)) return null
@@ -130,7 +135,7 @@ function search(g: Grid, start: number, goal: number, penalties?: Float64Array):
     if (c > cost[i]) continue
     const x = i % g.cols
     const z = (i - x) / g.cols
-    const here = penalties ? penalties[i] : 0
+    const here = (g.cost ? g.cost[i] : 1) + (penalties ? penalties[i] : 0)
     for (let d = 0; d < DIRS.length; d++) {
       const dx = DIRS[d][0]
       const dz = DIRS[d][1]
@@ -139,7 +144,7 @@ function search(g: Grid, start: number, goal: number, penalties?: Float64Array):
       if (!isFree(g, nx, nz)) continue
       if (dx && dz && (!isFree(g, x + dx, z) || !isFree(g, x, z + dz))) continue
       const j = nz * g.cols + nx
-      const next = c + DIRS[d][2] * (1 + (here + (penalties ? penalties[j] : 0)) / 2)
+      const next = c + DIRS[d][2] * (here + (g.cost ? g.cost[j] : 1) + (penalties ? penalties[j] : 0)) / 2
       if (next < cost[j]) {
         cost[j] = next
         prev[j] = i
@@ -172,18 +177,18 @@ export function clearWalk(g: Grid, a: P, b: P) {
 /** Travel cost along a segment, also used so smoothing cannot erase a less-crowded detour. */
 export function walkCost(g: Grid, a: P, b: P, penalties?: Float64Array) {
   const length = Math.hypot(b[0] - a[0], b[1] - a[1])
-  if (!penalties) return length
+  if (!penalties && !g.cost) return length
   const n = Math.max(1, Math.ceil(length / (g.step * 0.25)))
   let cost = 0
   for (let i = 0; i < n; i++) {
     const t = (i + 0.5) / n
     const [x, z] = cellOf(g, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
-    cost += 1 + (penalties[z * g.cols + x] ?? 0)
+    cost += (g.cost?.[z * g.cols + x] ?? 1) + (penalties?.[z * g.cols + x] ?? 0)
   }
   return length * cost / n
 }
 
-/** Drops unnecessary corners, but never shortcuts through a more expensive crowded area. */
+/** Drops unnecessary corners, but never shortcuts through a costlier area: grass beside a path, or a crowd. */
 export function smooth(g: Grid, path: P[], penalties?: Float64Array): P[] {
   if (path.length <= 2) return path
   const out: P[] = [path[0]]
@@ -192,7 +197,7 @@ export function smooth(g: Grid, path: P[], penalties?: Float64Array): P[] {
   let i = 0
   while (i < path.length - 1) {
     let j = path.length - 1
-    while (j > i + 1 && (!clearWalk(g, path[i], path[j]) || (penalties && walkCost(g, path[i], path[j], penalties) > costs[j] - costs[i] + 1e-6))) j--
+    while (j > i + 1 && (!clearWalk(g, path[i], path[j]) || ((penalties || g.cost) && walkCost(g, path[i], path[j], penalties) > costs[j] - costs[i] + 1e-6))) j--
     out.push(path[j])
     i = j
   }
@@ -295,10 +300,21 @@ export function officeGrid(plan: OfficePlan): Grid {
   return { cols: n, rows: n, free, x0, z0: x0, step: OFFICE_STEP }
 }
 
-/** Free land on the island, in world units: grass and paving, a cell clear of buildings, clear of trees, street furniture and the shore. */
+/**
+ * Free land on the island, in world units: grass, paving and footpaths, a cell clear of buildings, clear of trees,
+ * street furniture and the shore. Grass costs `GRASS_COST`, so people keep to the paths and paving.
+ */
 export function townGrid(town: Town): Grid {
   const free = new Uint8Array(town.cols * town.rows)
-  for (let i = 0; i < free.length; i++) free[i] = town.ground[i] === 'grass' || town.ground[i] === 'pave' ? 1 : 0
+  const cost = new Float32Array(town.cols * town.rows).fill(1)
+  for (let i = 0; i < free.length; i++) {
+    const g = town.ground[i]
+    free[i] = g === 'grass' || g === 'pave' || g === 'path' || g === 'park' ? 1 : 0
+    if (g === 'grass' || g === 'park') cost[i] = GRASS_COST
+  }
+  // the landmarks' paths, kept to as a footpath is; and what is walked above the ground, as a pier out over the sea
+  for (const s of town.sites) for (const [x, z] of s.walks) cost[z * town.cols + x] = 1
+  for (const s of town.sites) for (const [x, z] of s.raised) free[z * town.cols + x] = 1
   const block = (x: number, z: number, w: number, d: number) => {
     for (let k = z; k < z + d; k++) for (let j = x; j < x + w; j++) free[k * town.cols + j] = 0
   }
@@ -308,10 +324,19 @@ export function townGrid(town: Town): Grid {
     for (const p of l.props) block(p.x, p.z, p.w, p.d)
   }
   for (const t of town.trees) block(t.x, t.z, TREE_CELLS, TREE_CELLS)
+  // what stands on the landmarks' ground: benches and lamps, flower beds, picnic blankets (sat on, not walked over), a
+  // bandstand, a fountain, a tower and the like; and their water, but for a bridge or a pier over it
+  for (const s of town.sites) {
+    for (const r of [...s.props, ...s.beds, ...s.blankets, ...s.blocks]) block(r.x, r.z, r.w, r.d)
+    const over = new Set(s.raised.map(([x, z]) => z * town.cols + x))
+    for (const [x, z] of s.water) if (!over.has(z * town.cols + x)) free[z * town.cols + x] = 0
+  }
+  for (const [x, z] of town.pathLamps) block(x, z, 1, 1)
+  for (const j of town.junctions) for (const a of j.arms) if (a.pole) block(a.pole[0], a.pole[1], 1, 1)
   // the staffing agency's rotunda and what stands round it
   for (const [x, z] of blockedCells(town, town.staffing)) free[z * town.cols + x] = 0
   const [x0, z0] = cellCenter(town, 0, 0)
-  return { cols: town.cols, rows: town.rows, free, x0, z0, step: CELL }
+  return { cols: town.cols, rows: town.rows, free, x0, z0, step: CELL, cost }
 }
 
 /** What the crowd keeps track of on the island. */
@@ -360,9 +385,19 @@ export function resettle(people: Stroller[], g: Grid, seats: BenchSeat[], diamet
   }
 }
 
-/** How many people are out on the island: two to five per building. */
+/** How many people are out on the island: two to five per building, and one more than its stage for each landmark. */
 export function crowdSize(town: Town) {
-  return town.lots.reduce((sum, l, i) => sum + 2 + Math.floor(hash(l.plot.x, l.plot.z, i, 11) * 4), 0)
+  return town.lots.reduce((sum, l, i) => sum + 2 + Math.floor(hash(l.plot.x, l.plot.z, i, 11) * 4), 0) + town.sites.reduce((n, s) => n + s.stage + 1, 0)
+}
+
+/**
+ * How high each cell's ground is walked on, in world units, index `z * cols + x`: a hill's terraces and steps, a
+ * bridge, a pier; 0 elsewhere.
+ */
+export function townHeights(town: Town): Float32Array {
+  const out = new Float32Array(town.cols * town.rows)
+  for (const s of town.sites) for (const [x, z, h] of s.raised) out[z * town.cols + x] = h
+  return out
 }
 
 /** A seat on a bench: where to sit, the free cell in front to get there from, and the way to face. */
@@ -370,12 +405,21 @@ export interface BenchSeat {
   at: P
   front: P
   heading: number
+  /** On the ground, on a picnic blanket, rather than up on a bench. */
+  low?: boolean
+  /** On an edge this high above what is walked there, legs over it, as at the end of a pier, rather than on a bench. */
+  top?: number
 }
 
-/** Two seats on each bench, one per cell, each reached from the free cell it faces. */
+/**
+ * Two seats on each bench, one per cell, each reached from the free cell it faces; two on each picnic blanket in
+ * the park, one on each cell facing the other, each reached from the free cell behind it; and one on each ledge, as on
+ * a pier, at its edge, reached from its own cell.
+ */
 export function benchSeats(town: Town, g: Grid): BenchSeat[] {
   const out: BenchSeat[] = []
-  for (const l of town.lots) for (const p of l.props) {
+  const benches = [...town.lots.flatMap((l) => l.props), ...town.sites.flatMap((s) => s.props)]
+  for (const p of benches) {
     if (p.kind !== 'bench' || !p.face) continue
     const [fx, fz] = p.face
     for (let k = 0; k < Math.max(p.w, p.d); k++) {
@@ -386,6 +430,21 @@ export function benchSeats(town: Town, g: Grid): BenchSeat[] {
       // a little back from the middle of the seat, against the backrest
       out.push({ at: [x - fx * 0.1, z - fz * 0.1], front: cellCenter(town, cx + fx, cz + fz), heading: headingOf(fx, fz) })
     }
+  }
+  for (const b of town.sites.flatMap((s) => s.blankets)) {
+    for (const [cx, fx] of [[b.x, -1], [b.x + 1, 1]]) {
+      if (!isFree(g, cx + fx, b.z)) continue
+      const [x, z] = cellCenter(town, cx, b.z)
+      // towards the far end of the cell, to leave the middle of the blanket for the basket
+      out.push({ at: [x + fx * 0.2, z], front: cellCenter(town, cx + fx, b.z), heading: headingOf(-fx, 0), low: true })
+    }
+  }
+  for (const l of town.sites.flatMap((s) => s.ledges)) {
+    if (!isFree(g, l.x, l.z)) continue
+    const [x, z] = cellCenter(town, l.x, l.z)
+    const [fx, fz] = l.face
+    // right at the edge, legs over it
+    out.push({ at: [x + fx * (CELL / 2 - 0.25), z + fz * (CELL / 2 - 0.25)], front: [x, z], heading: headingOf(fx, fz), top: l.top })
   }
   return out
 }

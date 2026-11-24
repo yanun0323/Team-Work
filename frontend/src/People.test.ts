@@ -159,6 +159,38 @@ it('returns every busy employee to their own desk without passing through collea
   expect(final.map((p) => [p.x, p.z])).toEqual(plan.seats)
 })
 
+it('keeps visitors without a desk up and about the room, busy or not, while the employees go back to their desks', () => {
+  let seed = 23
+  vi.spyOn(Math, 'random').mockImplementation(() => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32))
+  // the smallest building: two desks, for its two employees; three visitors on top
+  const plan = officePlan(2, 4 * CELL, CELL, 7)
+  expect(plan.seats).toHaveLength(2)
+  const nook = nookPlaces(plan)
+  const crew = Array.from({ length: 5 }, (_, i) => ({ id: `p${i}`, look: LOOK, busy: false }))
+  let t = 0, frames = 0
+  let final: Array<{ x: number; z: number; mode: string; home: boolean }> = []
+  const placed = new Set<string>()
+  officeForTest(plan, crew, 200, (people) => {
+    t += 0.1
+    frames++
+    // work comes in for everyone, visitors too, for the last stretch
+    if (t > 120) crew.forEach((c) => (c.busy = true))
+    // everyone has a place in the room, not just those with a desk
+    expect(people).toHaveLength(5)
+    people.slice(2).forEach((p, i) => {
+      expect(p.mode).not.toBe('seated')
+      expect(p.home).toBe(false)
+      placed.add(`${i}:${p.x.toFixed(2)},${p.z.toFixed(2)}`)
+    })
+    final = people
+  }, { sofa: nook.sofa, coffee: [nook.coffee] })
+  expect(frames).toBeGreaterThan(0)
+  // they move about rather than stand in one place
+  expect(placed.size).toBeGreaterThan(30)
+  expect(final.slice(0, 2).every((p) => p.mode === 'seated')).toBe(true)
+  expect(final.slice(0, 2).map((p) => [p.x, p.z])).toEqual(plan.seats)
+})
+
 
 it('follows only map people by default, without falling back to employees', () => {
   const crew = [{ id: 'a', teamId: 't1' }]

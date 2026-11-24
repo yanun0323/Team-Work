@@ -71,12 +71,10 @@ function Drum({ p, r, h, c, segments = 24 }: { p: V3; r: number; h: number; c: s
   )
 }
 
-export function StaffingAgency({ town, hover, still, onHover, onSelect }: {
+export function StaffingAgency({ town, hover, onHover, onSelect }: {
   town: Town
-  /** Under the pointer, with nothing else open: shaded to show it can be clicked. */
+  /** Under the pointer, with nothing else open, or picked to be moved: shaded to show it can be clicked. */
   hover: boolean
-  /** Editing the map: the agency can't be moved, so it takes no clicks. */
-  still: boolean
   onHover: (on: boolean) => void
   onSelect: () => void
 }) {
@@ -92,11 +90,11 @@ export function StaffingAgency({ town, hover, still, onHover, onSelect }: {
   const click = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
     // a press that moved was a pan, not a click
-    if (e.delta <= 5 && !still) onSelect()
+    if (e.delta <= 5) onSelect()
   }
   return (
     <group position={[cx, 0, cz]} onClick={click}
-      onPointerOver={(e) => { e.stopPropagation(); onHover(true); document.body.style.cursor = still ? '' : 'pointer' }}
+      onPointerOver={(e) => { e.stopPropagation(); onHover(true); document.body.style.cursor = 'pointer' }}
       onPointerOut={() => { onHover(false); document.body.style.cursor = '' }}>
       <Merged deps={[columns, windows, detail]}>
         {/* the plinth, and three steps up to the door on the town side */}

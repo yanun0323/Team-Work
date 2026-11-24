@@ -1207,6 +1207,34 @@ a.fx-save { text-decoration: none; }
 .fx-profile-partner { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
 .fx-profile-partner b { color: var(--ink); font-size: 15px; }
 .fx-profile-partner svg { flex: none; padding: 3px; background: var(--clip); box-shadow: var(--lift); transform: rotate(-2deg); }
+/* a landmark's road on the profile: its stops in a row, joined by a line that is solid as far as reached */
+.fx-road { display: flex; align-items: flex-start; margin: 4px 0 0; padding: 0; list-style: none; }
+.fx-road + .fx-road { margin-top: 12px; }
+.fx-road-stop { position: relative; display: grid; justify-items: center; gap: 5px; flex: 0 0 calc(100% / var(--stops, 3)); min-width: 0; }
+.fx-road-stop + .fx-road-stop::before {
+  content: ""; position: absolute; top: 21px; left: calc(-50% + 28px); right: calc(50% + 28px);
+  border-top: 2px dashed color-mix(in oklab, var(--ink) 28%, transparent);
+}
+.fx-road-reached + .fx-road-reached::before { border-top-style: solid; border-color: var(--ink); }
+.fx-road-node {
+  display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1.5px dashed color-mix(in oklab, var(--ink) 32%, transparent);
+  border-radius: 3px; background: none; color: var(--muted); font: inherit; cursor: default;
+}
+.fx-road-reached .fx-road-node { border-style: solid; border-color: var(--ink); background: var(--clip); box-shadow: var(--lift); cursor: pointer; }
+.fx-road-reached .fx-road-node[aria-disabled="true"] { cursor: default; }
+.fx-road-reached .fx-road-node:is(:hover, [aria-pressed="true"]):not([aria-disabled="true"]) { box-shadow: var(--lift), inset 0 0 0 100vmax var(--shade); }
+.fx-road-unknown { font-size: 20px; font-weight: 700; line-height: 1; }
+.fx-road-name { max-width: 100%; overflow: hidden; color: var(--ink-2); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+/* what grows a stop: a note floating over the page, by the stop */
+.fx-road-note {
+  position: fixed; inset: auto; display: grid; gap: 4px; min-width: 130px; max-width: 240px; margin: 0; padding: 7px 10px 8px;
+  border: 0; border-radius: 2px; background: var(--note-fixed); box-shadow: var(--lift); overflow: visible;
+  color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: none; rotate: -1.2deg;
+}
+.fx-road-note b { color: var(--ink); font-size: 13px; }
+.fx-road-placing { visibility: hidden; }
+.fx-road-bar { display: block; height: 4px; overflow: hidden; border-radius: 2px; background: color-mix(in oklab, var(--ink) 12%, transparent); }
+.fx-road-bar > span { display: block; height: 100%; background: var(--ink); }
 .fx-tower-me { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 .fx-tower-me svg { display: block; border-radius: 2px; }
 .fx-tower-me:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }

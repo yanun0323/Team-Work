@@ -8,10 +8,20 @@ import { usePaste } from './paste'
 import { tr } from './core/i18n'
 import { lookOf, readProfileStats, type ProfileStats } from './core/profile'
 import { loadMe, useMe } from './core/towers'
+import { homeWorld, useStore } from './core/store'
 import { PixelFace } from './core/voxel/PixelFace'
 import { SheetStack, useMapClickSheets, useSheets } from './Drawer'
 import { useUnderWide, WideCover } from './WideSheets'
 import { fmtCount, fmtUsd } from './Stats'
+import { LandmarkRoads } from './LandmarkRoads'
+import type { LandmarkKind } from './core/domain/types'
+
+/** The landmark the map shows now, if any, and how to show another, or none (null): following the user again. */
+export interface Sight {
+  shown: LandmarkKind | null
+  /** Left out where the map can't show one: on another island, or with the camera left where it is. */
+  onShow?: (kind: LandmarkKind | null) => void
+}
 
 /** The user's face, for the button at the top right: opens their profile. */
 export function ProfileButton({ onClick, buttonRef }: { onClick: () => void; buttonRef?: React.Ref<HTMLButtonElement> }) {
@@ -24,10 +34,11 @@ export function ProfileButton({ onClick, buttonRef }: { onClick: () => void; but
   )
 }
 
-export function Profile({ leaving, onGone }: {
+export function Profile({ leaving, onGone, sight }: {
   leaving: boolean
   /** Called when the page has turned away. */
   onGone: () => void
+  sight?: Sight
 }) {
   const paste = usePaste(leaving, onGone)
   const title = useRef<HTMLHeadingElement>(null)
@@ -66,7 +77,7 @@ export function Profile({ leaving, onGone }: {
           {!me && error
             ? <div className="fx-d-groups"><p className="fx-tower-error" role="alert">{error}</p>
               <button type="button" className="fx-save" onClick={() => { setError(''); readMe(setError) }}>{tr('重試')}</button></div>
-            : <Milestones />}
+            : <Milestones sight={sight} />}
         </section>
       </div>
       {under && <WideCover onClick={() => sheets.back(-1)} />}
@@ -80,11 +91,13 @@ function readMe(onError: (message: string) => void) {
   void loadMe().then((message) => { if (message) onError(message) })
 }
 
-/** A few big numbers: since when, what got done, who with most, and what it cost. */
-function Milestones() {
+/** A few big numbers: since when, what got done, who with most, and what it cost; and the landmarks' roads. */
+function Milestones({ sight }: { sight?: Sight }) {
   const [stats, setStats] = useState<ProfileStats | null>(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
+  // read again when a landmark grows while the profile is open, so its road keeps up
+  const grown = useStore((s) => JSON.stringify(homeWorld(s).landmarks ?? {}))
   useEffect(() => {
     const ctrl = new AbortController()
     readProfileStats(ctrl.signal).then(
@@ -92,20 +105,24 @@ function Milestones() {
       (e: Error) => { if (e.name !== 'AbortError') setError(e.message) },
     )
     return () => ctrl.abort()
-  }, [attempt])
+  }, [attempt, grown])
   if (error) {
     return <div className="fx-d-groups"><p className="fx-tower-error" role="alert">{error}</p>
       <button type="button" className="fx-save" onClick={() => setAttempt((n) => n + 1)}>{tr('重試')}</button></div>
   }
   if (!stats) return <p className="fx-empty" role="status">{tr('載入中…')}</p>
-  return <MilestoneList stats={stats} />
+  return <MilestoneList stats={stats} sight={sight} />
 }
 
 /** Whole days from `since` to `now`, both in Unix seconds, counting the first day. */
 export const daysSince = (since: number, now = Date.now() / 1000) => (since > 0 ? Math.max(1, Math.floor((now - since) / 86400) + 1) : 0)
 
-export function MilestoneList({ stats, now }: { stats: ProfileStats; now?: number }) {
-  if (!stats.since && !stats.chats && !stats.tasksDone && !stats.usage.calls) return <p className="fx-empty">{tr('還沒有使用紀錄')}</p>
+export function MilestoneList({ stats, now, sight }: { stats: ProfileStats; now?: number; sight?: Sight }) {
+  const roads = <LandmarkRoads roads={stats.landmarks} shown={sight?.shown} onShow={sight?.onShow} />
+  // a new island has no numbers yet, but its roads show what is to come
+  if (!stats.since && !stats.chats && !stats.tasksDone && !stats.usage.calls) {
+    return <div className="fx-stats"><p className="fx-empty">{tr('還沒有使用紀錄')}</p>{roads}</div>
+  }
   return (
     <div className="fx-stats">
       <dl className="fx-stats-sum fx-profile-sum">
@@ -130,6 +147,7 @@ export function MilestoneList({ stats, now }: { stats: ProfileStats; now?: numbe
           </ol>
         </section>
       )}
+      {roads}
     </div>
   )
 }

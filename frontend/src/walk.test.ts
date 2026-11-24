@@ -35,6 +35,15 @@ describe('findPath', () => {
     }
   })
 
+  it('takes a longer way over cheaper cells, and smoothing keeps to it', () => {
+    const g = grid(['.......', '.......', '.......'])
+    g.cost = new Float32Array(21).fill(3)
+    for (let x = 0; x < 7; x++) g.cost[x] = 1
+    const way = route(g, [0, 2], [6, 2])
+    expect(way.some(([, z]) => z === 0)).toBe(true)
+    expect(route({ ...g, cost: undefined }, [0, 2], [6, 2])).toEqual([[0, 2], [6, 2]])
+  })
+
   it('returns null when the goal is walled off', () => {
     const g = grid(['..#..', '..#..'])
     expect(findPath(g, [0, 0], [4, 1])).toBeNull()
@@ -104,7 +113,35 @@ describe('the island', () => {
       for (const p of l.props) expect(isFree(g, p.x, p.z)).toBe(false)
     }
     for (const t of town.trees) expect(isFree(g, t.x, t.z)).toBe(false)
-    town.ground.forEach((ground, i) => ground !== 'grass' && ground !== 'pave' && expect(g.free[i]).toBe(0))
+    expect(town.pathLamps.length).toBeGreaterThan(0)
+    for (const [x, z] of town.pathLamps) expect(isFree(g, x, z)).toBe(false)
+    for (const j of town.junctions) for (const a of j.arms) if (a.pole) expect(isFree(g, ...a.pole)).toBe(false)
+    town.ground.forEach((ground, i) => ground !== 'grass' && ground !== 'pave' && ground !== 'path' && expect(g.free[i]).toBe(0))
+  })
+
+  it('people keep to the footpaths rather than cut across the grass', () => {
+    const big = layoutTown(Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, name: `T${i}`, members: 3 })))
+    const g = townGrid(big)
+    const onGrass = (way: P[]) => {
+      let grass = 0
+      for (let i = 1; i < way.length; i++) for (let k = 0; k < 40; k++) {
+        const x = way[i - 1][0] + (way[i][0] - way[i - 1][0]) * (k + 0.5) / 40
+        const z = way[i - 1][1] + (way[i][1] - way[i - 1][1]) * (k + 0.5) / 40
+        const [cx, cz] = [Math.round((x - g.x0) / g.step), Math.round((z - g.z0) / g.step)]
+        if (big.ground[cz * big.cols + cx] === 'grass') grass += Math.hypot(way[i][0] - way[i - 1][0], way[i][1] - way[i - 1][1]) / 40
+      }
+      return grass
+    }
+    const s = big.staffing
+    const from = cellCenter(big, s.x + s.w / 2, s.z + s.d)
+    let kept = 0
+    let cut = 0
+    for (const l of big.lots) {
+      const to = cellCenter(big, l.plot.x + l.plot.w / 2, l.plot.z + l.plot.d)
+      kept += onGrass(route(g, from, to))
+      cut += onGrass(route({ ...g, cost: undefined }, from, to))
+    }
+    expect(kept).toBeLessThan(cut / 3)
   })
 
   /** Whether a point is on a building's cells. */

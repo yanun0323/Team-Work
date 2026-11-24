@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  ARRIVAL_GAP, benchMate, goesHome, HOME_SHARE, indoors, ISLAND_GAP, ISLAND_SPEED, islandPlaces, ISLAND_TALK_GAP, newcomer, settleCount, stepCrowd, townsfolk, VISIT_SHARE, WAVE_SECONDS,
+  ARRIVAL_GAP, benchMate, goesHome, STAY_SECONDS, HOME_SHARE, indoors, ISLAND_GAP, ISLAND_SPEED, islandPlaces, ISLAND_TALK_GAP, newcomer, settleCount, stepCrowd, townsfolk, VISIT_SHARE, WAVE_SECONDS,
   type Scene, type Townsfolk,
 } from './crowd'
 import { layoutTown, rectCenter } from './layout'
@@ -209,23 +209,39 @@ describe('stepCrowd', () => {
   })
 
   it('pairs people up to talk, face to face, and only ever both ways', () => {
-    const { scene, people } = island()
     let talks = 0
-    let pairs = 0
-    run(people, scene, 1200, seeded(3), () => {
-      people.forEach((p, i) => {
-        if (p.doing === 'pair' && p.lead) pairs++
-        if (p.doing !== 'chat' || p.mode !== 'standing' || !p.lead) return
-        const o = people[p.partner]
-        if (!o || o.partner !== i || o.mode !== 'standing') return
-        talks++
-        expect(Math.hypot(o.x - p.x, o.z - p.z)).toBeLessThan(ISLAND_TALK_GAP * 3)
-        expect(Math.cos(p.heading - Math.atan2(-(o.x - p.x), -(o.z - p.z)))).toBeGreaterThan(0.9)
+    // a few runs, as any one may happen to go by without either: which one does shifts whenever the island does
+    for (const seed of [1, 2, 3]) {
+      const { scene, people } = island()
+      run(people, scene, 1200, seeded(seed), () => {
+        people.forEach((p, i) => {
+          if (p.doing !== 'chat' || p.mode !== 'standing' || !p.lead) return
+          const o = people[p.partner]
+          if (!o || o.partner !== i || o.mode !== 'standing') return
+          talks++
+          expect(Math.hypot(o.x - p.x, o.z - p.z)).toBeLessThan(ISLAND_TALK_GAP * 3)
+          expect(Math.cos(p.heading - Math.atan2(-(o.x - p.x), -(o.z - p.z)))).toBeGreaterThan(0.9)
+        })
+        for (const [i, p] of people.entries()) if (p.partner >= 0) expect(p.partner).not.toBe(i)
       })
-      for (const [i, p] of people.entries()) if (p.partner >= 0) expect(p.partner).not.toBe(i)
-    })
+    }
     expect(talks).toBeGreaterThan(0)
-    expect(pairs).toBeGreaterThan(0)
+  })
+
+  it('has the one who came over to talk sometimes suggest a walk, the other following', () => {
+    const { scene } = island()
+    const [x, z] = cellPos(scene.grid, ...scene.paved[0])
+    const lead = townsfolk({ x, z, route: [], heading: 0, mode: 'standing', wait: 0, seat: null, toSeat: false })
+    const other = townsfolk({ x: x + ISLAND_TALK_GAP, z, route: [], heading: 0, mode: 'standing', wait: 30, seat: null, toSeat: false })
+    lead.doing = other.doing = 'chat'
+    lead.partner = 1
+    other.partner = 0
+    lead.lead = true
+    // done talking, and the draw says a walk
+    stepCrowd([lead, other], scene, 0.1, () => 0.1)
+    expect([lead.doing, other.doing]).toEqual(['pair', 'pair'])
+    expect(lead.lead && !other.lead).toBe(true)
+    expect(other.route.length).toBeGreaterThan(lead.route.length)
   })
 
   it('takes only people in swimwear down to the beach', () => {
@@ -273,6 +289,82 @@ describe('stepCrowd', () => {
       // held up, they go round, wait or give up within a few seconds
       expect(check.frozen).toBeLessThan(10)
     }
+  })
+
+  it('has people stay put ten to twenty minutes once sat down', () => {
+    const { scene, people } = island()
+    // how long each is to stay, as they sit down, on a bench or the grass
+    const was = people.map(() => false)
+    const stays: number[] = []
+    run(people, scene, 600, seeded(9), () => people.forEach((p, i) => {
+      const sat = p.mode === 'sitting'
+      if (sat && !was[i]) stays.push(p.wait)
+      was[i] = sat
+    }))
+    expect(stays.length).toBeGreaterThan(0)
+    for (const w of stays) {
+      expect(w).toBeGreaterThan(STAY_SECONDS[0] - 1)
+      expect(w).toBeLessThanOrEqual(STAY_SECONDS[1])
+    }
+    expect(STAY_SECONDS).toEqual([600, 1200])
+  })
+
+  it('sits some of those looking out to sea down on the grass, facing it, and stands the rest there as long', () => {
+    const { scene } = island()
+    const sh = scene.places.shore[0]
+    const p = townsfolk({ x: sh.at[0], z: sh.at[1], route: [], heading: 0, mode: 'walking', wait: 0, seat: null, toSeat: false })
+    p.doing = 'view'
+    p.spot = 0
+    // the first draw sits them down
+    stepCrowd([p], scene, 0.1, () => 0.1)
+    expect(p.mode).toBe('sitting')
+    expect(p.seat?.low).toBe(true)
+    expect(p.heading).toBeCloseTo(sh.heading)
+    expect(p.wait).toBeGreaterThan(STAY_SECONDS[0] - 1)
+    // the other half stand
+    const q = townsfolk({ x: sh.at[0], z: sh.at[1], route: [], heading: 0, mode: 'walking', wait: 0, seat: null, toSeat: false })
+    q.doing = 'view'
+    q.spot = 0
+    stepCrowd([q], scene, 0.1, () => 0.9)
+    expect(q.mode).toBe('standing')
+    expect(q.wait).toBeGreaterThan(STAY_SECONDS[0] - 1)
+    // once up again, back to strolling
+    run([p], scene, STAY_SECONDS[1] + 1, () => 0.9)
+    expect(p.mode).not.toBe('sitting')
+  })
+
+  it('keeps people on the end of the pier as long', () => {
+    const { scene } = island()
+    const seat = { ...scene.seats[0], top: 0 }
+    const p = townsfolk({ x: seat.at[0], z: seat.at[1], route: [], heading: 0, mode: 'walking', wait: 0, seat, toSeat: true })
+    stepCrowd([p], scene, 0.1, () => 0.5)
+    expect(p.mode).toBe('sitting')
+    expect(p.wait).toBeGreaterThan(STAY_SECONDS[0] - 1)
+  })
+
+  it('keeps what is over in a moment short: a chat', () => {
+    const { scene } = island()
+    const [x, z] = cellPos(scene.grid, ...scene.paved[0])
+    const a = townsfolk({ x, z, route: [], heading: 0, mode: 'walking', wait: 0, seat: null, toSeat: false })
+    const b = townsfolk({ x: x + ISLAND_TALK_GAP, z, route: [], heading: 0, mode: 'standing', wait: 40, seat: null, toSeat: false })
+    a.doing = b.doing = 'chat'
+    a.partner = 1
+    b.partner = 0
+    a.lead = true
+    stepCrowd([a, b], scene, 0.1, () => 0.5)
+    expect(a.wait).toBeLessThan(60)
+  })
+
+  it('breaks off a long stay when it is time to go indoors, but not for those who stay out', () => {
+    const { scene } = island()
+    scene.night = 1
+    const goes = [0, 1, 2, 3, 4, 5, 6, 7].find((i) => goesHome(i, 1))!
+    const stays = [0, 1, 2, 3, 4, 5, 6, 7].find((i) => !goesHome(i, 1))!
+    const people = scene.seats.slice(0, 8).map((seat) =>
+      townsfolk({ x: seat.at[0], z: seat.at[1], route: [], heading: seat.heading, mode: 'sitting', wait: 1000, seat, toSeat: false }))
+    run(people, scene, 5, seeded(3))
+    expect(people[goes].mode).not.toBe('sitting')
+    expect(people[stays].mode).toBe('sitting')
   })
 
   it('knows who sits next to whom on a bench', () => {
@@ -327,7 +419,7 @@ it('keeps an indoor person inside while someone approaches the same entrance', (
 
 it("interrupts a chat to clear a passerby's route, including its partner and walking pose", () => {
   const grid = { cols: 16, rows: 9, step: 1, x0: 0, z0: 0, free: new Uint8Array(16 * 9).fill(1) }
-  const scene: Scene = { grid, seats: [], cells: freeCells(grid), paved: [], places: { doors: [], agency: -1, lamps: [], shore: [] }, swim: [], night: 0, followed: -1 }
+  const scene: Scene = { grid, seats: [], cells: freeCells(grid), paved: [], places: { doors: [], agency: -1, lamps: [], shore: [], loops: [], sights: [] }, swim: [], night: 0, followed: -1 }
   const person = (x: number, z: number) => townsfolk({ x, z, route: [], heading: 0, mode: 'standing', wait: 30, seat: null, toSeat: false })
   const a = person(1, 4), b = person(4, 4), c = person(4, 5.5)
   a.route = [[14, 4]]; a.mode = 'walking'; a.cool = 60
@@ -347,7 +439,7 @@ describe('the user walked by hand', () => {
   function yard() {
     const grid = { cols: 16, rows: 9, step: 1, x0: 0, z0: 0, free: new Uint8Array(16 * 9).fill(1) }
     for (let z = 0; z < 9; z++) grid.free[z * 16 + 8] = 0
-    const scene: Scene = { grid, seats: [], cells: freeCells(grid), paved: [], places: { doors: [], agency: -1, lamps: [], shore: [] }, swim: [], night: 0, followed: -1, me: 0 }
+    const scene: Scene = { grid, seats: [], cells: freeCells(grid), paved: [], places: { doors: [], agency: -1, lamps: [], shore: [], loops: [], sights: [] }, swim: [], night: 0, followed: -1, me: 0 }
     const person = (x: number, z: number) => townsfolk({ x, z, route: [], heading: 0, mode: 'standing', wait: 30, seat: null, toSeat: false })
     return { scene, person, me: person(2, 4) }
   }
