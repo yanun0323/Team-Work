@@ -18,7 +18,7 @@
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as THREE from 'three'
-import { activity, teamBusy, teamReplicas } from './core/model'
+import { busyIn, officePeople, teamBusy } from './core/model'
 import { homeWorld, useStore } from './core/store'
 import { emptyWorld } from './core/backend'
 import type { World } from './core/domain/types'
@@ -877,7 +877,7 @@ function CutAway({ lot, ghost }: { lot: Lot; ghost?: boolean }) {
   const hz = d / 2 - WALL / 2
   // the room is rolled again whenever the head count changes, and only then, so the walking grid isn't
   // rebuilt every update
-  const people = teamReplicas(world, teamId).length
+  const people = officePeople(world, teamId).length
   const seed = Math.floor(hash(lot.seed, people, 77) * 2 ** 31)
   const plan = useMemo(() => officePlan(people, w, CELL, seed), [people, w, seed])
   const decor = useMemo(() => decorOf(seed), [seed])
@@ -1899,8 +1899,8 @@ const RUG_Y = FLOOR_TOP + 0.016
 function Office({ world: w, teamId, plan, decor, trim, seed }: { world: World; teamId: string; plan: OfficePlan; decor: Decor; trim: string; seed: number }) {
   // less detail: no desk items or pot plants
   const detail = usePrefs((s) => s.detail)
-  const replicas = teamReplicas(w, teamId)
-  const crew: CrewMember[] = replicas.map((r) => ({ id: r.id, look: r.look, busy: !!activity(w, r).sub }))
+  const replicas = officePeople(w, teamId)
+  const crew: CrewMember[] = replicas.map((r) => ({ id: r.id, look: r.look, busy: busyIn(w, r, teamId) }))
   // wood under the desks, out to a margin round them
   const desks = useMemo((): Area | null => {
     if (!plan.stations.length) return null

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { seedWorld } from './data/seed'
 import { createTask, statusOf } from './domain/sim'
-import type { Status } from './domain/types'
-import { keepsEscape, laneTasks } from './model'
+import { STAFFING_ID, type Chat, type Status, type SubTask, type Task } from './domain/types'
+import { busyIn, keepsEscape, laneTasks, officePeople, teamReplicas, VISIT } from './model'
 
 describe('laneTasks', () => {
   it('lists open lanes oldest first and 完成 latest first', () => {
@@ -32,6 +32,84 @@ describe('laneTasks', () => {
     const t = lanes.flatMap((s) => laneTasks(w, teamId, s))[0]
     t.stage = 'cancelled'
     expect(lanes.flatMap((s) => laneTasks(w, teamId, s))).not.toContain(t)
+  })
+})
+
+describe('officePeople', () => {
+  // a quiet island 30 days in: one company, and two employees of the Immigration Office who have done nothing there yet
+  function quiet() {
+    const w = seedWorld()
+    w.now = 30 * 24 * 3600
+    w.chats = {}
+    w.subTasks = {}
+    w.tasks = {}
+    const teamId = Object.keys(w.teams)[0]
+    const [a, b] = Object.values(w.replicas).filter((r) => r.teamId !== teamId)
+    a.teamId = STAFFING_ID
+    b.teamId = STAFFING_ID
+    const own = teamReplicas(w, teamId).map((r) => r.id)
+    return { w, teamId, a, b, own }
+  }
+  const chat = (w: ReturnType<typeof seedWorld>, teamId: string, replicaId: string, at: number, more: Partial<Chat> = {}) => {
+    w.chats[`c-${replicaId}-${at}`] = {
+      id: `c-${replicaId}-${at}`, teamId, replicaId, name: '', look: w.replicas[replicaId].look, model: '', tokens: 0, createdAt: at - 10,
+      messages: [{ at, from: 'user', text: 'hi' }], ...more,
+    }
+  }
+  const task = (w: ReturnType<typeof seedWorld>, teamId: string, more: Partial<Task> = {}) => {
+    const t = { id: `t${Object.keys(w.tasks).length}`, teamId, ownerId: null, stage: 'running', paused: false, createdAt: 0, ...more } as Task
+    w.tasks[t.id] = t
+    return t
+  }
+  const step = (w: ReturnType<typeof seedWorld>, taskId: string, replicaId: string, more: Partial<SubTask>) => {
+    const s = { id: `s${Object.keys(w.subTasks).length}`, taskId, replicaId, status: 'complete', cancelled: false, createdAt: 0, ...more } as SubTask
+    w.subTasks[s.id] = s
+  }
+
+  it('shows only the company\'s own employees when no one from the office came', () => {
+    const { w, teamId, own } = quiet()
+    expect(officePeople(w, teamId).map((r) => r.id)).toEqual(own)
+  })
+
+  it('adds those who chatted there in the last seven days, after the company\'s own', () => {
+    const { w, teamId, a, b, own } = quiet()
+    chat(w, teamId, a.id, w.now - VISIT + 60)
+    chat(w, teamId, b.id, w.now - VISIT - 60)
+    expect(officePeople(w, teamId).map((r) => r.id)).toEqual([...own, a.id])
+  })
+
+  it('counts guests of a meeting there, and leaves out chats in other companies', () => {
+    const { w, teamId, a, b, own } = quiet()
+    chat(w, teamId, own[0], w.now - 60, { guests: [{ replicaId: b.id, name: '', look: b.look, model: '' }] })
+    chat(w, 'elsewhere', a.id, w.now - 60)
+    expect(officePeople(w, teamId).map((r) => r.id)).toEqual([...own, b.id])
+  })
+
+  it('adds those who worked a step there lately, or are working one now', () => {
+    const { w, teamId, a, b, own } = quiet()
+    const t = task(w, teamId, { stage: 'done', doneAt: w.now - VISIT - 100 })
+    step(w, t.id, a.id, { endedAt: w.now - 3600 })
+    step(w, t.id, b.id, { endedAt: w.now - VISIT - 100 })
+    expect(officePeople(w, teamId).map((r) => r.id)).toEqual([...own, a.id])
+    step(w, t.id, b.id, { status: 'progressing', startedAt: w.now - VISIT - 100 })
+    expect(officePeople(w, teamId).map((r) => r.id)).toEqual([...own, a.id, b.id])
+  })
+
+  it('adds the owner of a running task, but not of one long done', () => {
+    const { w, teamId, a, b, own } = quiet()
+    task(w, teamId, { ownerId: a.id })
+    task(w, teamId, { ownerId: b.id, stage: 'done', doneAt: w.now - VISIT - 1 })
+    expect(officePeople(w, teamId).map((r) => r.id)).toEqual([...own, a.id])
+  })
+
+  it('counts them busy only for work in this company', () => {
+    const { w, teamId, a } = quiet()
+    const here = task(w, teamId)
+    const there = task(w, 'elsewhere')
+    step(w, there.id, a.id, { status: 'progressing', startedAt: w.now })
+    expect(busyIn(w, a, teamId)).toBe(false)
+    step(w, here.id, a.id, { status: 'progressing', startedAt: w.now })
+    expect(busyIn(w, a, teamId)).toBe(true)
   })
 })
 

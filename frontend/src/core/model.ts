@@ -65,6 +65,49 @@ export const teamReplicas = (w: World, teamId: string) =>
 export const crewOf = (w: World, teamId: string) =>
   teamId && teamId !== STAFFING_ID ? [...teamReplicas(w, teamId), ...teamReplicas(w, STAFFING_ID)] : teamReplicas(w, teamId)
 
+/** How long, in seconds, an Immigration Office employee keeps a desk in a company's office after they last chatted or worked there. */
+export const VISIT = 7 * 24 * 3600
+
+/** Immigration Office employees who chatted or worked in this company within `VISIT` of the world's clock. */
+function visitorIds(w: World, teamId: string): Set<string> {
+  const since = w.now - VISIT
+  const ids = new Set<string>()
+  for (const c of Object.values(w.chats)) {
+    if (c.teamId !== teamId) continue
+    const last = Math.max(c.createdAt, c.history?.sortAt ?? 0, c.messages?.[c.messages.length - 1]?.at ?? 0, c.replyAt ?? 0)
+    if (last < since) continue
+    ids.add(c.replicaId)
+    c.guests?.forEach((g) => ids.add(g.replicaId))
+    c.handoffs?.forEach((h) => ids.add(h.replicaId))
+  }
+  for (const s of Object.values(w.subTasks)) {
+    if (!s.replicaId || s.cancelled || w.tasks[s.taskId]?.teamId !== teamId) continue
+    if (s.status === 'progressing' || (s.endedAt ?? s.startedAt ?? -Infinity) >= since) ids.add(s.replicaId)
+  }
+  for (const t of Object.values(w.tasks)) {
+    if (t.teamId !== teamId || t.stage === 'cancelled') continue
+    // owning a task is work too, while it runs or lately done
+    const last = t.doneAt ?? (t.paused ? t.pausedAt ?? t.createdAt : w.now)
+    if (t.ownerId && last >= since) ids.add(t.ownerId)
+    if (t.merge?.replicaId && (t.merge.startedAt ?? -Infinity) >= since) ids.add(t.merge.replicaId)
+  }
+  return ids
+}
+
+/** Who a company's office shows: its own employees, then those from the Immigration Office who chatted or worked there lately. */
+export function officePeople(w: World, teamId: string): Replica[] {
+  const own = teamReplicas(w, teamId)
+  if (!teamId || teamId === STAFFING_ID) return own
+  const ids = visitorIds(w, teamId)
+  return ids.size ? [...own, ...teamReplicas(w, STAFFING_ID).filter((r) => ids.has(r.id))] : own
+}
+
+/** Whether someone is at work in this company now: an Immigration Office employee may be busy in another one instead. */
+export function busyIn(w: World, r: Replica, teamId: string): boolean {
+  if (r.teamId === teamId) return !!activity(w, r).sub
+  return Object.values(w.subTasks).some((s) => s.replicaId === r.id && s.status === 'progressing' && !s.cancelled && w.tasks[s.taskId]?.teamId === teamId)
+}
+
 
 
 /** What a Replica is doing right now: the first of it, and how much more there is. */

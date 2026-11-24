@@ -10,7 +10,7 @@ import { version } from '../package.json'
 import { guardUnload, leaveTeam } from './fileDrafts'
 import { placeOf, useOpenRequest, useSystemNotices } from './notices'
 import * as THREE from 'three'
-import { inTerminal, keepsEscape, teamAlerts, teamReplicas, teamWork } from './core/model'
+import { inTerminal, keepsEscape, officePeople, teamAlerts, teamWork } from './core/model'
 import { homeWorld, useStore } from './core/store'
 import { closeGhost as leaveGhost, usePeers } from './core/towers'
 import { createGhost, ghostsOf, ghostState, moveGhost, openGhost, opens, seedFeed, useFeeds, watchGhosts, type Feed } from './core/ghosts'
@@ -636,7 +636,7 @@ export function World() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peers, feeds, key])
   // the open company's people: on the ghost company's own computer while it is open there
-  const crewNames = useStore((s) => (selectedTeam ? teamReplicas(s.world, selectedTeam).map((r) => `${r.id}\t${r.name}`).join('\n') : ''))
+  const crewNames = useStore((s) => (selectedTeam ? officePeople(s.world, selectedTeam).map((r) => `${r.id}\t${r.name}`).join('\n') : ''))
   // the airport's tag is in words, so it changes with the language
   const language = useStore((s) => s.world.language)
   const visitors = useVisitors((s) => s.visitors)
