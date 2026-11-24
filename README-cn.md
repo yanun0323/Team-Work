@@ -38,6 +38,7 @@ Team Work 是一个 Mac 应用，让一群 AI 员工在你自己的项目里干�
 - **移民署**：机场旁的建筑，存放全岛共用的员工。每家公司都能用他们，用的是那家公司的文件夹和规则。
 - **基站**：和你的其他 Mac 配对，互相去对方的小岛。每座好友小岛都可以选“不开放”“仅查看”或“可操作”。工作在对方的 Mac 上运行，那台必须开着 Team Work。内置 [Tailcat](https://github.com/tailscale/tailcat/)，不需要 Tailscale 账号或另外安装；默认的免费中继有流量限制。
 - **投影公司**：把好友小岛上的公司放到自己的岛上，不用前往就能直接打开；工作仍然在好友的 Mac 上执行。
+- **岛上建设**：用 Team Work 用得越多，岛上会自己长出公共设施：公园、有观景台的山丘、会变成湖的喷水池、海边停着小船的码头和钟塔，民众会去坐长椅、野餐、眺望、看水、在码头边钓鱼。个人档案的「岛上建设」列出每一阶段的条件。
 - **模型供应商**：Anthropic、OpenAI、Google Gemini 和任何兼容 OpenAI 的服务（比如 DeepSeek 或本地的 Ollama），用 API Key，或用 Claude、ChatGPT 订阅登录。Claude 订阅通过 Claude Code 运行，没装的话应用会问你要不要安装。
 - **MCP 和 Hook**：在 `~/.team-work/mcp.json` 列出 MCP 服务器，员工就多了这些工具；用 `~/.team-work/hooks.json` 在员工干活时运行你自己的命令。两者都用 Claude Code 的格式，可以直接搬过来。
 - **图片生成**：在“设置 → 系统 → 图片生成”选 ChatGPT 订阅，或兼容 OpenAI 的供应商的图片模型，员工就能画图。
