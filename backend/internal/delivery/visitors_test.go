@@ -42,6 +42,29 @@ func TestGatewayVisitorKeepsUnreadMarks(t *testing.T) {
 	}
 }
 
+// A computer showing one of this island's companies as a ghost company on its own island reads a chat there as
+// its user's own reading, which clears the unread mark only while that computer may operate here, and only for chats.
+func TestGatewayOwnReadingClearsUnreadOnlyForOperators(t *testing.T) {
+	service := pairedTower(t, offlineTower{})
+	var reached []string
+	g := NewGateway(service, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = append(reached, r.Method+" "+r.URL.Path)
+		w.WriteHeader(204)
+	}))
+	if w := gatewayRequest(g, "POST", "/api/v1/chats/c1/read?mine=1", testToken, "k1", ""); w.Code != 204 || len(reached) != 1 || reached[0] != "POST /api/v1/chats/c1/read" {
+		t.Fatal("an operator's own reading did not reach the island", w.Code, w.Body.String(), reached)
+	}
+	if w := gatewayRequest(g, "POST", "/api/v1/sources/s1/seen?mine=1", testToken, "k2", ""); w.Code != 204 || len(reached) != 1 {
+		t.Fatal("only chats take an own reading", w.Code, reached)
+	}
+	if _, err := service.SetAccess("peer", "view"); err != nil {
+		t.Fatal(err)
+	}
+	if w := gatewayRequest(g, "POST", "/api/v1/chats/c1/read?mine=1", testToken, "k3", ""); w.Code != 204 || len(reached) != 1 {
+		t.Fatal("a computer that may only look cleared an unread mark", w.Code, reached)
+	}
+}
+
 // A pair saved before access modes existed has no access field: after the upgrade it may only look,
 // until this computer's user grants it control, and that grant survives a restart.
 func TestGatewayUpgradedPairOnlyLooksUntilGranted(t *testing.T) {

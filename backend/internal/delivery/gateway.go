@@ -128,8 +128,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
-	// A visitor only looks: what it opens stays unread for this computer's own user.
-	if r.Method == "POST" && marksSeen(p) {
+	// A visitor only looks: what it opens stays unread for this computer's own user. A computer that may operate here
+	// and shows the company as a ghost company on its own island may say a chat was its user's own reading (`mine`),
+	// as when this computer is that user's other Mac.
+	if r.Method == "POST" && marksSeen(p) && !(ownReading(p, r) && peer.Access == tower.AccessOperate) {
 		w.WriteHeader(204)
 		return
 	}
@@ -286,6 +288,11 @@ func blockedRemote(p, method string) bool {
 func marksSeen(p string) bool {
 	parts := strings.Split(strings.TrimPrefix(p, "/api/v1/"), "/")
 	return len(parts) == 3 && parts[1] != "" && (parts[0] == "chats" && parts[2] == "read" || parts[0] == "sources" && parts[2] == "seen")
+}
+
+// ownReading is a chat read on a ghost company, which the reading computer says was its user's own.
+func ownReading(p string, r *http.Request) bool {
+	return strings.HasPrefix(p, "/api/v1/chats/") && r.URL.Query().Get("mine") == "1"
 }
 
 // viewable is what a computer allowed only to look may still reach: reads, but not a terminal or this computer's folders.
