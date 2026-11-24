@@ -27,6 +27,17 @@ func (s *Store) AddUsage(ctx context.Context, u model.Usage) error {
 		Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CostUSD: u.CostUSD, Priced: u.Priced}).Error
 }
 
+func (s *Store) FirstUsage(ctx context.Context) (float64, error) {
+	var first *float64
+	if err := s.db.WithContext(ctx).Model(&usageRow{}).Select("MIN(at)").Scan(&first).Error; err != nil {
+		return 0, err
+	}
+	if first == nil {
+		return 0, nil
+	}
+	return *first, nil
+}
+
 func (s *Store) LoadUsage(ctx context.Context, since float64) ([]model.Usage, error) {
 	var rows []usageRow
 	if err := s.db.WithContext(ctx).Where("at >= ?", since).Order("at").Find(&rows).Error; err != nil {

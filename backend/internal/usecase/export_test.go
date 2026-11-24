@@ -101,6 +101,18 @@ func (e *Engine) SearchMemory(teamID, replicaID, query string) model.ToolResult 
 	return e.searchMemoryTool(func() (string, *string) { return teamID, &replicaID }).Run(context.Background(), "", raw)
 }
 
+// AddFinishedTasks saves n finished tasks in a company without growing what they grow, as a version from before the
+// island grew landmarks left them.
+func (e *Engine) AddFinishedTasks(teamID string, n int) error {
+	return e.do(func() error {
+		for range n {
+			id := e.uid("task")
+			e.w.Tasks[id] = &model.Task{ID: id, TeamID: teamID, Title: id, Stage: enum.StageDone, CreatedAt: e.w.Now}
+		}
+		return nil
+	})
+}
+
 // RenameWaitingCall renames the tool call a chat's conversation last made, as a conversation saved before the tool
 // was renamed has it.
 func (e *Engine) RenameWaitingCall(chatID, name string) {
@@ -119,4 +131,11 @@ func (e *Engine) RenameWaitingCall(chatID, name string) {
 			}
 		}
 	}
+}
+
+// FreeSpot is the corner of the first plot a new company would be handed now, for a test.
+func (e *Engine) FreeSpot() []int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.firstFreePlot()
 }

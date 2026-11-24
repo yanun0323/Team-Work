@@ -30,21 +30,33 @@ func landHash(values ...int) float64 {
 	return float64(h^(h>>16)) / 4294967296
 }
 
-func makePlotLand(plots []plotRect) plotLand {
-	rects := append(append([]plotRect{}, reservedRects...), plots...)
+// makePlotLand is the island's land round the reserved ground and the plots, and round the pier, if it stands, which
+// has land only on its landward side: its harbour is the sea.
+func makePlotLand(reserved, plots []plotRect, docks ...dockSpot) plotLand {
+	rects := append(append([]plotRect{}, reserved...), plots...)
+	bounds := append([]plotRect{}, rects...)
+	for _, d := range docks {
+		bounds = append(bounds, d.plot())
+	}
 	hx, hz := plotCells/2+landPadding, plotCells/2+landPadding
-	for _, r := range rects {
+	for _, r := range bounds {
 		hx = max(hx, -r.x+landPadding, r.x+r.w+landPadding)
 		hz = max(hz, -r.z+landPadding, r.z+r.d+landPadding)
 	}
 	l := plotLand{cols: (hx + 1) * 2, rows: (hz + 1) * 2}
 	l.cells = make([]bool, l.cols*l.rows)
-	for _, r := range rects {
-		for z := r.z - landPadding; z < r.z+r.d+landPadding; z++ {
-			for x := r.x - landPadding; x < r.x+r.w+landPadding; x++ {
-				l.cells[l.index(x, z)] = true
+	fill := func(r plotRect, land bool) {
+		for z := r.z; z < r.z+r.d; z++ {
+			for x := r.x; x < r.x+r.w; x++ {
+				l.cells[l.index(x, z)] = land
 			}
 		}
+	}
+	for _, r := range rects {
+		fill(grow(r, landPadding), true)
+	}
+	for _, d := range docks {
+		fill(d.coast(), true)
 	}
 	l.join()
 	ring := make([]int, len(l.cells))
@@ -104,11 +116,11 @@ func makePlotLand(plots []plotRect) plotLand {
 	l.join()
 	l.fillLakes()
 	for _, r := range rects {
-		for z := r.z; z < r.z+r.d; z++ {
-			for x := r.x; x < r.x+r.w; x++ {
-				l.cells[l.index(x, z)] = true
-			}
-		}
+		fill(r, true)
+	}
+	for _, d := range docks {
+		fill(d.plot(), true)
+		fill(d.harbour(), false)
 	}
 	stride := l.cols + 1
 	sums := make([]int, stride*(l.rows+1))

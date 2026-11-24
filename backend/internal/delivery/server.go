@@ -83,6 +83,8 @@ func NewServer(engine *usecase.Engine, claude adapter.ClaudeCode, folders adapte
 
 	api.POST("/teams", s.createTeam)
 	api.PATCH("/teams/:id", s.updateTeam)
+	api.PATCH("/landmarks/:kind", s.moveLandmark)
+	api.PATCH("/places/staffing", s.moveStaffing)
 	api.POST("/teams/:id/prompt/refresh", s.refreshPrompt)
 	api.GET("/teams/:id/notes", s.notes)
 	api.PUT("/teams/:id/notes", s.setNotes)
@@ -394,6 +396,27 @@ func (s *Server) updateTeam(c echo.Context) error {
 		return err
 	}
 	return done(c, s.engine.UpdateTeam(c.Param("id"), in))
+}
+
+// spotPatch is where something on the island is moved to: its plot's corner, in town cells.
+type spotPatch struct {
+	At []int `json:"at"`
+}
+
+func (s *Server) moveLandmark(c echo.Context) error {
+	in, err := bind[spotPatch](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.MoveLandmark(c.Param("kind"), in.At))
+}
+
+func (s *Server) moveStaffing(c echo.Context) error {
+	in, err := bind[spotPatch](c)
+	if err != nil {
+		return err
+	}
+	return done(c, s.engine.MoveStaffing(in.At))
 }
 
 func (s *Server) setLanguage(c echo.Context) error {

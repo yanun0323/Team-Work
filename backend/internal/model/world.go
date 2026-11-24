@@ -212,6 +212,47 @@ type Ghost struct {
 	CreatedAt float64 `json:"createdAt"`
 }
 
+// The landmarks the island grows by itself, each by a milestone of its own.
+const (
+	// LandmarkPark is the park, grown by finished tasks.
+	LandmarkPark = "park"
+	// LandmarkHill is the hill, with a lookout on it later, grown by days in use.
+	LandmarkHill = "hill"
+	// LandmarkPond is the fountain, a lake with a wooden bridge later, grown by chats.
+	LandmarkPond = "pond"
+	// LandmarkDock is the pier, with boats moored at it later, grown by companies.
+	LandmarkDock = "dock"
+	// LandmarkClock is the clock tower, grown by a year in use.
+	LandmarkClock = "clock"
+)
+
+// Landmark is a public place the island grows by itself as the user reaches milestones. It appears on ground as
+// large as a company's plot, the most it will ever need, and grows there; it never shrinks back. The user may move it
+// as a company is moved.
+type Landmark struct {
+	// Kind is which landmark it is (LandmarkPark); there is one of each.
+	Kind string `json:"kind"`
+	// Stage is how far it has grown, from 1.
+	Stage int `json:"stage"`
+	// At is the corner cell of its ground, in town cells like a plot's.
+	At []int `json:"at"`
+	// Face is the pier's: quarter turns that face its harbour, at the back (-z) of its ground, out to open sea, the
+	// back facing -z, +x, +z, then -x. Always 0 for the others.
+	Face      int     `json:"face,omitempty"`
+	CreatedAt float64 `json:"createdAt"`
+}
+
+// PlaceStaffing is the staffing agency's Place.
+const PlaceStaffing = "staffing"
+
+// Place is where one of the island's own buildings stands once the user has moved it: so far only the staffing
+// agency (PlaceStaffing). Until then it stands where it always has.
+type Place struct {
+	ID string `json:"id"`
+	// At is the corner cell of a company-sized plot round it, in town cells like a plot's.
+	At []int `json:"at"`
+}
+
 type NextStep struct {
 	NodeID string `json:"nodeId"`
 	Reason string `json:"reason"`
@@ -741,21 +782,25 @@ type Quota struct {
 
 // World is everything the backend knows. Conversations stay inside the backend, so clients never get them.
 type World struct {
-	Preferences   Preferences               `json:"preferences"`
-	Now           float64                   `json:"now"`
-	Seq           int                       `json:"seq"`
-	Language      string                    `json:"language"`
-	Teams         map[string]*Team          `json:"teams"`
-	Providers     map[string]*ModelProvider `json:"providers"`
-	Blueprints    map[string]*Blueprint     `json:"blueprints"`
-	Sources       map[string]*Source        `json:"sources"`
-	Replicas      map[string]*Replica       `json:"replicas"`
-	Workflows     map[string]*Workflow      `json:"workflows"`
-	Tasks         map[string]*Task          `json:"tasks"`
-	SubTasks      map[string]*SubTask       `json:"subTasks"`
-	Chats         map[string]*Chat          `json:"chats"`
-	Ghosts        map[string]*Ghost         `json:"ghosts"`
-	Conversations map[string][]Message      `json:"-"`
+	Preferences Preferences               `json:"preferences"`
+	Now         float64                   `json:"now"`
+	Seq         int                       `json:"seq"`
+	Language    string                    `json:"language"`
+	Teams       map[string]*Team          `json:"teams"`
+	Providers   map[string]*ModelProvider `json:"providers"`
+	Blueprints  map[string]*Blueprint     `json:"blueprints"`
+	Sources     map[string]*Source        `json:"sources"`
+	Replicas    map[string]*Replica       `json:"replicas"`
+	Workflows   map[string]*Workflow      `json:"workflows"`
+	Tasks       map[string]*Task          `json:"tasks"`
+	SubTasks    map[string]*SubTask       `json:"subTasks"`
+	Chats       map[string]*Chat          `json:"chats"`
+	Ghosts      map[string]*Ghost         `json:"ghosts"`
+	// Landmarks are the public places the island has grown, by kind.
+	Landmarks map[string]*Landmark `json:"landmarks"`
+	// Places are where the island's own buildings stand once moved, by ID (PlaceStaffing).
+	Places        map[string]*Place    `json:"places"`
+	Conversations map[string][]Message `json:"-"`
 	// Copies are the copies from other islands made here: the hash of each request to the employee it hired, who
 	// may have moved or been let go since. Kept apart from the employees, so the same request sent again never hires
 	// anyone, whatever became of them.
@@ -804,7 +849,7 @@ func NewWorld() *World {
 		Language: LanguageZh, Preferences: DefaultPreferences(),
 		Teams: map[string]*Team{}, Providers: map[string]*ModelProvider{}, Blueprints: map[string]*Blueprint{}, Sources: map[string]*Source{},
 		Replicas: map[string]*Replica{}, Workflows: map[string]*Workflow{}, Tasks: map[string]*Task{},
-		SubTasks: map[string]*SubTask{}, Chats: map[string]*Chat{}, Ghosts: map[string]*Ghost{}, Conversations: map[string][]Message{},
+		SubTasks: map[string]*SubTask{}, Chats: map[string]*Chat{}, Ghosts: map[string]*Ghost{}, Landmarks: map[string]*Landmark{}, Places: map[string]*Place{}, Conversations: map[string][]Message{},
 		Copies: map[string]string{},
 	}
 }

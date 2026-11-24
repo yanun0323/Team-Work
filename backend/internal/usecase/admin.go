@@ -74,6 +74,7 @@ func (e *Engine) CreateTeam(ctx context.Context, in NewTeam) (*model.Team, error
 			Plot: clone(plot), CreatedAt: e.w.Now, Settings: model.TeamSettings{TimeoutMin: 120, CostLimitUSD: 3, Retries: 1}, Memory: []model.MemoryEntry{}}
 		e.readPrompt(t)
 		e.w.Teams[id] = t
+		e.growLandmarks()
 		out = clone(t)
 		return nil
 	})

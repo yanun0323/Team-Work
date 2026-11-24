@@ -84,7 +84,7 @@ func TestProfileStatsSumTheUsersMilestones(t *testing.T) {
 	if p := stats.Partners; len(p) != 1 || p[0].ID != r.owner.ID || p[0].Name != r.owner.Name || p[0].Count != 1 {
 		t.Fatalf("partners %+v", stats.Partners)
 	}
-	// eleven more employees with a chat each: the owner's two lead, then by name, ten in all
+	// eleven more employees with a chat each: the owner's two lead, then by name, five in all
 	chat := func(id string) {
 		t.Helper()
 		c, err := r.e.CreateChat(usecase.NewChat{TeamID: r.team.ID, ReplicaID: id, Text: "嗨"})
@@ -109,7 +109,7 @@ func TestProfileStatsSumTheUsersMilestones(t *testing.T) {
 	for _, p := range stats.Partners {
 		names = append(names, fmt.Sprintf("%s:%d", p.Name, p.Count))
 	}
-	if got := strings.Join(names, " "); got != "Ada:2 E00:1 E01:1 E02:1 E03:1 E04:1 E05:1 E06:1 E07:1 E08:1" {
+	if got := strings.Join(names, " "); got != "Ada:2 E00:1 E01:1 E02:1 E03:1" {
 		t.Fatal(got)
 	}
 }

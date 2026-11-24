@@ -155,6 +155,9 @@ type Engine struct {
 	settingsRaw     model.SettingsSnapshot
 	settingsEncoded []byte
 	saveFailed      bool
+	// firstUse is when the first model call was made, as the store had it at start, for the days in use that grow
+	// landmarks; 0 before any. Calls made since come after the chats and tasks that made them.
+	firstUse float64
 }
 
 // run is an agent working. Its callbacks count only while it is still the one registered in Engine.runs,
@@ -393,6 +396,10 @@ func (e *Engine) load(ctx context.Context) error {
 			err = loadInto(d, e.w.SubTasks)
 		case "ghost":
 			err = loadInto(d, e.w.Ghosts)
+		case "landmark":
+			err = loadInto(d, e.w.Landmarks)
+		case "place":
+			err = loadInto(d, e.w.Places)
 		case kindTaskLog:
 			err = e.loadLog(d)
 		case kindTaskActs:
@@ -442,6 +449,11 @@ func (e *Engine) load(ctx context.Context) error {
 		return fmt.Errorf("store history images: %w", err)
 	}
 	e.initializePlots()
+	if e.firstUse, err = e.store.FirstUsage(ctx); err != nil {
+		return fmt.Errorf("load first usage: %w", err)
+	}
+	// milestones reached before the island grew landmarks, by an older version, or by days gone by, grow them now
+	e.growLandmarks()
 	return nil
 }
 
@@ -514,6 +526,8 @@ func (e *Engine) documents() map[string][]byte {
 	encodeAll(now, e.encoded, next, "task", e.w.Tasks)
 	encodeAll(now, e.encoded, next, "subTask", e.w.SubTasks)
 	encodeAll(now, e.encoded, next, "ghost", e.w.Ghosts)
+	encodeAll(now, e.encoded, next, "landmark", e.w.Landmarks)
+	encodeAll(now, e.encoded, next, "place", e.w.Places)
 	e.encoded = next
 	e.chatDocuments(now)
 	e.logDocuments(now)

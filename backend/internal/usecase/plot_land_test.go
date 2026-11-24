@@ -16,10 +16,15 @@ func TestPlacementMatchesFrontendLandAndRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	var fixtures []struct {
-		Plots    [][]int `json:"plots"`
-		Cols     int     `json:"cols"`
-		Rows     int     `json:"rows"`
-		LandHash uint32  `json:"landHash"`
+		Plots [][]int `json:"plots"`
+		// Dock is the pier, standing on the coast, if it does.
+		Dock *struct {
+			At   []int `json:"at"`
+			Face int   `json:"face"`
+		} `json:"dock"`
+		Cols     int    `json:"cols"`
+		Rows     int    `json:"rows"`
+		LandHash uint32 `json:"landHash"`
 		Samples  []struct {
 			At    []int `json:"at"`
 			Place bool  `json:"place"`
@@ -34,6 +39,9 @@ func TestPlacementMatchesFrontendLandAndRules(t *testing.T) {
 		for j, at := range f.Plots {
 			id := string(rune('0' + j))
 			e.w.Teams[id] = &model.Team{ID: id, Plot: &model.Plot{At: at, Style: "villa"}}
+		}
+		if f.Dock != nil {
+			e.w.Landmarks[model.LandmarkDock] = &model.Landmark{Kind: model.LandmarkDock, Stage: 1, At: f.Dock.At, Face: f.Dock.Face}
 		}
 		land := e.currentPlotLand()
 		hash := uint32(2166136261)

@@ -118,6 +118,7 @@ func (e *Engine) runMerge(ctx context.Context, in mergeRun) {
 		e.mergeLog(t, i18n.T("已合併回 %s，移除 work tree", in.target))
 		t.Stage = enum.StageDone
 		t.DoneAt = ptr(e.w.Now)
+		e.growLandmarks()
 	})
 }
 

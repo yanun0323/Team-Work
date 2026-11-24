@@ -11,7 +11,8 @@ import (
 )
 
 // ProfileStats sums the user's milestones on this island: since when it was used, tasks finished, chats and what
-// the user said in them, the employees worked with most, and every model call's usage.
+// the user said in them, the employees worked with most, every model call's usage, and how far along its road each
+// landmark is.
 func (e *Engine) ProfileStats(ctx context.Context) (model.ProfileStats, error) {
 	records, err := e.store.LoadUsage(ctx, 0)
 	if err != nil {
@@ -65,5 +66,6 @@ func (e *Engine) ProfileStats(ctx context.Context) (model.ProfileStats, error) {
 	if len(out.Partners) > model.MaxProfilePartners {
 		out.Partners = out.Partners[:model.MaxProfilePartners]
 	}
+	out.Landmarks = e.landmarkRoads()
 	return out, nil
 }

@@ -649,6 +649,8 @@ func (e *Engine) chatSays(c *model.Chat, text string) {
 // interrupted reply are closed first, as the model refuses them otherwise.
 func (e *Engine) chatHears(c *model.Chat, text string, images, files []model.Attachment, mentions []string) {
 	c.Messages = append(c.Messages, model.ChatMessage{At: e.w.Now, From: "user", Text: text, Images: images, Files: files, Mentions: mentions})
+	// a new chat grows the fountain; days in use are caught up too
+	e.growLandmarks()
 	said := model.Message{Role: enum.RoleUser}
 	if text != "" { // a model refuses an empty text block
 		said.Content = append(said.Content, model.Block{Type: enum.BlockText, Text: text})

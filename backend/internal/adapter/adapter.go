@@ -26,6 +26,8 @@ type Store interface {
 	// AddUsage records one model call; LoadUsage returns those made at or after since, oldest first.
 	AddUsage(ctx context.Context, u model.Usage) error
 	LoadUsage(ctx context.Context, since float64) ([]model.Usage, error)
+	// FirstUsage is when the first model call was made, in Unix seconds; 0 before any.
+	FirstUsage(ctx context.Context) (float64, error)
 	Secrets
 }
 
