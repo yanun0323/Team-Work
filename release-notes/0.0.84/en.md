@@ -20,5 +20,8 @@ At the bottom of your profile, Island landmarks shows a road for each place, wit
 
 ## Fixes
 
+**A shorter list of favourite colleagues**
+Your profile now names the 5 employees you have worked with most, rather than 10, so the list fits the panel.
+
 **Offices are not crowded with visitors**
 A company's office now shows only the 3 people from the Immigration Office who worked there most recently, instead of everyone from the last week. They walk about the room rather than taking a desk, so your own staff keep their seats.
