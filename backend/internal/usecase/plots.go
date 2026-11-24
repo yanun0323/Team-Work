@@ -48,23 +48,41 @@ type shownPlot struct {
 	rect plotRect
 }
 
-// shownPlots places every company's plot where the island shows it: as saved, unless it is on reserved
-// ground (saved before that ground was kept), in which case it goes to the nearest spot clear of the
-// reserved ground and of the other plots. The saved plot is left as it is. Companies go in the order they
-// were founded. Keep in step with shownSpots in frontend/src/layout.ts.
-func (e *Engine) shownPlots() []shownPlot {
-	teams := make([]*model.Team, 0, len(e.w.Teams))
+// standing is a plot on the island: a company's, or a ghost company's.
+type standing struct {
+	ID        string
+	Plot      *model.Plot
+	CreatedAt float64
+}
+
+// standings are every plot on the island, companies' and ghost companies' alike, in the order they were founded.
+func (e *Engine) standings() []standing {
+	all := make([]standing, 0, len(e.w.Teams)+len(e.w.Ghosts))
 	for _, t := range e.w.Teams {
 		if t.Plot != nil && len(t.Plot.At) == 2 {
-			teams = append(teams, t)
+			all = append(all, standing{t.ID, t.Plot, t.CreatedAt})
 		}
 	}
-	sort.Slice(teams, func(i, j int) bool {
-		if teams[i].CreatedAt != teams[j].CreatedAt {
-			return teams[i].CreatedAt < teams[j].CreatedAt
+	for _, g := range e.w.Ghosts {
+		if g.Plot != nil && len(g.Plot.At) == 2 {
+			all = append(all, standing{g.ID, g.Plot, g.CreatedAt})
 		}
-		return teams[i].ID < teams[j].ID
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].CreatedAt != all[j].CreatedAt {
+			return all[i].CreatedAt < all[j].CreatedAt
+		}
+		return all[i].ID < all[j].ID
 	})
+	return all
+}
+
+// shownPlots places every plot where the island shows it: as saved, unless it is on reserved
+// ground (saved before that ground was kept), in which case it goes to the nearest spot clear of the
+// reserved ground and of the other plots. The saved plot is left as it is. Companies and ghost companies go in
+// the order they were founded. Keep in step with shownSpots in frontend/src/layout.ts.
+func (e *Engine) shownPlots() []shownPlot {
+	teams := e.standings()
 	out := make([]shownPlot, len(teams))
 	var taken []plotRect
 	for i, t := range teams {

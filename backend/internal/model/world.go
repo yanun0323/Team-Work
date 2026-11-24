@@ -198,6 +198,20 @@ type Team struct {
 	Memory []MemoryEntry `json:"memory"`
 }
 
+// Ghost is a company of a paired computer shown on this island: its building stands here, but the company, its work
+// and everything in it stay on that computer, reached through the tower. Only where it stands here is this island's.
+type Ghost struct {
+	ID string `json:"id"`
+	// PeerID is the paired computer the company is on; TeamID is the company's id there.
+	PeerID string `json:"peerId"`
+	TeamID string `json:"teamId"`
+	// Name is the company's name as last read from that computer, shown while it cannot be reached.
+	Name string `json:"name"`
+	// Plot is where it stands here, in the look it has there.
+	Plot      *Plot   `json:"plot"`
+	CreatedAt float64 `json:"createdAt"`
+}
+
 type NextStep struct {
 	NodeID string `json:"nodeId"`
 	Reason string `json:"reason"`
@@ -740,6 +754,7 @@ type World struct {
 	Tasks         map[string]*Task          `json:"tasks"`
 	SubTasks      map[string]*SubTask       `json:"subTasks"`
 	Chats         map[string]*Chat          `json:"chats"`
+	Ghosts        map[string]*Ghost         `json:"ghosts"`
 	Conversations map[string][]Message      `json:"-"`
 	// Copies are the copies from other islands made here: the hash of each request to the employee it hired, who
 	// may have moved or been let go since. Kept apart from the employees, so the same request sent again never hires
@@ -789,7 +804,7 @@ func NewWorld() *World {
 		Language: LanguageZh, Preferences: DefaultPreferences(),
 		Teams: map[string]*Team{}, Providers: map[string]*ModelProvider{}, Blueprints: map[string]*Blueprint{}, Sources: map[string]*Source{},
 		Replicas: map[string]*Replica{}, Workflows: map[string]*Workflow{}, Tasks: map[string]*Task{},
-		SubTasks: map[string]*SubTask{}, Chats: map[string]*Chat{}, Conversations: map[string][]Message{},
+		SubTasks: map[string]*SubTask{}, Chats: map[string]*Chat{}, Ghosts: map[string]*Ghost{}, Conversations: map[string][]Message{},
 		Copies: map[string]string{},
 	}
 }

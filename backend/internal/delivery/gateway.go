@@ -81,7 +81,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/tower/v1/hello" && r.Method == "GET" {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(g.service.View().Me)
+		_ = json.NewEncoder(w).Encode(tower.Hello{Identity: g.service.View().Me, Granted: peer.Access})
 		return
 	}
 	if r.URL.Path == "/tower/v1/unpair" && r.Method == "POST" {
@@ -264,7 +264,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeRemoteResponse(w, saved)
 }
 func blockedRemote(p, method string) bool {
-	for _, prefix := range []string{"/api/v1/towers", "/api/v1/remote", "/api/v1/diagnostics"} {
+	for _, prefix := range []string{"/api/v1/towers", "/api/v1/remote", "/api/v1/diagnostics", "/api/v1/ghosts"} {
 		if p == prefix || strings.HasPrefix(p, prefix+"/") {
 			return true
 		}

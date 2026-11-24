@@ -22,6 +22,16 @@ import (
 	"github.com/yanun0323/Team-Work/internal/usecase"
 )
 
+// paired says whether id is a computer paired with this one.
+func paired(service *tower.Service, id string) bool {
+	for _, p := range service.View().Peers {
+		if p.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // EnableTowers is called before Serve; tower routes remain local even when viewing a remote island.
 func (s *Server) EnableTowers(service *tower.Service) {
 	api := s.echo.Group("/api/v1")
@@ -198,6 +208,26 @@ func (s *Server) EnableTowers(service *tower.Service) {
 		}
 		return created(c, out, err)
 	})
+	// a paired computer's company shown on this island: only where it stands is kept here
+	api.POST("/ghosts", func(c echo.Context) error {
+		in, err := bind[usecase.NewGhost](c)
+		if err != nil {
+			return err
+		}
+		if !paired(service, in.PeerID) {
+			return model.Errorf(model.CodeInvalid, "這台電腦不是你的好友小島")
+		}
+		out, err := s.engine.CreateGhost(in)
+		return created(c, out, err)
+	})
+	api.PATCH("/ghosts/:id", func(c echo.Context) error {
+		in, err := bind[usecase.GhostPatch](c)
+		if err != nil {
+			return err
+		}
+		return done(c, s.engine.UpdateGhost(c.Param("id"), in))
+	})
+	api.DELETE("/ghosts/:id", func(c echo.Context) error { return done(c, s.engine.DeleteGhost(c.Param("id"))) })
 	api.Any("/remote/:id/*", func(c echo.Context) error {
 		address, token, revoked, err := service.Target(c.Param("id"))
 		if err != nil {

@@ -34,6 +34,14 @@ type Identity struct {
 	// Older computers ignore it, so it needs no new protocol.
 	Look *model.Look `json:"look,omitempty"`
 }
+
+// Hello is what a computer answers a paired one checking on it: who it is, and what the asker may do on its island.
+// Granted is new: older computers leave it out, so it needs no new protocol.
+type Hello struct {
+	Identity
+	Granted string `json:"granted,omitempty"`
+}
+
 type Peer struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
@@ -45,6 +53,9 @@ type Peer struct {
 	Message      string `json:"message,omitempty"`
 	// Access is what it may do on this island once allowed in: AccessView or AccessOperate.
 	Access string `json:"access"`
+	// Granted is what this computer may do on its island, AccessView or AccessOperate, as it said at the last check;
+	// empty when not known, as from a computer older than this.
+	Granted string `json:"granted,omitempty"`
 	// BlockedUntil keeps it out until this Unix time; BlockedForever until unblocked by hand; 0 is not blocked.
 	BlockedUntil int64 `json:"blockedUntil,omitempty"`
 	// Look is how the person at it looks, as it last said; nil when it has not said.
@@ -520,9 +531,13 @@ func (s *Service) Check(ctx context.Context, id string) (Peer, error) {
 		defer resp.Body.Close()
 		switch resp.StatusCode {
 		case 200:
-			var identity Identity
+			var identity Hello
 			if json.NewDecoder(resp.Body).Decode(&identity) == nil && identity.ID == id {
 				p.Protocol = identity.Protocol
+				p.Granted = ""
+				if identity.Granted == AccessView || identity.Granted == AccessOperate {
+					p.Granted = identity.Granted
+				}
 				if name, err := CleanName(identity.Name); err == nil {
 					p.Name = name
 				}
@@ -532,7 +547,7 @@ func (s *Service) Check(ctx context.Context, id string) (Peer, error) {
 				p.Message = ""
 				if identity.Protocol != Protocol {
 					p.Status = "incompatible"
-					p.Message = incompatible(identity).Message
+					p.Message = incompatible(identity.Identity).Message
 				}
 			}
 		case 401:

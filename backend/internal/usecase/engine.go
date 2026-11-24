@@ -391,6 +391,8 @@ func (e *Engine) load(ctx context.Context) error {
 			err = loadInto(d, e.w.Tasks)
 		case "subTask":
 			err = loadInto(d, e.w.SubTasks)
+		case "ghost":
+			err = loadInto(d, e.w.Ghosts)
 		case kindTaskLog:
 			err = e.loadLog(d)
 		case kindTaskActs:
@@ -511,6 +513,7 @@ func (e *Engine) documents() map[string][]byte {
 	encodeAll(now, e.encoded, next, "workflow", e.w.Workflows)
 	encodeAll(now, e.encoded, next, "task", e.w.Tasks)
 	encodeAll(now, e.encoded, next, "subTask", e.w.SubTasks)
+	encodeAll(now, e.encoded, next, "ghost", e.w.Ghosts)
 	e.encoded = next
 	e.chatDocuments(now)
 	e.logDocuments(now)
