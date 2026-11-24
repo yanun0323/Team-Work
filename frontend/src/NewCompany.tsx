@@ -3,7 +3,10 @@
 // on the plot meanwhile, in a look rolled at random; the die on the sheet rolls another. Spots the player
 // picked are pinned here, so the town keeps its shape as it grows.
 
-import { useIsland } from './core/island'
+import { useIsland, useRemote } from './core/island'
+import { ghostsOf, readPeerWorld } from './core/ghosts'
+import { usePeers } from './core/towers'
+import type { World } from './core/domain/types'
 import { FolderBrowser } from './FolderBrowser'
 import { tr } from './core/i18n'
 import { useFrame, useThree } from '@react-three/fiber'
@@ -11,7 +14,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { usePaste } from './paste'
 import * as THREE from 'three'
 import { createTeam } from './core/domain/sim'
-import { Select } from './Controls'
+import { Select, Switcher } from './Controls'
 import { BuildingIcon } from './Drawer'
 import { Reroll } from './Controls'
 import { MOCK } from './core/mode'
@@ -19,7 +22,7 @@ import { branchesOf } from './core/ops'
 import { canPlace, CELL, landGained, PLOT_CELLS, spotCenter, spotUnder, type BuildingLook, type BuildingStyle, type Spot, type Town } from './layout'
 import { NO_OUTLINE_LAYER } from './PixelPass'
 import { pickFolder } from './pickFolder'
-import { useStore } from './core/store'
+import { homeWorld, useStore } from './core/store'
 
 /** Fake file system: these folders already have a git repo, with these branches. */
 const KNOWN_REPOS: Record<string, string[]> = {
@@ -200,8 +203,18 @@ export const STYLE_NAMES = {
   lighthouse: '燈塔', hut: '海島草屋', castle: '城堡', canal: '運河屋', glasshouse: '溫室', sweets: '甜點店',
 } as const satisfies Record<BuildingStyle, string>
 
+/** A friend island's company picked to stand here as a ghost company, with its look there. */
+export interface GhostPick {
+  peerId: string
+  teamId: string
+  name: string
+  look: BuildingLook
+  /** The friend island's world it was read from. */
+  world: World
+}
+
 /** The sheet for the company itself: name, folder and target branch. Founding it hands back its id. */
-export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
+export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll, onGhost, onCreateGhost }: {
   leaving: boolean
   /** The building's look, shown on the plot; `onReroll` rolls another. */
   look: BuildingLook
@@ -209,10 +222,22 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
   /** Called when the page has turned away. */
   onGone: () => void
   onCreate: (input: Parameters<typeof createTeam>[1]) => void
+  /** A friend island's company picked, or none any more: its building then stands on the plot in its own look. */
+  onGhost?: (pick: GhostPick | null) => void
+  onCreateGhost?: (pick: GhostPick) => void
 }) {
   const paste = usePaste(leaving, onGone)
   const title = useRef<HTMLHeadingElement>(null)
   useEffect(() => title.current?.focus({ preventScroll: true }), [])
+  // a friend island's company can stand here instead, once there is a friend island, on this computer's own island
+  const hasFriends = usePeers((s) => (s.peers?.length ?? 0) > 0)
+  const elsewhere = useRemote()
+  const friends = hasFriends && !MOCK && !elsewhere && !!onCreateGhost
+  const [kind, setKind] = useState<'own' | 'friend'>('own')
+  const friendly = friends && kind === 'friend'
+  const ghost = useRef(onGhost)
+  ghost.current = onGhost
+  useEffect(() => { if (!friendly) ghost.current?.(null) }, [friendly])
   const [name, setName] = useState('')
   const [named, setNamed] = useState(false)
   const [folder, setFolder] = useState('')
@@ -267,6 +292,12 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
             <h1 id="fx-new-company-title" ref={title} tabIndex={-1}>{tr('新公司')}</h1>
           </div>
         </header>
+        {friends && (
+          <div className="fx-page fx-d-form fx-new-kind">
+            <Switcher label={tr('來源')} value={kind} options={KINDS} labelOf={(k) => tr(k === 'own' ? '我的專案' : '好友的公司')} onChange={setKind} />
+          </div>
+        )}
+        {friendly ? <FriendCompany onPick={(p) => ghost.current?.(p)} onCreate={(p) => onCreateGhost?.(p)} /> : (
         <form className="fx-page fx-d-form" onSubmit={save}>
           <div className="fx-fields">
             <div className="fx-field">
@@ -311,7 +342,75 @@ export function NewCompanySheet({ leaving, onGone, onCreate, look, onReroll }: {
           </div>
           <button type="submit" className="fx-save">{tr('建立')}</button>
         </form>
+        )}
       </div>
     </aside>
+  )
+}
+
+const KINDS = ['own', 'friend'] as const
+
+/**
+ * Picks a friend island's company to stand here as a ghost company: an island that can be reached now, then one of its
+ * companies not here yet. Its building keeps the look it has there.
+ */
+function FriendCompany({ onPick, onCreate }: { onPick: (pick: GhostPick | null) => void; onCreate: (pick: GhostPick) => void }) {
+  const peers = usePeers((s) => s.peers) ?? []
+  const online = peers.filter((p) => p.status === 'online')
+  const [peerId, setPeerId] = useState('')
+  const peer = online.find((p) => p.id === peerId) ?? online[0]
+  const [read, setRead] = useState<{ peerId: string; world?: World; error?: string } | null>(null)
+  useEffect(() => {
+    if (!peer) return
+    const ctl = new AbortController()
+    setRead({ peerId: peer.id })
+    readPeerWorld(peer.id, ctl.signal).then((world) => setRead({ peerId: peer.id, world }), (e: Error) => {
+      if (!ctl.signal.aborted) setRead({ peerId: peer.id, error: e.message })
+    })
+    return () => ctl.abort()
+  }, [peer?.id])
+  // the companies there, oldest first, but for those standing here already
+  const here = useStore((s) => ghostsOf(homeWorld(s)).map((g) => `${g.peerId}\u0000${g.teamId}`).join('\n')).split('\n')
+  const world = read?.peerId === peer?.id ? read?.world : undefined
+  const teams = world ? Object.values(world.teams).sort((a, b) => a.createdAt - b.createdAt)
+    .filter((t) => !here.includes(`${peer?.id}\u0000${t.id}`)) : []
+  const [teamId, setTeamId] = useState('')
+  const team = teams.find((t) => t.id === teamId) ?? teams[0]
+  const pick: GhostPick | null = peer && world && team
+    ? { peerId: peer.id, teamId: team.id, name: team.name, look: team.plot ? { style: team.plot.style, seed: team.plot.seed } : { style: 'tower', seed: 0 }, world }
+    : null
+  const picked = useRef(onPick)
+  picked.current = onPick
+  const pickKey = pick ? `${pick.peerId}\u0000${pick.teamId}\u0000${pick.look.style}\u0000${pick.look.seed}` : ''
+  useEffect(() => picked.current(pick), [pickKey])
+  const status = !peer ? tr('現在沒有連得上的好友小島')
+    : read?.peerId === peer.id && read.error ? read.error
+    : !world ? tr('讀取中…')
+    : !Object.keys(world.teams).length ? tr('{name} 還沒有公司', { name: peer.name })
+    : !teams.length ? tr('{name} 的公司都已經在島上了', { name: peer.name })
+    : ''
+  return (
+    <form className="fx-page fx-d-form" onSubmit={(e) => { e.preventDefault(); if (pick) onCreate(pick) }}>
+      <div className="fx-fields">
+        {online.length > 0 && (
+          <Select label={tr('好友')} value={peer?.id ?? ''} options={online.map((p) => p.id)} labelOf={(id) => online.find((p) => p.id === id)?.name ?? id}
+            onChange={(id) => { setPeerId(id); setTeamId('') }} />
+        )}
+        {teams.length > 0 && (
+          <Select label={tr('公司')} value={team?.id ?? ''} options={teams.map((t) => t.id)} labelOf={(id) => teams.find((t) => t.id === id)?.name ?? id} onChange={setTeamId} />
+        )}
+        {pick && (
+          <div className="fx-field">
+            <span>{tr('外觀')}</span>
+            <div className="fx-look fx-look-building">
+              <BuildingIcon look={pick.look} />
+              <span>{tr(STYLE_NAMES[pick.look.style])}</span>
+            </div>
+          </div>
+        )}
+        {status && <p className="fx-empty" role="status">{status}</p>}
+      </div>
+      <button type="submit" className="fx-save" disabled={!pick}>{tr('建立')}</button>
+    </form>
   )
 }

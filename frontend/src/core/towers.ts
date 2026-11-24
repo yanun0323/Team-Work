@@ -25,6 +25,8 @@ export interface Peer {
   message?: string
   /** What it may do on this island once allowed in. */
   access: PeerAccess
+  /** What this computer may do on its island, as it said at the last check; absent when not known (an older computer). */
+  granted?: PeerAccess
   /** Kept out until this Unix time; -1 until unblocked by hand; absent when not blocked. */
   blockedUntil?: number
   /** How the person at it looks, as it last said; absent until it has. */
@@ -171,12 +173,25 @@ export function goHome(why = '') {
 }
 
 /**
+ * Closes the ghost company open, if one is: the drawers are this island's again (the map never left it). `why`, when
+ * it closed on its own, is shown.
+ */
+export function closeGhost(why = '') {
+  if (!useIsland.getState().island?.ghost) return
+  useStore.getState().leaveGhost()
+  useIsland.setState({ island: null, notice: why })
+}
+
+/** Leaves what was worked on another computer: the ghost company open, or that computer's island. */
+const leave = (why: string) => (useIsland.getState().island?.ghost ? closeGhost(why) : goHome(why))
+
+/**
  * While another island is shown: a request it turns down for good, or a check after its connection is lost, that
  * finds it can no longer be worked from here, takes the screen home and says why. Returns the undo.
  */
 export function watchIsland(every = 5000) {
   setIslandRefusedHandler((e: ApiError) => {
-    if (useIsland.getState().island) goHome(e.message)
+    if (useIsland.getState().island) leave(e.message)
   })
   let busy = false
   const check = async () => {
@@ -186,10 +201,10 @@ export function watchIsland(every = 5000) {
     try {
       const peer = await checkPeer(island.id)
       if (useIsland.getState().island?.id !== island.id) return
-      if (SENDS_HOME.includes(peer.status)) goHome(peer.message ?? '')
+      if (SENDS_HOME.includes(peer.status)) leave(peer.message ?? '')
     } catch (e) {
       // unpaired here, from the tower
-      if (e instanceof ApiError && e.code === 'not_found' && useIsland.getState().island?.id === island.id) goHome(e.message)
+      if (e instanceof ApiError && e.code === 'not_found' && useIsland.getState().island?.id === island.id) leave(e.message)
     } finally {
       busy = false
     }
@@ -205,7 +220,7 @@ export function watchIsland(every = 5000) {
 
 /** After unpairing the computer whose island is shown, from this tower: back home. */
 export function leftPeer(id: string) {
-  if (useIsland.getState().island?.id === id) goHome()
+  if (useIsland.getState().island?.id === id) leave('')
 }
 
 /** This page, among the pages a computer has open on another island: the island counts the computer once. */
@@ -256,14 +271,18 @@ export function reportPresence(place: () => string, every = PRESENCE_MS) {
 /** The paired computers on this island now, read every few seconds while this computer's own island is shown. */
 export const useVisitors = create<{ visitors: Visitor[] }>(() => ({ visitors: [] }))
 
+/** The paired computers, as last read with the visitors; null until first read. Ghost companies go by them. */
+export const usePeers = create<{ peers: Peer[] | null }>(() => ({ peers: null }))
+
 export function watchVisitors(every = 5000) {
   if (MOCK) return () => {}
   let live = true
   const read = async () => {
-    if (useIsland.getState().island) return useVisitors.setState({ visitors: [] })
+    if (useIsland.getState().island && !useIsland.getState().island?.ghost) return useVisitors.setState({ visitors: [] })
     try {
       const t = await readTowers()
-      if (live && !useIsland.getState().island) useVisitors.setState({ visitors: t.visitors })
+      if (live) usePeers.setState({ peers: t.peers })
+      if (live && !(useIsland.getState().island && !useIsland.getState().island?.ghost)) useVisitors.setState({ visitors: t.visitors })
     } catch {
       // keep the last list until the tower answers again
     }

@@ -16,6 +16,14 @@ export interface TeamInput {
   style?: BuildingStyle
   /** Seed for its building's details (colours, lit windows) and its office; otherwise taken from the id. */
   seed?: number
+  /** A paired computer's company shown here (a ghost company): which computer, and its id there. */
+  ghost?: GhostOf
+}
+
+/** Where a ghost company really is: the paired computer, and the company's id on it. */
+export interface GhostOf {
+  peerId: string
+  teamId: string
 }
 
 /**
@@ -49,6 +57,8 @@ export interface Lot {
   seed: number
   /** Street furniture on the paved ring: lamps one cell, planters up to a 3 × 1 strip, benches 2 × 1. */
   props: Prop[]
+  /** A paired computer's company shown here, not one of this island's own. */
+  ghost?: GhostOf
 }
 
 export interface Prop extends Rect {
@@ -437,6 +447,7 @@ export function layoutTown(teams: TeamInput[]): Town {
       decor: decorOf(t.done ?? 0),
       style: t.style ?? LEGACY_STYLES[i % LEGACY_STYLES.length],
       seed: t.seed ?? seedOfId(t.id),
+      ...(t.ghost ? { ghost: t.ghost } : {}),
     }
   })
 

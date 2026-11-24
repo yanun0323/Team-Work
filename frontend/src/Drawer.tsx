@@ -4,7 +4,8 @@
 // opens shows its detail on a sheet over the upper left of the map (DrawerDetail). There is no close
 // button: a click on the map puts everything away, or, with the preference off, the detail sheets first.
 
-import { useRemote } from './core/island'
+import { useIsland, useRemote } from './core/island'
+import { GhostOwner } from './Ghost'
 import { tr } from './core/i18n'
 import { openFolder } from './core/ops'
 import { MOCK } from './core/mode'
@@ -159,7 +160,10 @@ export function Drawer({ teamId, look, leaving, onGone }: {
   const { back } = sheets
   useMapClickSheets(sheets, leaving)
   const under = useUnderWide(sheets.top >= 0 && !leaving)
-  const bytes = useProjectBytes((b) => b[teamId] ?? 0)
+  // a ghost company: the friend it belongs to, and its size as asked of their computer, kept under the ghost's id
+  const ghostId = useIsland((s) => (s.island?.ghost?.teamId === teamId ? s.island.ghost.id : ''))
+  const ghostPeer = useIsland((s) => (s.island?.ghost?.teamId === teamId ? s.island.id : ''))
+  const bytes = useProjectBytes((b) => b[ghostId || teamId] ?? 0)
   // a new company: move focus to its name, and put away the last company's sheet
   useEffect(() => {
     title.current?.focus({ preventScroll: true })
@@ -207,6 +211,7 @@ export function Drawer({ teamId, look, leaving, onGone }: {
         <header className="fx-head">
           <CompanyTitle team={team} look={look} canOpenFolder bytes={bytes}>
             <h1 id="fx-drawer-title" ref={title} tabIndex={-1}>{team.name}</h1>
+            {ghostPeer && <GhostOwner peerId={ghostPeer} />}
           </CompanyTitle>
           <div className="fx-tabs" role="tablist" aria-label={tr('公司檔案')} onKeyDown={onTabKey}>
             {TABS.map((x, i) => (

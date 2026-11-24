@@ -5,7 +5,7 @@ import type { Locale, World } from './domain/types'
 import { tr } from './i18n'
 import { DEFAULT_PREFS, type Prefs } from '../prefs'
 import type { DiffLine } from '../diffView'
-import { apiBase, LOCAL_BASE, socketUrl, socketUrlOn, type Island } from './island'
+import { apiBase, LOCAL_BASE, mapBase, socketUrl, socketUrlOn, type Island } from './island'
 
 export const unreachable = () => tr(import.meta.env.MODE === 'desktop'
   ? '連不上後端，請關閉並重新開啟 Team Work'
@@ -28,13 +28,14 @@ export type ServerEvent =
   | { type: 'notice'; kind: 'review' | 'awaitMerge' | 'mergeFailed'; taskId: string; subId?: string }
 
 const BOOKS: Record<string, keyof World> = {
-  team: 'teams', provider: 'providers', blueprint: 'blueprints', source: 'sources', replica: 'replicas', workflow: 'workflows', task: 'tasks', subTask: 'subTasks', chat: 'chats',
+  team: 'teams', provider: 'providers', blueprint: 'blueprints', source: 'sources', replica: 'replicas', workflow: 'workflows', task: 'tasks', subTask: 'subTasks', chat: 'chats', ghost: 'ghosts',
 }
 
 /** Writes a batch of changes into the world. `skip` leaves out what the user is in the middle of editing. */
 export function applyPatches(w: World, ev: { upserts?: Patch[]; deletes?: Patch[] }, skip: (kind: string, id: string) => boolean = () => false) {
   for (const p of ev.upserts ?? []) {
     if (p.kind === 'preferences') { w.preferences = p.data as Prefs; continue }
+    if (p.kind === 'ghost') w.ghosts ??= {}
     const book = w[BOOKS[p.kind]] as Record<string, unknown> | undefined
     if (book && !skip(p.kind, p.id)) book[p.id] = p.data
     else if (p.kind === 'team' && w.teams[p.id]) {
@@ -61,7 +62,7 @@ export const handedImageUrl = (subId: string, path: string) => `${apiBase()}/sub
 
 /** A world with nothing in it, until the backend's snapshot arrives. */
 export const emptyWorld = (): World => ({
-  preferences: { ...DEFAULT_PREFS }, now: Date.now() / 1000, seq: 0, language: 'zh', teams: {}, providers: {}, blueprints: {}, sources: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {},
+  preferences: { ...DEFAULT_PREFS }, now: Date.now() / 1000, seq: 0, language: 'zh', teams: {}, providers: {}, blueprints: {}, sources: {}, replicas: {}, workflows: {}, tasks: {}, subTasks: {}, chats: {}, ghosts: {},
   nextDriftAt: Infinity, rng: 0, events: [],
 })
 
@@ -116,6 +117,10 @@ async function send<T>(base: string, method: string, path: string, body?: unknow
 export const request = <T = void>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> =>
   send<T>(apiBase(), method, path, body, signal)
 
+/** The same, to the map's island: this computer's own while a ghost company is open (`mapIsland`). */
+export const mapRequest = <T = void>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> =>
+  send<T>(mapBase(), method, path, body, signal)
+
 /**
  * The same, always to this computer's backend: the power tower, the language, interface preferences.
  * `key`, when given, is the Idempotency-Key, kept by the caller across retries of one action.
@@ -149,6 +154,35 @@ export function connectAhead(island: Island | null) {
 function dropAhead() {
   ahead?.socket.close()
   ahead = null
+}
+
+/**
+ * Stays connected to `island`'s events (null: this computer's own) until the returned function is called, whatever
+ * island is shown, trying again `retry` ms after each loss. Each connection starts with a fresh snapshot. `onState`
+ * hears when one opens and when one is lost.
+ */
+export function follow(island: Island | null, onEvent: (ev: ServerEvent) => void, onState: (open: boolean) => void = () => {}, retry = 1000) {
+  let socket: WebSocket | null = null
+  let timer = 0
+  let stopped = false
+  const open = () => {
+    let s: WebSocket
+    try { s = new WebSocket(socketUrlOn(island, EVENTS)) } catch { return }
+    socket = s
+    s.onopen = () => onState(true)
+    s.onmessage = (m) => onEvent(JSON.parse(m.data as string) as ServerEvent)
+    s.onclose = () => {
+      if (stopped) return
+      onState(false)
+      timer = window.setTimeout(open, retry)
+    }
+  }
+  open()
+  return () => {
+    stopped = true
+    window.clearTimeout(timer)
+    socket?.close()
+  }
 }
 
 /**

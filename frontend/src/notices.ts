@@ -4,7 +4,8 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import { colon, tr } from './core/i18n'
 import { teamAlerts } from './core/model'
-import { useStore } from './core/store'
+import { homeWorld, useStore } from './core/store'
+import { ghostWaiting, useFeeds } from './core/ghosts'
 import type { World } from './core/domain/types'
 import { chatPreview } from './crew'
 import { mergeFailureShort } from './MergeFailure'
@@ -103,7 +104,7 @@ export function startSystemNotices() {
   const send = (targets: NoticeTarget[]) => {
     const prefs = usePrefs.getState()
     if (!prefs.systemNotices || !away(document)) return
-    const w = useStore.getState().world
+    const w = homeWorld(useStore.getState())
     for (const target of targets) {
       const notice = noticeOf(w, target, prefs)
       if (notice) handler('notify')?.postMessage(notice)
@@ -111,8 +112,10 @@ export function startSystemNotices() {
   }
   let shown = -1
   const badge = () => {
-    const { loaded, world } = useStore.getState()
-    const count = usePrefs.getState().systemNotices && loaded ? waitingCount(world) : 0
+    const { loaded } = useStore.getState()
+    const home = homeWorld(useStore.getState())
+    // the ghost companies here count too, as their computers' follows have them
+    const count = usePrefs.getState().systemNotices && loaded ? waitingCount(home) + ghostWaiting(home, useFeeds.getState()) : 0
     if (count !== shown) handler('badge')?.postMessage(shown = count)
   }
   // The app sets window.twOpen and announces it with tw-open; one set before this page was up is read at once.
@@ -124,7 +127,7 @@ export function startSystemNotices() {
   }
   badge()
   open()
-  const unsubscribe = [subscribeNoticeSound(send), subscribeChatSound(send), useStore.subscribe(badge), usePrefs.subscribe(badge)]
+  const unsubscribe = [subscribeNoticeSound(send), subscribeChatSound(send), useStore.subscribe(badge), usePrefs.subscribe(badge), useFeeds.subscribe(badge)]
   window.addEventListener('tw-open', open)
   return () => {
     for (const stop of unsubscribe) stop()

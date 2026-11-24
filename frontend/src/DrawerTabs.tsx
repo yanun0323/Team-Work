@@ -9,6 +9,8 @@ import { byBlueprint, chatMindOf, chatPeople, chatPreview, chatOrder, chatSign, 
 import { ChatFaces } from './ChatFaces'
 import { activity, fmtTokens, laneTasks, teamReplicas, useNearEdge } from './core/model'
 import { useStore } from './core/store'
+import { useIsland } from './core/island'
+import { RemoveGhost } from './Ghost'
 import { PixelFace } from './core/voxel/PixelFace'
 import { Select, Stepper, WaitBadge } from './Controls'
 import { editTeam, refreshPrompt } from './core/ops'
@@ -215,6 +217,7 @@ export function TeamMemories(p: Opens) {
 
 function Settings({ teamId, ...p }: Opens) {
   const team = useStore((s) => s.world.teams[teamId])
+  const ghost = useIsland((s) => s.island?.ghost?.id ?? '')
   const act = useStore((s) => s.act)
   // the prompt is the project's AGENTS.md: coming back to the app may mean it was just edited elsewhere
   useEffect(() => {
@@ -251,7 +254,8 @@ function Settings({ teamId, ...p }: Opens) {
       {num('costLimitUsd', tr('任務費用上限'), 'USD', 0.5, 0.5)}
       {num('retries', tr('失敗重試'), tr('次'), 0, 1)}
       <hr />
-      <button className="fx-save fx-danger" {...opener({ kind: 'disband' }, { teamId, ...p })}>{tr('解散公司')}</button>
+      {/* a ghost company is only taken off this island: the company on its own computer is theirs to close */}
+      {ghost ? <RemoveGhost id={ghost} /> : <button className="fx-save fx-danger" {...opener({ kind: 'disband' }, { teamId, ...p })}>{tr('解散公司')}</button>}
     </div>
   )
 }

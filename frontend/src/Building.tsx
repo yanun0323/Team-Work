@@ -19,7 +19,10 @@ import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { activity, teamBusy, teamReplicas } from './core/model'
-import { useStore } from './core/store'
+import { homeWorld, useStore } from './core/store'
+import { emptyWorld } from './core/backend'
+import type { World } from './core/domain/types'
+import { useGhostState, useGhostWorld } from './core/ghosts'
 import { UNIT } from './core/voxel/kit'
 import { boxOnScreen, ISO_DIR, SCREEN_RIGHT, SCREEN_UP } from './camera'
 import { CELL, FLOOR_CELLS, floorsOf, footprintOf, hash, rectCenter, spotCenter, type BuildingLook, type BuildingStyle, type Lot, type Spot, type Town } from './layout'
@@ -176,6 +179,34 @@ export function paletteOf({ style, seed }: BuildingLook): Palette {
   const all = PALETTES[style]
   return all[Math.floor(hash(seed, 5) * all.length)]
 }
+
+/** Hue and saturation of a ghost company's building: its own colours' lightness, in a cool blue, as if projected. */
+const GHOST_HUE = 0.6
+const GHOST_SAT = 0.38
+/** Out of reach, the projection fades towards grey. */
+const GHOST_SAT_LOST = 0.12
+const ghostPalettes = new Map<string, Palette>()
+
+/** A palette in a ghost company's projected blue; `on` while its computer can be reached, greyer otherwise. */
+export function ghostPalette(p: Palette, on: boolean): Palette {
+  const key = `${on}${JSON.stringify(p)}`
+  let out = ghostPalettes.get(key)
+  if (!out) {
+    const c = new THREE.Color()
+    const hsl = { h: 0, s: 0, l: 0 }
+    const cool = (hex: string) => {
+      c.set(hex).getHSL(hsl)
+      // the lightness is kept, squeezed a little towards the middle, so light and dark parts still read apart
+      return `#${c.setHSL(GHOST_HUE, on ? GHOST_SAT : GHOST_SAT_LOST, 0.22 + hsl.l * 0.66).getHexString()}`
+    }
+    out = Object.fromEntries(Object.entries(p).map(([k, v]) => [k, cool(v)])) as unknown as Palette
+    ghostPalettes.set(key, out)
+  }
+  return out
+}
+
+/** A building's colours: its look's own, or a ghost company's projected ones (`ghost`: whether it can be reached). */
+const coloursOf = (look: BuildingLook, ghost?: boolean) => (ghost === undefined ? paletteOf(look) : ghostPalette(paletteOf(look), ghost))
 
 const LIT = ['#ffe08a', '#ffd06a']
 /** Warm light inside a lobby pane. */
@@ -547,6 +578,29 @@ function Part({ p, c, children }: { p: V3; c: string; children: ReactNode }) {
   return <mesh position={p} material={toon(c)} castShadow receiveShadow>{children}</mesh>
 }
 
+/**
+ * The mast on a ghost company's roof, by a corner: the projection's receiver. Its light blinks while the
+ * company's computer can be reached, and stays dark while it can't.
+ */
+function Antenna({ x, z, h, on }: { x: number; z: number; h: number; on: boolean }) {
+  const light = useRef<THREE.Mesh>(null)
+  useFrame(({ clock }) => {
+    if (light.current) light.current.visible = on && Math.floor(clock.elapsedTime / 0.9) % 2 === 0
+  })
+  return (
+    <group position={[x, h, z]}>
+      <Merged deps={[on]}>
+        <B p={[0, 0.15, 0]} s={[0.8, 0.3, 0.8]} c="#34405a" />
+        <B p={[0, 2.2, 0]} s={[0.3, 4.4, 0.3]} c="#34405a" />
+        <B p={[0, 3.2, 0]} s={[1.4, 0.18, 0.18]} c="#34405a" />
+        <B p={[0, 3.9, 0]} s={[0.9, 0.18, 0.18]} c="#34405a" />
+        <B p={[0.45, 1.7, 0.45]} r={[0, Math.PI / 4, -0.6]} s={[0.16, 1.4, 1.4]} c="#c9d6ea" />
+      </Merged>
+      <mesh ref={light} position={[0, 4.65, 0]} scale={0.5} geometry={UNIT} material={toonGlow('#8fe3ff', '#8fe3ff')} />
+    </group>
+  )
+}
+
 export function Building({ lot, town, open, cut = false, another, hover, onHover, onSelect }: {
   lot: Lot
   town: Town
@@ -570,7 +624,12 @@ export function Building({ lot, town, open, cut = false, another, hover, onHover
   }, [town, lot, x, z])
   const furniture = useMemo(() => propBoxes(town, lot, detail).map((b): [V3, V3] => [[b.p[0] - x, b.p[1], b.p[2] - z], b.s]), [town, lot, detail, x, z])
   const [hidden, setHidden] = useState(false)
-  const busy = useStore((s) => teamBusy(s.world, lot.id))
+  // a ghost company's work goes on on its own computer: its windows light by what its follow says
+  const ownBusy = useStore((s) => (lot.ghost ? 0 : teamBusy(homeWorld(s), lot.id)))
+  const there = useGhostWorld(lot.ghost)
+  const ghostState = useGhostState(lot.ghost)
+  const reached = ghostState === 'online' || ghostState === 'view'
+  const busy = lot.ghost ? (there && reached ? teamBusy(there, lot.ghost.teamId) : 0) : ownBusy
   const size = useThree((s) => s.size)
   const plot = useMemo(() => {
     const [px, pz] = rectCenter(town, lot.plot)
@@ -588,22 +647,23 @@ export function Building({ lot, town, open, cut = false, another, hover, onHover
       onPointerOver={(e) => { e.stopPropagation(); onHover(lot.id, true); document.body.style.cursor = open ? '' : 'pointer' }}
       onPointerOut={() => { onHover(lot.id, false); document.body.style.cursor = '' }}>
       {/* the whole building fades out as the cut-away fades in, and back */}
-      <Fade show={!open && !cut && !hidden}><Exterior look={lot} w={lot.building.w * CELL} d={lot.building.d * CELL} floors={lot.floors} decor={lot.decor} busy={busy} /></Fade>
+      <Fade show={!open && !cut && !hidden}><Exterior look={lot} w={lot.building.w * CELL} d={lot.building.d * CELL} floors={lot.floors} decor={lot.decor} busy={busy}
+        ghost={lot.ghost ? reached : undefined} /></Fade>
       {/* the paved plot and its street furniture count as the building too, for the pointer and the shade */}
       {!hidden && <PlotHit boxes={grounds} />}
       <HoverShade on={hover && !open && !cut && !hidden} floor={floor} boxes={furniture} />
-      <Fade show={open || cut}><CutAway lot={lot} /></Fade>
+      <Fade show={open || cut}><CutAway lot={lot} ghost={lot.ghost ? reached : undefined} /></Fade>
     </group>
   )
 }
 
 /** A new company's building as it will first stand, on the plot picked for it, while its sheet is open. */
-export function BuildingPreview({ look, at }: { look: BuildingLook; at: Spot }) {
+export function BuildingPreview({ look, at, ghost }: { look: BuildingLook; at: Spot; ghost?: boolean }) {
   const [x, z] = spotCenter(at)
   const size = footprintOf(0)
   return (
     <group position={[x, 0, z]}>
-      <Exterior look={look} w={size * CELL} d={size * CELL} floors={floorsOf(0)} decor={0} />
+      <Exterior look={look} w={size * CELL} d={size * CELL} floors={floorsOf(0)} decor={0} ghost={ghost || undefined} />
     </group>
   )
 }
@@ -615,9 +675,13 @@ export function litShares(busy?: number): { windows: number; lobby: number } {
   return { windows: Math.min(0.12 + 0.12 * busy, 0.72), lobby: Math.min(0.4 + 0.2 * busy, 1) }
 }
 
-function Exterior({ look, w, d, floors, decor, busy }: { look: BuildingLook; w: number; d: number; floors: number; decor: number; busy?: number }) {
+function Exterior({ look, w, d, floors, decor, busy, ghost }: {
+  look: BuildingLook; w: number; d: number; floors: number; decor: number; busy?: number
+  /** A ghost company's building: in projected colours, with a mast on the roof; whether its computer can be reached. */
+  ghost?: boolean
+}) {
   const { style, seed } = look
-  const pal = paletteOf(look)
+  const pal = coloursOf(look, ghost)
   const h = floors * FLOOR
   const upper = floors - 1
   const lit = litShares(busy)
@@ -648,7 +712,7 @@ function Exterior({ look, w, d, floors, decor, busy }: { look: BuildingLook; w: 
   return (
     <>
       {/* everything but the busy animations stands still: drawn merged; the lit windows only change their materials */}
-      <Merged deps={[style, seed, w, d, floors, decor]}>
+      <Merged deps={[style, seed, w, d, floors, decor, ghost]}>
       {/* ground floor, set back under the floors above */}
       <mesh position={[0, FLOOR / 2, 0]} material={shop} castShadow receiveShadow>
         <boxGeometry args={[w - LOBBY_INSET * 2, FLOOR, d - LOBBY_INSET * 2]} />
@@ -724,6 +788,8 @@ function Exterior({ look, w, d, floors, decor, busy }: { look: BuildingLook; w: 
         <Roof style={style} w={w / KIT} d={d / KIT} pal={pal} />
       </group>
       </Merged>
+      {/* on the corner nearest the camera: the name tag stands over the rest of the roof */}
+      {ghost !== undefined && <Antenna x={w / 2 - 1} z={d / 2 - 1} h={h + 0.18} on={ghost} />}
       {!!busy && busyAnimation === 'money' && <MoneyToss w={w} d={d} h={h} seed={seed} />}
       {!!busy && busyAnimation === 'shout' && <Shout w={w} d={d} h={h} seed={seed} />}
     </>
@@ -790,16 +856,28 @@ export function Clear({ p, s, c }: { p: V3; s: V3; c: string }) {
   )
 }
 
+/**
+ * The world a building's office reads: this island's own, or for a ghost company its computer's, as followed; and the
+ * company's id in it.
+ */
+function useLotWorld(lot: Lot): [World, string] {
+  const home = useStore(homeWorld)
+  const there = useGhostWorld(lot.ghost)
+  return lot.ghost ? [there ?? NO_WORLD, lot.ghost.teamId] : [home, lot.id]
+}
+const NO_WORLD = emptyWorld()
+
 /** The ground floor only: solid back walls, clear front walls, and the office inside. */
-function CutAway({ lot }: { lot: Lot }) {
+function CutAway({ lot, ghost }: { lot: Lot; ghost?: boolean }) {
   const w = lot.building.w * CELL
   const d = lot.building.d * CELL
-  const pal = paletteOf(lot)
+  const pal = coloursOf(lot, ghost)
+  const [world, teamId] = useLotWorld(lot)
   const hx = w / 2 - WALL / 2
   const hz = d / 2 - WALL / 2
   // the room is rolled again whenever the head count changes, and only then, so the walking grid isn't
   // rebuilt every update
-  const people = useStore((s) => teamReplicas(s.world, lot.id).length)
+  const people = teamReplicas(world, teamId).length
   const seed = Math.floor(hash(lot.seed, people, 77) * 2 ** 31)
   const plan = useMemo(() => officePlan(people, w, CELL, seed), [people, w, seed])
   const decor = useMemo(() => decorOf(seed), [seed])
@@ -827,7 +905,7 @@ function CutAway({ lot }: { lot: Lot }) {
       <Clear p={[0, CUT / 2, hz]} s={[w, CUT, WALL]} c={pal.wall} />
       <Clear p={[hx, CUT / 2, 0]} s={[WALL, CUT, d - WALL * 2]} c={pal.wall} />
       </Merged>
-      <Office teamId={lot.id} plan={plan} decor={decor} trim={pal.trim} seed={seed} />
+      <Office world={world} teamId={teamId} plan={plan} decor={decor} trim={pal.trim} seed={seed} />
       {/* lit evenly after dark, like ceiling panels */}
       {/* a little past the walls, so no wall face sits on its edge, and above the paving round the building */}
       <IndoorRoom min={[-w / 2 - 0.06, 0.085, -d / 2 - 0.06]} max={[w / 2 + 0.06, CUT + 2, d / 2 + 0.06]} />
@@ -1818,8 +1896,7 @@ function Shelf({ a, k }: { a: Area; k: Decor }) {
 const COVER_Y = FLOOR_TOP + 0.008
 const RUG_Y = FLOOR_TOP + 0.016
 
-function Office({ teamId, plan, decor, trim, seed }: { teamId: string; plan: OfficePlan; decor: Decor; trim: string; seed: number }) {
-  const w = useStore((s) => s.world)
+function Office({ world: w, teamId, plan, decor, trim, seed }: { world: World; teamId: string; plan: OfficePlan; decor: Decor; trim: string; seed: number }) {
   // less detail: no desk items or pot plants
   const detail = usePrefs((s) => s.detail)
   const replicas = teamReplicas(w, teamId)

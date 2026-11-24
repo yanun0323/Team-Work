@@ -1,7 +1,7 @@
 // Plays the synthesized music and effects (soundSynth.ts) through Web Audio.
 import { useEffect } from 'react'
 import { usePrefs, type Prefs, type MusicStyle } from './prefs'
-import { useStore, type Toast } from './core/store'
+import { homeWorld, useStore, type Toast } from './core/store'
 import type { World } from './core/domain/types'
 import { effectSamples, musicSamples, NOTICE_DUCK, NOTICE_LEAD_IN, RATE, type Stereo } from './soundSynth'
 
@@ -36,7 +36,8 @@ export function subscribeNoticeSound(notify: (targets: NoticeTarget[]) => void) 
     const fresh: Toast[] = state.toasts.filter((toast) => toast.id > latest)
     if (!fresh.length) return
     latest = Math.max(latest, ...fresh.map((toast) => toast.id))
-    if (!state.loaded || state.offline) return
+    // while a ghost company is open its computer's notices come too: this island's own are the ones sent on
+    if (!state.loaded || state.offline || state.home) return
     const targets = new Map<string, NoticeTarget>()
     for (const { event } of fresh) {
       if (event.kind !== 'review' && event.kind !== 'awaitMerge' && event.kind !== 'mergeFailed') continue
@@ -65,10 +66,11 @@ export function watchChat(id: string) {
  */
 export function subscribeChatSound(notify: (targets: NoticeTarget[]) => void) {
   const unread = (chats: World['chats']) => new Set(Object.values(chats).filter((chat) => chat.unread && chat.replyAt === undefined).map((chat) => chat.id))
-  let seen = unread(useStore.getState().world.chats)
+  // this island's own chats, also while a ghost company's computer's world is the one shown
+  let seen = unread(homeWorld(useStore.getState()).chats)
   return useStore.subscribe((state, previous) => {
-    if (state.world.chats === previous.world.chats) return
-    const now = unread(state.world.chats)
+    if (homeWorld(state).chats === homeWorld(previous).chats) return
+    const now = unread(homeWorld(state).chats)
     const fresh = previous.loaded && !previous.offline ? [...now].filter((id) => !seen.has(id) && !watched.has(id)) : []
     seen = now
     if (fresh.length) notify(fresh.map((id) => ({ kind: 'chat', id })))

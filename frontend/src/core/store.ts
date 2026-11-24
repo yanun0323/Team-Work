@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { DEFAULT_PREFS, splitPrefs, usePrefs, type Prefs } from '../prefs'
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import { applyPatches, connect, emptyWorld, type ServerEvent } from './backend'
+import { applyPatches, connect, emptyWorld, follow, type ServerEvent } from './backend'
 import { seedWorld } from './data/seed'
 import { addLive, clearAllLive, clearLive, setOutput } from './live'
 import { tick } from './domain/sim'
@@ -30,7 +30,10 @@ export interface Toast {
 }
 
 interface State {
+  /** The world drawers and panels show: the other computer's while a ghost company is open (`home` is then this one's). */
   world: World
+  /** While a ghost company is open: this island's own world, kept up to date, for the map; null otherwise. */
+  home: World | null
   view: View
   teamId: string | null
   workflowId: string | null
@@ -60,6 +63,15 @@ interface State {
   setFailure: (failure: string) => void
   /** Empties the world for another island's, keeping this computer's language; its snapshot follows. */
   leaveIsland: () => void
+  /**
+   * Opens a ghost company: this island's world is set aside as `home` for the map, and the drawers get the other
+   * computer's, from `from` (what is already known of it) until its own snapshot arrives.
+   */
+  enterGhost: (from: World | null) => void
+  /** Back from a ghost company: this island's world is the one shown again. */
+  leaveGhost: () => void
+  /** Takes in what this island's backend sends while a ghost company is open, into `home`. */
+  receiveHome: (ev: ServerEvent) => void
 }
 
 let toastSeq = 0
@@ -70,6 +82,7 @@ const firstTeam = Object.values(world.teams).sort((a, b) => a.createdAt - b.crea
 export const useStore = create<State>()(
   immer((set) => ({
     world,
+    home: null,
     // Open straight into the first team; the team list is one click away.
     view: firstTeam ? 'home' : 'teams',
     teamId: firstTeam?.id ?? null,
@@ -174,6 +187,34 @@ export const useStore = create<State>()(
       s.panel = null
       s.toasts = []
     }),
+    enterGhost: (from) => set((s) => {
+      clearAllLive()
+      s.home ??= s.world
+      const { language, preferences } = s.home
+      s.world = from ? { ...emptyWorld(), ...from, language, preferences } : { ...emptyWorld(), language, preferences }
+      s.snapshot++
+      s.arriving = !from
+      s.offline = false
+      s.failure = ''
+      s.toasts = []
+    }),
+    leaveGhost: () => set((s) => {
+      if (!s.home) return
+      clearAllLive()
+      s.world = s.home
+      s.home = null
+      s.snapshot++
+      s.arriving = false
+      s.offline = false
+      s.failure = ''
+      s.toasts = []
+    }),
+    receiveHome: (ev) => set((s) => {
+      if (!s.home) return
+      if (ev.type === 'snapshot') s.home = { ...emptyWorld(), ...ev.world, language: s.home.language }
+      else if (ev.type === 'patch') applyPatches(s.home, ev)
+      else if (ev.type === 'language') s.home.language = ev.language
+    }),
     setFailure: (failure) => set((s) => void (s.failure = failure)),
     act: (fn) =>
       set((s) => {
@@ -231,16 +272,23 @@ export function useNow() {
   return MOCK ? simulated : now
 }
 
+/** This island's own world, for the map: `home` while a ghost company is open, otherwise the world shown. */
+export const homeWorld = (s: Pick<State, 'world' | 'home'>) => s.home ?? s.world
+
 /** Keep the world in step with the backend, unless this page runs on the simulator. */
 export function useBackend() {
   // a new island is a new connection, to its backend
   const island = useIsland((s) => s.island?.id ?? '')
+  // while a ghost company is open, this island's own world keeps coming too, for the map
+  const ghost = useIsland((s) => !!s.island?.ghost)
   useEffect(() => {
     if (MOCK) return
-    const { receive, setOffline, setFailure } = useStore.getState()
+    const { receive, receiveHome, setOffline, setFailure } = useStore.getState()
     setFailureHandler(setFailure)
-    return connect(receive, setOffline)
-  }, [island])
+    const stop = connect(receive, setOffline)
+    const home = ghost ? follow(null, receiveHome) : () => {}
+    return () => { stop(); home() }
+  }, [island, ghost])
 }
 
 /**

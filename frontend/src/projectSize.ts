@@ -4,8 +4,8 @@
 
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import { request } from './core/backend'
-import { islandScope, useIsland } from './core/island'
+import { mapRequest } from './core/backend'
+import { mapIsland, mapScope, useIsland, useMapIsland } from './core/island'
 import { MOCK } from './core/mode'
 import { FLOOR_BYTES, FLOOR_GROWTH, seedOfId } from './layout'
 
@@ -15,7 +15,7 @@ const REFRESH_MS = 60_000
 
 function kept(): Record<string, number> {
   try {
-    const v: unknown = JSON.parse(localStorage.getItem(islandScope(KEPT)) ?? '{}')
+    const v: unknown = JSON.parse(localStorage.getItem(mapScope(KEPT)) ?? '{}')
     return v && typeof v === 'object' ? (v as Record<string, number>) : {}
   } catch {
     return {}
@@ -27,7 +27,7 @@ export const useProjectBytes = create<Record<string, number>>(() => (MOCK ? {} :
 
 /** The companies, as `useProjectSizePolling` takes them, last asked about on the island shown: answered or failed. */
 const useAnswered = create<{ key: string | null }>(() => ({ key: null }))
-const answeredKey = (ids: string) => `${islandScope(KEPT)}\u0000${ids}`
+const answeredKey = (ids: string) => `${mapScope(KEPT)}\u0000${ids}`
 
 /** Whether every company in `ids` (joined by newlines) has had its size asked for on the island shown. */
 export const useSizesAnswered = (ids: string) => useAnswered((s) => s.key === answeredKey(ids))
@@ -43,14 +43,18 @@ export function useSizesKnown(ids: string) {
 }
 
 if (!MOCK) {
-  useIsland.subscribe((next, prev) => {
-    if (next.island?.id !== prev.island?.id) {
+  // a ghost company opened or closed leaves the map on the same island
+  let shown = mapIsland()?.id ?? ''
+  useIsland.subscribe(() => {
+    const now = mapIsland()?.id ?? ''
+    if (now !== shown) {
+      shown = now
       useProjectBytes.setState(kept(), true)
       useAnswered.setState({ key: null })
     }
   })
   useProjectBytes.subscribe((next) => {
-    try { localStorage.setItem(islandScope(KEPT), JSON.stringify(next)) } catch { /* private mode */ }
+    try { localStorage.setItem(mapScope(KEPT), JSON.stringify(next)) } catch { /* private mode */ }
   })
 }
 
@@ -76,9 +80,9 @@ const mockBytes = (id: string) => FLOOR_BYTES * FLOOR_GROWTH ** ((seedOfId(id) %
  * whenever `refresh` changes. A size that cannot be read keeps the last one.
  */
 export function useProjectSizePolling(ids: string, refresh: string) {
-  const island = useIsland((s) => s.island?.id ?? '')
+  const island = useMapIsland()
   useEffect(() => {
-    const scope = islandScope(KEPT)
+    const scope = mapScope(KEPT)
     const list = ids ? ids.split('\n') : []
     if (MOCK) {
       useProjectBytes.setState(Object.fromEntries(list.map((id) => [id, mockBytes(id)])), true)
@@ -87,9 +91,9 @@ export function useProjectSizePolling(ids: string, refresh: string) {
     }
     const ctrl = new AbortController()
     const load = () => void Promise.all(list.map((id) =>
-      request<{ bytes: number }>('GET', `/teams/${id}/size`, undefined, ctrl.signal).then((s) => [id, s.bytes] as const, () => null),
+      mapRequest<{ bytes: number }>('GET', `/teams/${id}/size`, undefined, ctrl.signal).then((s) => [id, s.bytes] as const, () => null),
     )).then((got) => {
-      if (ctrl.signal.aborted || islandScope(KEPT) !== scope) return
+      if (ctrl.signal.aborted || mapScope(KEPT) !== scope) return
       const last = useProjectBytes.getState()
       const next = { ...last }
       for (const g of got) if (g) next[g[0]] = g[1]

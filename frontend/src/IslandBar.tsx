@@ -19,7 +19,8 @@ export function IslandBar() {
 
 /** The slip itself, from what it says. */
 export function IslandSlip({ island, notice, arriving, offline }: { island: Island | null; notice: string; arriving: boolean; offline: boolean }) {
-  if (!island) {
+  // a ghost company open from here leaves the map on this island: its drawer says whose it is
+  if (!island || island.ghost) {
     if (!notice) return null
     return (
       <div className="fx-island fx-tag" role="alert">

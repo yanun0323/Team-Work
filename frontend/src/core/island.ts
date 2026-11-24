@@ -7,6 +7,11 @@ import { create } from 'zustand'
 export interface Island {
   id: string
   name: string
+  /**
+   * Set while one of that computer's companies is open from this island's map, as a ghost company: the company's
+   * drawer works on that computer, while the map stays this one's.
+   */
+  ghost?: { id: string; teamId: string }
 }
 
 interface State {
@@ -27,6 +32,15 @@ const baseOf = (island: Island | null) => island ? `${LOCAL_BASE}/remote/${encod
 
 /** Where requests about the island shown go. */
 export const apiBase = () => baseOf(remoteIsland())
+
+/** The island the map shows: the one shown, but this computer's own while a ghost company is open on it. */
+export const mapIsland = () => {
+  const island = remoteIsland()
+  return island?.ghost ? null : island
+}
+
+/** Where requests about the map's island go. */
+export const mapBase = () => baseOf(mapIsland())
 
 /** A WebSocket's address on `island`, `path` under /api/v1. */
 export const socketUrlOn = (island: Island | null, path: string) => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${baseOf(island)}${path}`
@@ -49,5 +63,14 @@ export const islandScope = (key: string) => {
   return island ? `${island.id}\u0000${key}` : key
 }
 
-/** Whether another computer's island is shown. */
+/** The same, for what belongs to the map's island (`mapIsland`). */
+export const mapScope = (key: string) => {
+  const island = mapIsland()
+  return island ? `${island.id}\u0000${key}` : key
+}
+
+/** Whether another computer's island is shown, or one of its companies is open from here. */
 export const useRemote = () => useIsland((s) => !!s.island)
+
+/** The id of the map's island (`mapIsland`); '' for this computer's own. */
+export const useMapIsland = () => useIsland((s) => (s.island?.ghost ? '' : s.island?.id ?? ''))

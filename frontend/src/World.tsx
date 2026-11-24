@@ -11,7 +11,11 @@ import { guardUnload, leaveTeam } from './fileDrafts'
 import { placeOf, useOpenRequest, useSystemNotices } from './notices'
 import * as THREE from 'three'
 import { inTerminal, keepsEscape, teamAlerts, teamReplicas, teamWork } from './core/model'
-import { useStore } from './core/store'
+import { homeWorld, useStore } from './core/store'
+import { closeGhost as leaveGhost, usePeers } from './core/towers'
+import { createGhost, ghostsOf, ghostState, moveGhost, openGhost, opens, seedFeed, useFeeds, watchGhosts, type Feed } from './core/ghosts'
+import { GhostDrawer } from './Ghost'
+import { PeerFace } from './TowerPanel'
 import { LabelLayer, LabelProjector, type LabelSpec } from './core/voxel/labels'
 import { Airport } from './Airport'
 import { PowerTower } from './PowerTower'
@@ -22,7 +26,7 @@ import { Profile, ProfileButton } from './Profile'
 import { WalkKeys } from './WalkKeys'
 import { useWalkKeys } from './walkByHand'
 import { IslandBar } from './IslandBar'
-import { useIsland } from './core/island'
+import { useIsland, useMapIsland } from './core/island'
 import { presencePlace, reportPresence, useMe, useVisitors, visitorsAt, watchIsland, watchVisitors } from './core/towers'
 import { lookOf } from './core/profile'
 import { seedOf } from './figureStyle'
@@ -40,10 +44,10 @@ import { Island, useLand } from './Island'
 import { MapGrid } from './MapGrid'
 import { useProjectBytes, useProjectSizePolling, useSizesKnown } from './projectSize'
 import { canMove, placeProblem, CELL, cellCenter, POWER_TOWER, STAFFING, floorsOf, layoutTown, sameSpot, PLOT_CELLS, REACH_CELLS, randomLook, HALL_LIFT, TERMINAL, rectCenter, spotCenter, TREE_CELLS, type BuildingLook, type Spot, type Town } from './layout'
-import { NewCompanySheet, Placer } from './NewCompany'
+import { NewCompanySheet, Placer, type GhostPick } from './NewCompany'
 import { request } from './core/backend'
 import { createTeam } from './core/domain/sim'
-import type { Team } from './core/domain/types'
+import type { Ghost, Look, Team, World as WorldData } from './core/domain/types'
 import { MOCK } from './core/mode'
 import { attempt } from './core/ops'
 import { Ocean } from './Ocean'
@@ -98,13 +102,26 @@ const AWAY_LIMIT_MS = 15000
 const doneOf = (w: ReturnType<typeof useStore.getState>['world'], teamId: string) =>
   Object.values(w.tasks).filter((t) => t.teamId === teamId && t.stage === 'done').length
 
-/** Only what decides the town's shape: companies in order, their names, and the employees and finished tasks that size and dress their buildings. */
+/**
+ * Only what decides the town's shape: companies and ghost companies in order, their names, and the employees and
+ * finished tasks that size and dress their buildings. A ghost company's come from its computer's follow (`ghostShape`).
+ */
 function townKey(s: ReturnType<typeof useStore.getState>) {
-  const w = s.world
-  return Object.values(w.teams)
-    .sort((a, b) => a.createdAt - b.createdAt)
-    .map((t) => `${t.id}\t${t.name}\t${Object.values(w.replicas).filter((r) => r.teamId === t.id).length}\t${doneOf(w, t.id)}\t${JSON.stringify(t.plot)}`)
-    .join('\n')
+  const w = homeWorld(s)
+  return [
+    ...Object.values(w.teams).map((t) => [t.createdAt, `${t.id}\t${t.name}\t${Object.values(w.replicas).filter((r) => r.teamId === t.id).length}\t${doneOf(w, t.id)}\t${JSON.stringify(t.plot)}`] as const),
+    ...ghostsOf(w).map((g) => [g.createdAt, `${g.id}\t${g.name}\t${g.peerId}\t${g.teamId}\t${JSON.stringify(g.plot)}`] as const),
+  ].sort((a, b) => a[0] - b[0]).map((x) => x[1]).join('\n')
+}
+
+/** The head count, finished tasks and name of each ghost company's company, as its computer's follow has them. */
+function ghostShape(home: WorldData, feeds: Record<string, Feed>) {
+  return ghostsOf(home).map((g) => {
+    const there = feeds[g.peerId]?.world
+    const team = there?.teams[g.teamId]
+    if (!there || !team) return `${g.id}`
+    return `${g.id}\t${team.name}\t${Object.values(there.replicas).filter((r) => r.teamId === g.teamId).length}\t${doneOf(there, g.teamId)}`
+  }).join('\n')
 }
 
 const count = (n: number) => (n > 99 ? '99+' : n)
@@ -156,6 +173,37 @@ export function TagVisitors({ names }: { names: string[] }) {
   return <span className="fx-tag-visitors" title={names.join(', ')}>{names.join(', ')}</span>
 }
 
+/** What a ghost company's tag says to a screen reader after its name: whose it is, and why it can't be worked when it can't. */
+const GHOST_STATE = {
+  online: '', view: '只能檢視', offline: '連不上', lost: '不能使用', gone: '已關閉',
+} as const
+
+/**
+ * A ghost company's name tag: its owner's face before its name, a lock when it can only be looked at, and greyed while
+ * it can't be reached. Its work and what waits for the user come from its computer's follow.
+ */
+export function GhostTag({ name, right, ghost, state, there, face, owner }: {
+  name: string; right: boolean; ghost: Ghost; state: ReturnType<typeof ghostState>; there: WorldData | null; face?: Look; owner: string
+}) {
+  const reached = opens(state) && !!there?.teams[ghost.teamId]
+  const said = GHOST_STATE[state]
+  return (
+    <span className={`fx-tag fx-tag-ghost${right ? ' fx-tag-right' : ''}${reached ? '' : ' fx-tag-ghost-off'}`}>
+      {reached && <TagWork {...teamWork(there!, ghost.teamId)} />}
+      <PeerFace look={face} name={owner} size={14} />
+      {name}
+      {state === 'view' && (
+        <svg className="fx-tag-lock" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">
+          <rect x="2" y="5.5" width="8" height="5.5" rx="1" fill="currentColor" />
+          <path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        </svg>
+      )}
+      <span className="fx-sr">{`，${tr('{name} 的公司', { name: owner || tr('好友') })}${said ? `，${tr(said)}` : ''}`}</span>
+      {reached && <TagAlerts {...teamAlerts(there!, ghost.teamId)} />}
+    </span>
+  )
+}
+
 /** On a company's tag: its unread chats and the tasks waiting for a reply, apart. */
 export function TagAlerts({ waitingChats, waitingTasks }: ReturnType<typeof teamAlerts>) {
   const chatRises = useRises(waitingChats), taskRises = useRises(waitingTasks)
@@ -202,22 +250,38 @@ export function World() {
   }, [])
   // the simulation changes the world ten times a second; rebuild the town only when its shape changes
   const key = useStore(townKey)
+  const ghostKey = useFeeds((f) => ghostShape(homeWorld(useStore.getState()), f))
   // each project's size, asked again whenever a task is finished; only a change of storeys reshapes the town
-  const teamIds = useStore((s) => Object.keys(s.world.teams).sort().join('\n'))
-  useProjectSizePolling(teamIds, useStore((s) => String(Object.values(s.world.tasks).filter((t) => t.stage === 'done').length)))
+  const teamIds = useStore((s) => Object.keys(homeWorld(s).teams).sort().join('\n'))
+  useProjectSizePolling(teamIds, useStore((s) => String(Object.values(homeWorld(s).tasks).filter((t) => t.stage === 'done').length)))
   const landing = useLanding(teamIds)
   const floorsKey = useProjectBytes((b) => Object.keys(b).sort().map((id) => `${id}:${floorsOf(b[id])}`).join())
   const town = useMemo(() => {
     void key
     void floorsKey
-    const w = useStore.getState().world
+    void ghostKey
+    const w = homeWorld(useStore.getState())
+    const feeds = useFeeds.getState()
     const bytes = useProjectBytes.getState()
-    const list = Object.values(w.teams).sort((a, b) => a.createdAt - b.createdAt)
-    const members = (id: string) => Object.values(w.replicas).filter((r) => r.teamId === id).length
-    const lots = list.map((t) => ({ id: t.id, name: t.name, members: members(t.id), done: doneOf(w, t.id), bytes: bytes[t.id], ...t.plot }))
+    const members = (w: WorldData, id: string) => Object.values(w.replicas).filter((r) => r.teamId === id).length
+    const lots = [
+      ...Object.values(w.teams).map((t) => ({ createdAt: t.createdAt, lot: { id: t.id, name: t.name, members: members(w, t.id), done: doneOf(w, t.id), bytes: bytes[t.id], ...t.plot } })),
+      // a ghost company's building is sized and dressed as its company is, on its own computer
+      ...ghostsOf(w).map((g) => {
+        const there = feeds[g.peerId]?.world
+        const team = there?.teams[g.teamId]
+        return {
+          createdAt: g.createdAt,
+          lot: {
+            id: g.id, name: team?.name ?? g.name, members: team ? members(there!, g.teamId) : 0, done: team ? doneOf(there!, g.teamId) : 0,
+            bytes: bytes[g.id], ...g.plot, ghost: { peerId: g.peerId, teamId: g.teamId },
+          },
+        }
+      }),
+    ].sort((a, b) => a.createdAt - b.createdAt).map((x) => x.lot)
     // closed companies leave their land behind
     return layoutTown(lots)
-  }, [key, floorsKey])
+  }, [key, floorsKey, ghostKey])
   const land = useLand(town)
 
   // founding a company: first put its plot anywhere on the map, then fill in the company on a sheet
@@ -229,6 +293,9 @@ export function World() {
     setLook(randomLook())
     setSpot(s)
   }
+  // or a friend island's company picked on the sheet, standing on the plot in its own look
+  const [ghostPick, setGhostPick] = useState<GhostPick | null>(null)
+  useEffect(() => { if (!spot) setGhostPick(null) }, [spot])
   // a click where the plot can't go says why in the tip for a while, rather than doing nothing
   // an object, so the same reason twice in a row still starts the timer again
   const [missed, setMissed] = useState<{ problem: 'taken' | 'far' } | null>(null)
@@ -292,7 +359,7 @@ export function World() {
   }, [])
   useEffect(guardUnload, [])
   // another island, or back home: whatever was open belonged to the island left
-  const remote = useIsland((s) => !!s.island)
+  const remote = useMapIsland() !== ''
   // the user, out on their own island among its people (`Strollers`, the first of them)
   const meNow = useMe((s) => s.me)
   const me = useMemo(() => {
@@ -317,7 +384,8 @@ export function World() {
     }, FOLLOW_SEEN_MS)
     return () => clearTimeout(t)
   }, [tracked])
-  const islandId = useIsland((s) => s.island?.id ?? '')
+  // a ghost company opened or closed leaves the map where it is
+  const islandId = useMapIsland()
   const firstIsland = useRef(true)
   useEffect(() => {
     if (firstIsland.current) { firstIsland.current = false; return }
@@ -332,7 +400,14 @@ export function World() {
   useEffect(() => (MOCK ? undefined : watchIsland()), [])
   // the computers on this island, for their marks on the map; and, on another island, what this page has open there
   useEffect(() => watchVisitors(), [])
-  const place = presencePlace(selected, byAirport && panel === 'settings')
+  // the paired computers with ghost companies here, for those companies' buildings and tags
+  useEffect(() => watchGhosts(), [])
+  // the ghost company whose drawer works on its computer now, if one is open
+  const ghostOpen = useIsland((s) => s.island?.ghost?.id ?? null)
+  const selectedLot = selected ? town.lots.find((l) => l.id === selected) : undefined
+  // the open company's id where its drawer works: a ghost company's on its own computer, once open there
+  const selectedTeam = selectedLot?.ghost ? (ghostOpen === selectedLot.id ? selectedLot.ghost.teamId : null) : selected
+  const place = presencePlace(selectedTeam, byAirport && panel === 'settings')
   const placeNow = useRef(place)
   placeNow.current = place
   const presence = useRef<ReturnType<typeof reportPresence> | null>(null)
@@ -348,7 +423,7 @@ export function World() {
   useEffect(() => {
     if (!asked || !loaded) return
     useOpenRequest.setState({ asked: null })
-    const teamId = placeOf(useStore.getState().world, asked)
+    const teamId = placeOf(homeWorld(useStore.getState()), asked)
     if (teamId === null) return
     setHelpOpen(false)
     setPlacing(false)
@@ -444,17 +519,18 @@ export function World() {
   // an employee followed: their office stays cut away the whole time, and their name shows over them
   const followedCrew = following?.kind === 'crew' ? staff.find((r) => r.id === following.id) : undefined
   // a company closed while it was being moved is let go
+  const stands = (id: string) => { const w = homeWorld(useStore.getState()); return !!w.teams[id] || !!w.ghosts?.[id] }
   useEffect(() => {
-    if (moving && !useStore.getState().world.teams[moving]) setMoving(null)
+    if (moving && !stands(moving)) setMoving(null)
   }, [moving, key])
   // a company that was closed puts its file away
   useEffect(() => {
-    if (selected && !useStore.getState().world.teams[selected]) setSelectedNow(null)
+    if (selected && !stands(selected)) setSelectedNow(null)
   }, [selected, key])
   // The simulator pins its generated layout in memory; real positions arrive in team records.
   useEffect(() => {
     if (!MOCK) return
-    const missing = town.lots.filter((lot) => !useStore.getState().world.teams[lot.id]?.plot)
+    const missing = town.lots.filter((lot) => !lot.ghost && !homeWorld(useStore.getState()).teams[lot.id]?.plot)
     if (missing.length) useStore.setState((s) => {
       for (const lot of missing) s.world.teams[lot.id].plot = { at: lot.at, style: lot.style, seed: lot.seed }
     })
@@ -466,7 +542,8 @@ export function World() {
     setMoving(null)
     if (!lot || sameSpot(lot.at, at)) return
     const plot = { at, style: lot.style, seed: lot.seed }
-    if (MOCK) useStore.setState((s) => { s.world.teams[lot.id].plot = plot })
+    if (lot.ghost) void attempt(() => moveGhost(lot.id, plot))
+    else if (MOCK) useStore.setState((s) => { s.world.teams[lot.id].plot = plot })
     else void attempt(() => request('PATCH', `/teams/${lot.id}`, { plot }))
   }
   const pickMoving = (id: string) => setMoving((cur) => (cur === id ? null : id))
@@ -489,6 +566,23 @@ export function World() {
       if (!team) return
       useStore.setState((s) => { s.world.teams[team.id] = team })
       settle(team.id)
+    })
+  }
+
+  // a friend island's company put up here: it opens at once, from the world just read of that island
+  const foundGhost = (pick: GhostPick) => {
+    if (!spot) return
+    const at = spot
+    void attempt(() => createGhost({ peerId: pick.peerId, teamId: pick.teamId, name: pick.name, plot: { at, ...pick.look } })).then((g) => {
+      if (!g) return
+      seedFeed(pick.peerId, pick.world)
+      useStore.setState((s) => {
+        const w = s.home ?? s.world
+        w.ghosts = { ...w.ghosts, [g.id]: g }
+      })
+      setSpot(null)
+      setPlacing(false)
+      setSelected(g.id)
     })
   }
 
@@ -525,11 +619,24 @@ export function World() {
 
   // one `id<TAB>name` line per employee of the open company
   // the empty id is the airport's chats
-  const alerts = useStore((s) => ['', ...Object.keys(s.world.teams)].map((id) => {
-    const a = teamAlerts(s.world, id), b = teamWork(s.world, id)
+  const alerts = useStore((s) => ['', ...Object.keys(homeWorld(s).teams)].map((id) => {
+    const a = teamAlerts(homeWorld(s), id), b = teamWork(homeWorld(s), id)
     return `${id}\t${a.waitingChats}\t${a.waitingTasks}\t${b.chats}\t${b.tasks}`
   }).join('\n'))
-  const crewNames = useStore((s) => (selected ? teamReplicas(s.world, selected).map((r) => `${r.id}\t${r.name}`).join('\n') : ''))
+  // the ghost companies' tags, from their computers' follows and how each computer stands
+  const peers = usePeers((s) => s.peers)
+  const feeds = useFeeds()
+  const ghostTags = useMemo(() => {
+    const out = new Map<string, { ghost: Ghost; state: ReturnType<typeof ghostState>; there: WorldData | null; face?: Look; owner: string }>()
+    for (const g of ghostsOf(homeWorld(useStore.getState()))) {
+      const peer = peers?.find((p) => p.id === g.peerId)
+      out.set(g.id, { ghost: g, state: ghostState(g, peers, feeds[g.peerId]), there: feeds[g.peerId]?.world ?? null, face: peer?.look, owner: peer?.name ?? '' })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peers, feeds, key])
+  // the open company's people: on the ghost company's own computer while it is open there
+  const crewNames = useStore((s) => (selectedTeam ? teamReplicas(s.world, selectedTeam).map((r) => `${r.id}\t${r.name}`).join('\n') : ''))
   // the airport's tag is in words, so it changes with the language
   const language = useStore((s) => s.world.language)
   const visitors = useVisitors((s) => s.visitors)
@@ -546,7 +653,7 @@ export function World() {
     const airport: LabelSpec = {
       id: 'fusion-airport', at: [ax + AIRPORT_TAG[0], AIRPORT_TAG[1], az + AIRPORT_TAG[2]],
       tone: hovered === AIRPORT_ID && !open && !settingsOpen && !placing && !editing ? 'fusion lifted' : 'fusion',
-      text: <span className={visitorsAt(visitors, 'airport').length ? 'fx-tag fx-tag-visited' : 'fx-tag'}><TagWork {...teamWork(useStore.getState().world, '')} />{tr('機場')}<TagAlerts {...teamAlerts(useStore.getState().world, '')} /><TagVisitors names={visitorsAt(visitors, 'airport')} /></span>,
+      text: <span className={visitorsAt(visitors, 'airport').length ? 'fx-tag fx-tag-visited' : 'fx-tag'}><TagWork {...teamWork(homeWorld(useStore.getState()), '')} />{tr('機場')}<TagAlerts {...teamAlerts(homeWorld(useStore.getState()), '')} /><TagVisitors names={visitorsAt(visitors, 'airport')} /></span>,
       onClick: selectAirport,
     }
     const tower: LabelSpec = {
@@ -564,12 +671,18 @@ export function World() {
     }
     const tags = town.lots.map((l, i): LabelSpec => {
       const [x, z] = rectCenter(town, l.building)
+      const ghost = ghostTags.get(l.id)
+      if (ghost) return {
+        id: `fusion-${l.id}`, at: [x, l.floors * FLOOR + ROOF_TOP + 0.8, z], tone: (hovered === l.id && !open && !settingsOpen && !placing) || moving === l.id ? 'fusion lifted' : 'fusion',
+        text: <GhostTag name={l.name} right={i % 2 === 0} {...ghost} />,
+        onClick: () => (helpOpen ? close() : editing ? pickMoving(l.id) : placing ? close() : settingsOpen ? close() : setSelected(l.id)),
+      }
       return {
         id: `fusion-${l.id}`, at: [x, l.floors * FLOOR + ROOF_TOP + 0.8, z], tone: (hovered === l.id && !open && !settingsOpen && !placing) || moving === l.id ? 'fusion lifted' : 'fusion',
         // the slip is an inner element: tilting the button itself would swing it round the screen corner,
         // because its tilt applies after the transform that places it. The tilt goes by the company's place
         // in town, so it doesn't change when the open company's tag leaves
-        text: <span className={`${i % 2 ? 'fx-tag' : 'fx-tag fx-tag-right'}${visitorsAt(visitors, `team:${l.id}`).length ? ' fx-tag-visited' : ''}`}><TagWork {...teamWork(useStore.getState().world, l.id)} />{l.name}<TagAlerts {...teamAlerts(useStore.getState().world, l.id)} /><TagVisitors names={visitorsAt(visitors, `team:${l.id}`)} /></span>,
+        text: <span className={`${i % 2 ? 'fx-tag' : 'fx-tag fx-tag-right'}${visitorsAt(visitors, `team:${l.id}`).length ? ' fx-tag-visited' : ''}`}><TagWork {...teamWork(homeWorld(useStore.getState()), l.id)} />{l.name}<TagAlerts {...teamAlerts(homeWorld(useStore.getState()), l.id)} /><TagVisitors names={visitorsAt(visitors, `team:${l.id}`)} /></span>,
         // with a company open, another company's tag goes straight to that company
         onClick: () => (helpOpen ? close() : editing ? pickMoving(l.id) : placing ? close() : settingsOpen ? close() : setSelected(l.id)),
       }
@@ -577,7 +690,7 @@ export function World() {
     // the open company's own name is in the drawer, and its roof is cut away
     return [...(panel === 'settings' ? [] : [airport]), ...(panel === 'tower' ? [] : [tower]), ...(panel === 'staffing' ? [] : [staffing]), ...tags.filter((t) => t.id !== `fusion-${open?.id}`), ...crew]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [town, open, crewNames, followedCrew, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language, alerts, visitors])
+  }, [town, open, crewNames, followedCrew, hovered, hover, settingsOpen, panel, placing, editing, moving, helpOpen, close, language, alerts, visitors, ghostTags])
 
   // the names wait while a plane brings the camera in, then fade in on the island
   const voyaging = useVoyage((s) => s.active)
@@ -585,6 +698,29 @@ export function World() {
   const help = useLingering(helpOpen || null)
   // the drawer stays a moment after closing, to fade out
   const drawer = useLingering(selected)
+  // a ghost company's drawer works on its own computer: it is opened there as its drawer comes, before it is drawn,
+  // and left once the drawer has gone or another company's comes. One that can't be reached gets a sheet saying why
+  const drawerLot = drawer.value ? town.lots.find((l) => l.id === drawer.value) : undefined
+  const lastGhost = useRef<Ghost | undefined>(undefined)
+  const drawerGhost = drawerLot?.ghost ? homeWorld(useStore.getState()).ghosts?.[drawerLot.id] ?? (lastGhost.current?.id === drawerLot.id ? lastGhost.current : undefined) : undefined
+  lastGhost.current = drawerGhost
+  const openedGhost = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    const g = drawer.value ? homeWorld(useStore.getState()).ghosts?.[drawer.value] : undefined
+    if (g && opens(ghostState(g, usePeers.getState().peers, useFeeds.getState()[g.peerId]))) {
+      if (useIsland.getState().island?.ghost?.id !== g.id) openGhost(g)
+      openedGhost.current = g.id
+    } else {
+      openedGhost.current = null
+      leaveGhost()
+    }
+  }, [drawer.value])
+  // closed on its own (its computer no longer lets this one in, say): its file goes too
+  useEffect(() => {
+    if (ghostOpen || !openedGhost.current) return
+    if (selectedNow.current === openedGhost.current) setSelectedNow(null)
+    openedGhost.current = null
+  }, [ghostOpen])
   const settings = useLingering(panel)
   const sheet = useLingering(spot ? 'new' : null)
   // the corners' controls slide off the screen while what is over the map covers them, and back once it has gone
@@ -677,7 +813,7 @@ export function World() {
       <StaffingAgency town={town} still={editing} onSelect={selectStaffing} onHover={(on) => hover(STAFFING_HOVER, on)}
         hover={hovered === STAFFING_HOVER && !selected && !settingsOpen && !placing && !editing && !helpOpen} />
       {placing && <Placer town={town} picked={spot} onPick={pickSpot} onMiss={missSpot} />}
-      {spot && <BuildingPreview look={look} at={spot} />}
+      {spot && <BuildingPreview look={ghostPick?.look ?? look} at={spot} ghost={!!ghostPick} />}
       {moving && <Placer key={moving} town={town} picked={null} onPick={moveTo} moved={moving} can={(s) => canMove(town, moving, s)} />}
       <Ambient town={town} calm={calm} clouds={clouds} planes={planes} />
       {!calm && <Voyage town={town} landing={landing} clouds={clouds} />}
@@ -736,15 +872,19 @@ export function World() {
         <ProfileButton buttonRef={profileButton} onClick={() => setPanel('profile')} />
       </div>
     </div>
-    {sheet.value && <NewCompanySheet leaving={sheet.leaving} onGone={sheet.gone} onCreate={found} look={look} onReroll={() => setLook(randomLook())} />}
+    {sheet.value && <NewCompanySheet leaving={sheet.leaving} onGone={sheet.gone} onCreate={found} look={look} onReroll={() => setLook(randomLook())}
+      onGhost={setGhostPick} onCreateGhost={foundGhost} />}
     {help.value && <Help initialTab={help.value} leaving={help.leaving} onGone={help.gone} />}
     {settings.value === 'settings' && <Settings leaving={settings.leaving} onGone={settings.gone} />}
     {settings.value === 'tower' && <TowerPanel leaving={settings.leaving} onGone={settings.gone} onProfile={() => setPanel('profile')} />}
     {settings.value === 'profile' && <Profile leaving={settings.leaving} onGone={settings.gone} />}
     {settings.value === 'staffing' && <StaffingPanel leaving={settings.leaving} onGone={settings.gone} />}
     <IslandBar />
-    {drawer.value && (
-      <Drawer teamId={drawer.value} look={town.lots.find((l) => l.id === drawer.value) ?? { style: 'tower', seed: 0 }}
+    {drawer.value && drawerGhost && drawerLot && (ghostOpen === drawerGhost.id
+      ? <Drawer teamId={drawerGhost.teamId} look={drawerLot} leaving={drawer.leaving} onGone={drawer.gone} />
+      : <GhostDrawer ghost={drawerGhost} look={drawerLot} leaving={drawer.leaving} onGone={drawer.gone} />)}
+    {drawer.value && !drawerLot?.ghost && (
+      <Drawer teamId={drawer.value} look={drawerLot ?? { style: 'tower', seed: 0 }}
         leaving={drawer.leaving} onGone={drawer.gone} />
     )}
     </div>
@@ -942,7 +1082,7 @@ const LANDING_LIMIT_MS = 15000
  * Never later than `LANDING_LIMIT_MS`.
  */
 function useLanding(teamIds: string) {
-  const islandId = useIsland((s) => s.island?.id ?? '')
+  const islandId = useMapIsland()
   const arriving = useStore((s) => s.arriving)
   const sized = useSizesKnown(teamIds)
   const [landing, setLanding] = useState(0)
@@ -1314,12 +1454,20 @@ function Batch({ boxes, glow }: { boxes: Box[]; glow?: string }) {
 }
 
 /** Paved plot cells, a touch above the grass, in a checker of their own. */
+/** A ghost company's paving: the projected blue of its building, edged in dashes, every other cell round the rim. */
+const GHOST_PAVE = ['#c3d2e6', '#ccd9eb'] as const
+const GHOST_DASH = '#7d9cc8'
+
 function Pavement({ town }: { town: Town }) {
   const boxes = useMemo(() => {
     const out: Box[] = []
+    const ghosts = new Set(town.lots.filter((l) => l.ghost).map((l) => l.plot))
     for (const r of [...town.lots.map((l) => l.plot), town.staffing]) for (let z = r.z; z < r.z + r.d; z++) for (let x = r.x; x < r.x + r.w; x++) {
       const [cx, cz] = cellCenter(town, x, z)
-      out.push({ p: [cx, 0.04, cz], s: [CELL, 0.08, CELL], c: (x + z) % 2 ? '#c9c4d6' : '#d3cfdf' })
+      const rim = x === r.x || z === r.z || x === r.x + r.w - 1 || z === r.z + r.d - 1
+      const c = !ghosts.has(r) ? ((x + z) % 2 ? '#c9c4d6' : '#d3cfdf')
+        : rim && (x + z) % 2 === 0 ? GHOST_DASH : GHOST_PAVE[(x + z) % 2]
+      out.push({ p: [cx, 0.04, cz], s: [CELL, 0.08, CELL], c })
     }
     return out
   }, [town])

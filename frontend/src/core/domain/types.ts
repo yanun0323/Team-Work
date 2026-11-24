@@ -284,6 +284,22 @@ export interface Team {
   createdAt: number
 }
 
+/**
+ * A paired computer's company shown on this island: its building stands here, but the company and its work stay on
+ * that computer, reached through the power tower. Only where it stands here belongs to this island.
+ */
+export interface Ghost {
+  id: string
+  /** The paired computer the company is on, and its id there. */
+  peerId: string
+  teamId: string
+  /** Its name as last read from that computer, for while it can't be reached. */
+  name: string
+  /** Where it stands here, in the look it has there. */
+  plot: BuildingLook & { at: Spot }
+  createdAt: number
+}
+
 export interface AgentHandoff {
   goal: string
   done: string[]
@@ -843,6 +859,8 @@ export interface World {
   tasks: Record<string, Task>
   subTasks: Record<string, SubTask>
   chats: Record<string, Chat>
+  /** Paired computers' companies shown on this island; absent from an older backend. */
+  ghosts?: Record<string, Ghost>
   nextDriftAt: number
   rng: number
   events: WorldEvent[]
